@@ -25,29 +25,32 @@ interface MovingAvatarProps {
   onPositionUpdate: (id: string, pos: Vector3) => void;
 }
 
+const DEFAULT_STATE: AgentState = { id: 'unknown', status: 'idle', tokensPerHour: 0, model: '' };
+
 export default function MovingAvatar({ 
   agent, 
-  state, 
+  state: rawState, 
   officeBounds, 
   obstacles, 
   otherAvatarPositions,
   onPositionUpdate 
 }: MovingAvatarProps) {
+  const state = rawState || DEFAULT_STATE;
   const groupRef = useRef<Group>(null);
   
-  // Posición inicial completamente aleatoria SIN colisiones
+  // Random initial position without collisions
   const [initialPos] = useState(() => {
     let pos: Vector3;
     let attempts = 0;
     const minDistanceToObstacle = 1.5;
 
-    // Intentar hasta 50 veces encontrar una posición sin colisión
+    // Try up to 50 times to find a non-colliding position
     do {
       const x = Math.random() * (officeBounds.maxX - officeBounds.minX - 2) + officeBounds.minX + 1;
       const z = Math.random() * (officeBounds.maxZ - officeBounds.minZ - 2) + officeBounds.minZ + 1;
       pos = new Vector3(x, 0.6, z);
 
-      // Verificar colisión con obstáculos
+      // Check collision with obstacles
       let isFree = true;
       for (const obstacle of obstacles) {
         const distance = pos.distanceTo(obstacle.position);
@@ -67,17 +70,17 @@ export default function MovingAvatar({
   const [targetPos, setTargetPos] = useState(initialPos);
   const currentPos = useRef(initialPos.clone());
   
-  // Notificar posición inicial
+  // Notify initial position
   useEffect(() => {
     onPositionUpdate(agent.id, initialPos.clone());
   }, []);
 
-  // Verificar si una posición está libre (sin colisiones)
+  // Check if a position is free (no collisions)
   const isPositionFree = (pos: Vector3): boolean => {
-    const minDistanceToObstacle = 1.5; // distancia mínima a muebles
-    const minDistanceToAvatar = 1.2; // distancia mínima entre avatares
+    const minDistanceToObstacle = 1.5; // min distance to furniture
+    const minDistanceToAvatar = 1.2; // min distance between avatars
 
-    // Verificar colisión con obstáculos
+    // Check collision with obstacles
     for (const obstacle of obstacles) {
       const distance = pos.distanceTo(obstacle.position);
       if (distance < obstacle.radius + minDistanceToObstacle) {
@@ -85,7 +88,7 @@ export default function MovingAvatar({
       }
     }
 
-    // Verificar colisión con otros avatares
+    // Check collision with other avatars
     for (const [otherId, otherPos] of otherAvatarPositions.entries()) {
       if (otherId === agent.id) continue;
       const distance = pos.distanceTo(otherPos);
@@ -145,11 +148,11 @@ export default function MovingAvatar({
     };
   }, [state.status]);
 
-  // Mover suavemente hacia el objetivo
+  // Move smoothly toward target
   useFrame((frameState, delta) => {
     if (!groupRef.current) return;
 
-    const speed = state.status === 'idle' ? 1.5 : 0.8; // idle se mueve más rápido
+    const speed = state.status === 'idle' ? 1.5 : 0.8; // idle moves faster
     const moveSpeed = delta * speed;
 
     // Calcular nueva posición

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Home,
@@ -12,7 +12,6 @@ import {
   Bot,
   Clock,
   DollarSign,
-  Settings,
   History,
   Kanban,
   TrendingUp,
@@ -23,9 +22,8 @@ import {
   Search,
   Shield,
   FileBarChart,
-  ChevronDown,
-  ChevronRight,
   Users,
+  Factory,
 } from "lucide-react";
 
 interface NavItem {
@@ -35,118 +33,52 @@ interface NavItem {
   shortcutKey?: string;
 }
 
-interface NavGroup {
-  id: string;
-  label: string;
-  shortLabel: string;
-  collapsible: boolean;
-  items: NavItem[];
-}
-
-const navGroups: NavGroup[] = [
-  {
-    id: "command",
-    label: "Command",
-    shortLabel: "CMD",
-    collapsible: false,
-    items: [
-      { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
-      { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
-      { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
-      { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
-      { href: "/office", label: "3D Office", icon: Building2 },
-    ],
-  },
-  {
-    id: "operations",
-    label: "Operations",
-    shortLabel: "OPS",
-    collapsible: true,
-    items: [
-      { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "5" },
-      { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "6" },
-      { href: "/cron", label: "Cron Jobs", icon: Clock },
-    ],
-  },
-  {
-    id: "intelligence",
-    label: "Intelligence",
-    shortLabel: "INTEL",
-    collapsible: true,
-    items: [
-      { href: "/memory", label: "Memory", icon: Brain },
-      { href: "/files", label: "Files", icon: FolderOpen },
-      { href: "/search", label: "Search", icon: Search },
-      { href: "/reports", label: "Reports", icon: FileBarChart },
-    ],
-  },
-  {
-    id: "infrastructure",
-    label: "Infrastructure",
-    shortLabel: "INFRA",
-    collapsible: true,
-    items: [
-      { href: "/sessions", label: "Sessions", icon: History },
-      { href: "/logs", label: "Logs", icon: Terminal },
-      { href: "/system", label: "System", icon: Monitor },
-      { href: "/costs", label: "Costs", icon: DollarSign },
-      { href: "/reliability", label: "Reliability", icon: Shield },
-    ],
-  },
+// Flat ordered list with null = separator
+const navItems: (NavItem | null)[] = [
+  { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
+  { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
+  { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
+  { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
+  { href: "/office", label: "3D Office", icon: Building2 },
+  { href: "/factory", label: "Factory Floor", icon: Factory },
+  null, // separator
+  { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "5" },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "6" },
+  { href: "/cron", label: "Cron Jobs", icon: Clock },
+  null, // separator
+  { href: "/memory", label: "Memory", icon: Brain },
+  { href: "/files", label: "Files", icon: FolderOpen },
+  { href: "/search", label: "Search", icon: Search },
+  { href: "/reports", label: "Reports", icon: FileBarChart },
+  null, // separator
+  { href: "/sessions", label: "Sessions", icon: History },
+  { href: "/logs", label: "Logs", icon: Terminal },
+  { href: "/system", label: "System", icon: Monitor },
+  { href: "/costs", label: "Costs", icon: DollarSign },
+  { href: "/reliability", label: "Reliability", icon: Shield },
 ];
 
-const settingsItem: NavItem = { href: "/settings", label: "Settings", icon: Settings };
+const DOCK_WIDTH = 168;
 
-const STORAGE_KEY = "dock-group-state";
-
-const DEFAULT_GROUP_STATE: Record<string, boolean> = {
-  command: true,
-  operations: true,
-  intelligence: false,
-  infrastructure: false,
-};
-
-function loadGroupState(): Record<string, boolean> {
-  if (typeof window === "undefined") return DEFAULT_GROUP_STATE;
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...DEFAULT_GROUP_STATE, ...JSON.parse(raw) } : DEFAULT_GROUP_STATE;
-  } catch {
-    return DEFAULT_GROUP_STATE;
-  }
-}
-
-function saveGroupState(state: Record<string, boolean>) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-  } catch {}
-}
-
-// Standalone nav item component to avoid TypeScript inference issues
-function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
+function NavRow({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
-  const shortLabel = item.label.split(" ")[0];
-  const { shortcutKey } = item;
-
   return (
     <Link
       href={item.href}
-      className="dock-item group relative"
-      title={item.label}
+      title={item.shortcutKey ? `${item.label} (⌘${item.shortcutKey})` : item.label}
+      className="dock-nav-row"
       style={{
-        width: "100%",
-        height: "44px",
         display: "flex",
-        flexDirection: "column",
         alignItems: "center",
-        justifyContent: "center",
-        gap: "2px",
-        borderRadius: "8px",
-        backgroundColor: active ? "var(--accent-soft)" : "transparent",
-        transition: "all 150ms ease",
+        gap: "8px",
+        padding: "6px 12px 6px 14px",
+        borderRadius: "6px",
         textDecoration: "none",
-        flexShrink: 0,
+        backgroundColor: active ? "var(--accent-soft)" : "transparent",
+        borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
+        transition: "background-color 120ms ease, border-color 120ms ease",
+        cursor: "pointer",
         position: "relative",
       }}
       onMouseEnter={(e) => {
@@ -160,62 +92,25 @@ function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
         }
       }}
     >
-      {/* Active indicator bar */}
-      {active && (
-        <div
-          style={{
-            position: "absolute",
-            left: "-6px",
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: "3px",
-            height: "20px",
-            backgroundColor: "var(--accent)",
-            borderRadius: "0 2px 2px 0",
-          }}
-        />
-      )}
-
       <Icon
-        size={16}
+        size={14}
         strokeWidth={active ? 2.5 : 2}
         color={active ? "var(--accent)" : "var(--text-secondary)"}
         style={{ flexShrink: 0 }}
       />
-
       <span
         style={{
           fontFamily: "var(--font-body)",
-          fontSize: "8px",
-          fontWeight: active ? 700 : 500,
-          color: active ? "var(--accent)" : "var(--text-muted)",
-          textAlign: "center",
+          fontSize: "12px",
+          fontWeight: active ? 600 : 400,
+          color: active ? "var(--accent)" : "var(--text-secondary)",
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
-          maxWidth: "52px",
-          lineHeight: 1,
-        }}
-      >
-        {shortLabel}
-      </span>
-
-      {/* Hover tooltip with keyboard shortcut hint */}
-      <span
-        className="absolute left-[66px] top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 flex items-center gap-2"
-        style={{
-          backgroundColor: "var(--surface-elevated)",
-          border: "1px solid var(--border)",
-          color: "var(--text-primary)",
-          fontWeight: 500,
+          lineHeight: 1.2,
         }}
       >
         {item.label}
-        {item.shortcutKey && (
-          <span style={{ opacity: 0.6, fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-            ⌘{item.shortcutKey}
-          </span>
-        )}
       </span>
     </Link>
   );
@@ -223,12 +118,6 @@ function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
 
 export function Dock() {
   const pathname = usePathname();
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({
-    operations: true,
-    intelligence: true,
-    infrastructure: true,
-  });
-  const [mounted, setMounted] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -236,12 +125,6 @@ export function Dock() {
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
-  }, []);
-
-  useEffect(() => {
-    const saved = loadGroupState();
-    setOpenGroups((prev) => ({ ...prev, ...saved }));
-    setMounted(true);
   }, []);
 
   const checkActive = useCallback(
@@ -252,34 +135,9 @@ export function Dock() {
     [pathname]
   );
 
-  const toggleGroup = useCallback((id: string) => {
-    setOpenGroups((prev) => {
-      const next = { ...prev, [id]: !prev[id] };
-      saveGroupState(next);
-      return next;
-    });
-  }, []);
-
-  // Auto-expand group if current page is inside it
-  useEffect(() => {
-    if (!mounted) return;
-    navGroups.forEach((group) => {
-      if (group.collapsible && group.items.some((item) => checkActive(item))) {
-        setOpenGroups((prev) => {
-          if (!prev[group.id]) {
-            const next = { ...prev, [group.id]: true };
-            saveGroupState(next);
-            return next;
-          }
-          return prev;
-        });
-      }
-    });
-  }, [pathname, mounted, checkActive]);
-
-  // Mobile: bottom tab bar with just key 5 pages
+  // Mobile: bottom tab bar with key pages
   if (isMobile) {
-    const mobileItems = [
+    const mobileItems: NavItem[] = [
       { href: "/", label: "Home", icon: Home },
       { href: "/tasks", label: "Tasks", icon: Kanban },
       { href: "/agents", label: "Agents", icon: Bot },
@@ -340,114 +198,38 @@ export function Dock() {
         left: 0,
         top: 0,
         bottom: 0,
-        width: "68px",
+        width: `${DOCK_WIDTH}px`,
         backgroundColor: "var(--surface)",
         borderRight: "1px solid var(--border)",
         display: "flex",
         flexDirection: "column",
-        alignItems: "stretch",
-        padding: "8px 0",
+        padding: "8px 6px",
         paddingBottom: "40px",
         zIndex: 50,
         overflowY: "auto",
         overflowX: "hidden",
       }}
     >
-      {/* Nav Groups */}
-      <div style={{ flex: 1 }}>
-        {navGroups.map((group, groupIndex) => {
-          const isOpen = !group.collapsible || openGroups[group.id] !== false;
-          const hasActiveItem = group.items.some((item) => checkActive(item));
-
-          return (
-            <div key={group.id}>
-              {/* Divider between groups */}
-              {groupIndex > 0 && (
-                <div
-                  style={{
-                    height: "1px",
-                    backgroundColor: "var(--border)",
-                    margin: "4px 10px",
-                    opacity: 0.6,
-                  }}
-                />
-              )}
-
-              {/* Collapsible group header */}
-              {group.collapsible && (
-                <button
-                  onClick={() => toggleGroup(group.id)}
-                  className="group relative"
-                  style={{
-                    width: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    padding: "3px 8px 3px 10px",
-                    backgroundColor: "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    borderRadius: "4px",
-                    marginBottom: "2px",
-                  }}
-                  onMouseEnter={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = "var(--surface-hover)";
-                  }}
-                  onMouseLeave={(e) => {
-                    (e.currentTarget as HTMLButtonElement).style.backgroundColor = "transparent";
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: "9px",
-                      fontWeight: 700,
-                      letterSpacing: "0.08em",
-                      color: hasActiveItem ? "var(--accent)" : "var(--text-muted)",
-                      fontFamily: "var(--font-body)",
-                      opacity: 0.85,
-                    }}
-                  >
-                    {group.shortLabel}
-                  </span>
-                  {isOpen ? (
-                    <ChevronDown size={10} color="var(--text-muted)" style={{ opacity: 0.7 }} />
-                  ) : (
-                    <ChevronRight
-                      size={10}
-                      color={hasActiveItem ? "var(--accent)" : "var(--text-muted)"}
-                      style={{ opacity: hasActiveItem ? 1 : 0.7 }}
-                    />
-                  )}
-
-                  {/* Tooltip */}
-                  <span
-                    className="absolute left-[72px] top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50"
-                    style={{
-                      backgroundColor: "var(--surface-elevated)",
-                      border: "1px solid var(--border)",
-                      color: "var(--text-primary)",
-                      fontWeight: 500,
-                    }}
-                  >
-                    {isOpen ? "Collapse" : "Expand"} {group.label}
-                  </span>
-                </button>
-              )}
-
-              {/* Group items */}
-              {isOpen && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "1px", padding: "0 6px" }}>
-                  {group.items.map((item) => (
-                    <DockNavItem key={item.href} item={item} active={checkActive(item)} />
-                  ))}
-                </div>
-              )}
-            </div>
-          );
+      <nav style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
+        {navItems.map((item, idx) => {
+          if (item === null) {
+            return (
+              <div
+                key={`sep-${idx}`}
+                style={{
+                  height: "1px",
+                  backgroundColor: "var(--border)",
+                  margin: "4px 8px",
+                  opacity: 0.5,
+                }}
+              />
+            );
+          }
+          return <NavRow key={item.href} item={item} active={checkActive(item)} />;
         })}
-      </div>
-
-      {/* Settings moved to top-right user menu */}
+      </nav>
     </aside>
   );
 }
+
+export { DOCK_WIDTH };

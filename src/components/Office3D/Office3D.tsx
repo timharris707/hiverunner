@@ -66,7 +66,7 @@ export default function Office3D() {
     setAvatarPositions(prev => new Map(prev).set(id, position));
   };
 
-  // Definir obstáculos (muebles)
+  // Define obstacles (furniture)
   const obstacles = [
     // Escritorios (6)
     ...AGENTS.map(agent => ({
@@ -77,7 +77,7 @@ export default function Office3D() {
     { position: new Vector3(-8, 0, -5), radius: 0.8 },
     // Pizarra
     { position: new Vector3(0, 0, -8), radius: 1.5 },
-    // Máquina de café
+    // Coffee machine
     { position: new Vector3(8, 0, -5), radius: 0.6 },
     // Plantas
     { position: new Vector3(-7, 0, 6), radius: 0.5 },

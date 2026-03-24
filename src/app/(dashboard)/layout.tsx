@@ -26,7 +26,7 @@ export default function DashboardLayout({
       
       <main
         style={{
-          marginLeft: isMobile ? 0 : "68px", // dock is side on desktop, bottom on mobile
+          marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
           marginTop: "48px", // Height of top bar
           marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
           minHeight: "calc(100vh - 48px - 32px)",
