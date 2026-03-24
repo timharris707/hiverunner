@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/root/.openclaw";
+const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 
 interface FileEntry {
   name: string;

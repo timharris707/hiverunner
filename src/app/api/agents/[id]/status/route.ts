@@ -12,7 +12,7 @@ export async function GET(
     const { id } = await params;
 
     // Read openclaw config
-    const configPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json";
+    const configPath = (process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw") + "/openclaw.json";
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
 
     // Find agent

@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 
 function getGatewayConfig() {
   try {
-    const configRaw = require("fs").readFileSync((process.env.OPENCLAW_DIR || "/root/.openclaw") + "/openclaw.json", "utf-8");
+    const configRaw = require("fs").readFileSync((process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw") + "/openclaw.json", "utf-8");
     const config = JSON.parse(configRaw);
     return {
       token: config.gateway?.auth?.token || "",
@@ -27,7 +27,7 @@ export async function GET() {
       data = JSON.parse(output);
     } catch {
       // Fallback: read directly from jobs.json
-      const jobsPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/cron/jobs.json";
+      const jobsPath = (process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw") + "/cron/jobs.json";
       const fs = require("fs");
       if (fs.existsSync(jobsPath)) {
         data = JSON.parse(fs.readFileSync(jobsPath, "utf-8"));

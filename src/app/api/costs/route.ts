@@ -3,7 +3,7 @@ import { NextRequest } from "next/server";
 import { readFileSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/root/.openclaw";
+const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 const DEFAULT_BUDGET = 100.0;
 
 interface SessionRecord {
