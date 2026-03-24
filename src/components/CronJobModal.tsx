@@ -499,7 +499,7 @@ export function CronJobModal({ isOpen, onClose, onSave, editingJob }: CronJobMod
                     }}>
                       {i + 1}
                     </span>
-                    {run.toLocaleString("es-ES", {
+                    {run.toLocaleString("en-US", {
                       weekday: "short", year: "numeric", month: "short", day: "numeric",
                       hour: "numeric", minute: "2-digit", hour12: false,
                     })}
