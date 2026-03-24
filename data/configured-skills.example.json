@@ -1,7 +1,13 @@
 {
-  "lastUpdated": "2026-01-01",
+  "lastUpdated": "2026-03-24",
+  "systemSkillsPath": "/opt/homebrew/lib/node_modules/openclaw/skills",
+  "_note": "On Linux/VPS: use /usr/lib/node_modules/openclaw/skills. On macOS: use /opt/homebrew/lib/node_modules/openclaw/skills",
   "skills": [
-    {"name": "weather", "location": "system", "description": "Get current weather and forecasts"},
-    {"name": "web-search", "location": "system", "description": "Search the web using Brave API"}
+    {"name": "weather", "location": "system"},
+    {"name": "coding-agent", "location": "system"},
+    {"name": "gemini", "location": "system"},
+    {"name": "healthcheck", "location": "system"},
+    {"name": "skill-creator", "location": "system"},
+    {"name": "node-connect", "location": "system"}
   ]
 }
