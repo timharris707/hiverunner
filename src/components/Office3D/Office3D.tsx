@@ -308,7 +308,7 @@ export default function Office3D() {
 
       {/* Legend */}
       <div className="absolute bottom-4 right-4 bg-black/70 text-white p-4 rounded-lg backdrop-blur-sm">
-        <h3 className="text-sm font-bold mb-2">Estados</h3>
+        <h3 className="text-sm font-bold mb-2">States</h3>
         <div className="text-xs space-y-1">
           <div className="flex items-center gap-2">
             <div className="w-3 h-3 bg-green-500 rounded-full"></div>
