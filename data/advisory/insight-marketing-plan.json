@@ -1,0 +1,68 @@
+{
+  "id": "insight-marketing-plan",
+  "topic": "Insight.tm Q2 Marketing Campaign — Decision Cloud Positioning",
+  "mode": "roundtable",
+  "agents": ["Quill", "Scout", "Henry"],
+  "status": "completed",
+  "createdAt": "2026-03-22T10:00:00.000Z",
+  "completedAt": "2026-03-22T11:15:00.000Z",
+  "outcome": "completed",
+  "reviewStyle": "open",
+  "model": "claude-opus-4-6",
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-22T10:00:00.000Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Roundtable started.** Topic: Insight.tm Q2 marketing strategy. Quill leads creative direction, Scout brings market intelligence, I'll synthesize. Open discussion — no strict pass/fail.\n\nObjective: Develop a 90-day marketing campaign to increase inbound leads for Decision Cloud. Our ICP is private money lenders and hard money loan shops. Current pain: they're doing fraud detection manually or with outdated tools."
+    },
+    {
+      "id": "evt_002",
+      "timestamp": "2026-03-22T10:04:00.000Z",
+      "type": "worker",
+      "speaker": "Quill",
+      "emoji": "✍️",
+      "role": "worker",
+      "text": "**Q2 Campaign Concept: \"The Lender's Edge\"**\n\nPositioning: Decision Cloud isn't software — it's the unfair advantage that sharp lenders use while their competitors are still running spreadsheets.\n\n**Core message:** *\"While your competition waits 3 days for a decision, you close in 20 minutes.\"*\n\n**Campaign pillars:**\n\n1. **Content Series — \"Fraud Patterns of the Month\"**\n   - Monthly deep-dive on a real fraud pattern (anonymized) targeting private lenders\n   - LinkedIn articles + email newsletter\n   - Positions Insight as the intelligence layer, not just a vendor\n\n2. **Demo-First Outreach**\n   - \"See your own data in Decision Cloud in 15 minutes\"\n   - White-glove first touchpoint — skip the sales deck, go straight to value\n   - Hook: upload 5 recent loans, we flag what you missed\n\n3. **Social Proof Machine**\n   - 3 case studies: \"How [Lender Type] cut fraud losses by X%\"\n   - Focus on ROI math, not features\n   - LinkedIn carousel format performs best in this space\n\n**Channel mix:** LinkedIn (primary), targeted email (secondary), industry events (Q3 plant seeds now)\n\nTimeline: Content calendar live by Week 2, first case study published Week 4, demo campaign live Week 3."
+    },
+    {
+      "id": "evt_003",
+      "timestamp": "2026-03-22T10:18:00.000Z",
+      "type": "worker",
+      "speaker": "Scout",
+      "emoji": "🔭",
+      "role": "worker",
+      "text": "**Market Intelligence Brief — Private Lending Space Q2 2026**\n\nQuill's instincts are good. Let me add data to sharpen the targeting:\n\n**Market size & timing:**\n- Private lending market: ~$500B in outstanding loans, growing 12% YoY\n- Fraud losses averaging 0.8–1.2% of loan volume for unprotected shops\n- Regulatory pressure increasing: FinCEN AML requirements expanding to non-bank lenders in 2026\n\n**ICP refinement — the sweet spot:**\n- Lenders doing $5M–$50M/month in originations (big enough to have pain, small enough to move fast)\n- Currently using: Excel + a credit bureau pull + gut feel\n- Trigger event: had a fraud loss in the last 12 months, or heard about a competitor getting hit\n\n**Competitive landscape:**\n- CoreLogic and First American dominate enterprise (>$100M/month shops) — not our fight\n- The $5M–$50M space is wide open and served by legacy tools\n- Our differentiation: speed + data richness + private lender focus\n\n**Channel validation:**\n- LinkedIn is correct — private lending operators are active there\n- Also: MBA (Mortgage Bankers Association) forums, AAPL (American Assoc. of Private Lenders) — should have presence there\n- Email list play: AAPL membership directory is gold if accessible\n\n**One gap in Quill's plan:** No SEO component. \"Private money lender fraud detection\" has decent search volume with low competition. 90 days is enough time to rank for long-tail terms."
+    },
+    {
+      "id": "evt_004",
+      "timestamp": "2026-03-22T10:35:00.000Z",
+      "type": "worker",
+      "speaker": "Quill",
+      "emoji": "✍️",
+      "role": "worker",
+      "text": "**Response to Scout's Intel — Updated Plan**\n\nExcellent points. Incorporating:\n\n**SEO play (added):**\n- 4 long-form pieces targeting: \"private money lender fraud detection\", \"hard money loan fraud prevention\", \"DSCR loan fraud patterns\", \"bridge loan borrower verification\"\n- These serve double duty: SEO + content marketing distribution\n- Target: first page for 2 of these 4 terms by end of Q2\n\n**AAPL positioning:**\n- Apply for AAPL vendor membership this week\n- Sponsor one newsletter touchpoint\n- Get Tim on the AAPL podcast circuit — \"AI-powered fraud detection for private lenders\" is a natural fit\n\n**Refined messaging for the FinCEN angle:**\n- The regulatory pressure Scout flagged is a gift. New hook: *\"FinCEN is coming for non-bank lenders. Decision Cloud keeps you compliant and clean.\"*\n- This creates urgency that goes beyond feature differentiation\n\n**Revised campaign name:** \"Lend Clean\" — speaks to both fraud protection and compliance readiness\n\n**KPIs I'm proposing:**\n- 50 qualified demo requests in 90 days\n- 3 case studies published\n- 5,000 LinkedIn impressions/week by Week 6\n- 2 long-tail keywords in top 5 by day 90"
+    },
+    {
+      "id": "evt_005",
+      "timestamp": "2026-03-22T11:02:00.000Z",
+      "type": "supervisor",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "**Synthesis — Q2 Marketing Direction Approved**\n\nThis roundtable produced a tight, executable plan. Here's what I'm capturing as the official output:\n\n**Campaign: \"Lend Clean\" — 90-Day Execution**\n\n✅ **Core message:** Speed + compliance + fraud protection for $5M–$50M/month private lenders\n\n✅ **Priority channels:** LinkedIn (organic + case studies), Email (AAPL list), SEO (4 target pieces)\n\n✅ **Regulatory angle:** FinCEN urgency is the new hook — adds urgency beyond feature selling\n\n✅ **Demo-first funnel:** \"Upload 5 loans, we show you what you missed\" — this is the killer CTA\n\n**Immediate actions:**\n1. Tim reviews and approves campaign name + messaging\n2. Quill drafts the first LinkedIn article (\"Fraud Pattern of the Month #1\") this week\n3. Scout pulls AAPL membership info and event calendar\n4. SEO pieces briefed by Week 2\n\n**Success metric:** 50 qualified demo requests by June 30.\n\nGreat work. This is the most specific go-to-market plan Insight has had in two years."
+    },
+    {
+      "id": "evt_006",
+      "timestamp": "2026-03-22T11:15:00.000Z",
+      "type": "complete",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🎉 **Roundtable complete.** \"Lend Clean\" Q2 campaign is defined and ready for Tim's review. Deliverables queued."
+    }
+  ]
+}

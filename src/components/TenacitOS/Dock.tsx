@@ -24,6 +24,7 @@ import {
   FileBarChart,
   ChevronDown,
   ChevronRight,
+  Users,
 } from "lucide-react";
 
 interface NavItem {
@@ -51,6 +52,7 @@ const navGroups: NavGroup[] = [
       { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
       { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
       { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
+      { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
     ],
   },
   {
@@ -59,9 +61,9 @@ const navGroups: NavGroup[] = [
     shortLabel: "OPS",
     collapsible: true,
     items: [
-      { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "4" },
+      { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "5" },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "5" },
+      { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "6" },
       { href: "/cron", label: "Cron Jobs", icon: Clock },
     ],
   },

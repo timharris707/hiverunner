@@ -1,0 +1,78 @@
+{
+  "id": "trading-strategy-review",
+  "topic": "Momentum Trading Strategy Review — NVDA Breakout Setup",
+  "mode": "review",
+  "agents": ["T1", "Scout", "Counsel", "Henry"],
+  "status": "completed",
+  "createdAt": "2026-03-20T14:00:00.000Z",
+  "completedAt": "2026-03-20T14:47:00.000Z",
+  "outcome": "approved",
+  "reviewStyle": "strict",
+  "model": "claude-opus-4-6",
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-20T14:00:00.000Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.** Topic: NVDA momentum breakout strategy review. T1 will propose, Scout validates market data, Counsel reviews compliance. Review style: **strict** — PASS/FAIL only.\n\nMission: Evaluate whether the proposed momentum entry strategy for NVDA has statistical edge, appropriate risk controls, and regulatory compliance for our paper trading account."
+    },
+    {
+      "id": "evt_002",
+      "timestamp": "2026-03-20T14:03:00.000Z",
+      "type": "worker",
+      "speaker": "T1",
+      "emoji": "📈",
+      "role": "worker",
+      "text": "**Proposed Strategy: NVDA Breakout Momentum Entry**\n\nSetup criteria:\n- NVDA must be within 1.5% of a 52-week high\n- RSI(14) between 60–75 (not overbought, but showing strength)\n- Volume 1.5× the 20-day average on the breakout candle\n- SPY must be positive on the day (broad market confirmation)\n\n**Entry:** Market open +15min if all criteria met pre-market\n**Stop loss:** -3% from entry\n**Target:** +8% (R:R = 2.67)\n**Position size:** 2% of portfolio\n\n**Backtest results (2022–2025):**\n- Win rate: 61%\n- Average gain: +9.2%\n- Average loss: -2.8%\n- Max drawdown: -14%\n- Sharpe: 1.42\n\nI believe this has genuine edge. The volume filter eliminates most false breakouts."
+    },
+    {
+      "id": "evt_003",
+      "timestamp": "2026-03-20T14:12:00.000Z",
+      "type": "worker",
+      "speaker": "Scout",
+      "emoji": "🔭",
+      "role": "worker",
+      "text": "**Market Intelligence Review of T1's NVDA Strategy**\n\nI pulled current NVDA data and ran independent validation:\n\n**Current conditions (as of March 20):**\n- NVDA at $875 — sitting 3.2% below 52-week high of $905\n- RSI(14): 68.4 ✓\n- 20-day avg volume: 42M shares; yesterday's: 58M (+38%) — not quite the 1.5× threshold\n- SPY: +0.4% today ✓\n\n**Backtest concern:** The 2022 bear market would have crushed momentum strategies — curious how T1's 2022-2025 backtest shows a 1.42 Sharpe. I'd want to see year-by-year breakdown.\n\n**Macro context:** Earnings in 3 weeks. Breakout + pre-earnings momentum is historically strong for NVDA but volatility risk is elevated. Should flag this as a conditional: strategy holds but position size should be 1% (not 2%) if within 3 weeks of earnings.\n\n**Data verdict:** Strategy framework is sound. Volume filter is the right gate. Recommend CONDITIONAL approval pending year-by-year backtest data."
+    },
+    {
+      "id": "evt_004",
+      "timestamp": "2026-03-20T14:22:00.000Z",
+      "type": "worker",
+      "speaker": "Counsel",
+      "emoji": "⚖️",
+      "role": "reviewer",
+      "text": "**Legal & Compliance Review**\n\nReviewing for our paper trading context and future live account readiness:\n\n**Pattern Day Trader rules:** This strategy implies same-day exit potential if stop is hit. With the proposed 2% position size and our account size, we must track PDT status if migrating to live. Paper account: N/A.\n\n**Wash sale:** If NVDA has been traded in the past 30 days at a loss, a new entry could trigger wash sale on the loss. Flag for live account accounting.\n\n**Material non-public information:** No issues detected — all entry criteria are based on publicly available price/volume data.\n\n**Disclosure:** Strategy should be documented in the trading log before each trade for audit trail.\n\n**Compliance verdict:** ✅ CLEAR for paper trading. Live account requires PDT tracking and wash sale monitoring.\n\n**APPROVE** — with the caveat that position sizing rules should be formalized in the strategy doc before live deployment."
+    },
+    {
+      "id": "evt_005",
+      "timestamp": "2026-03-20T14:35:00.000Z",
+      "type": "approve",
+      "speaker": "Scout",
+      "emoji": "🔭",
+      "role": "reviewer",
+      "verdict": "approve",
+      "text": "**🟢 APPROVE** — with one condition.\n\nT1 provided the year-by-year breakdown in DM:\n- 2022: -3% (bear market, only 4 setups triggered)\n- 2023: +31%\n- 2024: +47%\n- 2025 (partial): +18%\n\nThe 2022 performance is actually good — the volume filter correctly kept T1 out of most traps. Strategy passes validation.\n\n**Condition:** Formalize the earnings-proximity rule: reduce position to 1% when within 21 days of NVDA earnings."
+    },
+    {
+      "id": "evt_006",
+      "timestamp": "2026-03-20T14:42:00.000Z",
+      "type": "supervisor",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "**✅ Strategy approved with conditions.**\n\nSummary of agreed modifications:\n1. Position size: 2% standard, 1% within 21 days of earnings\n2. Add earnings-proximity check to pre-trade checklist\n3. Document in trading journal before each execution\n4. Live account: implement PDT + wash sale tracking before first real trade\n\nT1, add this to the strategy doc and share the updated version. This is now live in our playbook."
+    },
+    {
+      "id": "evt_007",
+      "timestamp": "2026-03-20T14:47:00.000Z",
+      "type": "complete",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🎉 **Session complete.** NVDA Momentum Breakout Strategy is approved and logged. Next review: post-earnings cycle."
+    }
+  ]
+}
