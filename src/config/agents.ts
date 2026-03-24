@@ -43,7 +43,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "t1",
-    name: "T1",
+    name: "Atlas 📈",
     emoji: "📈",
     role: "Stocks & Options Trader",
     division: "Trading",
@@ -56,7 +56,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "t2",
-    name: "T2",
+    name: "Nimbus 🌤️",
     emoji: "🌤️",
     role: "Weather Prediction Trader",
     division: "Trading",
@@ -69,7 +69,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "t3",
-    name: "T3",
+    name: "Cipher ₿",
     emoji: "₿",
     role: "Crypto Trader",
     division: "Trading",
@@ -82,7 +82,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "backend",
-    name: "Backend Engineer",
+    name: "Forge 🔧",
     emoji: "🔧",
     role: "Backend Engineer",
     division: "Engineering",
@@ -95,7 +95,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
   },
   {
     id: "fullstack",
-    name: "Full-Stack Engineer",
+    name: "Pixel 💻",
     emoji: "💻",
     role: "Senior Full-Stack Engineer",
     division: "Engineering",

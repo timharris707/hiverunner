@@ -26,7 +26,7 @@ export const AGENTS: AgentConfig[] = [
   // Trading Desk
   {
     id: "t1",
-    name: "T1",
+    name: "Atlas",
     emoji: "📈",
     position: [-5, 0, -4],
     color: "#4ade80",
@@ -34,15 +34,15 @@ export const AGENTS: AgentConfig[] = [
   },
   {
     id: "t2",
-    name: "T2",
-    emoji: "🌩️",
+    name: "Nimbus",
+    emoji: "🌤️",
     position: [0, 0, -4],
     color: "#60a5fa",
     role: "Weather Trading",
   },
   {
     id: "t3",
-    name: "T3",
+    name: "Cipher",
     emoji: "₿",
     position: [5, 0, -4],
     color: "#f59e0b",
@@ -51,7 +51,7 @@ export const AGENTS: AgentConfig[] = [
   // Engineering
   {
     id: "backend",
-    name: "Backend",
+    name: "Forge",
     emoji: "🔧",
     position: [-5, 0, 4],
     color: "#60a5fa",
@@ -59,7 +59,7 @@ export const AGENTS: AgentConfig[] = [
   },
   {
     id: "fullstack",
-    name: "Full-Stack",
+    name: "Pixel",
     emoji: "💻",
     position: [0, 0, 4],
     color: "#60a5fa",

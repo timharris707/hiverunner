@@ -52,11 +52,11 @@ interface AdvisorySession {
 
 const AGENTS = [
   { id: "Henry", emoji: "⚡", role: "Chief of Staff", defaultRole: "supervisor" },
-  { id: "T1", emoji: "📈", role: "Stocks & Options Trader", defaultRole: "worker" },
-  { id: "T2", emoji: "🌤️", role: "Weather Prediction Trader", defaultRole: "worker" },
-  { id: "T3", emoji: "₿", role: "Crypto Trader", defaultRole: "worker" },
-  { id: "Backend", emoji: "🔧", role: "Backend Engineer", defaultRole: "worker" },
-  { id: "Full-Stack", emoji: "💻", role: "Senior Full-Stack Engineer", defaultRole: "worker" },
+  { id: "Atlas", emoji: "📈", role: "Stocks & Options Trader", defaultRole: "worker" },
+  { id: "Nimbus", emoji: "🌤️", role: "Weather Prediction Trader", defaultRole: "worker" },
+  { id: "Cipher", emoji: "₿", role: "Crypto Trader", defaultRole: "worker" },
+  { id: "Forge", emoji: "🔧", role: "Backend Engineer", defaultRole: "worker" },
+  { id: "Pixel", emoji: "💻", role: "Senior Full-Stack Engineer", defaultRole: "worker" },
   { id: "Scout", emoji: "🔭", role: "Research & Intelligence", defaultRole: "worker" },
   { id: "Quill", emoji: "✍️", role: "Creative Writer & Marketing", defaultRole: "worker" },
   { id: "Counsel", emoji: "⚖️", role: "Legal Expert", defaultRole: "reviewer" },

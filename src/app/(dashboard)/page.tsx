@@ -63,7 +63,7 @@ const ORG_AGENTS = [
   },
   {
     id: "t1",
-    name: "T1",
+    name: "Atlas 📈",
     role: "Stocks & Options",
     division: "Trading",
     emoji: "📈",
@@ -74,10 +74,10 @@ const ORG_AGENTS = [
   },
   {
     id: "t2",
-    name: "T2",
+    name: "Nimbus 🌤️",
     role: "Weather Trading",
     division: "Trading",
-    emoji: "🌩️",
+    emoji: "🌤️",
     color: "#4ade80",
     divisionColor: "#4ade80",
     description: "Weather prediction markets",
@@ -85,7 +85,7 @@ const ORG_AGENTS = [
   },
   {
     id: "t3",
-    name: "T3",
+    name: "Cipher ₿",
     role: "Crypto Trading",
     division: "Trading",
     emoji: "₿",
@@ -96,7 +96,7 @@ const ORG_AGENTS = [
   },
   {
     id: "backend",
-    name: "Backend Eng",
+    name: "Forge 🔧",
     role: "Infrastructure",
     division: "Engineering",
     emoji: "🔧",
@@ -107,7 +107,7 @@ const ORG_AGENTS = [
   },
   {
     id: "fullstack",
-    name: "Full-Stack Eng",
+    name: "Pixel 💻",
     role: "Web Apps",
     division: "Engineering",
     emoji: "💻",
@@ -154,9 +154,9 @@ const ORG_AGENTS = [
 const ACTIVE_PROJECTS = [
   {
     name: "Crypto Trading Bot",
-    description: "T3's CCXT pipeline — foundation in progress",
+    description: "Cipher's CCXT pipeline — foundation in progress",
     status: "in-progress",
-    agent: "T3",
+    agent: "Cipher ₿",
     color: "#4ade80",
     icon: "₿",
     href: "/files?path=/Users/timharris/.openclaw/workspace/projects/crypto-trading",
@@ -165,7 +165,7 @@ const ACTIVE_PROJECTS = [
     name: "Mission Control",
     description: "This dashboard — Harris Autonomous command center",
     status: "in-progress",
-    agent: "Full-Stack Eng",
+    agent: "Pixel 💻",
     color: "#60a5fa",
     icon: "🎛️",
     href: "/files?path=/Users/timharris/.openclaw/workspace/projects/mission-control-app",
@@ -531,9 +531,9 @@ export default function DashboardPage() {
           </div>
           <div className="p-4 space-y-3">
             {[
-              { name: "T1 — Stocks & Options", emoji: "📈", status: "Not deployed", color: "#6b7280", active: false },
-              { name: "T2 — Weather Trading", emoji: "🌩️", status: "Not deployed", color: "#6b7280", active: false },
-              { name: "T3 — Crypto Bot", emoji: "₿", status: "Building", color: "#f59e0b", active: true },
+              { name: "Atlas — Stocks & Options", emoji: "📈", status: "Not deployed", color: "#6b7280", active: false },
+              { name: "Nimbus — Weather Trading", emoji: "🌤️", status: "Not deployed", color: "#6b7280", active: false },
+              { name: "Cipher — Crypto Bot", emoji: "₿", status: "Building", color: "#f59e0b", active: true },
             ].map((trader) => (
               <div
                 key={trader.name}

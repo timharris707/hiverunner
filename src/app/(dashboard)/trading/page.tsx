@@ -21,7 +21,7 @@ import Link from "next/link";
 const TRADERS = [
   {
     id: "t1",
-    name: "T1 — Stocks & Options",
+    name: "Atlas — Stocks & Options",
     emoji: "📈",
     color: "#4ade80",
     status: "not-deployed",
@@ -37,8 +37,8 @@ const TRADERS = [
   },
   {
     id: "t2",
-    name: "T2 — Weather Prediction Trading",
-    emoji: "🌩️",
+    name: "Nimbus — Weather Prediction Trading",
+    emoji: "🌤️",
     color: "#60a5fa",
     status: "not-deployed",
     description: "Weather data ingestion → correlation → Polymarket/Kalshi signals",
@@ -53,7 +53,7 @@ const TRADERS = [
   },
   {
     id: "t3",
-    name: "T3 — Crypto Trading Bot",
+    name: "Cipher — Crypto Trading Bot",
     emoji: "₿",
     color: "#f59e0b",
     status: "building",
@@ -342,7 +342,7 @@ export default function TradingPage() {
             </div>
             <div className="flex-1">
               <div className="font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-                T2 — Weather Prediction Trader
+                Nimbus — Weather Prediction Trader
               </div>
               <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                 Weather data → Polymarket/Kalshi signal generation
@@ -557,7 +557,7 @@ export default function TradingPage() {
           >
             <Activity className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--text-muted)", opacity: 0.5 }} />
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>
-              Live signals stream here from T1/T2/T3
+              Live signals stream here from Atlas / Nimbus / Cipher
             </p>
             <p className="text-xs mt-1" style={{ color: "var(--text-muted)", opacity: 0.7 }}>
               Activated when agents are deployed
@@ -573,7 +573,7 @@ export default function TradingPage() {
           <div className="flex items-center gap-2 mb-4">
             <FolderOpen className="w-5 h-5" style={{ color: "#f59e0b" }} />
             <h3 className="font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-              T3 Crypto Bot — Project Files
+              Cipher Crypto Bot — Project Files
             </h3>
           </div>
           <div className="space-y-2">

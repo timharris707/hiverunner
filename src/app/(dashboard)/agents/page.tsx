@@ -39,7 +39,7 @@ const ORG_AGENTS = [
   },
   {
     id: "t1",
-    name: "T1",
+    name: "Atlas 📈",
     emoji: "📈",
     role: "Stocks & Options Trader",
     division: "Trading",
@@ -55,7 +55,7 @@ const ORG_AGENTS = [
   },
   {
     id: "t2",
-    name: "T2",
+    name: "Nimbus 🌤️",
     emoji: "🌤️",
     role: "Weather Prediction Trader",
     division: "Trading",
@@ -71,7 +71,7 @@ const ORG_AGENTS = [
   },
   {
     id: "t3",
-    name: "T3",
+    name: "Cipher ₿",
     emoji: "₿",
     role: "Crypto Trader",
     division: "Trading",
@@ -87,7 +87,7 @@ const ORG_AGENTS = [
   },
   {
     id: "backend-eng",
-    name: "Backend Engineer",
+    name: "Forge 🔧",
     emoji: "🔧",
     role: "Backend Engineer",
     division: "Engineering",
@@ -103,7 +103,7 @@ const ORG_AGENTS = [
   },
   {
     id: "fullstack-eng",
-    name: "Senior Full-Stack Engineer",
+    name: "Pixel 💻",
     emoji: "💻",
     role: "Senior Full-Stack Engineer",
     division: "Engineering",

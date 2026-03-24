@@ -57,11 +57,11 @@ const PROJECT_COLORS: Record<string, string> = {
 
 const ASSIGNEE_EMOJIS: Record<string, string> = {
   Henry: "⚡",
-  T1: "📈",
-  T2: "🌩️",
-  T3: "₿",
-  "Backend Eng": "🔧",
-  "Full-Stack Eng": "💻",
+  "Atlas 📈": "📈",
+  "Nimbus 🌤️": "🌤️",
+  "Cipher ₿": "₿",
+  "Forge 🔧": "🔧",
+  "Pixel 💻": "💻",
   Scout: "🔭",
   Quill: "✍️",
   Counsel: "⚖️",

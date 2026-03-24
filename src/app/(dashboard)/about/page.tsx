@@ -62,13 +62,13 @@ const ORG_GOALS = [
 const ORG_STRUCTURE = [
   { division: "Leadership", color: "#f59e0b", agents: [{ name: "Henry ⚡", role: "Chief of Staff", status: "online" }] },
   { division: "Trading Desk", color: "#4ade80", agents: [
-    { name: "T1", role: "Stocks & Options", status: "pending" },
-    { name: "T2", role: "Weather Trading", status: "pending" },
-    { name: "T3", role: "Crypto Bot", status: "building" },
+    { name: "Atlas 📈", role: "Stocks & Options", status: "pending" },
+    { name: "Nimbus 🌤️", role: "Weather Trading", status: "pending" },
+    { name: "Cipher ₿", role: "Crypto Bot", status: "building" },
   ]},
   { division: "Engineering", color: "#60a5fa", agents: [
-    { name: "Backend Eng", role: "Infrastructure", status: "pending" },
-    { name: "Full-Stack Eng", role: "Web Apps", status: "active" },
+    { name: "Forge 🔧", role: "Infrastructure", status: "pending" },
+    { name: "Pixel 💻", role: "Web Apps", status: "active" },
   ]},
   { division: "Research", color: "#a78bfa", agents: [{ name: "Scout", role: "Research & Intel", status: "pending" }] },
   { division: "Creative", color: "#f472b6", agents: [{ name: "Quill", role: "Creative Writer", status: "pending" }] },
