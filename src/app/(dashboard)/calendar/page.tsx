@@ -8,13 +8,16 @@ interface CronJob {
   id: string;
   name: string;
   enabled: boolean;
-  schedule: string;
+  schedule: string | { kind?: string; expr?: string; tz?: string };
   scheduleHuman: string;
-  nextRunAt: string | null;
-  lastRunAt: string | null;
-  lastStatus: string;
-  color: string;
-  emoji: string;
+  scheduleDisplay?: string;
+  nextRunAt?: string | null;
+  nextRun?: string | null;
+  lastRunAt?: string | null;
+  lastRun?: string | null;
+  lastStatus?: string;
+  color?: string;
+  emoji?: string;
 }
 
 interface DaySlot {
@@ -36,9 +39,11 @@ function getJobStyle(name: string) {
   return { color: "var(--accent)", emoji: "⚡" };
 }
 
-function parseCronHour(expr: string): number | null {
-  // "0 7 * * *" → 7
-  const parts = expr.trim().split(/\s+/);
+function parseCronHour(expr: string | Record<string, unknown>): number | null {
+  // "0 7 * * *" → 7, or { kind: "cron", expr: "0 7 * * *" } → 7
+  const raw = typeof expr === 'string' ? expr : (expr?.expr as string || '');
+  if (!raw) return null;
+  const parts = raw.trim().split(/\s+/);
   if (parts.length < 2) return null;
   const hour = parseInt(parts[1], 10);
   return isNaN(hour) ? null : hour;
@@ -63,7 +68,13 @@ export default function CalendarPage() {
     fetch("/api/cron")
       .then(r => r.json())
       .then((data: CronJob[]) => {
-        setJobs(Array.isArray(data) ? data : []);
+        const mapped = (Array.isArray(data) ? data : []).map((j) => ({
+          ...j,
+          scheduleHuman: j.scheduleHuman || j.scheduleDisplay || (typeof j.schedule === 'string' ? j.schedule : (j.schedule as { expr?: string })?.expr || ''),
+          nextRunAt: j.nextRunAt || j.nextRun || null,
+          lastRunAt: j.lastRunAt || j.lastRun || null,
+        }));
+        setJobs(mapped);
       })
       .catch(() => setJobs([]))
       .finally(() => setLoading(false));
@@ -90,7 +101,8 @@ export default function CalendarPage() {
       hour,
       jobs: jobs.filter(job => {
         if (!job.enabled) return false;
-        const expr = job.schedule;
+        const expr = typeof job.schedule === 'string' ? job.schedule : (job.schedule?.expr || '');
+        if (!expr) return false;
         const parts = expr.trim().split(/\s+/);
         if (parts.length < 5) return false;
         const jobHour = parseInt(parts[1], 10);
