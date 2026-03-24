@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 const TOP_5_ROUTES = ["/", "/tasks", "/agents", "/trading", "/workflows"];
 
+// Custom event for opening new task modal when on /tasks page
+export const OPEN_NEW_TASK_EVENT = "mission-control:open-new-task";
+
 export function KeyboardShortcuts() {
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -15,21 +19,28 @@ export function KeyboardShortcuts() {
 
       if (!cmdOrCtrl) return;
 
-      // Cmd+T → New Task (navigate to tasks)
+      // Skip if in input/textarea/contenteditable
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === "INPUT" ||
+        target.tagName === "TEXTAREA" ||
+        target.isContentEditable
+      ) return;
+
+      // Cmd+T → New Task (open modal if on /tasks, else navigate there)
       if (e.key === "t" && !e.shiftKey && !e.altKey) {
-        // Only if not in an input/textarea
-        const target = e.target as HTMLElement;
-        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
         e.preventDefault();
-        router.push("/tasks");
+        if (pathname === "/tasks") {
+          window.dispatchEvent(new CustomEvent(OPEN_NEW_TASK_EVENT));
+        } else {
+          router.push("/tasks");
+        }
         return;
       }
 
-      // Cmd+1 through Cmd+5 → Navigate
+      // Cmd+1 through Cmd+5 → Navigate to top 5 pages
       const num = parseInt(e.key);
       if (!isNaN(num) && num >= 1 && num <= 5) {
-        const target = e.target as HTMLElement;
-        if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
         e.preventDefault();
         router.push(TOP_5_ROUTES[num - 1]);
         return;
@@ -38,7 +49,7 @@ export function KeyboardShortcuts() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [router]);
+  }, [router, pathname]);
 
   return null;
 }

@@ -218,11 +218,24 @@ interface DashboardStats {
   activeAgents: number;
 }
 
+function StatSkeleton() {
+  return (
+    <div
+      className="rounded-xl p-4 md:p-6"
+      style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+    >
+      <div className="skeleton skeleton-text w-24 mb-3" style={{ height: "12px" }} />
+      <div className="skeleton skeleton-text w-16" style={{ height: "28px" }} />
+    </div>
+  );
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ total: 0, today: 0, success: 0, error: 0, byType: {} });
   const [liveAgents, setLiveAgents] = useState<Agent[]>([]);
   const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
+  const [statsLoading, setStatsLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
@@ -241,7 +254,8 @@ export default function DashboardPage() {
       setLiveAgents(agentsData.agents || []);
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
       if (ds) setDashStats(ds);
-    }).catch(console.error);
+      setStatsLoading(false);
+    }).catch(() => setStatsLoading(false));
   }, []);
 
   const activeAgentCount = ORG_AGENTS.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
@@ -268,34 +282,45 @@ export default function DashboardPage() {
       {/* Stats Grid + Weather */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
         <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
-          <StatsCard
-            title="Active Agents"
-            value={activeAgentCount.toString()}
-            subtitle="Deployed & running"
-            icon={<Users className="w-5 h-5" />}
-            iconColor="var(--accent)"
-          />
-          <StatsCard
-            title="Tasks Today"
-            value={(dashStats?.tasksToday ?? stats.today).toLocaleString()}
-            subtitle="From tasks-log.md"
-            icon={<Zap className="w-5 h-5" />}
-            iconColor="#f59e0b"
-          />
-          <StatsCard
-            title="Active Sessions"
-            value={(dashStats?.activeSessions ?? stats.success).toLocaleString()}
-            subtitle="Last 2 hours"
-            icon={<CheckCircle className="w-5 h-5" />}
-            iconColor="var(--success)"
-          />
-          <StatsCard
-            title="Cost Today"
-            value={dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
-            subtitle="Token usage"
-            icon={<DollarSign className="w-5 h-5" />}
-            iconColor="var(--error)"
-          />
+          {statsLoading ? (
+            <>
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+            </>
+          ) : (
+            <>
+              <StatsCard
+                title="Active Agents"
+                value={activeAgentCount.toString()}
+                subtitle="Deployed & running"
+                icon={<Users className="w-5 h-5" />}
+                iconColor="var(--accent)"
+              />
+              <StatsCard
+                title="Tasks Today"
+                value={(dashStats?.tasksToday ?? stats.today).toLocaleString()}
+                subtitle="From tasks-log.md"
+                icon={<Zap className="w-5 h-5" />}
+                iconColor="#f59e0b"
+              />
+              <StatsCard
+                title="Active Sessions"
+                value={(dashStats?.activeSessions ?? stats.success).toLocaleString()}
+                subtitle="Last 2 hours"
+                icon={<CheckCircle className="w-5 h-5" />}
+                iconColor="var(--success)"
+              />
+              <StatsCard
+                title="Cost Today"
+                value={dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
+                subtitle="Token usage"
+                icon={<DollarSign className="w-5 h-5" />}
+                iconColor="var(--error)"
+              />
+            </>
+          )}
         </div>
         <div className="lg:col-span-1">
           <WeatherWidget />

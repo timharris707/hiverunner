@@ -335,6 +335,13 @@ export default function TasksPage() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<Task["status"] | null>(null);
 
+  // Listen for Cmd+T global shortcut to open new task modal
+  useEffect(() => {
+    const openNewTask = () => setShowNewTask(true);
+    window.addEventListener("mission-control:open-new-task", openNewTask);
+    return () => window.removeEventListener("mission-control:open-new-task", openNewTask);
+  }, []);
+
   const fetchTasks = async () => {
     try {
       const res = await fetch("/api/tasks");
