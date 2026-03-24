@@ -5,59 +5,64 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
-  Activity,
   Timer,
   Brain,
   Search,
   BarChart3,
   FileBarChart,
-  Puzzle,
   FolderOpen,
   Terminal,
   LogOut,
   Settings,
-  User,
   Menu,
   X,
   Users,
-  Gamepad2,
   GitBranch,
   Workflow,
-  Zap,
   Server,
-  GitFork,
-  SquareTerminal,
   History,
   DollarSign,
   TrendingUp,
   Shield,
+  CalendarDays,
 } from "lucide-react";
 import { getAgentDisplayName } from "@/config/branding";
 
-const navItems = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/agents", label: "Agents", icon: Users },
-  { href: "/trading", label: "Trading Desk", icon: TrendingUp },
-  { href: "/costs", label: "Costs", icon: DollarSign },
-  { href: "/reliability", label: "Reliability", icon: Shield },
-  { href: "/tasks", label: "Task Board", icon: GitBranch },
-  { href: "/office", label: "🎮 Office", icon: Gamepad2, highlight: true },
-  { href: "/actions", label: "Quick Actions", icon: Zap },
-  { href: "/system", label: "System", icon: Server },
-  { href: "/logs", label: "Live Logs", icon: Terminal },
-  { href: "/terminal", label: "Terminal", icon: SquareTerminal },
-  { href: "/git", label: "Git", icon: GitFork },
-  { href: "/workflows", label: "Workflows", icon: Workflow },
-  { href: "/activity", label: "Activity", icon: Activity },
-  { href: "/memory", label: "Memory", icon: Brain },
-  { href: "/files", label: "Files", icon: FolderOpen },
-  { href: "/cron", label: "Cron Jobs", icon: Timer },
-  { href: "/sessions", label: "Sessions", icon: History },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/reports", label: "Reports", icon: FileBarChart },
-  { href: "/skills", label: "Skills", icon: Puzzle },
-  { href: "/about", label: getAgentDisplayName(), icon: User },
+const navSections = [
+  {
+    items: [
+      { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/tasks", label: "Task Board", icon: GitBranch },
+      { href: "/agents", label: "Agents", icon: Users },
+      { href: "/trading", label: "Trading Desk", icon: TrendingUp },
+      { href: "/calendar", label: "Calendar", icon: CalendarDays },
+      { href: "/workflows", label: "Workflows", icon: Workflow },
+    ],
+  },
+  {
+    items: [
+      { href: "/sessions", label: "Sessions", icon: History },
+      { href: "/memory", label: "Memory", icon: Brain },
+      { href: "/files", label: "Files", icon: FolderOpen },
+      { href: "/logs", label: "Logs", icon: Terminal },
+    ],
+  },
+  {
+    items: [
+      { href: "/costs", label: "Costs", icon: DollarSign },
+      { href: "/reliability", label: "Reliability", icon: Shield },
+      { href: "/reports", label: "Reports", icon: FileBarChart },
+      { href: "/analytics", label: "Analytics", icon: BarChart3 },
+      { href: "/system", label: "System", icon: Server },
+    ],
+  },
+  {
+    items: [
+      { href: "/cron", label: "Cron Jobs", icon: Timer },
+      { href: "/search", label: "Search", icon: Search },
+      { href: "/settings", label: "Settings", icon: Settings },
+    ],
+  },
 ];
 
 export function Sidebar() {
@@ -66,7 +71,6 @@ export function Sidebar() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
-  // Check if mobile on mount and resize
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < 768);
@@ -80,14 +84,12 @@ export function Sidebar() {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  // Close sidebar when navigating on mobile
   useEffect(() => {
     if (isMobile) {
       setIsOpen(false);
     }
   }, [pathname, isMobile]);
 
-  // Prevent scroll when sidebar is open on mobile
   useEffect(() => {
     if (isOpen && isMobile) {
       document.body.style.overflow = "hidden";
@@ -168,6 +170,7 @@ export function Sidebar() {
           zIndex: 50,
           transform: isMobile ? (isOpen ? "translateX(0)" : "translateX(-100%)") : "translateX(0)",
           transition: "transform 0.3s ease",
+          overflowY: "auto",
         }}
       >
         {/* Close button for mobile */}
@@ -220,47 +223,51 @@ export function Sidebar() {
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 pt-4">
-          <ul className="space-y-0.5">
-            {navItems.map((item) => {
-              const isActive = pathname === item.href;
-              const Icon = item.icon;
+        <nav className="flex-1 pt-2">
+          {navSections.map((section, sectionIndex) => (
+            <div key={sectionIndex}>
+              {sectionIndex > 0 && (
+                <div
+                  style={{
+                    height: "1px",
+                    backgroundColor: "var(--border)",
+                    margin: "8px 8px",
+                  }}
+                />
+              )}
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const isActive = pathname === item.href;
+                  const Icon = item.icon;
 
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={`nav-item w-full ${isActive ? "active" : ""}`}
-                    style={
-                      !isActive
-                        ? {
-                            color: "var(--text-secondary)",
-                            ...(item.highlight
-                              ? {
-                                  background:
-                                    "linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(236, 72, 153, 0.1))",
-                                  borderLeft: "3px solid var(--accent)",
-                                }
-                              : {}),
-                          }
-                        : {
-                            backgroundColor: "var(--accent)",
-                            color: "var(--text-primary)",
-                            fontFamily: "var(--font-heading)",
-                            fontWeight: 600,
-                          }
-                    }
-                  >
-                    <Icon
-                      className="w-5 h-5"
-                      style={!isActive ? { color: "var(--text-muted)" } : undefined}
-                    />
-                    {item.label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+                  return (
+                    <li key={item.href}>
+                      <Link
+                        href={item.href}
+                        className={`nav-item w-full ${isActive ? "active" : ""}`}
+                        style={
+                          !isActive
+                            ? { color: "var(--text-secondary)" }
+                            : {
+                                backgroundColor: "var(--accent)",
+                                color: "var(--text-primary)",
+                                fontFamily: "var(--font-heading)",
+                                fontWeight: 600,
+                              }
+                        }
+                      >
+                        <Icon
+                          className="w-5 h-5"
+                          style={!isActive ? { color: "var(--text-muted)" } : undefined}
+                        />
+                        {item.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}
@@ -268,29 +275,6 @@ export function Sidebar() {
           className="pt-4 mt-4"
           style={{ borderTop: "1px solid var(--border)" }}
         >
-          <Link
-            href="/settings"
-            className={`nav-item w-full mb-2 ${pathname === "/settings" ? "active" : ""}`}
-            style={
-              pathname !== "/settings"
-                ? {
-                    color: "var(--text-secondary)",
-                  }
-                : {
-                    backgroundColor: "var(--accent)",
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-heading)",
-                    fontWeight: 600,
-                  }
-            }
-          >
-            <Settings
-              className="w-5 h-5"
-              style={pathname !== "/settings" ? { color: "var(--text-muted)" } : undefined}
-            />
-            Settings
-          </Link>
-
           <div
             className="px-4 py-2 text-xs"
             style={{ color: "var(--text-muted)" }}

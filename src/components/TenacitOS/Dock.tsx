@@ -8,29 +8,40 @@ import {
   FolderOpen,
   Brain,
   Bot,
-  Building2,
-  Activity,
   Clock,
-  Puzzle,
   DollarSign,
   Settings,
   History,
   Kanban,
   TrendingUp,
+  CalendarDays,
+  Workflow,
+  Terminal,
+  Search,
+  Shield,
+  FileBarChart,
+  BarChart3,
+  Puzzle,
 } from "lucide-react";
 
 const dockItems = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/agents", label: "Agents", icon: Bot },
   { href: "/tasks", label: "Task Board", icon: Kanban },
-  { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/agents", label: "Agents", icon: Bot },
   { href: "/trading", label: "Trading Desk", icon: TrendingUp },
-  { href: "/cron", label: "Cron Jobs", icon: Clock },
-  { href: "/system", label: "System", icon: Monitor },
-  { href: "/costs", label: "Costs", icon: DollarSign },
+  { href: "/calendar", label: "Calendar", icon: CalendarDays },
+  { href: "/workflows", label: "Workflows", icon: Workflow },
+  { href: "/sessions", label: "Sessions", icon: History },
   { href: "/memory", label: "Memory", icon: Brain },
   { href: "/files", label: "Files", icon: FolderOpen },
-  { href: "/skills", label: "Skills", icon: Puzzle },
+  { href: "/logs", label: "Logs", icon: Terminal },
+  { href: "/costs", label: "Costs", icon: DollarSign },
+  { href: "/reliability", label: "Reliability", icon: Shield },
+  { href: "/reports", label: "Reports", icon: FileBarChart },
+  { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/system", label: "System", icon: Monitor },
+  { href: "/cron", label: "Cron", icon: Clock },
+  { href: "/search", label: "Search", icon: Search },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -52,8 +63,10 @@ export function Dock() {
         flexDirection: "column",
         alignItems: "center",
         padding: "12px 6px",
-        gap: "4px",
+        gap: "2px",
         zIndex: 50,
+        overflowY: "auto",
+        overflowX: "hidden",
       }}
     >
       {dockItems.map((item) => {
@@ -67,17 +80,18 @@ export function Dock() {
             className="dock-item group relative"
             style={{
               width: "56px",
-              height: "56px",
+              height: "52px",
               display: "flex",
               flexDirection: "column",
               alignItems: "center",
               justifyContent: "center",
-              gap: "4px",
+              gap: "3px",
               borderRadius: "8px",
               backgroundColor: isActive ? "var(--accent-soft)" : "transparent",
               transition: "all 150ms ease",
               position: "relative",
               textDecoration: "none",
+              flexShrink: 0,
             }}
             onMouseEnter={(e) => {
               if (!isActive) {
@@ -93,8 +107,8 @@ export function Dock() {
             {/* Icon */}
             <Icon
               style={{
-                width: "22px",
-                height: "22px",
+                width: "20px",
+                height: "20px",
                 color: isActive ? "var(--accent)" : "var(--text-secondary)",
                 strokeWidth: isActive ? 2.5 : 2,
               }}
@@ -104,7 +118,7 @@ export function Dock() {
             <span
               style={{
                 fontFamily: "var(--font-body)",
-                fontSize: "9px",
+                fontSize: "8px",
                 fontWeight: isActive ? 600 : 500,
                 color: isActive ? "var(--accent)" : "var(--text-muted)",
                 textAlign: "center",
