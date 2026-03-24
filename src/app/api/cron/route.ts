@@ -17,13 +17,25 @@ function getGatewayConfig() {
 // GET: List all cron jobs from the OpenClaw gateway
 export async function GET() {
   try {
-    const output = execSync("openclaw cron list --json --all 2>/dev/null", {
-      timeout: 10000,
-      encoding: "utf-8",
-    });
-
-    const data = JSON.parse(output);
-    const jobs = (data.jobs || []).map((job: Record<string, unknown>) => ({
+    let data: { jobs?: unknown[] };
+    
+    try {
+      const output = execSync("openclaw cron list --json --all 2>/dev/null", {
+        timeout: 10000,
+        encoding: "utf-8",
+      });
+      data = JSON.parse(output);
+    } catch {
+      // Fallback: read directly from jobs.json
+      const jobsPath = (process.env.OPENCLAW_DIR || "/root/.openclaw") + "/cron/jobs.json";
+      const fs = require("fs");
+      if (fs.existsSync(jobsPath)) {
+        data = JSON.parse(fs.readFileSync(jobsPath, "utf-8"));
+      } else {
+        data = { jobs: [] };
+      }
+    }
+    const jobs = ((data.jobs || []) as Record<string, unknown>[]).map((job: Record<string, unknown>) => ({
       id: job.id,
       agentId: job.agentId || "main",
       name: job.name || "Unnamed",
