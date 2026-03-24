@@ -40,6 +40,10 @@ function getIntegrationStatus() {
     if (telegramConfig?.accounts) {
       telegramAccounts = Object.keys(telegramConfig.accounts).length;
     }
+    // Also count top-level botToken as 1 bot
+    if (telegramAccounts === 0 && telegramConfig?.botToken) {
+      telegramAccounts = 1;
+    }
   } catch {}
   integrations.push({
     id: 'telegram',
