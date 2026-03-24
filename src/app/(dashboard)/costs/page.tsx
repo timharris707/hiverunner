@@ -79,7 +79,7 @@ export default function CostsPage() {
   const monthChange = ((costData.thisMonth - costData.lastMonth) / costData.lastMonth) * 100;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 p-4 md:p-8">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -112,6 +112,51 @@ export default function CostsPage() {
               {tf === "7d" ? "7 days" : tf === "30d" ? "30 days" : "90 days"}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* TODAY'S SPEND — Hero Card */}
+      <div
+        className="p-6 rounded-xl mb-2"
+        style={{
+          background: "linear-gradient(135deg, rgba(74,222,128,0.12), rgba(96,165,250,0.08))",
+          border: "1px solid rgba(74,222,128,0.3)",
+        }}
+      >
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              💰 Today's Spend
+            </div>
+            <div
+              className="text-5xl font-bold"
+              style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-2px" }}
+            >
+              ${costData.today.toFixed(2)}
+            </div>
+            <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+              vs ${costData.yesterday.toFixed(2)} yesterday
+              {todayChange !== 0 && (
+                <span
+                  className="ml-2 font-medium"
+                  style={{ color: todayChange > 0 ? "var(--error)" : "#4ade80" }}
+                >
+                  {todayChange > 0 ? "↑" : "↓"} {Math.abs(todayChange).toFixed(1)}%
+                </span>
+              )}
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm font-medium mb-1" style={{ color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+              Month to Date
+            </div>
+            <div className="text-3xl font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              ${costData.thisMonth.toFixed(2)}
+            </div>
+            <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
+              ${costData.projected.toFixed(2)} projected EOM
+            </div>
+          </div>
         </div>
       </div>
 
