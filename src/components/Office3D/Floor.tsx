@@ -4,25 +4,25 @@ import { useMemo } from 'react';
 import { RepeatWrapping, CanvasTexture } from 'three';
 
 export default function Floor() {
-  // Crear textura procedural de madera SOLO UNA VEZ (memoizada)
+  // Create procedural wood texture ONCE (memoized)
   const woodTexture = useMemo(() => {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d')!;
 
-    // Base madera clara
+    // Light wood base
     ctx.fillStyle = '#8B6F47';
     ctx.fillRect(0, 0, 512, 512);
 
-    // Vetas de madera (líneas verticales con seed fijo)
+    // Wood grain (vertical lines with fixed seed)
     for (let i = 0; i < 512; i += 8) {
-      const shade = (Math.sin(i * 0.1) * 20); // Patrón determinista
+      const shade = (Math.sin(i * 0.1) * 20); // Deterministic pattern
       ctx.fillStyle = `rgb(${139 + shade}, ${111 + shade}, ${71 + shade})`;
       ctx.fillRect(i, 0, 3, 512);
     }
 
-    // Nudos de madera (posiciones fijas)
+    // Wood knots (fixed positions)
     const knots = [
       { x: 100, y: 150, r: 15 },
       { x: 350, y: 80, r: 20 },
@@ -48,7 +48,7 @@ export default function Floor() {
     texture.repeat.set(4, 4);
     
     return texture;
-  }, []); // Array vacío = solo se crea una vez
+  }, []); // Empty array = only created once
 
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]} receiveShadow>

@@ -28,12 +28,19 @@ import {
   GitFork,
   SquareTerminal,
   History,
+  DollarSign,
+  TrendingUp,
+  Shield,
 } from "lucide-react";
 import { getAgentDisplayName } from "@/config/branding";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/agents", label: "Agents", icon: Users },
+  { href: "/trading", label: "Trading Desk", icon: TrendingUp },
+  { href: "/costs", label: "Costs", icon: DollarSign },
+  { href: "/reliability", label: "Reliability", icon: Shield },
+  { href: "/tasks", label: "Task Board", icon: GitBranch },
   { href: "/office", label: "🎮 Office", icon: Gamepad2, highlight: true },
   { href: "/actions", label: "Quick Actions", icon: Zap },
   { href: "/system", label: "System", icon: Server },

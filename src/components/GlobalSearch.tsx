@@ -1,20 +1,22 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Search, FileText, Zap, Calendar, X } from "lucide-react";
+import { Search, FileText, Zap, Calendar, X, type LucideIcon } from "lucide-react";
 
 interface SearchResult {
-  type: "memory" | "activity" | "task";
+  type: "memory" | "activity" | "task" | "project" | "workspace";
   title: string;
   snippet: string;
   path?: string;
   timestamp?: string;
 }
 
-const typeConfig = {
+const typeConfig: Record<string, { icon: LucideIcon; color: string; bg: string }> = {
   memory: { icon: FileText, color: "#3B82F6", bg: "rgba(59, 130, 246, 0.1)" },
   activity: { icon: Zap, color: "var(--accent)", bg: "rgba(255, 59, 48, 0.1)" },
   task: { icon: Calendar, color: "#A855F7", bg: "rgba(168, 85, 247, 0.1)" },
+  project: { icon: FileText, color: "#10b981", bg: "rgba(16, 185, 129, 0.1)" },
+  workspace: { icon: FileText, color: "#f59e0b", bg: "rgba(245, 158, 11, 0.1)" },
 };
 
 interface GlobalSearchProps {
@@ -60,7 +62,7 @@ export function GlobalSearch({ fullPage = false }: GlobalSearchProps) {
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search activities, tasks, and documents..."
+          placeholder="Search memory, projects, activities, tasks..."
           className="w-full pl-12 pr-10 py-3 rounded-xl transition-colors focus:outline-none"
           style={{ 
             backgroundColor: "var(--card)", 

@@ -1,17 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, RefreshCw } from "lucide-react";
+import {
+  Settings,
+  RefreshCw,
+  Bot,
+  Key,
+  MessageSquare,
+  Timer,
+  Server,
+  ChevronDown,
+  ChevronRight,
+  Lock,
+  type LucideIcon,
+} from "lucide-react";
 import { SystemInfo } from "@/components/SystemInfo";
 import { IntegrationStatus } from "@/components/IntegrationStatus";
 import { QuickActions } from "@/components/QuickActions";
 
 interface SystemData {
-  agent: {
-    name: string;
-    creature: string;
-    emoji: string;
-  };
+  agent: { name: string; creature: string; emoji: string };
   system: {
     uptime: number;
     uptimeFormatted: string;
@@ -20,11 +28,7 @@ interface SystemData {
     workspacePath: string;
     platform: string;
     hostname: string;
-    memory: {
-      total: number;
-      free: number;
-      used: number;
-    };
+    memory: { total: number; free: number; used: number };
   };
   integrations: Array<{
     id: string;
@@ -36,10 +40,132 @@ interface SystemData {
   timestamp: string;
 }
 
+type ConfigSection = {
+  label: string;
+  icon: LucideIcon;
+  key: string;
+};
+
+const CONFIG_SECTIONS: ConfigSection[] = [
+  { label: "Agent Defaults", icon: Bot, key: "agents" },
+  { label: "Auth Profiles", icon: Key, key: "auth" },
+  { label: "Channels", icon: MessageSquare, key: "channels" },
+  { label: "Gateway", icon: Server, key: "gateway" },
+  { label: "Tools", icon: Settings, key: "tools" },
+  { label: "Plugins", icon: Timer, key: "plugins" },
+];
+
+function JsonTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  if (data === null) return <span style={{ color: "#9ca3af" }}>null</span>;
+  if (typeof data === "boolean")
+    return (
+      <span style={{ color: "#f59e0b" }}>{data ? "true" : "false"}</span>
+    );
+  if (typeof data === "number")
+    return <span style={{ color: "#60a5fa" }}>{data}</span>;
+  if (typeof data === "string") {
+    if (data === "***redacted***")
+      return (
+        <span
+          className="flex items-center gap-1"
+          style={{ color: "#6b7280", fontStyle: "italic" }}
+        >
+          <Lock className="w-3 h-3" />
+          redacted
+        </span>
+      );
+    return (
+      <span style={{ color: "#4ade80" }}>
+        &quot;{data}&quot;
+      </span>
+    );
+  }
+  if (Array.isArray(data)) {
+    if (data.length === 0)
+      return <span style={{ color: "var(--text-muted)" }}>[]</span>;
+    return (
+      <span>
+        [{" "}
+        {data.map((item, i) => (
+          <span key={i}>
+            <JsonTree data={item} depth={depth + 1} />
+            {i < data.length - 1 ? ", " : ""}
+          </span>
+        ))}{" "}
+        ]
+      </span>
+    );
+  }
+  if (typeof data === "object") {
+    const entries = Object.entries(data as Record<string, unknown>);
+    if (entries.length === 0)
+      return <span style={{ color: "var(--text-muted)" }}>{"{}"}</span>;
+    return (
+      <div style={{ paddingLeft: depth > 0 ? "1rem" : 0 }}>
+        {entries.map(([k, v]) => {
+          const isComplex = typeof v === "object" && v !== null;
+          const isExpanded = expanded[k] !== false; // default expanded
+          return (
+            <div key={k} className="py-0.5">
+              <div className="flex items-start gap-1.5">
+                {isComplex ? (
+                  <button
+                    onClick={() =>
+                      setExpanded((p) => ({ ...p, [k]: !isExpanded }))
+                    }
+                    className="mt-0.5 flex-shrink-0"
+                    style={{ color: "var(--text-muted)", background: "none", border: "none", cursor: "pointer", padding: 0 }}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className="w-3 h-3" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3" />
+                    )}
+                  </button>
+                ) : (
+                  <span className="w-3 flex-shrink-0" />
+                )}
+                <span
+                  className="font-medium text-xs flex-shrink-0"
+                  style={{ color: "#c084fc" }}
+                >
+                  {k}:
+                </span>
+                {isComplex ? (
+                  isExpanded ? (
+                    <JsonTree data={v} depth={depth + 1} />
+                  ) : (
+                    <span
+                      className="text-xs"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {Array.isArray(v)
+                        ? `[${(v as unknown[]).length} items]`
+                        : `{${Object.keys(v as object).length} keys}`}
+                    </span>
+                  )
+                ) : (
+                  <JsonTree data={v} depth={depth + 1} />
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+  return <span>{String(data)}</span>;
+}
+
 export default function SettingsPage() {
   const [systemData, setSystemData] = useState<SystemData | null>(null);
+  const [openClawConfig, setOpenClawConfig] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(true);
+  const [configLoading, setConfigLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [activeSection, setActiveSection] = useState<string>("agents");
 
   const fetchSystemData = async () => {
     try {
@@ -54,15 +180,32 @@ export default function SettingsPage() {
     }
   };
 
+  const fetchConfig = async () => {
+    try {
+      const res = await fetch("/api/settings");
+      if (res.ok) {
+        const data = await res.json();
+        setOpenClawConfig(data.config);
+      }
+    } catch (err) {
+      console.error("Failed to load config:", err);
+    } finally {
+      setConfigLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchSystemData();
+    fetchConfig();
     const interval = setInterval(fetchSystemData, 30000);
     return () => clearInterval(interval);
   }, []);
 
   const handleRefresh = () => {
     setLoading(true);
+    setConfigLoading(true);
     fetchSystemData();
+    fetchConfig();
   };
 
   return (
@@ -70,26 +213,34 @@ export default function SettingsPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6 md:mb-8">
         <div>
-          <h1 
+          <h1
             className="text-2xl md:text-3xl font-bold mb-1 md:mb-2 flex items-center gap-2 md:gap-3"
-            style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}
+            style={{
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-heading)",
+            }}
           >
-            <Settings className="w-6 h-6 md:w-8 md:h-8" style={{ color: "var(--accent)" }} />
+            <Settings
+              className="w-6 h-6 md:w-8 md:h-8"
+              style={{ color: "var(--accent)" }}
+            />
             Settings
           </h1>
-          <p className="text-sm md:text-base" style={{ color: "var(--text-secondary)" }}>
-            System status, integrations, and configuration
+          <p
+            className="text-sm md:text-base"
+            style={{ color: "var(--text-secondary)" }}
+          >
+            System status, integrations, and OpenClaw configuration
           </p>
         </div>
-
         <button
           onClick={handleRefresh}
           disabled={loading}
           className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg transition-colors disabled:opacity-50 w-full sm:w-auto"
-          style={{ 
-            backgroundColor: "var(--card)", 
+          style={{
+            backgroundColor: "var(--card)",
             color: "var(--text-secondary)",
-            border: "1px solid var(--border)"
+            border: "1px solid var(--border)",
           }}
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
@@ -97,42 +248,137 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* Last Refresh Time */}
       {lastRefresh && (
         <div className="text-sm mb-6" style={{ color: "var(--text-muted)" }}>
           Last updated: {lastRefresh.toLocaleTimeString()}
         </div>
       )}
 
-      {/* Grid Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
-        {/* System Info - Full width on first row */}
+      {/* System info + integrations */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
         <div className="lg:col-span-2">
           <SystemInfo data={systemData} />
         </div>
-
-        {/* Integration Status */}
         <div>
           <IntegrationStatus integrations={systemData?.integrations || null} />
         </div>
-
-        {/* Quick Actions */}
         <div>
           <QuickActions onActionComplete={handleRefresh} />
         </div>
       </div>
 
-      {/* Footer Info */}
-      <div 
-        className="mt-6 md:mt-8 p-3 md:p-4 rounded-xl"
-        style={{ 
-          backgroundColor: "rgba(26, 26, 26, 0.5)", 
-          border: "1px solid var(--border)" 
+      {/* OpenClaw Config Viewer */}
+      <div
+        className="rounded-xl"
+        style={{
+          backgroundColor: "var(--card)",
+          border: "1px solid var(--border)",
         }}
       >
-        <div className="flex items-center justify-between text-sm" style={{ color: "var(--text-muted)" }}>
+        <div
+          className="px-5 py-4 flex items-center justify-between"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div>
+            <h2
+              className="font-semibold text-lg flex items-center gap-2"
+              style={{ color: "var(--text-primary)" }}
+            >
+              <Settings className="w-5 h-5" style={{ color: "var(--accent)" }} />
+              OpenClaw Config
+            </h2>
+            <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+              Read-only view of ~/.openclaw/openclaw.json · Sensitive values redacted
+            </p>
+          </div>
+          <Lock className="w-4 h-4" style={{ color: "var(--text-muted)" }} />
+        </div>
+
+        {configLoading ? (
+          <div className="p-8 text-center">
+            <div
+              className="animate-spin rounded-full h-8 w-8 border-b-2 mx-auto"
+              style={{ borderColor: "var(--accent)" }}
+            />
+          </div>
+        ) : openClawConfig ? (
+          <div className="flex">
+            {/* Section tabs */}
+            <div
+              className="w-44 flex-shrink-0 border-r py-3"
+              style={{ borderColor: "var(--border)" }}
+            >
+              {CONFIG_SECTIONS.map((section) => {
+                const hasData = section.key in openClawConfig;
+                const Icon = section.icon;
+                return (
+                  <button
+                    key={section.key}
+                    onClick={() => setActiveSection(section.key)}
+                    className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-all"
+                    style={{
+                      backgroundColor:
+                        activeSection === section.key
+                          ? "var(--accent)15"
+                          : "transparent",
+                      color:
+                        activeSection === section.key
+                          ? "var(--accent)"
+                          : hasData
+                          ? "var(--text-secondary)"
+                          : "var(--text-muted)",
+                      borderLeft:
+                        activeSection === section.key
+                          ? "2px solid var(--accent)"
+                          : "2px solid transparent",
+                      opacity: hasData ? 1 : 0.5,
+                    }}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    {section.label}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Config content */}
+            <div className="flex-1 p-5 overflow-auto">
+              <div
+                className="font-mono text-xs leading-relaxed"
+                style={{ color: "var(--text-primary)" }}
+              >
+                {openClawConfig[activeSection] !== undefined ? (
+                  <JsonTree data={openClawConfig[activeSection]} />
+                ) : (
+                  <span style={{ color: "var(--text-muted)" }}>
+                    No configuration for this section
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="p-8 text-center">
+            <p style={{ color: "var(--text-muted)" }}>
+              Failed to load configuration
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div
+        className="mt-6 md:mt-8 p-3 md:p-4 rounded-xl"
+        style={{
+          backgroundColor: "rgba(26, 26, 26, 0.5)",
+          border: "1px solid var(--border)",
+        }}
+      >
+        <div
+          className="flex items-center justify-between text-sm"
+          style={{ color: "var(--text-muted)" }}
+        >
           <span>Mission Control v1.0.0</span>
-          <span>OpenClaw Agent Dashboard</span>
+          <span>Harris Autonomous · OpenClaw Agent Dashboard</span>
         </div>
       </div>
     </div>
