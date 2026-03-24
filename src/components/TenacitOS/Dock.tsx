@@ -100,13 +100,20 @@ const settingsItem: NavItem = { href: "/settings", label: "Settings", icon: Sett
 
 const STORAGE_KEY = "dock-group-state";
 
+const DEFAULT_GROUP_STATE: Record<string, boolean> = {
+  command: true,
+  operations: true,
+  intelligence: false,
+  infrastructure: false,
+};
+
 function loadGroupState(): Record<string, boolean> {
-  if (typeof window === "undefined") return {};
+  if (typeof window === "undefined") return DEFAULT_GROUP_STATE;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    return raw ? { ...DEFAULT_GROUP_STATE, ...JSON.parse(raw) } : DEFAULT_GROUP_STATE;
   } catch {
-    return {};
+    return DEFAULT_GROUP_STATE;
   }
 }
 
