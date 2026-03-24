@@ -100,7 +100,14 @@ export async function POST(request: NextRequest) {
     }
 
     const start = Date.now();
-    const { stdout, stderr } = await execAsync(command, { timeout: 10000, maxBuffer: 1024 * 1024 });
+    const { stdout, stderr } = await execAsync(command, {
+      timeout: 15000,
+      maxBuffer: 1024 * 1024,
+      env: {
+        ...process.env,
+        PATH: `/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
+      },
+    });
     const duration = Date.now() - start;
 
     return NextResponse.json({
