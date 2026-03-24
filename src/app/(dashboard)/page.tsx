@@ -728,9 +728,9 @@ export default function DashboardPage() {
           </div>
           <div className="p-4 grid grid-cols-3 gap-3">
             {[
-              { href: "/tasks", icon: Plus, label: "New Task", color: "var(--accent)", desc: "Add to board" },
+              { href: "/tasks", icon: Plus, label: "New Task", color: "var(--accent)", desc: "⌘T" },
               { href: "/cron", icon: Play, label: "Run Cron Job", color: "#f59e0b", desc: "Trigger a job" },
-              { href: "/search", icon: Search, label: "Search Files", color: "#60a5fa", desc: "Find anything" },
+              { href: "/search", icon: Search, label: "Search Files", color: "#60a5fa", desc: "⌘K" },
               { href: "/terminal", icon: Terminal, label: "Terminal", color: "#4ade80", desc: "Run commands" },
               { href: "/agents", icon: Bot, label: "Agents", color: "#a78bfa", desc: "View team" },
               { href: "/costs", icon: DollarSign, label: "Cost Report", color: "#f472b6", desc: "Spend today" },

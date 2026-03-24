@@ -6,6 +6,8 @@ import { NextResponse } from "next/server";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
+import { execSync } from "child_process";
+import os from "os";
 
 const WORKSPACE = process.env.OPENCLAW_WORKSPACE || "/Users/timharris/.openclaw/workspace";
 const DATA_PATH = join(process.cwd(), "data", "notifications.json");
@@ -105,6 +107,57 @@ export async function POST() {
         }
       }
     }
+
+    // System health checks
+    try {
+      // Disk space check
+      const dfOutput = execSync("df -BG / | tail -1", { timeout: 5000 }).toString();
+      const parts = dfOutput.trim().split(/\s+/);
+      if (parts.length >= 5) {
+        const usePercent = parseInt(parts[4].replace("%", ""));
+        if (usePercent >= 90) {
+          const title = "⚠️ Disk Space Warning";
+          const message = `Root disk is ${usePercent}% full — consider cleanup`;
+          const key = title + message;
+          if (!existingTitles.has(key)) {
+            newNotifs.push({
+              id: randomUUID(),
+              timestamp: new Date().toISOString(),
+              title,
+              message,
+              type: "warning",
+              read: false,
+              link: "/system",
+            });
+            existingTitles.add(key);
+          }
+        }
+      }
+    } catch {}
+
+    // Memory check
+    try {
+      const totalMem = os.totalmem();
+      const freeMem = os.freemem();
+      const usedPct = Math.round(((totalMem - freeMem) / totalMem) * 100);
+      if (usedPct >= 90) {
+        const title = "⚠️ High Memory Usage";
+        const message = `RAM usage at ${usedPct}% — system may be under load`;
+        const key = title + "mem";
+        if (!existingTitles.has(key)) {
+          newNotifs.push({
+            id: randomUUID(),
+            timestamp: new Date().toISOString(),
+            title,
+            message,
+            type: "warning",
+            read: false,
+            link: "/system",
+          });
+          existingTitles.add(key);
+        }
+      }
+    } catch {}
 
     if (newNotifs.length > 0) {
       const updated = [...newNotifs, ...existing].slice(0, 100);

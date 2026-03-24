@@ -75,7 +75,10 @@ export function NotificationDropdown() {
   };
 
   useEffect(() => {
-    fetchNotifications();
+    // Sync on mount to populate from tasks-log, then fetch
+    fetch("/api/notifications/sync", { method: "POST" }).catch(() => {}).finally(() => {
+      fetchNotifications();
+    });
     // Poll for new notifications every 60 seconds
     const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
