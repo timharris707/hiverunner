@@ -8,8 +8,6 @@ import {
   X,
   Send,
   CheckCircle2,
-  Clock,
-  ChevronRight,
   Loader2,
   AlertCircle,
   MessageSquarePlus,
@@ -18,6 +16,8 @@ import {
   Trophy,
   RefreshCw,
 } from "lucide-react";
+import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
+import { getAgentByAnyId } from "@/config/agents";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -124,6 +124,7 @@ function EventBubble({ event }: { event: AdvisoryEvent }) {
   const icon = getEventIcon(event.type, event.verdict);
   const badge = getRoleBadge(event.role, event.type);
   const isSystem = event.type === "start" || event.type === "complete";
+  const agentConfig = getAgentByAnyId(event.speaker);
 
   return (
     <div
@@ -137,7 +138,13 @@ function EventBubble({ event }: { event: AdvisoryEvent }) {
     >
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-        <span style={{ fontSize: "16px", lineHeight: 1 }}>{isSystem ? icon : event.emoji}</span>
+        {isSystem ? (
+          <span style={{ fontSize: "16px", lineHeight: 1 }}>{icon}</span>
+        ) : agentConfig ? (
+          <AgentAvatar agentId={event.speaker} size={32} borderWidth={2} />
+        ) : (
+          <span style={{ fontSize: "16px", lineHeight: 1 }}>{event.emoji}</span>
+        )}
         <span style={{ fontWeight: 700, fontSize: "13px", color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
           {event.speaker}
         </span>
@@ -182,10 +189,6 @@ function SessionListItem({
   onClick: () => void;
 }) {
   const badge = getStatusBadge(session.status);
-  const agentEmojis = session.agents
-    .slice(0, 4)
-    .map((a) => AGENTS.find((ag) => ag.id === a)?.emoji ?? "🤖")
-    .join(" ");
 
   return (
     <button
@@ -227,7 +230,7 @@ function SessionListItem({
           fontSize: "12px",
           fontWeight: 600,
           color: "var(--text-primary)",
-          marginBottom: "4px",
+          marginBottom: "6px",
           lineHeight: 1.4,
           display: "-webkit-box",
           WebkitLineClamp: 2,
@@ -237,10 +240,11 @@ function SessionListItem({
       >
         {session.topic}
       </div>
-      <div style={{ fontSize: "11px", color: "var(--text-muted)", display: "flex", alignItems: "center", gap: "6px" }}>
-        <span>{agentEmojis}</span>
-        <span>·</span>
-        <span>{session.eventCount ?? session.events?.length ?? 0} events</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <AvatarStack agentIds={session.agents} size={22} max={4} />
+        <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+          {session.eventCount ?? session.events?.length ?? 0} events
+        </span>
       </div>
     </button>
   );
@@ -407,11 +411,16 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                     cursor: "pointer",
                     textAlign: "left",
                     transition: "all 150ms ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
                   }}
                 >
-                  <div style={{ fontSize: "14px", marginBottom: "2px" }}>{agent.emoji}</div>
-                  <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
-                  <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
+                  <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
+                    <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
+                  </div>
                 </button>
               );
             })}
@@ -913,30 +922,7 @@ export default function AdvisoryPage() {
 
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
                     {/* Participants */}
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      {activeSession.agents.map((agentId) => {
-                        const agent = AGENTS.find((a) => a.id === agentId);
-                        return (
-                          <span
-                            key={agentId}
-                            title={`${agent?.emoji ?? "🤖"} ${agentId}`}
-                            style={{
-                              fontSize: "16px",
-                              width: "28px",
-                              height: "28px",
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              backgroundColor: "var(--surface-elevated)",
-                              borderRadius: "50%",
-                              border: "1px solid var(--border)",
-                            }}
-                          >
-                            {agent?.emoji ?? "🤖"}
-                          </span>
-                        );
-                      })}
-                    </div>
+                    <AvatarStack agentIds={activeSession.agents} size={28} max={5} />
 
                     <div style={{ fontSize: "11px", color: "var(--text-muted)", textAlign: "right" }}>
                       <div>{events.length} events</div>
@@ -1147,12 +1133,12 @@ export default function AdvisoryPage() {
               <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginBottom: "10px" }}>
                 PARTICIPANTS
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {activeSession.agents.map((agentId) => {
                   const agent = AGENTS.find((a) => a.id === agentId);
                   return (
                     <div key={agentId} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                      <span style={{ fontSize: "16px" }}>{agent?.emoji ?? "🤖"}</span>
+                      <AgentAvatar agentId={agentId} size={32} borderWidth={2} />
                       <div>
                         <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agentId}</div>
                         <div style={{ fontSize: "9px", color: "var(--text-muted)" }}>{agent?.role ?? "Agent"}</div>

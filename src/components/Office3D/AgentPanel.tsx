@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react';
 import type { AgentConfig, AgentState } from './agentsConfig';
+import { AgentAvatar } from '@/components/AgentAvatar';
 
 interface AgentPanelProps {
   agent: AgentConfig;
@@ -34,12 +35,15 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
     <div className="absolute right-0 top-0 h-full w-96 bg-black/90 backdrop-blur-md text-white p-6 shadow-2xl border-l border-white/10">
       {/* Header */}
       <div className="flex items-start justify-between mb-6">
-        <div>
-          <h2 className="text-2xl font-bold flex items-center gap-2">
-            <span className="text-4xl">{agent.emoji}</span>
-            {agent.name}
-          </h2>
-          <p className="text-sm text-gray-400 mt-1">{agent.role}</p>
+        <div className="flex items-center gap-3">
+          <AgentAvatar agentId={agent.id} size={56} borderColor={agent.color} borderWidth={2} />
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              {agent.name}
+              <span className="text-2xl">{agent.emoji}</span>
+            </h2>
+            <p className="text-sm text-gray-400 mt-1">{agent.role}</p>
+          </div>
         </div>
         <button
           onClick={onClose}

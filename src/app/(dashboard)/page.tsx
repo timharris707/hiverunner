@@ -27,6 +27,7 @@ import {
   Play,
 } from "lucide-react";
 import Link from "next/link";
+import { AgentAvatar } from "@/components/AgentAvatar";
 
 interface Stats {
   total: number;
@@ -358,12 +359,7 @@ export default function DashboardPage() {
         {/* Henry at top */}
         <div className="px-5 pt-4 pb-2">
           <div className="flex items-center gap-4 mb-4">
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-              style={{ backgroundColor: "#f59e0b20", border: "2px solid #f59e0b" }}
-            >
-              ⚡
-            </div>
+            <AgentAvatar agentId="henry" size={52} borderColor="#f59e0b" borderWidth={2} />
             <div>
               <div
                 className="font-bold text-base"
@@ -408,8 +404,8 @@ export default function DashboardPage() {
                       border: `1px solid ${agent.color}40`,
                     }}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-lg">{agent.emoji}</span>
+                    <div className="flex items-center justify-between mb-2">
+                      <AgentAvatar agentId={agent.id} size={36} borderColor={agent.color} borderWidth={2} />
                       <Circle
                         className="w-2 h-2"
                         style={{

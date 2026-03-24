@@ -80,6 +80,12 @@ export async function POST(req: NextRequest) {
     const filePath = path.join(DATA_DIR, `${id}.json`);
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
 
+    // TODO: Session Memory — When a session completes, write key decisions to each
+    // participating agent's memory file (memory/agents/<agentId>/sessions.md) so they
+    // retain context for future roundtables. This should be triggered from the PATCH
+    // endpoint (status → "completed") and should summarize: topic, outcome, date, and
+    // any action items the agent was assigned.
+
     return NextResponse.json({ session });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

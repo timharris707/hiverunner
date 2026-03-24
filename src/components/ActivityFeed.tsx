@@ -17,6 +17,19 @@ import {
   Brain,
 } from "lucide-react";
 import { RichDescription } from "./RichDescription";
+import { AgentAvatar } from "./AgentAvatar";
+import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
+
+/** Try to detect which agent an activity belongs to from its description */
+function detectAgent(description: string) {
+  if (!description) return undefined;
+  const lower = description.toLowerCase();
+  // Look for agent names in the description
+  for (const agent of AGENT_CONFIGS) {
+    if (lower.includes(agent.name.toLowerCase())) return agent;
+  }
+  return undefined;
+}
 
 interface Activity {
   id: string;
@@ -105,6 +118,7 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
         const type = typeConfig[activity.type] || typeConfig.default;
         const status = statusConfig[activity.status] || statusConfig.success;
         const TypeIcon = type.icon;
+        const detectedAgent = detectAgent(activity.description);
 
         return (
           <div
@@ -120,13 +134,17 @@ export function ActivityFeed({ limit = 10 }: ActivityFeedProps) {
               e.currentTarget.style.backgroundColor = 'transparent';
             }}
           >
-            {/* Icon */}
-            <div 
-              className="w-7 h-7 md:w-9 md:h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-              style={{ backgroundColor: type.bgColor }}
-            >
-              <TypeIcon className="w-3.5 h-3.5 md:w-[18px] md:h-[18px]" style={{ color: type.color }} />
-            </div>
+            {/* Icon or agent avatar */}
+            {detectedAgent ? (
+              <AgentAvatar agentId={detectedAgent.id} size={36} borderWidth={2} className="flex-shrink-0" />
+            ) : (
+              <div 
+                className="w-7 h-7 md:w-9 md:h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                style={{ backgroundColor: type.bgColor }}
+              >
+                <TypeIcon className="w-3.5 h-3.5 md:w-[18px] md:h-[18px]" style={{ color: type.color }} />
+              </div>
+            )}
 
             {/* Content */}
             <div className="flex-1 min-w-0">

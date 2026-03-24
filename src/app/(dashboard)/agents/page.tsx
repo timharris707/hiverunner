@@ -4,9 +4,6 @@ import { useEffect, useState } from "react";
 import {
   Bot,
   Circle,
-  MessageSquare,
-  HardDrive,
-  Shield,
   Users,
   Activity,
   GitBranch,
@@ -20,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AgentOrgChart } from "@/components/AgentOrgChart";
+import { AgentAvatar } from "@/components/AgentAvatar";
 
 // The full org roster — static data for all 9 agents
 const ORG_AGENTS = [
@@ -427,15 +425,13 @@ export default function AgentsPage() {
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <div
-                        className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl"
-                        style={{
-                          backgroundColor: `${agent.divisionColor}20`,
-                          border: `2px solid ${agent.divisionColor}`,
-                        }}
-                      >
-                        {agent.emoji}
-                      </div>
+                      <AgentAvatar
+                        agentId={agent.id}
+                        size={64}
+                        borderColor={agent.divisionColor}
+                        borderWidth={2}
+                        className="rounded-full"
+                      />
                       <div>
                         <h3
                           className="text-lg font-bold"
@@ -622,7 +618,7 @@ function OrgChartView({ agents }: { agents: Array<Record<string, any>> }) {
 
         {/* Henry */}
         <div
-          className="px-6 py-3 rounded-xl font-bold text-center mb-2"
+          className="px-6 py-3 rounded-xl font-bold text-center mb-2 flex flex-col items-center"
           style={{
             backgroundColor: `${henry.divisionColor}20`,
             border: `2px solid ${henry.divisionColor}`,
@@ -631,7 +627,7 @@ function OrgChartView({ agents }: { agents: Array<Record<string, any>> }) {
             boxShadow: `0 0 20px ${henry.divisionColor}30`,
           }}
         >
-          <div className="text-2xl">{henry.emoji}</div>
+          <AgentAvatar agentId="henry" size={56} borderColor={henry.divisionColor} borderWidth={2} className="mb-2" />
           <div style={{ fontFamily: "var(--font-heading)" }}>{henry.name}</div>
           <div className="text-xs" style={{ color: henry.divisionColor }}>
             {henry.role}
@@ -680,14 +676,14 @@ function OrgChartView({ agents }: { agents: Array<Record<string, any>> }) {
                     return (
                       <div
                         key={agent.id}
-                        className="px-4 py-2 rounded-xl text-center"
+                        className="px-4 py-2 rounded-xl flex flex-col items-center"
                         style={{
                           backgroundColor: `${color}10`,
                           border: `1px solid ${color}30`,
                           minWidth: "140px",
                         }}
                       >
-                        <div className="text-lg">{agent.emoji}</div>
+                        <AgentAvatar agentId={agent.id} size={40} borderColor={color} borderWidth={2} className="mb-1.5" />
                         <div
                           className="text-xs font-bold"
                           style={{ color: "var(--text-primary)" }}
