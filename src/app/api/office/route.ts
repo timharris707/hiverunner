@@ -5,7 +5,7 @@ import { join } from "path";
 export const dynamic = "force-dynamic";
 
 const AGENT_CONFIG = {
-  main: { emoji: "🦞", color: "#ff6b35", name: "Tenacitas", role: "Boss" },
+  main: { emoji: "⚡", color: "#f59e0b", name: "Henry", role: "Chief of Staff" },
   academic: {
     emoji: "🎓",
     color: "#4ade80",

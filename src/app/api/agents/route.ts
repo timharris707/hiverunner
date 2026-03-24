@@ -30,9 +30,9 @@ interface Agent {
 // Override via each agent's openclaw.json → ui.emoji / ui.color / name fields.
 const DEFAULT_AGENT_CONFIG: Record<string, { emoji: string; color: string; name?: string }> = {
   main: {
-    emoji: process.env.NEXT_PUBLIC_AGENT_EMOJI || "🤖",
-    color: "#ff6b35",
-    name: process.env.NEXT_PUBLIC_AGENT_NAME || "Mission Control",
+    emoji: process.env.NEXT_PUBLIC_AGENT_EMOJI || "⚡",
+    color: "#f59e0b",
+    name: process.env.NEXT_PUBLIC_AGENT_NAME || "Henry",
   },
 };
 

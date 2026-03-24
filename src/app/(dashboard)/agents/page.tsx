@@ -98,10 +98,10 @@ export default function AgentsPage() {
           }}
         >
           <Users className="inline-block w-8 h-8 mr-2 mb-1" />
-          Agents
+          Agent Roster — Harris Autonomous
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-          Multi-agent system overview • {agents.length} agents configured
+          9 agents · 5 divisions · Henry ⚡ orchestrating · {agents.length} configured in OpenClaw
         </p>
       </div>
 

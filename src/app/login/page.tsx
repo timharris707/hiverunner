@@ -30,10 +30,10 @@ function LoginForm() {
         router.push(from);
         router.refresh();
       } else {
-        setError("Contraseña incorrecta");
+        setError("Incorrect password");
       }
     } catch {
-      setError("Error de conexión");
+      setError("Connection error");
     }
 
     setLoading(false);
@@ -54,7 +54,7 @@ function LoginForm() {
             className="w-7 h-7" 
             style={{ color: 'var(--accent)' }} 
           />
-          <span className="text-2xl">🦞</span>
+          <span className="text-2xl">⚡</span>
           <h1 
             className="text-xl font-bold"
             style={{ 
@@ -63,14 +63,14 @@ function LoginForm() {
               letterSpacing: '-0.5px'
             }}
           >
-            Mission Control
+            Harris Mission Control
           </h1>
         </div>
         <p 
           className="text-sm"
           style={{ color: 'var(--text-secondary)' }}
         >
-          Introduce la contraseña para acceder
+          Enter password to access
         </p>
       </div>
 
@@ -91,7 +91,7 @@ function LoginForm() {
               border: '1px solid var(--border)',
               color: 'var(--text-primary)',
             }}
-            placeholder="Contraseña"
+            placeholder="Password"
             required
           />
         </div>
@@ -118,7 +118,7 @@ function LoginForm() {
             color: 'white',
           }}
         >
-          {loading ? "Verificando..." : "Entrar"}
+          {loading ? "Verifying..." : "Enter"}
         </button>
       </form>
 
@@ -127,7 +127,7 @@ function LoginForm() {
         className="text-center text-xs mt-6"
         style={{ color: 'var(--text-muted)' }}
       >
-        Tenacitas Agent Dashboard
+        Harris Autonomous ⚡
       </p>
     </div>
   );

@@ -15,20 +15,22 @@ import {
   DollarSign,
   Settings,
   History,
+  Kanban,
+  TrendingUp,
 } from "lucide-react";
 
 const dockItems = [
   { href: "/", label: "Dashboard", icon: Home },
-  { href: "/system", label: "System Monitor", icon: Monitor },
-  { href: "/files", label: "Files", icon: FolderOpen },
-  { href: "/memory", label: "Memory", icon: Brain },
   { href: "/agents", label: "Agents", icon: Bot },
-  { href: "/office", label: "Office", icon: Building2 },
+  { href: "/tasks", label: "Task Board", icon: Kanban },
   { href: "/activity", label: "Activity", icon: Activity },
+  { href: "/trading", label: "Trading Desk", icon: TrendingUp },
   { href: "/cron", label: "Cron Jobs", icon: Clock },
-  { href: "/sessions", label: "Sessions", icon: History },
+  { href: "/system", label: "System", icon: Monitor },
+  { href: "/costs", label: "Costs", icon: DollarSign },
+  { href: "/memory", label: "Memory", icon: Brain },
+  { href: "/files", label: "Files", icon: FolderOpen },
   { href: "/skills", label: "Skills", icon: Puzzle },
-  { href: "/costs", label: "Costs & Analytics", icon: DollarSign },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 

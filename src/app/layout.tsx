@@ -19,8 +19,8 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Mission Control - OpenClaw",
-  description: "Your OpenClaw agent dashboard",
+  title: "Harris Mission Control",
+  description: "Harris Autonomous — Command center for the AI org",
   manifest: "/manifest.json",
   themeColor: "#1a1a2e",
   appleWebApp: {
