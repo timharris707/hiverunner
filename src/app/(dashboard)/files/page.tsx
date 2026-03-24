@@ -239,7 +239,7 @@ export default function FilesPage() {
                 fontSize: "14px",
               }}
             >
-              Selecciona un workspace para explorar sus archivos
+              Select a workspace to explore its files
             </div>
           )}
         </main>
