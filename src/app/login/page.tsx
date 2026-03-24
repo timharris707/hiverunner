@@ -27,8 +27,8 @@ function LoginForm() {
 
       if (data.success) {
         const from = searchParams.get("from") || "/";
-        router.push(from);
-        router.refresh();
+        window.location.href = from;
+        return;
       } else {
         setError("Incorrect password");
       }
@@ -136,7 +136,7 @@ function LoginForm() {
 export default function LoginPage() {
   return (
     <div 
-      className="min-h-screen flex items-center justify-center p-4 -ml-64"
+      className="min-h-screen flex items-center justify-center p-4"
       style={{ backgroundColor: 'var(--background)' }}
     >
       <div className="w-full max-w-md">
