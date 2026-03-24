@@ -12,18 +12,16 @@ interface HistoryEntry {
 }
 
 const QUICK_COMMANDS = [
+  "openclaw status",
+  "openclaw cron list",
+  "openclaw models status",
+  "git -C /Users/timharris/.openclaw/workspace/projects/mission-control-app log --oneline -20",
+  "ls /Users/timharris/.openclaw/workspace/projects",
+  "cat /Users/timharris/.openclaw/workspace/AUTONOMOUS.md",
   "df -h /",
-  "free -h",
   "uptime",
   "ps aux | grep node",
-  "systemctl status mission-control",
-  "pm2 list",
-  "ls /root/.openclaw/workspace",
-  "git -C /root/.openclaw/workspace/mission-control status",
-  "journalctl -u mission-control -n 20 --no-pager",
-  "docker ps",
-  "netstat -tlnp",
-  "cat /proc/loadavg",
+  "ls /Users/timharris/.openclaw/agents/main/sessions | wc -l",
 ];
 
 export default function TerminalPage() {
@@ -123,7 +121,7 @@ export default function TerminalPage() {
               Browser Terminal
             </h1>
             <p style={{ color: "var(--text-muted)", fontSize: "0.8rem" }}>
-              Read-only commands only (ls, cat, df, ps, git status, etc.)
+              Safe read-only commands: openclaw, ls, cat, git log, df, ps — destructive commands blocked
             </p>
           </div>
           <div style={{ display: "flex", gap: "0.5rem" }}>

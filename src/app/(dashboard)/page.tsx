@@ -20,6 +20,11 @@ import {
   Clock,
   Star,
   Bot,
+  Target,
+  Terminal,
+  Search,
+  Plus,
+  Play,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -153,7 +158,7 @@ const ACTIVE_PROJECTS = [
     agent: "T3",
     color: "#4ade80",
     icon: "₿",
-    href: "/tasks",
+    href: "/files?path=/Users/timharris/.openclaw/workspace/projects/crypto-trading",
   },
   {
     name: "Mission Control",
@@ -162,7 +167,7 @@ const ACTIVE_PROJECTS = [
     agent: "Full-Stack Eng",
     color: "#60a5fa",
     icon: "🎛️",
-    href: "/tasks",
+    href: "/files?path=/Users/timharris/.openclaw/workspace/projects/mission-control-app",
   },
   {
     name: "Karpathy Loop",
@@ -171,8 +176,16 @@ const ACTIVE_PROJECTS = [
     agent: "Henry",
     color: "#f59e0b",
     icon: "🔬",
-    href: "/tasks",
+    href: "/files?path=/Users/timharris/.openclaw/workspace/projects/karpathy-loop",
   },
+];
+
+const TIM_GOALS = [
+  { icon: "💰", text: "Profitable stock, options & crypto trading systems" },
+  { icon: "🌩️", text: "Weather prediction trading (Polymarket + Kalshi)" },
+  { icon: "📱", text: "Phone/web apps that generate income" },
+  { icon: "🔬", text: "Karpathy Loop: apply autoresearch to everything" },
+  { icon: "🤖", text: "Full agent team deployable 24/7/365" },
 ];
 
 const STATUS_COLORS: Record<string, string> = {
@@ -647,6 +660,94 @@ export default function DashboardPage() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Actions + Goals */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        {/* Quick Actions */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <Play className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Quick Actions
+              </h2>
+            </div>
+          </div>
+          <div className="p-4 grid grid-cols-3 gap-3">
+            {[
+              { href: "/tasks", icon: Plus, label: "New Task", color: "var(--accent)", desc: "Add to board" },
+              { href: "/cron", icon: Play, label: "Run Cron Job", color: "#f59e0b", desc: "Trigger a job" },
+              { href: "/search", icon: Search, label: "Search Files", color: "#60a5fa", desc: "Find anything" },
+              { href: "/terminal", icon: Terminal, label: "Terminal", color: "#4ade80", desc: "Run commands" },
+              { href: "/agents", icon: Bot, label: "Agents", color: "#a78bfa", desc: "View team" },
+              { href: "/costs", icon: DollarSign, label: "Cost Report", color: "#f472b6", desc: "Spend today" },
+            ].map(({ href, icon: Icon, label, color, desc }) => (
+              <Link
+                key={href}
+                href={href}
+                className="flex flex-col items-center p-3 rounded-xl transition-all hover:scale-[1.03] text-center"
+                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+              >
+                <div
+                  className="w-10 h-10 rounded-lg flex items-center justify-center mb-2"
+                  style={{ backgroundColor: `${color}20` }}
+                >
+                  <Icon className="w-5 h-5" style={{ color }} />
+                </div>
+                <span className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{label}</span>
+                <span className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{desc}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* Tim's Goals */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <Target className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Mission Goals
+              </h2>
+            </div>
+            <Link href="/about" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              About →
+            </Link>
+          </div>
+          <div className="p-4 space-y-2">
+            {TIM_GOALS.map((goal, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-3 p-3 rounded-lg"
+                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+              >
+                <span className="text-xl flex-shrink-0">{goal.icon}</span>
+                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{goal.text}</span>
+              </div>
+            ))}
           </div>
         </div>
       </div>

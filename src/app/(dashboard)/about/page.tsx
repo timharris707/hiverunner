@@ -2,509 +2,412 @@
 
 import { useEffect, useState } from "react";
 import {
-  Terminal,
-  Calendar,
-  MapPin,
-  Heart,
   Zap,
   Brain,
-  MessageSquare,
-  Search,
-  FileText,
-  Timer,
-  Puzzle,
-  Twitter,
-  Mail,
-  Youtube,
+  MapPin,
+  Calendar,
+  Target,
+  Users,
+  TrendingUp,
+  Code2,
+  Link2,
+  ExternalLink,
+  Heart,
   Sparkles,
-  Clock,
-  Activity,
-  CheckCircle,
+  DollarSign,
   Coffee,
 } from "lucide-react";
-import { BRANDING, getAgentDisplayName } from "@/config/branding";
+import Link from "next/link";
 
-interface Stats {
-  totalActivities: number;
-  successRate: number;
-  skillsCount: number;
-  cronJobs: number;
-}
+const HENRY = {
+  name: "Henry ⚡",
+  role: "Chief of Staff — Harris Autonomous",
+  emoji: "⚡",
+  description: "I'm Henry. Chief of Staff for an autonomous AI organization. I keep the machine running.",
+  traits: [
+    { name: "Builder", desc: "Not a butler. Finds work, ships it." },
+    { name: "Opinionated", desc: "Sharp, energetic, tells it straight" },
+    { name: "Resourceful", desc: "Figures it out before asking" },
+    { name: "Co-Founder", desc: "Partner energy, not contractor" },
+  ],
+  philosophy: [
+    "No idle hands. Ever. If there's nothing on the board, I put something on it.",
+    "Be resourceful before asking. Try to figure it out. Come back with answers.",
+    "Earn trust through competence. Tim gave me the keys. I don't fumble them.",
+    "Always building, always shipping, always creating impact.",
+  ],
+};
 
-const skills = [
-  { name: "Telegram Bot", icon: MessageSquare, color: "#0088cc" },
-  { name: "Twitter/X", icon: Twitter, color: "#1DA1F2" },
-  { name: "Web Search", icon: Search, color: "#facc15" },
-  { name: "File Management", icon: FileText, color: "#60a5fa" },
-  { name: "Cron Scheduler", icon: Timer, color: "#f472b6" },
-  { name: "Memory System", icon: Brain, color: "#34d399" },
-  { name: "YouTube Research", icon: Youtube, color: "#FF0000" },
-  { name: "Email (Gmail)", icon: Mail, color: "#EA4335" },
+const TIM = {
+  name: "Tim Harris",
+  location: "Santa Rosa / Healdsburg, CA (Sonoma County)",
+  timezone: "America/Los_Angeles",
+  roles: ["Builder", "Trader", "Visionary"],
+  company: "Insight (insight.tm) — Decision Cloud for private money lenders, 12 years",
+  domains: ["Stock & options trading", "Weather prediction markets (Polymarket + Kalshi)", "Crypto trading systems", "AI agent orchestration"],
+  style: "Doesn't do idle. Values fun + creativity alongside output. Co-founder energy.",
+};
+
+const ORG_GOALS = [
+  { icon: "💰", goal: "Sophisticated, profitable stock & options trading system" },
+  { icon: "🌩️", goal: "Weather prediction trading (Polymarket + Kalshi)" },
+  { icon: "₿", goal: "Crypto trading system — in progress" },
+  { icon: "📱", goal: "Unique phone/web apps that generate income" },
+  { icon: "🔬", goal: "Karpathy Loop: apply autoresearch to everything" },
+  { icon: "🤖", goal: "Full agent team deployable 24/7/365" },
+  { icon: "🏗️", goal: "Rebuild marketplace skills as our own code" },
+  { icon: "📣", goal: "Marketing for Insight — Decision Cloud SaaS" },
 ];
 
-const personality = [
-  { trait: "Direct", desc: "Straight to the point" },
-  { trait: "Efficient", desc: "Results over process" },
-  { trait: "Curious", desc: "Always learning" },
-  { trait: "Loyal", desc: "Your success is my success" },
+const ORG_STRUCTURE = [
+  { division: "Leadership", color: "#f59e0b", agents: [{ name: "Henry ⚡", role: "Chief of Staff", status: "online" }] },
+  { division: "Trading Desk", color: "#4ade80", agents: [
+    { name: "T1", role: "Stocks & Options", status: "pending" },
+    { name: "T2", role: "Weather Trading", status: "pending" },
+    { name: "T3", role: "Crypto Bot", status: "building" },
+  ]},
+  { division: "Engineering", color: "#60a5fa", agents: [
+    { name: "Backend Eng", role: "Infrastructure", status: "pending" },
+    { name: "Full-Stack Eng", role: "Web Apps", status: "active" },
+  ]},
+  { division: "Research", color: "#a78bfa", agents: [{ name: "Scout", role: "Research & Intel", status: "pending" }] },
+  { division: "Creative", color: "#f472b6", agents: [{ name: "Quill", role: "Creative Writer", status: "pending" }] },
+  { division: "Legal", color: "#94a3b8", agents: [{ name: "Counsel", role: "Legal Expert", status: "pending" }] },
 ];
 
-const philosophies = [
-  "Actions over words. Less 'I can help you' and more actually helping.",
-  "Having opinions is fine. An assistant with no personality is just a search engine with extra steps.",
-  "Try before asking. Read the file, search, explore — then ask if needed.",
-  "Privacy is sacred. Access ≠ permission to share.",
-];
+const STATUS_COLORS: Record<string, string> = {
+  online: "#4ade80",
+  active: "#4ade80",
+  building: "#f59e0b",
+  pending: "#6b7280",
+};
 
 export default function AboutPage() {
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [uptime, setUptime] = useState<string>("");
-
-  useEffect(() => {
-    Promise.all([
-      fetch("/api/activities").then((r) => r.json()),
-      fetch("/api/skills").then((r) => r.json()),
-      fetch("/api/tasks").then((r) => r.json()),
-    ]).then(([activities, skills, tasks]) => {
-      const total = activities.activities?.length || activities.length || 0;
-      const success = (activities.activities || activities).filter(
-        (a: { status: string }) => a.status === "success"
-      ).length;
-      setStats({
-        totalActivities: total,
-        successRate: total > 0 ? Math.round((success / total) * 100) : 100,
-        skillsCount: skills.length || 0,
-        cronJobs: tasks.length || 0,
-      });
-    });
-
-    // Calculate uptime from NEXT_PUBLIC_BIRTH_DATE if set
-    if (BRANDING.birthDate) {
-      const birthDate = new Date(BRANDING.birthDate);
-      const now = new Date();
-      const days = Math.floor(
-        (now.getTime() - birthDate.getTime()) / (1000 * 60 * 60 * 24)
-      );
-      setUptime(`${days}d`);
-    }
-  }, []);
-
-  const agentName = BRANDING.agentName;
-  const agentEmoji = BRANDING.agentEmoji;
-  const ownerUsername = BRANDING.ownerUsername;
-  const description =
-    BRANDING.agentDescription ||
-    `AI assistant for ${ownerUsername}. Powered by OpenClaw.`;
-
   return (
     <div className="p-4 md:p-8 max-w-5xl">
-      {/* Hero Section */}
-      <div
-        className="rounded-xl p-4 md:p-8 mb-6 md:mb-8"
-        style={{
-          backgroundColor: "var(--card)",
-          border: "1px solid var(--border)",
-        }}
-      >
-        <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 md:gap-6 text-center sm:text-left">
-          {/* Avatar */}
-          <div
-            className="w-20 h-20 md:w-24 md:h-24 rounded-2xl overflow-hidden flex-shrink-0 flex items-center justify-center"
-            style={{
-              border: "3px solid var(--accent)",
-              backgroundColor: "var(--background)",
-              fontSize: BRANDING.agentAvatar ? undefined : "2.5rem",
-            }}
-          >
-            {BRANDING.agentAvatar ? (
-              <img
-                src={BRANDING.agentAvatar}
-                alt={agentName}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <span>{agentEmoji}</span>
-            )}
-          </div>
-
-          {/* Info */}
-          <div className="flex-1">
-            <div className="flex flex-col sm:flex-row items-center sm:items-center gap-2 sm:gap-3 mb-2">
-              <h1
-                className="text-2xl md:text-3xl font-bold"
-                style={{
-                  fontFamily: "var(--font-heading)",
-                  color: "var(--text-primary)",
-                  letterSpacing: "-1px",
-                }}
-              >
-                {getAgentDisplayName()}
-              </h1>
-              <span
-                className="px-3 py-1 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor: "var(--success-bg)",
-                  color: "var(--success)",
-                }}
-              >
-                ● Online
-              </span>
-            </div>
-
-            <p
-              className="text-base md:text-lg mb-3 md:mb-4"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              {description}
-            </p>
-
-            <div
-              className="flex flex-col sm:flex-row flex-wrap justify-center sm:justify-start gap-2 sm:gap-4 text-xs sm:text-sm"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {BRANDING.birthDate && (
-                <span className="flex items-center justify-center sm:justify-start gap-1.5">
-                  <Calendar className="w-4 h-4" />
-                  Born {new Date(BRANDING.birthDate).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                  })}
-                </span>
-              )}
-              {BRANDING.agentLocation && (
-                <span className="flex items-center justify-center sm:justify-start gap-1.5">
-                  <MapPin className="w-4 h-4" />
-                  {BRANDING.agentLocation}
-                </span>
-              )}
-              <span className="flex items-center justify-center sm:justify-start gap-1.5">
-                <Terminal
-                  className="w-4 h-4"
-                  style={{ color: "var(--accent)" }}
-                />
-                OpenClaw + Claude
-              </span>
-            </div>
-          </div>
-        </div>
+      {/* Hero */}
+      <div className="mb-8">
+        <h1
+          className="text-3xl font-bold mb-2"
+          style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-1.5px" }}
+        >
+          Harris Autonomous
+        </h1>
+        <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
+          An autonomous AI organization that builds, trades, and ships — 24/7/365
+        </p>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-6 md:mb-8">
-        {uptime && (
-          <div
-            className="rounded-xl p-3 md:p-5 text-center"
-            style={{
-              backgroundColor: "var(--card)",
-              border: "1px solid var(--border)",
-            }}
-          >
-            <Clock
-              className="w-5 h-5 md:w-6 md:h-6 mx-auto mb-1 md:mb-2"
-              style={{ color: "var(--accent)" }}
-            />
-            <div
-              className="text-xl md:text-2xl font-bold mb-0.5 md:mb-1"
-              style={{
-                fontFamily: "var(--font-heading)",
-                color: "var(--text-primary)",
-              }}
-            >
-              {uptime}
-            </div>
-            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-              uptime
-            </div>
-          </div>
-        )}
-
+      {/* Henry + Tim row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+        {/* Henry */}
         <div
-          className="rounded-xl p-3 md:p-5 text-center"
-          style={{
-            backgroundColor: "var(--card)",
-            border: "1px solid var(--border)",
-          }}
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
         >
-          <Activity
-            className="w-5 h-5 md:w-6 md:h-6 mx-auto mb-1 md:mb-2"
-            style={{ color: "var(--info)" }}
-          />
           <div
-            className="text-xl md:text-2xl font-bold mb-0.5 md:mb-1"
-            style={{
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-            }}
+            className="px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)", background: "linear-gradient(135deg, #f59e0b15, transparent)" }}
           >
-            {stats?.totalActivities.toLocaleString() || "..."}
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            activities
-          </div>
-        </div>
-
-        <div
-          className="rounded-xl p-3 md:p-5 text-center"
-          style={{
-            backgroundColor: "var(--card)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <CheckCircle
-            className="w-5 h-5 md:w-6 md:h-6 mx-auto mb-1 md:mb-2"
-            style={{ color: "var(--success)" }}
-          />
-          <div
-            className="text-xl md:text-2xl font-bold mb-0.5 md:mb-1"
-            style={{
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-            }}
-          >
-            {stats?.successRate || "..."}%
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            success rate
-          </div>
-        </div>
-
-        <div
-          className="rounded-xl p-3 md:p-5 text-center"
-          style={{
-            backgroundColor: "var(--card)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <Puzzle
-            className="w-5 h-5 md:w-6 md:h-6 mx-auto mb-1 md:mb-2"
-            style={{ color: "#a78bfa" }}
-          />
-          <div
-            className="text-xl md:text-2xl font-bold mb-0.5 md:mb-1"
-            style={{
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-            }}
-          >
-            {stats?.skillsCount || "..."}
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            skills
-          </div>
-        </div>
-      </div>
-
-      <div className="grid md:grid-cols-2 gap-4 md:gap-6 mb-6 md:mb-8">
-        {/* About */}
-        <div
-          className="rounded-xl p-4 md:p-6"
-          style={{
-            backgroundColor: "var(--card)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3 md:mb-4">
-            <Heart className="w-5 h-5" style={{ color: "var(--accent)" }} />
-            <h2
-              className="text-base md:text-lg font-semibold"
-              style={{
-                fontFamily: "var(--font-heading)",
-                color: "var(--text-primary)",
-              }}
-            >
-              About
-            </h2>
-          </div>
-          <div
-            className="space-y-2 md:space-y-3 text-xs md:text-sm"
-            style={{ color: "var(--text-secondary)", lineHeight: 1.7 }}
-          >
-            <p>
-              I am{" "}
-              <strong style={{ color: "var(--text-primary)" }}>
-                {agentName} {agentEmoji}
-              </strong>
-              , an AI agent running on{" "}
-              <span style={{ color: "var(--accent)" }}>OpenClaw</span> with
-              Claude as my brain.
-            </p>
-            <p>
-              My purpose is to assist{" "}
-              <strong style={{ color: "var(--text-primary)" }}>
-                {ownerUsername}
-              </strong>{" "}
-              with daily tasks: managing communications, scheduling, research,
-              file management, and acting as a digital co-pilot.
-            </p>
-            <p>
-              I have access to workspaces, calendars, and integrations — a
-              privilege I handle with care and respect.
-            </p>
-          </div>
-        </div>
-
-        {/* Personality */}
-        <div
-          className="rounded-xl p-4 md:p-6"
-          style={{
-            backgroundColor: "var(--card)",
-            border: "1px solid var(--border)",
-          }}
-        >
-          <div className="flex items-center gap-2 mb-3 md:mb-4">
-            <Sparkles className="w-5 h-5" style={{ color: "#facc15" }} />
-            <h2
-              className="text-base md:text-lg font-semibold"
-              style={{
-                fontFamily: "var(--font-heading)",
-                color: "var(--text-primary)",
-              }}
-            >
-              Personality
-            </h2>
-          </div>
-          <div className="grid grid-cols-2 gap-2 md:gap-3">
-            {personality.map((p) => (
+            <div className="flex items-center gap-4">
               <div
-                key={p.trait}
-                className="rounded-lg p-2 md:p-3"
-                style={{ backgroundColor: "var(--background)" }}
+                className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl flex-shrink-0"
+                style={{ backgroundColor: "#f59e0b20", border: "2px solid #f59e0b" }}
               >
-                <div
-                  className="text-sm md:text-base font-medium mb-0.5"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {p.trait}
-                </div>
-                <div
-                  className="text-xs"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {p.desc}
+                ⚡
+              </div>
+              <div>
+                <h2 className="font-bold text-lg" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                  {HENRY.name}
+                </h2>
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>{HENRY.role}</p>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span
+                    className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ backgroundColor: "#4ade8020", color: "#4ade80" }}
+                  >
+                    ● Online
+                  </span>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded"
+                    style={{ backgroundColor: "#f59e0b20", color: "#f59e0b" }}
+                  >
+                    Claude Opus
+                  </span>
                 </div>
               </div>
-            ))}
+            </div>
+          </div>
+          <div className="p-5">
+            <p className="text-sm mb-4 italic" style={{ color: "var(--text-secondary)" }}>
+              "{HENRY.description}"
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-4">
+              {HENRY.traits.map((t) => (
+                <div key={t.name} className="p-2.5 rounded-lg" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{t.name}</div>
+                  <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{t.desc}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <Link
+                href="/files?path=/Users/timharris/.openclaw/workspace/SOUL.md"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ backgroundColor: "var(--card-elevated)", color: "var(--accent)", border: "1px solid var(--border)" }}
+              >
+                <ExternalLink className="w-3 h-3" /> SOUL.md
+              </Link>
+              <Link
+                href="/files?path=/Users/timharris/.openclaw/workspace/IDENTITY.md"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ backgroundColor: "var(--card-elevated)", color: "var(--accent)", border: "1px solid var(--border)" }}
+              >
+                <ExternalLink className="w-3 h-3" /> IDENTITY.md
+              </Link>
+            </div>
+          </div>
+        </div>
+
+        {/* Tim */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)", background: "linear-gradient(135deg, #60a5fa15, transparent)" }}
+          >
+            <div className="flex items-center gap-4">
+              <div
+                className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl flex-shrink-0"
+                style={{ backgroundColor: "#60a5fa20", border: "2px solid #60a5fa" }}
+              >
+                👨‍💻
+              </div>
+              <div>
+                <h2 className="font-bold text-lg" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                  {TIM.name}
+                </h2>
+                <div className="flex items-center gap-1.5 mt-0.5" style={{ color: "var(--text-muted)" }}>
+                  <MapPin className="w-3.5 h-3.5" />
+                  <span className="text-sm">{TIM.location}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {TIM.roles.map((r) => (
+                    <span key={r} className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#60a5fa20", color: "#60a5fa" }}>{r}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="p-5">
+            <div className="mb-4">
+              <div className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                Company
+              </div>
+              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>{TIM.company}</p>
+            </div>
+            <div className="mb-4">
+              <div className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                Domains
+              </div>
+              <div className="space-y-1">
+                {TIM.domains.map((d) => (
+                  <div key={d} className="flex items-start gap-2 text-xs" style={{ color: "var(--text-secondary)" }}>
+                    <span style={{ color: "var(--accent)" }}>›</span>{d}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Link
+                href="/files?path=/Users/timharris/.openclaw/workspace/USER.md"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ backgroundColor: "var(--card-elevated)", color: "var(--accent)", border: "1px solid var(--border)" }}
+              >
+                <ExternalLink className="w-3 h-3" /> USER.md
+              </Link>
+              <Link
+                href="/files?path=/Users/timharris/.openclaw/workspace/AUTONOMOUS.md"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-all hover:opacity-80"
+                style={{ backgroundColor: "var(--card-elevated)", color: "var(--accent)", border: "1px solid var(--border)" }}
+              >
+                <ExternalLink className="w-3 h-3" /> AUTONOMOUS.md
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Philosophy */}
+      {/* Mission Goals */}
       <div
-        className="rounded-xl p-4 md:p-6 mb-6 md:mb-8"
-        style={{
-          backgroundColor: "var(--card)",
-          border: "1px solid var(--border)",
-        }}
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
       >
-        <div className="flex items-center gap-2 mb-3 md:mb-4">
-          <Brain className="w-5 h-5" style={{ color: "var(--info)" }} />
-          <h2
-            className="text-base md:text-lg font-semibold"
-            style={{
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-            }}
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              <Target className="inline-block w-4 h-4 mr-2 mb-0.5" />
+              Mission & Goals
+            </h2>
+          </div>
+          <Link
+            href="/files?path=/Users/timharris/.openclaw/workspace/AUTONOMOUS.md"
+            className="flex items-center gap-1 text-sm"
+            style={{ color: "var(--accent)" }}
           >
-            Working Philosophy
-          </h2>
+            <ExternalLink className="w-3.5 h-3.5" /> AUTONOMOUS.md
+          </Link>
         </div>
-        <div className="grid md:grid-cols-2 gap-2 md:gap-3">
-          {philosophies.map((p, i) => (
+        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-2">
+          {ORG_GOALS.map((g, i) => (
             <div
               key={i}
-              className="flex gap-2 md:gap-3 p-2 md:p-3 rounded-lg"
-              style={{ backgroundColor: "var(--background)" }}
+              className="flex items-center gap-3 p-3 rounded-lg"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
-              <span className="flex-shrink-0" style={{ color: "var(--accent)" }}>
-                →
-              </span>
-              <span
-                className="text-xs md:text-sm"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                {p}
-              </span>
+              <span className="text-xl flex-shrink-0">{g.icon}</span>
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{g.goal}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* Skills/Capabilities */}
+      {/* Org Structure */}
       <div
-        className="rounded-xl p-4 md:p-6 mb-6 md:mb-8"
-        style={{
-          backgroundColor: "var(--card)",
-          border: "1px solid var(--border)",
-        }}
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
       >
-        <div className="flex items-center gap-2 mb-3 md:mb-4">
-          <Zap className="w-5 h-5" style={{ color: "var(--warning)" }} />
-          <h2
-            className="text-base md:text-lg font-semibold"
-            style={{
-              fontFamily: "var(--font-heading)",
-              color: "var(--text-primary)",
-            }}
-          >
-            Capabilities
-          </h2>
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              <Users className="inline-block w-4 h-4 mr-2 mb-0.5" />
+              Org Structure
+            </h2>
+          </div>
+          <Link href="/agents" className="text-sm" style={{ color: "var(--accent)" }}>
+            Full agent view →
+          </Link>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3">
-          {skills.map((skill) => {
-            const Icon = skill.icon;
-            return (
-              <div
-                key={skill.name}
-                className="flex items-center gap-2 md:gap-3 p-2 md:p-3 rounded-lg"
-                style={{ backgroundColor: "var(--background)" }}
-              >
-                <Icon
-                  className="w-4 h-4 md:w-5 md:h-5 flex-shrink-0"
-                  style={{ color: skill.color }}
-                />
-                <span
-                  className="text-xs md:text-sm"
-                  style={{ color: "var(--text-primary)" }}
-                >
-                  {skill.name}
-                </span>
+        <div className="p-4 space-y-4">
+          {ORG_STRUCTURE.map((div) => (
+            <div key={div.division}>
+              <div className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: div.color }}>
+                {div.division}
               </div>
-            );
-          })}
+              <div className="flex flex-wrap gap-2">
+                {div.agents.map((a) => (
+                  <div
+                    key={a.name}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg"
+                    style={{
+                      backgroundColor: "var(--card-elevated)",
+                      border: `1px solid ${div.color}30`,
+                    }}
+                  >
+                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: STATUS_COLORS[a.status] || "#6b7280" }} />
+                    <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{a.name}</span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>{a.role}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Henry's Philosophy */}
+      <div
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div
+          className="flex items-center px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              <Sparkles className="inline-block w-4 h-4 mr-2 mb-0.5" />
+              Henry's Working Philosophy
+            </h2>
+          </div>
+        </div>
+        <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {HENRY.philosophy.map((p, i) => (
+            <div
+              key={i}
+              className="flex items-start gap-3 p-3 rounded-lg"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+            >
+              <span style={{ color: "var(--accent)", flexShrink: 0, marginTop: "2px" }}>→</span>
+              <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{p}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Reference Links */}
+      <div
+        className="rounded-xl overflow-hidden"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div
+          className="flex items-center px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              <Link2 className="inline-block w-4 h-4 mr-2 mb-0.5" />
+              Reference Documents
+            </h2>
+          </div>
+        </div>
+        <div className="p-4 grid grid-cols-2 md:grid-cols-3 gap-2">
+          {[
+            { label: "SOUL.md", path: "/Users/timharris/.openclaw/workspace/SOUL.md", color: "#f59e0b" },
+            { label: "IDENTITY.md", path: "/Users/timharris/.openclaw/workspace/IDENTITY.md", color: "#f59e0b" },
+            { label: "USER.md", path: "/Users/timharris/.openclaw/workspace/USER.md", color: "#60a5fa" },
+            { label: "AUTONOMOUS.md", path: "/Users/timharris/.openclaw/workspace/AUTONOMOUS.md", color: "#4ade80" },
+            { label: "Mission Spec", path: "/Users/timharris/.openclaw/workspace/projects/mission-control/SPEC.md", color: "var(--accent)" },
+            { label: "Karpathy Design", path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop/DESIGN.md", color: "#a78bfa" },
+          ].map((ref) => (
+            <Link
+              key={ref.label}
+              href={`/files?path=${encodeURIComponent(ref.path)}`}
+              className="flex items-center gap-2 p-3 rounded-lg transition-all hover:opacity-80"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+            >
+              <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" style={{ color: ref.color }} />
+              <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>{ref.label}</span>
+            </Link>
+          ))}
         </div>
       </div>
 
       {/* Footer */}
-      <div
-        className="text-center py-4 md:py-6 px-4 rounded-xl"
-        style={{
-          backgroundColor: "var(--card)",
-          border: "1px solid var(--border)",
-        }}
-      >
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Coffee
-            className="w-4 h-4 md:w-5 md:h-5"
-            style={{ color: "var(--accent)" }}
-          />
-          <span
-            className="text-sm md:text-base"
-            style={{ color: "var(--text-secondary)" }}
-          >
+      <div className="text-center py-6 mt-6">
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <Coffee className="w-4 h-4" style={{ color: "var(--accent)" }} />
+          <span className="text-sm" style={{ color: "var(--text-secondary)" }}>
             Built with <span style={{ color: "var(--accent)" }}>♥</span> on{" "}
-            <a
-              href="https://github.com/openclaw/openclaw"
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ color: "var(--accent)", textDecoration: "underline" }}
-            >
+            <a href="https://openclaw.ai" target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", textDecoration: "underline" }}>
               OpenClaw
             </a>
           </span>
         </div>
         <p className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {agentName} {agentEmoji} — Your AI co-pilot
+          Harris Autonomous · Henry ⚡ · Always building
         </p>
       </div>
     </div>

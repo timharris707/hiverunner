@@ -103,7 +103,7 @@ export default function SkillsPage() {
             color: "var(--text-secondary)",
           }}
         >
-          Skills disponibles en el sistema OpenClaw
+          Available skills in the OpenClaw system
         </p>
       </div>
 
@@ -191,7 +191,7 @@ export default function SkillsPage() {
               transition: "all 150ms ease",
             }}
           >
-            Todas ({skills.length})
+            All ({skills.length})
           </button>
           <button
             onClick={() => setFilterSource("workspace")}
@@ -248,7 +248,7 @@ export default function SkillsPage() {
               margin: "0 auto 16px",
             }}
           />
-          <p style={{ color: "var(--text-secondary)" }}>No se encontraron skills</p>
+          <p style={{ color: "var(--text-secondary)" }}>No skills found</p>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: "32px" }}>
@@ -554,7 +554,7 @@ function SkillDetailModal({ skill, onClose }: { skill: Skill; onClose: () => voi
               marginBottom: "12px",
             }}
           >
-            Archivos ({skill.files.length})
+            Files ({skill.files.length})
           </h3>
           <div
             style={{
