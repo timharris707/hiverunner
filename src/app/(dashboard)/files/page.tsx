@@ -55,7 +55,7 @@ export default function FilesPage() {
           File Browser
         </h1>
         <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)" }}>
-          Navega por los workspaces y archivos de los agentes
+          Browse workspaces and agent files
         </p>
       </div>
 
@@ -181,7 +181,7 @@ export default function FilesPage() {
                 <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
                   <button
                     onClick={() => setViewMode("list")}
-                    title="Vista lista"
+                    title="List view"
                     style={{
                       padding: "5px 7px",
                       borderRadius: "6px",
@@ -199,7 +199,7 @@ export default function FilesPage() {
                   </button>
                   <button
                     onClick={() => setViewMode("grid")}
-                    title="Vista iconos"
+                    title="Grid view"
                     style={{
                       padding: "5px 7px",
                       borderRadius: "6px",
