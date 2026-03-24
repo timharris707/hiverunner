@@ -95,6 +95,17 @@ const ORG_AGENTS = [
     status: "building" as const,
   },
   {
+    id: "quant",
+    name: "Quant 📊",
+    role: "Strategy Architect",
+    division: "Trading",
+    emoji: "📊",
+    color: "#4ade80",
+    divisionColor: "#4ade80",
+    description: "Designs strategies, backtests, optimizes",
+    status: "pending" as const,
+  },
+  {
     id: "backend",
     name: "Forge 🔧",
     role: "Infrastructure",
@@ -276,7 +287,7 @@ export default function DashboardPage() {
           ⚡ Harris Mission Control
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-          Harris Autonomous — 9 agents · 5 divisions · always building
+          Harris Autonomous — 10 agents · 5 divisions · always building
         </p>
       </div>
 
@@ -531,6 +542,7 @@ export default function DashboardPage() {
           </div>
           <div className="p-4 space-y-3">
             {[
+              { name: "Quant — Strategy Architect", emoji: "📊", status: "Not deployed", color: "#6b7280", active: false },
               { name: "Atlas — Stocks & Options", emoji: "📈", status: "Not deployed", color: "#6b7280", active: false },
               { name: "Nimbus — Weather Trading", emoji: "🌤️", status: "Not deployed", color: "#6b7280", active: false },
               { name: "Cipher — Crypto Bot", emoji: "₿", status: "Building", color: "#f59e0b", active: true },

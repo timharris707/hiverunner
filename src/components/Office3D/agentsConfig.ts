@@ -1,7 +1,7 @@
 /**
  * Office 3D — Agent Configuration
  *
- * Harris Autonomous — 9 agents, 5 divisions
+ * Harris Autonomous — 10 agents, 5 divisions
  */
 
 export interface AgentConfig {
@@ -47,6 +47,15 @@ export const AGENTS: AgentConfig[] = [
     position: [5, 0, -4],
     color: "#f59e0b",
     role: "Crypto Bot",
+  },
+  // Quant — Strategy Architect (Trading Desk lead)
+  {
+    id: "quant",
+    name: "Quant",
+    emoji: "📊",
+    position: [10, 0, -4],
+    color: "#4ade80",
+    role: "Strategy Architect",
   },
   // Engineering
   {

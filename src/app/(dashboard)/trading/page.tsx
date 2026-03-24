@@ -425,6 +425,76 @@ export default function TradingPage() {
         </div>
       </div>
 
+      {/* Strategy Architect — Quant */}
+      <div
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid #10b98130" }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              📊 Strategy Architect
+            </h2>
+          </div>
+          <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#6b728020", color: "#9ca3af" }}>
+            Not Deployed
+          </span>
+        </div>
+        <div className="p-4">
+          <div
+            className="flex items-center gap-4 p-4 rounded-xl mb-4"
+            style={{ backgroundColor: "var(--card-elevated)", border: "1px solid #10b98120" }}
+          >
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+              style={{ backgroundColor: "#10b98120", border: "1px solid #10b98140" }}
+            >
+              📊
+            </div>
+            <div className="flex-1">
+              <div className="font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+                Quant — Trading Strategy Architect
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Designs strategies, backtests, optimizes. The quant research brain behind the Trading Desk.
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ backgroundColor: "#6b728020", color: "#9ca3af" }}>
+                  Not Deployed
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  · Model TBD
+                </span>
+              </div>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Strategy Design</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Quant architects every trading strategy — Atlas, Nimbus, and Cipher execute what Quant designs.
+              </div>
+            </div>
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Backtesting Engine</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Historical simulation, walk-forward validation, Monte Carlo analysis, Sharpe/drawdown optimization.
+              </div>
+            </div>
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-sm font-semibold mb-2" style={{ color: "var(--text-primary)" }}>Continuous Optimization</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Applies Karpathy Loop to strategies — measure, iterate, improve. Never idle, always refining.
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Trader Cards */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
         {TRADERS.map((trader) => {

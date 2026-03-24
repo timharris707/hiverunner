@@ -62,6 +62,7 @@ const ORG_GOALS = [
 const ORG_STRUCTURE = [
   { division: "Leadership", color: "#f59e0b", agents: [{ name: "Henry ⚡", role: "Chief of Staff", status: "online" }] },
   { division: "Trading Desk", color: "#4ade80", agents: [
+    { name: "Quant 📊", role: "Strategy Architect", status: "pending" },
     { name: "Atlas 📈", role: "Stocks & Options", status: "pending" },
     { name: "Nimbus 🌤️", role: "Weather Trading", status: "pending" },
     { name: "Cipher ₿", role: "Crypto Bot", status: "building" },

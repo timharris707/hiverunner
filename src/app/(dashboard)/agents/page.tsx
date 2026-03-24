@@ -86,6 +86,22 @@ const ORG_AGENTS = [
     isReal: false,
   },
   {
+    id: "quant",
+    name: "Quant 📊",
+    emoji: "📊",
+    role: "Trading Strategy Architect",
+    division: "Trading",
+    divisionColor: "#10b981",
+    status: "NOT DEPLOYED" as const,
+    deployedStatus: "pending" as const,
+    description:
+      "Designs trading strategies, backtests, optimizes. The quant research brain behind the Trading Desk. Atlas/Nimbus/Cipher execute what Quant designs.",
+    model: "TBD",
+    reportsTo: "Henry ⚡",
+    comms: "Internal",
+    isReal: false,
+  },
+  {
     id: "backend-eng",
     name: "Forge 🔧",
     emoji: "🔧",
@@ -285,7 +301,7 @@ export default function AgentsPage() {
         </h1>
         <div className="flex items-center gap-4 flex-wrap">
           <span style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-            9 agents · 5 divisions · Henry ⚡ orchestrating
+            10 agents · 5 divisions · Henry ⚡ orchestrating
           </span>
           <div className="flex items-center gap-3">
             <span
@@ -305,7 +321,7 @@ export default function AgentsPage() {
               className="flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium"
               style={{ backgroundColor: "#6b728020", color: "#9ca3af" }}
             >
-              {9 - onlineCount - inProgressCount} Pending
+              {10 - onlineCount - inProgressCount} Pending
             </span>
           </div>
         </div>
@@ -651,6 +667,59 @@ function OrgChartView({ agents }: { agents: Array<Record<string, any>> }) {
           {Object.entries(divisionGroups).map(([division, divAgents]) => {
             const color = divAgents[0].divisionColor;
             const DivIcon: LucideIcon = DIVISION_ICONS[division] || Bot;
+
+            // Special Trading hierarchy: Quant at top, Atlas/Nimbus/Cipher below
+            if (division === "Trading") {
+              const quant = divAgents.find((a) => a.id === "quant");
+              const traders = divAgents.filter((a) => a.id !== "quant");
+              return (
+                <div key={division} className="flex flex-col items-center">
+                  <div
+                    className="px-4 py-1.5 rounded-lg text-xs font-bold mb-3 flex items-center gap-1.5"
+                    style={{ backgroundColor: `${color}20`, color, border: `1px solid ${color}40` }}
+                  >
+                    <DivIcon className="w-3 h-3" />
+                    {division}
+                  </div>
+                  {quant && (
+                    <>
+                      {/* Quant node */}
+                      <div
+                        className="px-4 py-2 rounded-xl flex flex-col items-center mb-1"
+                        style={{ backgroundColor: `${color}20`, border: `2px solid ${color}60`, minWidth: "140px" }}
+                      >
+                        <AgentAvatar agentId={quant.id} size={40} borderColor={color} borderWidth={2} className="mb-1.5" />
+                        <div className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{quant.name}</div>
+                        <div className="text-xs mt-0.5" style={{ color: color }}>Strategy Architect</div>
+                        <div className="text-xs mt-0.5" style={{ color: "#6b7280" }}>NOT DEPLOYED</div>
+                      </div>
+                      {/* Connector */}
+                      <div className="w-px h-4" style={{ backgroundColor: "var(--border)" }} />
+                      {/* Executor label */}
+                      <div className="text-xs mb-2" style={{ color: "var(--text-muted)" }}>executes via</div>
+                      {/* Trader nodes */}
+                      <div className="flex flex-col gap-2">
+                        {traders.map((agent) => {
+                          const statusCfg = STATUS_CONFIG[agent.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG["NOT DEPLOYED"];
+                          return (
+                            <div
+                              key={agent.id}
+                              className="px-4 py-2 rounded-xl flex flex-col items-center"
+                              style={{ backgroundColor: `${color}10`, border: `1px solid ${color}30`, minWidth: "140px" }}
+                            >
+                              <AgentAvatar agentId={agent.id} size={40} borderColor={color} borderWidth={2} className="mb-1.5" />
+                              <div className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>{agent.name}</div>
+                              <div className="text-xs mt-0.5" style={{ color: statusCfg.color }}>{statusCfg.label}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <div key={division} className="flex flex-col items-center">
                 {/* Division header */}

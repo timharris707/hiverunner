@@ -55,11 +55,26 @@ const AGENTS = [
   { id: "Atlas", emoji: "📈", role: "Stocks & Options Trader", defaultRole: "worker" },
   { id: "Nimbus", emoji: "🌤️", role: "Weather Prediction Trader", defaultRole: "worker" },
   { id: "Cipher", emoji: "₿", role: "Crypto Trader", defaultRole: "worker" },
+  { id: "Quant", emoji: "📊", role: "Trading Strategy Architect", defaultRole: "worker" },
   { id: "Forge", emoji: "🔧", role: "Backend Engineer", defaultRole: "worker" },
   { id: "Pixel", emoji: "💻", role: "Senior Full-Stack Engineer", defaultRole: "worker" },
   { id: "Scout", emoji: "🔭", role: "Research & Intelligence", defaultRole: "worker" },
   { id: "Quill", emoji: "✍️", role: "Creative Writer & Marketing", defaultRole: "worker" },
   { id: "Counsel", emoji: "⚖️", role: "Legal Expert", defaultRole: "reviewer" },
+];
+
+const PERSONA_OVERLAYS = [
+  { id: "trading-strategist", name: "Trading Strategist", emoji: "📊", desc: "Deep quant analysis: momentum, mean-reversion, risk-reward optimization", relevantAgents: ["Atlas", "Nimbus", "Cipher", "Quant", "Henry"] },
+  { id: "seo-specialist", name: "SEO Specialist", emoji: "🔍", desc: "Keyword research, on-page optimization, SERP strategy, content gap analysis", relevantAgents: ["Quill", "Scout"] },
+  { id: "growth-hacker", name: "Growth Hacker", emoji: "🚀", desc: "Viral loops, acquisition funnels, retention mechanics, rapid experimentation", relevantAgents: ["Quill", "Scout", "Henry"] },
+  { id: "content-creator", name: "Content Creator", emoji: "✍️", desc: "Audience-first storytelling, platform-native formats, engagement optimization", relevantAgents: ["Quill"] },
+  { id: "compliance-auditor", name: "Compliance Auditor", emoji: "⚖️", desc: "Regulatory risk review, audit trails, policy adherence, legal exposure analysis", relevantAgents: ["Counsel", "Henry"] },
+  { id: "security-engineer", name: "Security Engineer", emoji: "🔐", desc: "Threat modeling, vulnerability assessment, secure design review, auth hardening", relevantAgents: ["Forge", "Pixel"] },
+  { id: "devops-automator", name: "DevOps Automator", emoji: "⚙️", desc: "CI/CD pipelines, infra-as-code, monitoring, incident response playbooks", relevantAgents: ["Forge"] },
+  { id: "reality-checker", name: "Reality Checker", emoji: "🎯", desc: "Cuts through hype, stress-tests assumptions, identifies blind spots and risks", relevantAgents: ["Henry", "Scout", "Counsel"] },
+  { id: "trend-researcher", name: "Trend Researcher", emoji: "📡", desc: "Emerging signals, market timing, early-mover opportunities, competitive intelligence", relevantAgents: ["Scout", "Quant"] },
+  { id: "data-analytics-reporter", name: "Data Analytics Reporter", emoji: "📈", desc: "Structured data analysis, metrics framing, visual storytelling with numbers", relevantAgents: ["Scout", "Quant", "Atlas"] },
+  { id: "backend-architect", name: "Backend Architect", emoji: "🏗️", desc: "System design, API contracts, scalability patterns, database schema review", relevantAgents: ["Forge", "Pixel"] },
 ];
 
 const MODELS = [
@@ -258,11 +273,13 @@ interface LaunchModalProps {
 }
 
 function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
+  const [step, setStep] = useState<"config" | "personas">("config");
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
   const [model, setModel] = useState("claude-opus-4-6");
+  const [selectedOverlays, setSelectedOverlays] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -272,16 +289,42 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
     );
   };
 
-  const handleLaunch = async () => {
+  const toggleOverlay = (id: string) => {
+    setSelectedOverlays((prev) =>
+      prev.includes(id) ? prev.filter((o) => o !== id) : [...prev, id]
+    );
+  };
+
+  // Filter overlays relevant to selected agents
+  const relevantOverlays = PERSONA_OVERLAYS.filter((o) =>
+    o.relevantAgents.some((a) => selectedAgents.includes(a))
+  );
+  const otherOverlays = PERSONA_OVERLAYS.filter((o) =>
+    !o.relevantAgents.some((a) => selectedAgents.includes(a))
+  );
+
+  const handleNext = () => {
     if (!topic.trim()) { setError("Mission/Topic is required."); return; }
     if (selectedAgents.length < 1) { setError("Select at least one agent."); return; }
+    setError("");
+    setStep("personas");
+  };
+
+  const handleLaunch = async () => {
     setError("");
     setLoading(true);
     try {
       const res = await fetch("/api/advisory/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, mode, agents: selectedAgents, reviewStyle, model }),
+        body: JSON.stringify({
+          topic,
+          mode,
+          agents: selectedAgents,
+          reviewStyle,
+          model,
+          personaOverlays: selectedOverlays.length > 0 ? selectedOverlays : undefined,
+        }),
       });
       if (!res.ok) throw new Error("Failed to create session");
       const data = await res.json();
@@ -320,13 +363,13 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
         }}
       >
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
           <div>
             <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
               🚀 New Advisory Session
             </h2>
             <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-              Launch a multi-agent collaboration
+              {step === "config" ? "Step 1 of 2 — Configure session" : "Step 2 of 2 — Persona Overlays (optional)"}
             </p>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}>
@@ -334,197 +377,335 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           </button>
         </div>
 
-        {/* Mission/Topic */}
-        <div style={{ marginBottom: "20px" }}>
-          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            MISSION / TOPIC
-          </label>
-          <textarea
-            value={topic}
-            onChange={(e) => setTopic(e.target.value)}
-            placeholder="What should the agents collaborate on? Be specific about objectives and context..."
-            rows={3}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              backgroundColor: "var(--surface-elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
-              fontSize: "13px",
-              fontFamily: "var(--font-body)",
-              resize: "vertical",
-              outline: "none",
-              boxSizing: "border-box",
-            }}
-          />
+        {/* Step indicator */}
+        <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
+          {["config", "personas"].map((s, i) => (
+            <div key={s} style={{ flex: 1, height: "3px", borderRadius: "2px", backgroundColor: step === s || (i === 0) ? "var(--accent)" : "var(--border)", opacity: step === s ? 1 : i === 0 ? 0.5 : 0.3 }} />
+          ))}
         </div>
 
-        {/* Mode */}
-        <div style={{ marginBottom: "20px" }}>
-          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            SESSION MODE
-          </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-            {[
-              { id: "roundtable", label: "Roundtable", desc: "Open collaborative discussion", icon: "🔄" },
-              { id: "review", label: "Review Loop", desc: "Worker submits, reviewer approves", icon: "🔍" },
-            ].map((m) => (
-              <button
-                key={m.id}
-                onClick={() => setMode(m.id as "review" | "roundtable")}
+        {step === "config" && (
+          <>
+            {/* Mission/Topic */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                MISSION / TOPIC
+              </label>
+              <textarea
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="What should the agents collaborate on? Be specific about objectives and context..."
+                rows={3}
                 style={{
-                  padding: "12px",
+                  width: "100%",
+                  padding: "10px 12px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "1px solid var(--border)",
                   borderRadius: "8px",
-                  border: `1px solid ${mode === m.id ? "var(--accent)" : "var(--border)"}`,
-                  backgroundColor: mode === m.id ? "var(--accent-soft)" : "var(--surface-elevated)",
+                  color: "var(--text-primary)",
+                  fontSize: "13px",
+                  fontFamily: "var(--font-body)",
+                  resize: "vertical",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            {/* Mode */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                SESSION MODE
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+                {[
+                  { id: "roundtable", label: "Roundtable", desc: "Open collaborative discussion", icon: "🔄" },
+                  { id: "review", label: "Review Loop", desc: "Worker submits, reviewer approves", icon: "🔍" },
+                ].map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => setMode(m.id as "review" | "roundtable")}
+                    style={{
+                      padding: "12px",
+                      borderRadius: "8px",
+                      border: `1px solid ${mode === m.id ? "var(--accent)" : "var(--border)"}`,
+                      backgroundColor: mode === m.id ? "var(--accent-soft)" : "var(--surface-elevated)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    <div style={{ fontSize: "16px", marginBottom: "4px" }}>{m.icon}</div>
+                    <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{m.label}</div>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{m.desc}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Agents */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                AGENTS ({selectedAgents.length} selected)
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+                {AGENTS.map((agent) => {
+                  const sel = selectedAgents.includes(agent.id);
+                  return (
+                    <button
+                      key={agent.id}
+                      onClick={() => toggleAgent(agent.id)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                      }}
+                    >
+                      <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
+                      <div>
+                        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Review Style */}
+            {mode === "review" && (
+              <div style={{ marginBottom: "20px" }}>
+                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                  REVIEW STYLE
+                </label>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
+                  {[
+                    { id: "strict", label: "Strict", desc: "PASS/FAIL only" },
+                    { id: "flexible", label: "Flexible", desc: "Conditions allowed" },
+                    { id: "open", label: "Open", desc: "Free discussion" },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setReviewStyle(s.id as "strict" | "flexible" | "open")}
+                      style={{
+                        padding: "10px",
+                        borderRadius: "8px",
+                        border: `1px solid ${reviewStyle === s.id ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: reviewStyle === s.id ? "var(--accent-soft)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{s.label}</div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{s.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Model */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                MODEL
+              </label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  color: "var(--text-primary)",
+                  fontSize: "13px",
+                  fontFamily: "var(--font-mono)",
+                  outline: "none",
                   cursor: "pointer",
-                  textAlign: "left",
-                  transition: "all 150ms ease",
                 }}
               >
-                <div style={{ fontSize: "16px", marginBottom: "4px" }}>{m.icon}</div>
-                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{m.label}</div>
-                <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>{m.desc}</div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Agents */}
-        <div style={{ marginBottom: "20px" }}>
-          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            AGENTS ({selectedAgents.length} selected)
-          </label>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-            {AGENTS.map((agent) => {
-              const sel = selectedAgents.includes(agent.id);
-              return (
-                <button
-                  key={agent.id}
-                  onClick={() => toggleAgent(agent.id)}
-                  style={{
-                    padding: "8px 10px",
-                    borderRadius: "8px",
-                    border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
-                    backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
-                    cursor: "pointer",
-                    textAlign: "left",
-                    transition: "all 150ms ease",
-                    display: "flex",
-                    alignItems: "center",
-                    gap: "8px",
-                  }}
-                >
-                  <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
-                  <div>
-                    <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
-                    <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Review Style */}
-        {mode === "review" && (
-          <div style={{ marginBottom: "20px" }}>
-            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-              REVIEW STYLE
-            </label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-              {[
-                { id: "strict", label: "Strict", desc: "PASS/FAIL only" },
-                { id: "flexible", label: "Flexible", desc: "Conditions allowed" },
-                { id: "open", label: "Open", desc: "Free discussion" },
-              ].map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setReviewStyle(s.id as "strict" | "flexible" | "open")}
-                  style={{
-                    padding: "10px",
-                    borderRadius: "8px",
-                    border: `1px solid ${reviewStyle === s.id ? "var(--accent)" : "var(--border)"}`,
-                    backgroundColor: reviewStyle === s.id ? "var(--accent-soft)" : "var(--surface-elevated)",
-                    cursor: "pointer",
-                    textAlign: "center",
-                    transition: "all 150ms ease",
-                  }}
-                >
-                  <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{s.label}</div>
-                  <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{s.desc}</div>
-                </button>
-              ))}
+                {MODELS.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
             </div>
-          </div>
+
+            {error && (
+              <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <AlertCircle size={14} />
+                {error}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                onClick={onClose}
+                style={{ padding: "10px 20px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleNext}
+                style={{
+                  padding: "10px 24px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "var(--accent)",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  fontFamily: "var(--font-heading)",
+                }}
+              >
+                Next: Persona Overlays →
+              </button>
+            </div>
+          </>
         )}
 
-        {/* Model */}
-        <div style={{ marginBottom: "24px" }}>
-          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-            MODEL
-          </label>
-          <select
-            value={model}
-            onChange={(e) => setModel(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              backgroundColor: "var(--surface-elevated)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              color: "var(--text-primary)",
-              fontSize: "13px",
-              fontFamily: "var(--font-mono)",
-              outline: "none",
-              cursor: "pointer",
-            }}
-          >
-            {MODELS.map((m) => (
-              <option key={m} value={m}>{m}</option>
-            ))}
-          </select>
-        </div>
+        {step === "personas" && (
+          <>
+            <div style={{ marginBottom: "8px" }}>
+              <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.6 }}>
+                Persona overlays inject specialized expertise lenses into the session. They shape how agents approach and frame their contributions. All are optional.
+              </p>
 
-        {error && (
-          <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
-            <AlertCircle size={14} />
-            {error}
-          </div>
+              {/* Relevant overlays */}
+              {relevantOverlays.length > 0 && (
+                <>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--accent)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                    ✨ RECOMMENDED FOR YOUR AGENTS
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
+                    {relevantOverlays.map((overlay) => {
+                      const sel = selectedOverlays.includes(overlay.id);
+                      return (
+                        <button
+                          key={overlay.id}
+                          onClick={() => toggleOverlay(overlay.id)}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                            backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition: "all 150ms ease",
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "14px" }}>{overlay.emoji}</span>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{overlay.name}</span>
+                            {sel && <span style={{ fontSize: "9px", marginLeft: "auto", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {/* Other overlays */}
+              {otherOverlays.length > 0 && (
+                <>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                    OTHER OVERLAYS
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
+                    {otherOverlays.map((overlay) => {
+                      const sel = selectedOverlays.includes(overlay.id);
+                      return (
+                        <button
+                          key={overlay.id}
+                          onClick={() => toggleOverlay(overlay.id)}
+                          style={{
+                            padding: "10px 12px",
+                            borderRadius: "8px",
+                            border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                            backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition: "all 150ms ease",
+                            opacity: 0.7,
+                          }}
+                        >
+                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
+                            <span style={{ fontSize: "14px" }}>{overlay.emoji}</span>
+                            <span style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{overlay.name}</span>
+                            {sel && <span style={{ fontSize: "9px", marginLeft: "auto", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
+                          </div>
+                          <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {selectedOverlays.length > 0 && (
+                <div style={{ padding: "8px 12px", backgroundColor: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "8px", marginBottom: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 600 }}>
+                    {selectedOverlays.length} overlay{selectedOverlays.length > 1 ? "s" : ""} selected · Will be noted in session metadata
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {error && (
+              <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                <AlertCircle size={14} />
+                {error}
+              </div>
+            )}
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setStep("config")}
+                style={{ padding: "10px 20px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}
+              >
+                ← Back
+              </button>
+              <button
+                onClick={handleLaunch}
+                disabled={loading}
+                style={{
+                  padding: "10px 24px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "var(--accent)",
+                  color: "#fff",
+                  cursor: loading ? "not-allowed" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: loading ? 0.7 : 1,
+                  fontFamily: "var(--font-heading)",
+                }}
+              >
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                Launch Session
+              </button>
+            </div>
+          </>
         )}
-
-        {/* Actions */}
-        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
-          <button
-            onClick={onClose}
-            style={{ padding: "10px 20px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleLaunch}
-            disabled={loading}
-            style={{
-              padding: "10px 24px",
-              borderRadius: "8px",
-              border: "none",
-              backgroundColor: "var(--accent)",
-              color: "#fff",
-              cursor: loading ? "not-allowed" : "pointer",
-              fontSize: "13px",
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: "8px",
-              opacity: loading ? 0.7 : 1,
-              fontFamily: "var(--font-heading)",
-            }}
-          >
-            {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            Launch Session
-          </button>
-        </div>
       </div>
     </div>
   );

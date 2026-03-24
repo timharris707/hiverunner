@@ -81,6 +81,19 @@ export const AGENT_CONFIGS: AgentConfig[] = [
     reportsTo: "Henry ⚡",
   },
   {
+    id: "quant",
+    name: "Quant 📊",
+    emoji: "📊",
+    role: "Trading Strategy Architect",
+    division: "Trading",
+    divisionColor: "#10b981",
+    avatar: "/avatars/quant.jpg",
+    description:
+      "Designs trading strategies, backtests, optimizes. The quant research brain behind the Trading Desk. Atlas/Nimbus/Cipher execute what Quant designs.",
+    model: "TBD",
+    reportsTo: "Henry ⚡",
+  },
+  {
     id: "backend",
     name: "Forge 🔧",
     emoji: "🔧",
@@ -183,6 +196,9 @@ export function getAgentByAnyId(id: string): AgentConfig | undefined {
     "legal expert": "counsel",
     legalexpert: "counsel",
     chiefofstaff: "henry",
+    "trading strategy architect": "quant",
+    tradingstrategyarchitect: "quant",
+    "quant 📊": "quant",
   };
 
   const aliasId = aliases[normalized] || aliases[id.toLowerCase()];

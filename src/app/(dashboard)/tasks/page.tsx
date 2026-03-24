@@ -60,6 +60,7 @@ const ASSIGNEE_EMOJIS: Record<string, string> = {
   "Atlas 📈": "📈",
   "Nimbus 🌤️": "🌤️",
   "Cipher ₿": "₿",
+  "Quant 📊": "📊",
   "Forge 🔧": "🔧",
   "Pixel 💻": "💻",
   Scout: "🔭",
