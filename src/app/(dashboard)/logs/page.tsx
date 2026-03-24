@@ -10,12 +10,9 @@ interface LogLine {
 }
 
 const SERVICES = [
+  { name: "openclaw-log", backend: "gateway", label: "OpenClaw Gateway" },
   { name: "mission-control", backend: "systemd", label: "Mission Control" },
-  { name: "classvault", backend: "pm2", label: "ClassVault" },
-  { name: "content-vault", backend: "pm2", label: "Content Vault" },
-  { name: "brain", backend: "pm2", label: "Brain" },
-  { name: "postiz-simple", backend: "pm2", label: "Postiz" },
-  { name: "openclaw-gateway", backend: "systemd", label: "Gateway" },
+  { name: "openclaw-gateway", backend: "systemd", label: "Gateway (systemd)" },
 ];
 
 function getLineColor(line: string): string {
@@ -29,7 +26,7 @@ function getLineColor(line: string): string {
 }
 
 export default function LogsPage() {
-  const [selectedService, setSelectedService] = useState(SERVICES[0]);
+  const [selectedService, setSelectedService] = useState(SERVICES[0]); // Default to OpenClaw Gateway log
   const [lines, setLines] = useState<LogLine[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
@@ -115,7 +112,7 @@ export default function LogsPage() {
           Log Viewer
         </h1>
         <p style={{ color: "var(--text-secondary)", fontSize: "0.875rem" }}>
-          Real-time log streaming from services
+          Real-time log streaming — OpenClaw Gateway logs from /tmp/openclaw/openclaw-*.log
         </p>
       </div>
 

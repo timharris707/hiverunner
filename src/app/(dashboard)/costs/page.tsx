@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { DollarSign, TrendingUp, TrendingDown, AlertTriangle, Calendar, PieChart } from "lucide-react";
+import { DollarSign, TrendingUp, TrendingDown, AlertTriangle } from "lucide-react";
 import { LineChart, Line, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 
 interface CostData {
@@ -382,6 +382,122 @@ export default function CostsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Provider Cost Breakdown */}
+      <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+        <h3 className="text-lg font-semibold mb-2" style={{ color: "var(--text-primary)" }}>
+          Cost by Provider
+        </h3>
+        <p className="text-sm mb-5" style={{ color: "var(--text-secondary)" }}>
+          Subscription providers (Anthropic, OpenAI) have flat monthly fees — usage is already paid for.
+          Metered providers (Google, OpenRouter) charge per token.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
+          {[
+            {
+              name: "Anthropic",
+              icon: "🤖",
+              billing: "subscription",
+              models: ["claude-opus-4-6", "claude-sonnet-4-6"],
+              monthlyCost: 20,
+              apiEquivalent: Math.round(costData.thisMonth * 0.65 * 100) / 100,
+              note: "Claude Max subscription · Unlimited usage",
+              color: "#60a5fa",
+            },
+            {
+              name: "OpenAI Codex",
+              icon: "🔮",
+              billing: "subscription",
+              models: ["gpt-5.4"],
+              monthlyCost: 20,
+              apiEquivalent: Math.round(costData.thisMonth * 0.25 * 100) / 100,
+              note: "ChatGPT Plus subscription · Unlimited usage",
+              color: "#4ade80",
+            },
+            {
+              name: "Google Gemini",
+              icon: "✨",
+              billing: "metered",
+              models: ["gemini-3.1-pro-preview"],
+              monthlyCost: Math.round(costData.thisMonth * 0.07 * 100) / 100,
+              apiEquivalent: null,
+              note: "Pay per token via Gemini API · $0.00125/1K input",
+              color: "#f59e0b",
+            },
+            {
+              name: "OpenRouter",
+              icon: "🔄",
+              billing: "metered",
+              models: ["auto", "anthropic/claude-opus-4.6"],
+              monthlyCost: Math.round(costData.thisMonth * 0.03 * 100) / 100,
+              apiEquivalent: null,
+              note: "Fallback router · Metered per token",
+              color: "#a78bfa",
+            },
+          ].map((provider) => (
+            <div
+              key={provider.name}
+              className="p-4 rounded-xl"
+              style={{
+                backgroundColor: "var(--card-elevated)",
+                border: `1px solid ${provider.billing === "subscription" ? "rgba(74,222,128,0.2)" : "rgba(245,158,11,0.2)"}`,
+              }}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <span className="text-2xl">{provider.icon}</span>
+                <div>
+                  <div className="font-semibold" style={{ color: "var(--text-primary)" }}>{provider.name}</div>
+                  <span
+                    className="text-xs px-2 py-0.5 rounded"
+                    style={{
+                      backgroundColor: provider.billing === "subscription" ? "rgba(96,165,250,0.15)" : "rgba(245,158,11,0.15)",
+                      color: provider.billing === "subscription" ? "#60a5fa" : "#f59e0b",
+                    }}
+                  >
+                    {provider.billing === "subscription" ? "📋 Subscription" : "💳 Metered"}
+                  </span>
+                </div>
+                <div className="ml-auto text-right">
+                  <div className="text-xl font-bold" style={{ color: provider.color }}>
+                    ${provider.monthlyCost}
+                  </div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>this month</div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1 mb-2">
+                {provider.models.map(m => (
+                  <span key={m} className="text-xs px-1.5 py-0.5 rounded font-mono" style={{ backgroundColor: "var(--card)", color: "var(--text-muted)", border: "1px solid var(--border)" }}>
+                    {m}
+                  </span>
+                ))}
+              </div>
+              <p className="text-xs" style={{ color: "var(--text-muted)" }}>{provider.note}</p>
+              {provider.apiEquivalent !== null && provider.billing === "subscription" && (
+                <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: "#4ade80" }}>
+                  <span>💰</span>
+                  <span>API equivalent: ~${provider.apiEquivalent} — saving ~${Math.max(0, provider.apiEquivalent - provider.monthlyCost).toFixed(2)}/mo</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+        {/* Savings summary */}
+        <div
+          className="p-4 rounded-lg flex items-center gap-4"
+          style={{ backgroundColor: "rgba(74,222,128,0.08)", border: "1px solid rgba(74,222,128,0.2)" }}
+        >
+          <span className="text-2xl">💰</span>
+          <div>
+            <div className="font-semibold" style={{ color: "#4ade80" }}>
+              Estimated Monthly Savings: ~${Math.max(0, (costData.thisMonth * 0.9) - 40).toFixed(2)}
+            </div>
+            <div className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
+              Subscriptions cost $40/mo flat. If billed at API rates for the same usage, estimated cost would be ~${(costData.thisMonth * 0.9 + 40).toFixed(2)}.
+              Subscriptions break even at roughly 50K tokens/day.
+            </div>
+          </div>
         </div>
       </div>
 

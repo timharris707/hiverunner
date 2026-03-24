@@ -1,6 +1,7 @@
 "use client";
 
 import { BRANDING } from "@/config/branding";
+import { ArrowRight } from "lucide-react";
 
 interface Workflow {
   id: string;
@@ -116,6 +117,158 @@ const WORKFLOWS: Workflow[] = [
     ],
   },
 ];
+
+interface Pipeline {
+  id: string;
+  emoji: string;
+  name: string;
+  description: string;
+  stages: { label: string; description: string; status: "active" | "pending" | "done" }[];
+  color: string;
+}
+
+const PIPELINES: Pipeline[] = [
+  {
+    id: "trading",
+    emoji: "📈",
+    name: "Trading Pipeline",
+    description: "Systematic process for developing and deploying trading strategies.",
+    color: "#4ade80",
+    stages: [
+      { label: "Research", description: "Identify market opportunities, signals, and patterns", status: "active" },
+      { label: "Strategy", description: "Design the trading logic, entry/exit rules, position sizing", status: "active" },
+      { label: "Backtest", description: "Test strategy against historical data, measure performance metrics", status: "pending" },
+      { label: "Execute", description: "Deploy live with real capital, monitor and adjust", status: "pending" },
+    ],
+  },
+  {
+    id: "build",
+    emoji: "🔨",
+    name: "Build Pipeline",
+    description: "Structured approach to shipping features and products from idea to production.",
+    color: "#60a5fa",
+    stages: [
+      { label: "Spec", description: "Define requirements, user stories, and acceptance criteria", status: "done" },
+      { label: "Build", description: "Implement the feature, write tests, iterate on design", status: "active" },
+      { label: "Review", description: "Code review, QA testing, build verification", status: "active" },
+      { label: "Ship", description: "Deploy to production, announce, monitor rollout", status: "pending" },
+    ],
+  },
+  {
+    id: "karpathy",
+    emoji: "🔬",
+    name: "Karpathy Loop",
+    description: "Andrej Karpathy's autoresearch loop adapted for autonomous AI improvement. Continuously hypothesize, test, measure, and keep or revert changes.",
+    color: "#f59e0b",
+    stages: [
+      { label: "Hypothesize", description: "Form a hypothesis: what change might improve outcomes?", status: "active" },
+      { label: "Modify", description: "Make the targeted change to the system (code, prompt, config)", status: "pending" },
+      { label: "Test", description: "Run evaluation suite, collect measurable outcomes", status: "pending" },
+      { label: "Measure", description: "Compare metrics vs baseline — did it improve?", status: "pending" },
+      { label: "Keep/Revert", description: "If improvement: keep, document, iterate. If regression: revert, learn.", status: "pending" },
+    ],
+  },
+];
+
+function PipelineCard({ pipeline }: { pipeline: Pipeline }) {
+  return (
+    <div style={{
+      backgroundColor: "var(--surface)",
+      border: "1px solid var(--border)",
+      borderRadius: "16px",
+      padding: "20px 24px",
+      boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+        <div style={{
+          width: "40px",
+          height: "40px",
+          borderRadius: "10px",
+          backgroundColor: "var(--surface-elevated)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          fontSize: "20px",
+          border: "1px solid var(--border-strong)",
+          flexShrink: 0,
+        }}>
+          {pipeline.emoji}
+        </div>
+        <div>
+          <h3 style={{
+            fontFamily: "var(--font-heading)",
+            fontSize: "16px",
+            fontWeight: 700,
+            color: "var(--text-primary)",
+            letterSpacing: "-0.3px",
+          }}>
+            {pipeline.name}
+          </h3>
+          <p style={{ fontFamily: "var(--font-body)", fontSize: "12px", color: "var(--text-secondary)", marginTop: "2px" }}>
+            {pipeline.description}
+          </p>
+        </div>
+      </div>
+
+      {/* Stage flow */}
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+        {pipeline.stages.map((stage, i) => (
+          <div key={stage.label} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+            <div
+              title={stage.description}
+              style={{
+                padding: "8px 14px",
+                borderRadius: "10px",
+                backgroundColor: stage.status === "done"
+                  ? `${pipeline.color}25`
+                  : stage.status === "active"
+                  ? `${pipeline.color}15`
+                  : "var(--surface-elevated)",
+                border: `1px solid ${stage.status === "done" || stage.status === "active" ? `${pipeline.color}50` : "var(--border)"}`,
+                cursor: "default",
+              }}
+            >
+              <div style={{
+                fontFamily: "var(--font-heading)",
+                fontSize: "13px",
+                fontWeight: 700,
+                color: stage.status === "done" || stage.status === "active" ? pipeline.color : "var(--text-muted)",
+              }}>
+                {stage.label}
+              </div>
+              <div style={{
+                fontFamily: "var(--font-body)",
+                fontSize: "10px",
+                color: "var(--text-muted)",
+                maxWidth: "140px",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                marginTop: "2px",
+              }}>
+                {stage.description}
+              </div>
+              {stage.status === "active" && (
+                <div style={{
+                  marginTop: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                }}>
+                  <div style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: pipeline.color, animation: "pulse 2s infinite" }} />
+                  <span style={{ fontFamily: "var(--font-body)", fontSize: "9px", color: pipeline.color, fontWeight: 600 }}>ACTIVE</span>
+                </div>
+              )}
+            </div>
+            {i < pipeline.stages.length - 1 && (
+              <ArrowRight style={{ width: "14px", height: "14px", color: "var(--text-muted)", flexShrink: 0 }} />
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function StatusBadge({ status }: { status: "active" | "inactive" }) {
   return (
@@ -321,6 +474,35 @@ export default function WorkflowsPage() {
           </div>
         ))}
       </div>
+
+      {/* Pipelines section */}
+      <div style={{ marginTop: "48px" }}>
+        <h2 style={{
+          fontFamily: "var(--font-heading)",
+          fontSize: "20px",
+          fontWeight: 700,
+          letterSpacing: "-0.5px",
+          color: "var(--text-primary)",
+          marginBottom: "4px",
+        }}>
+          Pipelines
+        </h2>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)", marginBottom: "20px" }}>
+          Structured multi-stage processes for trading, building, and continuous improvement
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+          {PIPELINES.map(pipeline => (
+            <PipelineCard key={pipeline.id} pipeline={pipeline} />
+          ))}
+        </div>
+      </div>
+
+      <style jsx global>{`
+        @keyframes pulseDot {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.4; }
+        }
+      `}</style>
     </div>
   );
 }

@@ -5,23 +5,21 @@ import { StatsCard } from "@/components/StatsCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
 import {
-  Activity,
   CheckCircle,
   XCircle,
   Circle,
-  Bot,
   Users,
   Zap,
   TrendingUp,
   Code2,
-  Search,
-  Pen,
-  Scale,
   DollarSign,
   Kanban,
   Brain,
   Server,
   Rocket,
+  Clock,
+  Star,
+  Bot,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -193,15 +191,23 @@ const STATUS_LABELS: Record<string, string> = {
   offline: "Offline",
 };
 
+interface HighlightData {
+  todayTasks: string[];
+  nextCron: { name: string; nextAt: string; in: string } | null;
+  providers: { name: string; icon: string; primary: boolean; active?: boolean }[];
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ total: 0, today: 0, success: 0, error: 0, byType: {} });
   const [liveAgents, setLiveAgents] = useState<Agent[]>([]);
+  const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
 
   useEffect(() => {
     Promise.all([
       fetch("/api/activities/stats").then(r => r.json()),
       fetch("/api/agents").then(r => r.json()),
-    ]).then(([actStats, agentsData]) => {
+      fetch("/api/dashboard/highlights").then(r => r.json()),
+    ]).then(([actStats, agentsData, highlightData]) => {
       setStats({
         total: actStats.total || 0,
         today: actStats.today || 0,
@@ -210,6 +216,7 @@ export default function DashboardPage() {
         byType: actStats.byType || {},
       });
       setLiveAgents(agentsData.agents || []);
+      setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
     }).catch(console.error);
   }, []);
 
@@ -502,12 +509,144 @@ export default function DashboardPage() {
                 />
               </div>
             ))}
-            <div
-              className="text-xs text-center mt-2 p-2 rounded"
-              style={{ color: "var(--text-muted)", backgroundColor: "var(--card-elevated)" }}
-            >
-              P&amp;L tracking coming soon
+          </div>
+        </div>
+      </div>
+
+      {/* Provider Stack + Today's Highlights row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        {/* Provider Stack */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <Server className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Provider Stack
+              </h2>
             </div>
+            <Link href="/settings" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              Configure →
+            </Link>
+          </div>
+          <div className="p-4">
+            <div className="grid grid-cols-2 gap-2">
+              {(highlights.providers.length > 0 ? highlights.providers : [
+                { name: "Anthropic", icon: "🤖", primary: true, active: true },
+                { name: "OpenAI Codex", icon: "🔮", primary: false, active: true },
+                { name: "Google Gemini", icon: "✨", primary: false, active: true },
+                { name: "OpenRouter", icon: "🔄", primary: false, active: true },
+              ]).map((p) => (
+                <div
+                  key={p.name}
+                  className="flex items-center gap-3 p-3 rounded-lg"
+                  style={{
+                    backgroundColor: "var(--card-elevated)",
+                    border: `1px solid ${p.active ? "rgba(74,222,128,0.2)" : "var(--border)"}`,
+                  }}
+                >
+                  <span className="text-xl">{p.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                        {p.name}
+                      </span>
+                      {p.primary && (
+                        <span className="text-xs px-1 py-0.5 rounded" style={{ backgroundColor: "var(--accent)20", color: "var(--accent)", fontSize: "9px" }}>
+                          1°
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <Circle className="w-1.5 h-1.5" style={{ fill: "#4ade80", color: "#4ade80" }} />
+                      <span className="text-xs" style={{ color: "#4ade80" }}>Active</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Today's Highlights + Next Cron */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <Star className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Today&apos;s Highlights
+              </h2>
+            </div>
+            <Link href="/tasks" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              All tasks →
+            </Link>
+          </div>
+          <div className="p-4">
+            {highlights.todayTasks.length > 0 ? (
+              <div className="space-y-2 mb-4">
+                {highlights.todayTasks.map((task, i) => {
+                  const isCompleted = task.startsWith("- ✅");
+                  const text = task.replace(/^- [✅🔄❌]\s*/, "").replace(/^TASK-\d+:\s*/, "").split("→")[0].trim();
+                  return (
+                    <div key={i} className="flex items-start gap-2.5 text-sm">
+                      <span className="flex-shrink-0 mt-0.5">
+                        {isCompleted ? (
+                          <CheckCircle className="w-4 h-4" style={{ color: "#4ade80" }} />
+                        ) : task.includes("🔄") ? (
+                          <Circle className="w-4 h-4" style={{ color: "#f59e0b" }} />
+                        ) : (
+                          <XCircle className="w-4 h-4" style={{ color: "#f87171" }} />
+                        )}
+                      </span>
+                      <span className={isCompleted ? "" : "opacity-60"} style={{ color: "var(--text-primary)" }}>
+                        {text}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm mb-4" style={{ color: "var(--text-muted)" }}>
+                No tasks recorded yet today
+              </p>
+            )}
+
+            {/* Next cron */}
+            {highlights.nextCron && (
+              <div
+                className="flex items-center gap-3 p-3 rounded-lg"
+                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+              >
+                <Clock className="w-4 h-4 flex-shrink-0" style={{ color: "#f59e0b" }} />
+                <div>
+                  <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                    Next: {highlights.nextCron.name}
+                  </div>
+                  <div className="text-xs" style={{ color: "#f59e0b" }}>
+                    {highlights.nextCron.in} · {new Date(highlights.nextCron.nextAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

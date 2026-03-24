@@ -5,6 +5,100 @@ const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
 
 export const dynamic = 'force-dynamic';
 
+function buildProviderStatus(config: Record<string, unknown>) {
+  const agents = config.agents as Record<string, unknown> | undefined;
+  const defaults = agents?.defaults as Record<string, unknown> | undefined;
+  const modelConfig = defaults?.model as Record<string, unknown> | undefined;
+  const modelsAliases = defaults?.models as Record<string, unknown> | undefined;
+  const authProfiles = (config.auth as Record<string, unknown> | undefined)?.profiles as Record<string, unknown> | undefined;
+  const env = config.env as Record<string, unknown> | undefined;
+
+  const primaryModel = (modelConfig?.primary as string) || '';
+  const fallbacks = (modelConfig?.fallbacks as string[]) || [];
+
+  const providers = [
+    {
+      id: 'anthropic',
+      name: 'Anthropic',
+      icon: '🤖',
+      authType: 'setup-token',
+      models: [] as string[],
+      status: 'active' as 'active' | 'inactive' | 'unconfigured',
+      isPrimary: true,
+      billing: 'subscription',
+      note: 'Claude Pro/Max subscription',
+    },
+    {
+      id: 'openai-codex',
+      name: 'OpenAI Codex',
+      icon: '🔮',
+      authType: 'oauth',
+      models: [] as string[],
+      status: 'active' as 'active' | 'inactive' | 'unconfigured',
+      isPrimary: false,
+      billing: 'subscription',
+      note: 'ChatGPT Plus/Pro subscription',
+    },
+    {
+      id: 'google',
+      name: 'Google Gemini',
+      icon: '✨',
+      authType: 'api-key',
+      models: [] as string[],
+      status: 'unconfigured' as 'active' | 'inactive' | 'unconfigured',
+      isPrimary: false,
+      billing: 'metered',
+      note: 'Pay per token via Gemini API',
+    },
+    {
+      id: 'openrouter',
+      name: 'OpenRouter',
+      icon: '🔄',
+      authType: 'api-key',
+      models: [] as string[],
+      status: 'unconfigured' as 'active' | 'inactive' | 'unconfigured',
+      isPrimary: false,
+      billing: 'metered',
+      note: 'Pay per token — fallback router',
+    },
+  ];
+
+  // Populate models from model config
+  if (modelsAliases) {
+    for (const [modelKey] of Object.entries(modelsAliases)) {
+      const providerId = modelKey.split('/')[0];
+      const modelName = modelKey.split('/').slice(1).join('/');
+      const p = providers.find(p => p.id === providerId);
+      if (p) p.models.push(modelName);
+    }
+  }
+  // Also add from primary/fallbacks
+  for (const m of [primaryModel, ...fallbacks]) {
+    if (!m) continue;
+    const providerId = m.split('/')[0];
+    const modelName = m.split('/').slice(1).join('/');
+    const p = providers.find(p => p.id === providerId);
+    if (p && !p.models.includes(modelName)) p.models.push(modelName);
+  }
+
+  // Check auth profiles
+  if (authProfiles) {
+    for (const [key] of Object.entries(authProfiles)) {
+      const [providerId] = key.split(':');
+      const p = providers.find(p => p.id === providerId);
+      if (p) p.status = 'active';
+    }
+  }
+
+  // Check env for Google API key
+  if (env?.GEMINI_API_KEY) {
+    const google = providers.find(p => p.id === 'google');
+    if (google) google.status = 'active';
+  }
+
+  return providers;
+}
+
 export async function GET() {
   try {
     const configPath = `${OPENCLAW_DIR}/openclaw.json`;
@@ -32,23 +126,30 @@ export async function GET() {
       }
     }
     if (sanitized?.skills?.entries) {
-      for (const skill of Object.values(sanitized.skills.entries) as any[]) {
+      for (const skill of Object.values(sanitized.skills.entries) as Record<string, unknown>[]) {
         if (skill?.apiKey) skill.apiKey = '***redacted***';
       }
     }
     if (sanitized?.plugins?.entries) {
-      for (const plugin of Object.values(sanitized.plugins.entries) as any[]) {
-        if (plugin?.config?.webSearch?.apiKey) plugin.config.webSearch.apiKey = '***redacted***';
+      for (const plugin of Object.values(sanitized.plugins.entries) as Record<string, unknown>[]) {
+        const cfg = plugin?.config as Record<string, unknown> | undefined;
+        if (cfg?.webSearch) {
+          const ws = cfg.webSearch as Record<string, unknown>;
+          if (ws?.apiKey) ws.apiKey = '***redacted***';
+        }
       }
     }
     if (sanitized?.auth?.profiles) {
-      for (const profile of Object.values(sanitized.auth.profiles) as any[]) {
+      for (const profile of Object.values(sanitized.auth.profiles) as Record<string, unknown>[]) {
         if (profile?.token) profile.token = '***redacted***';
         if (profile?.apiKey) profile.apiKey = '***redacted***';
       }
     }
 
-    return NextResponse.json({ config: sanitized });
+    // Build provider status from the ORIGINAL (unsanitized) config
+    const providers = buildProviderStatus(config);
+
+    return NextResponse.json({ config: sanitized, providers });
   } catch (err) {
     console.error('Settings error:', err);
     return NextResponse.json({ error: 'Failed to load config' }, { status: 500 });

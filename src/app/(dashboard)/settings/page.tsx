@@ -12,6 +12,8 @@ import {
   ChevronDown,
   ChevronRight,
   Lock,
+  CheckCircle,
+  Circle,
   type LucideIcon,
 } from "lucide-react";
 import { SystemInfo } from "@/components/SystemInfo";
@@ -38,6 +40,18 @@ interface SystemData {
     lastActivity: string | null;
   }>;
   timestamp: string;
+}
+
+interface Provider {
+  id: string;
+  name: string;
+  icon: string;
+  authType: string;
+  models: string[];
+  status: "active" | "inactive" | "unconfigured";
+  isPrimary: boolean;
+  billing: "subscription" | "metered";
+  note: string;
 }
 
 type ConfigSection = {
@@ -162,6 +176,7 @@ function JsonTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
 export default function SettingsPage() {
   const [systemData, setSystemData] = useState<SystemData | null>(null);
   const [openClawConfig, setOpenClawConfig] = useState<Record<string, unknown> | null>(null);
+  const [providers, setProviders] = useState<Provider[]>([]);
   const [loading, setLoading] = useState(true);
   const [configLoading, setConfigLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -186,6 +201,7 @@ export default function SettingsPage() {
       if (res.ok) {
         const data = await res.json();
         setOpenClawConfig(data.config);
+        if (data.providers) setProviders(data.providers);
       }
     } catch (err) {
       console.error("Failed to load config:", err);
@@ -266,6 +282,107 @@ export default function SettingsPage() {
           <QuickActions onActionComplete={handleRefresh} />
         </div>
       </div>
+
+      {/* Provider Status */}
+      {providers.length > 0 && (
+        <div
+          className="rounded-xl mb-6"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="px-5 py-4 flex items-center justify-between"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div>
+              <h2
+                className="font-semibold text-lg flex items-center gap-2"
+                style={{ color: "var(--text-primary)" }}
+              >
+                <Server className="w-5 h-5" style={{ color: "var(--accent)" }} />
+                Provider Stack
+              </h2>
+              <p className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Configured AI providers and their status
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#4ade8020", color: "#4ade80" }}>
+                {providers.filter(p => p.status === "active").length} active
+              </span>
+            </div>
+          </div>
+          <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {providers.map((provider) => (
+              <div
+                key={provider.id}
+                className="p-4 rounded-lg"
+                style={{
+                  backgroundColor: "var(--card-elevated)",
+                  border: `1px solid ${provider.status === "active" ? "rgba(74,222,128,0.2)" : "var(--border)"}`,
+                }}
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{provider.icon}</span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm" style={{ color: "var(--text-primary)" }}>
+                          {provider.name}
+                        </span>
+                        {provider.isPrimary && (
+                          <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "var(--accent)20", color: "var(--accent)" }}>
+                            PRIMARY
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        {provider.status === "active" ? (
+                          <CheckCircle className="w-3 h-3" style={{ color: "#4ade80" }} />
+                        ) : (
+                          <Circle className="w-3 h-3" style={{ color: "#6b7280" }} />
+                        )}
+                        <span className="text-xs" style={{ color: provider.status === "active" ? "#4ade80" : "#6b7280" }}>
+                          {provider.status === "active" ? "Active" : provider.status === "inactive" ? "Inactive" : "Not configured"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1">
+                    <span
+                      className="text-xs px-2 py-0.5 rounded"
+                      style={{
+                        backgroundColor: provider.billing === "subscription" ? "rgba(96,165,250,0.15)" : "rgba(245,158,11,0.15)",
+                        color: provider.billing === "subscription" ? "#60a5fa" : "#f59e0b",
+                      }}
+                    >
+                      {provider.billing === "subscription" ? "📋 Subscription" : "💳 Metered"}
+                    </span>
+                    <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {provider.authType}
+                    </span>
+                  </div>
+                </div>
+                {provider.models.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {provider.models.map((m) => (
+                      <span
+                        key={m}
+                        className="text-xs px-1.5 py-0.5 rounded font-mono"
+                        style={{ backgroundColor: "var(--card)", color: "var(--text-muted)", border: "1px solid var(--border)" }}
+                      >
+                        {m}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {provider.note}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* OpenClaw Config Viewer */}
       <div
