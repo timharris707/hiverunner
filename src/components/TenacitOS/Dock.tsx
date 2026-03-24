@@ -266,6 +266,7 @@ export function Dock() {
         flexDirection: "column",
         alignItems: "stretch",
         padding: "8px 0",
+        paddingBottom: "40px",
         zIndex: 50,
         overflowY: "auto",
         overflowX: "hidden",
