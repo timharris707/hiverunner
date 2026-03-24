@@ -7,6 +7,7 @@ interface StatsCardProps {
   value: string | number;
   icon: ReactNode;
   iconColor?: string;
+  subtitle?: string;
   trend?: {
     value: number;
     isPositive: boolean;
@@ -18,6 +19,7 @@ export function StatsCard({
   value,
   icon,
   iconColor = "var(--info)",
+  subtitle,
   trend,
 }: StatsCardProps) {
   return (
@@ -60,6 +62,11 @@ export function StatsCard({
           </span>
         )}
       </div>
+      {subtitle && (
+        <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+          {subtitle}
+        </div>
+      )}
     </div>
   );
 }

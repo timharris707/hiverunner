@@ -435,6 +435,78 @@ code, pre, .font-mono {
   color: var(--accent);
 }
 
+/* ============================================
+   Loading Skeletons
+   ============================================ */
+@keyframes shimmer {
+  0% { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-elevated) 25%, var(--surface-hover) 50%, var(--surface-elevated) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 4px;
+}
+
+.skeleton-text {
+  height: 1em;
+  border-radius: 4px;
+}
+
+.skeleton-card {
+  background: linear-gradient(90deg, var(--surface-elevated) 25%, var(--surface-hover) 50%, var(--surface-elevated) 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite linear;
+  border-radius: 12px;
+}
+
+/* ============================================
+   Mobile Responsive Utilities
+   ============================================ */
+@media (max-width: 768px) {
+  /* Main content area adjustments for mobile — dock is at bottom on mobile */
+  .tenacios-shell main {
+    margin-left: 0 !important;
+    margin-bottom: 60px !important; /* dock height on mobile */
+    padding: 16px !important;
+  }
+
+  /* Top bar adjusts for mobile */
+  .top-bar {
+    left: 0 !important;
+  }
+
+  /* Hide dock label text on mobile */
+  .dock-item-label {
+    display: none;
+  }
+
+  /* Stack grid layouts on mobile */
+  .mobile-stack {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Notification dropdown smaller on mobile */
+  .notification-dropdown {
+    width: calc(100vw - 32px) !important;
+    right: -20px !important;
+  }
+}
+
+/* ============================================
+   Pulse animation for live indicators  
+   ============================================ */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.9); }
+}
+
+.pulse-dot {
+  animation: pulse-dot 2s ease-in-out infinite;
+}
+
 /* Unsaved indicator */
 .unsaved-indicator {
   display: flex;

@@ -25,14 +25,17 @@ export default function Office3D() {
   const [controlMode, setControlMode] = useState<'orbit' | 'fps'>('orbit');
   const [avatarPositions, setAvatarPositions] = useState<Map<string, any>>(new Map());
   
-  // Mock data - TODO: Replace with real API data
+  // Harris Autonomous agent states
   const [agentStates] = useState<Record<string, AgentState>>({
-    main: { id: 'main', status: 'working', currentTask: 'Procesando emails', model: 'opus', tokensPerHour: 15000, tasksInQueue: 3, uptime: 12 },
-    academic: { id: 'academic', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 8 },
-    studio: { id: 'studio', status: 'thinking', currentTask: 'Generando guión YouTube', model: 'opus', tokensPerHour: 8000, tasksInQueue: 1, uptime: 5 },
-    linkedin: { id: 'linkedin', status: 'working', currentTask: 'Redactando post', model: 'sonnet', tokensPerHour: 5000, tasksInQueue: 2, uptime: 10 },
-    social: { id: 'social', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 7 },
-    infra: { id: 'infra', status: 'error', currentTask: 'Failed deployment', model: 'haiku', tokensPerHour: 1000, tasksInQueue: 0, uptime: 15 },
+    henry: { id: 'henry', status: 'working', currentTask: 'Orchestrating Harris Autonomous', model: 'opus', tokensPerHour: 15000, tasksInQueue: 3, uptime: 1 },
+    t1: { id: 't1', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
+    t2: { id: 't2', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
+    t3: { id: 't3', status: 'thinking', currentTask: 'Building crypto trading pipeline', model: 'sonnet', tokensPerHour: 8000, tasksInQueue: 1, uptime: 0 },
+    backend: { id: 'backend', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
+    fullstack: { id: 'fullstack', status: 'working', currentTask: 'Building Mission Control', model: 'sonnet', tokensPerHour: 5000, tasksInQueue: 2, uptime: 0 },
+    scout: { id: 'scout', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
+    quill: { id: 'quill', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
+    counsel: { id: 'counsel', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
   });
 
   const handleDeskClick = (agentId: string) => {

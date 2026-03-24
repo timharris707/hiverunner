@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   TrendingUp,
   Circle,
@@ -14,6 +14,7 @@ import {
   DollarSign,
   Link2,
   FolderOpen,
+  RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -78,10 +79,40 @@ const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
 
 interface ConnectionStatus {
   coinbase: { configured: boolean; keyId: string | null };
+  kalshi: { configured: boolean; keyId: string | null; keyPath: string | null };
+  polymarket: { configured: boolean; keyId: string | null };
+}
+
+interface CryptoPrice {
+  usd: number;
+  usd_24h_change: number;
+}
+
+interface CryptoPrices {
+  bitcoin?: CryptoPrice;
+  ethereum?: CryptoPrice;
+  solana?: CryptoPrice;
+  lastUpdated?: Date;
+}
+
+const CRYPTO_COINS = [
+  { id: "bitcoin", symbol: "BTC", name: "Bitcoin", color: "#f59e0b", icon: "₿" },
+  { id: "ethereum", symbol: "ETH", name: "Ethereum", color: "#60a5fa", icon: "Ξ" },
+  { id: "solana", symbol: "SOL", name: "Solana", color: "#a78bfa", icon: "◎" },
+];
+
+function formatPrice(price: number): string {
+  if (price >= 1000) return `$${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  if (price >= 1) return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `$${price.toFixed(4)}`;
 }
 
 export default function TradingPage() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus | null>(null);
+  const [cryptoPrices, setCryptoPrices] = useState<CryptoPrices>({});
+  const [priceLoading, setPriceLoading] = useState(true);
+  const [priceError, setPriceError] = useState(false);
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
 
   useEffect(() => {
     fetch("/api/trading/connection")
@@ -90,7 +121,62 @@ export default function TradingPage() {
       .catch(() => setConnStatus(null));
   }, []);
 
+  const fetchCryptoPrices = useCallback(async () => {
+    try {
+      setPriceError(false);
+      const res = await fetch(
+        "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin,ethereum,solana&vs_currencies=usd&include_24hr_change=true",
+        { cache: "no-store" }
+      );
+      if (!res.ok) throw new Error("CoinGecko fetch failed");
+      const data = await res.json();
+      setCryptoPrices({ ...data, lastUpdated: new Date() });
+      setLastRefresh(new Date());
+    } catch {
+      setPriceError(true);
+    } finally {
+      setPriceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCryptoPrices();
+    const interval = setInterval(fetchCryptoPrices, 60000);
+    return () => clearInterval(interval);
+  }, [fetchCryptoPrices]);
+
   const coinbaseConfigured = connStatus?.coinbase?.configured ?? false;
+  const kalshiConfigured = connStatus?.kalshi?.configured ?? false;
+  const polymarketConfigured = connStatus?.polymarket?.configured ?? false;
+
+  const connections = [
+    {
+      label: "Coinbase API",
+      configured: coinbaseConfigured,
+      subtext: coinbaseConfigured
+        ? `Connected · ...${connStatus?.coinbase?.keyId?.slice(-6) ?? "..."}`
+        : "Not connected",
+    },
+    {
+      label: "Kalshi API",
+      configured: kalshiConfigured,
+      subtext: kalshiConfigured
+        ? `Connected · ...${connStatus?.kalshi?.keyId ?? "..."}`
+        : "Not configured",
+    },
+    {
+      label: "Polymarket",
+      configured: polymarketConfigured,
+      subtext: polymarketConfigured
+        ? `Connected · ...${connStatus?.polymarket?.keyId ?? "..."}`
+        : "Not configured",
+    },
+    {
+      label: "Binance API",
+      configured: false,
+      subtext: "Not configured",
+    },
+  ];
 
   return (
     <div className="p-4 md:p-8">
@@ -113,72 +199,37 @@ export default function TradingPage() {
       </div>
 
       {/* Connection Status Bar */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
-        {/* Coinbase Connection */}
-        <div
-          className="flex items-center gap-3 p-4 rounded-xl"
-          style={{
-            backgroundColor: coinbaseConfigured ? "#4ade8008" : "#f59e0b08",
-            border: `1px solid ${coinbaseConfigured ? "#4ade8030" : "#f59e0b30"}`,
-          }}
-        >
-          <Circle
-            className="w-3 h-3 flex-shrink-0"
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {connections.map((conn) => (
+          <div
+            key={conn.label}
+            className="flex items-center gap-3 p-4 rounded-xl"
             style={{
-              fill: coinbaseConfigured ? "#4ade80" : "#f59e0b",
-              color: coinbaseConfigured ? "#4ade80" : "#f59e0b",
+              backgroundColor: conn.configured ? "#4ade8008" : "var(--card)",
+              border: `1px solid ${conn.configured ? "#4ade8030" : "var(--border)"}`,
             }}
-          />
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-              Coinbase API
+          >
+            {conn.configured ? (
+              <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#4ade80" }} />
+            ) : (
+              <Circle className="w-3 h-3 flex-shrink-0" style={{ fill: "#6b7280", color: "#6b7280" }} />
+            )}
+            <div>
+              <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                {conn.label}
+              </div>
+              <div
+                className="text-xs"
+                style={{ color: conn.configured ? "#4ade80" : "var(--text-muted)" }}
+              >
+                {conn.subtext}
+              </div>
             </div>
-            <div className="text-xs" style={{ color: coinbaseConfigured ? "#4ade80" : "#f59e0b" }}>
-              {coinbaseConfigured
-                ? `Configured · ${connStatus?.coinbase?.keyId?.slice(-8) ?? "..."}`
-                : "Not connected"}
-            </div>
           </div>
-        </div>
-
-        {/* Binance */}
-        <div
-          className="flex items-center gap-3 p-4 rounded-xl"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <Circle className="w-3 h-3 flex-shrink-0" style={{ fill: "#6b7280", color: "#6b7280" }} />
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Binance API</div>
-            <div className="text-xs" style={{ color: "#6b7280" }}>Not configured</div>
-          </div>
-        </div>
-
-        {/* Kalshi */}
-        <div
-          className="flex items-center gap-3 p-4 rounded-xl"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <Circle className="w-3 h-3 flex-shrink-0" style={{ fill: "#6b7280", color: "#6b7280" }} />
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Kalshi API</div>
-            <div className="text-xs" style={{ color: "#6b7280" }}>Not configured</div>
-          </div>
-        </div>
-
-        {/* Polymarket */}
-        <div
-          className="flex items-center gap-3 p-4 rounded-xl"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <Circle className="w-3 h-3 flex-shrink-0" style={{ fill: "#6b7280", color: "#6b7280" }} />
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Polymarket</div>
-            <div className="text-xs" style={{ color: "#6b7280" }}>Not configured</div>
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Crypto Tickers — Ready for live data */}
+      {/* Crypto Tickers — Live */}
       <div
         className="rounded-xl overflow-hidden mb-6"
         style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
@@ -193,37 +244,184 @@ export default function TradingPage() {
               ₿ Crypto Price Tickers
             </h2>
           </div>
-          <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#f59e0b20", color: "#f59e0b" }}>
-            Awaiting live feed
-          </span>
+          <div className="flex items-center gap-2">
+            {lastRefresh && (
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            <button
+              onClick={fetchCryptoPrices}
+              className="flex items-center gap-1 text-xs px-2 py-1 rounded"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+            >
+              <RefreshCw className="w-3 h-3" />
+              Refresh
+            </button>
+            <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#4ade8020", color: "#4ade80" }}>
+              {priceLoading ? "Loading..." : priceError ? "Error" : "Live · CoinGecko"}
+            </span>
+          </div>
         </div>
         <div className="p-4 grid grid-cols-3 gap-4">
-          {[
-            { symbol: "BTC", name: "Bitcoin", color: "#f59e0b", icon: "₿" },
-            { symbol: "ETH", name: "Ethereum", color: "#60a5fa", icon: "Ξ" },
-            { symbol: "SOL", name: "Solana", color: "#a78bfa", icon: "◎" },
-          ].map((coin) => (
-            <div
-              key={coin.symbol}
-              className="p-4 rounded-xl text-center"
-              style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${coin.color}30` }}
-            >
-              <div className="text-3xl mb-2" style={{ color: coin.color }}>{coin.icon}</div>
-              <div className="font-bold text-lg" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                {coin.symbol}
-              </div>
-              <div className="text-sm" style={{ color: "var(--text-muted)" }}>{coin.name}</div>
+          {CRYPTO_COINS.map((coin) => {
+            const priceData = cryptoPrices[coin.id as keyof CryptoPrices] as CryptoPrice | undefined;
+            const price = priceData?.usd;
+            const change = priceData?.usd_24h_change;
+            const isPositive = change !== undefined && change >= 0;
+
+            return (
               <div
-                className="text-xl font-bold mt-2"
-                style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}
+                key={coin.symbol}
+                className="p-4 rounded-xl text-center"
+                style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${coin.color}30` }}
               >
-                —
+                <div className="text-3xl mb-2" style={{ color: coin.color }}>{coin.icon}</div>
+                <div className="font-bold text-lg" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                  {coin.symbol}
+                </div>
+                <div className="text-sm" style={{ color: "var(--text-muted)" }}>{coin.name}</div>
+                <div
+                  className="text-xl font-bold mt-2"
+                  style={{ fontFamily: "var(--font-heading)", color: price ? "var(--text-primary)" : "var(--text-muted)" }}
+                >
+                  {priceLoading ? "—" : priceError ? "N/A" : price ? formatPrice(price) : "—"}
+                </div>
+                {change !== undefined && !priceLoading && !priceError && (
+                  <div
+                    className="text-xs mt-1 px-2 py-0.5 rounded inline-block font-semibold"
+                    style={{
+                      backgroundColor: `${isPositive ? "#4ade80" : "#ef4444"}15`,
+                      color: isPositive ? "#4ade80" : "#ef4444",
+                    }}
+                  >
+                    {isPositive ? "+" : ""}{change.toFixed(2)}% 24h
+                  </div>
+                )}
+                {(priceLoading || priceError) && (
+                  <div className="text-xs mt-1 px-2 py-0.5 rounded inline-block" style={{ backgroundColor: `${coin.color}10`, color: coin.color }}>
+                    {priceLoading ? "Loading..." : "Unavailable"}
+                  </div>
+                )}
               </div>
-              <div className="text-xs mt-1 px-2 py-0.5 rounded inline-block" style={{ backgroundColor: `${coin.color}10`, color: coin.color }}>
-                Live data pending
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Weather Trading Section */}
+      <div
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid #60a5fa30" }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2 className="text-base font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+              🌩️ Weather Trading
+            </h2>
+          </div>
+          <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#60a5fa20", color: "#60a5fa" }}>
+            Research Phase
+          </span>
+        </div>
+        <div className="p-4">
+          {/* T2 Agent Status */}
+          <div
+            className="flex items-center gap-4 p-4 rounded-xl mb-4"
+            style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+          >
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
+              style={{ backgroundColor: "#60a5fa20", border: "1px solid #60a5fa40" }}
+            >
+              🌩️
+            </div>
+            <div className="flex-1">
+              <div className="font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+                T2 — Weather Prediction Trader
+              </div>
+              <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                Weather data → Polymarket/Kalshi signal generation
+              </div>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ backgroundColor: "#6b728020", color: "#9ca3af" }}>
+                  Not Deployed
+                </span>
+                <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  · Credentials configured ✅
+                </span>
               </div>
             </div>
-          ))}
+            <Link
+              href="/files?path=/Users/timharris/.openclaw/workspace/projects/weather-trading"
+              className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg"
+              style={{ backgroundColor: "#60a5fa15", color: "#60a5fa", border: "1px solid #60a5fa30" }}
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Project Files
+            </Link>
+          </div>
+
+          {/* Weather Trading Panels */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {/* Active Contracts */}
+            <div
+              className="p-4 rounded-xl"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Link2 className="w-4 h-4" style={{ color: "#60a5fa" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Active Contracts</span>
+              </div>
+              <div className="text-center py-4">
+                <div className="text-3xl font-bold mb-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-heading)" }}>0</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>No open positions</div>
+                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#60a5fa10", color: "#60a5fa" }}>
+                  Kalshi + Polymarket
+                </div>
+              </div>
+            </div>
+
+            {/* Edge Scanner */}
+            <div
+              className="p-4 rounded-xl"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <Activity className="w-4 h-4" style={{ color: "#a78bfa" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Edge Scanner</span>
+              </div>
+              <div className="text-center py-4">
+                <div className="text-3xl mb-1" style={{ color: "var(--text-muted)" }}>🔍</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Awaiting T2 deployment</div>
+                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#a78bfa10", color: "#a78bfa" }}>
+                  Weather → Market Edge
+                </div>
+              </div>
+            </div>
+
+            {/* Daily P&L */}
+            <div
+              className="p-4 rounded-xl"
+              style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <DollarSign className="w-4 h-4" style={{ color: "#4ade80" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Daily P&L</span>
+              </div>
+              <div className="text-center py-4">
+                <div className="text-2xl font-bold mb-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-heading)" }}>$—</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Paper trading mode</div>
+                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#4ade8010", color: "#4ade80" }}>
+                  Live when deployed
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

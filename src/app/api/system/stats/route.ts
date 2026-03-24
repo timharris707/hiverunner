@@ -5,9 +5,18 @@ import os from "os";
 
 const execAsync = promisify(exec);
 
+// Cache system stats for 30 seconds
+let statsCache: { data: unknown; ts: number } | null = null;
+const STATS_CACHE_MS = 30 * 1000;
+
 const SYSTEMD_SERVICES = ["mission-control", "content-vault", "classvault", "creatoros"];
 
 export async function GET() {
+  // Return cached data if fresh enough
+  if (statsCache && Date.now() - statsCache.ts < STATS_CACHE_MS) {
+    return NextResponse.json(statsCache.data);
+  }
+
   try {
     // CPU (load average as percentage)
     const loadAvg = os.loadavg()[0];
@@ -71,7 +80,7 @@ export async function GET() {
     const hours = Math.floor((uptimeSeconds % 86400) / 3600);
     const uptime = `${days}d ${hours}h`;
 
-    return NextResponse.json({
+    const result = {
       cpu,
       ram,
       disk: { used: diskUsed, total: diskTotal },
@@ -80,7 +89,9 @@ export async function GET() {
       activeServices,
       totalServices,
       uptime,
-    });
+    };
+    statsCache = { data: result, ts: Date.now() };
+    return NextResponse.json(result);
   } catch (error) {
     console.error("Error fetching system stats:", error);
     return NextResponse.json(

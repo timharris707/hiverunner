@@ -30,6 +30,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  shortcutKey?: string;
 }
 
 interface NavGroup {
@@ -47,9 +48,9 @@ const navGroups: NavGroup[] = [
     shortLabel: "CMD",
     collapsible: false,
     items: [
-      { href: "/", label: "Dashboard", icon: Home },
-      { href: "/tasks", label: "Task Board", icon: Kanban },
-      { href: "/agents", label: "Agents", icon: Bot },
+      { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
+      { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
+      { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
     ],
   },
   {
@@ -58,9 +59,9 @@ const navGroups: NavGroup[] = [
     shortLabel: "OPS",
     collapsible: true,
     items: [
-      { href: "/trading", label: "Trading Desk", icon: TrendingUp },
+      { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "4" },
       { href: "/calendar", label: "Calendar", icon: CalendarDays },
-      { href: "/workflows", label: "Workflows", icon: Workflow },
+      { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "5" },
       { href: "/cron", label: "Cron Jobs", icon: Clock },
     ],
   },
@@ -115,6 +116,7 @@ function saveGroupState(state: Record<string, boolean>) {
 function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
   const shortLabel = item.label.split(" ")[0];
+  const { shortcutKey } = item;
 
   return (
     <Link
@@ -187,9 +189,9 @@ function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
         {shortLabel}
       </span>
 
-      {/* Hover tooltip */}
+      {/* Hover tooltip with keyboard shortcut hint */}
       <span
-        className="absolute left-[66px] top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50"
+        className="absolute left-[66px] top-1/2 -translate-y-1/2 px-2.5 py-1.5 rounded-lg text-xs whitespace-nowrap pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity z-50 flex items-center gap-2"
         style={{
           backgroundColor: "var(--surface-elevated)",
           border: "1px solid var(--border)",
@@ -198,6 +200,11 @@ function DockNavItem({ item, active }: { item: NavItem; active: boolean }) {
         }}
       >
         {item.label}
+        {item.shortcutKey && (
+          <span style={{ opacity: 0.6, fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+            ⌘{item.shortcutKey}
+          </span>
+        )}
       </span>
     </Link>
   );
@@ -211,6 +218,14 @@ export function Dock() {
     infrastructure: true,
   });
   const [mounted, setMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   useEffect(() => {
     const saved = loadGroupState();
@@ -250,6 +265,61 @@ export function Dock() {
       }
     });
   }, [pathname, mounted, checkActive]);
+
+  // Mobile: bottom tab bar with just key 5 pages
+  if (isMobile) {
+    const mobileItems = [
+      { href: "/", label: "Home", icon: Home },
+      { href: "/tasks", label: "Tasks", icon: Kanban },
+      { href: "/agents", label: "Agents", icon: Bot },
+      { href: "/trading", label: "Trading", icon: TrendingUp },
+      { href: "/workflows", label: "Flows", icon: Workflow },
+    ];
+    return (
+      <nav
+        style={{
+          position: "fixed",
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: "56px",
+          backgroundColor: "var(--surface)",
+          borderTop: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-around",
+          zIndex: 50,
+          padding: "0 8px",
+        }}
+      >
+        {mobileItems.map((item) => {
+          const Icon = item.icon;
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "3px",
+                padding: "4px 12px",
+                borderRadius: "8px",
+                textDecoration: "none",
+                backgroundColor: active ? "var(--accent-soft)" : "transparent",
+              }}
+            >
+              <Icon size={20} color={active ? "var(--accent)" : "var(--text-muted)"} strokeWidth={active ? 2.5 : 2} />
+              <span style={{ fontSize: "9px", fontWeight: active ? 700 : 500, color: active ? "var(--accent)" : "var(--text-muted)" }}>
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
+      </nav>
+    );
+  }
 
   return (
     <aside

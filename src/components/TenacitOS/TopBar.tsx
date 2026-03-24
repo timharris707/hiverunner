@@ -9,7 +9,15 @@ import Link from "next/link";
 export function TopBar() {
   const [showSearch, setShowSearch] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 768);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
+  }, []);
 
   // Close user menu on outside click
   useEffect(() => {
@@ -47,7 +55,7 @@ export function TopBar() {
         style={{
           position: "fixed",
           top: 0,
-          left: "68px", // Width of dock
+          left: isMobile ? 0 : "68px", // Width of dock (0 on mobile)
           right: 0,
           height: "48px",
           backgroundColor: "var(--surface)",
@@ -102,7 +110,7 @@ export function TopBar() {
             onClick={() => setShowSearch(true)}
             className="flex items-center gap-2 transition-all"
             style={{
-              width: "240px",
+              width: isMobile ? "100px" : "240px",
               height: "32px",
               backgroundColor: "var(--surface-elevated)",
               borderRadius: "6px",

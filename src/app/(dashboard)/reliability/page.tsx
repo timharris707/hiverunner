@@ -51,6 +51,16 @@ interface DeadLetterItem {
 }
 
 export default function ReliabilityPage() {
+  interface ReliabilityData {
+    cronJobs: { id: string; name?: string; errorCount: number; recentRuns: { status: string; ts: number; error?: string }[] }[];
+    totalCronRuns: number;
+    totalCronErrors: number;
+    hasActiveCronErrors: boolean;
+    sessionErrors: number;
+    recentSessionErrors: number;
+    circuitBreakerState: "closed" | "open" | "half-open";
+  }
+
   const [loading, setLoading] = useState(true);
   const [agentHealth, setAgentHealth] = useState<AgentHealth[]>([]);
   const [costData, setCostData] = useState<{
@@ -58,6 +68,7 @@ export default function ReliabilityPage() {
     thisMonth: number;
     budget: number;
   } | null>(null);
+  const [reliabilityData, setReliabilityData] = useState<ReliabilityData | null>(null);
   const [lastRefresh, setLastRefresh] = useState(new Date());
 
   useEffect(() => {
@@ -68,16 +79,18 @@ export default function ReliabilityPage() {
 
   const loadData = async () => {
     try {
-      const [agentsRes, costsRes] = await Promise.all([
+      const [agentsRes, costsRes, reliabilityRes] = await Promise.all([
         fetch("/api/agents"),
         fetch("/api/costs?timeframe=7d"),
+        fetch("/api/reliability"),
       ]);
       const agentsData = await agentsRes.json();
       const costs = await costsRes.json();
+      const reliability = reliabilityRes.ok ? await reliabilityRes.json() : null;
 
       // Map live agent data to health entries
       const liveAgents = agentsData.agents || [];
-      const health: AgentHealth[] = liveAgents.map((a: any) => ({
+      const health: AgentHealth[] = liveAgents.map((a: { name: string; emoji: string; status: string; lastActivity?: string }) => ({
         name: a.name,
         emoji: a.emoji,
         status: a.status,
@@ -90,6 +103,7 @@ export default function ReliabilityPage() {
         thisMonth: costs.thisMonth || 0,
         budget: costs.budget || 100,
       });
+      if (reliability) setReliabilityData(reliability);
       setLastRefresh(new Date());
     } catch (err) {
       console.error("Reliability data load failed:", err);
@@ -98,21 +112,21 @@ export default function ReliabilityPage() {
     }
   };
 
-  // Static circuit breakers (concept visualization)
+  // Dynamic circuit breakers based on real data
   const circuitBreakers: CircuitBreaker[] = [
     {
       name: "Task Executor",
-      state: "closed",
-      failures: 0,
+      state: reliabilityData?.recentSessionErrors && reliabilityData.recentSessionErrors > 2 ? "open" : "closed",
+      failures: reliabilityData?.sessionErrors || 0,
       maxRetries: 3,
       description: "Per-task retry policy with exponential backoff",
     },
     {
       name: "Cron Job Runner",
-      state: "closed",
-      failures: 0,
+      state: reliabilityData?.hasActiveCronErrors ? "half-open" : "closed",
+      failures: reliabilityData?.totalCronErrors || 0,
       maxRetries: 3,
-      description: "Scheduled task execution circuit",
+      description: `Scheduled task execution · ${reliabilityData?.totalCronRuns || 0} total runs`,
     },
     {
       name: "Memory Writer",
@@ -255,16 +269,16 @@ export default function ReliabilityPage() {
         <SummaryCard
           label="Circuit Breakers"
           value={`${circuitBreakers.filter((c) => c.state === "closed").length}/${circuitBreakers.length}`}
-          sublabel="All nominal"
-          icon={<CheckCircle2 className="w-5 h-5" style={{ color: "#4ade80" }} />}
-          color="#4ade80"
+          sublabel={circuitBreakers.some(c => c.state !== "closed") ? "Issues detected" : "All nominal"}
+          icon={<CheckCircle2 className="w-5 h-5" style={{ color: circuitBreakers.some(c => c.state !== "closed") ? "#f59e0b" : "#4ade80" }} />}
+          color={circuitBreakers.some(c => c.state !== "closed") ? "#f59e0b" : "#4ade80"}
         />
         <SummaryCard
-          label="Dead Letter Queue"
-          value={deadLetterQueue.length.toString()}
-          sublabel="No failed tasks"
-          icon={<Inbox className="w-5 h-5" style={{ color: "#4ade80" }} />}
-          color="#4ade80"
+          label="Cron Runs"
+          value={`${(reliabilityData?.totalCronRuns || 0) - (reliabilityData?.totalCronErrors || 0)}/${reliabilityData?.totalCronRuns || 0}`}
+          sublabel={reliabilityData?.totalCronErrors ? `${reliabilityData.totalCronErrors} failed` : "All successful"}
+          icon={<Inbox className="w-5 h-5" style={{ color: reliabilityData?.totalCronErrors ? "#f59e0b" : "#4ade80" }} />}
+          color={reliabilityData?.totalCronErrors ? "#f59e0b" : "#4ade80"}
         />
         <SummaryCard
           label="Cost Guards"
@@ -394,6 +408,72 @@ export default function ReliabilityPage() {
           </p>
         </div>
       </div>
+
+      {/* Cron Run History */}
+      {reliabilityData && reliabilityData.cronJobs.length > 0 && (
+        <div
+          className="rounded-xl"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <h2 className="font-semibold text-lg flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
+              <Clock className="w-5 h-5" style={{ color: "#60a5fa" }} />
+              Cron Run History
+            </h2>
+            <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+              Real run data from {reliabilityData.cronJobs.length} scheduled job{reliabilityData.cronJobs.length !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <div className="divide-y" style={{ borderColor: "var(--border)" }}>
+            {reliabilityData.cronJobs.map((job) => (
+              <div key={job.id} className="px-5 py-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <div className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>
+                      {job.name || job.id.slice(0, 12) + "..."}
+                    </div>
+                    <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                      {job.recentRuns.length} recent runs · {job.errorCount} error{job.errorCount !== 1 ? "s" : ""}
+                    </div>
+                  </div>
+                  <span
+                    className="text-xs px-2 py-1 rounded-full font-medium"
+                    style={{
+                      backgroundColor: job.errorCount === 0 ? "#4ade8020" : "#f59e0b20",
+                      color: job.errorCount === 0 ? "#4ade80" : "#f59e0b",
+                    }}
+                  >
+                    {job.errorCount === 0 ? "✓ Healthy" : `${job.errorCount} failures`}
+                  </span>
+                </div>
+                {job.recentRuns.length > 0 && (
+                  <div className="flex items-center gap-1 mt-2">
+                    {job.recentRuns.slice(0, 10).map((run, i) => (
+                      <div
+                        key={i}
+                        title={`${run.status} · ${new Date(run.ts).toLocaleString()}${run.error ? " · " + run.error : ""}`}
+                        style={{
+                          width: "20px",
+                          height: "8px",
+                          borderRadius: "2px",
+                          backgroundColor: run.status === "success" ? "#4ade80" : "#ef4444",
+                          opacity: 0.8,
+                        }}
+                      />
+                    ))}
+                    <span className="text-xs ml-2" style={{ color: "var(--text-muted)" }}>
+                      latest →
+                    </span>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Cost Guards */}
       <div

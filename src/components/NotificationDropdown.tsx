@@ -66,10 +66,18 @@ export function NotificationDropdown() {
     }
   };
 
+  // Sync notifications from tasks-log + system when dropdown opens
+  const syncAndFetch = async () => {
+    try {
+      await fetch("/api/notifications/sync", { method: "POST" });
+    } catch {}
+    await fetchNotifications();
+  };
+
   useEffect(() => {
     fetchNotifications();
-    // Poll for new notifications every 30 seconds
-    const interval = setInterval(fetchNotifications, 30000);
+    // Poll for new notifications every 60 seconds
+    const interval = setInterval(fetchNotifications, 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -151,7 +159,11 @@ export function NotificationDropdown() {
     <div style={{ position: "relative" }} ref={dropdownRef}>
       {/* Bell Button */}
       <button
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={() => {
+          const newOpen = !isOpen;
+          setIsOpen(newOpen);
+          if (newOpen) syncAndFetch();
+        }}
         style={{
           position: "relative",
           display: "flex",

@@ -1,17 +1,7 @@
 /**
  * Office 3D — Agent Configuration
  *
- * This file defines the visual layout of agents in the 3D office.
- * Names, emojis and roles are loaded at runtime from the OpenClaw API
- * (/api/agents → openclaw.json), so you only need to set positions and colors here.
- *
- * Agent IDs correspond to workspace directory suffixes:
- *   id: "main"     → workspace/          (main agent)
- *   id: "studio"   → workspace-studio/
- *   id: "infra"    → workspace-infra/
- *   etc.
- *
- * Add, remove or reposition agents to match your own OpenClaw setup.
+ * Harris Autonomous — 9 agents, 5 divisions
  */
 
 export interface AgentConfig {
@@ -24,53 +14,83 @@ export interface AgentConfig {
 }
 
 export const AGENTS: AgentConfig[] = [
+  // Henry — Chief of Staff (center, prominent)
   {
-    id: "main",
-    name: process.env.NEXT_PUBLIC_AGENT_NAME || "Mission Control",
-    emoji: process.env.NEXT_PUBLIC_AGENT_EMOJI || "🦞",
-    position: [0, 0, 0], // Center — main desk
-    color: "#FFCC00",
-    role: "Main Agent",
+    id: "henry",
+    name: "Henry",
+    emoji: "⚡",
+    position: [0, 0, 0],
+    color: "#f59e0b",
+    role: "Chief of Staff",
+  },
+  // Trading Desk
+  {
+    id: "t1",
+    name: "T1",
+    emoji: "📈",
+    position: [-5, 0, -4],
+    color: "#4ade80",
+    role: "Stocks & Options",
   },
   {
-    id: "agent-2",
-    name: "Agent 2",
-    emoji: "🤖",
-    position: [-4, 0, -3],
-    color: "#4CAF50",
-    role: "Sub-agent",
+    id: "t2",
+    name: "T2",
+    emoji: "🌩️",
+    position: [0, 0, -4],
+    color: "#60a5fa",
+    role: "Weather Trading",
   },
   {
-    id: "agent-3",
-    name: "Agent 3",
-    emoji: "🤖",
-    position: [4, 0, -3],
-    color: "#E91E63",
-    role: "Sub-agent",
+    id: "t3",
+    name: "T3",
+    emoji: "₿",
+    position: [5, 0, -4],
+    color: "#f59e0b",
+    role: "Crypto Bot",
+  },
+  // Engineering
+  {
+    id: "backend",
+    name: "Backend",
+    emoji: "🔧",
+    position: [-5, 0, 4],
+    color: "#60a5fa",
+    role: "Infrastructure",
   },
   {
-    id: "agent-4",
-    name: "Agent 4",
-    emoji: "🤖",
-    position: [-4, 0, 3],
-    color: "#0077B5",
-    role: "Sub-agent",
+    id: "fullstack",
+    name: "Full-Stack",
+    emoji: "💻",
+    position: [0, 0, 4],
+    color: "#60a5fa",
+    role: "Web Apps",
   },
+  // Research
   {
-    id: "agent-5",
-    name: "Agent 5",
-    emoji: "🤖",
-    position: [4, 0, 3],
-    color: "#9C27B0",
-    role: "Sub-agent",
+    id: "scout",
+    name: "Scout",
+    emoji: "🔭",
+    position: [5, 0, 4],
+    color: "#a78bfa",
+    role: "Research & Intel",
   },
+  // Creative
   {
-    id: "agent-6",
-    name: "Agent 6",
-    emoji: "🤖",
-    position: [0, 0, 6],
-    color: "#607D8B",
-    role: "Sub-agent",
+    id: "quill",
+    name: "Quill",
+    emoji: "✍️",
+    position: [-5, 0, 0],
+    color: "#f472b6",
+    role: "Creative Writer",
+  },
+  // Legal
+  {
+    id: "counsel",
+    name: "Counsel",
+    emoji: "⚖️",
+    position: [5, 0, 0],
+    color: "#94a3b8",
+    role: "Legal Expert",
   },
 ];
 
@@ -80,8 +100,8 @@ export interface AgentState {
   id: string;
   status: AgentStatus;
   currentTask?: string;
-  model?: string; // opus, sonnet, haiku
+  model?: string;
   tokensPerHour?: number;
   tasksInQueue?: number;
-  uptime?: number; // days
+  uptime?: number;
 }

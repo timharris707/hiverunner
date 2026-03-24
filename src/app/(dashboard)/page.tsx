@@ -210,17 +210,27 @@ interface HighlightData {
   providers: { name: string; icon: string; primary: boolean; active?: boolean }[];
 }
 
+interface DashboardStats {
+  activeSessions: number;
+  totalSessions: number;
+  tasksToday: number;
+  costToday: number;
+  activeAgents: number;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ total: 0, today: 0, success: 0, error: 0, byType: {} });
   const [liveAgents, setLiveAgents] = useState<Agent[]>([]);
   const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
+  const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/activities/stats").then(r => r.json()),
       fetch("/api/agents").then(r => r.json()),
       fetch("/api/dashboard/highlights").then(r => r.json()),
-    ]).then(([actStats, agentsData, highlightData]) => {
+      fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
+    ]).then(([actStats, agentsData, highlightData, ds]) => {
       setStats({
         total: actStats.total || 0,
         today: actStats.today || 0,
@@ -230,6 +240,7 @@ export default function DashboardPage() {
       });
       setLiveAgents(agentsData.agents || []);
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
+      if (ds) setDashStats(ds);
     }).catch(console.error);
   }, []);
 
@@ -260,25 +271,29 @@ export default function DashboardPage() {
           <StatsCard
             title="Active Agents"
             value={activeAgentCount.toString()}
+            subtitle="Deployed & running"
             icon={<Users className="w-5 h-5" />}
             iconColor="var(--accent)"
           />
           <StatsCard
             title="Tasks Today"
-            value={stats.today.toLocaleString()}
+            value={(dashStats?.tasksToday ?? stats.today).toLocaleString()}
+            subtitle="From tasks-log.md"
             icon={<Zap className="w-5 h-5" />}
             iconColor="#f59e0b"
           />
           <StatsCard
-            title="Successful"
-            value={stats.success.toLocaleString()}
+            title="Active Sessions"
+            value={(dashStats?.activeSessions ?? stats.success).toLocaleString()}
+            subtitle="Last 2 hours"
             icon={<CheckCircle className="w-5 h-5" />}
             iconColor="var(--success)"
           />
           <StatsCard
-            title="Errors"
-            value={stats.error.toLocaleString()}
-            icon={<XCircle className="w-5 h-5" />}
+            title="Cost Today"
+            value={dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
+            subtitle="Token usage"
+            icon={<DollarSign className="w-5 h-5" />}
             iconColor="var(--error)"
           />
         </div>
