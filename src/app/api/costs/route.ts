@@ -82,6 +82,7 @@ export async function GET(request: NextRequest) {
   const byAgentMap: Record<string, { cost: number; tokens: number; inputTokens: number; outputTokens: number }> = {};
   const byModelMap: Record<string, { cost: number; tokens: number; inputTokens: number; outputTokens: number }> = {};
   const byDateMap: Record<string, { cost: number; input: number; output: number }> = {};
+  const topSessions: Array<{ key: string; label: string; cost: number; tokens: number; model: string; date: string }> = [];
 
   for (const [key, session] of Object.entries(sessionsData)) {
     if (key.includes(":run:")) continue; // skip run duplicates
@@ -124,6 +125,18 @@ export async function GET(request: NextRequest) {
       byDateMap[dateStr].input += inputTokens;
       byDateMap[dateStr].output += outputTokens;
     }
+
+    // Track top sessions
+    if (cost > 0) {
+      topSessions.push({
+        key,
+        label: getAgentLabel(key),
+        cost,
+        tokens,
+        model: normalizeModel(session.model || "", session.modelProvider),
+        date: dateStr,
+      });
+    }
   }
 
   // Project monthly spend
@@ -150,6 +163,10 @@ export async function GET(request: NextRequest) {
       output: v.output,
     }));
 
+  const topSessionsSorted = topSessions
+    .sort((a, b) => b.cost - a.cost)
+    .slice(0, 10);
+
   return NextResponse.json({
     today: parseFloat(todayCost.toFixed(4)),
     yesterday: parseFloat(yesterdayCost.toFixed(4)),
@@ -161,6 +178,7 @@ export async function GET(request: NextRequest) {
     byModel,
     daily,
     hourly: [],
+    topSessions: topSessionsSorted,
   });
 }
 

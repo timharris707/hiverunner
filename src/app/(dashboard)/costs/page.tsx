@@ -15,6 +15,7 @@ interface CostData {
   byModel: Array<{ model: string; cost: number; tokens: number }>;
   daily: Array<{ date: string; cost: number; input: number; output: number }>;
   hourly: Array<{ hour: string; cost: number }>;
+  topSessions?: Array<{ key: string; label: string; cost: number; tokens: number; model: string; date: string }>;
 }
 
 const COLORS = ['#FF3B30', '#FF9500', '#FFCC00', '#34C759', '#00C7BE', '#30B0C7', '#32ADE6', '#007AFF', '#5856D6', '#AF52DE', '#FF2D55'];
@@ -383,6 +384,49 @@ export default function CostsPage() {
           </table>
         </div>
       </div>
+
+      {/* Top Sessions */}
+      {costData.topSessions && costData.topSessions.length > 0 && (
+        <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <h3 className="text-lg font-semibold mb-4" style={{ color: "var(--text-primary)" }}>
+            Top Sessions by Cost
+          </h3>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                  <th className="text-left py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Session</th>
+                  <th className="text-left py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Model</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Date</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Tokens</th>
+                  <th className="text-right py-3 px-4 text-sm font-medium" style={{ color: "var(--text-secondary)" }}>Cost</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costData.topSessions.map((s, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="py-3 px-4">
+                      <span className="font-medium text-sm" style={{ color: "var(--text-primary)" }}>{s.label}</span>
+                    </td>
+                    <td className="py-3 px-4 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>
+                      {s.model}
+                    </td>
+                    <td className="py-3 px-4 text-right text-sm" style={{ color: "var(--text-secondary)" }}>
+                      {s.date}
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono text-sm" style={{ color: "var(--text-secondary)" }}>
+                      {s.tokens.toLocaleString()}
+                    </td>
+                    <td className="py-3 px-4 text-right font-semibold" style={{ color: "var(--accent)" }}>
+                      ${s.cost.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
