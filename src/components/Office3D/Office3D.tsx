@@ -2,7 +2,8 @@
 
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls, Sky, Environment } from '@react-three/drei';
-import { Suspense, useState } from 'react';
+import { Suspense, useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Vector3 } from 'three';
 import { AGENTS } from './agentsConfig';
 import type { AgentState } from './agentsConfig';
@@ -20,6 +21,7 @@ import FirstPersonControls from './FirstPersonControls';
 import MovingAvatar from './MovingAvatar';
 
 export default function Office3D() {
+  const router = useRouter();
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const [interactionModal, setInteractionModal] = useState<string | null>(null);
   const [controlMode, setControlMode] = useState<'orbit' | 'fps'>('orbit');
@@ -37,6 +39,23 @@ export default function Office3D() {
     quill: { id: 'quill', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
     counsel: { id: 'counsel', status: 'idle', model: 'sonnet', tokensPerHour: 0, tasksInQueue: 0, uptime: 0 },
   });
+
+  // ESC → back to Mission Control (only when no panel/modal is open)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (selectedAgent) {
+          setSelectedAgent(null);
+        } else if (interactionModal) {
+          setInteractionModal(null);
+        } else {
+          router.push('/');
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedAgent, interactionModal, router]);
 
   const handleDeskClick = (agentId: string) => {
     setSelectedAgent(agentId);
@@ -281,8 +300,18 @@ export default function Office3D() {
         </div>
       )}
 
+      {/* Back to Mission Control */}
+      <button
+        onClick={() => router.push('/')}
+        className="absolute top-4 left-4 flex items-center gap-2 bg-black/70 hover:bg-black/90 text-white px-4 py-2.5 rounded-lg backdrop-blur-sm border border-white/10 transition-all hover:border-yellow-500/50 hover:text-yellow-400 shadow-lg z-50 text-sm font-medium"
+        title="Back to Mission Control (ESC)"
+      >
+        <span className="text-base leading-none">←</span>
+        <span>Mission Control</span>
+      </button>
+
       {/* Controles UI overlay */}
-      <div className="absolute top-4 left-4 bg-black/70 text-white p-4 rounded-lg backdrop-blur-sm">
+      <div className="absolute top-16 left-4 bg-black/70 text-white p-4 rounded-lg backdrop-blur-sm">
         <h2 className="text-lg font-bold mb-2">🏢 The Office</h2>
         <div className="text-sm space-y-1 mb-3">
           <p><strong>Mode: {controlMode === 'orbit' ? '🖱️ Orbit' : '🎮 FPS'}</strong></p>
