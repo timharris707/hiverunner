@@ -16,6 +16,7 @@ import {
   History,
   Kanban,
   TrendingUp,
+  Building2,
   CalendarDays,
   Workflow,
   Terminal,
@@ -53,6 +54,7 @@ const navGroups: NavGroup[] = [
       { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
       { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
       { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
+      { href: "/office", label: "3D Office", icon: Building2 },
     ],
   },
   {
