@@ -6,12 +6,10 @@ import os from "os";
 const execAsync = promisify(exec);
 
 // Services monitored per backend
-const SYSTEMD_SERVICES = ["mission-control"];
-const PM2_SERVICES = ["classvault", "content-vault", "postiz-simple", "brain"];
-// creatoros not deployed yet — shown as "not_deployed"
-const PLACEHOLDER_SERVICES = [
-  { name: "creatoros", description: "Creatoros Platform", status: "not_deployed" },
-];
+const SYSTEMD_SERVICES: string[] = [];
+const PM2_SERVICES: string[] = [];
+// Placeholder services (not yet deployed on this Mac)
+const PLACEHOLDER_SERVICES: Array<{ name: string; description: string; status: string }> = [];
 
 interface ServiceEntry {
   name: string;
@@ -85,49 +83,76 @@ export async function GET() {
     let diskUsed = 0;
     let diskFree = 100;
     try {
-      const { stdout } = await execAsync("df -BG / | tail -1");
-      const parts = stdout.trim().split(/\s+/);
-      diskTotal = parseInt(parts[1].replace("G", ""));
-      diskUsed = parseInt(parts[2].replace("G", ""));
-      diskFree = parseInt(parts[3].replace("G", ""));
+      // Try macOS-style df first, then Linux style
+      let stdout = '';
+      try {
+        const result = await execAsync("df -g / 2>/dev/null | tail -1");
+        stdout = result.stdout;
+        const parts = stdout.trim().split(/\s+/);
+        // macOS: Filesystem 1G-blocks Used Avail Capacity iused ...
+        diskTotal = parseInt(parts[1]);
+        diskUsed = parseInt(parts[2]);
+        diskFree = parseInt(parts[3]);
+      } catch {
+        const result = await execAsync("df -BG / 2>/dev/null | tail -1");
+        stdout = result.stdout;
+        const parts = stdout.trim().split(/\s+/);
+        diskTotal = parseInt(parts[1].replace("G", ""));
+        diskUsed = parseInt(parts[2].replace("G", ""));
+        diskFree = parseInt(parts[3].replace("G", ""));
+      }
     } catch (error) {
       console.error("Failed to get disk stats:", error);
     }
-    const diskPercent = (diskUsed / diskTotal) * 100;
+    const diskPercent = diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0;
 
-    // ── Network (real stats from /proc/net/dev) ───────────────────────────────
+    // ── Network (macOS/Linux compatible) ───────────────────────────────────────
     let network = { rx: 0, tx: 0 };
     try {
-      const { readFileSync } = await import('fs');
-      
-      function readNetStats(): { rx: number; tx: number; ts: number } {
-        const netDev = readFileSync('/proc/net/dev', 'utf-8');
-        const lines = netDev.trim().split('\n').slice(2);
-        let rx = 0, tx = 0;
-        for (const line of lines) {
-          const parts = line.trim().split(/\s+/);
-          const iface = parts[0].replace(':', '');
-          if (iface === 'lo') continue;
-          rx += parseInt(parts[1]) || 0;
-          tx += parseInt(parts[9]) || 0;
-        }
-        return { rx, tx, ts: Date.now() };
-      }
-      
-      const current = readNetStats();
-      
-      // Use module-level cache for previous reading
-      if ((global as Record<string, unknown>).__netPrev) {
-        const prev = (global as Record<string, unknown>).__netPrev as { rx: number; tx: number; ts: number };
-        const dtSec = (current.ts - prev.ts) / 1000;
-        if (dtSec > 0) {
+      const networkInterfaces = os.networkInterfaces();
+      // Just show interface count as a proxy — actual throughput needs platform-specific tools
+      const activeInterfaces = Object.entries(networkInterfaces)
+        .filter(([name]) => !name.startsWith('lo'))
+        .length;
+      // Try to get actual stats on macOS via netstat
+      try {
+        const { stdout: netstatOut } = await execAsync("netstat -ibn 2>/dev/null | grep -v Name | grep -v lo0 | awk 'NR==1{print $7, $10}'");
+        const parts = netstatOut.trim().split(/\s+/);
+        if (parts.length >= 2) {
           network = {
-            rx: parseFloat(Math.max(0, (current.rx - prev.rx) / 1024 / 1024 / dtSec).toFixed(3)),
-            tx: parseFloat(Math.max(0, (current.tx - prev.tx) / 1024 / 1024 / dtSec).toFixed(3)),
+            rx: parseFloat((parseInt(parts[0] || '0') / 1024 / 1024).toFixed(3)),
+            tx: parseFloat((parseInt(parts[1] || '0') / 1024 / 1024).toFixed(3)),
           };
         }
+      } catch {
+        // Fallback: try /proc/net/dev for Linux
+        try {
+          const { readFileSync } = await import('fs');
+          const netDev = readFileSync('/proc/net/dev', 'utf-8');
+          const lines = netDev.trim().split('\n').slice(2);
+          let rx = 0, tx = 0;
+          for (const line of lines) {
+            const parts = line.trim().split(/\s+/);
+            const iface = parts[0].replace(':', '');
+            if (iface === 'lo') continue;
+            rx += parseInt(parts[1]) || 0;
+            tx += parseInt(parts[9]) || 0;
+          }
+          // Use module-level cache for per-second rate
+          const current = { rx, tx, ts: Date.now() };
+          if ((global as Record<string, unknown>).__netPrev) {
+            const prev = (global as Record<string, unknown>).__netPrev as { rx: number; tx: number; ts: number };
+            const dtSec = (current.ts - prev.ts) / 1000;
+            if (dtSec > 0) {
+              network = {
+                rx: parseFloat(Math.max(0, (current.rx - prev.rx) / 1024 / 1024 / dtSec).toFixed(3)),
+                tx: parseFloat(Math.max(0, (current.tx - prev.tx) / 1024 / 1024 / dtSec).toFixed(3)),
+              };
+            }
+          }
+          (global as Record<string, unknown>).__netPrev = current;
+        } catch { /* ignore */ }
       }
-      (global as Record<string, unknown>).__netPrev = current;
     } catch (error) {
       console.error("Failed to get network stats:", error);
     }
@@ -135,21 +160,21 @@ export async function GET() {
     // ── Services ─────────────────────────────────────────────────────────────
     const services: ServiceEntry[] = [];
 
-    // 1. Systemd services
+    // 1. Systemd services (Linux only — skip gracefully on macOS)
     for (const name of SYSTEMD_SERVICES) {
       try {
-        const { stdout } = await execAsync(`systemctl is-active ${name} 2>/dev/null || true`);
-        const rawStatus = stdout.trim(); // "active" | "inactive" | "failed" | ...
+        const { stdout } = await execAsync(`which systemctl > /dev/null 2>&1 && systemctl is-active ${name} 2>/dev/null || echo "not_applicable"`);
+        const rawStatus = stdout.trim();
         services.push({
           name,
-          status: rawStatus,
+          status: rawStatus === "not_applicable" ? "n/a" : rawStatus,
           description: SERVICE_DESCRIPTIONS[name] ?? name,
           backend: "systemd",
         });
       } catch {
         services.push({
           name,
-          status: "unknown",
+          status: "n/a",
           description: SERVICE_DESCRIPTIONS[name] ?? name,
           backend: "systemd",
         });
@@ -223,14 +248,46 @@ export async function GET() {
       services.push({ ...svc, backend: "none" });
     }
 
+    // ── Detect running local processes ────────────────────────────────────────
+    try {
+      // Add Mission Control itself
+      try {
+        const { stdout: mcCheck } = await execAsync("curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health 2>/dev/null || echo '000'");
+        const mcStatus = mcCheck.trim() === "200" ? "active" : "unknown";
+        services.push({
+          name: "mission-control",
+          status: mcStatus,
+          description: "Harris Mission Control — Dashboard",
+          backend: "local",
+        });
+      } catch {
+        services.push({ name: "mission-control", status: "unknown", description: "Harris Mission Control — Dashboard", backend: "local" });
+      }
+
+      // Add OpenClaw gateway
+      try {
+        const { stdout: ocCheck } = await execAsync("pgrep -f 'openclaw' > /dev/null 2>&1 && echo 'active' || echo 'inactive'");
+        services.push({
+          name: "openclaw",
+          status: ocCheck.trim(),
+          description: "OpenClaw — AI Agent Runtime",
+          backend: "local",
+        });
+      } catch {
+        services.push({ name: "openclaw", status: "unknown", description: "OpenClaw — AI Agent Runtime", backend: "local" });
+      }
+    } catch (err) {
+      console.error("Failed to detect local processes:", err);
+    }
+
     // ── Tailscale VPN ─────────────────────────────────────────────────────────
     let tailscaleActive = false;
-    let tailscaleIp = "100.122.105.85";
+    let tailscaleIp = "";
     const tailscaleDevices: TailscaleDevice[] = [];
     try {
       const { stdout: tsStatus } = await execAsync("tailscale status 2>/dev/null || true");
       const lines = tsStatus.trim().split("\n").filter(Boolean);
-      if (lines.length > 0) {
+      if (lines.length > 0 && !tsStatus.includes("not running")) {
         tailscaleActive = true;
         for (const line of lines) {
           if (line.startsWith("#")) continue;
@@ -252,34 +309,36 @@ export async function GET() {
       console.error("Failed to get Tailscale status:", error);
     }
 
-    // ── Firewall (UFW) ────────────────────────────────────────────────────────
+    // ── Firewall (macOS or UFW) ───────────────────────────────────────────────
     let firewallActive = false;
     const firewallRulesList: FirewallRule[] = [];
-    const staticFirewallRules: FirewallRule[] = [
-      { port: "80/tcp", action: "ALLOW", from: "Anywhere", comment: "Public HTTP" },
-      { port: "443/tcp", action: "ALLOW", from: "Anywhere", comment: "Public HTTPS" },
-      { port: "3000", action: "ALLOW", from: "Tailscale (100.64.0.0/10)", comment: "Mission Control via Tailscale" },
-      { port: "22", action: "ALLOW", from: "Tailscale (100.64.0.0/10)", comment: "SSH via Tailscale only" },
-    ];
     try {
-      const { stdout: ufwStatus } = await execAsync("ufw status numbered 2>/dev/null || true");
-      if (ufwStatus.includes("Status: active")) {
+      // Try macOS firewall status
+      const { stdout: macFw } = await execAsync("/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true");
+      if (macFw.includes("enabled") || macFw.includes("ENABLED")) {
         firewallActive = true;
-        const lines = ufwStatus.split("\n");
-        for (const line of lines) {
-          const match = line.match(/\[\s*\d+\]\s+([\w/:]+)\s+(\w+)\s+(\S+)\s*(#?.*)$/);
-          if (match) {
-            firewallRulesList.push({
-              port: match[1].trim(),
-              action: match[2].trim(),
-              from: match[3].trim(),
-              comment: match[4].replace("#", "").trim(),
-            });
+        firewallRulesList.push({ port: "System", action: "ENABLED", from: "macOS ALF", comment: "Application Layer Firewall active" });
+      }
+    } catch {
+      // Try UFW as fallback
+      try {
+        const { stdout: ufwStatus } = await execAsync("ufw status numbered 2>/dev/null || true");
+        if (ufwStatus.includes("Status: active")) {
+          firewallActive = true;
+          const lines = ufwStatus.split("\n");
+          for (const line of lines) {
+            const match = line.match(/\[\s*\d+\]\s+([\w/:]+)\s+(\w+)\s+(\S+)\s*(#?.*)$/);
+            if (match) {
+              firewallRulesList.push({
+                port: match[1].trim(),
+                action: match[2].trim(),
+                from: match[3].trim(),
+                comment: match[4].replace("#", "").trim(),
+              });
+            }
           }
         }
-      }
-    } catch (error) {
-      console.error("Failed to get firewall status:", error);
+      } catch { /* ignore */ }
     }
 
     return NextResponse.json({
@@ -305,19 +364,12 @@ export async function GET() {
       tailscale: {
         active: tailscaleActive,
         ip: tailscaleIp,
-        devices:
-          tailscaleDevices.length > 0
-            ? tailscaleDevices
-            : [
-                { ip: "100.122.105.85", hostname: "srv1328267", os: "linux", online: true },
-                { ip: "100.106.86.52", hostname: "iphone182", os: "iOS", online: true },
-                { ip: "100.72.14.113", hostname: "macbook-pro-de-carlos", os: "macOS", online: true },
-              ],
+        devices: tailscaleDevices,
       },
       firewall: {
-        active: firewallActive || true,
-        rules: firewallRulesList.length > 0 ? firewallRulesList : staticFirewallRules,
-        ruleCount: staticFirewallRules.length,
+        active: firewallActive,
+        rules: firewallRulesList,
+        ruleCount: firewallRulesList.length,
       },
       timestamp: new Date().toISOString(),
     });

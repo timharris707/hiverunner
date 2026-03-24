@@ -226,7 +226,7 @@ export default function Office3D() {
                     <ul className="space-y-2">
                       <li className="flex items-center gap-2">
                         <span className="text-green-400">✓</span>
-                        <span>Phase 0: TenacitOS Shell</span>
+                        <span>Phase 0: Harris Mission Control</span>
                       </li>
                       <li className="flex items-center gap-2">
                         <span className="text-yellow-400">●</span>
@@ -287,7 +287,7 @@ export default function Office3D() {
             <>
               <p>🖱️ Mouse: Rotar vista</p>
               <p>🔄 Scroll: Zoom</p>
-              <p>👆 Click: Seleccionar</p>
+              <p>👆 Click: Select</p>
             </>
           ) : (
             <>

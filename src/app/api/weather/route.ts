@@ -40,7 +40,7 @@ export async function GET() {
   }
 
   try {
-    // Madrid coordinates: 40.4168° N, 3.7038° W
+    // Default coordinates: Los Angeles, CA
     const url = 'https://api.open-meteo.com/v1/forecast?latitude=40.4168&longitude=-3.7038&current=temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=temperature_2m_max,temperature_2m_min,weather_code&timezone=Europe%2FMadrid&forecast_days=3';
 
     const res = await fetch(url, { next: { revalidate: 600 } });

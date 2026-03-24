@@ -8,7 +8,7 @@ interface ProceduralAvatarProps {
   position: [number, number, number];
 }
 
-// Cangrejo 3D (Tenacitas)
+// Henry 3D Avatar
 function CrabAvatar({ color, position }: { color: string; position: [number, number, number] }) {
   return (
     <group position={position}>

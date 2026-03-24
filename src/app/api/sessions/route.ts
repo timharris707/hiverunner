@@ -118,13 +118,39 @@ export async function GET(request: NextRequest) {
 
 async function listSessions(): Promise<NextResponse> {
   try {
-    const output = execSync('openclaw sessions list --json 2>/dev/null', {
-      timeout: 10000,
-      encoding: 'utf-8',
-    });
+    // Read directly from the sessions.json file (openclaw sessions list --json doesn't work)
+    const sessionsJsonPath = join(OPENCLAW_DIR, 'agents', 'main', 'sessions', 'sessions.json');
+    
+    let sessionMap: Record<string, Record<string, unknown>> = {};
+    if (existsSync(sessionsJsonPath)) {
+      const raw = readFileSync(sessionsJsonPath, 'utf-8');
+      sessionMap = JSON.parse(raw);
+    }
 
-    const data = JSON.parse(output);
-    const rawSessions: RawSession[] = data.sessions || [];
+    // Convert the key-value map to an array of RawSession objects
+    const now = Date.now();
+    const rawSessions: RawSession[] = Object.entries(sessionMap)
+      .filter(([key]) => !key.includes(':run:')) // skip run entries
+      .map(([key, value]) => {
+        const v = value as Record<string, unknown>;
+        const updatedAt = (v.updatedAt as number) || now;
+        return {
+          key,
+          kind: 'session',
+          updatedAt,
+          ageMs: now - updatedAt,
+          sessionId: v.sessionId as string | undefined,
+          systemSent: v.systemSent as boolean | undefined,
+          abortedLastRun: v.abortedLastRun as boolean | undefined,
+          inputTokens: v.inputTokens as number | undefined,
+          outputTokens: v.outputTokens as number | undefined,
+          totalTokens: v.totalTokens as number | undefined,
+          totalTokensFresh: v.totalTokensFresh as boolean | undefined,
+          model: v.model as string | undefined,
+          modelProvider: v.modelProvider as string | undefined,
+          contextTokens: v.contextTokens as number | undefined,
+        } as RawSession;
+      });
 
     const sessions: ParsedSession[] = rawSessions
       .reduce<ParsedSession[]>((acc, raw) => {
