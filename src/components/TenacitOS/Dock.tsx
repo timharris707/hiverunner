@@ -366,16 +366,7 @@ export function Dock() {
         })}
       </div>
 
-      {/* Settings — always pinned to bottom */}
-      <div
-        style={{
-          padding: "6px 6px 0",
-          borderTop: "1px solid var(--border)",
-          marginTop: "4px",
-        }}
-      >
-        <DockNavItem item={settingsItem} active={checkActive(settingsItem)} />
-      </div>
+      {/* Settings moved to top-right user menu */}
     </aside>
   );
 }

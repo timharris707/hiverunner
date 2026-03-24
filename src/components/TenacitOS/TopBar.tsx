@@ -1,12 +1,26 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Search, Bell, User, Command } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Search, Bell, User, Command, Settings, LogOut, ChevronDown } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
+import Link from "next/link";
 
 export function TopBar() {
   const [showSearch, setShowSearch] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close user menu on outside click
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -117,42 +131,111 @@ export function TopBar() {
           {/* Notifications Dropdown */}
           <NotificationDropdown />
 
-          {/* User Area */}
-          <div className="flex items-center gap-2">
-            {/* Avatar */}
-            <div
+          {/* User Area with Dropdown */}
+          <div ref={userMenuRef} style={{ position: "relative" }}>
+            <button
+              onClick={() => setShowUserMenu(!showUserMenu)}
+              className="flex items-center gap-2 transition-all"
               style={{
-                width: "28px",
-                height: "28px",
-                borderRadius: "14px",
-                backgroundColor: "var(--accent)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
+                cursor: "pointer",
+                padding: "4px 8px",
+                borderRadius: "8px",
+                backgroundColor: showUserMenu ? "var(--surface-elevated)" : "transparent",
               }}
             >
-              <span
+              {/* Avatar */}
+              <div
                 style={{
-                  fontFamily: "var(--font-heading)",
-                  fontSize: "12px",
-                  fontWeight: 700,
-                  color: "var(--text-primary)",
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "14px",
+                  backgroundColor: "var(--accent)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
                 }}
               >
-                T
+                <span
+                  style={{
+                    fontFamily: "var(--font-heading)",
+                    fontSize: "12px",
+                    fontWeight: 700,
+                    color: "var(--text-primary)",
+                  }}
+                >
+                  T
+                </span>
+              </div>
+              {/* Name */}
+              <span
+                style={{
+                  fontFamily: "var(--font-body)",
+                  fontSize: "12px",
+                  fontWeight: 500,
+                  color: "var(--text-secondary)",
+                }}
+              >
+                Tim
               </span>
-            </div>
-            {/* Name */}
-            <span
-              style={{
-                fontFamily: "var(--font-body)",
-                fontSize: "12px",
-                fontWeight: 500,
-                color: "var(--text-secondary)",
-              }}
-            >
-              Tim
-            </span>
+              <ChevronDown style={{ width: "12px", height: "12px", color: "var(--text-muted)" }} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {showUserMenu && (
+              <div
+                style={{
+                  position: "absolute",
+                  top: "calc(100% + 4px)",
+                  right: 0,
+                  width: "180px",
+                  backgroundColor: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  padding: "4px",
+                  zIndex: 100,
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                }}
+              >
+                <Link
+                  href="/settings"
+                  onClick={() => setShowUserMenu(false)}
+                  className="flex items-center gap-2 transition-colors"
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    color: "var(--text-secondary)",
+                    fontSize: "13px",
+                    textDecoration: "none",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-elevated)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                >
+                  <Settings style={{ width: "14px", height: "14px" }} />
+                  Settings
+                </Link>
+                <div style={{ height: "1px", backgroundColor: "var(--border)", margin: "4px 0" }} />
+                <button
+                  onClick={async () => {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                    window.location.href = "/login";
+                  }}
+                  className="flex items-center gap-2 w-full transition-colors"
+                  style={{
+                    padding: "8px 12px",
+                    borderRadius: "6px",
+                    color: "var(--error, #ef4444)",
+                    fontSize: "13px",
+                    cursor: "pointer",
+                    textAlign: "left",
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = "var(--surface-elevated)")}
+                  onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = "transparent")}
+                >
+                  <LogOut style={{ width: "14px", height: "14px" }} />
+                  Log out
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
