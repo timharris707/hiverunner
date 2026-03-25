@@ -1719,6 +1719,7 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
     >
       <div
         className="advisory-modal-inner"
+        onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: "var(--surface)",
           border: "1px solid var(--border)",
