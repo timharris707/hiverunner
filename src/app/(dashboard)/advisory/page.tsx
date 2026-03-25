@@ -1523,6 +1523,7 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
       .catch(() => {});
   }, []);
   const [topic, setTopic] = useState("");
+  const [referenceContext, setReferenceContext] = useState("");
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
@@ -1535,6 +1536,14 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
   const [personaOverlays, setPersonaOverlays] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // Review Loop specific state
+  const [taskListText, setTaskListText] = useState("");
+  const [workerAgent, setWorkerAgent] = useState("");
+  const [reviewerAgent, setReviewerAgent] = useState("");
+  const [supervisorAgent, setSupervisorAgent] = useState("Henry");
+  const [autoContinue, setAutoContinue] = useState(true);
+  const [maxRetries, setMaxRetries] = useState(3);
 
   const toggleAgent = (id: string) => {
     setSelectedAgents((prev) =>
@@ -1564,15 +1573,63 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
 
   const handleNext = () => {
     if (!topic.trim()) { setError("Mission/Topic is required."); return; }
-    if (selectedAgents.length < 1) { setError("Select at least one agent."); return; }
+    if (mode === "review") {
+      if (!taskListText.trim()) { setError("Paste a task list for the review loop."); return; }
+      if (!workerAgent) { setError("Select a Worker agent."); return; }
+      if (!reviewerAgent) { setError("Select a Reviewer agent."); return; }
+      if (!supervisorAgent) { setError("Select a Supervisor agent."); return; }
+      if (workerAgent === reviewerAgent) { setError("Worker and Reviewer must be different agents."); return; }
+    } else {
+      if (selectedAgents.length < 1) { setError("Select at least one agent."); return; }
+    }
     setError("");
     setStep("personas");
+  };
+
+  // Parse task list text into structured tasks
+  const parseTaskList = (text: string) => {
+    return text
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line, idx) => {
+        // Strip leading numbers, bullets, dashes, brackets
+        const cleaned = line.replace(/^[\d]+[.):\-]\s*/, "").replace(/^[-*•]\s*/, "").replace(/^\[.\]\s*/, "").trim();
+        return {
+          id: idx + 1,
+          description: cleaned || line,
+          status: "pending" as const,
+          attempts: 0,
+          notes: "",
+          overriddenBy: null as string | null,
+        };
+      });
   };
 
   const handleLaunch = async () => {
     setError("");
     setLoading(true);
     try {
+      // Build review loop payload if in review mode
+      const reviewLoopPayload = mode === "review" ? {
+        tasks: parseTaskList(taskListText),
+        currentTaskIndex: 0,
+        workerAgent,
+        reviewerAgent,
+        supervisorAgent,
+        supervisorInterval: 5,
+        totalApproved: 0,
+        totalRejected: 0,
+        autoContinue,
+        paused: false,
+        maxRetries,
+      } : undefined;
+
+      // For review mode, agents are the three assigned roles (deduplicated)
+      const reviewAgents = mode === "review"
+        ? [...new Set([supervisorAgent, workerAgent, reviewerAgent])]
+        : selectedAgents;
+
       // Step 1: Create the session
       const res = await fetch("/api/advisory/sessions", {
         method: "POST",
@@ -1580,24 +1637,34 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
         body: JSON.stringify({
           topic,
           mode,
-          agents: selectedAgents,
+          agents: reviewAgents,
           reviewStyle,
           model,
-          rounds,
-          pacing,
+          rounds: mode === "review" ? "persistent" : rounds,
+          pacing: mode === "review" ? "instant" : pacing,
           responseLength,
           extendedThinking,
           personaOverlays: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
+          referenceContext: referenceContext.trim() || undefined,
+          reviewLoop: reviewLoopPayload,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
       const data = await res.json();
 
-      // Step 2: Trigger the conversation run (fire-and-forget on server side)
+      // Step 2: For review mode, trigger the loop start; for roundtable, trigger run
       try {
-        await fetch(`/api/advisory/sessions/${data.session.id}/run`, {
-          method: "POST",
-        });
+        if (mode === "review" && reviewLoopPayload) {
+          await fetch(`/api/advisory/sessions/${data.session.id}/review-loop`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "start" }),
+          });
+        } else {
+          await fetch(`/api/advisory/sessions/${data.session.id}/run`, {
+            method: "POST",
+          });
+        }
       } catch (runErr) {
         console.warn("Run trigger error (non-fatal):", runErr);
       }
@@ -1736,6 +1803,42 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
               />
             </div>
 
+            {/* Reference Documents */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                <Paperclip size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: "4px" }} />
+                REFERENCE MATERIAL (OPTIONAL)
+              </label>
+              <textarea
+                value={referenceContext}
+                onChange={(e) => setReferenceContext(e.target.value.slice(0, 10000))}
+                placeholder="Paste reference material — business docs, code snippets, data, or context for the agents..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: `1px solid ${referenceContext ? "rgba(139,92,246,0.4)" : "var(--border)"}`,
+                  borderRadius: "8px",
+                  color: "var(--text-primary)",
+                  fontSize: "12px",
+                  fontFamily: "var(--font-mono)",
+                  resize: "vertical",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  lineHeight: 1.5,
+                }}
+              />
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: "4px" }}>
+                <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                  Included as context for all agents in this session
+                </div>
+                <div style={{ fontSize: "10px", color: referenceContext.length > 9000 ? "#ef4444" : "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                  {referenceContext.length.toLocaleString()}/10,000
+                </div>
+              </div>
+            </div>
+
             {/* Mode */}
             <div style={{ marginBottom: "20px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
@@ -1744,7 +1847,7 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
                 {[
                   { id: "roundtable", label: "Roundtable", desc: "Open collaborative discussion", icon: "🔄" },
-                  { id: "review", label: "Review Loop", desc: "Worker submits, reviewer approves", icon: "🔍" },
+                  { id: "review", label: "Review Loop", desc: "Structured task pipeline with worker/reviewer", icon: "🔄" },
                 ].map((m) => (
                   <button
                     key={m.id}
@@ -1771,7 +1874,142 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
               </div>
             </div>
 
-            {/* Agents */}
+            {/* ─── Review Mode: Task List + Role Assignment ─── */}
+            {mode === "review" && (
+              <>
+                {/* Task List */}
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                    TASK LIST
+                  </label>
+                  <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: "0 0 8px 0", lineHeight: 1.5 }}>
+                    Paste your checklist — one task per line. Numbered lists, bullets, or plain text all work.
+                  </p>
+                  <textarea
+                    value={taskListText}
+                    onChange={(e) => setTaskListText(e.target.value)}
+                    placeholder={"1. Review authentication flow for security vulnerabilities\n2. Audit database query performance\n3. Check API rate limiting implementation\n4. Verify error handling in payment flow\n5. Review logging and observability setup"}
+                    rows={8}
+                    style={{
+                      width: "100%",
+                      padding: "12px",
+                      backgroundColor: "var(--surface-elevated)",
+                      border: "1px solid var(--border)",
+                      borderRadius: "8px",
+                      color: "var(--text-primary)",
+                      fontSize: "12px",
+                      fontFamily: "var(--font-mono)",
+                      resize: "vertical",
+                      outline: "none",
+                      lineHeight: 1.6,
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between", marginTop: "6px" }}>
+                    <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                      {taskListText.trim() ? `${taskListText.split("\n").filter((l) => l.trim()).length} tasks detected` : "No tasks yet"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Agent Role Assignment */}
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                    AGENT ROLES
+                  </label>
+                  <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: "0 0 12px 0", lineHeight: 1.5 }}>
+                    Assign which agent plays each role in the review loop.
+                  </p>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                    {/* Worker */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ width: "90px", flexShrink: 0 }}>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#60a5fa", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>WORKER</span>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Executes tasks</div>
+                      </div>
+                      <select
+                        value={workerAgent}
+                        onChange={(e) => setWorkerAgent(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          border: `1px solid ${workerAgent ? "rgba(96,165,250,0.5)" : "var(--border)"}`,
+                          backgroundColor: workerAgent ? "rgba(96,165,250,0.08)" : "var(--surface-elevated)",
+                          color: "var(--text-primary)",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        <option value="">Select worker agent...</option>
+                        {AGENTS.map((a) => (
+                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {/* Reviewer */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ width: "90px", flexShrink: 0 }}>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>REVIEWER</span>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Approves/rejects</div>
+                      </div>
+                      <select
+                        value={reviewerAgent}
+                        onChange={(e) => setReviewerAgent(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          border: `1px solid ${reviewerAgent ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
+                          backgroundColor: reviewerAgent ? "rgba(251,191,36,0.08)" : "var(--surface-elevated)",
+                          color: "var(--text-primary)",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        <option value="">Select reviewer agent...</option>
+                        {AGENTS.filter((a) => a.id !== workerAgent).map((a) => (
+                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
+                        ))}
+                      </select>
+                    </div>
+                    {/* Supervisor */}
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ width: "90px", flexShrink: 0 }}>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#fb923c", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>SUPERVISOR</span>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Tracks progress</div>
+                      </div>
+                      <select
+                        value={supervisorAgent}
+                        onChange={(e) => setSupervisorAgent(e.target.value)}
+                        style={{
+                          flex: 1,
+                          padding: "8px 12px",
+                          borderRadius: "8px",
+                          border: `1px solid ${supervisorAgent ? "rgba(251,146,60,0.5)" : "var(--border)"}`,
+                          backgroundColor: supervisorAgent ? "rgba(251,146,60,0.08)" : "var(--surface-elevated)",
+                          color: "var(--text-primary)",
+                          fontSize: "12px",
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        <option value="">Select supervisor agent...</option>
+                        {AGENTS.map((a) => (
+                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* ─── Roundtable Mode: Agent Selection Grid ─── */}
+            {mode === "roundtable" && (
+            <>
             <div style={{ marginBottom: "20px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 AGENTS ({selectedAgents.length} selected)
@@ -1967,8 +2205,10 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
                 }}
               />
             )}
+            </>
+            )}
 
-            {/* Review Style */}
+            {/* Review Style — only for old-style review (not review loop) */}
             {mode === "review" && (
               <div style={{ marginBottom: "20px" }}>
                 <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
@@ -2090,7 +2330,8 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
               </button>
             </div>
 
-            {/* Rounds */}
+            {/* Rounds — hidden in review mode (loop manages its own flow) */}
+            {mode !== "review" && (
             <div style={{ marginBottom: "24px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 ROUNDS
@@ -2125,6 +2366,7 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
                 </div>
               )}
             </div>
+            )}
 
             {/* Response Length */}
             <div style={{ marginBottom: "20px" }}>
@@ -2168,7 +2410,8 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
               </div>
             </div>
 
-            {/* Pacing */}
+            {/* Pacing — hidden in review mode */}
+            {mode !== "review" && (
             <div style={{ marginBottom: "24px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 PACING
@@ -2197,6 +2440,7 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
                 })}
               </div>
             </div>
+            )}
 
             {error && (
               <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -3773,6 +4017,25 @@ export default function AdvisoryPage() {
                         }}>
                           <GitBranch size={9} />
                           FORKED
+                        </span>
+                      )}
+                      {!!(activeSession as unknown as Record<string, unknown>).referenceContext && (
+                        <span style={{
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          color: "#a78bfa",
+                          backgroundColor: "rgba(167,139,250,0.12)",
+                          border: "1px solid rgba(167,139,250,0.3)",
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          fontFamily: "var(--font-mono)",
+                          letterSpacing: "0.04em",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}>
+                          <Paperclip size={9} />
+                          REF MATERIAL
                         </span>
                       )}
                       {activeSession.model && (

@@ -305,12 +305,17 @@ function buildSystemPrompt(
   agentOverlay?: string,
   responseLength?: ResponseLength,
   reviewRole?: "author" | "reviewer" | "supervisor",
-  extendedThinking?: boolean
+  extendedThinking?: boolean,
+  referenceContext?: string
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
     return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   }
+
+  const referenceBlock = referenceContext
+    ? `\n\n**Reference material provided for this session:**\n${referenceContext}\n`
+    : "";
 
   const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
@@ -336,7 +341,7 @@ function buildSystemPrompt(
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
 
 **Topic:** ${topic}
-${overlayLine}${memoryBlock}
+${overlayLine}${memoryBlock}${referenceBlock}
 **Response length:** ${lengthInstruction}${thinkingLine}`;
 
     if (reviewRole === "author") {
@@ -405,7 +410,7 @@ Speak in YOUR AUTHENTIC VOICE. Respond as ${agent.name} would when running the m
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a roundtable discussion on the following topic:
 
 **Topic:** ${topic}
-${overlayLine}${memoryBlock}
+${overlayLine}${memoryBlock}${referenceBlock}
 **Response length:** ${lengthInstruction}
 
 **Core advisory directives:**
@@ -643,6 +648,7 @@ export async function POST(
       model: sessionModel,
       responseLength,
       extendedThinking: sessionExtendedThinking,
+      referenceContext: sessionReferenceContext,
     } = session;
 
     if (!agents || (agents as string[]).length === 0) {
@@ -661,15 +667,22 @@ export async function POST(
           await runRoundtable(
             filePath, session, topic as string, agents as string[],
             personaOverlays as Record<string, string> | string[] | undefined,
-            rounds as number | string, pacing as string, resolvedModel, thinking, resolvedLength
+            rounds as number | string, pacing as string, resolvedModel, thinking, resolvedLength,
+            sessionReferenceContext as string | undefined
           );
         } else if (mode === "review") {
-          await runReview(
-            filePath, session, topic as string, agents as string[],
-            reviewStyle as string,
-            personaOverlays as Record<string, string> | string[] | undefined,
-            pacing as string, resolvedModel, thinking
-          );
+          // New review loop mode: if session has reviewLoop config, auto-advance through all tasks
+          if (session.reviewLoop) {
+            await runReviewLoop(filePath, session, resolvedModel);
+          } else {
+            await runReview(
+              filePath, session, topic as string, agents as string[],
+              reviewStyle as string,
+              personaOverlays as Record<string, string> | string[] | undefined,
+              pacing as string, resolvedModel, thinking,
+              sessionReferenceContext as string | undefined
+            );
+          }
         }
       } catch (err) {
         console.error("[Advisory] Run error:", err);
@@ -748,7 +761,8 @@ async function runRoundtable(
   pacing: string = "instant",
   model: string = INFERENCE_MODEL,
   thinking = false,
-  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
+  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH,
+  referenceContext?: string
 ) {
   const isPersistent = rounds === "persistent";
 
@@ -769,7 +783,7 @@ async function runRoundtable(
 
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking);
+      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking, referenceContext);
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
 
@@ -851,7 +865,7 @@ async function runRoundtable(
 
   const finalHistory = buildHistoryString(finalSession.events || []);
   const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
-  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking);
+  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking, referenceContext);
   const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
@@ -902,6 +916,7 @@ async function runReview(
   pacing: string = "instant",
   model: string = INFERENCE_MODEL,
   thinking = false,
+  referenceContext?: string,
   responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
 ) {
   const supervisor = agents.includes("Henry") ? "Henry" : agents[0];
@@ -920,7 +935,7 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext);
     const supPrompt = `You are commissioning a review session on the following topic/task:
 
 **Topic:** ${topic}
@@ -967,7 +982,7 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author", thinking);
+    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author", thinking, referenceContext);
     const workerPrompt =
       iteration === 1
         ? `**Your task:** ${topic}
@@ -1024,7 +1039,7 @@ ${reviewer} identified specific issues with your previous submission. Now produc
     if (reviewSession.status !== "active") return;
 
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking);
+    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking, referenceContext);
 
     const verdictInstruction =
       reviewStyle === "strict"
@@ -1094,7 +1109,7 @@ ${verdictInstruction}`;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext);
     const supPrompt = `**Review session complete.**
 
 **Topic:** ${topic}
@@ -1143,4 +1158,97 @@ Be decisive. No hedging.`;
   archiveSession(completedSession.id || path.basename(filePath, ".json")).catch((e) =>
     console.error("Auto-archive failed:", e)
   );
+}
+
+// ─── REVIEW LOOP mode (structured task pipeline) ──────────────────────────────
+
+async function runReviewLoop(
+  filePath: string,
+  session: Record<string, unknown>,
+  model: string
+) {
+  // The review-loop route handles individual steps.
+  // When "run" is called on a review-loop session, we auto-advance through all tasks.
+  const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
+
+  const sessionId = session.id as string;
+  const loop = session.reviewLoop as {
+    tasks: Array<{ id: number; status: string; attempts: number }>;
+    currentTaskIndex: number;
+  };
+
+  if (!loop?.tasks?.length) return;
+
+  // Auto-generate title after first task
+  let titleGenerated = false;
+
+  // Process tasks sequentially
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    // Re-read session to get fresh state
+    const currentRaw = fs.readFileSync(filePath, "utf-8");
+    const currentSession = JSON.parse(currentRaw);
+    if (currentSession.status !== "active") return;
+
+    const currentLoop = currentSession.reviewLoop;
+    if (!currentLoop) return;
+
+    // Check if all tasks done
+    if (currentLoop.currentTaskIndex >= currentLoop.tasks.length) return;
+
+    const task = currentLoop.tasks[currentLoop.currentTaskIndex];
+    if (!task) return;
+
+    const isRetry = task.status === "rejected";
+
+    // Call the review-loop endpoint to advance
+    try {
+      await fetch(`${baseUrl}/api/advisory/sessions/${sessionId}/review-loop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: isRetry ? "retry" : "advance" }),
+      });
+    } catch (err) {
+      console.error("[Advisory] Review loop advance error:", err);
+      break;
+    }
+
+    // Wait for the step to complete (poll for status change)
+    let attempts = 0;
+    const maxAttempts = 120; // 2 minutes max wait
+    while (attempts < maxAttempts) {
+      await new Promise((r) => setTimeout(r, 1000));
+      attempts++;
+
+      const checkRaw = fs.readFileSync(filePath, "utf-8");
+      const checkSession = JSON.parse(checkRaw);
+      if (checkSession.status !== "active") return;
+
+      const checkLoop = checkSession.reviewLoop;
+      if (!checkLoop) return;
+
+      const taskIdx = currentLoop.currentTaskIndex;
+      const checkTask = checkLoop.tasks[taskIdx];
+      if (!checkTask) break;
+
+      // Task was processed (approved or rejected)
+      if (checkTask.status === "approved" || checkTask.status === "rejected") {
+        // Auto-title after first task completes
+        if (!titleGenerated) {
+          titleGenerated = true;
+          const events = checkSession.events || [];
+          const firstEvents = events.filter(
+            (e: { type: string }) => e.type === "worker" || e.type === "supervisor"
+          );
+          generateSessionTitle(filePath, session.topic as string, firstEvents, model).catch(console.warn);
+        }
+
+        if (checkTask.status === "rejected" && checkTask.attempts >= 3) {
+          // Max retries reached — pause for human intervention
+          return;
+        }
+        break;
+      }
+    }
+  }
 }
