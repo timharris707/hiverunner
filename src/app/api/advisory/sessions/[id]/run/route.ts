@@ -109,19 +109,19 @@ const PERSONA_CONTENT: Record<string, string> = {
 
 // ─── API key helper ───────────────────────────────────────────────────────────
 
-function getOpenRouterApiKey(): string {
+function getGeminiApiKey(): string {
+  // Read from openclaw.json env config
   try {
-    const profilesPath = path.join(
+    const configPath = path.join(
       process.env.HOME || "",
-      ".openclaw/agents/main/agent/auth-profiles.json"
+      ".openclaw/openclaw.json"
     );
-    const profiles = JSON.parse(readFileSync(profilesPath, "utf-8"));
-    const orProfile = profiles?.profiles?.["openrouter:default"];
-    if (orProfile?.key) return orProfile.key;
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    if (config?.env?.GEMINI_API_KEY) return config.env.GEMINI_API_KEY;
   } catch {
-    // fall through to env
+    // fall through
   }
-  return process.env.OPENROUTER_API_KEY || "";
+  return process.env.GEMINI_API_KEY || "";
 }
 
 // ─── Call Anthropic ───────────────────────────────────────────────────────────
@@ -131,29 +131,26 @@ async function callClaude(
   userPrompt: string,
   apiKey: string
 ): Promise<string> {
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "anthropic/claude-sonnet-4-6",
-      max_tokens: 1024,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        contents: [{ parts: [{ text: userPrompt }] }],
+        generationConfig: { maxOutputTokens: 1024 },
+      }),
+    }
+  );
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`API error ${response.status}: ${err}`);
+    throw new Error(`Gemini API error ${response.status}: ${err}`);
   }
 
   const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 }
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
@@ -232,7 +229,7 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const apiKey = getOpenRouterApiKey();
+  const apiKey = getGeminiApiKey();
   if (!apiKey) {
     return NextResponse.json(
       { error: "Anthropic API key not configured" },
