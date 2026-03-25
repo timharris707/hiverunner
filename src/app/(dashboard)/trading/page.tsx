@@ -107,18 +107,60 @@ function formatPrice(price: number): string {
   return `$${price.toFixed(4)}`;
 }
 
+interface WeatherStats {
+  available: boolean;
+  summary?: {
+    brier_score: number;
+    calibration_error: number;
+    total_pnl: number;
+    win_rate: number;
+    sharpe_ratio: number;
+    max_drawdown: number;
+    total_bets: number;
+  } | null;
+  backtestPeriod?: { start: string; end: string; days: number } | null;
+  backtestStatus?: string | null;
+  liveStats?: {
+    totalTrades: number;
+    openTrades: number;
+    won: number;
+    lost: number;
+    winRate: number;
+    totalPnl: number;
+    openExposure: number;
+    bankroll: number | null;
+    recentTrades: Array<{
+      trade_id: string;
+      ticker: string;
+      side: string;
+      price: number;
+      cost: number;
+      status: string;
+      pnl: number;
+      city: string;
+      target_date: string;
+      created_at: string;
+    }>;
+  } | null;
+}
+
 export default function TradingPage() {
   const [connStatus, setConnStatus] = useState<ConnectionStatus | null>(null);
   const [cryptoPrices, setCryptoPrices] = useState<CryptoPrices>({});
   const [priceLoading, setPriceLoading] = useState(true);
   const [priceError, setPriceError] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null);
 
   useEffect(() => {
     fetch("/api/trading/connection")
       .then((r) => r.json())
       .then(setConnStatus)
       .catch(() => setConnStatus(null));
+    fetch("/api/trading/weather-stats")
+      .then((r) => r.json())
+      .then(setWeatherStats)
+      .catch(() => setWeatherStats(null));
   }, []);
 
   const fetchCryptoPrices = useCallback(async () => {
@@ -309,7 +351,7 @@ export default function TradingPage() {
         </div>
       </div>
 
-      {/* Weather Trading Section */}
+      {/* Weather Trading Section — Live Data */}
       <div
         className="rounded-xl overflow-hidden mb-6"
         style={{ backgroundColor: "var(--card)", border: "1px solid #60a5fa30" }}
@@ -324,8 +366,11 @@ export default function TradingPage() {
               🌩️ Weather Trading
             </h2>
           </div>
-          <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: "#60a5fa20", color: "#60a5fa" }}>
-            Research Phase
+          <span className="text-xs px-2 py-1 rounded" style={{
+            backgroundColor: weatherStats?.liveStats ? "#4ade8020" : "#60a5fa20",
+            color: weatherStats?.liveStats ? "#4ade80" : "#60a5fa",
+          }}>
+            {weatherStats?.liveStats ? "Paper Trading" : "Research Phase"}
           </span>
         </div>
         <div className="p-4">
@@ -348,8 +393,11 @@ export default function TradingPage() {
                 Weather data → Polymarket/Kalshi signal generation
               </div>
               <div className="flex items-center gap-2 mt-1.5">
-                <span className="text-xs px-2 py-0.5 rounded font-medium" style={{ backgroundColor: "#6b728020", color: "#9ca3af" }}>
-                  Not Deployed
+                <span className="text-xs px-2 py-0.5 rounded font-medium" style={{
+                  backgroundColor: weatherStats?.liveStats ? "#4ade8020" : "#6b728020",
+                  color: weatherStats?.liveStats ? "#4ade80" : "#9ca3af",
+                }}>
+                  {weatherStats?.liveStats ? "Paper Trading" : "Not Deployed"}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                   · Credentials configured ✅
@@ -366,62 +414,189 @@ export default function TradingPage() {
             </Link>
           </div>
 
+          {/* Live Paper Trading Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Bankroll</div>
+              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                {weatherStats?.liveStats?.bankroll != null ? `$${weatherStats.liveStats.bankroll.toFixed(2)}` : "$—"}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Win Rate</div>
+              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: weatherStats?.liveStats && weatherStats.liveStats.winRate > 50 ? "#4ade80" : "var(--text-primary)" }}>
+                {weatherStats?.liveStats ? `${weatherStats.liveStats.winRate.toFixed(1)}%` : "—"}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Open Positions</div>
+              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: weatherStats?.liveStats?.openTrades ? "#60a5fa" : "var(--text-primary)" }}>
+                {weatherStats?.liveStats?.openTrades ?? "—"}
+              </div>
+            </div>
+            <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
+              <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Total Trades</div>
+              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                {weatherStats?.liveStats?.totalTrades ?? "—"}
+              </div>
+            </div>
+          </div>
+
+          {/* Backtest Results (from summary.json) */}
+          {weatherStats?.summary && (
+            <div className="rounded-xl p-4 mb-4" style={{ backgroundColor: "#60a5fa08", border: "1px solid #60a5fa20" }}>
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-4 h-4" style={{ color: "#60a5fa" }} />
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                  Backtest Results
+                </span>
+                {weatherStats.backtestPeriod && (
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#60a5fa15", color: "#60a5fa" }}>
+                    {weatherStats.backtestPeriod.days}d · {weatherStats.backtestPeriod.start} → {weatherStats.backtestPeriod.end}
+                  </span>
+                )}
+                {weatherStats.backtestStatus === "pass" && (
+                  <CheckCircle className="w-3.5 h-3.5" style={{ color: "#4ade80" }} />
+                )}
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Brier Score</div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{weatherStats.summary.brier_score.toFixed(4)}</div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Sharpe Ratio</div>
+                  <div className="text-sm font-bold" style={{ color: "#4ade80" }}>{weatherStats.summary.sharpe_ratio.toFixed(2)}</div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Win Rate (BT)</div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{(weatherStats.summary.win_rate * 100).toFixed(1)}%</div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total Bets (BT)</div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{weatherStats.summary.total_bets.toLocaleString()}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Weather Trading Panels */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {/* Active Contracts */}
+            {/* Open Exposure */}
             <div
               className="p-4 rounded-xl"
               style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
               <div className="flex items-center gap-2 mb-3">
                 <Link2 className="w-4 h-4" style={{ color: "#60a5fa" }} />
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Active Contracts</span>
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Open Exposure</span>
               </div>
               <div className="text-center py-4">
-                <div className="text-3xl font-bold mb-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-heading)" }}>0</div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>No open positions</div>
+                <div className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: weatherStats?.liveStats?.openExposure ? "#60a5fa" : "var(--text-muted)" }}>
+                  {weatherStats?.liveStats ? `$${weatherStats.liveStats.openExposure.toFixed(2)}` : "$—"}
+                </div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {weatherStats?.liveStats?.openTrades ?? 0} open position{(weatherStats?.liveStats?.openTrades ?? 0) !== 1 ? "s" : ""}
+                </div>
                 <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#60a5fa10", color: "#60a5fa" }}>
                   Kalshi + Polymarket
                 </div>
               </div>
             </div>
 
-            {/* Edge Scanner */}
+            {/* Win/Loss Record */}
             <div
               className="p-4 rounded-xl"
               style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
               <div className="flex items-center gap-2 mb-3">
                 <Activity className="w-4 h-4" style={{ color: "#a78bfa" }} />
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Edge Scanner</span>
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Record</span>
               </div>
               <div className="text-center py-4">
-                <div className="text-3xl mb-1" style={{ color: "var(--text-muted)" }}>🔍</div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Awaiting T2 deployment</div>
+                {weatherStats?.liveStats ? (
+                  <>
+                    <div className="flex items-center justify-center gap-3 mb-1">
+                      <span className="text-sm font-bold" style={{ color: "#4ade80" }}>{weatherStats.liveStats.won}W</span>
+                      <span className="text-sm" style={{ color: "var(--text-muted)" }}>—</span>
+                      <span className="text-sm font-bold" style={{ color: "#ef4444" }}>{weatherStats.liveStats.lost}L</span>
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {weatherStats.liveStats.totalTrades} total trades
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div className="text-3xl mb-1" style={{ color: "var(--text-muted)" }}>🔍</div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>Awaiting deployment</div>
+                  </>
+                )}
                 <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#a78bfa10", color: "#a78bfa" }}>
                   Weather → Market Edge
                 </div>
               </div>
             </div>
 
-            {/* Daily P&L */}
+            {/* Total P&L */}
             <div
               className="p-4 rounded-xl"
               style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
               <div className="flex items-center gap-2 mb-3">
                 <DollarSign className="w-4 h-4" style={{ color: "#4ade80" }} />
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Daily P&L</span>
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Paper P&L</span>
               </div>
               <div className="text-center py-4">
-                <div className="text-2xl font-bold mb-1" style={{ color: "var(--text-muted)", fontFamily: "var(--font-heading)" }}>$—</div>
+                <div className="text-2xl font-bold mb-1" style={{
+                  fontFamily: "var(--font-heading)",
+                  color: weatherStats?.liveStats?.totalPnl
+                    ? weatherStats.liveStats.totalPnl >= 0 ? "#4ade80" : "#ef4444"
+                    : "var(--text-muted)",
+                }}>
+                  {weatherStats?.liveStats ? `${weatherStats.liveStats.totalPnl >= 0 ? "+" : ""}$${weatherStats.liveStats.totalPnl.toFixed(2)}` : "$—"}
+                </div>
                 <div className="text-xs" style={{ color: "var(--text-muted)" }}>Paper trading mode</div>
                 <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#4ade8010", color: "#4ade80" }}>
-                  Live when deployed
+                  {weatherStats?.liveStats ? "Live stats from DB" : "Live when deployed"}
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Recent Trades */}
+          {weatherStats?.liveStats?.recentTrades && weatherStats.liveStats.recentTrades.length > 0 && (
+            <div className="mt-4">
+              <div className="text-xs font-bold mb-2 uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>
+                Recent Trades
+              </div>
+              <div className="space-y-1.5">
+                {weatherStats.liveStats.recentTrades.map((trade) => (
+                  <div
+                    key={trade.trade_id}
+                    className="flex items-center justify-between px-3 py-2 rounded-lg text-xs"
+                    style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold" style={{ color: trade.side === "yes" ? "#4ade80" : "#ef4444" }}>
+                        {trade.side.toUpperCase()}
+                      </span>
+                      <span style={{ color: "var(--text-primary)" }}>{trade.city}</span>
+                      <span style={{ color: "var(--text-muted)" }}>{trade.target_date}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span style={{ color: "var(--text-secondary)" }}>${trade.cost.toFixed(2)}</span>
+                      <span className="font-medium px-1.5 py-0.5 rounded" style={{
+                        backgroundColor: trade.status === "open" ? "#60a5fa15" : trade.status === "won" ? "#4ade8015" : "#ef444415",
+                        color: trade.status === "open" ? "#60a5fa" : trade.status === "won" ? "#4ade80" : "#ef4444",
+                      }}>
+                        {trade.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -635,63 +810,57 @@ export default function TradingPage() {
           </div>
         </div>
 
-        {/* T3 Project Link */}
+        {/* Trading Bot Project Links */}
         <div
-          className="rounded-xl p-5"
-          style={{ backgroundColor: "var(--card)", border: "1px solid #f59e0b30" }}
+          className="rounded-xl p-5 md:col-span-2"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
         >
           <div className="flex items-center gap-2 mb-4">
             <FolderOpen className="w-5 h-5" style={{ color: "#f59e0b" }} />
             <h3 className="font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-              Cipher Crypto Bot — Project Files
+              Trading Bot Projects
             </h3>
           </div>
-          <div className="space-y-2">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {[
-              { label: "Architecture", path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading/ARCHITECTURE.md" },
-              { label: "Changelog", path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading/CHANGELOG.md" },
-              { label: "Source code", path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading/src" },
-              { label: "Review notes", path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading/REVIEW-PHASE1.md" },
-            ].map((item) => (
+              {
+                name: "Cipher — Crypto Bot",
+                emoji: "₿",
+                color: "#f59e0b",
+                path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading",
+                status: "Building",
+              },
+              {
+                name: "Nimbus — Weather Trading",
+                emoji: "🌤️",
+                color: "#60a5fa",
+                path: "/Users/timharris/.openclaw/workspace/projects/weather-trading",
+                status: weatherStats?.liveStats ? "Paper Trading" : "Research",
+              },
+              {
+                name: "Karpathy Loop",
+                emoji: "🔬",
+                color: "#a78bfa",
+                path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop",
+                status: "Design",
+              },
+            ].map((project) => (
               <Link
-                key={item.label}
-                href={`/files?path=${encodeURIComponent(item.path)}`}
-                className="flex items-center justify-between px-3 py-2 rounded-lg transition-all hover:opacity-80"
-                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+                key={project.name}
+                href={`/files?path=${encodeURIComponent(project.path)}`}
+                className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-[1.01]"
+                style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${project.color}30` }}
               >
-                <span className="text-sm" style={{ color: "var(--text-primary)" }}>{item.label}</span>
-                <ExternalLink className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} />
+                <span className="text-2xl">{project.emoji}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{project.name}</div>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Circle className="w-1.5 h-1.5" style={{ fill: project.color, color: project.color }} />
+                    <span className="text-xs font-medium" style={{ color: project.color }}>{project.status}</span>
+                  </div>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
               </Link>
-            ))}
-          </div>
-        </div>
-
-        {/* Open Positions */}
-        <div
-          className="rounded-xl p-5"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <Activity className="w-5 h-5" style={{ color: "#60a5fa" }} />
-            <h3 className="font-semibold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-              Open Positions
-            </h3>
-          </div>
-          <div className="space-y-2">
-            {[
-              { label: "No open positions", value: "Paper trading mode", color: "#6b7280" },
-              { label: "Daily drawdown", value: "—", color: "#6b7280" },
-              { label: "Total exposure", value: "—", color: "#6b7280" },
-              { label: "Realized P&L today", value: "—", color: "#6b7280" },
-            ].map((item) => (
-              <div
-                key={item.label}
-                className="flex items-center justify-between px-3 py-2 rounded-lg"
-                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
-              >
-                <span className="text-sm" style={{ color: "var(--text-secondary)" }}>{item.label}</span>
-                <span className="text-xs font-medium" style={{ color: item.color }}>{item.value}</span>
-              </div>
             ))}
           </div>
         </div>
