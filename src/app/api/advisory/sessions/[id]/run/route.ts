@@ -110,50 +110,54 @@ const PERSONA_CONTENT: Record<string, string> = {
 
 // ─── API key helper ───────────────────────────────────────────────────────────
 
-function getGeminiApiKey(): string {
-  // Read from openclaw.json env config
+function getGatewayConfig(): { url: string; token: string } {
   try {
     const configPath = path.join(
       process.env.HOME || "",
       ".openclaw/openclaw.json"
     );
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    if (config?.env?.GEMINI_API_KEY) return config.env.GEMINI_API_KEY;
+    const port = config?.gateway?.port || 18789;
+    const token = config?.gateway?.auth?.token || "";
+    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
   } catch {
-    // fall through
+    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
   }
-  return process.env.GEMINI_API_KEY || "";
 }
 
 // ─── Call Anthropic ───────────────────────────────────────────────────────────
 
-const INFERENCE_MODEL = "gemini-2.5-flash";
+const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  apiKey: string
+  _apiKey: string
 ): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${INFERENCE_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: { maxOutputTokens: 4096 },
-      }),
-    }
-  );
+  const gateway = getGatewayConfig();
+  const response = await fetch(gateway.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${gateway.token}`,
+    },
+    body: JSON.stringify({
+      model: INFERENCE_MODEL,
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${err}`);
+    throw new Error(`Gateway API error ${response.status}: ${err}`);
   }
 
   const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
@@ -289,7 +293,7 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const apiKey = getGeminiApiKey();
+  const apiKey = "";
   if (!apiKey) {
     return NextResponse.json(
       { error: "Anthropic API key not configured" },

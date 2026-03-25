@@ -61,20 +61,20 @@ async function triggerFollowUp(
 ) {
   const { readFileSync } = await import("fs");
 
-  // Get API key
-  let apiKey = "";
+  // Get gateway config
+  let gatewayUrl = "http://127.0.0.1:18789/v1/chat/completions";
+  let gatewayToken = "";
   try {
-    const profilesPath = path.join(
-      process.env.HOME || "",
-      ".openclaw/agents/main/agent/auth-profiles.json"
-    );
-    const profiles = JSON.parse(readFileSync(profilesPath, "utf-8"));
-    apiKey = profiles?.profiles?.["anthropic:default"]?.token || "";
+    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    const port = config?.gateway?.port || 18789;
+    gatewayToken = config?.gateway?.auth?.token || "";
+    gatewayUrl = `http://127.0.0.1:${port}/v1/chat/completions`;
   } catch {
-    apiKey = process.env.ANTHROPIC_API_KEY || "";
+    // use defaults
   }
 
-  if (!apiKey) return;
+  if (!gatewayToken) return;
 
   const filePath = path.join(DATA_DIR, `${sessionId}.json`);
   const { agents, topic, mode, personaOverlays = [] } = session;
@@ -120,24 +120,25 @@ Respond directly to the human's directive. Be helpful, specific, and use your ex
   const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${agent.name} to Tim's directive.`;
 
   try {
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const response = await fetch(gatewayUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
+        "Authorization": `Bearer ${gatewayToken}`,
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 1024,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
+        model: "anthropic/claude-sonnet-4-6",
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
       }),
     });
 
     if (!response.ok) return;
     const data = await response.json();
-    const replyText = data.content?.[0]?.text || "";
+    const replyText = data.choices?.[0]?.message?.content || "";
 
     if (replyText) {
       const replyEvent = {
