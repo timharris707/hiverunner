@@ -25,6 +25,9 @@ import {
   Search,
   Plus,
   Play,
+  MessageSquarePlus,
+  ArrowRight,
+  History,
 } from "lucide-react";
 import Link from "next/link";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -216,6 +219,17 @@ const STATUS_LABELS: Record<string, string> = {
   offline: "Offline",
 };
 
+interface AdvisorySession {
+  id: string;
+  topic: string;
+  mode: string;
+  agents: string[];
+  status: string;
+  createdAt: string;
+  completedAt?: string;
+  model?: string;
+}
+
 interface HighlightData {
   todayTasks: string[];
   nextCron: { name: string; nextAt: string; in: string } | null;
@@ -248,6 +262,7 @@ export default function DashboardPage() {
   const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
 
   const fetchDashboardData = () => {
     Promise.all([
@@ -255,7 +270,8 @@ export default function DashboardPage() {
       fetch("/api/agents").then(r => r.json()),
       fetch("/api/dashboard/highlights").then(r => r.json()),
       fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
-    ]).then(([actStats, agentsData, highlightData, ds]) => {
+      fetch("/api/advisory/sessions").then(r => r.json()).catch(() => ({ sessions: [] })),
+    ]).then(([actStats, agentsData, highlightData, ds, advisoryData]) => {
       setStats({
         total: actStats.total || 0,
         today: actStats.today || 0,
@@ -266,6 +282,7 @@ export default function DashboardPage() {
       setLiveAgents(agentsData.agents || []);
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
       if (ds) setDashStats(ds);
+      setRecentSessions((advisoryData.sessions || []).slice(0, 3));
       setStatsLoading(false);
     }).catch(() => setStatsLoading(false));
   };
@@ -344,6 +361,161 @@ export default function DashboardPage() {
         </div>
         <div className="lg:col-span-1">
           <WeatherWidget />
+        </div>
+      </div>
+
+      {/* Quick Launch Advisory Board + Recent Sessions */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6 mb-6">
+        {/* Quick Launch Advisory Board */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <Users className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Advisory Board
+              </h2>
+            </div>
+            <Link href="/advisory" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              Open →
+            </Link>
+          </div>
+          <div className="p-4">
+            <div className="space-y-2 mb-4">
+              {[
+                { id: "trading-strategy", label: "Trading Strategy Review", icon: "📈", desc: "Quant rigor deep-dive", agents: ["Henry", "Atlas", "Quant", "Cipher"] },
+                { id: "risk-legal", label: "Risk & Legal Assessment", icon: "⚖️", desc: "Compliance & regulatory risk", agents: ["Henry", "Counsel", "Forge", "Scout"] },
+                { id: "product-launch", label: "Product Launch Planning", icon: "🚀", desc: "Cross-functional launch plan", agents: ["Henry", "Pixel", "Scout", "Quill"] },
+              ].map((tmpl) => (
+                <Link
+                  key={tmpl.id}
+                  href={`/advisory?template=${tmpl.id}`}
+                  className="flex items-center gap-3 p-3 rounded-lg transition-all hover:scale-[1.01]"
+                  style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
+                >
+                  <span className="text-xl flex-shrink-0">{tmpl.icon}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                      {tmpl.label}
+                    </div>
+                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                      {tmpl.desc} · {tmpl.agents.length} agents
+                    </div>
+                  </div>
+                  <ArrowRight className="w-3.5 h-3.5 flex-shrink-0" style={{ color: "var(--text-muted)" }} />
+                </Link>
+              ))}
+            </div>
+            <Link
+              href="/advisory"
+              className="flex items-center justify-center gap-2 w-full p-3 rounded-lg font-semibold text-sm transition-all hover:opacity-90"
+              style={{ backgroundColor: "var(--accent)", color: "#fff" }}
+            >
+              <MessageSquarePlus className="w-4 h-4" />
+              New Advisory Session
+            </Link>
+          </div>
+        </div>
+
+        {/* Recent Advisory Sessions */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                <History className="inline-block w-4 h-4 mr-2 mb-0.5" />
+                Recent Advisory Sessions
+              </h2>
+            </div>
+            <Link href="/advisory" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+              View all →
+            </Link>
+          </div>
+          <div className="p-4">
+            {recentSessions.length > 0 ? (
+              <div className="space-y-2">
+                {recentSessions.map((session) => {
+                  const topicPreview = session.topic.length > 80
+                    ? session.topic.slice(0, 80) + "..."
+                    : session.topic;
+                  const isActive = session.status === "active";
+                  const statusColor = isActive ? "#4ade80" : session.status === "completed" ? "#60a5fa" : "#6b7280";
+                  const statusLabel = isActive ? "Active" : session.status === "completed" ? "Completed" : session.status;
+                  const timeAgo = (() => {
+                    const diff = Date.now() - new Date(session.createdAt).getTime();
+                    const mins = Math.floor(diff / 60000);
+                    if (mins < 60) return `${mins}m ago`;
+                    const hrs = Math.floor(mins / 60);
+                    if (hrs < 24) return `${hrs}h ago`;
+                    const days = Math.floor(hrs / 24);
+                    return `${days}d ago`;
+                  })();
+
+                  return (
+                    <Link
+                      key={session.id}
+                      href={`/advisory?session=${session.id}`}
+                      className="flex items-center gap-3 p-3 rounded-lg transition-all hover:scale-[1.01]"
+                      style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${isActive ? statusColor + "40" : "var(--border)"}` }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                          {topicPreview}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span
+                            className="text-xs font-medium px-1.5 py-0.5 rounded flex items-center gap-1"
+                            style={{ backgroundColor: `${statusColor}20`, color: statusColor }}
+                          >
+                            <Circle className="w-1.5 h-1.5" style={{ fill: statusColor, color: statusColor }} />
+                            {statusLabel}
+                          </span>
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {session.mode} · {session.agents.length} agents · {timeAgo}
+                          </span>
+                        </div>
+                      </div>
+                      {isActive && (
+                        <span className="text-xs font-semibold px-2 py-1 rounded" style={{ backgroundColor: "#4ade8015", color: "#4ade80" }}>
+                          Resume
+                        </span>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-6">
+                <Users className="w-8 h-8 mx-auto mb-2" style={{ color: "var(--text-muted)", opacity: 0.5 }} />
+                <p className="text-sm" style={{ color: "var(--text-muted)" }}>No advisory sessions yet</p>
+                <Link
+                  href="/advisory"
+                  className="text-xs mt-2 inline-block font-medium"
+                  style={{ color: "var(--accent)" }}
+                >
+                  Start your first session →
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
