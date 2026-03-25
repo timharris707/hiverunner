@@ -25,6 +25,12 @@ import {
   RotateCcw,
   Search,
   FileDown,
+  TrendingUp,
+  Rocket,
+  Shield,
+  Cpu,
+  Megaphone,
+  Settings,
 } from "lucide-react";
 import { exportSessionAsPDF } from "@/components/AdvisoryPDFExport";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
@@ -127,6 +133,82 @@ const PACING_OPTIONS = [
   { id: "relaxed", label: "Relaxed (30s)", desc: "30 second pause between turns" },
   { id: "slow", label: "Slow (1 min)", desc: "1 minute pause between turns" },
   { id: "manual", label: "Manual (step-through)", desc: "Pauses after each turn — you advance manually" },
+];
+
+interface SessionTemplate {
+  id: string;
+  label: string;
+  desc: string;
+  icon: typeof TrendingUp;
+  mode: "review" | "roundtable";
+  agents: string[];
+  responseLength: "concise" | "balanced" | "detailed" | "verbose";
+  rounds: number;
+  topic?: string;
+}
+
+const SESSION_TEMPLATES: SessionTemplate[] = [
+  {
+    id: "trading-strategy",
+    label: "Trading Strategy Review",
+    desc: "Deep-dive into trading strategies with quant rigor",
+    icon: TrendingUp,
+    mode: "review",
+    agents: ["Henry", "Atlas", "Quant", "Cipher"],
+    responseLength: "detailed",
+    rounds: 3,
+    topic: "Review and critique the proposed trading strategy, focusing on risk-adjusted returns, edge sustainability, and portfolio fit.",
+  },
+  {
+    id: "product-launch",
+    label: "Product Launch Planning",
+    desc: "Cross-functional launch plan with marketing & engineering",
+    icon: Rocket,
+    mode: "roundtable",
+    agents: ["Henry", "Pixel", "Scout", "Quill"],
+    responseLength: "balanced",
+    rounds: 3,
+  },
+  {
+    id: "risk-legal",
+    label: "Risk & Legal Assessment",
+    desc: "Regulatory risk, compliance, and legal exposure review",
+    icon: Shield,
+    mode: "roundtable",
+    agents: ["Henry", "Counsel", "Forge", "Scout"],
+    responseLength: "detailed",
+    rounds: 3,
+  },
+  {
+    id: "tech-architecture",
+    label: "Technical Architecture Review",
+    desc: "System design, scalability, and engineering trade-offs",
+    icon: Cpu,
+    mode: "review",
+    agents: ["Henry", "Forge", "Pixel", "Quant"],
+    responseLength: "detailed",
+    rounds: 3,
+  },
+  {
+    id: "marketing-growth",
+    label: "Marketing & Growth Strategy",
+    desc: "Growth levers, content strategy, and market positioning",
+    icon: Megaphone,
+    mode: "roundtable",
+    agents: ["Henry", "Quill", "Scout", "Pixel"],
+    responseLength: "balanced",
+    rounds: 3,
+  },
+  {
+    id: "custom",
+    label: "Custom",
+    desc: "Blank slate — configure everything yourself",
+    icon: Settings,
+    mode: "roundtable",
+    agents: ["Henry"],
+    responseLength: "balanced",
+    rounds: 3,
+  },
 ];
 
 function RoundsDisplay({ session }: { session: AdvisorySession }) {
@@ -955,6 +1037,55 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
 
         {step === "config" && (
           <>
+            {/* Templates */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                USE TEMPLATE
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
+                {SESSION_TEMPLATES.map((tmpl) => {
+                  const Icon = tmpl.icon;
+                  const isCustom = tmpl.id === "custom";
+                  return (
+                    <button
+                      key={tmpl.id}
+                      onClick={() => {
+                        if (!isCustom) {
+                          setMode(tmpl.mode);
+                          setSelectedAgents(tmpl.agents);
+                          setResponseLength(tmpl.responseLength);
+                          setRounds(tmpl.rounds);
+                          if (tmpl.topic) setTopic(tmpl.topic);
+                          setPacing(tmpl.mode === "roundtable" ? "manual" : "instant");
+                        } else {
+                          setMode("roundtable");
+                          setSelectedAgents(["Henry"]);
+                          setResponseLength("balanced");
+                          setRounds(3);
+                          setTopic("");
+                          setPacing("manual");
+                        }
+                        setPersonaOverlays({});
+                      }}
+                      style={{
+                        padding: "10px 8px",
+                        borderRadius: "8px",
+                        border: `1px solid var(--border)`,
+                        backgroundColor: "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <Icon size={14} style={{ color: isCustom ? "var(--text-muted)" : "var(--accent)", marginBottom: "4px" }} />
+                      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: "2px" }}>{tmpl.label}</div>
+                      <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3 }}>{tmpl.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Mission/Topic */}
             <div style={{ marginBottom: "20px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
