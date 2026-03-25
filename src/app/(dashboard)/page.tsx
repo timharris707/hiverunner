@@ -490,7 +490,7 @@ export default function DashboardPage() {
                             {statusLabel}
                           </span>
                           <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {session.mode} · {session.agents.length} agents · {timeAgo}
+                            {session.mode || "session"} · {(session.agents || []).length} agents · {timeAgo}
                           </span>
                         </div>
                       </div>
