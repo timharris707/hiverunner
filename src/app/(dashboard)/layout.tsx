@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { QuickActionBar } from "@/components/QuickActionBar";
+import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 
 export default function DashboardLayout({
   children,
@@ -34,6 +35,7 @@ export default function DashboardLayout({
           padding: isMobile ? "16px" : "24px",
         }}
       >
+        <PageBreadcrumbs />
         {children}
       </main>
 

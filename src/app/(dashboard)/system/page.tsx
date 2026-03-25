@@ -187,7 +187,7 @@ export default function SystemMonitorPage() {
       {/* Header */}
       <div className="flex items-start justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+          <h1 className="text-2xl md:text-3xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-1.5px" }}>
             System Monitor
           </h1>
           <p style={{ color: "var(--text-secondary)" }}>Real-time monitoring of server resources and services</p>

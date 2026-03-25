@@ -126,13 +126,11 @@ export default function MemoryPage() {
       {/* Page header */}
       <div style={{ padding: "24px 24px 16px 24px", flexShrink: 0 }}>
         <h1
+          className="text-2xl md:text-3xl font-bold mb-1"
           style={{
             fontFamily: "var(--font-heading)",
-            fontSize: "24px",
-            fontWeight: 700,
-            letterSpacing: "-1px",
             color: "var(--text-primary)",
-            marginBottom: "4px",
+            letterSpacing: "-1.5px",
           }}
         >
           Memory Browser

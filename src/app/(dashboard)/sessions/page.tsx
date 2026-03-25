@@ -654,13 +654,11 @@ export default function SessionsPage() {
         {/* Header */}
         <div style={{ marginBottom: "1.5rem" }}>
           <h1
+            className="text-2xl md:text-3xl font-bold mb-1"
             style={{
               fontFamily: "var(--font-heading)",
-              fontSize: "1.75rem",
-              fontWeight: 700,
               color: "var(--text-primary)",
-              letterSpacing: "-1px",
-              marginBottom: "0.25rem",
+              letterSpacing: "-1.5px",
             }}
           >
             💬 Session History
