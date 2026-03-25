@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
+import { QuickActionBar } from "@/components/QuickActionBar";
 
 export default function DashboardLayout({
   children,
@@ -36,6 +37,7 @@ export default function DashboardLayout({
         {children}
       </main>
 
+      <QuickActionBar />
       {!isMobile && <StatusBar />}
     </div>
   );
