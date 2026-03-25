@@ -453,9 +453,10 @@ export default function DashboardPage() {
             {recentSessions.length > 0 ? (
               <div className="space-y-2">
                 {recentSessions.map((session) => {
-                  const topicPreview = session.topic.length > 80
-                    ? session.topic.slice(0, 80) + "..."
-                    : session.topic;
+                  const topic = session.topic || "Untitled Session";
+                  const topicPreview = topic.length > 80
+                    ? topic.slice(0, 80) + "..."
+                    : topic;
                   const isActive = session.status === "active";
                   const statusColor = isActive ? "#4ade80" : session.status === "completed" ? "#60a5fa" : "#6b7280";
                   const statusLabel = isActive ? "Active" : session.status === "completed" ? "Completed" : session.status;
