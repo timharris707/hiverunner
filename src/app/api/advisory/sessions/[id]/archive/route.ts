@@ -4,8 +4,35 @@ import path from "path";
 import { readFileSync } from "fs";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
+const MEMORY_FILE = path.join(DATA_DIR, "agent-memory.json");
 const WORKSPACE_DIR = "/Users/timharris/.openclaw/workspace";
 const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
+
+// ─── Agent memory types ──────────────────────────────────────────────────────
+
+interface AgentMemoryEntry {
+  id: string;
+  agent: string;
+  topic: string;
+  sessionId: string;
+  date: string;
+  decisions: string[];
+  insights: string[];
+  actionItems: string[];
+}
+
+function readAgentMemory(): AgentMemoryEntry[] {
+  try {
+    if (!fs.existsSync(MEMORY_FILE)) return [];
+    return JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
+  } catch {
+    return [];
+  }
+}
+
+function writeAgentMemory(entries: AgentMemoryEntry[]) {
+  fs.writeFileSync(MEMORY_FILE, JSON.stringify(entries, null, 2));
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -232,7 +259,64 @@ Be specific and concrete. Reference actual content from their contributions. Kee
     fs.appendFileSync(sessionsFile, entry, "utf-8");
   }
 
-  // ── 3. Mark session as archived ─────────────────────────────────────────────
+  // ── 3. Extract structured memory entries for agent-memory.json ──────────────
+  try {
+    const allContributions = events
+      .filter((e) => e.type !== "start" && e.type !== "complete" && e.text && e.speaker !== "Tim")
+      .map((e) => `${e.speaker}: ${(e.text as string).slice(0, 500)}`)
+      .join("\n\n");
+
+    const memoryPrompt = `You are extracting structured memory from an advisory board session for future recall.
+
+Session Topic: ${topic}
+Date: ${dateLabel}
+Session ID: ${session.id || "unknown"}
+Participants: ${agents.join(", ")}
+
+Conversation highlights:
+${allContributions.slice(0, 6000)}
+
+For EACH participating agent, extract their key contributions as structured JSON. Return a JSON array where each element has:
+- "agent": agent name (string)
+- "decisions": array of 1-3 key decisions or conclusions they drove (strings)
+- "insights": array of 1-3 unique insights or analyses they provided (strings)
+- "actionItems": array of 0-2 action items they were assigned or proposed (strings)
+
+Keep each string to 1-2 sentences. Be specific and concrete. Only include agents who made substantive contributions.
+
+Return ONLY the JSON array, no markdown fencing, no explanation.`;
+
+    const memoryJson = await callGateway(memoryPrompt);
+    // Parse the LLM response — strip markdown fencing if present
+    const cleaned = memoryJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+    const parsed = JSON.parse(cleaned) as Array<{
+      agent: string;
+      decisions: string[];
+      insights: string[];
+      actionItems: string[];
+    }>;
+
+    if (Array.isArray(parsed)) {
+      const existing = readAgentMemory();
+      const newEntries: AgentMemoryEntry[] = parsed
+        .filter((p) => p.agent && agents.includes(p.agent))
+        .map((p) => ({
+          id: `mem_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          agent: p.agent,
+          topic,
+          sessionId: (session.id as string) || sessionId,
+          date: new Date(createdAt).toISOString(),
+          decisions: (p.decisions || []).slice(0, 3),
+          insights: (p.insights || []).slice(0, 3),
+          actionItems: (p.actionItems || []).slice(0, 2),
+        }));
+      writeAgentMemory([...existing, ...newEntries]);
+    }
+  } catch (memErr) {
+    console.error("Agent memory extraction failed (non-critical):", memErr);
+  }
+
+  // ── 4. Mark session as archived ─────────────────────────────────────────────
   session.archived = true;
   session.archivedAt = new Date().toISOString();
   session.transcriptPath = transcriptPath;

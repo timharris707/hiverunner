@@ -6,6 +6,46 @@ import { archiveSession } from "../archive/route";
 import { AGENT_CONFIGS } from "@/config/agents";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
+const MEMORY_FILE = path.join(DATA_DIR, "agent-memory.json");
+
+// ─── Agent memory ─────────────────────────────────────────────────────────────
+
+interface AgentMemoryEntry {
+  id: string;
+  agent: string;
+  topic: string;
+  sessionId: string;
+  date: string;
+  decisions: string[];
+  insights: string[];
+  actionItems: string[];
+}
+
+function getAgentMemory(agentName: string, maxEntries = 5): AgentMemoryEntry[] {
+  try {
+    if (!fs.existsSync(MEMORY_FILE)) return [];
+    const all: AgentMemoryEntry[] = JSON.parse(fs.readFileSync(MEMORY_FILE, "utf-8"));
+    return all
+      .filter((e) => e.agent === agentName)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, maxEntries);
+  } catch {
+    return [];
+  }
+}
+
+function formatMemoryForPrompt(entries: AgentMemoryEntry[]): string {
+  if (entries.length === 0) return "";
+  const lines = entries.map((e) => {
+    const date = new Date(e.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    const parts: string[] = [`- **${date} — ${e.topic}**`];
+    if (e.decisions.length > 0) parts.push(`  Decisions: ${e.decisions.join("; ")}`);
+    if (e.insights.length > 0) parts.push(`  Insights: ${e.insights.join("; ")}`);
+    if (e.actionItems.length > 0) parts.push(`  Action items: ${e.actionItems.join("; ")}`);
+    return parts.join("\n");
+  });
+  return `\nYou recall from previous advisory sessions:\n${lines.join("\n")}\n`;
+}
 
 // ─── Agent definitions ────────────────────────────────────────────────────────
 // Build from the canonical AGENT_CONFIGS so personas are single-sourced
@@ -275,6 +315,10 @@ function buildSystemPrompt(
   const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
 
+  // Inject memory from previous sessions
+  const memoryEntries = getAgentMemory(agentId, 5);
+  const memoryBlock = formatMemoryForPrompt(memoryEntries);
+
   const lengthConfig = RESPONSE_LENGTH_CONFIG[responseLength || DEFAULT_RESPONSE_LENGTH];
   const lengthInstruction = lengthConfig.instruction;
 
@@ -292,7 +336,7 @@ function buildSystemPrompt(
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
 
 **Topic:** ${topic}
-${overlayLine}
+${overlayLine}${memoryBlock}
 **Response length:** ${lengthInstruction}${thinkingLine}`;
 
     if (reviewRole === "author") {
@@ -361,7 +405,7 @@ Speak in YOUR AUTHENTIC VOICE. Respond as ${agent.name} would when running the m
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a roundtable discussion on the following topic:
 
 **Topic:** ${topic}
-${overlayLine}
+${overlayLine}${memoryBlock}
 **Response length:** ${lengthInstruction}
 
 **Core advisory directives:**
