@@ -24,8 +24,9 @@ import {
   ChevronDown,
   RotateCcw,
   Search,
-  ClipboardCopy,
+  FileDown,
 } from "lucide-react";
+import { exportSessionAsPDF } from "@/components/AdvisoryPDFExport";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
 
@@ -241,6 +242,32 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+// Strip markdown artifacts and produce clean plain text
+function stripMarkdown(text: string): string {
+  return text
+    // Remove bold/italic markers
+    .replace(/\*\*\*(.+?)\*\*\*/g, "$1")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/\*(.+?)\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/_(.+?)_/g, "$1")
+    // Remove inline code
+    .replace(/`([^`]+)`/g, "$1")
+    // Remove markdown links, keep text
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    // Remove images
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "")
+    // Remove headings markers (keep text)
+    .replace(/^#{1,6}\s+/gm, "")
+    // Remove blockquote markers
+    .replace(/^>\s+/gm, "")
+    // Remove horizontal rules
+    .replace(/^[-*_]{3,}\s*$/gm, "")
+    // Normalize multiple blank lines
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[]): string {
   const topic = session.topic;
   const mode = session.mode;
@@ -253,7 +280,7 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
   // Support both old array and new object format
   const rawOverlays = (session as unknown as Record<string, unknown>).personaOverlays;
   const overlaysObj: Record<string, string> = Array.isArray(rawOverlays)
-    ? {} // legacy array — no per-agent mapping
+    ? {}
     : (rawOverlays as Record<string, string>) ?? {};
 
   // Build participants section
@@ -261,58 +288,65 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
   for (const agentDisplayName of session.agents) {
     const agentConfig = getAgentByAnyId(agentDisplayName);
     const role = agentConfig?.role ?? getAgentRole(agentDisplayName);
-    const avatarPath = agentConfig?.avatar;
     const emoji = agentConfig?.emoji ?? "🤖";
-    // Find overlay for this agent (object format)
     const agentOverlayId = overlaysObj[agentDisplayName];
     const agentOverlayStr = agentOverlayId
-      ? ` | Persona: ${getOverlayEmoji(agentOverlayId)} ${getOverlayName(agentOverlayId)}`
+      ? ` [${getOverlayEmoji(agentOverlayId)} ${getOverlayName(agentOverlayId)}]`
       : "";
-
-    const avatarMd = avatarPath ? `![${agentDisplayName}](${avatarPath}) ` : `${emoji} `;
-    participantLines.push(`- ${avatarMd}**${agentDisplayName}** — ${role}${agentOverlayStr}`);
+    participantLines.push(`  ${emoji} ${agentDisplayName} — ${role}${agentOverlayStr}`);
   }
 
-  // Collect unique models used across events
+  // Collect unique models
   const allEvents = events as (AdvisoryEvent & { model?: string })[];
   const modelsUsed = [...new Set(allEvents.map((e) => e.model).filter(Boolean))];
   const modelsStr = modelsUsed.length > 0 ? modelsUsed.join(", ") : "N/A";
+  const responseLengthStr = (session as unknown as Record<string, unknown>).responseLength as string ?? "balanced";
 
   const lines: string[] = [
-    `# Advisory Board: ${topic}`,
+    `════════════════════════════════════════════════════════════`,
+    `  HARRIS AUTONOMOUS — ADVISORY BOARD`,
+    `════════════════════════════════════════════════════════════`,
     ``,
-    `**Date:** ${dateStr} | **Mode:** ${mode} | **Model(s):** ${modelsStr}`,
-    `**Pacing:** ${(session as unknown as Record<string, unknown>).pacing as string ?? "instant"}`,
+    `  Topic:    ${topic}`,
+    `  Date:     ${dateStr}`,
+    `  Mode:     ${mode.charAt(0).toUpperCase() + mode.slice(1)}`,
+    `  Length:   ${responseLengthStr.charAt(0).toUpperCase() + responseLengthStr.slice(1)}`,
+    `  Model(s): ${modelsStr}`,
     ``,
-    `## Participants`,
+    `────────────────────────────────────────────────────────────`,
+    `  PARTICIPANTS`,
+    `────────────────────────────────────────────────────────────`,
     ``,
     ...participantLines,
     ``,
-    `---`,
+    `════════════════════════════════════════════════════════════`,
     ``,
   ];
 
   for (const event of events) {
     if (!event.text || !event.speaker) continue;
+    if (event.type === "start") continue; // Skip session-start system event
     const agentConfig = getAgentByAnyId(event.speaker);
     const role = agentConfig?.role ?? getAgentRole(event.speaker);
-    const avatarPath = agentConfig?.avatar;
-    const emoji = agentConfig?.emoji ?? event.emoji;
-    const avatarMd = avatarPath ? `![${event.speaker}](${avatarPath}) ` : `${emoji} `;
-    // Speaker overlay (object format)
+    const emoji = agentConfig?.emoji ?? event.emoji ?? "";
     const speakerOverlayId = overlaysObj[event.speaker];
     const overlayStr = speakerOverlayId
-      ? ` | *Persona: ${getOverlayEmoji(speakerOverlayId)} ${getOverlayName(speakerOverlayId)}*`
+      ? ` [${getOverlayEmoji(speakerOverlayId)} ${getOverlayName(speakerOverlayId)}]`
       : "";
+    const timeStr = new Date(event.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-    const modelStr = event.model ? ` | Model: ${event.model}` : "";
-    lines.push(`## ${avatarMd}${event.speaker} — ${role} (${event.role})${overlayStr}${modelStr}`);
+    lines.push(`────────────────────────────────────────────────────────────`);
+    lines.push(`${emoji} ${event.speaker.toUpperCase()} — ${role}${overlayStr}  [${timeStr}]`);
+    lines.push(`────────────────────────────────────────────────────────────`);
     lines.push(``);
-    lines.push(event.text);
-    lines.push(``);
-    lines.push(`---`);
+    // Strip markdown artifacts for clean plain text
+    lines.push(stripMarkdown(event.text));
     lines.push(``);
   }
+
+  lines.push(`════════════════════════════════════════════════════════════`);
+  lines.push(`  End of Advisory Session Transcript`);
+  lines.push(`════════════════════════════════════════════════════════════`);
 
   return lines.join("\n");
 }
@@ -431,7 +465,7 @@ function EventBubble({
             zIndex: 2,
           }}
         >
-          <ClipboardCopy size={11} />
+          <Copy size={11} />
           {copyState === "copied" ? "Copied!" : "Copy"}
         </button>
       )}
@@ -791,6 +825,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [model, setModel] = useState("anthropic/claude-sonnet-4-6");
   const [rounds, setRounds] = useState<number | "persistent">(3);
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
+  const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed" | "verbose">("balanced");
   // Per-agent overlay map: { agentId: overlayId }
   const [personaOverlays, setPersonaOverlays] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -845,6 +880,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           model,
           rounds,
           pacing,
+          responseLength,
           personaOverlays: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
         }),
       });
@@ -1121,6 +1157,48 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
               )}
             </div>
 
+            {/* Response Length */}
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                RESPONSE LENGTH
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                {[
+                  { id: "concise", label: "Concise", desc: "1-2 paragraphs, punchy", tokens: "~1K tokens" },
+                  { id: "balanced", label: "Balanced", desc: "2-3 paragraphs, focused", tokens: "~2K tokens", default: true },
+                  { id: "detailed", label: "Detailed", desc: "3-5 paragraphs, thorough", tokens: "~3K tokens" },
+                  { id: "verbose", label: "Verbose", desc: "Every angle covered", tokens: "~4K tokens" },
+                ].map((opt) => {
+                  const sel = responseLength === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setResponseLength(opt.id as "concise" | "balanced" | "detailed" | "verbose")}
+                      style={{
+                        padding: "9px 11px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                        position: "relative",
+                      }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
+                        <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{opt.label}</div>
+                        {opt.default && (
+                          <span style={{ fontSize: "8px", fontWeight: 700, color: "#a78bfa", backgroundColor: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", padding: "1px 4px", borderRadius: "3px" }}>DEFAULT</span>
+                        )}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.3 }}>{opt.desc}</div>
+                      <div style={{ fontSize: "9px", color: "var(--text-muted)", opacity: 0.6, fontFamily: "var(--font-mono)", marginTop: "2px" }}>{opt.tokens}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Pacing */}
             <div style={{ marginBottom: "24px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
@@ -1350,6 +1428,7 @@ export default function AdvisoryPage() {
   const [activeView, setActiveView] = useState<"live" | "history">("live");
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
+  const [exportingPDF, setExportingPDF] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
@@ -1543,14 +1622,29 @@ export default function AdvisoryPage() {
     const markdown = formatMarkdownExport(activeSession, events);
     const dateStr = new Date(activeSession.createdAt).toISOString().split("T")[0];
     const topicSlug = slugify(activeSession.topic);
-    const fileName = `advisory-${dateStr}-${topicSlug}.md`;
-    const blob = new Blob([markdown], { type: "text/markdown" });
+    const fileName = `advisory-${dateStr}-${topicSlug}.txt`;
+    const blob = new Blob([markdown], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = fileName;
     a.click();
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportPDF = async () => {
+    if (!activeSession || exportingPDF) return;
+    setExportingPDF(true);
+    try {
+      await exportSessionAsPDF(
+        activeSession as unknown as import("@/components/AdvisoryPDFExport").PDFSession,
+        events as unknown as import("@/components/AdvisoryPDFExport").PDFEvent[]
+      );
+    } catch (e) {
+      console.error("PDF export error:", e);
+    } finally {
+      setExportingPDF(false);
+    }
   };
 
   const handleArchive = async () => {
@@ -1713,8 +1807,11 @@ export default function AdvisoryPage() {
     <>
       {/* Markdown styles */}
       <style>{`
-        .advisory-markdown p { margin: 0 0 8px 0; word-break: normal; overflow-wrap: break-word; white-space: normal; }
+        .advisory-markdown p { margin: 0 0 0.85em 0; text-indent: 1.5em; word-break: normal; overflow-wrap: break-word; white-space: normal; line-height: 1.75; }
+        .advisory-markdown p:first-child { text-indent: 0; }
         .advisory-markdown p:last-child { margin-bottom: 0; }
+        .advisory-markdown h1 + p, .advisory-markdown h2 + p, .advisory-markdown h3 + p,
+        .advisory-markdown blockquote p, .advisory-markdown li p { text-indent: 0; }
         .advisory-markdown ul { margin: 6px 0 10px 0; padding-left: 20px; list-style-type: disc; }
         .advisory-markdown ol { margin: 6px 0 10px 0; padding-left: 20px; list-style-type: decimal; }
         .advisory-markdown li { margin-bottom: 4px; word-break: normal; overflow-wrap: break-word; line-height: 1.6; }
@@ -2537,7 +2634,7 @@ export default function AdvisoryPage() {
                       </button>
                       <button
                         onClick={handleExportMarkdown}
-                        title="Export as Markdown file"
+                        title="Export as plain text file"
                         style={{
                           padding: "6px 10px",
                           borderRadius: "6px",
@@ -2554,6 +2651,29 @@ export default function AdvisoryPage() {
                       >
                         <Download size={12} />
                         Export
+                      </button>
+                      <button
+                        onClick={handleExportPDF}
+                        disabled={exportingPDF}
+                        title="Export as PDF"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: "6px",
+                          border: "1px solid rgba(139,92,246,0.4)",
+                          backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)",
+                          color: "#a78bfa",
+                          cursor: exportingPDF ? "not-allowed" : "pointer",
+                          fontSize: "11px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          fontWeight: 600,
+                          opacity: exportingPDF ? 0.7 : 1,
+                          transition: "all 150ms ease",
+                        }}
+                      >
+                        {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+                        {exportingPDF ? "Generating..." : "PDF"}
                       </button>
                     </div>
                   </div>
@@ -2835,6 +2955,28 @@ export default function AdvisoryPage() {
                       {activeSession.outcome ? ` · ${activeSession.outcome.replace(/-/g, " ")}` : ""}
                     </div>
                   </div>
+                  <button
+                    onClick={handleExportPDF}
+                    disabled={exportingPDF}
+                    title="Export as PDF"
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(139,92,246,0.4)",
+                      backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.08)",
+                      color: "#a78bfa",
+                      cursor: exportingPDF ? "not-allowed" : "pointer",
+                      fontSize: "11px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      fontWeight: 600,
+                      opacity: exportingPDF ? 0.6 : 1,
+                    }}
+                  >
+                    {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+                    {exportingPDF ? "Generating..." : "Export PDF"}
+                  </button>
                   <button
                     onClick={handleArchive}
                     disabled={archiving}

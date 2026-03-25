@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       personaOverlays: personaOverlays || [],
       rounds: rounds ?? 3,
       pacing: pacing || "instant",
+      responseLength: responseLength || "balanced",
       paused: false,
       events: [
         {

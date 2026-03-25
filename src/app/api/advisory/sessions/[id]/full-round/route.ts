@@ -87,7 +87,7 @@ function appendEvent(sessionPath: string, event: Record<string, unknown>) {
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
 }
 
-async function callGateway(systemPrompt: string, userPrompt: string, model: string): Promise<string> {
+async function callGateway(systemPrompt: string, userPrompt: string, model: string, maxTokens = 2048): Promise<string> {
   const gateway = getGatewayConfig();
   const response = await fetch(gateway.url, {
     method: "POST",
@@ -97,7 +97,7 @@ async function callGateway(systemPrompt: string, userPrompt: string, model: stri
     },
     body: JSON.stringify({
       model,
-      max_tokens: 4096,
+      max_tokens: maxTokens,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -143,6 +143,16 @@ export async function POST(
     }
   }
 
+  // Resolve response length
+  const responseLength = (session.responseLength as string) || "balanced";
+  const LENGTH_MAX_TOKENS: Record<string, number> = {
+    concise: 1024,
+    balanced: 2048,
+    detailed: 3072,
+    verbose: 4096,
+  };
+  const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 2048;
+
   // Fire-and-forget: run one full round for all agents
   const runFullRound = async () => {
     for (const agentId of agents as string[]) {
@@ -158,7 +168,7 @@ export async function POST(
 
       let text = "";
       try {
-        text = await callGateway(systemPrompt, userPrompt, resolvedModel);
+        text = await callGateway(systemPrompt, userPrompt, resolvedModel, maxTokens);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
