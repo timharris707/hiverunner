@@ -755,34 +755,39 @@ export default function DashboardPage() {
           </div>
           <div className="p-4 space-y-3">
             {[
-              { name: "Quant — Strategy Architect", emoji: "📊", status: "Not deployed", color: "#6b7280", active: false },
-              { name: "Atlas — Stocks & Options", emoji: "📈", status: "Not deployed", color: "#6b7280", active: false },
-              { name: "Nimbus — Weather Trading", emoji: "🌤️", status: "Not deployed", color: "#6b7280", active: false },
-              { name: "Cipher — Crypto Bot", emoji: "₿", status: "Building", color: "#f59e0b", active: true },
-            ].map((trader) => (
-              <div
-                key={trader.name}
-                className="flex items-center gap-3 p-3 rounded-lg"
-                style={{
-                  backgroundColor: "var(--card-elevated)",
-                  border: `1px solid ${trader.active ? trader.color + "40" : "var(--border)"}`,
-                }}
-              >
-                <span className="text-xl">{trader.emoji}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                    {trader.name}
+              { id: "quant", name: "Quant — Strategy Architect", divisionColor: "#4ade80" },
+              { id: "t1", name: "Atlas — Stocks & Options", divisionColor: "#4ade80" },
+              { id: "t2", name: "Nimbus — Weather Trading", divisionColor: "#4ade80" },
+              { id: "t3", name: "Cipher — Crypto Bot", divisionColor: "#4ade80" },
+            ].map((trader) => {
+              const liveStatus = agentStatuses[trader.id]?.status ?? "pending";
+              const statusColor = STATUS_COLORS[liveStatus];
+              const isActive = liveStatus !== "pending" && liveStatus !== "offline";
+              return (
+                <div
+                  key={trader.id}
+                  className="flex items-center gap-3 p-3 rounded-lg"
+                  style={{
+                    backgroundColor: "var(--card-elevated)",
+                    border: `1px solid ${isActive ? statusColor + "40" : "var(--border)"}`,
+                  }}
+                >
+                  <AgentAvatar agentId={trader.id} size={30} borderColor={isActive ? statusColor : trader.divisionColor} borderWidth={2} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                      {trader.name}
+                    </div>
+                    <div className="text-xs mt-0.5 font-medium" style={{ color: statusColor }}>
+                      {STATUS_LABELS[liveStatus]}
+                    </div>
                   </div>
-                  <div className="text-xs mt-0.5 font-medium" style={{ color: trader.color }}>
-                    {trader.status}
-                  </div>
+                  <Circle
+                    className="w-2 h-2 flex-shrink-0"
+                    style={{ fill: statusColor, color: statusColor }}
+                  />
                 </div>
-                <Circle
-                  className="w-2 h-2 flex-shrink-0"
-                  style={{ fill: trader.color, color: trader.color }}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
