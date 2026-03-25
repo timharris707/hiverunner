@@ -3,83 +3,53 @@ import fs from "fs";
 import path from "path";
 import { readFileSync } from "fs";
 import { archiveSession } from "../archive/route";
+import { AGENT_CONFIGS } from "@/config/agents";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
 // ─── Agent definitions ────────────────────────────────────────────────────────
+// Build from the canonical AGENT_CONFIGS so personas are single-sourced
 
-const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
-  Henry: {
-    name: "Henry",
-    emoji: "⚡",
-    role: "Chief of Staff / Orchestrator",
-    expertise:
-      "Strategic oversight, orchestrating teams, identifying priorities, cutting through noise. You have a sharp, opinionated perspective and see the big picture.",
-  },
-  Atlas: {
-    name: "Atlas",
-    emoji: "📈",
-    role: "Stocks & Options Trader",
-    expertise:
-      "Equity analysis, options strategies, technical and fundamental analysis, trade signal generation, portfolio risk management.",
-  },
-  Nimbus: {
-    name: "Nimbus",
-    emoji: "🌤️",
-    role: "Weather Prediction Trader",
-    expertise:
-      "Weather data analysis, prediction markets (Polymarket, Kalshi), seasonal patterns, event-driven opportunities, atmospheric modeling applied to trading.",
-  },
-  Cipher: {
-    name: "Cipher",
-    emoji: "₿",
-    role: "Crypto Trader",
-    expertise:
-      "Cryptocurrency markets, DeFi, on-chain metrics, momentum strategies, mean-reversion, risk management for digital assets, exchange APIs.",
-  },
-  Quant: {
-    name: "Quant",
-    emoji: "📊",
-    role: "Trading Strategy Architect",
-    expertise:
-      "Quantitative strategy design, backtesting, optimization, factor models, statistical arbitrage, risk-adjusted returns, alpha generation.",
-  },
-  Forge: {
-    name: "Forge",
-    emoji: "🔧",
-    role: "Backend Engineer",
-    expertise:
-      "Infrastructure design, APIs, databases, system reliability, CI/CD, DevOps, performance optimization, security hardening.",
-  },
-  Pixel: {
-    name: "Pixel",
-    emoji: "💻",
-    role: "Senior Full-Stack Engineer",
-    expertise:
-      "Web application development, React/Next.js/TypeScript, UI/UX, API integrations, rapid prototyping, shipping production code.",
-  },
-  Scout: {
-    name: "Scout",
-    emoji: "🔭",
-    role: "Research & Intelligence Agent",
-    expertise:
-      "Market research, competitive intelligence, trend analysis, data gathering, opportunity identification, synthesizing complex information.",
-  },
-  Quill: {
-    name: "Quill",
-    emoji: "✍️",
-    role: "Creative Writer & Marketing Strategist",
-    expertise:
-      "Marketing copy, content strategy, brand voice, SEO, audience engagement, storytelling, campaign design, social media.",
-  },
-  Counsel: {
-    name: "Counsel",
-    emoji: "⚖️",
-    role: "Legal Expert Agent",
-    expertise:
-      "Legal research, contract review, regulatory compliance, risk exposure, IP guidance, terms of service, privacy policy.",
-  },
+// Canonical name mapping: advisory display names → config IDs
+const ADVISORY_NAME_TO_CONFIG_ID: Record<string, string> = {
+  Henry: "henry",
+  Atlas: "t1",
+  Nimbus: "t2",
+  Cipher: "t3",
+  Quant: "quant",
+  Forge: "backend",
+  Pixel: "fullstack",
+  Scout: "scout",
+  Quill: "quill",
+  Counsel: "counsel",
 };
+
+interface AgentDef {
+  name: string;
+  emoji: string;
+  role: string;
+  expertise: string;
+  persona: string;
+}
+
+function buildAgentDefs(): Record<string, AgentDef> {
+  const defs: Record<string, AgentDef> = {};
+  for (const [advisoryName, configId] of Object.entries(ADVISORY_NAME_TO_CONFIG_ID)) {
+    const config = AGENT_CONFIGS.find((a) => a.id === configId);
+    if (config) {
+      defs[advisoryName] = {
+        name: advisoryName,
+        emoji: config.emoji,
+        role: config.role,
+        expertise: config.description,
+        persona: config.persona,
+      };
+    }
+  }
+  return defs;
+}
+
+const AGENT_DEFS: Record<string, AgentDef> = buildAgentDefs();
 
 // ─── Persona overlay content ──────────────────────────────────────────────────
 
@@ -192,8 +162,8 @@ async function callClaude(
 // ─── Build agent system prompt ────────────────────────────────────────────────
 
 /**
- * Build a system prompt for an agent, injecting only the overlay assigned to that agent.
- * @param agentId - Agent identifier
+ * Build a system prompt for an agent, injecting their unique persona and optional overlay.
+ * @param agentId - Agent identifier (advisory display name, e.g. "Henry", "Atlas")
  * @param mode - Session mode
  * @param topic - Session topic
  * @param agentOverlay - Optional overlay ID assigned to this specific agent (or undefined)
@@ -212,28 +182,29 @@ function buildSystemPrompt(
   const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
 
-  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
+  return `${agent.persona}
 
-Your expertise: ${agent.expertise}
+---
+
+You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a ${mode === "roundtable" ? "roundtable discussion" : "review session"} on the following topic:
+
+**Topic:** ${topic}
 ${overlayLine}
-You are participating in a ${mode === "roundtable" ? "roundtable discussion" : "review session"}.
-
-Your communication style:
+**Core advisory directives:**
 - Give THOROUGH, DETAILED responses — this is a senior advisory board, not a casual chat
 - Write 4-6 substantial paragraphs minimum per response
+- Speak in YOUR AUTHENTIC VOICE — your unique persona, vocabulary, and mental models should be immediately recognizable. Atlas sounds like a quant trader. Cipher sounds on-chain. Counsel sounds like a careful lawyer. Don't blend into generic AI assistant mode.
 - Speak authoritatively from your area of expertise with SPECIFIC examples, data points, metrics, and actionable recommendations
-- Reference what other participants said when relevant — build on their points, challenge assumptions, or offer a different angle
+- **Reference other participants by name** when responding to their points. Say things like "Building on what Atlas proposed about volatility surfaces..." or "I'd push back on Cipher's assumption that..." or "Scout's signal on X is interesting — here's the implication for my domain..."
 - Be strongly opinionated — you have deep expertise and a real perspective. Don't hedge or be wishy-washy.
 - Propose concrete next steps, timelines, and resource requirements
 - Identify risks, tradeoffs, and second-order effects that others might miss
 - Use your specialized knowledge to go DEEP — surface-level observations are not acceptable
 - Don't repeat what others have already said — always add new substantive value
 - Never use filler phrases like "Great point!" or "I agree" — just dive straight into your analysis
-- Directly reference other participants by name when responding to their points
-- Say things like "Building on what [Name] proposed..." or "I'd push back on [Name]'s assumption that..."
 - This is a conversation, not a series of independent monologues — engage with what others have actually said
 
-This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best: sharp, knowledgeable, thorough, and focused on delivering actionable insight.
+This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.
 
 **Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.`;
 }
