@@ -1715,10 +1715,14 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
         zIndex: 200,
         padding: "20px",
       }}
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).dataset.backdropMouseDown = "true"; }}
+      onMouseUp={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.backdropMouseDown === "true") onClose(); (e.currentTarget as HTMLElement).dataset.backdropMouseDown = "false"; }}
+      onClick={(e) => e.preventDefault()}
     >
       <div
         className="advisory-modal-inner"
+        onMouseDown={(e) => e.stopPropagation()}
+        onMouseUp={(e) => e.stopPropagation()}
         onClick={(e) => e.stopPropagation()}
         style={{
           backgroundColor: "var(--surface)",
