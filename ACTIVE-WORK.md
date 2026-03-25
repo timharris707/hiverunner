@@ -8,10 +8,10 @@
 - **DO NOT TOUCH:** DNS, Vercel config, Supabase, auth, hosting
 
 ## Web Henry
-- [ ] Hosting, domains, DNS, Vercel config  
-- [ ] Supabase setup + authentication
+- [x] Hosting, domains, DNS, Vercel config  
+- [ ] **P0: Supabase auth rebuild** — Telegram Henry reverted the previous auth because it broke the app before Supabase was configured. NOW Supabase is ready, so auth needs to go back in. Site is currently OPEN TO THE WORLD on neveridle.ai — fix ASAP.
 - [ ] Trading bot work (weather, crypto, stock)
-- **DO NOT TOUCH:** advisory/page.tsx or advisory components (being refactored)
+- **DO NOT TOUCH:** advisory/page.tsx or advisory components (being refactored overnight)
 
 ## neveridle.ai Status
 - ✅ Domain purchased
