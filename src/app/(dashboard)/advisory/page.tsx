@@ -99,6 +99,32 @@ interface AdvisorySession {
   lastError?: string;
   insights?: SessionInsights | null;
   referenceContext?: string;
+  reviewLoop?: ReviewLoopState | null;
+}
+
+interface ReviewTaskState {
+  id: number;
+  description: string;
+  status: "pending" | "in-progress" | "in-review" | "approved" | "rejected" | "retrying" | "blocked";
+  attempts: number;
+  notes: string;
+  overriddenBy: string | null;
+  workerOutput?: string;
+  reviewerFeedback?: string;
+}
+
+interface ReviewLoopState {
+  tasks: ReviewTaskState[];
+  currentTaskIndex: number;
+  workerAgent: string;
+  reviewerAgent: string;
+  supervisorAgent: string;
+  supervisorInterval: number;
+  totalApproved: number;
+  totalRejected: number;
+  autoContinue: boolean;
+  paused: boolean;
+  maxRetries: number;
 }
 
 interface CustomAgent {
@@ -2208,37 +2234,97 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
             </>
             )}
 
-            {/* Review Style — only for old-style review (not review loop) */}
+            {/* Review Loop Settings */}
             {mode === "review" && (
-              <div style={{ marginBottom: "20px" }}>
-                <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-                  REVIEW STYLE
-                </label>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
-                  {[
-                    { id: "strict", label: "Strict", desc: "PASS/FAIL only" },
-                    { id: "flexible", label: "Flexible", desc: "Conditions allowed" },
-                    { id: "open", label: "Open", desc: "Free discussion" },
-                  ].map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setReviewStyle(s.id as "strict" | "flexible" | "open")}
+              <>
+                {/* Auto-Continue Toggle */}
+                <div style={{ marginBottom: "16px" }}>
+                  <button
+                    onClick={() => setAutoContinue((v) => !v)}
+                    style={{
+                      width: "100%",
+                      padding: "12px 14px",
+                      borderRadius: "8px",
+                      border: `1px solid ${autoContinue ? "rgba(74,222,128,0.5)" : "rgba(251,146,60,0.4)"}`,
+                      backgroundColor: autoContinue ? "rgba(74,222,128,0.08)" : "rgba(251,146,60,0.06)",
+                      cursor: "pointer",
+                      textAlign: "left",
+                      transition: "all 150ms ease",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "12px",
+                    }}
+                  >
+                    <div
                       style={{
-                        padding: "10px",
-                        borderRadius: "8px",
-                        border: `1px solid ${reviewStyle === s.id ? "var(--accent)" : "var(--border)"}`,
-                        backgroundColor: reviewStyle === s.id ? "var(--accent-soft)" : "var(--surface-elevated)",
-                        cursor: "pointer",
-                        textAlign: "center",
-                        transition: "all 150ms ease",
+                        width: "40px",
+                        height: "22px",
+                        borderRadius: "11px",
+                        backgroundColor: autoContinue ? "#4ade80" : "#fb923c",
+                        position: "relative",
+                        transition: "background-color 150ms ease",
+                        flexShrink: 0,
                       }}
                     >
-                      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{s.label}</div>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{s.desc}</div>
-                    </button>
-                  ))}
+                      <div
+                        style={{
+                          width: "18px",
+                          height: "18px",
+                          borderRadius: "50%",
+                          backgroundColor: "#fff",
+                          position: "absolute",
+                          top: "2px",
+                          left: autoContinue ? "20px" : "2px",
+                          transition: "left 150ms ease",
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: autoContinue ? "#4ade80" : "#fb923c" }}>
+                        Auto-Continue: {autoContinue ? "ON" : "OFF"}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px", lineHeight: 1.4 }}>
+                        {autoContinue
+                          ? "Loop runs automatically. After reviewer approves, immediately moves to next task. You can pause anytime."
+                          : "Loop pauses after each review. You manually click Continue before proceeding to the next task."}
+                      </div>
+                    </div>
+                  </button>
                 </div>
-              </div>
+
+                {/* Max Retries */}
+                <div style={{ marginBottom: "20px" }}>
+                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                    MAX RETRIES PER TASK
+                  </label>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    {[1, 2, 3, 5].map((n) => (
+                      <button
+                        key={n}
+                        onClick={() => setMaxRetries(n)}
+                        style={{
+                          flex: 1,
+                          padding: "8px",
+                          borderRadius: "8px",
+                          border: `1px solid ${maxRetries === n ? "var(--accent)" : "var(--border)"}`,
+                          backgroundColor: maxRetries === n ? "var(--accent-soft)" : "var(--surface-elevated)",
+                          color: maxRetries === n ? "var(--accent)" : "var(--text-primary)",
+                          cursor: "pointer",
+                          fontSize: "12px",
+                          fontWeight: maxRetries === n ? 700 : 500,
+                          fontFamily: "var(--font-mono)",
+                          transition: "all 150ms ease",
+                        }}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
+                    How many times the worker can retry after reviewer rejects
+                  </div>
+                </div>
+              </>
             )}
 
             {/* Model */}
@@ -2627,6 +2713,279 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
   );
 }
 
+// ─── Review Loop Task Panel (left panel) ──────────────────────────────────────
+
+function ReviewLoopTaskPanel({
+  loop,
+  onOverride,
+  onAddTask,
+  onAdvance,
+  onPause,
+  onResume,
+  selectedTaskId,
+  onSelectTask,
+  newTaskText,
+  onNewTaskTextChange,
+  addingTask,
+  loopAdvancing,
+  sessionStatus,
+}: {
+  loop: ReviewLoopState;
+  onOverride: (taskId: number, newStatus: string, notes?: string) => void;
+  onAddTask: () => void;
+  onAdvance: () => void;
+  onPause: () => void;
+  onResume: () => void;
+  selectedTaskId: number | null;
+  onSelectTask: (id: number | null) => void;
+  newTaskText: string;
+  onNewTaskTextChange: (text: string) => void;
+  addingTask: boolean;
+  loopAdvancing: boolean;
+  onSetAutoContinue?: (val: boolean) => void;
+  sessionStatus: string;
+}) {
+  const totalTasks = loop.tasks.length;
+  const completedTasks = loop.totalApproved;
+  const pct = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  const statusConfig: Record<string, { emoji: string; color: string; label: string }> = {
+    "pending": { emoji: "\u2B1C", color: "#64748b", label: "Pending" },
+    "in-progress": { emoji: "\uD83D\uDD04", color: "#60a5fa", label: "In Progress" },
+    "in-review": { emoji: "\uD83D\uDC40", color: "#fbbf24", label: "Under Review" },
+    "approved": { emoji: "\u2705", color: "#4ade80", label: "Approved" },
+    "rejected": { emoji: "\u274C", color: "#ef4444", label: "Rejected" },
+    "retrying": { emoji: "\uD83D\uDD01", color: "#fb923c", label: "Retrying" },
+    "blocked": { emoji: "\u23F8\uFE0F", color: "#94a3b8", label: "Blocked" },
+  };
+
+  return (
+    <div style={{
+      width: "320px",
+      flexShrink: 0,
+      borderRight: "1px solid var(--border)",
+      backgroundColor: "var(--surface)",
+      display: "flex",
+      flexDirection: "column",
+      overflow: "hidden",
+    }}>
+      {/* Progress header */}
+      <div style={{ padding: "16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
+          <span style={{ fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+            TASK PROGRESS
+          </span>
+          <span style={{ fontSize: "12px", fontWeight: 700, color: pct === 100 ? "#4ade80" : "var(--text-primary)", fontFamily: "var(--font-mono)" }}>
+            {completedTasks}/{totalTasks} ({pct}%)
+          </span>
+        </div>
+        {/* Progress bar */}
+        <div style={{ width: "100%", height: "6px", borderRadius: "3px", backgroundColor: "var(--border)", overflow: "hidden" }}>
+          <div style={{
+            width: `${pct}%`,
+            height: "100%",
+            borderRadius: "3px",
+            backgroundColor: pct === 100 ? "#4ade80" : "#60a5fa",
+            transition: "width 300ms ease",
+          }} />
+        </div>
+        <div style={{ display: "flex", gap: "12px", marginTop: "8px", fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+          <span>{loop.totalApproved} approved</span>
+          <span>{loop.totalRejected} rejected</span>
+          <span>{loop.tasks.filter((t) => t.status === "pending").length} remaining</span>
+        </div>
+
+        {/* Loop controls */}
+        {sessionStatus === "active" && (
+          <div style={{ display: "flex", gap: "6px", marginTop: "10px" }}>
+            {loop.paused ? (
+              <button
+                onClick={onResume}
+                disabled={loopAdvancing}
+                style={{
+                  flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(74,222,128,0.5)",
+                  backgroundColor: "rgba(74,222,128,0.12)", color: "#4ade80", cursor: "pointer",
+                  fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
+                }}
+              >
+                <Play size={10} /> Resume
+              </button>
+            ) : (
+              <button
+                onClick={onPause}
+                style={{
+                  flex: 1, padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(251,146,60,0.5)",
+                  backgroundColor: "rgba(251,146,60,0.08)", color: "#fb923c", cursor: "pointer",
+                  fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
+                }}
+              >
+                <Pause size={10} /> Pause
+              </button>
+            )}
+            <button
+              onClick={onAdvance}
+              disabled={loopAdvancing}
+              style={{
+                flex: 1, padding: "6px 10px", borderRadius: "6px", border: "none",
+                backgroundColor: "var(--accent)", color: "#fff", cursor: loopAdvancing ? "not-allowed" : "pointer",
+                fontSize: "10px", fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
+                opacity: loopAdvancing ? 0.6 : 1,
+              }}
+            >
+              {loopAdvancing ? <Loader2 size={10} className="animate-spin" /> : <ChevronRight size={10} />}
+              {loop.tasks[loop.currentTaskIndex]?.status === "rejected" ? "Retry" : "Next"}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Task list */}
+      <div style={{ flex: 1, overflowY: "auto", padding: "8px" }}>
+        {loop.tasks.map((task) => {
+          const sc = statusConfig[task.status] || statusConfig["pending"];
+          const isSelected = selectedTaskId === task.id;
+          const isCurrent = loop.tasks.indexOf(task) === loop.currentTaskIndex;
+
+          return (
+            <div
+              key={task.id}
+              onClick={() => onSelectTask(isSelected ? null : task.id)}
+              style={{
+                padding: "10px 12px",
+                borderRadius: "8px",
+                border: `1px solid ${isSelected ? "var(--accent)" : isCurrent ? "rgba(96,165,250,0.4)" : "transparent"}`,
+                backgroundColor: isSelected ? "var(--accent-soft)" : isCurrent ? "rgba(96,165,250,0.06)" : "transparent",
+                cursor: "pointer",
+                marginBottom: "4px",
+                transition: "all 150ms ease",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                <span style={{ fontSize: "14px", lineHeight: 1, flexShrink: 0, marginTop: "1px" }}>{sc.emoji}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{
+                    fontSize: "12px",
+                    fontWeight: 600,
+                    color: task.status === "approved" ? "var(--text-muted)" : "var(--text-primary)",
+                    lineHeight: 1.4,
+                    textDecoration: task.status === "approved" ? "line-through" : "none",
+                    opacity: task.status === "approved" ? 0.7 : 1,
+                  }}>
+                    #{task.id} {task.description}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginTop: "4px", flexWrap: "wrap" }}>
+                    <span style={{
+                      fontSize: "9px", fontWeight: 700, letterSpacing: "0.04em",
+                      color: sc.color, backgroundColor: `${sc.color}18`, border: `1px solid ${sc.color}40`,
+                      padding: "1px 6px", borderRadius: "3px", fontFamily: "var(--font-mono)",
+                    }}>
+                      {sc.label.toUpperCase()}
+                    </span>
+                    {task.attempts > 0 && (
+                      <span style={{ fontSize: "9px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                        {task.attempts} attempt{task.attempts !== 1 ? "s" : ""}
+                      </span>
+                    )}
+                    {task.overriddenBy && (
+                      <span style={{ fontSize: "9px", color: "#fbbf24", fontFamily: "var(--font-mono)" }}>
+                        OVERRIDDEN
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Expanded task details */}
+              {isSelected && sessionStatus === "active" && (
+                <div style={{ marginTop: "10px", paddingTop: "10px", borderTop: "1px solid var(--border)" }}>
+                  <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
+                    {task.status !== "approved" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOverride(task.id, "approved"); }}
+                        style={{
+                          padding: "4px 8px", borderRadius: "4px", border: "1px solid rgba(74,222,128,0.5)",
+                          backgroundColor: "rgba(74,222,128,0.1)", color: "#4ade80", cursor: "pointer",
+                          fontSize: "9px", fontWeight: 700,
+                        }}
+                      >
+                        Approve
+                      </button>
+                    )}
+                    {task.status !== "blocked" && task.status !== "approved" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOverride(task.id, "blocked"); }}
+                        style={{
+                          padding: "4px 8px", borderRadius: "4px", border: "1px solid rgba(148,163,184,0.5)",
+                          backgroundColor: "rgba(148,163,184,0.1)", color: "#94a3b8", cursor: "pointer",
+                          fontSize: "9px", fontWeight: 700,
+                        }}
+                      >
+                        Block
+                      </button>
+                    )}
+                    {task.status === "blocked" && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); onOverride(task.id, "pending"); }}
+                        style={{
+                          padding: "4px 8px", borderRadius: "4px", border: "1px solid rgba(96,165,250,0.5)",
+                          backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer",
+                          fontSize: "9px", fontWeight: 700,
+                        }}
+                      >
+                        Unblock
+                      </button>
+                    )}
+                  </div>
+                  {task.notes && (
+                    <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "6px", fontStyle: "italic" }}>
+                      {task.notes}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Add task */}
+      {sessionStatus === "active" && (
+        <div style={{ padding: "12px", borderTop: "1px solid var(--border)", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: "6px" }}>
+            <input
+              type="text"
+              value={newTaskText}
+              onChange={(e) => onNewTaskTextChange(e.target.value)}
+              placeholder="Add a task..."
+              onKeyDown={(e) => { if (e.key === "Enter" && newTaskText.trim()) onAddTask(); }}
+              style={{
+                flex: 1, padding: "7px 10px", borderRadius: "6px", border: "1px solid var(--border)",
+                backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)",
+                fontSize: "11px", outline: "none", boxSizing: "border-box",
+              }}
+            />
+            <button
+              onClick={onAddTask}
+              disabled={addingTask || !newTaskText.trim()}
+              style={{
+                padding: "7px 12px", borderRadius: "6px", border: "none",
+                backgroundColor: "var(--accent)", color: "#fff",
+                cursor: addingTask || !newTaskText.trim() ? "not-allowed" : "pointer",
+                fontSize: "11px", fontWeight: 700, flexShrink: 0,
+                opacity: addingTask || !newTaskText.trim() ? 0.5 : 1,
+                display: "flex", alignItems: "center", gap: "4px",
+              }}
+            >
+              {addingTask ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+              Add
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdvisoryPage() {
@@ -2671,6 +3030,13 @@ export default function AdvisoryPage() {
   const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
   const [extractingInsights, setExtractingInsights] = useState(false);
 
+  // Review Loop state
+  const [reviewLoop, setReviewLoop] = useState<ReviewLoopState | null>(null);
+  const [addingTask, setAddingTask] = useState(false);
+  const [newTaskText, setNewTaskText] = useState("");
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [loopAdvancing, setLoopAdvancing] = useState(false);
+
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2713,6 +3079,10 @@ export default function AdvisoryPage() {
         setIsPaused(data.session.paused ?? false);
         if (!preserveEvents || (data.session.events?.length ?? 0) > 0) {
           setEvents(data.session.events || []);
+        }
+        // Load review loop state if present
+        if (data.session.reviewLoop) {
+          setReviewLoop(data.session.reviewLoop);
         }
       }
     } catch (e) {
@@ -2790,6 +3160,17 @@ export default function AdvisoryPage() {
             await loadSessions();
             await loadSessionEvents(activeSession.id);
           }
+
+          // Poll review loop state
+          if (activeSession.mode === "review") {
+            try {
+              const loopRes = await fetch(`/api/advisory/sessions/${activeSession.id}/review-loop`);
+              const loopData = await loopRes.json();
+              if (loopData.reviewLoop) {
+                setReviewLoop(loopData.reviewLoop);
+              }
+            } catch { /* ignore */ }
+          }
         } catch (e) {
           console.error("Polling error:", e);
         }
@@ -2846,6 +3227,46 @@ export default function AdvisoryPage() {
     } finally {
       setSendingMessage(false);
     }
+  };
+
+  // ── Review Loop handlers ───────────────────────────────────────────────────
+
+  const handleLoopAction = async (action: string, extra?: Record<string, unknown>) => {
+    if (!activeSession) return;
+    setLoopAdvancing(true);
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}/review-loop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+    } catch (e) {
+      console.error("Loop action error:", e);
+    } finally {
+      setLoopAdvancing(false);
+    }
+  };
+
+  const handleAddLoopTask = async () => {
+    if (!activeSession || !newTaskText.trim()) return;
+    setAddingTask(true);
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}/review-loop`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "add-task", description: newTaskText.trim() }),
+      });
+      setNewTaskText("");
+    } catch (e) {
+      console.error("Add task error:", e);
+    } finally {
+      setAddingTask(false);
+    }
+  };
+
+  const handleOverrideTask = async (taskId: number, newStatus: string, notes?: string) => {
+    if (!activeSession) return;
+    await handleLoopAction("override", { taskId, newStatus, notes });
   };
 
   const handleRefresh = async () => {
@@ -4274,7 +4695,32 @@ export default function AdvisoryPage() {
                 </div>
               )}
 
+              {/* Review Loop: Horizontal split layout */}
+              <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+
+              {/* Review Loop Task Panel (left) */}
+              {reviewLoop && activeSession?.mode === "review" && (
+                <ReviewLoopTaskPanel
+                  loop={reviewLoop}
+                  onOverride={handleOverrideTask}
+                  onAddTask={handleAddLoopTask}
+                  onAdvance={() => handleLoopAction(
+                    reviewLoop.tasks[reviewLoop.currentTaskIndex]?.status === "rejected" ? "advance" : "advance"
+                  )}
+                  onPause={() => handleLoopAction("pause")}
+                  onResume={() => handleLoopAction("resume")}
+                  selectedTaskId={selectedTaskId}
+                  onSelectTask={setSelectedTaskId}
+                  newTaskText={newTaskText}
+                  onNewTaskTextChange={setNewTaskText}
+                  addingTask={addingTask}
+                  loopAdvancing={loopAdvancing}
+                  sessionStatus={activeSession?.status || "active"}
+                />
+              )}
+
               {/* Events stream (scroll container) */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div
                 ref={scrollContainerRef}
                 className="advisory-events-stream"
@@ -4618,6 +5064,8 @@ export default function AdvisoryPage() {
                   </button>
                 </div>
               )}
+              </div>{/* close events column */}
+              </div>{/* close horizontal split */}
             </>
           ) : (
             /* Empty state */
