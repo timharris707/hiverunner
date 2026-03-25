@@ -1,0 +1,151 @@
+{
+  "id": "session-1774477257509-d92c4d75",
+  "topic": "We've got some clean up work that we need to do. I've got the task list provided for you down below. ",
+  "mode": "review",
+  "agents": [
+    "Quant",
+    "Pixel",
+    "Henry"
+  ],
+  "status": "completed",
+  "createdAt": "2026-03-25T22:20:57.511Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": [],
+  "rounds": "persistent",
+  "pacing": "instant",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "reviewLoop": {
+    "tasks": [
+      {
+        "id": 1,
+        "description": "Wire agent status cards to real OpenClaw session data — poll gateway sessions API every 30s, map subagent labels to agent IDs, show live status dots (Online/Building/Not Deployed)",
+        "status": "in-progress",
+        "attempts": 1,
+        "notes": "",
+        "overriddenBy": null,
+        "workerOutput": "⚠️ Failed to generate response: TypeError: fetch failed"
+      },
+      {
+        "id": 2,
+        "description": "Replace Trading Desk emoji icons (📊📈🌤️₿) with AgentAvatar components using agent IDs: quant, t1, t2, t3",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 3,
+        "description": "Add skeleton loading screens to all dashboard widgets — show animated placeholder cards while API data loads",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 4,
+        "description": "Add token/cost tracking to advisory sessions — estimate tokens used per session, show cost in session header and session list",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 5,
+        "description": "Wire the Scheduled Sessions UI to OpenClaw cron — when user creates a scheduled advisory session, create an actual OpenClaw cron job that runs it",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 6,
+        "description": "Add temperature control slider to advisory wizard — range 0.0-1.0, default 0.7, pass to LLM call",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 7,
+        "description": "Remove all remaining hardcoded/placeholder data from dashboard — replace with real API calls or honest \"No data yet\" states",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      },
+      {
+        "id": 8,
+        "description": "Add real git status to the Git page — show actual repo status, recent commits, branch info from harris-autonomous repos",
+        "status": "pending",
+        "attempts": 0,
+        "notes": "",
+        "overriddenBy": null
+      }
+    ],
+    "currentTaskIndex": 0,
+    "workerAgent": "Pixel",
+    "reviewerAgent": "Henry",
+    "supervisorAgent": "Quant",
+    "supervisorInterval": 5,
+    "totalApproved": 0,
+    "totalRejected": 0,
+    "autoContinue": true,
+    "paused": false,
+    "maxRetries": 3
+  },
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-25T22:20:57.511Z",
+      "type": "start",
+      "speaker": "Quant",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Review Loop started.**\n\n**Topic:** We've got some clean up work that we need to do. I've got the task list provided for you down below. \n\n**Tasks:** 8 items\n**Worker:** Pixel | **Reviewer:** Henry | **Supervisor:** Quant\n**Model:** claude-sonnet-4-6\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects."
+    },
+    {
+      "id": "evt_loop_start_1774477257972",
+      "timestamp": "2026-03-25T22:20:57.972Z",
+      "type": "start",
+      "speaker": "Quant",
+      "emoji": "📊",
+      "role": "supervisor",
+      "text": "🚀 **Review Loop Started**\n\n**Topic:** We've got some clean up work that we need to do. I've got the task list provided for you down below. \n\n**Worker:** Pixel · **Reviewer:** Henry · **Supervisor:** Quant\n**Tasks:** 8 · **Auto-Continue:** ON · **Max Retries:** 3\n\nBeginning task #1..."
+    },
+    {
+      "id": "evt_synthesis_1774477397685",
+      "timestamp": "2026-03-25T22:23:17.685Z",
+      "type": "complete",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "**⚡ Final Synthesis**\n\n# ⚡ Advisory Board Session — Final Synthesis\n\n## The Honest Assessment\n\nTim, this session was opened with a cleanup task list topic but **no actual discussion took place** and **no task list was provided** in the session content. There's nothing to synthesize from an empty conversation.\n\n---\n\n## What I Can Do Right Now\n\nRather than close out with a hollow summary, here's what I'd suggest:\n\n### Action Items\n1. **Re-submit the task list** — Whatever cleanup items you had in mind didn't make it into the session. Drop them in a new conversation and I'll triage, prioritize, and start knocking them out immediately.\n\n2. **If this was a test run** — The advisory board format works. Next time, once the topic and participants are engaged, I'll have real substance to distill.\n\n### Overall Assessment\n\n**Nothing lost, nothing gained.** No decisions were made, no findings surfaced, no questions left open — because the session never got off the ground. \n\nWhenever you're ready with that cleanup list, just send it over. I'll get it organized and we'll start executing. ⚡",
+      "verdict": "approve",
+      "model": "anthropic/claude-sonnet-4-6"
+    },
+    {
+      "id": "evt_work_1774477558994_t1",
+      "timestamp": "2026-03-25T22:25:58.995Z",
+      "type": "worker",
+      "speaker": "Pixel",
+      "emoji": "💻",
+      "role": "worker",
+      "text": "**📄 Task #1:** Wire agent status cards to real OpenClaw session data — poll gateway sessions API every 30s, map subagent labels to agent IDs, show live status dots (Online/Building/Not Deployed)\n\n⚠️ Failed to generate response: TypeError: fetch failed",
+      "taskId": 1,
+      "model": "anthropic/claude-sonnet-4-6"
+    }
+  ],
+  "thinkingAgent": null,
+  "completedAt": "2026-03-25T22:23:17.685Z",
+  "outcome": "ended-by-user",
+  "archived": true,
+  "archivedAt": "2026-03-25T22:25:51.941Z",
+  "transcriptPath": "/Users/timharris/.openclaw/workspace/memory/advisory/2026-03-25-we-ve-got-some-clean-up-work-that-we-need-to-do-i-ve-got-the.md"
+}

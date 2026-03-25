@@ -2767,7 +2767,8 @@ function ReviewLoopTaskPanel({
 
   return (
     <div style={{
-      width: "320px",
+      width: "280px",
+      minWidth: "220px",
       flexShrink: 0,
       borderRight: "1px solid var(--border)",
       backgroundColor: "var(--surface)",
@@ -4749,7 +4750,7 @@ export default function AdvisoryPage() {
               )}
 
               {/* Events stream (scroll container) */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
               <div
                 ref={scrollContainerRef}
                 className="advisory-events-stream"
