@@ -110,10 +110,14 @@ async function triggerFollowUp(
     .map((e: { speaker: string; text: string }) => `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`)
     .join("\n\n");
 
+  const refBlock = currentSession.referenceContext
+    ? `\n\nReference material provided for this session:\n${currentSession.referenceContext}\n`
+    : "";
+
   const systemPrompt = `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.
 Your expertise: ${agent.expertise}
 
-You are in a ${mode === "roundtable" ? "roundtable discussion" : "review session"} about: ${topic}
+You are in a ${mode === "roundtable" ? "roundtable discussion" : "review session"} about: ${topic}${refBlock}
 
 Respond directly to the human's directive. Be helpful, specific, and use your expertise.`;
 

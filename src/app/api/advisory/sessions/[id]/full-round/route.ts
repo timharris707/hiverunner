@@ -61,12 +61,13 @@ function getAgentOverlay(
   return personaOverlays[agentId];
 }
 
-function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string): string {
+function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
-  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}\nYou are participating in a persistent roundtable discussion.\n\nYour communication style:\n- Give THOROUGH, DETAILED responses — this is a senior advisory board\n- Write 4-6 substantial paragraphs minimum\n- Speak authoritatively from your expertise with specific examples, data points, and actionable recommendations\n- Build on what others said — challenge assumptions, add new angles\n- Be strongly opinionated — no hedging\n- Propose concrete next steps, timelines, and resource requirements\n- Never use filler phrases — dive straight into your analysis\n- Reference other participants by name when responding to their points\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
+  const referenceBlock = referenceContext ? `\n\n**Reference material provided for this session:**\n${referenceContext}\n` : "";
+  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\nYour communication style:\n- Give THOROUGH, DETAILED responses — this is a senior advisory board\n- Write 4-6 substantial paragraphs minimum\n- Speak authoritatively from your expertise with specific examples, data points, and actionable recommendations\n- Build on what others said — challenge assumptions, add new angles\n- Be strongly opinionated — no hedging\n- Propose concrete next steps, timelines, and resource requirements\n- Never use filler phrases — dive straight into your analysis\n- Reference other participants by name when responding to their points\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
 }
 
 function buildHistoryString(events: Array<{ speaker: string; text: string; type: string }>): string {
@@ -163,7 +164,7 @@ export async function POST(
       const events = currentSession.events || [];
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay);
+      const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined);
       const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nThis is a new full round. Build on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
 
       let text = "";

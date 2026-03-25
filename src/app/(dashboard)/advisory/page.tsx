@@ -2837,6 +2837,28 @@ function ReviewLoopTaskPanel({
             </button>
           </div>
         )}
+
+        {/* Auto-continue toggle + Agent roles */}
+        <div style={{ display: "flex", gap: "6px", marginTop: "8px", alignItems: "center", flexWrap: "wrap" }}>
+          {onSetAutoContinue && (
+            <button
+              onClick={() => onSetAutoContinue(!loop.autoContinue)}
+              style={{
+                padding: "4px 8px", borderRadius: "4px",
+                border: `1px solid ${loop.autoContinue ? "rgba(74,222,128,0.4)" : "var(--border)"}`,
+                backgroundColor: loop.autoContinue ? "rgba(74,222,128,0.08)" : "transparent",
+                color: loop.autoContinue ? "#4ade80" : "var(--text-muted)", cursor: "pointer",
+                fontSize: "9px", fontWeight: 700, fontFamily: "var(--font-mono)",
+                letterSpacing: "0.04em", transition: "all 100ms ease",
+              }}
+            >
+              AUTO {loop.autoContinue ? "ON" : "OFF"}
+            </button>
+          )}
+          <span style={{ fontSize: "9px", color: "#60a5fa", fontFamily: "var(--font-mono)" }}>W:{loop.workerAgent}</span>
+          <span style={{ fontSize: "9px", color: "#fbbf24", fontFamily: "var(--font-mono)" }}>R:{loop.reviewerAgent}</span>
+          <span style={{ fontSize: "9px", color: "#fb923c", fontFamily: "var(--font-mono)" }}>S:{loop.supervisorAgent}</span>
+        </div>
       </div>
 
       {/* Task list */}
