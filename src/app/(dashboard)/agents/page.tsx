@@ -227,7 +227,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     fetchAgents();
-    const interval = setInterval(fetchAgents, 10000);
+    const interval = setInterval(fetchAgents, 60_000);
     return () => clearInterval(interval);
   }, []);
 

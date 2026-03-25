@@ -357,6 +357,9 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchTasks();
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchTasks, 30_000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleCreateTask = async (taskData: Partial<Task>) => {

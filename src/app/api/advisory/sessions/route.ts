@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
           speaker: "Henry",
           emoji: "⚡",
           role: "supervisor",
-          text: `🚀 **Session started.** Topic: ${topic}\n\nMode: **${mode}** | Review style: **${reviewStyle || "open"}** | Model: **${model || "claude-opus-4-6"}**\n\nParticipants: ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`,
+          text: `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`,
         },
       ],
     };

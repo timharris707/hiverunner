@@ -31,6 +31,9 @@ export default function CronJobsPage() {
 
   useEffect(() => {
     fetchJobs();
+    // Auto-refresh every 60 seconds
+    const interval = setInterval(fetchJobs, 60_000);
+    return () => clearInterval(interval);
   }, [fetchJobs]);
 
   const handleToggle = async (id: string, enabled: boolean) => {

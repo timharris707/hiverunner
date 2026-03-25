@@ -118,6 +118,11 @@ function getEventStyle(event: AdvisoryEvent): { bg: string; border: string; badg
   const type = event.type;
   const role = event.role;
 
+  // Human directive — gold/amber style
+  if (event.speaker === "Tim" || type === "human-directive") {
+    return { bg: "rgba(251, 191, 36, 0.06)", border: "rgba(251, 191, 36, 0.25)", badge: "#fbbf24" };
+  }
+
   if (type === "start") return { bg: "rgba(139, 92, 246, 0.08)", border: "rgba(139, 92, 246, 0.3)", badge: "#8b5cf6" };
   if (type === "complete") return { bg: "rgba(74, 222, 128, 0.08)", border: "rgba(74, 222, 128, 0.3)", badge: "#4ade80" };
   if (type === "approve" || event.verdict === "approve") return { bg: "rgba(74, 222, 128, 0.06)", border: "rgba(74, 222, 128, 0.25)", badge: "#4ade80" };
@@ -140,7 +145,8 @@ function getEventIcon(type: string, verdict?: string): string {
   return "💬";
 }
 
-function getRoleBadge(role: string, type?: string): { label: string; color: string } {
+function getRoleBadge(role: string, type?: string, speaker?: string): { label: string; color: string } {
+  if (speaker === "Tim") return { label: "DIRECTIVE", color: "#fbbf24" };
   if (type === "start" || type === "complete") return { label: "SYSTEM", color: "#8b5cf6" };
   if (role === "supervisor") return { label: "SUPERVISOR", color: "#fb923c" };
   if (role === "reviewer") return { label: "REVIEWER", color: "#60a5fa" };
@@ -264,15 +270,21 @@ function EventBubble({
   event: AdvisoryEvent;
   sessionOverlays?: string[];
 }) {
+  const isHuman = event.speaker === "Tim";
   const style = getEventStyle(event);
   const icon = getEventIcon(event.type, event.verdict);
-  const badge = getRoleBadge(event.role, event.type);
+  const badge = getRoleBadge(event.role, event.type, event.speaker);
   const isSystem = event.type === "start" || event.type === "complete";
-  const agentConfig = getAgentByAnyId(event.speaker);
+  const agentConfig = isHuman ? null : getAgentByAnyId(event.speaker);
   const agentRole = agentConfig?.role ?? getAgentRole(event.speaker);
 
+  // Strip the "[Human Directive]" prefix from Tim's messages for display
+  const displayText = isHuman
+    ? event.text.replace(/^\*\*\[Human Directive\]\*\*\s*/i, "").trim()
+    : event.text;
+
   // Which overlays apply to this speaker?
-  const speakerOverlays = sessionOverlays.filter((oid) => {
+  const speakerOverlays = isHuman ? [] : sessionOverlays.filter((oid) => {
     const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
     return o?.relevantAgents.includes(event.speaker);
   });
@@ -291,7 +303,27 @@ function EventBubble({
       <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
         {/* Avatar */}
         <div style={{ flexShrink: 0, marginTop: "1px" }}>
-          {isSystem ? (
+          {isHuman ? (
+            // Human (Tim) — gold circle avatar
+            <div
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                backgroundColor: "rgba(251,191,36,0.15)",
+                border: "2px solid rgba(251,191,36,0.5)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "14px",
+                fontWeight: 700,
+                color: "#fbbf24",
+                fontFamily: "var(--font-heading)",
+              }}
+            >
+              T
+            </div>
+          ) : isSystem ? (
             <span style={{ fontSize: "20px", lineHeight: 1, display: "block" }}>{icon}</span>
           ) : agentConfig ? (
             <AgentAvatar agentId={event.speaker} size={36} borderWidth={2} />
@@ -303,12 +335,17 @@ function EventBubble({
         {/* Name + role line + badges */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "2px" }}>
-            <span style={{ fontWeight: 700, fontSize: "13px", color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-              {event.speaker}
+            <span style={{ fontWeight: 700, fontSize: "13px", color: isHuman ? "#fbbf24" : "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+              {isHuman ? "Tim Harris" : event.speaker}
             </span>
-            {!isSystem && (
+            {!isSystem && !isHuman && (
               <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                 — {agentRole}
+              </span>
+            )}
+            {isHuman && (
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                — CEO
               </span>
             )}
             <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
@@ -351,7 +388,7 @@ function EventBubble({
                 {getOverlayEmoji(oid)} {getOverlayName(oid)}
               </span>
             ))}
-            {event.model && !isSystem && (
+            {event.model && !isSystem && !isHuman && (
               <span
                 style={{
                   fontSize: "9px",
@@ -377,7 +414,7 @@ function EventBubble({
         style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px" }}
         className="advisory-markdown"
       >
-        <ReactMarkdown>{event.text}</ReactMarkdown>
+        <ReactMarkdown>{displayText}</ReactMarkdown>
       </div>
     </div>
   );
@@ -1039,14 +1076,16 @@ export default function AdvisoryPage() {
   }, []);
 
   // Load a specific session's events
-  const loadSessionEvents = useCallback(async (id: string) => {
+  const loadSessionEvents = useCallback(async (id: string, preserveEvents = false) => {
     try {
       const res = await fetch(`/api/advisory/sessions/${id}`);
       const data = await res.json();
       if (data.session) {
         setActiveSession(data.session);
         setIsPaused(data.session.paused ?? false);
-        setEvents(data.session.events || []);
+        if (!preserveEvents || (data.session.events?.length ?? 0) > 0) {
+          setEvents(data.session.events || []);
+        }
       }
     } catch (e) {
       console.error("Failed to load session:", e);
@@ -1237,13 +1276,15 @@ export default function AdvisoryPage() {
     if (!activeSession) return;
     setEndingSession(true);
     try {
-      // 1. Trigger the end-session synthesis via a special run call
+      // 1. Trigger the end-session synthesis (fire-and-forget on server)
       await fetch(`/api/advisory/sessions/${activeSession.id}/end`, {
         method: "POST",
       });
-      // 2. Reload to see the final state
-      await loadSessionEvents(activeSession.id);
+      // 2. Reload to see the updated session (events are still intact)
+      await loadSessionEvents(activeSession.id, true);
       await loadSessions();
+      // 3. Keep polling active so the synthesis event appears when it arrives
+      setIsGenerating(true);
     } catch (e) {
       console.error("End session error:", e);
     } finally {
@@ -1259,16 +1300,18 @@ export default function AdvisoryPage() {
     <>
       {/* Markdown styles */}
       <style>{`
-        .advisory-markdown p { margin: 0 0 8px 0; }
+        .advisory-markdown p { margin: 0 0 8px 0; word-break: normal; overflow-wrap: break-word; white-space: normal; }
         .advisory-markdown p:last-child { margin-bottom: 0; }
         .advisory-markdown ul { margin: 6px 0; padding-left: 20px; }
         .advisory-markdown ol { margin: 6px 0; padding-left: 20px; }
-        .advisory-markdown li { margin-bottom: 3px; }
+        .advisory-markdown li { margin-bottom: 3px; word-break: normal; overflow-wrap: break-word; }
         .advisory-markdown strong { color: var(--text-primary); font-weight: 700; }
         .advisory-markdown h1, .advisory-markdown h2, .advisory-markdown h3 {
           margin: 12px 0 6px 0;
           color: var(--text-primary);
           font-family: var(--font-heading);
+          word-break: normal;
+          overflow-wrap: break-word;
         }
         .advisory-markdown code {
           font-family: var(--font-mono);
@@ -1295,6 +1338,11 @@ export default function AdvisoryPage() {
           padding-left: 12px;
           color: var(--text-muted);
           margin: 8px 0;
+        }
+        /* Topic text in session start event should also wrap properly */
+        .advisory-markdown * {
+          word-break: normal;
+          overflow-wrap: break-word;
         }
       `}</style>
 
@@ -1514,9 +1562,14 @@ export default function AdvisoryPage() {
                         margin: 0,
                         fontFamily: "var(--font-heading)",
                         lineHeight: 1.3,
+                        wordBreak: "normal",
+                        overflowWrap: "anywhere",
+                        whiteSpace: "normal",
                       }}
                     >
-                      {activeSession.topic}
+                      {activeSession.topic.length > 100
+                        ? `${activeSession.topic.slice(0, 100)}...`
+                        : activeSession.topic}
                     </h2>
                   </div>
 
@@ -2110,10 +2163,15 @@ export default function AdvisoryPage() {
                 SESSION INFO
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                <InfoRow label="Mode" value={activeSession.mode} />
-                <InfoRow label="Style" value={activeSession.reviewStyle ?? "—"} />
-                <InfoRow label="Model" value={activeSession.model?.replace("claude-", "").replace("-4-6", "") ?? "—"} />
-                <InfoRow label="Events" value={String(events.length)} />
+                <InfoRow label="Mode" value={activeSession.mode || "roundtable"} />
+                <InfoRow label="Style" value={activeSession.reviewStyle || (activeSession.mode === "roundtable" ? "open" : "—")} />
+                <InfoRow label="Model" value={
+                  activeSession.model
+                    ? activeSession.model.replace("claude-", "").replace("-4-6", "").replace("gemini-", "").replace("-flash", "/flash").replace("-pro", "/pro")
+                    : "gemini-flash"
+                } />
+                <InfoRow label="Events" value={String(events.length > 0 ? events.length : (activeSession.eventCount ?? 0))} />
+                <InfoRow label="Rounds" value={String((activeSession as unknown as Record<string, unknown>).rounds ?? "—")} />
                 <InfoRow label="Started" value={formatDate(activeSession.createdAt)} />
                 {activeSession.completedAt && (
                   <InfoRow label="Ended" value={formatDate(activeSession.completedAt)} />

@@ -249,7 +249,7 @@ export default function DashboardPage() {
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  useEffect(() => {
+  const fetchDashboardData = () => {
     Promise.all([
       fetch("/api/activities/stats").then(r => r.json()),
       fetch("/api/agents").then(r => r.json()),
@@ -268,6 +268,14 @@ export default function DashboardPage() {
       if (ds) setDashStats(ds);
       setStatsLoading(false);
     }).catch(() => setStatsLoading(false));
+  };
+
+  useEffect(() => {
+    fetchDashboardData();
+    // Auto-refresh every 30 seconds
+    const interval = setInterval(fetchDashboardData, 30_000);
+    return () => clearInterval(interval);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const activeAgentCount = ORG_AGENTS.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
