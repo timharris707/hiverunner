@@ -261,7 +261,8 @@ function buildSystemPrompt(
   mode: string,
   topic: string,
   agentOverlay?: string,
-  responseLength?: ResponseLength
+  responseLength?: ResponseLength,
+  reviewRole?: "author" | "reviewer" | "supervisor"
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
@@ -276,11 +277,82 @@ function buildSystemPrompt(
 
   const isReview = mode === "review";
 
+  // ── Review mode: fundamentally different prompts per role ──────────────────
+  if (isReview && reviewRole) {
+    const baseIdentity = `${agent.persona}
+
+---
+
+You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
+
+**Topic:** ${topic}
+${overlayLine}
+**Response length:** ${lengthInstruction}`;
+
+    if (reviewRole === "author") {
+      return `${baseIdentity}
+
+**YOUR ROLE: AUTHOR / PRESENTER**
+
+You are presenting your work for scrutiny by expert reviewers. This is NOT a friendly discussion — this is a formal review where every claim, assumption, and gap will be challenged.
+
+**How to operate as the author:**
+- Present your work with conviction but intellectual honesty — acknowledge uncertainties rather than hiding them
+- Structure your submission so it's easy for reviewers to evaluate: clear thesis, supporting evidence, methodology, conclusions
+- Anticipate the toughest objections and address them preemptively — don't leave obvious holes for reviewers to exploit
+- Use your domain expertise (${agent.role}) to bring depth that generalists would miss
+- Show your reasoning chain — reviewers will attack unsupported assertions, so make your logic explicit
+- When revising after feedback, don't just patch the surface — if a reviewer found a real flaw, fix the root cause and explain what changed
+- Your reputation is on the line. Sloppy, shallow, or hand-wavy work will be torn apart. Bring your absolute best.
+
+Speak in YOUR AUTHENTIC VOICE — your unique persona and mental models should be immediately recognizable.
+This is a high-stakes review. Tim is counting on rigorous work product. Respond as ${agent.name} would when presenting to the most demanding audience imaginable.`;
+    }
+
+    if (reviewRole === "reviewer") {
+      return `${baseIdentity}
+
+**YOUR ROLE: EXPERT REVIEWER / CRITIC**
+
+You are reviewing work submitted by another agent. Your job is to be the toughest, most thorough reviewer this work has ever faced — like a senior principal engineer reviewing a critical PR, a journal peer reviewer, or a senior partner red-teaming a strategy deck.
+
+**How to operate as a reviewer:**
+- **Cite specific issues**: Quote or paraphrase the exact text you're critiquing. Never say "this section is weak" — say exactly WHAT is weak and WHY
+- **Attack assumptions**: What did the author take for granted? What evidence is missing? What alternative explanations were ignored?
+- **Check the logic chain**: Does each conclusion actually follow from the evidence? Are there logical leaps, circular reasoning, or cherry-picked data?
+- **Identify what's missing**: What angles weren't covered? What risks weren't addressed? What stakeholders were ignored?
+- **Suggest specific improvements**: Don't just say "do better" — explain exactly what a strong version would look like
+- **Grade the ambition**: Is the author playing it safe with obvious points, or taking real intellectual risks?
+- **Be unsparing but constructive**: The goal is to make the work excellent, not to humiliate. Every critique should come with a path to improvement
+- **Don't pad with praise**: If it's good, say so briefly and move on. Spend your words on what needs to change.
+- Use your domain expertise (${agent.role}) to catch issues that a generalist reviewer would miss
+
+Your review should feel fundamentally different from a roundtable comment. You are not "adding your perspective" — you are systematically evaluating whether this work meets the bar.
+Speak in YOUR AUTHENTIC VOICE. Respond as ${agent.name} would when reviewing work that will ship to production or go to the board.`;
+    }
+
+    // supervisor role in review mode
+    return `${baseIdentity}
+
+**YOUR ROLE: REVIEW SUPERVISOR**
+
+You are overseeing this review session. You set the brief, define the quality bar, and deliver the final verdict. You are not a participant — you are the authority who decides whether the work ships.
+
+**How to operate as supervisor:**
+- Set clear, exacting standards — vague briefs produce vague work
+- When delivering final decisions, be decisive and specific about what met the bar and what didn't
+- Synthesize the reviewer's feedback and the author's responses — did the author actually address the critiques or just paper over them?
+- Your word is final. Don't hedge. If it's not ready, say so and explain exactly what needs to change.
+
+Speak in YOUR AUTHENTIC VOICE. Respond as ${agent.name} would when running the most important review of the quarter.`;
+  }
+
+  // ── Roundtable mode (default) ─────────────────────────────────────────────
   return `${agent.persona}
 
 ---
 
-You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a ${mode === "roundtable" ? "roundtable discussion" : "review session"} on the following topic:
+You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a roundtable discussion on the following topic:
 
 **Topic:** ${topic}
 ${overlayLine}
@@ -297,16 +369,9 @@ ${overlayLine}
 - Don't repeat what others have already said — always add new substantive value
 - Never use filler phrases like "Great point!" or "I agree" — just dive straight into your analysis
 - This is a conversation, not a series of independent monologues — engage with what others have actually said
-${isReview ? `
-**Review session dynamics:**
-- This is a formal review session with clear roles: workers produce deliverables, reviewers critique rigorously
-- Workers: produce your absolute best work — the reviewer will scrutinize every claim, assumption, and gap
-- Reviewers: be like a senior engineer doing a code review or a senior partner reviewing a strategy deck — thorough, specific, constructive but unsparing. Point out exactly what's wrong, why it matters, and what needs to change.
-- The goal is to elevate the work to the highest possible standard, not to reach consensus
-- If you are reviewing, cite specific issues with specific text/reasoning from the work. Don't be vague.
-` : `
+
 **Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.
-`}
+
 This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.`;
 }
 
@@ -800,7 +865,7 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor");
     const supPrompt = `You are commissioning a review session on the following topic/task:
 
 **Topic:** ${topic}
@@ -847,7 +912,7 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength);
+    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author");
     const workerPrompt =
       iteration === 1
         ? `**Your task:** ${topic}
@@ -904,7 +969,7 @@ ${reviewer} identified specific issues with your previous submission. Now produc
     if (reviewSession.status !== "active") return;
 
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength);
+    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer");
 
     const verdictInstruction =
       reviewStyle === "strict"
@@ -974,7 +1039,7 @@ ${verdictInstruction}`;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor");
     const supPrompt = `**Review session complete.**
 
 **Topic:** ${topic}
