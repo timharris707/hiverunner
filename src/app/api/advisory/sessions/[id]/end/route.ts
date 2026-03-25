@@ -5,7 +5,7 @@ import { readFileSync } from "fs";
 import { archiveSession } from "../archive/route";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "gemini-2.5-flash";
+const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator" },
@@ -20,34 +20,45 @@ const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string }> 
   Counsel: { name: "Counsel", emoji: "⚖️", role: "Legal Expert Agent" },
 };
 
-function getGeminiApiKey(): string {
+function getGatewayConfig(): { url: string; token: string } {
   try {
     const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    if (config?.env?.GEMINI_API_KEY) return config.env.GEMINI_API_KEY;
-  } catch { /* fall through */ }
-  return process.env.GEMINI_API_KEY || "";
+    const port = config?.gateway?.port || 18789;
+    const token = config?.gateway?.auth?.token || "";
+    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
+  } catch {
+    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
+  }
 }
 
-async function callGemini(systemPrompt: string, userPrompt: string, apiKey: string): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${INFERENCE_MODEL}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: { maxOutputTokens: 2048 },
-      }),
-    }
-  );
+async function callGateway(
+  systemPrompt: string,
+  userPrompt: string,
+  model: string = INFERENCE_MODEL
+): Promise<string> {
+  const gateway = getGatewayConfig();
+  const response = await fetch(gateway.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${gateway.token}`,
+    },
+    body: JSON.stringify({
+      model,
+      max_tokens: 4096,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    }),
+  });
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${err}`);
+    throw new Error(`Gateway API error ${response.status}: ${err}`);
   }
   const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 function appendEvent(sessionPath: string, event: Record<string, unknown>) {
@@ -83,33 +94,30 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const apiKey = getGeminiApiKey();
-  const { topic, agents = [], personaOverlays = [] } = session;
+  const { topic, agents = [], personaOverlays = {} } = session;
+
+  // Resolve model from session config
+  const sessionModel = session.model;
+  let resolvedModel = INFERENCE_MODEL;
+  if (sessionModel) {
+    if (sessionModel.includes("/")) {
+      resolvedModel = sessionModel.replace(":thinking", "");
+    } else {
+      resolvedModel = `anthropic/${sessionModel}`.replace(":thinking", "");
+    }
+  }
 
   // Pick the synthesizer — Henry if present, otherwise first agent
-  const synthAgentId: string = agents.includes("Henry") ? "Henry" : (agents[0] as string);
+  const synthAgentId: string = (agents as string[]).includes("Henry") ? "Henry" : ((agents as string[])[0] || "Henry");
   const synthAgent = AGENT_DEFS[synthAgentId];
 
   // Build the full discussion history
   const history = buildHistoryString(session.events || []);
 
-  const overlayNames: string[] = (personaOverlays as string[])
-    .map((id: string) => {
-      const labels: Record<string, string> = {
-        "trading-strategist": "Trading Strategist",
-        "seo-specialist": "SEO Specialist",
-        "growth-hacker": "Growth Hacker",
-        "content-creator": "Content Creator",
-        "compliance-auditor": "Compliance Auditor",
-        "security-engineer": "Security Engineer",
-        "devops-automator": "DevOps Automator",
-        "reality-checker": "Reality Checker",
-        "trend-researcher": "Trend Researcher",
-        "data-analytics-reporter": "Data Analytics Reporter",
-        "backend-architect": "Backend Architect",
-      };
-      return labels[id] || id;
-    });
+  // Overlay names for context
+  const overlayObj = Array.isArray(personaOverlays) ? {} : personaOverlays as Record<string, string>;
+  const overlayNames = Object.values(overlayObj).filter(Boolean);
+  const overlayContext = overlayNames.length > 0 ? `\n\nSession context lenses: ${overlayNames.join(", ")}` : "";
 
   const systemPrompt = `You are ${synthAgent?.name ?? synthAgentId} ${synthAgent?.emoji ?? "⚡"}, the ${synthAgent?.role ?? "Chief of Staff"} at Harris Autonomous.
 
@@ -122,15 +130,15 @@ Your synthesis must cover:
 4. **Open Questions** — unresolved issues that need follow-up
 5. **Overall Assessment** — a brief verdict on where things stand and what Tim should do next
 
-Be direct, specific, and crisp. No filler. Reference the actual content of the discussion. Tim is counting on this to be actionable.${overlayNames.length > 0 ? `\n\nSession context lenses: ${overlayNames.join(", ")}` : ""}`;
+Be direct, specific, and crisp. No filler. Reference the actual content of the discussion. Tim is counting on this to be actionable.${overlayContext}`;
 
   const userPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${history}\n\nDeliver the final synthesis. This session is now closing.`;
 
-  // Fire-and-forget the synthesis (respond immediately, run async)
+  // Fire-and-forget the synthesis
   const doEnd = async () => {
     let synthText = "";
     try {
-      synthText = await callGemini(systemPrompt, userPrompt, apiKey);
+      synthText = await callGateway(systemPrompt, userPrompt, resolvedModel);
     } catch (err) {
       synthText = `⚠️ Could not generate synthesis: ${String(err)}\n\nSession has been marked as completed.`;
     }
@@ -144,7 +152,7 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
       role: synthAgentId === "Henry" ? "supervisor" : "worker",
       text: `**⚡ Final Synthesis**\n\n${synthText}`,
       verdict: "approve",
-      model: INFERENCE_MODEL,
+      model: resolvedModel,
     });
 
     // Mark session completed

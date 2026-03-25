@@ -22,6 +22,7 @@ import {
   Play,
   ChevronRight,
   ChevronDown,
+  RotateCcw,
 } from "lucide-react";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
@@ -88,9 +89,31 @@ const PERSONA_OVERLAYS = [
 ];
 
 const MODELS = [
-  "claude-opus-4-6",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-6",
+  { id: "anthropic/claude-sonnet-4-6", label: "Sonnet 4.6 (Fast)", desc: "Best speed / cost ratio. Great for most sessions." },
+  { id: "anthropic/claude-opus-4-6", label: "Opus 4.6 (Deep)", desc: "Most capable. Slower but higher quality reasoning." },
+  { id: "anthropic/claude-sonnet-4-6:thinking", label: "Sonnet + High Thinking", desc: "Extended thinking budget. Deep analysis, slower." },
+];
+
+// Per-agent recommended overlays
+const AGENT_RECOMMENDED_OVERLAYS: Record<string, string[]> = {
+  Atlas: ["trading-strategist", "data-analytics-reporter"],
+  Nimbus: ["trading-strategist", "data-analytics-reporter"],
+  Cipher: ["trading-strategist", "data-analytics-reporter"],
+  Quant: ["trading-strategist", "data-analytics-reporter"],
+  Forge: ["security-engineer", "devops-automator", "backend-architect"],
+  Pixel: ["frontend-developer", "rapid-prototyper"],
+  Scout: ["trend-researcher", "data-analytics-reporter"],
+  Quill: ["seo-specialist", "growth-hacker", "content-creator"],
+  Counsel: ["compliance-auditor"],
+  Henry: ["autonomous-optimization-architect"],
+};
+
+// Add frontend-developer and rapid-prototyper to PERSONA_OVERLAYS display list
+const PERSONA_OVERLAYS_EXTENDED = [
+  ...PERSONA_OVERLAYS,
+  { id: "frontend-developer", name: "Frontend Developer", emoji: "🎨", desc: "Component architecture, state management, accessibility, performance optimization", relevantAgents: ["Pixel", "Forge"] },
+  { id: "rapid-prototyper", name: "Rapid Prototyper", emoji: "⚡", desc: "Fastest path to working demo, cut for v1, validate before building", relevantAgents: ["Pixel"] },
+  { id: "autonomous-optimization-architect", name: "Autonomous Optimization Architect", emoji: "🤖", desc: "AI agents replacing manual work, feedback loops, self-improving systems", relevantAgents: ["Henry"] },
 ];
 
 const PACING_OPTIONS = [
@@ -107,11 +130,31 @@ function getAgentRole(agentId: string): string {
 }
 
 function getOverlayName(overlayId: string): string {
-  return PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.name ?? overlayId;
+  // Search extended list first (includes frontend-developer, rapid-prototyper, autonomous-optimization-architect)
+  // We do a lazy search across both lists at call time since PERSONA_OVERLAYS_EXTENDED is defined later
+  const extraOverlays = [
+    { id: "frontend-developer", name: "Frontend Developer", emoji: "🎨" },
+    { id: "rapid-prototyper", name: "Rapid Prototyper", emoji: "⚡" },
+    { id: "autonomous-optimization-architect", name: "Autonomous Optimization Architect", emoji: "🤖" },
+  ];
+  return (
+    PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.name ??
+    extraOverlays.find((o) => o.id === overlayId)?.name ??
+    overlayId
+  );
 }
 
 function getOverlayEmoji(overlayId: string): string {
-  return PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.emoji ?? "🎭";
+  const extraOverlays = [
+    { id: "frontend-developer", emoji: "🎨" },
+    { id: "rapid-prototyper", emoji: "⚡" },
+    { id: "autonomous-optimization-architect", emoji: "🤖" },
+  ];
+  return (
+    PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.emoji ??
+    extraOverlays.find((o) => o.id === overlayId)?.emoji ??
+    "🎭"
+  );
 }
 
 function getEventStyle(event: AdvisoryEvent): { bg: string; border: string; badge: string } {
@@ -170,7 +213,11 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
     year: "numeric",
   });
 
-  const overlays: string[] = (session as unknown as Record<string, unknown>).personaOverlays as string[] ?? [];
+  // Support both old array and new object format
+  const rawOverlays = (session as unknown as Record<string, unknown>).personaOverlays;
+  const overlaysObj: Record<string, string> = Array.isArray(rawOverlays)
+    ? {} // legacy array — no per-agent mapping
+    : (rawOverlays as Record<string, string>) ?? {};
 
   // Build participants section
   const participantLines: string[] = [];
@@ -179,17 +226,14 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
     const role = agentConfig?.role ?? getAgentRole(agentDisplayName);
     const avatarPath = agentConfig?.avatar;
     const emoji = agentConfig?.emoji ?? "🤖";
-    // Find overlays relevant to this agent
-    const agentOverlays = overlays
-      .filter((oid) => {
-        const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
-        return o?.relevantAgents.includes(agentDisplayName);
-      })
-      .map((oid) => `${getOverlayEmoji(oid)} ${getOverlayName(oid)}`);
+    // Find overlay for this agent (object format)
+    const agentOverlayId = overlaysObj[agentDisplayName];
+    const agentOverlayStr = agentOverlayId
+      ? ` | Persona: ${getOverlayEmoji(agentOverlayId)} ${getOverlayName(agentOverlayId)}`
+      : "";
 
     const avatarMd = avatarPath ? `![${agentDisplayName}](${avatarPath}) ` : `${emoji} `;
-    const overlayStr = agentOverlays.length > 0 ? ` | Persona: ${agentOverlays.join(", ")}` : "";
-    participantLines.push(`- ${avatarMd}**${agentDisplayName}** — ${role}${overlayStr}`);
+    participantLines.push(`- ${avatarMd}**${agentDisplayName}** — ${role}${agentOverlayStr}`);
   }
 
   // Collect unique models used across events
@@ -218,14 +262,11 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
     const avatarPath = agentConfig?.avatar;
     const emoji = agentConfig?.emoji ?? event.emoji;
     const avatarMd = avatarPath ? `![${event.speaker}](${avatarPath}) ` : `${emoji} `;
-    // Speaker overlays
-    const speakerOverlays = overlays
-      .filter((oid) => {
-        const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
-        return o?.relevantAgents.includes(event.speaker);
-      })
-      .map((oid) => `${getOverlayEmoji(oid)} ${getOverlayName(oid)}`);
-    const overlayStr = speakerOverlays.length > 0 ? ` | *Persona: ${speakerOverlays.join(", ")}*` : "";
+    // Speaker overlay (object format)
+    const speakerOverlayId = overlaysObj[event.speaker];
+    const overlayStr = speakerOverlayId
+      ? ` | *Persona: ${getOverlayEmoji(speakerOverlayId)} ${getOverlayName(speakerOverlayId)}*`
+      : "";
 
     const modelStr = event.model ? ` | Model: ${event.model}` : "";
     lines.push(`## ${avatarMd}${event.speaker} — ${role} (${event.role})${overlayStr}${modelStr}`);
@@ -265,10 +306,11 @@ function formatModelName(model?: string): string {
 
 function EventBubble({
   event,
-  sessionOverlays = [],
+  sessionOverlays = {},
 }: {
   event: AdvisoryEvent;
-  sessionOverlays?: string[];
+  // New: object format { agentId: overlayId } — or empty object
+  sessionOverlays?: Record<string, string> | string[];
 }) {
   const isHuman = event.speaker === "Tim";
   const style = getEventStyle(event);
@@ -284,13 +326,23 @@ function EventBubble({
     : event.text;
 
   // Which overlays apply to this speaker?
-  const speakerOverlays = isHuman ? [] : sessionOverlays.filter((oid) => {
-    const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
-    return o?.relevantAgents.includes(event.speaker);
-  });
+  // Support both new object format and legacy array format
+  const speakerOverlays: string[] = isHuman ? [] : (() => {
+    if (!sessionOverlays) return [];
+    if (Array.isArray(sessionOverlays)) {
+      return sessionOverlays.filter((oid) => {
+        const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
+        return o?.relevantAgents.includes(event.speaker);
+      });
+    }
+    // Object format: { agentId: overlayId }
+    const overlayId = sessionOverlays[event.speaker];
+    return overlayId ? [overlayId] : [];
+  })();
 
   return (
     <div
+      className="advisory-event-bubble"
       style={{
         padding: "14px 16px",
         borderRadius: "12px",
@@ -458,8 +510,14 @@ function SessionListItem({
             padding: "2px 6px",
             borderRadius: "4px",
             fontFamily: "var(--font-mono)",
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
           }}
         >
+          {session.status === "active" && (
+            <span className="live-dot" style={{ width: "5px", height: "5px", borderRadius: "50%", backgroundColor: badge.color, display: "inline-block", flexShrink: 0 }} />
+          )}
           {badge.label}
         </span>
         <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
@@ -504,10 +562,11 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
-  const [model, setModel] = useState("claude-opus-4-6");
+  const [model, setModel] = useState("anthropic/claude-sonnet-4-6");
   const [rounds, setRounds] = useState<number | "persistent">(3);
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
-  const [selectedOverlays, setSelectedOverlays] = useState<string[]>([]);
+  // Per-agent overlay map: { agentId: overlayId }
+  const [personaOverlays, setPersonaOverlays] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -515,21 +574,27 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
     setSelectedAgents((prev) =>
       prev.includes(id) ? prev.filter((a) => a !== id) : [...prev, id]
     );
+    // Clear overlay for deselected agent
+    if (selectedAgents.includes(id)) {
+      setPersonaOverlays((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
   };
 
-  const toggleOverlay = (id: string) => {
-    setSelectedOverlays((prev) =>
-      prev.includes(id) ? prev.filter((o) => o !== id) : [...prev, id]
-    );
+  const selectAgentOverlay = (agentId: string, overlayId: string) => {
+    setPersonaOverlays((prev) => {
+      // Toggle: if already selected, deselect
+      if (prev[agentId] === overlayId) {
+        const next = { ...prev };
+        delete next[agentId];
+        return next;
+      }
+      return { ...prev, [agentId]: overlayId };
+    });
   };
-
-  // Filter overlays relevant to selected agents
-  const relevantOverlays = PERSONA_OVERLAYS.filter((o) =>
-    o.relevantAgents.some((a) => selectedAgents.includes(a))
-  );
-  const otherOverlays = PERSONA_OVERLAYS.filter((o) =>
-    !o.relevantAgents.some((a) => selectedAgents.includes(a))
-  );
 
   const handleNext = () => {
     if (!topic.trim()) { setError("Mission/Topic is required."); return; }
@@ -554,7 +619,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           model,
           rounds,
           pacing,
-          personaOverlays: selectedOverlays.length > 0 ? selectedOverlays : undefined,
+          personaOverlays: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
@@ -762,26 +827,35 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 MODEL
               </label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  backgroundColor: "var(--surface-elevated)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  color: "var(--text-primary)",
-                  fontSize: "13px",
-                  fontFamily: "var(--font-mono)",
-                  outline: "none",
-                  cursor: "pointer",
-                }}
-              >
-                {MODELS.map((m) => (
-                  <option key={m} value={m}>{m}</option>
-                ))}
-              </select>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                {MODELS.map((m) => {
+                  const sel = model === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setModel(m.id)}
+                      style={{
+                        padding: "10px 12px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontSize: "12px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{m.label}</div>
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>{m.desc}</div>
+                      </div>
+                      {sel && <span style={{ fontSize: "10px", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Rounds */}
@@ -892,86 +966,99 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           <>
             <div style={{ marginBottom: "8px" }}>
               <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.6 }}>
-                Persona overlays inject specialized expertise lenses into the session. They shape how agents approach and frame their contributions. All are optional.
+                Assign specialized expertise lenses to each agent. Each agent can have at most one overlay — it shapes how they approach and frame their contributions. All are optional.
               </p>
 
-              {/* Relevant overlays */}
-              {relevantOverlays.length > 0 && (
-                <>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--accent)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-                    ✨ RECOMMENDED FOR YOUR AGENTS
-                  </label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-                    {relevantOverlays.map((overlay) => {
-                      const sel = selectedOverlays.includes(overlay.id);
-                      return (
-                        <button
-                          key={overlay.id}
-                          onClick={() => toggleOverlay(overlay.id)}
-                          style={{
-                            padding: "10px 12px",
-                            borderRadius: "8px",
-                            border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
-                            backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            transition: "all 150ms ease",
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-                            <span style={{ fontSize: "14px" }}>{overlay.emoji}</span>
-                            <span style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{overlay.name}</span>
-                            {sel && <span style={{ fontSize: "9px", marginLeft: "auto", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
-                          </div>
-                          <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
+              {/* Per-agent overlay rows */}
+              <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
+                {selectedAgents.map((agentId) => {
+                  const agentDef = AGENTS.find((a) => a.id === agentId);
+                  const recommended = (AGENT_RECOMMENDED_OVERLAYS[agentId] || []);
+                  const availableOverlays = PERSONA_OVERLAYS_EXTENDED.filter((o) =>
+                    recommended.includes(o.id)
+                  );
+                  const selectedOverlay = personaOverlays[agentId];
 
-              {/* Other overlays */}
-              {otherOverlays.length > 0 && (
-                <>
-                  <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-                    OTHER OVERLAYS
-                  </label>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "16px" }}>
-                    {otherOverlays.map((overlay) => {
-                      const sel = selectedOverlays.includes(overlay.id);
-                      return (
-                        <button
-                          key={overlay.id}
-                          onClick={() => toggleOverlay(overlay.id)}
-                          style={{
-                            padding: "10px 12px",
-                            borderRadius: "8px",
-                            border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
-                            backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
-                            cursor: "pointer",
-                            textAlign: "left",
-                            transition: "all 150ms ease",
-                            opacity: 0.7,
-                          }}
-                        >
-                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "4px" }}>
-                            <span style={{ fontSize: "14px" }}>{overlay.emoji}</span>
-                            <span style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{overlay.name}</span>
-                            {sel && <span style={{ fontSize: "9px", marginLeft: "auto", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
-                          </div>
-                          <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
+                  return (
+                    <div
+                      key={agentId}
+                      style={{
+                        padding: "12px",
+                        borderRadius: "10px",
+                        border: "1px solid var(--border)",
+                        backgroundColor: "var(--surface-elevated)",
+                      }}
+                    >
+                      {/* Agent header */}
+                      <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
+                        <AgentAvatar agentId={agentId} size={32} borderWidth={2} />
+                        <div>
+                          <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{agentId}</div>
+                          <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{agentDef?.role ?? "Agent"}</div>
+                        </div>
+                        {selectedOverlay && (
+                          <span style={{
+                            marginLeft: "auto",
+                            fontSize: "9px",
+                            fontWeight: 700,
+                            color: "#a78bfa",
+                            backgroundColor: "rgba(167,139,250,0.15)",
+                            border: "1px solid rgba(167,139,250,0.4)",
+                            padding: "2px 8px",
+                            borderRadius: "12px",
+                          }}>
+                            {PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedOverlay)?.emoji} {PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedOverlay)?.name}
+                          </span>
+                        )}
+                      </div>
 
-              {selectedOverlays.length > 0 && (
+                      {/* Overlay chips */}
+                      {availableOverlays.length > 0 ? (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                          {availableOverlays.map((overlay) => {
+                            const sel = selectedOverlay === overlay.id;
+                            return (
+                              <button
+                                key={overlay.id}
+                                onClick={() => selectAgentOverlay(agentId, overlay.id)}
+                                title={overlay.desc}
+                                style={{
+                                  padding: "5px 10px",
+                                  borderRadius: "20px",
+                                  border: `1px solid ${sel ? "#a78bfa" : "var(--border)"}`,
+                                  backgroundColor: sel ? "rgba(167,139,250,0.15)" : "var(--surface)",
+                                  color: sel ? "#a78bfa" : "var(--text-muted)",
+                                  cursor: "pointer",
+                                  fontSize: "10px",
+                                  fontWeight: sel ? 700 : 500,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  transition: "all 150ms ease",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                <span>{overlay.emoji}</span>
+                                <span>{overlay.name}</span>
+                                {sel && <span style={{ fontSize: "8px" }}>✕</span>}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: "10px", color: "var(--text-muted)", fontStyle: "italic" }}>
+                          No recommended overlays for this agent
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {Object.keys(personaOverlays).length > 0 && (
                 <div style={{ padding: "8px 12px", backgroundColor: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "8px", marginBottom: "16px" }}>
                   <span style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 600 }}>
-                    {selectedOverlays.length} overlay{selectedOverlays.length > 1 ? "s" : ""} selected · Will be noted in session metadata
+                    {Object.keys(personaOverlays).length} agent{Object.keys(personaOverlays).length > 1 ? "s" : ""} have overlays · Each agent gets their assigned lens injected into their system prompt
                   </span>
                 </div>
               )}
@@ -1043,6 +1130,7 @@ export default function AdvisoryPage() {
   const [endSessionConfirm, setEndSessionConfirm] = useState(false);
   const [endingSession, setEndingSession] = useState(false);
   const [advancingTurn, setAdvancingTurn] = useState(false);
+  const [requestingFullRound, setRequestingFullRound] = useState(false);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1306,6 +1394,22 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Request Full Round (persistent mode) ────────────────────────────────────
+  const handleFullRound = async () => {
+    if (!activeSession) return;
+    setRequestingFullRound(true);
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, {
+        method: "POST",
+      });
+      setIsGenerating(true);
+    } catch (e) {
+      console.error("Full round error:", e);
+    } finally {
+      setRequestingFullRound(false);
+    }
+  };
+
   const liveSessions = sessions.filter((s) => s.status === "active");
   const completedSessions = sessions.filter((s) => s.status !== "active");
 
@@ -1352,10 +1456,25 @@ export default function AdvisoryPage() {
           color: var(--text-muted);
           margin: 8px 0;
         }
-        /* Topic text in session start event should also wrap properly */
         .advisory-markdown * {
           word-break: normal;
           overflow-wrap: break-word;
+        }
+        /* LIVE badge pulse */
+        @keyframes live-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.5; transform: scale(0.8); }
+        }
+        .live-dot {
+          animation: live-pulse 1.5s ease-in-out infinite;
+        }
+        /* Message fade-in from bottom */
+        @keyframes msg-fadein {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .advisory-event-bubble {
+          animation: msg-fadein 0.25s ease-out;
         }
       `}</style>
 
@@ -1541,7 +1660,7 @@ export default function AdvisoryPage() {
                             }}
                           >
                             {activeSession.status === "active" && (
-                              <span style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: badge.color, display: "inline-block", animation: "pulse 2s infinite" }} />
+                              <span className="live-dot" style={{ width: "6px", height: "6px", borderRadius: "50%", backgroundColor: badge.color, display: "inline-block" }} />
                             )}
                             {badge.label}
                           </span>
@@ -1790,7 +1909,9 @@ export default function AdvisoryPage() {
                       <EventBubble
                         key={event.id}
                         event={event}
-                        sessionOverlays={(activeSession as unknown as Record<string, unknown>).personaOverlays as string[] ?? []}
+                        sessionOverlays={
+                          ((activeSession as unknown as Record<string, unknown>).personaOverlays as Record<string, string> | string[] | undefined) ?? {}
+                        }
                       />
                     ))}
                     {isGenerating && activeSession?.status === "active" && !isPaused && (
@@ -1958,24 +2079,71 @@ export default function AdvisoryPage() {
                 </div>
               )}
 
-              {/* Completed session summary */}
-              {activeSession.status === "completed" && (
+              {/* Persistent session - Request Full Round button */}
+              {activeSession.status === "active" && (activeSession as unknown as Record<string, unknown>).rounds === "persistent" && (
                 <div
                   style={{
-                    padding: "14px 24px",
-                    borderTop: "1px solid var(--border)",
-                    backgroundColor: "var(--surface)",
+                    padding: "10px 24px",
+                    borderTop: "1px solid rgba(139,92,246,0.2)",
+                    backgroundColor: "rgba(139,92,246,0.04)",
                     display: "flex",
                     alignItems: "center",
                     gap: "10px",
                     flexShrink: 0,
                   }}
                 >
-                  <Trophy size={16} color="#4ade80" />
-                  <span style={{ fontSize: "12px", color: "var(--text-muted)", flex: 1 }}>
-                    Session completed{activeSession.completedAt ? ` · ${formatDate(activeSession.completedAt)}` : ""}
-                    {activeSession.outcome ? ` · Outcome: ${activeSession.outcome}` : ""}
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
+                    Persistent session — agents wait for your directives
                   </span>
+                  <button
+                    onClick={handleFullRound}
+                    disabled={requestingFullRound || isGenerating}
+                    style={{
+                      padding: "7px 14px",
+                      borderRadius: "7px",
+                      border: "1px solid rgba(139,92,246,0.5)",
+                      backgroundColor: "rgba(139,92,246,0.12)",
+                      color: "#a78bfa",
+                      cursor: requestingFullRound || isGenerating ? "not-allowed" : "pointer",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      opacity: requestingFullRound || isGenerating ? 0.6 : 1,
+                      fontFamily: "var(--font-heading)",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {requestingFullRound ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                    Request Full Round
+                  </button>
+                </div>
+              )}
+
+              {/* Completed session summary */}
+              {activeSession.status === "completed" && (
+                <div
+                  style={{
+                    padding: "14px 24px",
+                    borderTop: "2px solid rgba(74,222,128,0.4)",
+                    backgroundColor: "rgba(74,222,128,0.05)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    flexShrink: 0,
+                  }}
+                >
+                  <CheckCircle2 size={16} color="#4ade80" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "#4ade80" }}>
+                      Session Completed
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "1px" }}>
+                      {activeSession.completedAt ? formatDate(activeSession.completedAt) : ""}
+                      {activeSession.outcome ? ` · ${activeSession.outcome.replace(/-/g, " ")}` : ""}
+                    </div>
+                  </div>
                   <button
                     onClick={handleArchive}
                     disabled={archiving}
@@ -1983,9 +2151,9 @@ export default function AdvisoryPage() {
                     style={{
                       padding: "6px 12px",
                       borderRadius: "6px",
-                      border: "1px solid var(--border)",
-                      backgroundColor: "var(--surface-elevated)",
-                      color: "var(--text-muted)",
+                      border: "1px solid rgba(74,222,128,0.3)",
+                      backgroundColor: "rgba(74,222,128,0.08)",
+                      color: "#4ade80",
                       cursor: archiving ? "not-allowed" : "pointer",
                       fontSize: "11px",
                       display: "flex",

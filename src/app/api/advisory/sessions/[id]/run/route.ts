@@ -106,9 +106,15 @@ const PERSONA_CONTENT: Record<string, string> = {
     "Think in data: structure the analysis with clear metrics, frame insights with numbers, identify what KPIs matter, and suggest data-driven next steps.",
   "backend-architect":
     "Apply backend architecture thinking: system design patterns, API contracts, scalability concerns, database schema considerations, and technical debt.",
+  "frontend-developer":
+    "Apply frontend engineering thinking: component architecture, state management, accessibility, performance optimization, and user experience craftsmanship.",
+  "rapid-prototyper":
+    "Move fast and iterate: identify the fastest path to a working demo, what to cut for v1, and how to validate assumptions before building the full system.",
+  "autonomous-optimization-architect":
+    "Think as an autonomous optimization architect: identify where AI agents can replace manual work, what feedback loops can be automated, and how to build self-improving systems.",
 };
 
-// ─── API key helper ───────────────────────────────────────────────────────────
+// ─── Gateway config helper ────────────────────────────────────────────────────
 
 function getGatewayConfig(): { url: string; token: string } {
   try {
@@ -125,30 +131,53 @@ function getGatewayConfig(): { url: string; token: string } {
   }
 }
 
-// ─── Call Anthropic ───────────────────────────────────────────────────────────
+// ─── Default fallback model ───────────────────────────────────────────────────
 
 const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
+
+// ─── Resolve model from session config ───────────────────────────────────────
+
+function resolveModel(sessionModel?: string): { model: string; thinking?: boolean } {
+  if (!sessionModel) return { model: INFERENCE_MODEL };
+  // Handle our internal thinking marker
+  if (sessionModel.endsWith(":thinking")) {
+    return { model: sessionModel.replace(":thinking", ""), thinking: true };
+  }
+  // If it already looks like a gateway model ID (contains "/"), use as-is
+  if (sessionModel.includes("/")) return { model: sessionModel };
+  // Legacy bare model names → prepend anthropic/
+  return { model: `anthropic/${sessionModel}` };
+}
+
+// ─── Call Gateway ─────────────────────────────────────────────────────────────
 
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  _apiKey: string
+  modelStr: string,
+  thinking = false
 ): Promise<string> {
   const gateway = getGatewayConfig();
+  const body: Record<string, unknown> = {
+    model: modelStr,
+    max_tokens: thinking ? 16000 : 4096,
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  };
+
+  if (thinking) {
+    body.thinking = { type: "enabled", budget_tokens: 10000 };
+  }
+
   const response = await fetch(gateway.url, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${gateway.token}`,
     },
-    body: JSON.stringify({
-      model: INFERENCE_MODEL,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
+    body: JSON.stringify(body),
   });
 
   if (!response.ok) {
@@ -162,27 +191,31 @@ async function callClaude(
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
 
+/**
+ * Build a system prompt for an agent, injecting only the overlay assigned to that agent.
+ * @param agentId - Agent identifier
+ * @param mode - Session mode
+ * @param topic - Session topic
+ * @param agentOverlay - Optional overlay ID assigned to this specific agent (or undefined)
+ */
 function buildSystemPrompt(
   agentId: string,
   mode: string,
   topic: string,
-  personaOverlays: string[]
+  agentOverlay?: string
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
     return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   }
 
-  const overlayLines = personaOverlays
-    .map((id) => PERSONA_CONTENT[id])
-    .filter(Boolean)
-    .map((content) => `- ${content}`)
-    .join("\n");
+  const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
+  const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
 
   return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
 
 Your expertise: ${agent.expertise}
-${overlayLines ? `\nSpecialized lenses for this session:\n${overlayLines}\n` : ""}
+${overlayLine}
 You are participating in a ${mode === "roundtable" ? "roundtable discussion" : "review session"}.
 
 Your communication style:
@@ -238,10 +271,6 @@ function appendEvent(
 
 // ─── Pacing helpers ───────────────────────────────────────────────────────────
 
-/**
- * Wait for the session to be unpaused (polls every 2s).
- * Returns false if the session is no longer active (abandoned/completed).
- */
 async function waitForUnpause(sessionPath: string): Promise<boolean> {
   // eslint-disable-next-line no-constant-condition
   while (true) {
@@ -253,19 +282,12 @@ async function waitForUnpause(sessionPath: string): Promise<boolean> {
   }
 }
 
-/**
- * Apply pacing between agent turns.
- * For "manual" mode, set paused=true then wait for unpause.
- * For timed modes, just sleep.
- * Returns false if session is no longer active.
- */
 async function applyPacing(sessionPath: string, pacing: string): Promise<boolean> {
   if (pacing === "relaxed") {
     await new Promise((r) => setTimeout(r, 30_000));
   } else if (pacing === "slow") {
     await new Promise((r) => setTimeout(r, 60_000));
   } else if (pacing === "manual") {
-    // Auto-pause after this agent's turn
     const raw = fs.readFileSync(sessionPath, "utf-8");
     const s = JSON.parse(raw);
     if (s.status !== "active") return false;
@@ -274,10 +296,29 @@ async function applyPacing(sessionPath: string, pacing: string): Promise<boolean
     const ok = await waitForUnpause(sessionPath);
     return ok;
   }
-  // For "instant" just check status
   const raw = fs.readFileSync(sessionPath, "utf-8");
   const s = JSON.parse(raw);
   return s.status === "active";
+}
+
+// ─── Get per-agent overlay ────────────────────────────────────────────────────
+
+/**
+ * Extract the overlay ID for a given agent from the personaOverlays config.
+ * Supports both the new object format { agentId: overlayId } and the legacy array format.
+ */
+function getAgentOverlay(
+  personaOverlays: Record<string, string> | string[] | undefined,
+  agentId: string
+): string | undefined {
+  if (!personaOverlays) return undefined;
+  if (Array.isArray(personaOverlays)) {
+    // Legacy array format — check if any overlay is relevant for this agent
+    // We don't know which overlay was meant for which agent in legacy format
+    // so just return undefined (graceful degradation)
+    return undefined;
+  }
+  return personaOverlays[agentId];
 }
 
 // ─── Main run endpoint ────────────────────────────────────────────────────────
@@ -293,14 +334,6 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const apiKey = "";
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: "Anthropic API key not configured" },
-      { status: 500 }
-    );
-  }
-
   // Read session config
   const raw = fs.readFileSync(filePath, "utf-8");
   const session = JSON.parse(raw);
@@ -308,30 +341,35 @@ export async function POST(
     topic,
     mode,
     agents,
-    personaOverlays = [],
+    personaOverlays,
     reviewStyle = "open",
     rounds = 3,
     pacing = "instant",
+    model: sessionModel,
   } = session;
 
   if (!agents || agents.length === 0) {
     return NextResponse.json({ error: "No agents in session" }, { status: 400 });
   }
 
+  const { model: resolvedModel, thinking } = resolveModel(sessionModel);
+
   // Run asynchronously — return immediately so the client can start polling
-  // We use a non-blocking approach: respond 200, then run the loop
   const runConversation = async () => {
     try {
       if (mode === "roundtable") {
-        await runRoundtable(filePath, session, topic, agents, personaOverlays, apiKey, rounds, pacing);
+        await runRoundtable(
+          filePath, session, topic, agents, personaOverlays,
+          rounds, pacing, resolvedModel, thinking
+        );
       } else if (mode === "review") {
-        await runReview(filePath, session, topic, agents, reviewStyle, personaOverlays, apiKey, pacing);
+        await runReview(
+          filePath, session, topic, agents, reviewStyle,
+          personaOverlays, pacing, resolvedModel, thinking
+        );
       }
-      // Auto-archive on completion (fire-and-forget, don't block)
-      archiveSession(id).catch((e) => console.error("Auto-archive failed:", e));
     } catch (err) {
       console.error("Advisory run error:", err);
-      // Add error event
       try {
         const errEvent = {
           id: `evt_err_${Date.now()}`,
@@ -341,7 +379,7 @@ export async function POST(
           emoji: "⚠️",
           role: "supervisor" as const,
           text: `⚠️ **Session error:** ${String(err)}`,
-          model: INFERENCE_MODEL,
+          model: resolvedModel,
         };
         appendEvent(filePath, errEvent);
       } catch {
@@ -363,41 +401,38 @@ async function runRoundtable(
   session: Record<string, unknown>,
   topic: string,
   agents: string[],
-  personaOverlays: string[],
-  apiKey: string,
+  personaOverlays: Record<string, string> | string[] | undefined,
   rounds: number | string = 3,
-  pacing: string = "instant"
+  pacing: string = "instant",
+  model: string = INFERENCE_MODEL,
+  thinking = false
 ) {
-  // "persistent" means we don't auto-complete — human drives the session
-  if (rounds === "persistent") {
-    // Just start the first round and leave active
-    const persistentRounds = 1;
-    rounds = persistentRounds;
-  }
-  const numRounds = typeof rounds === "number" ? rounds : parseInt(String(rounds), 10) || 3;
+  const isPersistent = rounds === "persistent";
+
+  // For persistent sessions: run exactly one round, then stay active
+  const numRounds = isPersistent
+    ? 1
+    : typeof rounds === "number"
+    ? rounds
+    : parseInt(String(rounds), 10) || 3;
 
   for (let round = 1; round <= numRounds; round++) {
     for (const agentId of agents) {
-      // Read fresh session state for updated history
       const currentRaw = fs.readFileSync(filePath, "utf-8");
       const currentSession = JSON.parse(currentRaw);
       const events = currentSession.events || [];
 
-      // Check if session was abandoned/completed mid-run
       if (currentSession.status !== "active") return;
 
       const history = buildHistoryString(events);
-      const systemPrompt = buildSystemPrompt(
-        agentId,
-        session.mode as string,
-        topic,
-        personaOverlays
-      );
+      const agentOverlay = getAgentOverlay(personaOverlays, agentId);
+      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay);
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
 
-      // Check if previous speakers have all been agreeing (for contrarian injection)
-      const recentEvents = events.filter((e: { type: string; text: string }) => e.type === "worker" || e.type === "supervisor").slice(-4);
+      const recentEvents = events.filter((e: { type: string; text: string }) =>
+        e.type === "worker" || e.type === "supervisor"
+      ).slice(-4);
       const seemsLikeConsensus = recentEvents.length >= 2 && recentEvents.every((e: { text: string }) =>
         !e.text.toLowerCase().includes("however") &&
         !e.text.toLowerCase().includes("push back") &&
@@ -415,7 +450,7 @@ async function runRoundtable(
 
       let text = "";
       try {
-        text = await callClaude(systemPrompt, userPrompt, apiKey);
+        text = await callClaude(systemPrompt, userPrompt, model, thinking);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
@@ -430,31 +465,41 @@ async function runRoundtable(
         emoji: agent?.emoji || "💬",
         role: agentId === "Henry" ? "supervisor" : "worker",
         text,
-        model: INFERENCE_MODEL,
+        model,
       };
 
       appendEvent(filePath, event);
 
-      // Apply pacing between agent turns (minimum 500ms always)
       await new Promise((r) => setTimeout(r, 500));
       const continueSession = await applyPacing(filePath, pacing);
       if (!continueSession) return;
     }
   }
 
-  // Wrap up — have Henry (if present) or the session write a summary
+  // For persistent sessions: stay active, don't auto-complete or auto-archive
+  if (isPersistent) {
+    // Just verify session is still active and leave it open
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.status !== "active") return;
+    // No completion — session waits for human directives or "Request Full Round"
+    return;
+  }
+
+  // Non-persistent: wrap up with a summary
   const summaryAgentId = agents.includes("Henry") ? "Henry" : agents[0];
   const finalRaw = fs.readFileSync(filePath, "utf-8");
   const finalSession = JSON.parse(finalRaw);
   if (finalSession.status !== "active") return;
 
   const finalHistory = buildHistoryString(finalSession.events || []);
-  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, personaOverlays);
+  const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
+  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay);
   const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
   try {
-    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, apiKey);
+    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, model, thinking);
   } catch (err) {
     summaryText = `Could not generate summary: ${String(err)}`;
   }
@@ -469,7 +514,7 @@ async function runRoundtable(
     role: summaryAgentId === "Henry" ? "supervisor" : "worker",
     text: `**Session Summary**\n\n${summaryText}`,
     verdict: "approve",
-    model: INFERENCE_MODEL,
+    model,
   };
   appendEvent(filePath, summaryEvent);
 
@@ -480,6 +525,11 @@ async function runRoundtable(
   completedSession.completedAt = new Date().toISOString();
   completedSession.outcome = "roundtable-complete";
   fs.writeFileSync(filePath, JSON.stringify(completedSession, null, 2));
+
+  // Auto-archive on completion
+  archiveSession(completedSession.id || path.basename(filePath, ".json")).catch((e) =>
+    console.error("Auto-archive failed:", e)
+  );
 }
 
 // ─── REVIEW mode ──────────────────────────────────────────────────────────────
@@ -490,12 +540,11 @@ async function runReview(
   topic: string,
   agents: string[],
   reviewStyle: string,
-  personaOverlays: string[],
-  apiKey: string,
-  pacing: string = "instant"
+  personaOverlays: Record<string, string> | string[] | undefined,
+  pacing: string = "instant",
+  model: string = INFERENCE_MODEL,
+  thinking = false
 ) {
-  // Identify roles: supervisor = Henry (or first agent), reviewer = last agent or one marked reviewer,
-  // workers = everyone else
   const supervisor = agents.includes("Henry") ? "Henry" : agents[0];
   const nonSupervisors = agents.filter((a) => a !== supervisor);
   const reviewer = nonSupervisors.length > 1 ? nonSupervisors[nonSupervisors.length - 1] : nonSupervisors[0];
@@ -508,12 +557,13 @@ async function runReview(
     const currentSession = JSON.parse(currentRaw);
     if (currentSession.status !== "active") return;
 
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, personaOverlays);
+    const supOverlay = getAgentOverlay(personaOverlays, supervisor);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay);
     const supPrompt = `You are running a review session. Topic: ${topic}\n\nAs ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, set the brief for ${worker}. Be specific about what you want produced, the quality bar, and what success looks like. Keep it to one focused paragraph.`;
 
     let supText = "";
     try {
-      supText = await callClaude(supSystem, supPrompt, apiKey);
+      supText = await callClaude(supSystem, supPrompt, model, thinking);
     } catch (err) {
       supText = `⚠️ ${String(err)}`;
     }
@@ -527,7 +577,7 @@ async function runReview(
       emoji: supAgent?.emoji || "⚡",
       role: "supervisor",
       text: `**[Brief]** ${supText}`,
-      model: INFERENCE_MODEL,
+      model,
     });
 
     await new Promise((r) => setTimeout(r, 500));
@@ -543,9 +593,9 @@ async function runReview(
     const currentSession = JSON.parse(currentRaw);
     if (currentSession.status !== "active") return;
 
-    // Worker produces output
     const workerHistory = buildHistoryString(currentSession.events || []);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, personaOverlays);
+    const workerOverlay = getAgentOverlay(personaOverlays, worker);
+    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay);
     const workerPrompt =
       iteration === 1
         ? `Topic / Task: ${topic}\n\nBrief from supervisor:\n\n${workerHistory}\n\nProduce your best work on this task. Be thorough and substantive — the reviewer will scrutinize it.`
@@ -553,7 +603,7 @@ async function runReview(
 
     let workerText = "";
     try {
-      workerText = await callClaude(workerSystem, workerPrompt, apiKey);
+      workerText = await callClaude(workerSystem, workerPrompt, model, thinking);
     } catch (err) {
       workerText = `⚠️ ${String(err)}`;
     }
@@ -568,19 +618,19 @@ async function runReview(
       emoji: workerAgent?.emoji || "🔵",
       role: "worker",
       text: iteration === 1 ? workerText : `**[Revision ${iteration}]**\n\n${workerText}`,
-      model: INFERENCE_MODEL,
+      model,
     });
 
     await new Promise((r) => setTimeout(r, 500));
     { const ok = await applyPacing(filePath, pacing); if (!ok) return; }
 
-    // Reviewer evaluates
     const reviewRaw = fs.readFileSync(filePath, "utf-8");
     const reviewSession = JSON.parse(reviewRaw);
     if (reviewSession.status !== "active") return;
 
     const reviewHistory = buildHistoryString(reviewSession.events || []);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, personaOverlays);
+    const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
+    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay);
 
     const verdictInstruction =
       reviewStyle === "strict"
@@ -593,7 +643,7 @@ async function runReview(
 
     let reviewText = "";
     try {
-      reviewText = await callClaude(reviewSystem, reviewerPrompt, apiKey);
+      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking);
     } catch (err) {
       reviewText = `⚠️ ${String(err)}`;
     }
@@ -613,7 +663,7 @@ async function runReview(
       role: "reviewer",
       text: reviewText,
       verdict: isApproved ? "approve" : "reject",
-      model: INFERENCE_MODEL,
+      model,
     });
 
     await new Promise((r) => setTimeout(r, 500));
@@ -632,12 +682,13 @@ async function runReview(
     if (finalSession.status !== "active") return;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, personaOverlays);
+    const supOverlay = getAgentOverlay(personaOverlays, supervisor);
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay);
     const supPrompt = `Topic: ${topic}\n\nFull review session:\n\n${finalHistory}\n\nAs ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, deliver your final decision. Was the goal achieved? What should happen next? Be decisive.`;
 
     let decisionText = "";
     try {
-      decisionText = await callClaude(supSystem, supPrompt, apiKey);
+      decisionText = await callClaude(supSystem, supPrompt, model, thinking);
     } catch (err) {
       decisionText = `⚠️ ${String(err)}`;
     }
@@ -652,7 +703,7 @@ async function runReview(
       role: "supervisor",
       text: `**[Final Decision]**\n\n${decisionText}`,
       verdict: approved ? "approve" : "reject",
-      model: INFERENCE_MODEL,
+      model,
     });
   }
 
@@ -663,4 +714,9 @@ async function runReview(
   completedSession.completedAt = new Date().toISOString();
   completedSession.outcome = approved ? "approved" : "needs-rework";
   fs.writeFileSync(filePath, JSON.stringify(completedSession, null, 2));
+
+  // Auto-archive on completion
+  archiveSession(completedSession.id || path.basename(filePath, ".json")).catch((e) =>
+    console.error("Auto-archive failed:", e)
+  );
 }

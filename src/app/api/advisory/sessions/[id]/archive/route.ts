@@ -5,21 +5,20 @@ import { readFileSync } from "fs";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 const WORKSPACE_DIR = "/Users/timharris/.openclaw/workspace";
+const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getGeminiApiKey(): string {
+function getGatewayConfig(): { url: string; token: string } {
   try {
-    const configPath = path.join(
-      process.env.HOME || "",
-      ".openclaw/openclaw.json"
-    );
+    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    if (config?.env?.GEMINI_API_KEY) return config.env.GEMINI_API_KEY;
+    const port = config?.gateway?.port || 18789;
+    const token = config?.gateway?.auth?.token || "";
+    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
   } catch {
-    // fall through
+    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
   }
-  return process.env.GEMINI_API_KEY || "";
 }
 
 function slugify(text: string): string {
@@ -46,28 +45,37 @@ function ensureDir(dirPath: string) {
   }
 }
 
-// ─── Gemini summarization ─────────────────────────────────────────────────────
+// ─── Gateway summarization ────────────────────────────────────────────────────
 
-async function callGemini(prompt: string, apiKey: string): Promise<string> {
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { maxOutputTokens: 1024 },
-      }),
-    }
-  );
+async function callGateway(prompt: string): Promise<string> {
+  const gateway = getGatewayConfig();
+  if (!gateway.token) throw new Error("No gateway token configured");
+
+  const response = await fetch(gateway.url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${gateway.token}`,
+    },
+    body: JSON.stringify({
+      model: INFERENCE_MODEL,
+      max_tokens: 1024,
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    }),
+  });
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${err}`);
+    throw new Error(`Gateway API error ${response.status}: ${err}`);
   }
 
   const data = await response.json();
-  return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // ─── Build transcript markdown ────────────────────────────────────────────────
@@ -86,7 +94,6 @@ function buildTranscriptMarkdown(session: Record<string, unknown>): string {
     year: "numeric",
   });
 
-  // Collect unique models used
   const modelsUsed = [...new Set(events.map((e) => e.model as string).filter(Boolean))];
   const modelsStr = modelsUsed.length > 0 ? modelsUsed.join(", ") : "N/A";
 
@@ -158,7 +165,6 @@ export async function archiveSession(sessionId: string): Promise<{ success: bool
   fs.writeFileSync(transcriptPath, transcriptMarkdown, "utf-8");
 
   // ── 2. Per-agent memory notes ───────────────────────────────────────────────
-  const apiKey = getGeminiApiKey();
   const dateLabel = new Date(createdAt).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
@@ -180,21 +186,17 @@ export async function archiveSession(sessionId: string): Promise<{ success: bool
       .map((e) => `${e.text}`)
       .join("\n\n---\n\n");
 
-    // Determine their role in the session
     const firstEvent = agentEvents[0];
     const role = (firstEvent?.role as string) || "participant";
-    const modelUsed = (firstEvent?.model as string) || "unknown";
 
-    // Determine decisions/outcomes from the session
     const outcomeStr = session.outcome
       ? `Outcome: ${session.outcome}`
       : "Outcome: session completed";
 
-    // Generate summary via Gemini
+    // Generate summary via Gateway
     let summaryBlock = "";
-    if (apiKey) {
-      try {
-        const summaryPrompt = `You are summarizing an AI agent's contributions to an advisory board session.
+    try {
+      const summaryPrompt = `You are summarizing an AI agent's contributions to an advisory board session.
 
 Agent: ${agentId}
 Session Topic: ${topic}
@@ -214,13 +216,10 @@ Generate a concise memory note for this agent. Format it exactly like this (fill
 
 Be specific and concrete. Reference actual content from their contributions. Keep each bullet to 1-2 sentences.`;
 
-        summaryBlock = await callGemini(summaryPrompt, apiKey);
-      } catch (err) {
-        summaryBlock = `- Key points made:\n  - ${agentId} contributed to the advisory session\n- Decisions: ${outcomeStr}\n- Action items: None identified`;
-        console.error(`Gemini summary failed for ${agentId}:`, err);
-      }
-    } else {
+      summaryBlock = await callGateway(summaryPrompt);
+    } catch (err) {
       summaryBlock = `- Key points made:\n  - ${agentId} contributed to the advisory session\n- Decisions: ${outcomeStr}\n- Action items: None identified`;
+      console.error(`Gateway summary failed for ${agentId}:`, err);
     }
 
     const agentMemDir = path.join(WORKSPACE_DIR, "memory", "agents", agentId);
