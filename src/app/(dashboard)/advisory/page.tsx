@@ -314,6 +314,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
     setError("");
     setLoading(true);
     try {
+      // Step 1: Create the session
       const res = await fetch("/api/advisory/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -328,6 +329,16 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
       });
       if (!res.ok) throw new Error("Failed to create session");
       const data = await res.json();
+
+      // Step 2: Trigger the conversation run (fire-and-forget on server side)
+      try {
+        await fetch(`/api/advisory/sessions/${data.session.id}/run`, {
+          method: "POST",
+        });
+      } catch (runErr) {
+        console.warn("Run trigger error (non-fatal):", runErr);
+      }
+
       onLaunch(data.session);
     } catch (e) {
       setError(String(e));
@@ -723,6 +734,7 @@ export default function AdvisoryPage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeView, setActiveView] = useState<"live" | "history">("live");
+  const [isGenerating, setIsGenerating] = useState(false);
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -781,17 +793,27 @@ export default function AdvisoryPage() {
           const data = await res.json();
           if (data.events && data.events.length > 0) {
             setEvents((prev) => [...prev, ...data.events]);
+            setIsGenerating(true);
+          }
+          // Check if session has completed
+          if (data.status && data.status !== "active") {
+            setIsGenerating(false);
+            // Refresh session list and session details
+            await loadSessions();
+            await loadSessionEvents(activeSession.id);
           }
         } catch (e) {
           console.error("Polling error:", e);
         }
       }, 2000);
+    } else {
+      setIsGenerating(false);
     }
 
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [activeSession, events]);
+  }, [activeSession, events, loadSessions, loadSessionEvents]);
 
   const handleSelectSession = async (session: AdvisorySession) => {
     setEvents([]);
@@ -800,6 +822,7 @@ export default function AdvisoryPage() {
 
   const handleLaunch = async (session: AdvisorySession) => {
     setShowLaunchModal(false);
+    setIsGenerating(true);
     await loadSessions();
     await handleSelectSession(session);
     setActiveView("live");
@@ -1123,14 +1146,34 @@ export default function AdvisoryPage() {
                 }}
               >
                 {events.length === 0 ? (
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--text-muted)", flexDirection: "column", gap: "12px" }}>
                     <Loader2 size={20} className="animate-spin" />
+                    <span style={{ fontSize: "12px" }}>Starting conversation...</span>
                   </div>
                 ) : (
                   <>
                     {events.map((event) => (
                       <EventBubble key={event.id} event={event} />
                     ))}
+                    {isGenerating && activeSession?.status === "active" && (
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "10px",
+                          padding: "12px 16px",
+                          borderRadius: "12px",
+                          border: "1px solid rgba(139, 92, 246, 0.2)",
+                          backgroundColor: "rgba(139, 92, 246, 0.05)",
+                          marginBottom: "12px",
+                        }}
+                      >
+                        <Loader2 size={14} className="animate-spin" style={{ color: "#8b5cf6" }} />
+                        <span style={{ fontSize: "12px", color: "#8b5cf6", fontWeight: 500 }}>
+                          Agents are deliberating...
+                        </span>
+                      </div>
+                    )}
                     <div ref={eventsEndRef} />
                   </>
                 )}
