@@ -1,11 +1,13 @@
 # Active Work Coordination
 *Updated: 2026-03-25 4:22 PM PT*
 
-## Telegram Henry (STARTED — refactor running now)
-- [ ] 🔄 REFACTOR: Break advisory/page.tsx (5,700 lines) into ~10 component files — Claude Code agent running NOW
-- [ ] Fix all 51 items in FEEDBACK-LOG.md
-- [ ] Fix the text wrapping / layout bug (showstopper)
-- ✅ Confirmed: auth coordination plan works, no conflicts
+## Telegram Henry
+- [x] ✅ REFACTOR COMPLETE: advisory/page.tsx 5,691 → 1,112 lines (80% reduction), 12 component files
+- [x] ✅ Text wrapping bug fixed (minWidth: 0 on flex containers)
+- [x] ✅ Events stream scrollable
+- [x] ✅ Right sidebar hidden (to be re-added as toggleable later)
+- [ ] Fix remaining ~48 items in FEEDBACK-LOG.md
+- [ ] Vercel deploy failing with "Unexpected error" — will retry when Vercel recovers
 - **DO NOT TOUCH:** DNS, Vercel config, Supabase, auth, hosting, src/middleware.ts, src/lib/supabase/
 
 ## Web Henry
