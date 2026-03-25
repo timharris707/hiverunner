@@ -4308,7 +4308,7 @@ export default function AdvisoryPage() {
         </div>
 
         {/* ─── MAIN CONTENT ─────────────────────────────── */}
-        <div className="advisory-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: "400px" }}>
+        <div className="advisory-main" style={{ flex: "1 1 0%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, width: 0 }}>
           {/* Mobile top bar — always visible, shows hamburger + title */}
           <div
             className="advisory-mobile-menu-btn"
@@ -4752,7 +4752,7 @@ export default function AdvisoryPage() {
               )}
 
               {/* Events stream (scroll container) */}
-              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+              <div style={{ flex: "1 1 0%", display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0, width: 0 }}>
               <div
                 ref={scrollContainerRef}
                 className="advisory-events-stream"
