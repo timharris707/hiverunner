@@ -596,30 +596,34 @@ export default function DashboardPage() {
                       border: `1px solid ${agent.color}40`,
                     }}
                   >
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-start gap-3">
                       <AgentAvatar agentId={agent.id} size={36} borderColor={agent.color} borderWidth={2} />
-                      <Circle
-                        className="w-2 h-2"
-                        style={{
-                          fill: STATUS_COLORS[agent.status],
-                          color: STATUS_COLORS[agent.status],
-                        }}
-                      />
-                    </div>
-                    <div
-                      className="text-sm font-bold"
-                      style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
-                    >
-                      {agent.name}
-                    </div>
-                    <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                      {agent.role}
-                    </div>
-                    <div
-                      className="text-xs mt-1 font-medium"
-                      style={{ color: STATUS_COLORS[agent.status] }}
-                    >
-                      {STATUS_LABELS[agent.status]}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <div
+                            className="text-sm font-bold truncate"
+                            style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+                          >
+                            {agent.name}
+                          </div>
+                          <Circle
+                            className="w-2 h-2 flex-shrink-0"
+                            style={{
+                              fill: STATUS_COLORS[agent.status],
+                              color: STATUS_COLORS[agent.status],
+                            }}
+                          />
+                        </div>
+                        <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
+                          {agent.role}
+                        </div>
+                        <div
+                          className="text-xs mt-0.5 font-medium"
+                          style={{ color: STATUS_COLORS[agent.status] }}
+                        >
+                          {STATUS_LABELS[agent.status]}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 ))}
