@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { readFileSync } from "fs";
+import { archiveSession } from "../archive/route";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
@@ -189,6 +190,9 @@ Your communication style:
 - Use your specialized knowledge to go DEEP — surface-level observations are not acceptable
 - Don't repeat what others have already said — always add new substantive value
 - Never use filler phrases like "Great point!" or "I agree" — just dive straight into your analysis
+- Directly reference other participants by name when responding to their points
+- Say things like "Building on what [Name] proposed..." or "I'd push back on [Name]'s assumption that..."
+- This is a conversation, not a series of independent monologues — engage with what others have actually said
 
 This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best: sharp, knowledgeable, thorough, and focused on delivering actionable insight.`;
 }
@@ -249,6 +253,7 @@ export async function POST(
     agents,
     personaOverlays = [],
     reviewStyle = "open",
+    rounds = 3,
   } = session;
 
   if (!agents || agents.length === 0) {
@@ -260,10 +265,12 @@ export async function POST(
   const runConversation = async () => {
     try {
       if (mode === "roundtable") {
-        await runRoundtable(filePath, session, topic, agents, personaOverlays, apiKey);
+        await runRoundtable(filePath, session, topic, agents, personaOverlays, apiKey, rounds);
       } else if (mode === "review") {
         await runReview(filePath, session, topic, agents, reviewStyle, personaOverlays, apiKey);
       }
+      // Auto-archive on completion (fire-and-forget, don't block)
+      archiveSession(id).catch((e) => console.error("Auto-archive failed:", e));
     } catch (err) {
       console.error("Advisory run error:", err);
       // Add error event
@@ -298,11 +305,18 @@ async function runRoundtable(
   topic: string,
   agents: string[],
   personaOverlays: string[],
-  apiKey: string
+  apiKey: string,
+  rounds: number | string = 3
 ) {
-  const rounds = agents.length <= 2 ? 3 : 2;
+  // "persistent" means we don't auto-complete — human drives the session
+  if (rounds === "persistent") {
+    // Just start the first round and leave active
+    const persistentRounds = 1;
+    rounds = persistentRounds;
+  }
+  const numRounds = typeof rounds === "number" ? rounds : parseInt(String(rounds), 10) || 3;
 
-  for (let round = 1; round <= rounds; round++) {
+  for (let round = 1; round <= numRounds; round++) {
     for (const agentId of agents) {
       // Read fresh session state for updated history
       const currentRaw = fs.readFileSync(filePath, "utf-8");

@@ -15,6 +15,9 @@ import {
   Radio,
   Trophy,
   RefreshCw,
+  Copy,
+  Download,
+  Archive,
 } from "lucide-react";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
@@ -124,6 +127,46 @@ function formatTime(iso: string): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[]): string {
+  const topic = session.topic;
+  const mode = session.mode;
+  const agents = session.agents.join(", ");
+  const dateStr = new Date(session.createdAt).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const lines: string[] = [
+    `# Advisory Board: ${topic}`,
+    ``,
+    `**Date:** ${dateStr} | **Mode:** ${mode} | **Participants:** ${agents}`,
+    ``,
+    `---`,
+    ``,
+  ];
+
+  for (const event of events) {
+    if (!event.text || !event.speaker) continue;
+    lines.push(`## ${event.emoji} ${event.speaker} (${event.role})`);
+    lines.push(``);
+    lines.push(event.text);
+    lines.push(``);
+    lines.push(`---`);
+    lines.push(``);
+  }
+
+  return lines.join("\n");
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
 }
 
 function getStatusBadge(status: string): { label: string; color: string; bg: string } {
@@ -279,6 +322,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
   const [model, setModel] = useState("claude-opus-4-6");
+  const [rounds, setRounds] = useState<number | "persistent">(3);
   const [selectedOverlays, setSelectedOverlays] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -324,6 +368,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           agents: selectedAgents,
           reviewStyle,
           model,
+          rounds,
           personaOverlays: selectedOverlays.length > 0 ? selectedOverlays : undefined,
         }),
       });
@@ -524,7 +569,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
             )}
 
             {/* Model */}
-            <div style={{ marginBottom: "24px" }}>
+            <div style={{ marginBottom: "16px" }}>
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 MODEL
               </label>
@@ -548,6 +593,42 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Rounds */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                ROUNDS
+              </label>
+              <select
+                value={rounds === "persistent" ? "persistent" : String(rounds)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setRounds(v === "persistent" ? "persistent" : parseInt(v, 10));
+                }}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "8px",
+                  color: "var(--text-primary)",
+                  fontSize: "13px",
+                  fontFamily: "var(--font-mono)",
+                  outline: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {[2, 3, 5, 10].map((r) => (
+                  <option key={r} value={String(r)}>{r} rounds</option>
+                ))}
+                <option value="persistent">Persistent (open-ended)</option>
+              </select>
+              {rounds === "persistent" && (
+                <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "6px" }}>
+                  Session stays active — agents respond when you inject a directive
+                </div>
+              )}
             </div>
 
             {error && (
@@ -735,6 +816,8 @@ export default function AdvisoryPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeView, setActiveView] = useState<"live" | "history">("live");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [copiedToast, setCopiedToast] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -854,6 +937,47 @@ export default function AdvisoryPage() {
     await loadSessions();
     if (activeSession) await loadSessionEvents(activeSession.id);
     setRefreshing(false);
+  };
+
+  const handleCopyToClipboard = async () => {
+    if (!activeSession) return;
+    const markdown = formatMarkdownExport(activeSession, events);
+    try {
+      await navigator.clipboard.writeText(markdown);
+      setCopiedToast(true);
+      setTimeout(() => setCopiedToast(false), 2000);
+    } catch (e) {
+      console.error("Clipboard error:", e);
+    }
+  };
+
+  const handleExportMarkdown = () => {
+    if (!activeSession) return;
+    const markdown = formatMarkdownExport(activeSession, events);
+    const dateStr = new Date(activeSession.createdAt).toISOString().split("T")[0];
+    const topicSlug = slugify(activeSession.topic);
+    const fileName = `advisory-${dateStr}-${topicSlug}.md`;
+    const blob = new Blob([markdown], { type: "text/markdown" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleArchive = async () => {
+    if (!activeSession) return;
+    setArchiving(true);
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}/archive`, {
+        method: "POST",
+      });
+    } catch (e) {
+      console.error("Archive error:", e);
+    } finally {
+      setArchiving(false);
+    }
   };
 
   const liveSessions = sessions.filter((s) => s.status === "active");
@@ -1132,6 +1256,51 @@ export default function AdvisoryPage() {
                       <div>{events.length} events</div>
                       <div>{formatDate(activeSession.createdAt)}</div>
                     </div>
+
+                    {/* Export buttons */}
+                    <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      <button
+                        onClick={handleCopyToClipboard}
+                        title="Copy as Markdown"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border)",
+                          backgroundColor: copiedToast ? "rgba(74,222,128,0.15)" : "var(--surface-elevated)",
+                          color: copiedToast ? "#4ade80" : "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          transition: "all 150ms ease",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Copy size={12} />
+                        {copiedToast ? "Copied!" : "Copy"}
+                      </button>
+                      <button
+                        onClick={handleExportMarkdown}
+                        title="Export as Markdown file"
+                        style={{
+                          padding: "6px 10px",
+                          borderRadius: "6px",
+                          border: "1px solid var(--border)",
+                          backgroundColor: "var(--surface-elevated)",
+                          color: "var(--text-muted)",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "5px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        <Download size={12} />
+                        Export
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1259,10 +1428,32 @@ export default function AdvisoryPage() {
                   }}
                 >
                   <Trophy size={16} color="#4ade80" />
-                  <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>
+                  <span style={{ fontSize: "12px", color: "var(--text-muted)", flex: 1 }}>
                     Session completed{activeSession.completedAt ? ` · ${formatDate(activeSession.completedAt)}` : ""}
                     {activeSession.outcome ? ` · Outcome: ${activeSession.outcome}` : ""}
                   </span>
+                  <button
+                    onClick={handleArchive}
+                    disabled={archiving}
+                    title="Archive session to workspace memory"
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--surface-elevated)",
+                      color: "var(--text-muted)",
+                      cursor: archiving ? "not-allowed" : "pointer",
+                      fontSize: "11px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      fontWeight: 600,
+                      opacity: archiving ? 0.6 : 1,
+                    }}
+                  >
+                    {archiving ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                    {archiving ? "Archiving..." : "Archive"}
+                  </button>
                 </div>
               )}
             </>
@@ -1417,23 +1608,46 @@ export default function AdvisoryPage() {
             </div>
 
             {/* Quick actions */}
-            {activeSession.status === "active" && (
-              <>
-                <div style={{ borderTop: "1px solid var(--border)" }} />
-                <div>
-                  <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginBottom: "10px" }}>
-                    ACTIONS
-                  </div>
+            <>
+              <div style={{ borderTop: "1px solid var(--border)" }} />
+              <div>
+                <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em", color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginBottom: "10px" }}>
+                  ACTIONS
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  {activeSession.status === "active" && (
+                    <button
+                      onClick={async () => {
+                        await fetch(`/api/advisory/sessions/${activeSession.id}`, {
+                          method: "PATCH",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ status: "completed", completedAt: new Date().toISOString() }),
+                        });
+                        await loadSessionEvents(activeSession.id);
+                        await loadSessions();
+                      }}
+                      style={{
+                        width: "100%",
+                        padding: "8px",
+                        borderRadius: "6px",
+                        border: "1px solid var(--border)",
+                        backgroundColor: "transparent",
+                        color: "var(--text-secondary)",
+                        cursor: "pointer",
+                        fontSize: "11px",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      <CheckCircle2 size={12} />
+                      Mark Complete
+                    </button>
+                  )}
                   <button
-                    onClick={async () => {
-                      await fetch(`/api/advisory/sessions/${activeSession.id}`, {
-                        method: "PATCH",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ status: "completed", completedAt: new Date().toISOString() }),
-                      });
-                      await loadSessionEvents(activeSession.id);
-                      await loadSessions();
-                    }}
+                    onClick={handleArchive}
+                    disabled={archiving}
                     style={{
                       width: "100%",
                       padding: "8px",
@@ -1441,20 +1655,21 @@ export default function AdvisoryPage() {
                       border: "1px solid var(--border)",
                       backgroundColor: "transparent",
                       color: "var(--text-secondary)",
-                      cursor: "pointer",
+                      cursor: archiving ? "not-allowed" : "pointer",
                       fontSize: "11px",
                       display: "flex",
                       alignItems: "center",
                       gap: "6px",
                       fontFamily: "var(--font-body)",
+                      opacity: archiving ? 0.6 : 1,
                     }}
                   >
-                    <CheckCircle2 size={12} />
-                    Mark Complete
+                    {archiving ? <Loader2 size={12} className="animate-spin" /> : <Archive size={12} />}
+                    {archiving ? "Archiving..." : "Archive to Memory"}
                   </button>
                 </div>
-              </>
-            )}
+              </div>
+            </>
           </div>
         )}
       </div>
