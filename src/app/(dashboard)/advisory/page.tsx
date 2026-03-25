@@ -31,6 +31,10 @@ import {
   Cpu,
   Megaphone,
   Settings,
+  UserPlus,
+  Trash2,
+  GitBranch,
+  Focus,
 } from "lucide-react";
 import { exportSessionAsPDF } from "@/components/AdvisoryPDFExport";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
@@ -69,6 +73,16 @@ interface AdvisorySession {
   lastEvent?: AdvisoryEvent | null;
   events?: AdvisoryEvent[];
   lastError?: string;
+}
+
+interface CustomAgent {
+  id: string;
+  name: string;
+  emoji: string;
+  role: string;
+  persona: string;
+  division: string;
+  createdAt: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -891,14 +905,271 @@ function SessionListItem({
   );
 }
 
+// ─── Create Custom Agent Modal ────────────────────────────────────────────────
+
+const DIVISIONS = ["Leadership", "Trading", "Engineering", "Research", "Creative", "Legal", "Custom"] as const;
+
+function CreateCustomAgentModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (agent: CustomAgent) => void;
+}) {
+  const [name, setName] = useState("");
+  const [emoji, setEmoji] = useState("🤖");
+  const [role, setRole] = useState("");
+  const [persona, setPersona] = useState("");
+  const [division, setDivision] = useState("Custom");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError("Name is required."); return; }
+    if (!role.trim()) { setError("Role is required."); return; }
+    setError("");
+    setLoading(true);
+    try {
+      const res = await fetch("/api/advisory/custom-agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), emoji: emoji || "🤖", role: role.trim(), persona: persona.trim(), division }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to create agent");
+      }
+      const data = await res.json();
+      onCreated(data.agent);
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        backgroundColor: "rgba(0,0,0,0.6)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 250,
+        padding: "20px",
+      }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        style={{
+          backgroundColor: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "16px",
+          width: "100%",
+          maxWidth: "480px",
+          maxHeight: "90vh",
+          overflowY: "auto",
+          padding: "28px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "20px" }}>
+          <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
+            <UserPlus size={18} style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "8px" }} />
+            Create Custom Agent
+          </h2>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}>
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Name + Emoji row */}
+        <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+              NAME
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g., Nova"
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                backgroundColor: "var(--surface-elevated)",
+                border: "1px solid var(--border)",
+                borderRadius: "8px",
+                color: "var(--text-primary)",
+                fontSize: "13px",
+                fontFamily: "var(--font-body)",
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+          <div style={{ width: "80px" }}>
+            <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+              EMOJI
+            </label>
+            <input
+              type="text"
+              value={emoji}
+              onChange={(e) => setEmoji(e.target.value)}
+              maxLength={4}
+              style={{
+                width: "100%",
+                padding: "9px 12px",
+                backgroundColor: "var(--surface-elevated)",
+                border: "1px solid var(--border)",
+                borderRadius: "8px",
+                color: "var(--text-primary)",
+                fontSize: "18px",
+                fontFamily: "var(--font-body)",
+                outline: "none",
+                boxSizing: "border-box",
+                textAlign: "center",
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Role */}
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+            ROLE
+          </label>
+          <input
+            type="text"
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            placeholder="e.g., Marketing Director"
+            style={{
+              width: "100%",
+              padding: "9px 12px",
+              backgroundColor: "var(--surface-elevated)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              color: "var(--text-primary)",
+              fontSize: "13px",
+              fontFamily: "var(--font-body)",
+              outline: "none",
+              boxSizing: "border-box",
+            }}
+          />
+        </div>
+
+        {/* Division */}
+        <div style={{ marginBottom: "16px" }}>
+          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+            DIVISION
+          </label>
+          <select
+            value={division}
+            onChange={(e) => setDivision(e.target.value)}
+            style={{
+              width: "100%",
+              padding: "9px 12px",
+              backgroundColor: "var(--surface-elevated)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              color: "var(--text-primary)",
+              fontSize: "13px",
+              fontFamily: "var(--font-mono)",
+              outline: "none",
+              cursor: "pointer",
+            }}
+          >
+            {DIVISIONS.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Persona */}
+        <div style={{ marginBottom: "20px" }}>
+          <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+            PERSONA (SYSTEM PROMPT)
+          </label>
+          <textarea
+            value={persona}
+            onChange={(e) => setPersona(e.target.value)}
+            placeholder="Describe the agent's personality, expertise, and communication style. This becomes their system prompt in advisory sessions..."
+            rows={5}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              backgroundColor: "var(--surface-elevated)",
+              border: "1px solid var(--border)",
+              borderRadius: "8px",
+              color: "var(--text-primary)",
+              fontSize: "13px",
+              fontFamily: "var(--font-body)",
+              resize: "vertical",
+              outline: "none",
+              boxSizing: "border-box",
+              lineHeight: 1.6,
+            }}
+          />
+          <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
+            Optional — agents without a persona will use a generic professional tone
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+            <AlertCircle size={14} />
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+          <button
+            onClick={onClose}
+            style={{ padding: "10px 20px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}
+          >
+            Cancel
+          </button>
+          <button
+            onClick={handleCreate}
+            disabled={loading}
+            style={{
+              padding: "10px 24px",
+              borderRadius: "8px",
+              border: "none",
+              backgroundColor: "var(--accent)",
+              color: "#fff",
+              cursor: loading ? "not-allowed" : "pointer",
+              fontSize: "13px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+              opacity: loading ? 0.7 : 1,
+              fontFamily: "var(--font-heading)",
+            }}
+          >
+            {loading ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+            Create Agent
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Launch Modal ─────────────────────────────────────────────────────────────
 
 interface LaunchModalProps {
   onClose: () => void;
   onLaunch: (session: AdvisorySession) => void;
+  customAgents: CustomAgent[];
+  onCustomAgentsChange: () => void;
 }
 
-function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
+function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange }: LaunchModalProps) {
+  const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [step, setStep] = useState<"config" | "personas">("config");
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
@@ -1182,8 +1453,121 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                     </button>
                   );
                 })}
+                {/* Custom agents */}
+                {customAgents.map((agent) => {
+                  const sel = selectedAgents.includes(agent.name);
+                  return (
+                    <button
+                      key={agent.id}
+                      onClick={() => toggleAgent(agent.name)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "var(--accent)" : "rgba(167,139,250,0.3)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "rgba(167,139,250,0.06)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        position: "relative",
+                      }}
+                    >
+                      <div style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: "50%",
+                        backgroundColor: "rgba(167,139,250,0.15)",
+                        border: "2px solid rgba(167,139,250,0.4)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        fontSize: "14px",
+                        flexShrink: 0,
+                      }}>
+                        {agent.emoji}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.name}</div>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.role}</div>
+                      </div>
+                      <button
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          await fetch(`/api/advisory/custom-agents?id=${agent.id}`, { method: "DELETE" });
+                          // Remove from selected if selected
+                          setSelectedAgents((prev) => prev.filter((a) => a !== agent.name));
+                          onCustomAgentsChange();
+                        }}
+                        title="Delete custom agent"
+                        style={{
+                          position: "absolute",
+                          top: "2px",
+                          right: "2px",
+                          background: "none",
+                          border: "none",
+                          cursor: "pointer",
+                          color: "var(--text-muted)",
+                          padding: "2px",
+                          opacity: 0.5,
+                          fontSize: "10px",
+                        }}
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </button>
+                  );
+                })}
+                {/* Create Custom Agent button */}
+                <button
+                  onClick={() => setShowCreateAgent(true)}
+                  style={{
+                    padding: "8px 10px",
+                    borderRadius: "8px",
+                    border: "1px dashed rgba(167,139,250,0.4)",
+                    backgroundColor: "transparent",
+                    cursor: "pointer",
+                    textAlign: "left",
+                    transition: "all 150ms ease",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "8px",
+                  }}
+                >
+                  <div style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(167,139,250,0.1)",
+                    border: "2px dashed rgba(167,139,250,0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    flexShrink: 0,
+                  }}>
+                    <UserPlus size={13} color="#a78bfa" />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: "11px", fontWeight: 600, color: "#a78bfa" }}>Create Custom</div>
+                    <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>Add your own agent</div>
+                  </div>
+                </button>
               </div>
             </div>
+
+            {/* Create Custom Agent Modal */}
+            {showCreateAgent && (
+              <CreateCustomAgentModal
+                onClose={() => setShowCreateAgent(false)}
+                onCreated={(agent) => {
+                  setShowCreateAgent(false);
+                  onCustomAgentsChange();
+                  // Auto-select the newly created agent
+                  setSelectedAgents((prev) => [...prev, agent.name]);
+                }}
+              />
+            )}
 
             {/* Review Style */}
             {mode === "review" && (
@@ -1633,6 +2017,7 @@ export default function AdvisoryPage() {
 
   const [messageCopiedToast, setMessageCopiedToast] = useState(false);
   const [retrying, setRetrying] = useState(false);
+  const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1683,9 +2068,20 @@ export default function AdvisoryPage() {
     }
   }, []);
 
+  const loadCustomAgents = useCallback(async () => {
+    try {
+      const res = await fetch("/api/advisory/custom-agents");
+      const data = await res.json();
+      setCustomAgents(data.agents || []);
+    } catch (e) {
+      console.error("Failed to load custom agents:", e);
+    }
+  }, []);
+
   useEffect(() => {
     loadSessions();
-  }, [loadSessions]);
+    loadCustomAgents();
+  }, [loadSessions, loadCustomAgents]);
 
   // Auto-scroll only when near bottom; show badge otherwise
   useEffect(() => {
@@ -3466,6 +3862,8 @@ export default function AdvisoryPage() {
         <LaunchModal
           onClose={() => setShowLaunchModal(false)}
           onLaunch={handleLaunch}
+          customAgents={customAgents}
+          onCustomAgentsChange={loadCustomAgents}
         />
       )}
     </>
