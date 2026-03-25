@@ -115,7 +115,9 @@ function resolveModel(sessionModel?: string): { model: string; thinking?: boolea
   }
   // If it already looks like a gateway model ID (contains "/"), use as-is
   if (sessionModel.includes("/")) return { model: sessionModel };
-  // Legacy bare model names → prepend anthropic/
+  // GPT models → prepend openai/
+  if (sessionModel.startsWith("gpt-")) return { model: `openai/${sessionModel}` };
+  // Claude / other bare model names → prepend anthropic/
   return { model: `anthropic/${sessionModel}` };
 }
 

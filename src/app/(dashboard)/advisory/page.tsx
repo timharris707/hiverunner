@@ -95,9 +95,9 @@ const PERSONA_OVERLAYS = [
 ];
 
 const MODELS = [
-  { id: "anthropic/claude-sonnet-4-6", label: "Sonnet 4.6 (Fast)", desc: "Best speed / cost ratio. Great for most sessions." },
-  { id: "anthropic/claude-opus-4-6", label: "Opus 4.6 (Deep)", desc: "Most capable. Slower but higher quality reasoning." },
-  { id: "anthropic/claude-sonnet-4-6:thinking", label: "Sonnet + High Thinking", desc: "Extended thinking budget. Deep analysis, slower." },
+  { id: "claude-sonnet-4-6", label: "Claude Sonnet (Fast)", desc: "Best speed / cost ratio. Great for most sessions." },
+  { id: "claude-opus-4-6", label: "Claude Opus (Deep)", desc: "Most capable. Slower but higher quality reasoning." },
+  { id: "gpt-5.4", label: "GPT-5.4 (Alternative)", desc: "OpenAI alternative. Different reasoning style." },
 ];
 
 // Per-agent recommended overlays
@@ -822,7 +822,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
-  const [model, setModel] = useState("anthropic/claude-sonnet-4-6");
+  const [model, setModel] = useState("claude-sonnet-4-6");
   const [rounds, setRounds] = useState<number | "persistent">(3);
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
   const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed" | "verbose">("balanced");
