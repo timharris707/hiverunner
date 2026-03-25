@@ -26,7 +26,7 @@ export async function POST(
     const event = {
       id: eventId,
       timestamp: new Date().toISOString(),
-      type: "supervisor",
+      type: "human-directive",
       speaker: "Tim",
       emoji: "👤",
       role: "supervisor",
