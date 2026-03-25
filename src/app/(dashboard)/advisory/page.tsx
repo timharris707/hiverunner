@@ -1882,6 +1882,30 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Continue Discussion (reopen completed session) ─────────────────────────
+  const [continuing, setContinuing] = useState(false);
+  const handleContinueDiscussion = async () => {
+    if (!activeSession) return;
+    setContinuing(true);
+    try {
+      // 1. Set status back to active with persistent rounds
+      await fetch(`/api/advisory/sessions/${activeSession.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "active", completedAt: null, outcome: null, rounds: "persistent", paused: false }),
+      });
+      // 2. Update local state
+      setActiveSession((s) => s ? { ...s, status: "active", completedAt: undefined, outcome: undefined } : s);
+      setIsGenerating(false);
+      await loadSessions();
+      await loadSessionEvents(activeSession.id);
+    } catch (e) {
+      console.error("Continue discussion error:", e);
+    } finally {
+      setContinuing(false);
+    }
+  };
+
   // ── Retry session after error ────────────────────────────────────────────────
   const handleRetrySession = async () => {
     if (!activeSession) return;
@@ -3086,6 +3110,30 @@ export default function AdvisoryPage() {
                       {activeSession.outcome ? ` · ${activeSession.outcome.replace(/-/g, " ")}` : ""}
                     </div>
                   </div>
+                  <button
+                    onClick={handleContinueDiscussion}
+                    disabled={continuing}
+                    title="Reopen session for additional rounds"
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(139,92,246,0.5)",
+                      backgroundColor: continuing ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.12)",
+                      color: "#a78bfa",
+                      cursor: continuing ? "not-allowed" : "pointer",
+                      fontSize: "11px",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      fontWeight: 700,
+                      opacity: continuing ? 0.6 : 1,
+                      fontFamily: "var(--font-heading)",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    {continuing ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
+                    Continue Discussion
+                  </button>
                   <button
                     onClick={handleExportPDF}
                     disabled={exportingPDF}
