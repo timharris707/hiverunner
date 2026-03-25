@@ -13,7 +13,9 @@ import type {
   PacingOption,
   SessionTemplate,
   AdvisoryEvent,
+  AdvisorySession,
 } from "@/types/advisory";
+import { getAgentByAnyId } from "@/config/agents";
 
 // ─── Agent Definitions ───────────────────────────────────────────────────────
 
@@ -281,7 +283,6 @@ export function formatMarkdownExport(session: AdvisorySession, events: AdvisoryE
 
   const participantLines: string[] = [];
   for (const agentDisplayName of session.agents) {
-    const { getAgentByAnyId } = require("@/config/agents");
     const agentConfig = getAgentByAnyId(agentDisplayName);
     const role = agentConfig?.role ?? getAgentRole(agentDisplayName);
     const emoji = agentConfig?.emoji ?? "🤖";
@@ -321,7 +322,6 @@ export function formatMarkdownExport(session: AdvisorySession, events: AdvisoryE
   for (const event of events) {
     if (!event.text || !event.speaker) continue;
     if (event.type === "start") continue;
-    const { getAgentByAnyId } = require("@/config/agents");
     const agentConfig = getAgentByAnyId(event.speaker);
     const role = agentConfig?.role ?? getAgentRole(event.speaker);
     const emoji = agentConfig?.emoji ?? event.emoji ?? "";
@@ -345,6 +345,3 @@ export function formatMarkdownExport(session: AdvisorySession, events: AdvisoryE
 
   return lines.join("\n");
 }
-
-// Need to import the type for the export function
-import type { AdvisorySession } from "@/types/advisory";
