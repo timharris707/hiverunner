@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -73,16 +73,20 @@ export async function POST(req: NextRequest) {
       specialistAgent: specialistAgent || null,
       forkedFrom: forkedFrom || null,
       forkedAtEvent: forkedAtEvent || null,
+      referenceContext: referenceContext ? String(referenceContext).slice(0, 10000) : undefined,
       paused: false,
+      ...(reviewLoop ? { reviewLoop } : {}),
       events: [
         {
           id: "evt_001",
           timestamp: now,
           type: "start",
-          speaker: "Henry",
+          speaker: reviewLoop?.supervisorAgent || "Henry",
           emoji: "⚡",
           role: "supervisor",
-          text: `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`,
+          text: mode === "review" && reviewLoop
+            ? `🚀 **Review Loop started.**\n\n**Topic:** ${topic}\n\n**Tasks:** ${reviewLoop.tasks?.length || 0} items\n**Worker:** ${reviewLoop.workerAgent} | **Reviewer:** ${reviewLoop.reviewerAgent} | **Supervisor:** ${reviewLoop.supervisorAgent}\n**Model:** ${model || "claude-opus-4-6"}\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects.`
+            : `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`,
         },
       ],
     };
