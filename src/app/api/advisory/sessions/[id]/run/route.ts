@@ -212,7 +212,7 @@ This is a high-stakes advisory session. Tim is counting on this board to make re
 // ─── Build conversation history string ───────────────────────────────────────
 
 function buildHistoryString(
-  events: Array<{ speaker: string; text: string; type: string }>
+  events: Array<{ speaker: string; text: string; type: string; emoji?: string; role?: string }>
 ): string {
   const relevant = events.filter(
     (e) => e.type !== "start" && e.type !== "complete" && e.text
@@ -221,11 +221,13 @@ function buildHistoryString(
   return relevant
     .map((e) => {
       if (e.type === "human-directive" || e.speaker === "Tim") {
-        return `**Tim (CEO):** ${e.text.replace(/\*\*/g, "")}\n(Tim is the human founder participating in this discussion. Naturally weave his input into your response — acknowledge his point, answer his question, or build on his idea. Don't be overly deferential, just treat him as the most senior person in the room.)`;
+        return `═══ TIM HARRIS (CEO) ═══\n${e.text.replace(/\*\*/g, "")}\n\n[Note: Tim is the human founder and CEO. Engage with his input directly — acknowledge his point, answer his question, or build on his idea. Refer to him as "Tim" by name.]`;
       }
-      return `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`;
+      const agentDef = AGENT_DEFS[e.speaker];
+      const roleLabel = agentDef ? `${agentDef.role}` : (e.role || "Agent");
+      return `═══ ${e.speaker.toUpperCase()} (${roleLabel}) ═══\n${e.text.replace(/\*\*/g, "")}`;
     })
-    .join("\n\n");
+    .join("\n\n---\n\n");
 }
 
 // ─── Append event to session file ────────────────────────────────────────────
