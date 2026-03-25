@@ -35,6 +35,34 @@
 - [ ] Drag-selecting text in textarea can close the modal (fixed partially — needs verification)
 - [ ] Double-click in wizard textarea causes navigation back (reported but may still exist)
 
+## Session Header (Active Sessions)
+- [ ] Too many buttons crammed together (Resume, End, Copy, Export, PDF)
+- [ ] **PDF/Export/Copy should be DISABLED during active sessions** — gray them out until session completes
+- [ ] New sessions shouldn't start paused — shouldn't need to hit Resume immediately after launch
+- [ ] Simplify header: only show Resume/Pause + End during active sessions, show export buttons after completion
+
+## Right Sidebar
+- [ ] **Remove the Legend section** — wastes space, not useful
+- [ ] Keep Participants and Session Info, trim everything else
+- [ ] "Mark Complete" and "Archive to Memory" buttons are fine
+
+## Templates
+- [ ] Consider hiding behind a "Browse templates" link or removing entirely
+- [ ] They take up too much prime real estate in the wizard
+- [ ] Example prompts in textarea placeholder may be more useful than template cards
+
+## Per-Agent Model Selection
+- [ ] Allow overriding the session model on a per-agent basis
+- [ ] Default shows "Using session default" badge on each agent card
+- [ ] Click to override: small dropdown right on the agent card
+
+## Overlay/Persona Selection UX
+- [ ] Clicking agent should show FULL overlay catalog (all 20-30+ available)
+- [ ] Each overlay needs a one-sentence description, not just title
+- [ ] Allow up to 2 overlays per agent max
+- [ ] Should be additive (adding expertise), not subtractive
+- [ ] Source from Agency Agents library (118 personas available)
+
 ## General UI
 - [ ] Dashboard: old cached versions keep showing (port conflicts, zombie processes)
 - [ ] Consider hiding right sidebar entirely in Review Loop mode
