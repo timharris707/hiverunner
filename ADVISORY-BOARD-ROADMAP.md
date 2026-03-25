@@ -66,15 +66,15 @@ The Advisory Board is the killer feature of Mission Control. It turns a team of 
 
 ### Agent Management
 - [x] **Custom agents**: Create new agents with custom personas from the UI ✅
-- [ ] **Agent performance tracking**: Which agents give the best responses?
-- [ ] **Agent memory**: Agents remember context from previous sessions
+- [x] **Agent performance tracking**: Thumbs up/down ratings, approval %, best topic stats ✅
+- [x] **Agent memory**: Agents remember context from previous sessions (auto-extracted) ✅
 - [x] **Specialist mode**: Deep Dive 1-on-1 consultations with any agent ✅
 
 ### Session Management
 - [x] **Session templates**: 6 templates (Trading, Product, Legal, Architecture, Marketing, Custom) ✅
 - [ ] **Scheduled sessions**: Run a board meeting on a cron schedule
 - [x] **Session branching**: Fork from any message point ✅
-- [ ] **Session comparison**: Side-by-side view of two sessions on same topic
+- [x] **Session comparison**: Side-by-side view of two sessions on same topic ✅
 
 ### Export & Integration
 - [ ] **PDF export**: Beautifully formatted PDF report
