@@ -918,23 +918,29 @@ function SessionListItem({
   session,
   active,
   onClick,
+  compareMode,
+  compareSelected,
+  onCompareToggle,
 }: {
   session: AdvisorySession;
   active: boolean;
   onClick: () => void;
+  compareMode?: boolean;
+  compareSelected?: boolean;
+  onCompareToggle?: () => void;
 }) {
   const badge = getStatusBadge(session.status);
 
   return (
     <button
-      onClick={onClick}
+      onClick={compareMode ? onCompareToggle : onClick}
       style={{
         width: "100%",
         textAlign: "left",
         padding: "12px 14px",
         borderRadius: "10px",
-        border: `1px solid ${active ? "var(--accent)" : "var(--border)"}`,
-        backgroundColor: active ? "var(--accent-soft)" : "transparent",
+        border: `1px solid ${compareSelected ? "rgba(96,165,250,0.5)" : active ? "var(--accent)" : "var(--border)"}`,
+        backgroundColor: compareSelected ? "rgba(96,165,250,0.08)" : active ? "var(--accent-soft)" : "transparent",
         cursor: "pointer",
         transition: "all 150ms ease",
         marginBottom: "6px",
@@ -942,6 +948,16 @@ function SessionListItem({
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "4px" }}>
+        {compareMode && (
+          <div style={{
+            width: 16, height: 16, borderRadius: "4px", marginRight: "6px", flexShrink: 0,
+            border: `2px solid ${compareSelected ? "#60a5fa" : "var(--border)"}`,
+            backgroundColor: compareSelected ? "#60a5fa" : "transparent",
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            {compareSelected && <span style={{ color: "#fff", fontSize: "10px", fontWeight: 700 }}>✓</span>}
+          </div>
+        )}
         <span
           style={{
             fontSize: "9px",
@@ -2207,6 +2223,11 @@ export default function AdvisoryPage() {
   const [retrying, setRetrying] = useState(false);
   const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
   const [agentRatingsGlobal, setAgentRatingsGlobal] = useState<Record<string, { up: number; down: number; total: number; pct: number | null; bestTopic: string | null }>>({});
+  // Compare mode
+  const [compareMode, setCompareMode] = useState(false);
+  const [compareSelections, setCompareSelections] = useState<string[]>([]);
+  const [showCompareView, setShowCompareView] = useState(false);
+  const [compareSessions, setCompareSessions] = useState<[AdvisorySession | null, AdvisorySession | null]>([null, null]);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -2698,6 +2719,31 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Compare sessions ────────────────────────────────────────────────────────
+  const handleToggleCompareSelection = (sessionId: string) => {
+    setCompareSelections((prev) => {
+      if (prev.includes(sessionId)) return prev.filter((s) => s !== sessionId);
+      if (prev.length >= 2) return [prev[1], sessionId]; // replace oldest
+      return [...prev, sessionId];
+    });
+  };
+
+  const handleOpenCompare = async () => {
+    if (compareSelections.length !== 2) return;
+    const loaded: [AdvisorySession | null, AdvisorySession | null] = [null, null];
+    for (let i = 0; i < 2; i++) {
+      try {
+        const res = await fetch(`/api/advisory/sessions/${compareSelections[i]}`);
+        const data = await res.json();
+        loaded[i] = data.session || null;
+      } catch { /* ignore */ }
+    }
+    setCompareSessions(loaded as [AdvisorySession | null, AdvisorySession | null]);
+    setShowCompareView(true);
+    setCompareMode(false);
+    setCompareSelections([]);
+  };
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -2712,7 +2758,12 @@ export default function AdvisoryPage() {
 
       // Escape — close open modals
       if (e.key === "Escape") {
-        if (showLaunchModal) {
+        if (showCompareView) {
+          setShowCompareView(false);
+        } else if (compareMode) {
+          setCompareMode(false);
+          setCompareSelections([]);
+        } else if (showLaunchModal) {
           setShowLaunchModal(false);
         }
         if (endSessionConfirm) {
@@ -3022,6 +3073,58 @@ export default function AdvisoryPage() {
               <MessageSquarePlus size={14} />
               New Session
             </button>
+            <button
+              onClick={() => {
+                setCompareMode((v) => !v);
+                setCompareSelections([]);
+              }}
+              style={{
+                width: "100%",
+                padding: "7px",
+                borderRadius: "8px",
+                border: `1px solid ${compareMode ? "rgba(96,165,250,0.5)" : "var(--border)"}`,
+                backgroundColor: compareMode ? "rgba(96,165,250,0.1)" : "transparent",
+                color: compareMode ? "#60a5fa" : "var(--text-muted)",
+                cursor: "pointer",
+                fontSize: "11px",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: "6px",
+                fontFamily: "var(--font-body)",
+                marginTop: "6px",
+                transition: "all 150ms ease",
+              }}
+            >
+              <Columns2 size={13} />
+              {compareMode ? `Compare (${compareSelections.length}/2)` : "Compare Sessions"}
+            </button>
+            {compareMode && compareSelections.length === 2 && (
+              <button
+                onClick={handleOpenCompare}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#60a5fa",
+                  color: "#fff",
+                  cursor: "pointer",
+                  fontSize: "11px",
+                  fontWeight: 700,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  fontFamily: "var(--font-heading)",
+                  marginTop: "4px",
+                }}
+              >
+                <BarChart3 size={13} />
+                Open Comparison
+              </button>
+            )}
           </div>
 
           {/* View Toggle */}
@@ -3258,6 +3361,9 @@ export default function AdvisoryPage() {
                   session={s}
                   active={activeSession?.id === s.id}
                   onClick={() => handleSelectSession(s)}
+                  compareMode={compareMode}
+                  compareSelected={compareSelections.includes(s.id)}
+                  onCompareToggle={() => handleToggleCompareSelection(s.id)}
                 />
               ));
             })()}
@@ -4252,6 +4358,183 @@ export default function AdvisoryPage() {
       )}
 
       {/* Deep Dive (1-on-1 Specialist) Modal */}
+      {/* Session Comparison Modal */}
+      {showCompareView && compareSessions[0] && compareSessions[1] && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.7)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 300,
+            padding: "20px",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowCompareView(false); }}
+        >
+          <div
+            style={{
+              backgroundColor: "var(--surface)",
+              border: "1px solid var(--border)",
+              borderRadius: "16px",
+              width: "100%",
+              maxWidth: "1200px",
+              height: "85vh",
+              display: "flex",
+              flexDirection: "column",
+              overflow: "hidden",
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              padding: "16px 20px",
+              borderBottom: "1px solid var(--border)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              flexShrink: 0,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <Columns2 size={18} color="#60a5fa" />
+                <h2 style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
+                  Session Comparison
+                </h2>
+              </div>
+              <button onClick={() => setShowCompareView(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {/* Side-by-side panels */}
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              {([compareSessions[0], compareSessions[1]] as AdvisorySession[]).map((sess, idx) => {
+                const sessEvents = (sess.events || []) as AdvisoryEvent[];
+                const sessionData = sess as unknown as Record<string, unknown>;
+                return (
+                  <div
+                    key={sess.id || idx}
+                    style={{
+                      flex: 1,
+                      display: "flex",
+                      flexDirection: "column",
+                      borderRight: idx === 0 ? "1px solid var(--border)" : "none",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {/* Session header */}
+                    <div style={{
+                      padding: "12px 16px",
+                      borderBottom: "1px solid var(--border)",
+                      backgroundColor: idx === 0 ? "rgba(96,165,250,0.04)" : "rgba(167,139,250,0.04)",
+                      flexShrink: 0,
+                    }}>
+                      <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "6px", lineHeight: 1.4 }}>
+                        {sess.title || sess.topic}
+                      </div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
+                        <span style={{
+                          fontSize: "8px", fontWeight: 700, letterSpacing: "0.06em",
+                          color: "#60a5fa", backgroundColor: "rgba(96,165,250,0.12)",
+                          border: "1px solid rgba(96,165,250,0.3)", padding: "2px 5px",
+                          borderRadius: "3px", fontFamily: "var(--font-mono)",
+                        }}>{sess.mode}</span>
+                        {sess.model && (
+                          <span style={{
+                            fontSize: "8px", fontWeight: 600,
+                            color: "var(--text-muted)", backgroundColor: "rgba(100,116,139,0.08)",
+                            border: "1px solid rgba(100,116,139,0.2)", padding: "2px 5px",
+                            borderRadius: "3px", fontFamily: "var(--font-mono)",
+                          }}>{sess.model}</span>
+                        )}
+                        {!!sessionData.responseLength && (
+                          <span style={{
+                            fontSize: "8px", fontWeight: 600,
+                            color: "var(--text-muted)", backgroundColor: "rgba(100,116,139,0.08)",
+                            border: "1px solid rgba(100,116,139,0.2)", padding: "2px 5px",
+                            borderRadius: "3px", fontFamily: "var(--font-mono)",
+                          }}>{String(sessionData.responseLength)}</span>
+                        )}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                        <AvatarStack agentIds={sess.agents} size={20} max={5} />
+                        <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+                          {sess.agents.join(", ")} · {sessEvents.length} events
+                        </span>
+                      </div>
+                      {sess.outcome && (
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "4px", fontFamily: "var(--font-mono)" }}>
+                          Outcome: {sess.outcome}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Events scroll */}
+                    <div style={{
+                      flex: 1,
+                      overflowY: "auto",
+                      padding: "12px 14px",
+                    }}>
+                      {sessEvents.filter((e) => e.text && e.speaker).map((event) => {
+                        const evtStyle = getEventStyle(event);
+                        const agentConfig = event.speaker !== "Tim" ? getAgentByAnyId(event.speaker) : null;
+                        const isHuman = event.speaker === "Tim";
+                        const isSystem = event.type === "start" || event.type === "complete";
+                        const displayText = isHuman
+                          ? event.text.replace(/^\*\*\[Human Directive\]\*\*\s*/i, "").trim()
+                          : event.text;
+
+                        return (
+                          <div
+                            key={event.id}
+                            style={{
+                              padding: "10px 12px",
+                              borderRadius: "10px",
+                              border: `1px solid ${evtStyle.border}`,
+                              backgroundColor: evtStyle.bg,
+                              marginBottom: "8px",
+                            }}
+                          >
+                            <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
+                              {isHuman ? (
+                                <div style={{
+                                  width: 24, height: 24, borderRadius: "50%",
+                                  backgroundColor: "rgba(251,191,36,0.15)", border: "2px solid rgba(251,191,36,0.5)",
+                                  display: "flex", alignItems: "center", justifyContent: "center",
+                                  fontSize: "10px", fontWeight: 700, color: "#fbbf24",
+                                }}>T</div>
+                              ) : isSystem ? (
+                                <span style={{ fontSize: "14px" }}>{event.emoji}</span>
+                              ) : agentConfig ? (
+                                <AgentAvatar agentId={event.speaker} size={24} borderWidth={2} />
+                              ) : (
+                                <span style={{ fontSize: "14px" }}>{event.emoji}</span>
+                              )}
+                              <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>
+                                {isHuman ? "Tim Harris" : event.speaker}
+                              </span>
+                              <span style={{ fontSize: "9px", color: "var(--text-muted)", marginLeft: "auto" }}>
+                                {formatTime(event.timestamp)}
+                              </span>
+                            </div>
+                            <div
+                              style={{ fontSize: "11px", color: "var(--text-primary)", lineHeight: 1.6, marginLeft: "32px" }}
+                              className="advisory-markdown"
+                            >
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
       {deepDiveAgent && (
         <div
           style={{
