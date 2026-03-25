@@ -256,6 +256,12 @@ function StatSkeleton() {
   );
 }
 
+interface LiveAgentStatus {
+  id: string;
+  status: "online" | "active" | "building" | "pending" | "offline";
+  label?: string;
+}
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<Stats>({ total: 0, today: 0, success: 0, error: 0, byType: {} });
   const [liveAgents, setLiveAgents] = useState<Agent[]>([]);
@@ -263,6 +269,7 @@ export default function DashboardPage() {
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
   const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
+  const [agentStatuses, setAgentStatuses] = useState<Record<string, LiveAgentStatus>>({});
 
   const fetchDashboardData = () => {
     Promise.all([
@@ -271,7 +278,8 @@ export default function DashboardPage() {
       fetch("/api/dashboard/highlights").then(r => r.json()),
       fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
       fetch("/api/advisory/sessions").then(r => r.json()).catch(() => ({ sessions: [] })),
-    ]).then(([actStats, agentsData, highlightData, ds, advisoryData]) => {
+      fetch("/api/agents/status").then(r => r.json()).catch(() => ({ agents: [] })),
+    ]).then(([actStats, agentsData, highlightData, ds, advisoryData, statusData]) => {
       setStats({
         total: actStats.total || 0,
         today: actStats.today || 0,
@@ -283,6 +291,12 @@ export default function DashboardPage() {
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
       if (ds) setDashStats(ds);
       setRecentSessions((advisoryData.sessions || []).slice(0, 3));
+      // Build status map from live data
+      const statusMap: Record<string, LiveAgentStatus> = {};
+      for (const agent of (statusData.agents || [])) {
+        statusMap[agent.id] = agent;
+      }
+      setAgentStatuses(statusMap);
       setStatsLoading(false);
     }).catch(() => setStatsLoading(false));
   };
@@ -295,7 +309,13 @@ export default function DashboardPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeAgentCount = ORG_AGENTS.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
+  // Merge live statuses into org agents
+  const mergedAgents = ORG_AGENTS.map(agent => ({
+    ...agent,
+    status: (agentStatuses[agent.id]?.status ?? agent.status) as typeof agent.status,
+  }));
+
+  const activeAgentCount = mergedAgents.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
 
   return (
     <div className="p-4 md:p-8">
@@ -560,8 +580,16 @@ export default function DashboardPage() {
                 Henry ⚡ — Chief of Staff
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <Circle className="w-2 h-2" style={{ fill: "#4ade80", color: "#4ade80" }} />
-                <span className="text-xs" style={{ color: "#4ade80" }}>Online · Orchestrating</span>
+                <Circle
+                  className="w-2 h-2"
+                  style={{
+                    fill: STATUS_COLORS[agentStatuses["henry"]?.status ?? "online"],
+                    color: STATUS_COLORS[agentStatuses["henry"]?.status ?? "online"],
+                  }}
+                />
+                <span className="text-xs" style={{ color: STATUS_COLORS[agentStatuses["henry"]?.status ?? "online"] }}>
+                  {STATUS_LABELS[agentStatuses["henry"]?.status ?? "online"]} · Orchestrating
+                </span>
                 <span className="text-xs ml-2 px-2 py-0.5 rounded" style={{ backgroundColor: "#f59e0b20", color: "#f59e0b" }}>
                   Claude Opus
                 </span>
@@ -573,11 +601,11 @@ export default function DashboardPage() {
         {/* Divisions */}
         <div className="px-5 pb-5">
           {[
-            { name: "Trading Desk", color: "#4ade80", agents: ORG_AGENTS.filter(a => a.division === "Trading") },
-            { name: "Engineering", color: "#60a5fa", agents: ORG_AGENTS.filter(a => a.division === "Engineering") },
-            { name: "Research", color: "#a78bfa", agents: ORG_AGENTS.filter(a => a.division === "Research") },
-            { name: "Creative", color: "#f472b6", agents: ORG_AGENTS.filter(a => a.division === "Creative") },
-            { name: "Legal", color: "#94a3b8", agents: ORG_AGENTS.filter(a => a.division === "Legal") },
+            { name: "Trading Desk", color: "#4ade80", agents: mergedAgents.filter(a => a.division === "Trading") },
+            { name: "Engineering", color: "#60a5fa", agents: mergedAgents.filter(a => a.division === "Engineering") },
+            { name: "Research", color: "#a78bfa", agents: mergedAgents.filter(a => a.division === "Research") },
+            { name: "Creative", color: "#f472b6", agents: mergedAgents.filter(a => a.division === "Creative") },
+            { name: "Legal", color: "#94a3b8", agents: mergedAgents.filter(a => a.division === "Legal") },
           ].map((division) => (
             <div key={division.name} className="mb-4 last:mb-0">
               <div
