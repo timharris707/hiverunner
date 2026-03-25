@@ -211,7 +211,7 @@ function buildHistoryString(
   return relevant
     .map((e) => {
       if (e.type === "human-directive" || e.speaker === "Tim") {
-        return `⚠️ **[CEO DIRECTIVE — Tim Harris]:** ${e.text.replace(/\*\*/g, "")}\n(NOTE: This is a direct instruction from the human CEO. You MUST acknowledge and respond to this directive in your next response. It takes priority over the ongoing discussion.)`;
+        return `**Tim (CEO):** ${e.text.replace(/\*\*/g, "")}\n(Tim is the human founder participating in this discussion. Naturally weave his input into your response — acknowledge his point, answer his question, or build on his idea. Don't be overly deferential, just treat him as the most senior person in the room.)`;
       }
       return `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`;
     })
