@@ -606,6 +606,8 @@ function EventBubble({
         backgroundColor: style.bg,
         marginBottom: "12px",
         position: "relative",
+        maxWidth: "100%",
+        overflow: "hidden",
       }}
     >
       {/* Action buttons — appear on hover for non-system messages */}
@@ -797,7 +799,7 @@ function EventBubble({
 
       {/* Content */}
       <div
-        style={{ fontSize: "13px", color: isError ? "#fca5a5" : "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px" }}
+        style={{ fontSize: "13px", color: isError ? "#fca5a5" : "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px", maxWidth: "100%", overflow: "hidden", wordBreak: "normal", overflowWrap: "break-word" }}
         className="advisory-markdown"
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
@@ -4306,7 +4308,7 @@ export default function AdvisoryPage() {
         </div>
 
         {/* ─── MAIN CONTENT ─────────────────────────────── */}
-        <div className="advisory-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <div className="advisory-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: "400px" }}>
           {/* Mobile top bar — always visible, shows hamburger + title */}
           <div
             className="advisory-mobile-menu-btn"

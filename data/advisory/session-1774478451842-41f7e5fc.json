@@ -1,0 +1,50 @@
+{
+  "id": "session-1774478451842-41f7e5fc",
+  "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+  "mode": "roundtable",
+  "agents": [
+    "Henry",
+    "Quant",
+    "Scout",
+    "Quill",
+    "Pixel"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-25T22:40:51.843Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": {
+    "Quill": "content-creator"
+  },
+  "rounds": 3,
+  "pacing": "manual",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-25T22:40:51.843Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.**\n\n**Topic:** We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Henry, Quant, Scout, Quill, Pixel\n\nStanding by for agent inputs..."
+    },
+    {
+      "id": "evt_1774478477354_lueuw",
+      "timestamp": "2026-03-25T22:41:17.354Z",
+      "type": "worker",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "Let me cut straight to the core tension nobody's naming yet: **we're not building a chatbot, we're building a decision-making process.** That's the differentiation, full stop. ChatGPT gives you one voice. Claude gives you one very polite voice. CrewAI gives you a developer framework to wire agents together. None of them sell *structured deliberation as a product*. The moment we start positioning BoardRunner as \"talk to multiple AI agents,\" we're dead — that's a feature OpenAI ships in a Tuesday update. What we're actually selling is **governance-in-a-box**: the idea that better decisions come from structured disagreement, role specialization, and forced consideration of tradeoffs. That's a workflow, not a model capability. And workflows have moats that raw intelligence doesn't.\n\n**Target customer — and I'll be blunt, we need to pick ONE to start.** The tempting answer is \"solo founders and small teams,\" but that's a graveyard of $20/month subscriptions with 90% churn. The money is in mid-market operators who already *have* advisory boards or leadership teams and know how expensive and slow those processes are. Think: fund managers running investment committees, product leaders doing launch reviews, compliance teams doing risk assessments, M&A teams doing due diligence. These people pay $500-2,000/hour for human advisory input. If we can deliver 60% of that value at 5% of the cost, the ROI story writes itself. **Pricing should be usage-based with a professional floor** — $99/month base gets you X deliberation hours, then $0.50-1.00 per agent-minute above that. Enterprise tier at $499+ with custom agent personas, SSO, audit trails. Do NOT launch with a free tier. Free users don't convert in B2B workflow tools — they just burn your inference budget and leave.\n\n**Launch strategy: don't go wide, go deep into one vertical and own it.** I'd pick investment analysis or startup advisory first — both have users who are already paying for opinions and can immediately evaluate quality. Ship a \"BoardRunner for Investment Committees\" template with pre-built analyst, risk officer, and macro strategist agents. Get 20 fund managers using it in week one through direct outreach, not content marketing. Capture every session transcript, build a case study deck, then expand horizontally. The playbook is Figma, not Canva — win the sophisticated users first, let them pull you into their organizations. And for the love of god, let's not waste cycles on a Product Hunt launch. That's vanity metrics for a product that needs to prove decision quality, not collect upvotes.",
+      "model": "anthropic/claude-sonnet-4-6"
+    }
+  ],
+  "thinkingAgent": "Quant"
+}
