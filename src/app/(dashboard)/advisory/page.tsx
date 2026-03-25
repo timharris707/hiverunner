@@ -13,7 +13,6 @@ import {
   MessageSquarePlus,
   History,
   Radio,
-  Trophy,
   RefreshCw,
   Copy,
   Download,
@@ -23,6 +22,7 @@ import {
   ChevronRight,
   ChevronDown,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
@@ -1256,6 +1256,10 @@ export default function AdvisoryPage() {
   const [advancingTurn, setAdvancingTurn] = useState(false);
   const [requestingFullRound, setRequestingFullRound] = useState(false);
   const [thinkingAgent, setThinkingAgent] = useState<string | null>(null);
+  // Search/filter state
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterAgent, setFilterAgent] = useState<string>("");
+  const [showFilters, setShowFilters] = useState(false);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1725,6 +1729,133 @@ export default function AdvisoryPage() {
             })}
           </div>
 
+          {/* Search bar */}
+          <div style={{ padding: "8px 12px", borderBottom: "1px solid var(--border)" }}>
+            <div style={{ position: "relative" }}>
+              <Search
+                size={12}
+                style={{
+                  position: "absolute",
+                  left: "9px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  color: "var(--text-muted)",
+                  pointerEvents: "none",
+                }}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search topics..."
+                style={{
+                  width: "100%",
+                  padding: "6px 8px 6px 26px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "6px",
+                  color: "var(--text-primary)",
+                  fontSize: "11px",
+                  fontFamily: "var(--font-body)",
+                  outline: "none",
+                  boxSizing: "border-box",
+                }}
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  style={{
+                    position: "absolute",
+                    right: "6px",
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "2px",
+                    display: "flex",
+                    alignItems: "center",
+                  }}
+                >
+                  <X size={10} />
+                </button>
+              )}
+            </div>
+
+            {/* Agent filter */}
+            <div style={{ marginTop: "6px" }}>
+              <button
+                onClick={() => setShowFilters((v) => !v)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  color: filterAgent ? "var(--accent)" : "var(--text-muted)",
+                  fontSize: "10px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  padding: "2px 0",
+                  fontWeight: filterAgent ? 700 : 500,
+                }}
+              >
+                <Search size={10} />
+                {filterAgent ? `Filter: ${filterAgent}` : "Filter by agent"}
+                {filterAgent && (
+                  <span
+                    onClick={(e) => { e.stopPropagation(); setFilterAgent(""); }}
+                    style={{ marginLeft: "4px", color: "var(--accent)", fontWeight: 700 }}
+                  >
+                    ✕
+                  </span>
+                )}
+              </button>
+
+              {showFilters && (
+                <div
+                  style={{
+                    marginTop: "6px",
+                    padding: "8px",
+                    backgroundColor: "var(--surface-elevated)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "8px",
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "4px",
+                  }}
+                >
+                  {AGENTS.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={() => {
+                        setFilterAgent((prev) => prev === agent.id ? "" : agent.id);
+                        setShowFilters(false);
+                      }}
+                      style={{
+                        padding: "3px 7px",
+                        borderRadius: "12px",
+                        border: `1px solid ${filterAgent === agent.id ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: filterAgent === agent.id ? "var(--accent-soft)" : "transparent",
+                        color: filterAgent === agent.id ? "var(--accent)" : "var(--text-muted)",
+                        cursor: "pointer",
+                        fontSize: "10px",
+                        fontWeight: filterAgent === agent.id ? 700 : 500,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        transition: "all 100ms ease",
+                      }}
+                    >
+                      <span>{agent.emoji}</span>
+                      <span>{agent.id}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           {/* Session list */}
           <div style={{ flex: 1, overflowY: "auto", padding: "10px 12px" }}>
             {loading ? (
@@ -1732,11 +1863,38 @@ export default function AdvisoryPage() {
                 <Loader2 size={18} className="animate-spin" />
               </div>
             ) : (() => {
-              const displaySessions = activeView === "live" ? liveSessions : completedSessions;
+              const baseSessions = activeView === "live" ? liveSessions : completedSessions;
+              // Apply search filter
+              const displaySessions = baseSessions.filter((s) => {
+                const matchesSearch = !searchQuery ||
+                  s.topic.toLowerCase().includes(searchQuery.toLowerCase());
+                const matchesAgent = !filterAgent ||
+                  s.agents.some((a) => a.toLowerCase() === filterAgent.toLowerCase());
+                return matchesSearch && matchesAgent;
+              });
               if (displaySessions.length === 0) {
                 return (
                   <div style={{ textAlign: "center", padding: "32px 16px", color: "var(--text-muted)" }}>
-                    {activeView === "live" ? (
+                    {searchQuery || filterAgent ? (
+                      <>
+                        <Search size={20} style={{ opacity: 0.4, margin: "0 auto 8px" }} />
+                        <div style={{ fontSize: "12px", marginBottom: "4px" }}>No matching sessions</div>
+                        <button
+                          onClick={() => { setSearchQuery(""); setFilterAgent(""); }}
+                          style={{
+                            marginTop: "8px",
+                            fontSize: "10px",
+                            color: "var(--accent)",
+                            background: "none",
+                            border: "none",
+                            cursor: "pointer",
+                            fontWeight: 600,
+                          }}
+                        >
+                          Clear filters
+                        </button>
+                      </>
+                    ) : activeView === "live" ? (
                       <>
                         <Radio size={24} style={{ opacity: 0.4, margin: "0 auto 8px" }} />
                         <div style={{ fontSize: "12px", marginBottom: "4px" }}>No active sessions</div>
