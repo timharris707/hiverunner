@@ -58,22 +58,22 @@ The Advisory Board is the killer feature of Mission Control. It turns a team of 
 ## 🚀 Phase 2: Power Features
 
 ### Conversation Quality
-- [ ] **Model selection per session**: Choose Opus vs Sonnet vs GPT per session
-- [ ] **Thinking mode toggle**: Enable extended thinking for deeper analysis
+- [x] **Model selection per session**: Choose Opus vs Sonnet vs GPT per session ✅
+- [x] **Thinking mode toggle**: Enable extended thinking for deeper analysis ✅
 - [ ] **Temperature control**: Allow tuning creativity vs precision
-- [ ] **Response length control**: Concise vs detailed toggle
-- [ ] **Follow-up rounds**: After a session ends, "Continue this discussion" button
+- [x] **Response length control**: Concise / Balanced / Detailed / Verbose ✅
+- [x] **Follow-up rounds**: "Continue Discussion" button on completed sessions ✅
 
 ### Agent Management
-- [ ] **Custom agents**: Create new agents with custom personas from the UI
+- [x] **Custom agents**: Create new agents with custom personas from the UI ✅
 - [ ] **Agent performance tracking**: Which agents give the best responses?
 - [ ] **Agent memory**: Agents remember context from previous sessions
-- [ ] **Specialist mode**: Deep-dive with a single agent (not a full board)
+- [x] **Specialist mode**: Deep Dive 1-on-1 consultations with any agent ✅
 
 ### Session Management
-- [ ] **Session templates**: "Trading Strategy Review", "Product Launch", "Risk Assessment"
+- [x] **Session templates**: 6 templates (Trading, Product, Legal, Architecture, Marketing, Custom) ✅
 - [ ] **Scheduled sessions**: Run a board meeting on a cron schedule
-- [ ] **Session branching**: Fork a conversation from any point
+- [x] **Session branching**: Fork from any message point ✅
 - [ ] **Session comparison**: Side-by-side view of two sessions on same topic
 
 ### Export & Integration
