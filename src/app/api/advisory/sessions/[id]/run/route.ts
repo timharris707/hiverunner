@@ -209,7 +209,12 @@ function buildHistoryString(
   );
   if (relevant.length === 0) return "No prior discussion yet.";
   return relevant
-    .map((e) => `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`)
+    .map((e) => {
+      if (e.type === "human-directive" || e.speaker === "Tim") {
+        return `⚠️ **[CEO DIRECTIVE — Tim Harris]:** ${e.text.replace(/\*\*/g, "")}\n(NOTE: This is a direct instruction from the human CEO. You MUST acknowledge and respond to this directive in your next response. It takes priority over the ongoing discussion.)`;
+      }
+      return `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`;
+    })
     .join("\n\n");
 }
 
