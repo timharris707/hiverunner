@@ -781,6 +781,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div
+        className="advisory-modal-inner"
         style={{
           backgroundColor: "var(--surface)",
           border: "1px solid var(--border)",
@@ -1260,6 +1261,8 @@ export default function AdvisoryPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [filterAgent, setFilterAgent] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
+  // Mobile: sidebar toggle
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1372,11 +1375,13 @@ export default function AdvisoryPage() {
     setEvents([]);
     setShowNewMessages(false);
     setEndSessionConfirm(false);
+    setMobileSidebarOpen(false); // close sidebar on mobile when selecting a session
     await loadSessionEvents(session.id);
   };
 
   const handleLaunch = async (session: AdvisorySession) => {
     setShowLaunchModal(false);
+    setMobileSidebarOpen(false);
     setIsGenerating(true);
     await loadSessions();
     await handleSelectSession(session);
@@ -1618,12 +1623,103 @@ export default function AdvisoryPage() {
           0%, 100% { transform: scale(1); opacity: 0.6; }
           50% { transform: scale(1.15); opacity: 1; }
         }
+        /* Mobile slide-in sidebar */
+        @keyframes slide-in-left {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
+        /* ─── Mobile responsive ─────────────────────── */
+        @media (max-width: 768px) {
+          /* Layout adjustments */
+          .advisory-layout {
+            position: relative;
+          }
+          /* Mobile sidebar overlay */
+          .advisory-sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            bottom: 0 !important;
+            z-index: 300 !important;
+            width: 300px !important;
+            max-width: 85vw !important;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.4) !important;
+            animation: slide-in-left 0.2s ease-out;
+          }
+          .advisory-sidebar.closed {
+            display: none !important;
+          }
+          /* Mobile overlay backdrop */
+          .mobile-sidebar-backdrop {
+            display: block !important;
+          }
+          /* Hide right sidebar on mobile */
+          .advisory-right-sidebar {
+            display: none !important;
+          }
+          /* Full-width chat on mobile */
+          .advisory-main {
+            width: 100% !important;
+          }
+          /* Larger touch targets for buttons */
+          .advisory-mobile-menu-btn {
+            display: flex !important;
+          }
+          /* Event bubbles — tighter on mobile */
+          .advisory-event-bubble {
+            padding: 12px !important;
+          }
+          /* Reduce session header padding */
+          .advisory-session-header {
+            padding: 12px 16px !important;
+          }
+          /* Compact input bar */
+          .advisory-input-bar {
+            padding: 10px 16px 12px !important;
+          }
+          /* Events stream */
+          .advisory-events-stream {
+            padding: 14px 16px !important;
+          }
+          /* Smaller wizard modal */
+          .advisory-modal-inner {
+            padding: 20px 16px !important;
+            border-radius: 12px !important;
+          }
+        }
+        @media (min-width: 769px) {
+          .advisory-mobile-menu-btn {
+            display: none !important;
+          }
+          .advisory-sidebar {
+            display: flex !important;
+          }
+          .mobile-sidebar-backdrop {
+            display: none !important;
+          }
+        }
       `}</style>
 
-      <div style={{ display: "flex", height: "calc(100vh - 80px)", gap: "0", minHeight: 0 }}>
+      {/* Mobile sidebar backdrop */}
+      {mobileSidebarOpen && (
+        <div
+          className="mobile-sidebar-backdrop"
+          onClick={() => setMobileSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.5)",
+            zIndex: 299,
+            display: "none", // shown via CSS on mobile
+          }}
+        />
+      )}
+
+      <div className="advisory-layout" style={{ display: "flex", height: "calc(100vh - 80px)", gap: "0", minHeight: 0, position: "relative" }}>
 
         {/* ─── LEFT SIDEBAR ──────────────────────────────── */}
         <div
+          className={`advisory-sidebar${mobileSidebarOpen ? "" : " closed"}`}
           style={{
             width: "280px",
             flexShrink: 0,
@@ -1648,13 +1744,33 @@ export default function AdvisoryPage() {
                   Advisory Board
                 </h1>
               </div>
-              <button
-                onClick={handleRefresh}
-                style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}
-                title="Refresh"
-              >
-                <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                <button
+                  onClick={handleRefresh}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "6px" }}
+                  title="Refresh"
+                >
+                  <RefreshCw size={14} className={refreshing ? "animate-spin" : ""} />
+                </button>
+                {/* Close button — mobile only */}
+                <button
+                  className="advisory-mobile-menu-btn"
+                  onClick={() => setMobileSidebarOpen(false)}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-muted)",
+                    padding: "6px",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    display: "none", // shown via CSS
+                  }}
+                  aria-label="Close sidebar"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <button
@@ -1922,11 +2038,69 @@ export default function AdvisoryPage() {
         </div>
 
         {/* ─── MAIN CONTENT ─────────────────────────────── */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+        <div className="advisory-main" style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+          {/* Mobile top bar — always visible, shows hamburger + title */}
+          <div
+            className="advisory-mobile-menu-btn"
+            style={{
+              display: "none", // shown by CSS on mobile
+              alignItems: "center",
+              gap: "10px",
+              padding: "10px 16px",
+              borderBottom: "1px solid var(--border)",
+              backgroundColor: "var(--surface)",
+              flexShrink: 0,
+            }}
+          >
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              style={{
+                background: "none",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+                color: "var(--text-primary)",
+                padding: "6px 10px",
+                borderRadius: "6px",
+                display: "flex",
+                alignItems: "center",
+                gap: "5px",
+                fontSize: "12px",
+                fontWeight: 600,
+              }}
+            >
+              <Users size={14} />
+              Sessions
+            </button>
+            <span style={{ fontSize: "13px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+              Advisory Board
+            </span>
+            <button
+              onClick={() => setShowLaunchModal(true)}
+              style={{
+                marginLeft: "auto",
+                padding: "6px 12px",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: "var(--accent)",
+                color: "#fff",
+                cursor: "pointer",
+                fontSize: "11px",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+              }}
+            >
+              <Plus size={12} />
+              New
+            </button>
+          </div>
+
           {activeSession ? (
             <>
               {/* Session header */}
               <div
+                className="advisory-session-header"
                 style={{
                   padding: "16px 24px",
                   borderBottom: "1px solid var(--border)",
@@ -2196,6 +2370,7 @@ export default function AdvisoryPage() {
               {/* Events stream (scroll container) */}
               <div
                 ref={scrollContainerRef}
+                className="advisory-events-stream"
                 style={{
                   flex: 1,
                   overflowY: "auto",
@@ -2309,6 +2484,7 @@ export default function AdvisoryPage() {
               {/* Human input bar */}
               {activeSession.status === "active" && (
                 <div
+                  className="advisory-input-bar"
                   style={{
                     padding: "12px 24px 16px",
                     borderTop: "1px solid var(--border)",
@@ -2536,6 +2712,7 @@ export default function AdvisoryPage() {
         {/* ─── RIGHT SIDEBAR — Session metadata (desktop only) ── */}
         {activeSession && (
           <div
+            className="advisory-right-sidebar"
             style={{
               width: "220px",
               flexShrink: 0,
