@@ -242,6 +242,19 @@ function appendEvent(
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
 }
 
+// ─── Set/clear thinking agent ─────────────────────────────────────────────────
+
+function setThinkingAgent(sessionPath: string, agentId: string | null) {
+  try {
+    const raw = fs.readFileSync(sessionPath, "utf-8");
+    const session = JSON.parse(raw);
+    session.thinkingAgent = agentId;
+    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+  } catch {
+    // ignore — non-critical
+  }
+}
+
 // ─── Pacing helpers ───────────────────────────────────────────────────────────
 
 async function waitForUnpause(sessionPath: string): Promise<boolean> {
@@ -422,11 +435,13 @@ async function runRoundtable(
         : `Topic: ${topic}\n\nPrevious discussion:\n\n${history}\n\nYou've already spoken once. Now it's round ${round} — build on what's been said, push back on anything you disagree with, or take the discussion in a new direction.${contrarianNote}`;
 
       let text = "";
+      setThinkingAgent(filePath, agentId);
       try {
         text = await callClaude(systemPrompt, userPrompt, model, thinking);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
+      setThinkingAgent(filePath, null);
 
       const agent = AGENT_DEFS[agentId];
       const eventId = `evt_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;

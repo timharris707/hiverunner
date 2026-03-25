@@ -499,6 +499,88 @@ function EventBubble({
   );
 }
 
+// ─── Typing Indicator ─────────────────────────────────────────────────────────
+
+function TypingIndicator({ agentId }: { agentId: string | null }) {
+  const agentDef = agentId ? AGENTS.find((a) => a.id === agentId) : null;
+  const label = agentId
+    ? `${agentId} is thinking...`
+    : "Agents are deliberating...";
+
+  return (
+    <div
+      className="typing-indicator"
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "10px",
+        padding: "12px 16px",
+        borderRadius: "12px",
+        border: "1px solid rgba(139, 92, 246, 0.25)",
+        backgroundColor: "rgba(139, 92, 246, 0.06)",
+        marginBottom: "12px",
+        animation: "msg-fadein 0.2s ease-out",
+      }}
+    >
+      {/* Avatar with pulse ring */}
+      <div style={{ position: "relative", flexShrink: 0 }}>
+        {agentId ? (
+          <>
+            <div
+              style={{
+                position: "absolute",
+                inset: "-4px",
+                borderRadius: "50%",
+                border: "2px solid rgba(139,92,246,0.5)",
+                animation: "thinking-pulse 1.2s ease-in-out infinite",
+              }}
+            />
+            <AgentAvatar agentId={agentId} size={32} borderWidth={2} />
+          </>
+        ) : (
+          <div
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: "50%",
+              backgroundColor: "rgba(139,92,246,0.15)",
+              border: "2px solid rgba(139,92,246,0.4)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              animation: "thinking-pulse 1.2s ease-in-out infinite",
+            }}
+          >
+            <span style={{ fontSize: "14px" }}>{agentDef?.emoji ?? "💬"}</span>
+          </div>
+        )}
+      </div>
+
+      <div style={{ flex: 1 }}>
+        <div style={{ fontSize: "12px", color: "#a78bfa", fontWeight: 600, marginBottom: "5px" }}>
+          {label}
+        </div>
+        {/* Animated dots */}
+        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={{
+                width: "6px",
+                height: "6px",
+                borderRadius: "50%",
+                backgroundColor: "#8b5cf6",
+                animation: `typing-dot 1.2s ease-in-out infinite`,
+                animationDelay: `${i * 0.2}s`,
+              }}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SessionListItem({
   session,
   active,
@@ -1173,6 +1255,7 @@ export default function AdvisoryPage() {
   const [endingSession, setEndingSession] = useState(false);
   const [advancingTurn, setAdvancingTurn] = useState(false);
   const [requestingFullRound, setRequestingFullRound] = useState(false);
+  const [thinkingAgent, setThinkingAgent] = useState<string | null>(null);
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -1259,9 +1342,12 @@ export default function AdvisoryPage() {
           if (typeof data.paused === "boolean") {
             setIsPaused(data.paused);
           }
+          // Sync thinking agent
+          setThinkingAgent(data.thinkingAgent ?? null);
           // Check if session has completed
           if (data.status && data.status !== "active") {
             setIsGenerating(false);
+            setThinkingAgent(null);
             await loadSessions();
             await loadSessionEvents(activeSession.id);
           }
@@ -1517,6 +1603,16 @@ export default function AdvisoryPage() {
         }
         .advisory-event-bubble {
           animation: msg-fadein 0.25s ease-out;
+        }
+        /* Typing indicator dot bounce */
+        @keyframes typing-dot {
+          0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+          30% { transform: translateY(-5px); opacity: 1; }
+        }
+        /* Agent avatar thinking pulse */
+        @keyframes thinking-pulse {
+          0%, 100% { transform: scale(1); opacity: 0.6; }
+          50% { transform: scale(1.15); opacity: 1; }
         }
       `}</style>
 
@@ -1970,23 +2066,7 @@ export default function AdvisoryPage() {
                       />
                     ))}
                     {isGenerating && activeSession?.status === "active" && !isPaused && (
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "10px",
-                          padding: "12px 16px",
-                          borderRadius: "12px",
-                          border: "1px solid rgba(139, 92, 246, 0.2)",
-                          backgroundColor: "rgba(139, 92, 246, 0.05)",
-                          marginBottom: "12px",
-                        }}
-                      >
-                        <Loader2 size={14} className="animate-spin" style={{ color: "#8b5cf6" }} />
-                        <span style={{ fontSize: "12px", color: "#8b5cf6", fontWeight: 500 }}>
-                          Agents are deliberating...
-                        </span>
-                      </div>
+                      <TypingIndicator agentId={thinkingAgent} />
                     )}
                     <div ref={eventsEndRef} />
                   </>

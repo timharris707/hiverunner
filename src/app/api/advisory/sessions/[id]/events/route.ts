@@ -28,7 +28,12 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ events, status: session.status, paused: session.paused ?? false });
+    return NextResponse.json({
+      events,
+      status: session.status,
+      paused: session.paused ?? false,
+      thinkingAgent: session.thinkingAgent ?? null,
+    });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
