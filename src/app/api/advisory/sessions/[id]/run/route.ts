@@ -109,19 +109,19 @@ const PERSONA_CONTENT: Record<string, string> = {
 
 // ─── API key helper ───────────────────────────────────────────────────────────
 
-function getAnthropicApiKey(): string {
+function getOpenRouterApiKey(): string {
   try {
     const profilesPath = path.join(
       process.env.HOME || "",
       ".openclaw/agents/main/agent/auth-profiles.json"
     );
     const profiles = JSON.parse(readFileSync(profilesPath, "utf-8"));
-    const anthropicProfile = profiles?.profiles?.["anthropic:default"];
-    if (anthropicProfile?.token) return anthropicProfile.token;
+    const orProfile = profiles?.profiles?.["openrouter:default"];
+    if (orProfile?.key) return orProfile.key;
   } catch {
     // fall through to env
   }
-  return process.env.ANTHROPIC_API_KEY || "";
+  return process.env.OPENROUTER_API_KEY || "";
 }
 
 // ─── Call Anthropic ───────────────────────────────────────────────────────────
@@ -131,28 +131,29 @@ async function callClaude(
   userPrompt: string,
   apiKey: string
 ): Promise<string> {
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
+  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
+      "Authorization": `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "claude-sonnet-4-5",
+      model: "anthropic/claude-sonnet-4-6",
       max_tokens: 1024,
-      system: systemPrompt,
-      messages: [{ role: "user", content: userPrompt }],
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
     }),
   });
 
   if (!response.ok) {
     const err = await response.text();
-    throw new Error(`Anthropic API error ${response.status}: ${err}`);
+    throw new Error(`API error ${response.status}: ${err}`);
   }
 
   const data = await response.json();
-  return data.content?.[0]?.text || "";
+  return data.choices?.[0]?.message?.content || "";
 }
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
@@ -231,7 +232,7 @@ export async function POST(
     return NextResponse.json({ error: "Session not found" }, { status: 404 });
   }
 
-  const apiKey = getAnthropicApiKey();
+  const apiKey = getOpenRouterApiKey();
   if (!apiKey) {
     return NextResponse.json(
       { error: "Anthropic API key not configured" },
