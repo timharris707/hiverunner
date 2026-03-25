@@ -35,6 +35,10 @@ import {
   Trash2,
   GitBranch,
   Focus,
+  ThumbsUp,
+  ThumbsDown,
+  BarChart3,
+  Columns2,
 } from "lucide-react";
 import { exportSessionAsPDF } from "@/components/AdvisoryPDFExport";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
@@ -474,17 +478,34 @@ function formatModelName(model?: string): string {
 function EventBubble({
   event,
   sessionOverlays = {},
+  sessionTopic,
   onRetry,
   onFork,
 }: {
   event: AdvisoryEvent;
   // New: object format { agentId: overlayId } — or empty object
   sessionOverlays?: Record<string, string> | string[];
+  sessionTopic?: string;
   onRetry?: () => void;
   onFork?: () => void;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [hovered, setHovered] = useState(false);
+  const [ratingState, setRatingState] = useState<"up" | "down" | null>(null);
+
+  const handleRate = async (rating: "up" | "down") => {
+    if (ratingState === rating) return; // already rated this way
+    setRatingState(rating);
+    try {
+      await fetch("/api/advisory/ratings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agent: event.speaker, rating, topic: sessionTopic }),
+      });
+    } catch {
+      // ignore — non-critical
+    }
+  };
 
   const isHuman = event.speaker === "Tim";
   const isError = event.type === "error" || event.error === true;
@@ -733,6 +754,54 @@ function EventBubble({
       >
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
       </div>
+
+      {/* Rating buttons — thumbs up/down for agent messages */}
+      {!isSystem && !isHuman && !isError && (
+        <div style={{ marginLeft: "46px", marginTop: "8px", display: "flex", alignItems: "center", gap: "6px" }}>
+          <button
+            onClick={() => handleRate("up")}
+            title="Good response"
+            style={{
+              padding: "3px 8px",
+              borderRadius: "6px",
+              border: `1px solid ${ratingState === "up" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+              backgroundColor: ratingState === "up" ? "rgba(74,222,128,0.12)" : "transparent",
+              color: ratingState === "up" ? "#4ade80" : "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: "10px",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              transition: "all 150ms ease",
+              opacity: ratingState === "down" ? 0.4 : 1,
+            }}
+          >
+            <ThumbsUp size={11} />
+          </button>
+          <button
+            onClick={() => handleRate("down")}
+            title="Needs improvement"
+            style={{
+              padding: "3px 8px",
+              borderRadius: "6px",
+              border: `1px solid ${ratingState === "down" ? "rgba(239,68,68,0.5)" : "var(--border)"}`,
+              backgroundColor: ratingState === "down" ? "rgba(239,68,68,0.12)" : "transparent",
+              color: ratingState === "down" ? "#ef4444" : "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: "10px",
+              fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "4px",
+              transition: "all 150ms ease",
+              opacity: ratingState === "up" ? 0.4 : 1,
+            }}
+          >
+            <ThumbsDown size={11} />
+          </button>
+        </div>
+      )}
 
       {/* Retry button for errors */}
       {isError && onRetry && (
@@ -1234,6 +1303,14 @@ interface LaunchModalProps {
 function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, onDeepDive }: LaunchModalProps) {
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [step, setStep] = useState<"config" | "personas">("config");
+  const [agentRatings, setAgentRatings] = useState<Record<string, { up: number; down: number; total: number; pct: number | null; bestTopic: string | null }>>({});
+
+  useEffect(() => {
+    fetch("/api/advisory/ratings")
+      .then((r) => r.json())
+      .then((d) => { if (d.ratings) setAgentRatings(d.ratings); })
+      .catch(() => {});
+  }, []);
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
@@ -1510,8 +1587,24 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, on
                         }}
                       >
                         <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
-                        <div>
-                          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                            <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</span>
+                            {agentRatings[agent.id]?.total > 0 && (
+                              <span style={{
+                                fontSize: "8px",
+                                fontWeight: 700,
+                                color: (agentRatings[agent.id].pct ?? 0) >= 70 ? "#4ade80" : (agentRatings[agent.id].pct ?? 0) >= 40 ? "#fbbf24" : "#ef4444",
+                                backgroundColor: (agentRatings[agent.id].pct ?? 0) >= 70 ? "rgba(74,222,128,0.12)" : (agentRatings[agent.id].pct ?? 0) >= 40 ? "rgba(251,191,36,0.12)" : "rgba(239,68,68,0.12)",
+                                border: `1px solid ${(agentRatings[agent.id].pct ?? 0) >= 70 ? "rgba(74,222,128,0.3)" : (agentRatings[agent.id].pct ?? 0) >= 40 ? "rgba(251,191,36,0.3)" : "rgba(239,68,68,0.3)"}`,
+                                padding: "1px 4px",
+                                borderRadius: "3px",
+                                fontFamily: "var(--font-mono)",
+                              }}>
+                                {agentRatings[agent.id].pct}%
+                              </span>
+                            )}
+                          </div>
                           <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
                         </div>
                       </button>
@@ -2113,6 +2206,7 @@ export default function AdvisoryPage() {
   const [messageCopiedToast, setMessageCopiedToast] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [customAgents, setCustomAgents] = useState<CustomAgent[]>([]);
+  const [agentRatingsGlobal, setAgentRatingsGlobal] = useState<Record<string, { up: number; down: number; total: number; pct: number | null; bestTopic: string | null }>>({});
 
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -2173,10 +2267,19 @@ export default function AdvisoryPage() {
     }
   }, []);
 
+  const loadRatings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/advisory/ratings");
+      const data = await res.json();
+      if (data.ratings) setAgentRatingsGlobal(data.ratings);
+    } catch { /* ignore */ }
+  }, []);
+
   useEffect(() => {
     loadSessions();
     loadCustomAgents();
-  }, [loadSessions, loadCustomAgents]);
+    loadRatings();
+  }, [loadSessions, loadCustomAgents, loadRatings]);
 
   // Auto-scroll only when near bottom; show badge otherwise
   useEffect(() => {
@@ -3590,6 +3693,7 @@ export default function AdvisoryPage() {
                         sessionOverlays={
                           ((activeSession as unknown as Record<string, unknown>).personaOverlays as Record<string, string> | string[] | undefined) ?? {}
                         }
+                        sessionTopic={activeSession?.topic}
                         onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
                         onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
                       />
@@ -3991,12 +4095,27 @@ export default function AdvisoryPage() {
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                 {activeSession.agents.map((agentId) => {
                   const agent = AGENTS.find((a) => a.id === agentId);
+                  const r = agentRatingsGlobal[agentId];
                   return (
                     <div key={agentId} style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <AgentAvatar agentId={agentId} size={32} borderWidth={2} />
-                      <div>
-                        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agentId}</div>
-                        <div style={{ fontSize: "9px", color: "var(--text-muted)" }}>{agent?.role ?? "Agent"}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                          <span style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agentId}</span>
+                          {r && r.total > 0 && (
+                            <span style={{
+                              fontSize: "8px", fontWeight: 700, fontFamily: "var(--font-mono)",
+                              color: (r.pct ?? 0) >= 70 ? "#4ade80" : (r.pct ?? 0) >= 40 ? "#fbbf24" : "#ef4444",
+                              display: "flex", alignItems: "center", gap: "2px",
+                            }}>
+                              <ThumbsUp size={8} /> {r.pct}% ({r.total})
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: "9px", color: "var(--text-muted)" }}>
+                          {agent?.role ?? "Agent"}
+                          {r?.bestTopic && <span style={{ opacity: 0.7 }}> · Best: {r.bestTopic.length > 25 ? r.bestTopic.slice(0, 25) + "…" : r.bestTopic}</span>}
+                        </div>
                       </div>
                     </div>
                   );
