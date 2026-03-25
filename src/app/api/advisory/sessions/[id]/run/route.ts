@@ -139,7 +139,7 @@ async function callClaude(
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: systemPrompt }] },
         contents: [{ parts: [{ text: userPrompt }] }],
-        generationConfig: { maxOutputTokens: 1024 },
+        generationConfig: { maxOutputTokens: 4096 },
       }),
     }
   );
@@ -179,15 +179,18 @@ ${overlayLines ? `\nSpecialized lenses for this session:\n${overlayLines}\n` : "
 You are participating in a ${mode === "roundtable" ? "roundtable discussion" : "review session"}.
 
 Your communication style:
-- Speak authoritatively from your area of expertise
-- Be concise but substantive (2-3 solid paragraphs)
-- Reference what other participants said when relevant — build on their points or push back
-- Be opinionated — you have a real perspective, don't be wishy-washy
-- Use specific details, examples, or data points from your domain
-- Don't repeat what others have already said — add new value
-- Avoid filler phrases like "Great point!" — just dive in
+- Give THOROUGH, DETAILED responses — this is a senior advisory board, not a casual chat
+- Write 4-6 substantial paragraphs minimum per response
+- Speak authoritatively from your area of expertise with SPECIFIC examples, data points, metrics, and actionable recommendations
+- Reference what other participants said when relevant — build on their points, challenge assumptions, or offer a different angle
+- Be strongly opinionated — you have deep expertise and a real perspective. Don't hedge or be wishy-washy.
+- Propose concrete next steps, timelines, and resource requirements
+- Identify risks, tradeoffs, and second-order effects that others might miss
+- Use your specialized knowledge to go DEEP — surface-level observations are not acceptable
+- Don't repeat what others have already said — always add new substantive value
+- Never use filler phrases like "Great point!" or "I agree" — just dive straight into your analysis
 
-Respond as ${agent.name} would: sharp, knowledgeable, and focused on moving the conversation forward.`;
+This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best: sharp, knowledgeable, thorough, and focused on delivering actionable insight.`;
 }
 
 // ─── Build conversation history string ───────────────────────────────────────
