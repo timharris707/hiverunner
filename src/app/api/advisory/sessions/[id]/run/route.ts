@@ -127,13 +127,15 @@ function getGeminiApiKey(): string {
 
 // ─── Call Anthropic ───────────────────────────────────────────────────────────
 
+const INFERENCE_MODEL = "gemini-2.5-flash";
+
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
   apiKey: string
 ): Promise<string> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${INFERENCE_MODEL}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -223,6 +225,50 @@ function appendEvent(
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
 }
 
+// ─── Pacing helpers ───────────────────────────────────────────────────────────
+
+/**
+ * Wait for the session to be unpaused (polls every 2s).
+ * Returns false if the session is no longer active (abandoned/completed).
+ */
+async function waitForUnpause(sessionPath: string): Promise<boolean> {
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const raw = fs.readFileSync(sessionPath, "utf-8");
+    const s = JSON.parse(raw);
+    if (s.status !== "active") return false;
+    if (!s.paused) return true;
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+}
+
+/**
+ * Apply pacing between agent turns.
+ * For "manual" mode, set paused=true then wait for unpause.
+ * For timed modes, just sleep.
+ * Returns false if session is no longer active.
+ */
+async function applyPacing(sessionPath: string, pacing: string): Promise<boolean> {
+  if (pacing === "relaxed") {
+    await new Promise((r) => setTimeout(r, 30_000));
+  } else if (pacing === "slow") {
+    await new Promise((r) => setTimeout(r, 60_000));
+  } else if (pacing === "manual") {
+    // Auto-pause after this agent's turn
+    const raw = fs.readFileSync(sessionPath, "utf-8");
+    const s = JSON.parse(raw);
+    if (s.status !== "active") return false;
+    s.paused = true;
+    fs.writeFileSync(sessionPath, JSON.stringify(s, null, 2));
+    const ok = await waitForUnpause(sessionPath);
+    return ok;
+  }
+  // For "instant" just check status
+  const raw = fs.readFileSync(sessionPath, "utf-8");
+  const s = JSON.parse(raw);
+  return s.status === "active";
+}
+
 // ─── Main run endpoint ────────────────────────────────────────────────────────
 
 export async function POST(
@@ -254,6 +300,7 @@ export async function POST(
     personaOverlays = [],
     reviewStyle = "open",
     rounds = 3,
+    pacing = "instant",
   } = session;
 
   if (!agents || agents.length === 0) {
@@ -265,9 +312,9 @@ export async function POST(
   const runConversation = async () => {
     try {
       if (mode === "roundtable") {
-        await runRoundtable(filePath, session, topic, agents, personaOverlays, apiKey, rounds);
+        await runRoundtable(filePath, session, topic, agents, personaOverlays, apiKey, rounds, pacing);
       } else if (mode === "review") {
-        await runReview(filePath, session, topic, agents, reviewStyle, personaOverlays, apiKey);
+        await runReview(filePath, session, topic, agents, reviewStyle, personaOverlays, apiKey, pacing);
       }
       // Auto-archive on completion (fire-and-forget, don't block)
       archiveSession(id).catch((e) => console.error("Auto-archive failed:", e));
@@ -283,6 +330,7 @@ export async function POST(
           emoji: "⚠️",
           role: "supervisor" as const,
           text: `⚠️ **Session error:** ${String(err)}`,
+          model: INFERENCE_MODEL,
         };
         appendEvent(filePath, errEvent);
       } catch {
@@ -306,7 +354,8 @@ async function runRoundtable(
   agents: string[],
   personaOverlays: string[],
   apiKey: string,
-  rounds: number | string = 3
+  rounds: number | string = 3,
+  pacing: string = "instant"
 ) {
   // "persistent" means we don't auto-complete — human drives the session
   if (rounds === "persistent") {
@@ -356,12 +405,15 @@ async function runRoundtable(
         emoji: agent?.emoji || "💬",
         role: agentId === "Henry" ? "supervisor" : "worker",
         text,
+        model: INFERENCE_MODEL,
       };
 
       appendEvent(filePath, event);
 
-      // Small delay between agent turns for natural pacing
+      // Apply pacing between agent turns (minimum 500ms always)
       await new Promise((r) => setTimeout(r, 500));
+      const continueSession = await applyPacing(filePath, pacing);
+      if (!continueSession) return;
     }
   }
 
@@ -392,6 +444,7 @@ async function runRoundtable(
     role: summaryAgentId === "Henry" ? "supervisor" : "worker",
     text: `**Session Summary**\n\n${summaryText}`,
     verdict: "approve",
+    model: INFERENCE_MODEL,
   };
   appendEvent(filePath, summaryEvent);
 
@@ -413,7 +466,8 @@ async function runReview(
   agents: string[],
   reviewStyle: string,
   personaOverlays: string[],
-  apiKey: string
+  apiKey: string,
+  pacing: string = "instant"
 ) {
   // Identify roles: supervisor = Henry (or first agent), reviewer = last agent or one marked reviewer,
   // workers = everyone else
@@ -448,9 +502,11 @@ async function runReview(
       emoji: supAgent?.emoji || "⚡",
       role: "supervisor",
       text: `**[Brief]** ${supText}`,
+      model: INFERENCE_MODEL,
     });
 
     await new Promise((r) => setTimeout(r, 500));
+    { const ok = await applyPacing(filePath, pacing); if (!ok) return; }
   }
 
   let lastWork = "";
@@ -487,9 +543,11 @@ async function runReview(
       emoji: workerAgent?.emoji || "🔵",
       role: "worker",
       text: iteration === 1 ? workerText : `**[Revision ${iteration}]**\n\n${workerText}`,
+      model: INFERENCE_MODEL,
     });
 
     await new Promise((r) => setTimeout(r, 500));
+    { const ok = await applyPacing(filePath, pacing); if (!ok) return; }
 
     // Reviewer evaluates
     const reviewRaw = fs.readFileSync(filePath, "utf-8");
@@ -530,9 +588,11 @@ async function runReview(
       role: "reviewer",
       text: reviewText,
       verdict: isApproved ? "approve" : "reject",
+      model: INFERENCE_MODEL,
     });
 
     await new Promise((r) => setTimeout(r, 500));
+    { const ok = await applyPacing(filePath, pacing); if (!ok) return; }
 
     if (isApproved) {
       approved = true;
@@ -567,6 +627,7 @@ async function runReview(
       role: "supervisor",
       text: `**[Final Decision]**\n\n${decisionText}`,
       verdict: approved ? "approve" : "reject",
+      model: INFERENCE_MODEL,
     });
   }
 

@@ -28,7 +28,7 @@ export async function GET(
       }
     }
 
-    return NextResponse.json({ events, status: session.status });
+    return NextResponse.json({ events, status: session.status, paused: session.paused ?? false });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

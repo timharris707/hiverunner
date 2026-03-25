@@ -180,6 +180,13 @@ export function getAgentByAnyId(id: string): AgentConfig | undefined {
   const normalized = id.toLowerCase().replace(/[-_\s]/g, "");
 
   const aliases: Record<string, string> = {
+    // Advisory board display-name aliases
+    atlas: "t1",
+    nimbus: "t2",
+    cipher: "t3",
+    forge: "backend",
+    pixel: "fullstack",
+    // Engineering role aliases
     backendeng: "backend",
     "backend-eng": "backend",
     fullstackeng: "fullstack",
@@ -189,16 +196,22 @@ export function getAgentByAnyId(id: string): AgentConfig | undefined {
     backendengineer: "backend",
     "senior full-stack engineer": "fullstack",
     seniorfullstackengineer: "fullstack",
+    // Research / creative / legal
     "research & intelligence": "scout",
     researchintelligence: "scout",
     "creative writer & marketing": "quill",
     creativewritermarketing: "quill",
     "legal expert": "counsel",
     legalexpert: "counsel",
+    // Leadership
     chiefofstaff: "henry",
+    // Trading
     "trading strategy architect": "quant",
     tradingstrategyarchitect: "quant",
     "quant 📊": "quant",
+    "atlas 📈": "t1",
+    "nimbus 🌤️": "t2",
+    "cipher ₿": "t3",
   };
 
   const aliasId = aliases[normalized] || aliases[id.toLowerCase()];

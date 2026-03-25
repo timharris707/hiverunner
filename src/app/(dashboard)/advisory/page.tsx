@@ -18,6 +18,10 @@ import {
   Copy,
   Download,
   Archive,
+  Pause,
+  Play,
+  ChevronRight,
+  ChevronDown,
 } from "lucide-react";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
@@ -33,6 +37,7 @@ interface AdvisoryEvent {
   role: "worker" | "supervisor" | "reviewer";
   text: string;
   verdict?: string;
+  model?: string;
 }
 
 interface AdvisorySession {
@@ -46,6 +51,8 @@ interface AdvisorySession {
   outcome?: string;
   reviewStyle?: string;
   model?: string;
+  pacing?: string;
+  paused?: boolean;
   eventCount?: number;
   lastEvent?: AdvisoryEvent | null;
   events?: AdvisoryEvent[];
@@ -86,7 +93,26 @@ const MODELS = [
   "claude-haiku-4-6",
 ];
 
+const PACING_OPTIONS = [
+  { id: "instant", label: "Instant", desc: "Agents respond as fast as possible" },
+  { id: "relaxed", label: "Relaxed (30s)", desc: "30 second pause between turns" },
+  { id: "slow", label: "Slow (1 min)", desc: "1 minute pause between turns" },
+  { id: "manual", label: "Manual (step-through)", desc: "Pauses after each turn — you advance manually" },
+];
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function getAgentRole(agentId: string): string {
+  return AGENTS.find((a) => a.id === agentId)?.role ?? "Agent";
+}
+
+function getOverlayName(overlayId: string): string {
+  return PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.name ?? overlayId;
+}
+
+function getOverlayEmoji(overlayId: string): string {
+  return PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.emoji ?? "🎭";
+}
 
 function getEventStyle(event: AdvisoryEvent): { bg: string; border: string; badge: string } {
   const type = event.type;
@@ -132,17 +158,48 @@ function formatDate(iso: string): string {
 function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[]): string {
   const topic = session.topic;
   const mode = session.mode;
-  const agents = session.agents.join(", ");
   const dateStr = new Date(session.createdAt).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
 
+  const overlays: string[] = (session as unknown as Record<string, unknown>).personaOverlays as string[] ?? [];
+
+  // Build participants section
+  const participantLines: string[] = [];
+  for (const agentDisplayName of session.agents) {
+    const agentConfig = getAgentByAnyId(agentDisplayName);
+    const role = agentConfig?.role ?? getAgentRole(agentDisplayName);
+    const avatarPath = agentConfig?.avatar;
+    const emoji = agentConfig?.emoji ?? "🤖";
+    // Find overlays relevant to this agent
+    const agentOverlays = overlays
+      .filter((oid) => {
+        const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
+        return o?.relevantAgents.includes(agentDisplayName);
+      })
+      .map((oid) => `${getOverlayEmoji(oid)} ${getOverlayName(oid)}`);
+
+    const avatarMd = avatarPath ? `![${agentDisplayName}](${avatarPath}) ` : `${emoji} `;
+    const overlayStr = agentOverlays.length > 0 ? ` | Persona: ${agentOverlays.join(", ")}` : "";
+    participantLines.push(`- ${avatarMd}**${agentDisplayName}** — ${role}${overlayStr}`);
+  }
+
+  // Collect unique models used across events
+  const allEvents = events as (AdvisoryEvent & { model?: string })[];
+  const modelsUsed = [...new Set(allEvents.map((e) => e.model).filter(Boolean))];
+  const modelsStr = modelsUsed.length > 0 ? modelsUsed.join(", ") : "N/A";
+
   const lines: string[] = [
     `# Advisory Board: ${topic}`,
     ``,
-    `**Date:** ${dateStr} | **Mode:** ${mode} | **Participants:** ${agents}`,
+    `**Date:** ${dateStr} | **Mode:** ${mode} | **Model(s):** ${modelsStr}`,
+    `**Pacing:** ${(session as unknown as Record<string, unknown>).pacing as string ?? "instant"}`,
+    ``,
+    `## Participants`,
+    ``,
+    ...participantLines,
     ``,
     `---`,
     ``,
@@ -150,7 +207,22 @@ function formatMarkdownExport(session: AdvisorySession, events: AdvisoryEvent[])
 
   for (const event of events) {
     if (!event.text || !event.speaker) continue;
-    lines.push(`## ${event.emoji} ${event.speaker} (${event.role})`);
+    const agentConfig = getAgentByAnyId(event.speaker);
+    const role = agentConfig?.role ?? getAgentRole(event.speaker);
+    const avatarPath = agentConfig?.avatar;
+    const emoji = agentConfig?.emoji ?? event.emoji;
+    const avatarMd = avatarPath ? `![${event.speaker}](${avatarPath}) ` : `${emoji} `;
+    // Speaker overlays
+    const speakerOverlays = overlays
+      .filter((oid) => {
+        const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
+        return o?.relevantAgents.includes(event.speaker);
+      })
+      .map((oid) => `${getOverlayEmoji(oid)} ${getOverlayName(oid)}`);
+    const overlayStr = speakerOverlays.length > 0 ? ` | *Persona: ${speakerOverlays.join(", ")}*` : "";
+
+    const modelStr = event.model ? ` | Model: ${event.model}` : "";
+    lines.push(`## ${avatarMd}${event.speaker} — ${role} (${event.role})${overlayStr}${modelStr}`);
     lines.push(``);
     lines.push(event.text);
     lines.push(``);
@@ -177,12 +249,33 @@ function getStatusBadge(status: string): { label: string; color: string; bg: str
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function EventBubble({ event }: { event: AdvisoryEvent }) {
+function formatModelName(model?: string): string {
+  if (!model) return "";
+  // Shorten common model names for compact display
+  return model
+    .replace("gemini-", "gemini/")
+    .replace("claude-", "claude/");
+}
+
+function EventBubble({
+  event,
+  sessionOverlays = [],
+}: {
+  event: AdvisoryEvent;
+  sessionOverlays?: string[];
+}) {
   const style = getEventStyle(event);
   const icon = getEventIcon(event.type, event.verdict);
   const badge = getRoleBadge(event.role, event.type);
   const isSystem = event.type === "start" || event.type === "complete";
   const agentConfig = getAgentByAnyId(event.speaker);
+  const agentRole = agentConfig?.role ?? getAgentRole(event.speaker);
+
+  // Which overlays apply to this speaker?
+  const speakerOverlays = sessionOverlays.filter((oid) => {
+    const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
+    return o?.relevantAgents.includes(event.speaker);
+  });
 
   return (
     <div
@@ -195,40 +288,93 @@ function EventBubble({ event }: { event: AdvisoryEvent }) {
       }}
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px", flexWrap: "wrap" }}>
-        {isSystem ? (
-          <span style={{ fontSize: "16px", lineHeight: 1 }}>{icon}</span>
-        ) : agentConfig ? (
-          <AgentAvatar agentId={event.speaker} size={32} borderWidth={2} />
-        ) : (
-          <span style={{ fontSize: "16px", lineHeight: 1 }}>{event.emoji}</span>
-        )}
-        <span style={{ fontWeight: 700, fontSize: "13px", color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-          {event.speaker}
-        </span>
-        <span
-          style={{
-            fontSize: "9px",
-            fontWeight: 700,
-            letterSpacing: "0.08em",
-            color: badge.color,
-            backgroundColor: `${badge.color}18`,
-            border: `1px solid ${badge.color}40`,
-            padding: "2px 6px",
-            borderRadius: "4px",
-            fontFamily: "var(--font-mono)",
-          }}
-        >
-          {badge.label}
-        </span>
-        <span style={{ fontSize: "11px", color: "var(--text-muted)", marginLeft: "auto" }}>
-          {formatTime(event.timestamp)}
-        </span>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
+        {/* Avatar */}
+        <div style={{ flexShrink: 0, marginTop: "1px" }}>
+          {isSystem ? (
+            <span style={{ fontSize: "20px", lineHeight: 1, display: "block" }}>{icon}</span>
+          ) : agentConfig ? (
+            <AgentAvatar agentId={event.speaker} size={36} borderWidth={2} />
+          ) : (
+            <span style={{ fontSize: "20px", lineHeight: 1, display: "block" }}>{event.emoji}</span>
+          )}
+        </div>
+
+        {/* Name + role line + badges */}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "2px" }}>
+            <span style={{ fontWeight: 700, fontSize: "13px", color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+              {event.speaker}
+            </span>
+            {!isSystem && (
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                — {agentRole}
+              </span>
+            )}
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+              {formatTime(event.timestamp)}
+            </span>
+          </div>
+
+          {/* Role badge + overlay chips */}
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+            <span
+              style={{
+                fontSize: "9px",
+                fontWeight: 700,
+                letterSpacing: "0.08em",
+                color: badge.color,
+                backgroundColor: `${badge.color}18`,
+                border: `1px solid ${badge.color}40`,
+                padding: "2px 6px",
+                borderRadius: "4px",
+                fontFamily: "var(--font-mono)",
+              }}
+            >
+              {badge.label}
+            </span>
+            {speakerOverlays.map((oid) => (
+              <span
+                key={oid}
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 600,
+                  color: "#a78bfa",
+                  backgroundColor: "rgba(167,139,250,0.12)",
+                  border: "1px solid rgba(167,139,250,0.3)",
+                  padding: "2px 6px",
+                  borderRadius: "4px",
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.04em",
+                }}
+              >
+                {getOverlayEmoji(oid)} {getOverlayName(oid)}
+              </span>
+            ))}
+            {event.model && !isSystem && (
+              <span
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 500,
+                  color: "#64748b",
+                  backgroundColor: "rgba(100,116,139,0.08)",
+                  border: "1px solid rgba(100,116,139,0.2)",
+                  padding: "2px 6px",
+                  borderRadius: "4px",
+                  fontFamily: "var(--font-mono)",
+                  letterSpacing: "0.03em",
+                }}
+              >
+                {formatModelName(event.model)}
+              </span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Content */}
       <div
-        style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6 }}
+        style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px" }}
         className="advisory-markdown"
       >
         <ReactMarkdown>{event.text}</ReactMarkdown>
@@ -323,6 +469,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
   const [model, setModel] = useState("claude-opus-4-6");
   const [rounds, setRounds] = useState<number | "persistent">(3);
+  const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
   const [selectedOverlays, setSelectedOverlays] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -369,6 +516,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           reviewStyle,
           model,
           rounds,
+          pacing,
           personaOverlays: selectedOverlays.length > 0 ? selectedOverlays : undefined,
         }),
       });
@@ -480,7 +628,11 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                 ].map((m) => (
                   <button
                     key={m.id}
-                    onClick={() => setMode(m.id as "review" | "roundtable")}
+                    onClick={() => {
+                      setMode(m.id as "review" | "roundtable");
+                      // Set sensible default pacing per mode
+                      setPacing(m.id === "roundtable" ? "manual" : "instant");
+                    }}
                     style={{
                       padding: "12px",
                       borderRadius: "8px",
@@ -629,6 +781,36 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                   Session stays active — agents respond when you inject a directive
                 </div>
               )}
+            </div>
+
+            {/* Pacing */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                PACING
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px" }}>
+                {PACING_OPTIONS.map((opt) => {
+                  const sel = pacing === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      onClick={() => setPacing(opt.id)}
+                      style={{
+                        padding: "9px 11px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "left",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)", marginBottom: "2px" }}>{opt.label}</div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.3 }}>{opt.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {error && (
@@ -818,11 +1000,29 @@ export default function AdvisoryPage() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [copiedToast, setCopiedToast] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [togglingPause, setTogglingPause] = useState(false);
+  const [showNewMessages, setShowNewMessages] = useState(false);
+  const [endSessionConfirm, setEndSessionConfirm] = useState(false);
+  const [endingSession, setEndingSession] = useState(false);
+  const [advancingTurn, setAdvancingTurn] = useState(false);
+
   const eventsEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const scrollToBottom = useCallback(() => {
-    eventsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  // ── Scroll helpers ──────────────────────────────────────────────────────────
+
+  const isNearBottom = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return true;
+    return el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
+  }, []);
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "instant" });
   }, []);
 
   // Load sessions list
@@ -845,6 +1045,7 @@ export default function AdvisoryPage() {
       const data = await res.json();
       if (data.session) {
         setActiveSession(data.session);
+        setIsPaused(data.session.paused ?? false);
         setEvents(data.session.events || []);
       }
     } catch (e) {
@@ -856,10 +1057,17 @@ export default function AdvisoryPage() {
     loadSessions();
   }, [loadSessions]);
 
-  // Auto-scroll when new events arrive
+  // Auto-scroll only when near bottom; show badge otherwise
   useEffect(() => {
-    scrollToBottom();
-  }, [events, scrollToBottom]);
+    if (events.length === 0) return;
+    if (isNearBottom()) {
+      scrollToBottom();
+      setShowNewMessages(false);
+    } else {
+      setShowNewMessages(true);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events]);
 
   // Polling for active sessions
   useEffect(() => {
@@ -878,10 +1086,13 @@ export default function AdvisoryPage() {
             setEvents((prev) => [...prev, ...data.events]);
             setIsGenerating(true);
           }
+          // Sync paused state from server
+          if (typeof data.paused === "boolean") {
+            setIsPaused(data.paused);
+          }
           // Check if session has completed
           if (data.status && data.status !== "active") {
             setIsGenerating(false);
-            // Refresh session list and session details
             await loadSessions();
             await loadSessionEvents(activeSession.id);
           }
@@ -900,6 +1111,8 @@ export default function AdvisoryPage() {
 
   const handleSelectSession = async (session: AdvisorySession) => {
     setEvents([]);
+    setShowNewMessages(false);
+    setEndSessionConfirm(false);
     await loadSessionEvents(session.id);
   };
 
@@ -977,6 +1190,65 @@ export default function AdvisoryPage() {
       console.error("Archive error:", e);
     } finally {
       setArchiving(false);
+    }
+  };
+
+  // ── Pause / Resume ──────────────────────────────────────────────────────────
+  const handleTogglePause = async () => {
+    if (!activeSession) return;
+    setTogglingPause(true);
+    try {
+      const newPaused = !isPaused;
+      await fetch(`/api/advisory/sessions/${activeSession.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paused: newPaused }),
+      });
+      setIsPaused(newPaused);
+      setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
+    } catch (e) {
+      console.error("Pause toggle error:", e);
+    } finally {
+      setTogglingPause(false);
+    }
+  };
+
+  // ── Next Turn (manual mode) ─────────────────────────────────────────────────
+  const handleNextTurn = async () => {
+    if (!activeSession) return;
+    setAdvancingTurn(true);
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paused: false }),
+      });
+      setIsPaused(false);
+      setActiveSession((s) => s ? { ...s, paused: false } : s);
+    } catch (e) {
+      console.error("Next turn error:", e);
+    } finally {
+      setAdvancingTurn(false);
+    }
+  };
+
+  // ── End Session ─────────────────────────────────────────────────────────────
+  const handleEndSession = async () => {
+    if (!activeSession) return;
+    setEndingSession(true);
+    try {
+      // 1. Trigger the end-session synthesis via a special run call
+      await fetch(`/api/advisory/sessions/${activeSession.id}/end`, {
+        method: "POST",
+      });
+      // 2. Reload to see the final state
+      await loadSessionEvents(activeSession.id);
+      await loadSessions();
+    } catch (e) {
+      console.error("End session error:", e);
+    } finally {
+      setEndingSession(false);
+      setEndSessionConfirm(false);
     }
   };
 
@@ -1257,8 +1529,112 @@ export default function AdvisoryPage() {
                       <div>{formatDate(activeSession.createdAt)}</div>
                     </div>
 
-                    {/* Export buttons */}
+                    {/* Session controls */}
                     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                      {/* Pause / Resume — only when active */}
+                      {activeSession.status === "active" && (
+                        <button
+                          onClick={handleTogglePause}
+                          disabled={togglingPause}
+                          title={isPaused ? "Resume session" : "Pause session"}
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: `1px solid ${isPaused ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+                            backgroundColor: isPaused ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
+                            color: isPaused ? "#4ade80" : "var(--text-muted)",
+                            cursor: togglingPause ? "not-allowed" : "pointer",
+                            fontSize: "11px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            fontWeight: 600,
+                            transition: "all 150ms ease",
+                            opacity: togglingPause ? 0.6 : 1,
+                          }}
+                        >
+                          {togglingPause ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : isPaused ? (
+                            <Play size={12} />
+                          ) : (
+                            <Pause size={12} />
+                          )}
+                          {isPaused ? "Resume" : "Pause"}
+                        </button>
+                      )}
+
+                      {/* End Session — only when active */}
+                      {activeSession.status === "active" && !endSessionConfirm && (
+                        <button
+                          onClick={() => setEndSessionConfirm(true)}
+                          title="End session with Henry's synthesis"
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: "6px",
+                            border: "1px solid rgba(239,68,68,0.35)",
+                            backgroundColor: "rgba(239,68,68,0.06)",
+                            color: "#ef4444",
+                            cursor: "pointer",
+                            fontSize: "11px",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "5px",
+                            fontWeight: 600,
+                            transition: "all 150ms ease",
+                          }}
+                        >
+                          <X size={12} />
+                          End
+                        </button>
+                      )}
+
+                      {/* Confirm End Session */}
+                      {activeSession.status === "active" && endSessionConfirm && (
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", padding: "4px 8px", borderRadius: "8px", border: "1px solid rgba(239,68,68,0.4)", backgroundColor: "rgba(239,68,68,0.08)" }}>
+                          <span style={{ fontSize: "10px", color: "#ef4444", fontWeight: 600, whiteSpace: "nowrap" }}>
+                            Henry synthesizes & closes →
+                          </span>
+                          <button
+                            onClick={handleEndSession}
+                            disabled={endingSession}
+                            style={{
+                              padding: "4px 10px",
+                              borderRadius: "5px",
+                              border: "none",
+                              backgroundColor: "#ef4444",
+                              color: "#fff",
+                              cursor: endingSession ? "not-allowed" : "pointer",
+                              fontSize: "10px",
+                              fontWeight: 700,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "4px",
+                              opacity: endingSession ? 0.7 : 1,
+                            }}
+                          >
+                            {endingSession ? <Loader2 size={10} className="animate-spin" /> : null}
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setEndSessionConfirm(false)}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "5px",
+                              border: "1px solid rgba(239,68,68,0.3)",
+                              backgroundColor: "transparent",
+                              color: "#ef4444",
+                              cursor: "pointer",
+                              fontSize: "10px",
+                              fontWeight: 600,
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Export buttons */}
                       <button
                         onClick={handleCopyToClipboard}
                         title="Copy as Markdown"
@@ -1305,13 +1681,36 @@ export default function AdvisoryPage() {
                 </div>
               </div>
 
-              {/* Events stream */}
+              {/* Paused banner */}
+              {isPaused && activeSession.status === "active" && (
+                <div style={{
+                  padding: "8px 24px",
+                  backgroundColor: "rgba(251,146,60,0.08)",
+                  borderBottom: "1px solid rgba(251,146,60,0.25)",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  flexShrink: 0,
+                }}>
+                  <Pause size={12} color="#fb923c" />
+                  <span style={{ fontSize: "11px", color: "#fb923c", fontWeight: 600 }}>
+                    Session paused — agents are waiting
+                  </span>
+                </div>
+              )}
+
+              {/* Events stream (scroll container) */}
               <div
+                ref={scrollContainerRef}
                 style={{
                   flex: 1,
                   overflowY: "auto",
                   padding: "20px 24px",
                   backgroundColor: "var(--background)",
+                  position: "relative",
+                }}
+                onScroll={() => {
+                  if (isNearBottom()) setShowNewMessages(false);
                 }}
               >
                 {events.length === 0 ? (
@@ -1322,9 +1721,13 @@ export default function AdvisoryPage() {
                 ) : (
                   <>
                     {events.map((event) => (
-                      <EventBubble key={event.id} event={event} />
+                      <EventBubble
+                        key={event.id}
+                        event={event}
+                        sessionOverlays={(activeSession as unknown as Record<string, unknown>).personaOverlays as string[] ?? []}
+                      />
                     ))}
-                    {isGenerating && activeSession?.status === "active" && (
+                    {isGenerating && activeSession?.status === "active" && !isPaused && (
                       <div
                         style={{
                           display: "flex",
@@ -1347,6 +1750,141 @@ export default function AdvisoryPage() {
                   </>
                 )}
               </div>
+
+              {/* New messages badge */}
+              {showNewMessages && (
+                <div style={{ position: "relative", flexShrink: 0, height: 0 }}>
+                  <button
+                    onClick={() => { scrollToBottom(); setShowNewMessages(false); }}
+                    style={{
+                      position: "absolute",
+                      bottom: "16px",
+                      left: "50%",
+                      transform: "translateX(-50%)",
+                      padding: "6px 14px",
+                      borderRadius: "20px",
+                      border: "1px solid var(--accent)",
+                      backgroundColor: "var(--accent)",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "11px",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "5px",
+                      zIndex: 10,
+                      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    <ChevronDown size={12} />
+                    New messages
+                  </button>
+                </div>
+              )}
+
+              {/* Next Turn / End Session bar — shown when paused */}
+              {activeSession.status === "active" && isPaused && (
+                <div
+                  style={{
+                    padding: "10px 24px",
+                    borderTop: "1px solid rgba(251,146,60,0.2)",
+                    backgroundColor: "rgba(251,146,60,0.04)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "10px",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
+                    {(activeSession as unknown as Record<string, unknown>).pacing === "manual"
+                      ? "Manual mode · Advance when ready"
+                      : "Session paused · Resume or advance"}
+                  </span>
+                  <button
+                    onClick={handleNextTurn}
+                    disabled={advancingTurn}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: "7px",
+                      border: "none",
+                      backgroundColor: "var(--accent)",
+                      color: "#fff",
+                      cursor: advancingTurn ? "not-allowed" : "pointer",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "6px",
+                      opacity: advancingTurn ? 0.7 : 1,
+                      fontFamily: "var(--font-heading)",
+                    }}
+                  >
+                    {advancingTurn ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
+                    Next Turn →
+                  </button>
+                  {!endSessionConfirm ? (
+                    <button
+                      onClick={() => setEndSessionConfirm(true)}
+                      style={{
+                        padding: "8px 14px",
+                        borderRadius: "7px",
+                        border: "1px solid rgba(239,68,68,0.4)",
+                        backgroundColor: "rgba(239,68,68,0.08)",
+                        color: "#ef4444",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "6px",
+                      }}
+                    >
+                      <X size={12} />
+                      End Session
+                    </button>
+                  ) : (
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <span style={{ fontSize: "10px", color: "#ef4444", fontWeight: 600 }}>Confirm end?</span>
+                      <button
+                        onClick={handleEndSession}
+                        disabled={endingSession}
+                        style={{
+                          padding: "5px 10px",
+                          borderRadius: "5px",
+                          border: "none",
+                          backgroundColor: "#ef4444",
+                          color: "#fff",
+                          cursor: endingSession ? "not-allowed" : "pointer",
+                          fontSize: "11px",
+                          fontWeight: 700,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}
+                      >
+                        {endingSession ? <Loader2 size={10} className="animate-spin" /> : null}
+                        Yes, end
+                      </button>
+                      <button
+                        onClick={() => setEndSessionConfirm(false)}
+                        style={{
+                          padding: "5px 8px",
+                          borderRadius: "5px",
+                          border: "1px solid rgba(239,68,68,0.3)",
+                          backgroundColor: "transparent",
+                          color: "#ef4444",
+                          cursor: "pointer",
+                          fontSize: "11px",
+                          fontWeight: 600,
+                        }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Human input bar */}
               {activeSession.status === "active" && (

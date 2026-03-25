@@ -77,6 +77,7 @@ function buildTranscriptMarkdown(session: Record<string, unknown>): string {
   const mode = session.mode as string;
   const agents = (session.agents as string[]) || [];
   const createdAt = session.createdAt as string;
+  const pacing = (session.pacing as string) || "instant";
   const events = (session.events as Array<Record<string, unknown>>) || [];
 
   const dateStr = new Date(createdAt).toLocaleDateString("en-US", {
@@ -85,10 +86,16 @@ function buildTranscriptMarkdown(session: Record<string, unknown>): string {
     year: "numeric",
   });
 
+  // Collect unique models used
+  const modelsUsed = [...new Set(events.map((e) => e.model as string).filter(Boolean))];
+  const modelsStr = modelsUsed.length > 0 ? modelsUsed.join(", ") : "N/A";
+
   const lines: string[] = [
     `# Advisory Board: ${topic}`,
     ``,
-    `**Date:** ${dateStr} | **Mode:** ${mode} | **Participants:** ${agents.join(", ")}`,
+    `**Date:** ${dateStr} | **Mode:** ${mode} | **Pacing:** ${pacing}`,
+    `**Participants:** ${agents.join(", ")}`,
+    `**Model(s):** ${modelsStr}`,
     ``,
     `---`,
     ``,
@@ -99,11 +106,13 @@ function buildTranscriptMarkdown(session: Record<string, unknown>): string {
     const emoji = event.emoji as string;
     const text = event.text as string;
     const timestamp = event.timestamp as string;
-    const type = event.type as string;
+    const role = (event.role as string) || "";
+    const model = (event.model as string) || "";
 
     if (!text || !speaker) continue;
 
-    lines.push(`## ${emoji} ${speaker}`);
+    const modelSuffix = model ? ` | *${model}*` : "";
+    lines.push(`## ${emoji} ${speaker} (${role})${modelSuffix}`);
     lines.push(`*${formatTimestamp(timestamp)}*`);
     lines.push(``);
     lines.push(text);
@@ -174,6 +183,7 @@ export async function archiveSession(sessionId: string): Promise<{ success: bool
     // Determine their role in the session
     const firstEvent = agentEvents[0];
     const role = (firstEvent?.role as string) || "participant";
+    const modelUsed = (firstEvent?.model as string) || "unknown";
 
     // Determine decisions/outcomes from the session
     const outcomeStr = session.outcome
