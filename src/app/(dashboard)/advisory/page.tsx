@@ -908,6 +908,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
   const [rounds, setRounds] = useState<number | "persistent">(3);
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
   const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed" | "verbose">("balanced");
+  const [extendedThinking, setExtendedThinking] = useState(false);
   // Per-agent overlay map: { agentId: overlayId }
   const [personaOverlays, setPersonaOverlays] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
@@ -963,6 +964,7 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
           rounds,
           pacing,
           responseLength,
+          extendedThinking,
           personaOverlays: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
         }),
       });
@@ -1250,6 +1252,59 @@ function LaunchModal({ onClose, onLaunch }: LaunchModalProps) {
                   );
                 })}
               </div>
+            </div>
+
+            {/* Extended Thinking Toggle */}
+            <div style={{ marginBottom: "16px" }}>
+              <button
+                onClick={() => setExtendedThinking((v) => !v)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: `1px solid ${extendedThinking ? "rgba(139,92,246,0.5)" : "var(--border)"}`,
+                  backgroundColor: extendedThinking ? "rgba(139,92,246,0.1)" : "var(--surface-elevated)",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "all 150ms ease",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                }}
+              >
+                <div
+                  style={{
+                    width: "36px",
+                    height: "20px",
+                    borderRadius: "10px",
+                    backgroundColor: extendedThinking ? "var(--accent)" : "var(--border)",
+                    position: "relative",
+                    transition: "background-color 150ms ease",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "50%",
+                      backgroundColor: "#fff",
+                      position: "absolute",
+                      top: "2px",
+                      left: extendedThinking ? "18px" : "2px",
+                      transition: "left 150ms ease",
+                    }}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: "12px", fontWeight: 700, color: extendedThinking ? "var(--accent)" : "var(--text-primary)" }}>
+                    Extended Thinking
+                  </div>
+                  <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "1px" }}>
+                    Agents show step-by-step reasoning. Slower but deeper analysis.
+                  </div>
+                </div>
+              </button>
             </div>
 
             {/* Rounds */}

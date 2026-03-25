@@ -264,7 +264,8 @@ function buildSystemPrompt(
   topic: string,
   agentOverlay?: string,
   responseLength?: ResponseLength,
-  reviewRole?: "author" | "reviewer" | "supervisor"
+  reviewRole?: "author" | "reviewer" | "supervisor",
+  extendedThinking?: boolean
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
@@ -281,6 +282,9 @@ function buildSystemPrompt(
 
   // ── Review mode: fundamentally different prompts per role ──────────────────
   if (isReview && reviewRole) {
+    const thinkingLine = extendedThinking
+      ? `\n**Extended Thinking Mode:** Think step-by-step and show your reasoning process. Break down complex problems into components, evaluate each one explicitly, consider counter-arguments, and make your logic chain visible before reaching conclusions.\n`
+      : "";
     const baseIdentity = `${agent.persona}
 
 ---
@@ -289,7 +293,7 @@ You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an
 
 **Topic:** ${topic}
 ${overlayLine}
-**Response length:** ${lengthInstruction}`;
+**Response length:** ${lengthInstruction}${thinkingLine}`;
 
     if (reviewRole === "author") {
       return `${baseIdentity}
@@ -374,7 +378,9 @@ ${overlayLine}
 
 **Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.
 
-This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.`;
+This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.${extendedThinking ? `
+
+**Extended Thinking Mode:** Think step-by-step and show your reasoning process. Break down complex problems into components, evaluate each one explicitly, consider counter-arguments, and make your logic chain visible before reaching conclusions.` : ""}`;
 }
 
 // ─── Build conversation history string ───────────────────────────────────────
@@ -592,13 +598,16 @@ export async function POST(
       pacing = "instant",
       model: sessionModel,
       responseLength,
+      extendedThinking: sessionExtendedThinking,
     } = session;
 
     if (!agents || (agents as string[]).length === 0) {
       return NextResponse.json({ error: "No agents in session" }, { status: 400 });
     }
 
-    const { model: resolvedModel, thinking } = resolveModel(sessionModel as string | undefined);
+    const { model: resolvedModel, thinking: modelThinking } = resolveModel(sessionModel as string | undefined);
+    // Extended thinking is enabled via model suffix OR the explicit toggle
+    const thinking = modelThinking || (sessionExtendedThinking === true);
     const resolvedLength = (responseLength as ResponseLength | undefined) || DEFAULT_RESPONSE_LENGTH;
 
     // Run asynchronously — return immediately so the client can start polling
@@ -716,7 +725,7 @@ async function runRoundtable(
 
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength);
+      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking);
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
 
@@ -798,7 +807,7 @@ async function runRoundtable(
 
   const finalHistory = buildHistoryString(finalSession.events || []);
   const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
-  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength);
+  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking);
   const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
@@ -867,7 +876,7 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor");
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking);
     const supPrompt = `You are commissioning a review session on the following topic/task:
 
 **Topic:** ${topic}
@@ -914,7 +923,7 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author");
+    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author", thinking);
     const workerPrompt =
       iteration === 1
         ? `**Your task:** ${topic}
@@ -971,7 +980,7 @@ ${reviewer} identified specific issues with your previous submission. Now produc
     if (reviewSession.status !== "active") return;
 
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer");
+    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking);
 
     const verdictInstruction =
       reviewStyle === "strict"
@@ -1041,7 +1050,7 @@ ${verdictInstruction}`;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor");
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking);
     const supPrompt = `**Review session complete.**
 
 **Topic:** ${topic}
