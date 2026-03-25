@@ -883,7 +883,19 @@ function SessionListItem({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <AvatarStack agentIds={session.agents} size={22} max={4} />
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          {(session as unknown as Record<string, unknown>).rounds === "persistent" && (
+          {(session as unknown as Record<string, unknown>).specialist ? (
+            <span style={{
+              fontSize: "8px",
+              fontWeight: 700,
+              color: "#10b981",
+              backgroundColor: "rgba(16,185,129,0.12)",
+              border: "1px solid rgba(16,185,129,0.25)",
+              padding: "1px 5px",
+              borderRadius: "3px",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.04em",
+            }}>1:1</span>
+          ) : (session as unknown as Record<string, unknown>).rounds === "persistent" && (
             <span style={{
               fontSize: "8px",
               fontWeight: 700,
@@ -1166,9 +1178,10 @@ interface LaunchModalProps {
   onLaunch: (session: AdvisorySession) => void;
   customAgents: CustomAgent[];
   onCustomAgentsChange: () => void;
+  onDeepDive?: (agentId: string, agentName: string, agentEmoji: string, agentRole: string) => void;
 }
 
-function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange }: LaunchModalProps) {
+function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange, onDeepDive }: LaunchModalProps) {
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [step, setStep] = useState<"config" | "personas">("config");
   const [topic, setTopic] = useState("");
@@ -1429,28 +1442,60 @@ function LaunchModal({ onClose, onLaunch, customAgents, onCustomAgentsChange }: 
                 {AGENTS.map((agent) => {
                   const sel = selectedAgents.includes(agent.id);
                   return (
-                    <button
-                      key={agent.id}
-                      onClick={() => toggleAgent(agent.id)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: "8px",
-                        border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
-                        backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "all 150ms ease",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "8px",
-                      }}
-                    >
-                      <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
-                      <div>
-                        <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
-                        <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
-                      </div>
-                    </button>
+                    <div key={agent.id} style={{ position: "relative" }}>
+                      <button
+                        onClick={() => toggleAgent(agent.id)}
+                        style={{
+                          width: "100%",
+                          padding: "8px 10px",
+                          borderRadius: "8px",
+                          border: `1px solid ${sel ? "var(--accent)" : "var(--border)"}`,
+                          backgroundColor: sel ? "var(--accent-soft)" : "var(--surface-elevated)",
+                          cursor: "pointer",
+                          textAlign: "left",
+                          transition: "all 150ms ease",
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                        }}
+                      >
+                        <AgentAvatar agentId={agent.id} size={28} borderWidth={2} />
+                        <div>
+                          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)" }}>{agent.id}</div>
+                          <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>{agent.role}</div>
+                        </div>
+                      </button>
+                      {onDeepDive && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeepDive(agent.id, agent.id, agent.emoji, agent.role);
+                          }}
+                          title={`Deep Dive with ${agent.id}`}
+                          style={{
+                            position: "absolute",
+                            top: "3px",
+                            right: "3px",
+                            padding: "2px 5px",
+                            borderRadius: "4px",
+                            border: "1px solid rgba(16,185,129,0.3)",
+                            backgroundColor: "rgba(16,185,129,0.1)",
+                            color: "#10b981",
+                            cursor: "pointer",
+                            fontSize: "8px",
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "3px",
+                            transition: "all 150ms ease",
+                            letterSpacing: "0.04em",
+                          }}
+                        >
+                          <Focus size={8} />
+                          1:1
+                        </button>
+                      )}
+                    </div>
                   );
                 })}
                 {/* Custom agents */}
@@ -2376,6 +2421,58 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Deep Dive (1-on-1 specialist mode) ──────────────────────────────────────
+  const [deepDiveAgent, setDeepDiveAgent] = useState<{ id: string; name: string; emoji: string; role: string } | null>(null);
+  const [deepDiveTopic, setDeepDiveTopic] = useState("");
+  const [deepDiveModel, setDeepDiveModel] = useState("claude-sonnet-4-6");
+  const [launchingDeepDive, setLaunchingDeepDive] = useState(false);
+
+  const handleDeepDive = (agentId: string, agentName: string, agentEmoji: string, agentRole: string) => {
+    setShowLaunchModal(false);
+    setDeepDiveAgent({ id: agentId, name: agentName, emoji: agentEmoji, role: agentRole });
+    setDeepDiveTopic("");
+    setDeepDiveModel("claude-sonnet-4-6");
+  };
+
+  const handleLaunchDeepDive = async () => {
+    if (!deepDiveAgent || !deepDiveTopic.trim()) return;
+    setLaunchingDeepDive(true);
+    try {
+      const res = await fetch("/api/advisory/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: deepDiveTopic,
+          mode: "roundtable",
+          agents: [deepDiveAgent.name],
+          reviewStyle: "open",
+          model: deepDiveModel,
+          rounds: "persistent",
+          pacing: "manual",
+          responseLength: "detailed",
+          specialist: true,
+          specialistAgent: deepDiveAgent.name,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create session");
+      const data = await res.json();
+
+      // Trigger the first response
+      try {
+        await fetch(`/api/advisory/sessions/${data.session.id}/run`, { method: "POST" });
+      } catch (runErr) {
+        console.warn("Run trigger error (non-fatal):", runErr);
+      }
+
+      setDeepDiveAgent(null);
+      await handleLaunch(data.session);
+    } catch (e) {
+      console.error("Deep dive launch error:", e);
+    } finally {
+      setLaunchingDeepDive(false);
+    }
+  };
+
   // ── Keyboard shortcuts ───────────────────────────────────────────────────────
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -3008,8 +3105,8 @@ export default function AdvisoryPage() {
                 className="advisory-session-header"
                 style={{
                   padding: "16px 24px",
-                  borderBottom: "1px solid var(--border)",
-                  backgroundColor: "var(--surface)",
+                  borderBottom: `1px solid ${(activeSession as unknown as Record<string, unknown>).specialist ? "rgba(16,185,129,0.3)" : "var(--border)"}`,
+                  backgroundColor: (activeSession as unknown as Record<string, unknown>).specialist ? "rgba(16,185,129,0.03)" : "var(--surface)",
                   flexShrink: 0,
                 }}
               >
@@ -3055,7 +3152,26 @@ export default function AdvisoryPage() {
                       >
                         {activeSession.mode}
                       </span>
-                      {(activeSession as unknown as Record<string, unknown>).rounds === "persistent" && (
+                      {!!(activeSession as unknown as Record<string, unknown>).specialist && (
+                        <span style={{
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          color: "#10b981",
+                          backgroundColor: "rgba(16,185,129,0.12)",
+                          border: "1px solid rgba(16,185,129,0.3)",
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          fontFamily: "var(--font-mono)",
+                          letterSpacing: "0.04em",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}>
+                          <Focus size={9} />
+                          DEEP DIVE
+                        </span>
+                      )}
+                      {(activeSession as unknown as Record<string, unknown>).rounds === "persistent" && !(activeSession as unknown as Record<string, unknown>).specialist && (
                         <span style={{
                           fontSize: "9px",
                           fontWeight: 700,
@@ -3436,7 +3552,11 @@ export default function AdvisoryPage() {
                         ref={humanInputRef}
                         value={humanMessage}
                         onChange={(e) => setHumanMessage(e.target.value)}
-                        placeholder="Type a directive to inject into the session..."
+                        placeholder={
+                          (activeSession as unknown as Record<string, unknown>).specialist
+                            ? `Continue your conversation with ${(activeSession as unknown as Record<string, unknown>).specialistAgent || activeSession.agents[0]}...`
+                            : "Type a directive to inject into the session..."
+                        }
                         rows={2}
                         onKeyDown={(e) => {
                           // Enter (without Shift) = send; Shift+Enter = newline
@@ -3510,7 +3630,9 @@ export default function AdvisoryPage() {
                   }}
                 >
                   <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
-                    Persistent session — agents wait for your directives
+                    {(activeSession as unknown as Record<string, unknown>).specialist
+                      ? `Deep dive with ${(activeSession as unknown as Record<string, unknown>).specialistAgent || activeSession.agents[0]} — ask anything`
+                      : "Persistent session — agents wait for your directives"}
                   </span>
                   <button
                     onClick={handleFullRound}
@@ -3864,7 +3986,159 @@ export default function AdvisoryPage() {
           onLaunch={handleLaunch}
           customAgents={customAgents}
           onCustomAgentsChange={loadCustomAgents}
+          onDeepDive={handleDeepDive}
         />
+      )}
+
+      {/* Deep Dive (1-on-1 Specialist) Modal */}
+      {deepDiveAgent && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            backgroundColor: "rgba(0,0,0,0.6)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 200,
+            padding: "20px",
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDeepDiveAgent(null); }}
+        >
+          <div
+            style={{
+              backgroundColor: "var(--surface)",
+              border: "1px solid rgba(16,185,129,0.3)",
+              borderRadius: "16px",
+              width: "100%",
+              maxWidth: "500px",
+              padding: "32px",
+            }}
+          >
+            {/* Agent showcase */}
+            <div style={{ textAlign: "center", marginBottom: "24px" }}>
+              <div style={{ marginBottom: "12px" }}>
+                {getAgentByAnyId(deepDiveAgent.id) ? (
+                  <AgentAvatar agentId={deepDiveAgent.id} size={72} borderWidth={3} />
+                ) : (
+                  <div style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: "50%",
+                    backgroundColor: "rgba(16,185,129,0.12)",
+                    border: "3px solid rgba(16,185,129,0.4)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: "32px",
+                    margin: "0 auto",
+                  }}>
+                    {deepDiveAgent.emoji}
+                  </div>
+                )}
+              </div>
+              <h2 style={{ fontSize: "20px", fontWeight: 700, color: "var(--text-primary)", margin: "0 0 4px 0", fontFamily: "var(--font-heading)" }}>
+                Deep Dive with {deepDiveAgent.name}
+              </h2>
+              <div style={{ fontSize: "12px", color: "#10b981", fontWeight: 600 }}>
+                {deepDiveAgent.role}
+              </div>
+              <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "4px" }}>
+                1-on-1 focused consultation · Persistent session
+              </div>
+            </div>
+
+            {/* Topic */}
+            <div style={{ marginBottom: "16px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+                TOPIC
+              </label>
+              <textarea
+                value={deepDiveTopic}
+                onChange={(e) => setDeepDiveTopic(e.target.value)}
+                placeholder={`What would you like to discuss with ${deepDiveAgent.name}?`}
+                rows={3}
+                autoFocus
+                style={{
+                  width: "100%",
+                  padding: "12px 14px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "1px solid rgba(16,185,129,0.25)",
+                  borderRadius: "10px",
+                  color: "var(--text-primary)",
+                  fontSize: "14px",
+                  fontFamily: "var(--font-body)",
+                  resize: "vertical",
+                  outline: "none",
+                  boxSizing: "border-box",
+                  lineHeight: 1.6,
+                }}
+              />
+            </div>
+
+            {/* Model selection */}
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+                MODEL
+              </label>
+              <div style={{ display: "flex", gap: "6px" }}>
+                {MODELS.map((m) => {
+                  const sel = deepDiveModel === m.id;
+                  return (
+                    <button
+                      key={m.id}
+                      onClick={() => setDeepDiveModel(m.id)}
+                      style={{
+                        flex: 1,
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "rgba(16,185,129,0.5)" : "var(--border)"}`,
+                        backgroundColor: sel ? "rgba(16,185,129,0.1)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <div style={{ fontSize: "10px", fontWeight: 700, color: sel ? "#10b981" : "var(--text-primary)" }}>{m.label.split(" (")[0]}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button
+                onClick={() => setDeepDiveAgent(null)}
+                style={{ padding: "10px 20px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "transparent", color: "var(--text-secondary)", cursor: "pointer", fontSize: "13px", fontWeight: 500 }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLaunchDeepDive}
+                disabled={launchingDeepDive || !deepDiveTopic.trim()}
+                style={{
+                  padding: "10px 24px",
+                  borderRadius: "8px",
+                  border: "none",
+                  backgroundColor: "#10b981",
+                  color: "#fff",
+                  cursor: launchingDeepDive || !deepDiveTopic.trim() ? "not-allowed" : "pointer",
+                  fontSize: "13px",
+                  fontWeight: 600,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  opacity: launchingDeepDive || !deepDiveTopic.trim() ? 0.6 : 1,
+                  fontFamily: "var(--font-heading)",
+                }}
+              >
+                {launchingDeepDive ? <Loader2 size={14} className="animate-spin" /> : <Focus size={14} />}
+                Start Deep Dive
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );
