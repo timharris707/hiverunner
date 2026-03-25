@@ -2728,6 +2728,7 @@ function ReviewLoopTaskPanel({
   onNewTaskTextChange,
   addingTask,
   loopAdvancing,
+  onSetAutoContinue,
   sessionStatus,
 }: {
   loop: ReviewLoopState;
@@ -4738,6 +4739,7 @@ export default function AdvisoryPage() {
                   addingTask={addingTask}
                   loopAdvancing={loopAdvancing}
                   sessionStatus={activeSession?.status || "active"}
+                  onSetAutoContinue={(val) => handleLoopAction("set-auto-continue", { autoContinue: val })}
                 />
               )}
 
