@@ -121,11 +121,13 @@ function resolveModel(sessionModel?: string): { model: string; thinking?: boolea
 
 // ─── Call Gateway ─────────────────────────────────────────────────────────────
 
-async function callClaude(
+// Retry with exponential backoff for transient errors (429, 503)
+async function callClaudeWithRetry(
   systemPrompt: string,
   userPrompt: string,
   modelStr: string,
-  thinking = false
+  thinking = false,
+  maxRetries = 3
 ): Promise<string> {
   const gateway = getGatewayConfig();
   const body: Record<string, unknown> = {
@@ -141,22 +143,80 @@ async function callClaude(
     body.thinking = { type: "enabled", budget_tokens: 10000 };
   }
 
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${gateway.token}`,
-    },
-    body: JSON.stringify(body),
-  });
+  let lastError: Error | null = null;
 
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway API error ${response.status}: ${err}`);
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(gateway.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${gateway.token}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        const status = response.status;
+
+        // Retryable errors: 429 (rate limit) and 503 (service unavailable)
+        if ((status === 429 || status === 503) && attempt < maxRetries) {
+          const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+          console.warn(`[Advisory] Gateway returned ${status}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
+          await new Promise((r) => setTimeout(r, backoffMs));
+          lastError = new Error(`Gateway API error ${status}: ${errText}`);
+          continue;
+        }
+
+        // Gateway/network down (502, 504) — also retryable
+        if ((status === 502 || status === 504) && attempt < maxRetries) {
+          const backoffMs = Math.pow(2, attempt) * 1000;
+          console.warn(`[Advisory] Gateway returned ${status} (possibly down), retrying in ${backoffMs}ms...`);
+          await new Promise((r) => setTimeout(r, backoffMs));
+          lastError = new Error(`Gateway unreachable (${status})`);
+          continue;
+        }
+
+        throw new Error(`Gateway API error ${status}: ${errText}`);
+      }
+
+      const data = await response.json();
+      return data.choices?.[0]?.message?.content || "";
+
+    } catch (err) {
+      // Network-level errors (ECONNREFUSED, ETIMEDOUT) — gateway is down
+      const isNetworkError = err instanceof TypeError ||
+        (err instanceof Error && (
+          err.message.includes("ECONNREFUSED") ||
+          err.message.includes("ETIMEDOUT") ||
+          err.message.includes("fetch failed") ||
+          err.message.includes("network")
+        ));
+
+      if (isNetworkError && attempt < maxRetries) {
+        const backoffMs = Math.pow(2, attempt) * 1000;
+        console.warn(`[Advisory] Network error (gateway down?), retrying in ${backoffMs}ms...`, err);
+        await new Promise((r) => setTimeout(r, backoffMs));
+        lastError = err instanceof Error ? err : new Error(String(err));
+        continue;
+      }
+
+      throw err;
+    }
   }
 
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  throw lastError || new Error("Max retries exceeded");
+}
+
+// Alias for backward compatibility
+async function callClaude(
+  systemPrompt: string,
+  userPrompt: string,
+  modelStr: string,
+  thinking = false
+): Promise<string> {
+  return callClaudeWithRetry(systemPrompt, userPrompt, modelStr, thinking, 3);
 }
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
@@ -313,71 +373,121 @@ export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const { id } = await params;
-  const filePath = path.join(DATA_DIR, `${id}.json`);
+  try {
+    const { id } = await params;
+    const filePath = path.join(DATA_DIR, `${id}.json`);
 
-  if (!fs.existsSync(filePath)) {
-    return NextResponse.json({ error: "Session not found" }, { status: 404 });
-  }
-
-  // Read session config
-  const raw = fs.readFileSync(filePath, "utf-8");
-  const session = JSON.parse(raw);
-  const {
-    topic,
-    mode,
-    agents,
-    personaOverlays,
-    reviewStyle = "open",
-    rounds = 3,
-    pacing = "instant",
-    model: sessionModel,
-  } = session;
-
-  if (!agents || agents.length === 0) {
-    return NextResponse.json({ error: "No agents in session" }, { status: 400 });
-  }
-
-  const { model: resolvedModel, thinking } = resolveModel(sessionModel);
-
-  // Run asynchronously — return immediately so the client can start polling
-  const runConversation = async () => {
-    try {
-      if (mode === "roundtable") {
-        await runRoundtable(
-          filePath, session, topic, agents, personaOverlays,
-          rounds, pacing, resolvedModel, thinking
-        );
-      } else if (mode === "review") {
-        await runReview(
-          filePath, session, topic, agents, reviewStyle,
-          personaOverlays, pacing, resolvedModel, thinking
-        );
-      }
-    } catch (err) {
-      console.error("Advisory run error:", err);
-      try {
-        const errEvent = {
-          id: `evt_err_${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          type: "supervisor",
-          speaker: "System",
-          emoji: "⚠️",
-          role: "supervisor" as const,
-          text: `⚠️ **Session error:** ${String(err)}`,
-          model: resolvedModel,
-        };
-        appendEvent(filePath, errEvent);
-      } catch {
-        // ignore write errors
-      }
+    if (!fs.existsSync(filePath)) {
+      return NextResponse.json({ error: "Session not found" }, { status: 404 });
     }
-  };
 
-  // Fire and forget
-  runConversation().catch(console.error);
+    // Read session config
+    let raw: string;
+    let session: Record<string, unknown>;
+    try {
+      raw = fs.readFileSync(filePath, "utf-8");
+      session = JSON.parse(raw);
+    } catch (parseErr) {
+      return NextResponse.json({ error: `Failed to read session: ${String(parseErr)}` }, { status: 500 });
+    }
 
-  return NextResponse.json({ ok: true, message: "Session conversation started" });
+    const {
+      topic,
+      mode,
+      agents,
+      personaOverlays,
+      reviewStyle = "open",
+      rounds = 3,
+      pacing = "instant",
+      model: sessionModel,
+    } = session;
+
+    if (!agents || (agents as string[]).length === 0) {
+      return NextResponse.json({ error: "No agents in session" }, { status: 400 });
+    }
+
+    const { model: resolvedModel, thinking } = resolveModel(sessionModel as string | undefined);
+
+    // Run asynchronously — return immediately so the client can start polling
+    const runConversation = async () => {
+      try {
+        if (mode === "roundtable") {
+          await runRoundtable(
+            filePath, session, topic as string, agents as string[],
+            personaOverlays as Record<string, string> | string[] | undefined,
+            rounds as number | string, pacing as string, resolvedModel, thinking
+          );
+        } else if (mode === "review") {
+          await runReview(
+            filePath, session, topic as string, agents as string[],
+            reviewStyle as string,
+            personaOverlays as Record<string, string> | string[] | undefined,
+            pacing as string, resolvedModel, thinking
+          );
+        }
+      } catch (err) {
+        console.error("[Advisory] Run error:", err);
+        try {
+          // Classify the error for better UX
+          const errMsg = String(err);
+          const isGatewayDown = errMsg.includes("ECONNREFUSED") ||
+            errMsg.includes("fetch failed") ||
+            errMsg.includes("network") ||
+            errMsg.includes("Gateway unreachable");
+          const isRateLimit = errMsg.includes("429");
+          const isServerError = errMsg.includes("500") || errMsg.includes("503");
+
+          let userMessage: string;
+          if (isGatewayDown) {
+            userMessage = "⚠️ **Gateway is offline.** The OpenClaw gateway is not responding. Please check that it's running and try again.";
+          } else if (isRateLimit) {
+            userMessage = "⚠️ **Rate limit reached.** The API is temporarily rate-limiting requests. Please wait a moment and retry.";
+          } else if (isServerError) {
+            userMessage = `⚠️ **Server error.** The API returned an error. Please try again.\n\nDetails: ${errMsg}`;
+          } else {
+            userMessage = `⚠️ **Session error.** An unexpected error occurred.\n\nDetails: ${errMsg}`;
+          }
+
+          const errEvent = {
+            id: `evt_err_${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            type: "error",
+            speaker: "System",
+            emoji: "⚠️",
+            role: "supervisor" as const,
+            text: userMessage,
+            error: true,
+            model: resolvedModel,
+          };
+          appendEvent(filePath, errEvent);
+
+          // Mark session status so UI knows it's stuck
+          try {
+            const sessRaw = fs.readFileSync(filePath, "utf-8");
+            const sess = JSON.parse(sessRaw);
+            sess.lastError = errMsg;
+            sess.thinkingAgent = null;
+            fs.writeFileSync(filePath, JSON.stringify(sess, null, 2));
+          } catch {
+            // ignore
+          }
+        } catch {
+          // ignore write errors
+        }
+      }
+    };
+
+    // Fire and forget
+    runConversation().catch(console.error);
+
+    return NextResponse.json({ ok: true, message: "Session conversation started" });
+  } catch (err) {
+    console.error("[Advisory] POST /run handler error:", err);
+    return NextResponse.json(
+      { error: `Internal server error: ${String(err)}` },
+      { status: 500 }
+    );
+  }
 }
 
 // ─── ROUNDTABLE mode ──────────────────────────────────────────────────────────
