@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -71,6 +71,8 @@ export async function POST(req: NextRequest) {
       extendedThinking: extendedThinking || false,
       specialist: specialist || false,
       specialistAgent: specialistAgent || null,
+      forkedFrom: forkedFrom || null,
+      forkedAtEvent: forkedAtEvent || null,
       paused: false,
       events: [
         {

@@ -475,11 +475,13 @@ function EventBubble({
   event,
   sessionOverlays = {},
   onRetry,
+  onFork,
 }: {
   event: AdvisoryEvent;
   // New: object format { agentId: overlayId } — or empty object
   sessionOverlays?: Record<string, string> | string[];
   onRetry?: () => void;
+  onFork?: () => void;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
   const [hovered, setHovered] = useState(false);
@@ -537,33 +539,63 @@ function EventBubble({
         position: "relative",
       }}
     >
-      {/* Copy button — appears on hover for non-system messages */}
+      {/* Action buttons — appear on hover for non-system messages */}
       {!isSystem && !isError && (hovered || copyState === "copied") && (
-        <button
-          onClick={handleCopyMessage}
-          title="Copy message"
-          style={{
-            position: "absolute",
-            top: "10px",
-            right: "10px",
-            padding: "4px 8px",
-            borderRadius: "6px",
-            border: `1px solid ${copyState === "copied" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
-            backgroundColor: copyState === "copied" ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
-            color: copyState === "copied" ? "#4ade80" : "var(--text-muted)",
-            cursor: "pointer",
-            fontSize: "10px",
-            fontWeight: 600,
-            display: "flex",
-            alignItems: "center",
-            gap: "4px",
-            transition: "all 150ms ease",
-            zIndex: 2,
-          }}
-        >
-          <Copy size={11} />
-          {copyState === "copied" ? "Copied!" : "Copy"}
-        </button>
+        <div style={{
+          position: "absolute",
+          top: "10px",
+          right: "10px",
+          display: "flex",
+          gap: "4px",
+          zIndex: 2,
+        }}>
+          {/* Fork button */}
+          {onFork && hovered && (
+            <button
+              onClick={onFork}
+              title="Fork from here — create a new session branching from this point"
+              style={{
+                padding: "4px 8px",
+                borderRadius: "6px",
+                border: "1px solid rgba(139,92,246,0.3)",
+                backgroundColor: "rgba(139,92,246,0.08)",
+                color: "#a78bfa",
+                cursor: "pointer",
+                fontSize: "10px",
+                fontWeight: 600,
+                display: "flex",
+                alignItems: "center",
+                gap: "4px",
+                transition: "all 150ms ease",
+              }}
+            >
+              <GitBranch size={11} />
+              Fork
+            </button>
+          )}
+          {/* Copy button */}
+          <button
+            onClick={handleCopyMessage}
+            title="Copy message"
+            style={{
+              padding: "4px 8px",
+              borderRadius: "6px",
+              border: `1px solid ${copyState === "copied" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+              backgroundColor: copyState === "copied" ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
+              color: copyState === "copied" ? "#4ade80" : "var(--text-muted)",
+              cursor: "pointer",
+              fontSize: "10px",
+              fontWeight: 600,
+              display: "flex",
+              alignItems: "center",
+              gap: "4px",
+              transition: "all 150ms ease",
+            }}
+          >
+            <Copy size={11} />
+            {copyState === "copied" ? "Copied!" : "Copy"}
+          </button>
+        </div>
       )}
 
       {/* Header */}
@@ -883,6 +915,24 @@ function SessionListItem({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <AvatarStack agentIds={session.agents} size={22} max={4} />
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {!!(session as unknown as Record<string, unknown>).forkedFrom && (
+            <span style={{
+              fontSize: "8px",
+              fontWeight: 700,
+              color: "#60a5fa",
+              backgroundColor: "rgba(96,165,250,0.12)",
+              border: "1px solid rgba(96,165,250,0.25)",
+              padding: "1px 5px",
+              borderRadius: "3px",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.04em",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "2px",
+            }}>
+              <GitBranch size={7} />
+            </span>
+          )}
           {(session as unknown as Record<string, unknown>).specialist ? (
             <span style={{
               fontSize: "8px",
@@ -2421,6 +2471,78 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Session Branching (Fork) ────────────────────────────────────────────────
+  const [forking, setForking] = useState(false);
+
+  const handleForkFromEvent = async (eventId: string) => {
+    if (!activeSession || forking) return;
+    setForking(true);
+    try {
+      // Find the event index and copy all events up to and including it
+      const eventIndex = events.findIndex((e) => e.id === eventId);
+      if (eventIndex === -1) return;
+      const forkedEvents = events.slice(0, eventIndex + 1);
+
+      // Create a new session with the same config
+      const sessionData = activeSession as unknown as Record<string, unknown>;
+      const res = await fetch("/api/advisory/sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: activeSession.topic,
+          mode: activeSession.mode,
+          agents: activeSession.agents,
+          reviewStyle: activeSession.reviewStyle,
+          model: activeSession.model,
+          rounds: "persistent",
+          pacing: sessionData.pacing || "manual",
+          responseLength: sessionData.responseLength || "balanced",
+          extendedThinking: sessionData.extendedThinking || false,
+          personaOverlays: sessionData.personaOverlays || {},
+          specialist: sessionData.specialist || false,
+          specialistAgent: sessionData.specialistAgent || null,
+          forkedFrom: activeSession.id,
+          forkedAtEvent: eventId,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create forked session");
+      const data = await res.json();
+
+      // Now patch the new session to replace the auto-generated start event with forked events
+      // plus add a fork marker event
+      const forkMarkerEvent: AdvisoryEvent = {
+        id: `evt_fork_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        type: "start",
+        speaker: "System",
+        emoji: "🔀",
+        role: "supervisor",
+        text: `🔀 **Forked session.** This session was branched from "${activeSession.title || activeSession.topic}" at event ${eventIndex + 1} of ${events.length}.\n\nAll prior context has been preserved. Continue the discussion from this point.`,
+      };
+
+      const newEvents = [...forkedEvents, forkMarkerEvent];
+
+      await fetch(`/api/advisory/sessions/${data.session.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          events: newEvents,
+          forkedFrom: activeSession.id,
+          forkedAtEvent: eventId,
+        }),
+      });
+
+      // Navigate to the new session
+      await loadSessions();
+      await handleSelectSession({ ...data.session, events: newEvents });
+      setActiveView("live");
+    } catch (e) {
+      console.error("Fork error:", e);
+    } finally {
+      setForking(false);
+    }
+  };
+
   // ── Deep Dive (1-on-1 specialist mode) ──────────────────────────────────────
   const [deepDiveAgent, setDeepDiveAgent] = useState<{ id: string; name: string; emoji: string; role: string } | null>(null);
   const [deepDiveTopic, setDeepDiveTopic] = useState("");
@@ -3184,6 +3306,25 @@ export default function AdvisoryPage() {
                           letterSpacing: "0.04em",
                         }}>∞ PERSISTENT</span>
                       )}
+                      {!!(activeSession as unknown as Record<string, unknown>).forkedFrom && (
+                        <span style={{
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          color: "#60a5fa",
+                          backgroundColor: "rgba(96,165,250,0.12)",
+                          border: "1px solid rgba(96,165,250,0.3)",
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          fontFamily: "var(--font-mono)",
+                          letterSpacing: "0.04em",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: "4px",
+                        }}>
+                          <GitBranch size={9} />
+                          FORKED
+                        </span>
+                      )}
                       {activeSession.model && (
                         <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                           {activeSession.model}
@@ -3450,6 +3591,7 @@ export default function AdvisoryPage() {
                           ((activeSession as unknown as Record<string, unknown>).personaOverlays as Record<string, string> | string[] | undefined) ?? {}
                         }
                         onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
+                        onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
                       />
                     ))}
                     {isGenerating && activeSession?.status === "active" && !isPaused && (
