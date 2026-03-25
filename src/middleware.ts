@@ -1,57 +1,111 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { updateSession } from "@/lib/supabase/middleware";
 
-// Routes that never require authentication
-const PUBLIC_ROUTES = new Set(["/login"]);
+// Pages that don't require authentication
+const PUBLIC_PAGES = new Set(["/login"]);
 
-// API routes that are always public (auth endpoints + health check)
-const PUBLIC_API_PREFIXES = ["/api/auth/", "/api/health"];
+// API routes that are always public
+const PUBLIC_API_PREFIXES = [
+  "/api/auth/",
+  "/api/health",
+  "/auth/callback",
+];
 
-function isAuthenticated(request: NextRequest): boolean {
-  const authCookie = request.cookies.get("mc_auth");
-  return !!(authCookie && authCookie.value === process.env.AUTH_SECRET);
-}
+// Internal API routes that skip user-session auth
+// (used by advisory board, agents, etc. — protected by other means)
+const INTERNAL_API_PREFIXES = [
+  "/api/advisory/",
+  "/api/agents/",
+  "/api/gateway/",
+  "/api/system/",
+  "/api/terminal",
+  "/api/trading/",
+  "/api/weather",
+  "/api/cron",
+  "/api/logs/",
+  "/api/notifications",
+  "/api/office",
+  "/api/files",
+  "/api/memory/",
+  "/api/search",
+  "/api/sessions",
+  "/api/skills",
+  "/api/reliability",
+  "/api/reports",
+  "/api/costs",
+  "/api/analytics",
+  "/api/dashboard/",
+  "/api/activities",
+  "/api/actions",
+  "/api/tasks",
+  "/api/browse",
+  "/api/git",
+  "/api/media/",
+  "/api/settings",
+  "/api/admin/",
+];
 
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Always allow public pages (login)
-  if (PUBLIC_ROUTES.has(pathname)) {
+  // Always allow public pages
+  if (PUBLIC_PAGES.has(pathname)) {
     return NextResponse.next();
   }
 
-  // Always allow public API routes (auth + health)
+  // Always allow public API routes
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return NextResponse.next();
   }
 
-  // Check authentication
-  if (!isAuthenticated(request)) {
-    // For API routes: return 401 JSON (not a redirect)
+  // Allow internal API routes through (they handle their own auth if needed)
+  if (INTERNAL_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
+    return NextResponse.next();
+  }
+
+  // Check Supabase session for all other routes (pages)
+  try {
+    const { user, supabaseResponse } = await updateSession(request);
+
+    if (!user) {
+      // Not authenticated — redirect pages to login
+      if (pathname.startsWith("/api/")) {
+        return NextResponse.json(
+          { error: "Unauthorized", message: "Authentication required" },
+          { status: 401 }
+        );
+      }
+
+      const loginUrl = new URL("/login", request.url);
+      loginUrl.searchParams.set("from", pathname);
+      return NextResponse.redirect(loginUrl);
+    }
+
+    return supabaseResponse;
+  } catch (error) {
+    // If Supabase is unavailable, fall back to old cookie auth
+    const authCookie = request.cookies.get("mc_auth");
+    if (authCookie && authCookie.value === process.env.AUTH_SECRET) {
+      return NextResponse.next();
+    }
+
+    // No valid session of any kind
     if (pathname.startsWith("/api/")) {
       return NextResponse.json(
-        { error: "Unauthorized", message: "Authentication required" },
+        { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
-    // For page routes: redirect to login
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
     return NextResponse.redirect(loginUrl);
   }
-
-  return NextResponse.next();
 }
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public files (with extension)
-     */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)"],
+    "/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)",
+  ],
 };
