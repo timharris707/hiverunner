@@ -33,6 +33,7 @@ export async function GET(
       status: session.status,
       paused: session.paused ?? false,
       thinkingAgent: session.thinkingAgent ?? null,
+      title: session.title ?? null,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });

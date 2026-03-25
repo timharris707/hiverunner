@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Users,
   Plus,
@@ -23,6 +24,7 @@ import {
   ChevronDown,
   RotateCcw,
   Search,
+  ClipboardCopy,
 } from "lucide-react";
 import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
@@ -39,11 +41,13 @@ interface AdvisoryEvent {
   text: string;
   verdict?: string;
   model?: string;
+  error?: boolean;
 }
 
 interface AdvisorySession {
   id: string;
   topic: string;
+  title?: string;
   mode: "review" | "roundtable";
   agents: string[];
   status: "active" | "completed" | "abandoned";
@@ -57,6 +61,7 @@ interface AdvisorySession {
   eventCount?: number;
   lastEvent?: AdvisoryEvent | null;
   events?: AdvisoryEvent[];
+  lastError?: string;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -187,6 +192,11 @@ function getOverlayEmoji(overlayId: string): string {
 function getEventStyle(event: AdvisoryEvent): { bg: string; border: string; badge: string } {
   const type = event.type;
   const role = event.role;
+
+  // Error events — red alert style
+  if (type === "error" || event.error) {
+    return { bg: "rgba(239, 68, 68, 0.08)", border: "rgba(239, 68, 68, 0.4)", badge: "#ef4444" };
+  }
 
   // Human directive — gold/amber style
   if (event.speaker === "Tim" || type === "human-directive") {
@@ -334,12 +344,18 @@ function formatModelName(model?: string): string {
 function EventBubble({
   event,
   sessionOverlays = {},
+  onRetry,
 }: {
   event: AdvisoryEvent;
   // New: object format { agentId: overlayId } — or empty object
   sessionOverlays?: Record<string, string> | string[];
+  onRetry?: () => void;
 }) {
+  const [copyState, setCopyState] = useState<"idle" | "copied">("idle");
+  const [hovered, setHovered] = useState(false);
+
   const isHuman = event.speaker === "Tim";
+  const isError = event.type === "error" || event.error === true;
   const style = getEventStyle(event);
   const icon = getEventIcon(event.type, event.verdict);
   const badge = getRoleBadge(event.role, event.type, event.speaker);
@@ -367,22 +383,73 @@ function EventBubble({
     return overlayId ? [overlayId] : [];
   })();
 
+  const handleCopyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(displayText);
+      setCopyState("copied");
+      setTimeout(() => setCopyState("idle"), 2000);
+    } catch {
+      // ignore clipboard errors
+    }
+  };
+
   return (
     <div
       className="advisory-event-bubble"
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       style={{
         padding: "14px 16px",
         borderRadius: "12px",
         border: `1px solid ${style.border}`,
         backgroundColor: style.bg,
         marginBottom: "12px",
+        position: "relative",
       }}
     >
+      {/* Copy button — appears on hover for non-system messages */}
+      {!isSystem && !isError && (hovered || copyState === "copied") && (
+        <button
+          onClick={handleCopyMessage}
+          title="Copy message"
+          style={{
+            position: "absolute",
+            top: "10px",
+            right: "10px",
+            padding: "4px 8px",
+            borderRadius: "6px",
+            border: `1px solid ${copyState === "copied" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+            backgroundColor: copyState === "copied" ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
+            color: copyState === "copied" ? "#4ade80" : "var(--text-muted)",
+            cursor: "pointer",
+            fontSize: "10px",
+            fontWeight: 600,
+            display: "flex",
+            alignItems: "center",
+            gap: "4px",
+            transition: "all 150ms ease",
+            zIndex: 2,
+          }}
+        >
+          <ClipboardCopy size={11} />
+          {copyState === "copied" ? "Copied!" : "Copy"}
+        </button>
+      )}
+
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
         {/* Avatar */}
         <div style={{ flexShrink: 0, marginTop: "1px" }}>
-          {isHuman ? (
+          {isError ? (
+            <div style={{
+              width: 36, height: 36, borderRadius: "50%",
+              backgroundColor: "rgba(239,68,68,0.15)",
+              border: "2px solid rgba(239,68,68,0.5)",
+              display: "flex", alignItems: "center", justifyContent: "center",
+            }}>
+              <AlertCircle size={16} color="#ef4444" />
+            </div>
+          ) : isHuman ? (
             // Human (Tim) — gold circle avatar
             <div
               style={{
@@ -414,10 +481,10 @@ function EventBubble({
         {/* Name + role line + badges */}
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap", marginBottom: "2px" }}>
-            <span style={{ fontWeight: 700, fontSize: "13px", color: isHuman ? "#fbbf24" : "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-              {isHuman ? "Tim Harris" : event.speaker}
+            <span style={{ fontWeight: 700, fontSize: "13px", color: isError ? "#ef4444" : isHuman ? "#fbbf24" : "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+              {isError ? "Session Error" : isHuman ? "Tim Harris" : event.speaker}
             </span>
-            {!isSystem && !isHuman && (
+            {!isSystem && !isHuman && !isError && (
               <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
                 — {agentRole}
               </span>
@@ -427,28 +494,37 @@ function EventBubble({
                 — CEO
               </span>
             )}
-            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap" }}>
+            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap", paddingRight: hovered && !isSystem && !isError ? "70px" : "0" }}>
               {formatTime(event.timestamp)}
             </span>
           </div>
 
           {/* Role badge + overlay chips */}
           <div style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
-            <span
-              style={{
-                fontSize: "9px",
-                fontWeight: 700,
-                letterSpacing: "0.08em",
-                color: badge.color,
-                backgroundColor: `${badge.color}18`,
-                border: `1px solid ${badge.color}40`,
-                padding: "2px 6px",
-                borderRadius: "4px",
-                fontFamily: "var(--font-mono)",
-              }}
-            >
-              {badge.label}
-            </span>
+            {isError ? (
+              <span style={{
+                fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em",
+                color: "#ef4444", backgroundColor: "rgba(239,68,68,0.15)",
+                border: "1px solid rgba(239,68,68,0.4)", padding: "2px 6px",
+                borderRadius: "4px", fontFamily: "var(--font-mono)",
+              }}>ERROR</span>
+            ) : (
+              <span
+                style={{
+                  fontSize: "9px",
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  color: badge.color,
+                  backgroundColor: `${badge.color}18`,
+                  border: `1px solid ${badge.color}40`,
+                  padding: "2px 6px",
+                  borderRadius: "4px",
+                  fontFamily: "var(--font-mono)",
+                }}
+              >
+                {badge.label}
+              </span>
+            )}
             {speakerOverlays.map((oid) => (
               <span
                 key={oid}
@@ -467,7 +543,7 @@ function EventBubble({
                 {getOverlayEmoji(oid)} {getOverlayName(oid)}
               </span>
             ))}
-            {event.model && !isSystem && !isHuman && (
+            {event.model && !isSystem && !isHuman && !isError && (
               <span
                 style={{
                   fontSize: "9px",
@@ -490,11 +566,37 @@ function EventBubble({
 
       {/* Content */}
       <div
-        style={{ fontSize: "13px", color: "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px" }}
+        style={{ fontSize: "13px", color: isError ? "#fca5a5" : "var(--text-primary)", lineHeight: 1.6, marginLeft: "46px" }}
         className="advisory-markdown"
       >
-        <ReactMarkdown>{displayText}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayText}</ReactMarkdown>
       </div>
+
+      {/* Retry button for errors */}
+      {isError && onRetry && (
+        <div style={{ marginLeft: "46px", marginTop: "10px" }}>
+          <button
+            onClick={onRetry}
+            style={{
+              padding: "6px 14px",
+              borderRadius: "7px",
+              border: "1px solid rgba(239,68,68,0.5)",
+              backgroundColor: "rgba(239,68,68,0.12)",
+              color: "#ef4444",
+              cursor: "pointer",
+              fontSize: "11px",
+              fontWeight: 700,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: "6px",
+              transition: "all 150ms ease",
+            }}
+          >
+            <RotateCcw size={11} />
+            Retry Session
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -646,7 +748,7 @@ function SessionListItem({
           overflow: "hidden",
         } as React.CSSProperties}
       >
-        {session.topic}
+        {session.title || session.topic}
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <AvatarStack agentIds={session.agents} size={22} max={4} />
@@ -1264,9 +1366,13 @@ export default function AdvisoryPage() {
   // Mobile: sidebar toggle
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
+  const [messageCopiedToast, setMessageCopiedToast] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+
   const eventsEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const humanInputRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Scroll helpers ──────────────────────────────────────────────────────────
 
@@ -1351,6 +1457,10 @@ export default function AdvisoryPage() {
           }
           // Sync thinking agent
           setThinkingAgent(data.thinkingAgent ?? null);
+          // Sync auto-generated title
+          if (data.title) {
+            setActiveSession((s) => s && !s.title ? { ...s, title: data.title } : s);
+          }
           // Check if session has completed
           if (data.status && data.status !== "active") {
             setIsGenerating(false);
@@ -1547,6 +1657,55 @@ export default function AdvisoryPage() {
     }
   };
 
+  // ── Retry session after error ────────────────────────────────────────────────
+  const handleRetrySession = async () => {
+    if (!activeSession) return;
+    setRetrying(true);
+    try {
+      // Remove error events from local state
+      setEvents((prev) => prev.filter((e) => e.type !== "error" && !e.error));
+      // Re-trigger the run
+      await fetch(`/api/advisory/sessions/${activeSession.id}/run`, {
+        method: "POST",
+      });
+      setIsGenerating(true);
+    } catch (e) {
+      console.error("Retry error:", e);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  // ── Keyboard shortcuts ───────────────────────────────────────────────────────
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Cmd+N — new session (only when not in an input/textarea)
+      if ((e.metaKey || e.ctrlKey) && e.key === "n") {
+        const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+        if (tag !== "input" && tag !== "textarea") {
+          e.preventDefault();
+          setShowLaunchModal(true);
+        }
+      }
+
+      // Escape — close open modals
+      if (e.key === "Escape") {
+        if (showLaunchModal) {
+          setShowLaunchModal(false);
+        }
+        if (endSessionConfirm) {
+          setEndSessionConfirm(false);
+        }
+        if (mobileSidebarOpen) {
+          setMobileSidebarOpen(false);
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [showLaunchModal, endSessionConfirm, mobileSidebarOpen]);
+
   const liveSessions = sessions.filter((s) => s.status === "active");
   const completedSessions = sessions.filter((s) => s.status !== "active");
 
@@ -1556,14 +1715,21 @@ export default function AdvisoryPage() {
       <style>{`
         .advisory-markdown p { margin: 0 0 8px 0; word-break: normal; overflow-wrap: break-word; white-space: normal; }
         .advisory-markdown p:last-child { margin-bottom: 0; }
-        .advisory-markdown ul { margin: 6px 0; padding-left: 20px; }
-        .advisory-markdown ol { margin: 6px 0; padding-left: 20px; }
-        .advisory-markdown li { margin-bottom: 3px; word-break: normal; overflow-wrap: break-word; }
+        .advisory-markdown ul { margin: 6px 0 10px 0; padding-left: 20px; list-style-type: disc; }
+        .advisory-markdown ol { margin: 6px 0 10px 0; padding-left: 20px; list-style-type: decimal; }
+        .advisory-markdown li { margin-bottom: 4px; word-break: normal; overflow-wrap: break-word; line-height: 1.6; }
+        .advisory-markdown li > ul, .advisory-markdown li > ol { margin-top: 4px; margin-bottom: 4px; }
         .advisory-markdown strong { color: var(--text-primary); font-weight: 700; }
-        .advisory-markdown h1, .advisory-markdown h2, .advisory-markdown h3 {
-          margin: 12px 0 6px 0;
+        .advisory-markdown em { font-style: italic; color: var(--text-secondary); }
+        .advisory-markdown h1 { font-size: 16px; margin: 14px 0 6px 0; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+        .advisory-markdown h2 { font-size: 14px; margin: 12px 0 5px 0; }
+        .advisory-markdown h3 { font-size: 13px; margin: 10px 0 4px 0; }
+        .advisory-markdown h4, .advisory-markdown h5, .advisory-markdown h6 { font-size: 12px; margin: 8px 0 4px 0; }
+        .advisory-markdown h1, .advisory-markdown h2, .advisory-markdown h3,
+        .advisory-markdown h4, .advisory-markdown h5, .advisory-markdown h6 {
           color: var(--text-primary);
           font-family: var(--font-heading);
+          font-weight: 700;
           word-break: normal;
           overflow-wrap: break-word;
         }
@@ -1573,26 +1739,62 @@ export default function AdvisoryPage() {
           background: rgba(255,255,255,0.07);
           padding: 1px 5px;
           border-radius: 3px;
+          border: 1px solid rgba(255,255,255,0.08);
         }
         .advisory-markdown pre code {
           background: none;
           padding: 0;
+          border: none;
+          font-size: 12px;
         }
         .advisory-markdown pre {
-          background: rgba(0,0,0,0.3);
+          background: rgba(0,0,0,0.35);
           border: 1px solid var(--border);
           border-radius: 8px;
-          padding: 12px;
+          padding: 14px 16px;
           overflow-x: auto;
-          margin: 8px 0;
+          margin: 10px 0;
+          line-height: 1.5;
         }
-        .advisory-markdown hr { border-color: var(--border); margin: 12px 0; }
+        .advisory-markdown hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
         .advisory-markdown blockquote {
           border-left: 3px solid var(--accent);
-          padding-left: 12px;
+          padding: 4px 12px;
           color: var(--text-muted);
           margin: 8px 0;
+          font-style: italic;
+          background: rgba(139,92,246,0.04);
+          border-radius: 0 6px 6px 0;
         }
+        /* Tables */
+        .advisory-markdown table {
+          width: 100%;
+          border-collapse: collapse;
+          margin: 10px 0;
+          font-size: 12px;
+          overflow: hidden;
+          border-radius: 8px;
+          border: 1px solid var(--border);
+        }
+        .advisory-markdown th {
+          background: rgba(139,92,246,0.1);
+          color: var(--text-primary);
+          font-weight: 700;
+          padding: 8px 12px;
+          text-align: left;
+          font-size: 11px;
+          letter-spacing: 0.04em;
+          border-bottom: 1px solid var(--border);
+        }
+        .advisory-markdown td {
+          padding: 7px 12px;
+          border-bottom: 1px solid rgba(255,255,255,0.05);
+          color: var(--text-secondary);
+          vertical-align: top;
+          line-height: 1.5;
+        }
+        .advisory-markdown tr:last-child td { border-bottom: none; }
+        .advisory-markdown tr:nth-child(even) { background: rgba(255,255,255,0.02); }
         .advisory-markdown * {
           word-break: normal;
           overflow-wrap: break-word;
@@ -2182,10 +2384,19 @@ export default function AdvisoryPage() {
                         whiteSpace: "normal",
                       }}
                     >
-                      {activeSession.topic.length > 100
+                      {activeSession.title
+                        ? activeSession.title
+                        : activeSession.topic.length > 100
                         ? `${activeSession.topic.slice(0, 100)}...`
                         : activeSession.topic}
                     </h2>
+                    {activeSession.title && (
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "3px", fontStyle: "italic" }}>
+                        {activeSession.topic.length > 80
+                          ? `${activeSession.topic.slice(0, 80)}...`
+                          : activeSession.topic}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: "flex", alignItems: "center", gap: "12px", flexShrink: 0 }}>
@@ -2396,6 +2607,7 @@ export default function AdvisoryPage() {
                         sessionOverlays={
                           ((activeSession as unknown as Record<string, unknown>).personaOverlays as Record<string, string> | string[] | undefined) ?? {}
                         }
+                        onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
                       />
                     ))}
                     {isGenerating && activeSession?.status === "active" && !isPaused && (
@@ -2495,12 +2707,22 @@ export default function AdvisoryPage() {
                   <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
                       <textarea
+                        ref={humanInputRef}
                         value={humanMessage}
                         onChange={(e) => setHumanMessage(e.target.value)}
                         placeholder="Type a directive to inject into the session..."
                         rows={2}
                         onKeyDown={(e) => {
-                          if (e.key === "Enter" && e.metaKey) handleSendMessage();
+                          // Enter (without Shift) = send; Shift+Enter = newline
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (humanMessage.trim()) handleSendMessage();
+                          }
+                          // Cmd+Enter also sends
+                          if (e.key === "Enter" && e.metaKey) {
+                            e.preventDefault();
+                            if (humanMessage.trim()) handleSendMessage();
+                          }
                         }}
                         style={{
                           width: "100%",
@@ -2517,7 +2739,7 @@ export default function AdvisoryPage() {
                         }}
                       />
                       <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
-                        ⌘↵ to send
+                        ↵ to send · Shift+↵ for newline · ⌘N new session · Esc close modal
                       </div>
                     </div>
                     <button

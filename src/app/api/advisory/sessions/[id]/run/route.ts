@@ -127,12 +127,13 @@ async function callClaudeWithRetry(
   userPrompt: string,
   modelStr: string,
   thinking = false,
-  maxRetries = 3
+  maxRetries = 3,
+  maxTokensOverride?: number
 ): Promise<string> {
   const gateway = getGatewayConfig();
   const body: Record<string, unknown> = {
     model: modelStr,
-    max_tokens: thinking ? 16000 : 4096,
+    max_tokens: thinking ? 16000 : (maxTokensOverride ?? 4096),
     messages: [
       { role: "system", content: systemPrompt },
       { role: "user", content: userPrompt },
@@ -214,10 +215,36 @@ async function callClaude(
   systemPrompt: string,
   userPrompt: string,
   modelStr: string,
-  thinking = false
+  thinking = false,
+  maxTokensOverride?: number
 ): Promise<string> {
-  return callClaudeWithRetry(systemPrompt, userPrompt, modelStr, thinking, 3);
+  return callClaudeWithRetry(systemPrompt, userPrompt, modelStr, thinking, 3, maxTokensOverride);
 }
+
+// ─── Response length settings ─────────────────────────────────────────────────
+
+export type ResponseLength = "concise" | "balanced" | "detailed" | "verbose";
+
+const RESPONSE_LENGTH_CONFIG: Record<ResponseLength, { maxTokens: number; instruction: string }> = {
+  concise: {
+    maxTokens: 1024,
+    instruction: "Be brief and punchy — 1-2 focused paragraphs max.",
+  },
+  balanced: {
+    maxTokens: 2048,
+    instruction: "Give thorough but focused responses — 2-3 paragraphs.",
+  },
+  detailed: {
+    maxTokens: 3072,
+    instruction: "Give comprehensive analysis — 3-5 paragraphs with supporting detail.",
+  },
+  verbose: {
+    maxTokens: 4096,
+    instruction: "Give exhaustive analysis — cover every angle in depth.",
+  },
+};
+
+const DEFAULT_RESPONSE_LENGTH: ResponseLength = "balanced";
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
 
@@ -227,12 +254,14 @@ async function callClaude(
  * @param mode - Session mode
  * @param topic - Session topic
  * @param agentOverlay - Optional overlay ID assigned to this specific agent (or undefined)
+ * @param responseLength - Response length setting
  */
 function buildSystemPrompt(
   agentId: string,
   mode: string,
   topic: string,
-  agentOverlay?: string
+  agentOverlay?: string,
+  responseLength?: ResponseLength
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
@@ -242,6 +271,11 @@ function buildSystemPrompt(
   const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
 
+  const lengthConfig = RESPONSE_LENGTH_CONFIG[responseLength || DEFAULT_RESPONSE_LENGTH];
+  const lengthInstruction = lengthConfig.instruction;
+
+  const isReview = mode === "review";
+
   return `${agent.persona}
 
 ---
@@ -250,9 +284,9 @@ You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an
 
 **Topic:** ${topic}
 ${overlayLine}
+**Response length:** ${lengthInstruction}
+
 **Core advisory directives:**
-- Give THOROUGH, DETAILED responses — this is a senior advisory board, not a casual chat
-- Write 4-6 substantial paragraphs minimum per response
 - Speak in YOUR AUTHENTIC VOICE — your unique persona, vocabulary, and mental models should be immediately recognizable. Atlas sounds like a quant trader. Cipher sounds on-chain. Counsel sounds like a careful lawyer. Don't blend into generic AI assistant mode.
 - Speak authoritatively from your area of expertise with SPECIFIC examples, data points, metrics, and actionable recommendations
 - **Reference other participants by name** when responding to their points. Say things like "Building on what Atlas proposed about volatility surfaces..." or "I'd push back on Cipher's assumption that..." or "Scout's signal on X is interesting — here's the implication for my domain..."
@@ -263,10 +297,17 @@ ${overlayLine}
 - Don't repeat what others have already said — always add new substantive value
 - Never use filler phrases like "Great point!" or "I agree" — just dive straight into your analysis
 - This is a conversation, not a series of independent monologues — engage with what others have actually said
-
-This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.
-
-**Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.`;
+${isReview ? `
+**Review session dynamics:**
+- This is a formal review session with clear roles: workers produce deliverables, reviewers critique rigorously
+- Workers: produce your absolute best work — the reviewer will scrutinize every claim, assumption, and gap
+- Reviewers: be like a senior engineer doing a code review or a senior partner reviewing a strategy deck — thorough, specific, constructive but unsparing. Point out exactly what's wrong, why it matters, and what needs to change.
+- The goal is to elevate the work to the highest possible standard, not to reach consensus
+- If you are reviewing, cite specific issues with specific text/reasoning from the work. Don't be vague.
+` : `
+**Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.
+`}
+This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best.`;
 }
 
 // ─── Build conversation history string ───────────────────────────────────────
@@ -288,6 +329,89 @@ function buildHistoryString(
       return `═══ ${e.speaker.toUpperCase()} (${roleLabel}) ═══\n${e.text.replace(/\*\*/g, "")}`;
     })
     .join("\n\n---\n\n");
+}
+
+// ─── Auto-title generation ────────────────────────────────────────────────────
+
+/**
+ * Generate a short descriptive title for a session based on its topic and first few responses.
+ * Stores the title in the session JSON.
+ */
+async function generateSessionTitle(
+  filePath: string,
+  topic: string,
+  firstEvents: Array<{ speaker: string; text: string }>,
+  model: string
+): Promise<void> {
+  try {
+    // Only generate if no title exists yet
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const session = JSON.parse(raw);
+    if (session.title) return; // already titled
+
+    const snippets = firstEvents
+      .slice(0, 3)
+      .map((e) => `${e.speaker}: ${e.text.slice(0, 200)}`)
+      .join("\n\n");
+
+    const titlePrompt = `Generate a short, punchy, descriptive title for an advisory board session.
+
+Topic: ${topic}
+
+First responses:
+${snippets}
+
+Rules:
+- 4-8 words maximum
+- Descriptive and specific (not generic like "Advisory Session" or "Discussion")
+- Captures the core theme or decision being explored
+- No punctuation at the end
+- No quotes around the title
+- Just output the title, nothing else
+
+Example good titles:
+- Q3 Trading Strategy Pivot Analysis
+- Insight Platform Security Architecture Review  
+- DeFi Yield Optimization for Volatile Markets
+- Mission Control Mobile App Launch Plan`;
+
+    const { url, token } = getGatewayConfig();
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 50,
+        messages: [
+          {
+            role: "user",
+            content: titlePrompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) return;
+
+    const data = await response.json();
+    const title = (data.choices?.[0]?.message?.content || "").trim()
+      .replace(/^["']|["']$/g, "") // strip surrounding quotes
+      .replace(/[.!?]$/, "") // strip trailing punctuation
+      .slice(0, 80); // hard cap
+
+    if (title && title.length > 3) {
+      const updatedRaw = fs.readFileSync(filePath, "utf-8");
+      const updatedSession = JSON.parse(updatedRaw);
+      updatedSession.title = title;
+      fs.writeFileSync(filePath, JSON.stringify(updatedSession, null, 2));
+    }
+  } catch (err) {
+    // Non-critical — just log and continue
+    console.warn("[Advisory] Auto-title generation failed:", err);
+  }
 }
 
 // ─── Append event to session file ────────────────────────────────────────────
@@ -400,6 +524,7 @@ export async function POST(
       rounds = 3,
       pacing = "instant",
       model: sessionModel,
+      responseLength,
     } = session;
 
     if (!agents || (agents as string[]).length === 0) {
@@ -407,6 +532,7 @@ export async function POST(
     }
 
     const { model: resolvedModel, thinking } = resolveModel(sessionModel as string | undefined);
+    const resolvedLength = (responseLength as ResponseLength | undefined) || DEFAULT_RESPONSE_LENGTH;
 
     // Run asynchronously — return immediately so the client can start polling
     const runConversation = async () => {
@@ -415,7 +541,7 @@ export async function POST(
           await runRoundtable(
             filePath, session, topic as string, agents as string[],
             personaOverlays as Record<string, string> | string[] | undefined,
-            rounds as number | string, pacing as string, resolvedModel, thinking
+            rounds as number | string, pacing as string, resolvedModel, thinking, resolvedLength
           );
         } else if (mode === "review") {
           await runReview(
@@ -501,7 +627,8 @@ async function runRoundtable(
   rounds: number | string = 3,
   pacing: string = "instant",
   model: string = INFERENCE_MODEL,
-  thinking = false
+  thinking = false,
+  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
 ) {
   const isPersistent = rounds === "persistent";
 
@@ -522,7 +649,7 @@ async function runRoundtable(
 
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay);
+      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength);
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
 
@@ -544,10 +671,11 @@ async function runRoundtable(
         ? `Topic for this roundtable: ${topic}\n\n${history === "No prior discussion yet." ? "You are the first to speak. Open the discussion with your perspective." : `Previous discussion:\n\n${history}\n\nNow it's your turn to contribute.`}`
         : `Topic: ${topic}\n\nPrevious discussion:\n\n${history}\n\nYou've already spoken once. Now it's round ${round} — build on what's been said, push back on anything you disagree with, or take the discussion in a new direction.${contrarianNote}`;
 
+      const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
       let text = "";
       setThinkingAgent(filePath, agentId);
       try {
-        text = await callClaude(systemPrompt, userPrompt, model, thinking);
+        text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
@@ -572,6 +700,17 @@ async function runRoundtable(
       const continueSession = await applyPacing(filePath, pacing);
       if (!continueSession) return;
     }
+
+    // After first round: generate auto-title (fire-and-forget, non-blocking)
+    if (round === 1) {
+      const afterFirstRound = fs.readFileSync(filePath, "utf-8");
+      const afterFirstSession = JSON.parse(afterFirstRound);
+      const firstRoundEvents = (afterFirstSession.events || []).filter(
+        (e: { type: string; text: string; speaker: string }) =>
+          e.type === "worker" || e.type === "supervisor"
+      );
+      generateSessionTitle(filePath, topic, firstRoundEvents, model).catch(console.warn);
+    }
   }
 
   // For persistent sessions: stay active, don't auto-complete or auto-archive
@@ -592,12 +731,13 @@ async function runRoundtable(
 
   const finalHistory = buildHistoryString(finalSession.events || []);
   const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
-  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay);
+  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength);
   const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
+  const summaryMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
   try {
-    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, model, thinking);
+    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, model, thinking, summaryMaxTokens);
   } catch (err) {
     summaryText = `Could not generate summary: ${String(err)}`;
   }
@@ -641,13 +781,17 @@ async function runReview(
   personaOverlays: Record<string, string> | string[] | undefined,
   pacing: string = "instant",
   model: string = INFERENCE_MODEL,
-  thinking = false
+  thinking = false,
+  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
 ) {
   const supervisor = agents.includes("Henry") ? "Henry" : agents[0];
   const nonSupervisors = agents.filter((a) => a !== supervisor);
+  // Last agent is the reviewer, first non-supervisor is the primary worker
   const reviewer = nonSupervisors.length > 1 ? nonSupervisors[nonSupervisors.length - 1] : nonSupervisors[0];
   const workers = nonSupervisors.filter((a) => a !== reviewer);
   const worker = workers.length > 0 ? workers[0] : nonSupervisors[0];
+
+  const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
 
   // Step 1: Supervisor sets the brief
   {
@@ -656,12 +800,22 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay);
-    const supPrompt = `You are running a review session. Topic: ${topic}\n\nAs ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, set the brief for ${worker}. Be specific about what you want produced, the quality bar, and what success looks like. Keep it to one focused paragraph.`;
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength);
+    const supPrompt = `You are commissioning a review session on the following topic/task:
+
+**Topic:** ${topic}
+
+As ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, deliver a precise brief to ${worker} (the ${AGENT_DEFS[worker]?.role || "worker"}). Your brief must specify:
+1. Exactly what deliverable you want
+2. The quality bar — what "excellent" looks like
+3. Key criteria the reviewer (${reviewer}, ${AGENT_DEFS[reviewer]?.role || "Reviewer"}) will evaluate against
+4. Any specific constraints, format requirements, or angles to cover
+
+Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     let supText = "";
     try {
-      supText = await callClaude(supSystem, supPrompt, model, thinking);
+      supText = await callClaude(supSystem, supPrompt, model, thinking, Math.min(lengthMaxTokens, 1024));
     } catch (err) {
       supText = `⚠️ ${String(err)}`;
     }
@@ -674,7 +828,7 @@ async function runReview(
       speaker: supervisor,
       emoji: supAgent?.emoji || "⚡",
       role: "supervisor",
-      text: `**[Brief]** ${supText}`,
+      text: `**📋 Review Brief**\n\n${supText}`,
       model,
     });
 
@@ -693,15 +847,27 @@ async function runReview(
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay);
+    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength);
     const workerPrompt =
       iteration === 1
-        ? `Topic / Task: ${topic}\n\nBrief from supervisor:\n\n${workerHistory}\n\nProduce your best work on this task. Be thorough and substantive — the reviewer will scrutinize it.`
-        : `Topic / Task: ${topic}\n\nFull session history:\n\n${workerHistory}\n\nThe reviewer sent feedback. Address their critique and produce an improved version. Be explicit about what you changed and why.`;
+        ? `**Your task:** ${topic}
+
+**Brief from ${supervisor}:**
+${workerHistory}
+
+You are the author/worker presenting your work for review. ${reviewer} (${AGENT_DEFS[reviewer]?.role || "Reviewer"}) will scrutinize every claim, gap, and assumption.
+
+Produce your strongest possible work. Structure it clearly. Be thorough — a sloppy first submission wastes everyone's time. This is your chance to show ${reviewer} that there's nothing to critique.`
+        : `**Your task:** ${topic}
+
+**Full session history (including reviewer feedback):**
+${workerHistory}
+
+${reviewer} identified specific issues with your previous submission. Now produce a revised version that directly addresses every critique. Be explicit: note what you changed and why. Don't just patch — if the feedback revealed a deeper flaw, fix the root cause.`;
 
     let workerText = "";
     try {
-      workerText = await callClaude(workerSystem, workerPrompt, model, thinking);
+      workerText = await callClaude(workerSystem, workerPrompt, model, thinking, lengthMaxTokens);
     } catch (err) {
       workerText = `⚠️ ${String(err)}`;
     }
@@ -715,9 +881,20 @@ async function runReview(
       speaker: worker,
       emoji: workerAgent?.emoji || "🔵",
       role: "worker",
-      text: iteration === 1 ? workerText : `**[Revision ${iteration}]**\n\n${workerText}`,
+      text: iteration === 1 ? `**📄 Submission (v${iteration})**\n\n${workerText}` : `**📄 Revised Submission (v${iteration})**\n\n${workerText}`,
       model,
     });
+
+    // Auto-title after first worker submission
+    if (iteration === 1) {
+      const afterWork = fs.readFileSync(filePath, "utf-8");
+      const afterWorkSession = JSON.parse(afterWork);
+      const reviewEvents = (afterWorkSession.events || []).filter(
+        (e: { type: string; text: string; speaker: string }) =>
+          e.type === "worker" || e.type === "supervisor"
+      );
+      generateSessionTitle(filePath, topic, reviewEvents, model).catch(console.warn);
+    }
 
     await new Promise((r) => setTimeout(r, 500));
     { const ok = await applyPacing(filePath, pacing); if (!ok) return; }
@@ -726,22 +903,38 @@ async function runReview(
     const reviewSession = JSON.parse(reviewRaw);
     if (reviewSession.status !== "active") return;
 
-    const reviewHistory = buildHistoryString(reviewSession.events || []);
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay);
+    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength);
 
     const verdictInstruction =
       reviewStyle === "strict"
-        ? "End your review with a clear verdict on a new line: VERDICT: APPROVE or VERDICT: REJECT"
+        ? "Close your review with a verdict on a new line: VERDICT: APPROVE or VERDICT: REJECT"
         : reviewStyle === "flexible"
-        ? "End your review with: VERDICT: APPROVE, VERDICT: APPROVE_WITH_CONDITIONS, or VERDICT: REJECT"
-        : "Provide your honest assessment. If you think it's good enough, say so clearly.";
+        ? "Close your review with: VERDICT: APPROVE, VERDICT: APPROVE_WITH_CONDITIONS, or VERDICT: REJECT"
+        : "Close with your honest bottom line — does this meet the bar or not? Be direct.";
 
-    const reviewerPrompt = `Topic: ${topic}\n\nWork submitted by ${worker}:\n\n${lastWork}\n\nFull session context:\n\n${reviewHistory}\n\nAs ${AGENT_DEFS[reviewer]?.role || "Reviewer"}, evaluate this work critically. Check for accuracy, completeness, and quality. ${verdictInstruction}`;
+    const reviewerPrompt = `**Review Assignment**
+
+**Topic/Task:** ${topic}
+**Submission by:** ${worker} (${AGENT_DEFS[worker]?.role || "Worker"}) — Version ${iteration}
+
+**Their submission:**
+${lastWork}
+
+You are the expert reviewer. Your job is to evaluate this work like a senior principal reviewing a junior's PR, or a partner reviewing an associate's strategy memo. You are NOT trying to be nice — you are trying to make the work better.
+
+**Your review should:**
+- Quote or paraphrase specific parts of the submission when you critique them
+- Identify logical gaps, missing considerations, unsupported claims, and quality issues
+- Be constructive — explain what's wrong AND what good looks like
+- Check it against the original brief
+- If the work has genuine strengths, acknowledge them briefly — but don't pad
+
+${verdictInstruction}`;
 
     let reviewText = "";
     try {
-      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking);
+      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking, lengthMaxTokens);
     } catch (err) {
       reviewText = `⚠️ ${String(err)}`;
     }
@@ -759,7 +952,7 @@ async function runReview(
       speaker: reviewer,
       emoji: reviewerAgent?.emoji || "🟡",
       role: "reviewer",
-      text: reviewText,
+      text: `**🔍 Review (Round ${iteration})**\n\n${reviewText}`,
       verdict: isApproved ? "approve" : "reject",
       model,
     });
@@ -781,12 +974,25 @@ async function runReview(
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay);
-    const supPrompt = `Topic: ${topic}\n\nFull review session:\n\n${finalHistory}\n\nAs ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, deliver your final decision. Was the goal achieved? What should happen next? Be decisive.`;
+    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength);
+    const supPrompt = `**Review session complete.**
+
+**Topic:** ${topic}
+
+**Full review session:**
+${finalHistory}
+
+As ${supervisor === "Henry" ? "Chief of Staff" : AGENT_DEFS[supervisor]?.role || "Supervisor"}, deliver your final decision and synthesis:
+1. Was the deliverable achieved to the required standard?
+2. What were the key strengths and weaknesses surfaced during review?
+3. What are the concrete next steps — ship it, revise it, or escalate?
+4. Any process observations for future sessions?
+
+Be decisive. No hedging.`;
 
     let decisionText = "";
     try {
-      decisionText = await callClaude(supSystem, supPrompt, model, thinking);
+      decisionText = await callClaude(supSystem, supPrompt, model, thinking, lengthMaxTokens);
     } catch (err) {
       decisionText = `⚠️ ${String(err)}`;
     }
@@ -799,7 +1005,7 @@ async function runReview(
       speaker: supervisor,
       emoji: supAgent?.emoji || "⚡",
       role: "supervisor",
-      text: `**[Final Decision]**\n\n${decisionText}`,
+      text: `**⚖️ Final Decision**\n\n${decisionText}`,
       verdict: approved ? "approve" : "reject",
       model,
     });

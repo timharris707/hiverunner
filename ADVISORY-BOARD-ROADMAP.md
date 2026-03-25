@@ -41,6 +41,11 @@ The Advisory Board is the killer feature of Mission Control. It turns a team of 
 - [ ] **Token/cost tracking**: Show estimated cost per session
 
 ### P1 — Quality of Life
+- [ ] **Response length control in wizard**: Dropdown or slider — Concise / Balanced / Detailed / Verbose. Maps to max_tokens and prompt instructions. Default = Balanced (~2-3 paragraphs). Yesterday's 4096 was too long, 1024 was too short.
+- [ ] **Review mode testing & polish**: Ensure review mode works as well as roundtable — different prompt structure, reviewer/reviewee roles clear
+- [ ] **Paragraph formatting**: First-line indent on paragraphs for readability, proper spacing, clean typography
+- [ ] **PDF export**: Beautiful formatted PDF with product branding, agent avatars, session metadata, clean typography. Should look like a professional advisory report.
+- [ ] **Export formatting cleanup**: All exports (copy, download, PDF) should have clean formatting — no raw markdown artifacts
 - [ ] **Real streaming**: SSE or WebSocket for true token-by-token streaming (currently polling)
 - [ ] **Markdown rendering polish**: Code blocks, tables, lists all render cleanly
 - [ ] **Copy individual messages**: Click to copy a single agent's response
