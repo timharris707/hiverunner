@@ -4727,7 +4727,7 @@ export default function AdvisoryPage() {
               )}
 
               {/* Review Loop: Horizontal split layout */}
-              <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+              <div style={{ display: "flex", flex: 1, overflow: "hidden", minWidth: 0 }}>
 
               {/* Review Loop Task Panel (left) */}
               {reviewLoop && activeSession?.mode === "review" && (

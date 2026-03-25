@@ -33,6 +33,7 @@ export default function DashboardLayout({
           marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
           minHeight: "calc(100vh - 48px - 32px)",
           padding: isMobile ? "16px" : "24px",
+          overflow: "hidden", // contain children that use negative margins
         }}
       >
         <PageBreadcrumbs />

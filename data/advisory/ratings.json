@@ -1,1 +1,22 @@
-{}
+{
+  "Henry": {
+    "up": 1,
+    "down": 0,
+    "topics": {
+      "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.": {
+        "up": 1,
+        "down": 0
+      }
+    }
+  },
+  "Quill": {
+    "up": 1,
+    "down": 0,
+    "topics": {
+      "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.": {
+        "up": 1,
+        "down": 0
+      }
+    }
+  }
+}

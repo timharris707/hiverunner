@@ -63,6 +63,14 @@
 - [ ] Should be additive (adding expertise), not subtractive
 - [ ] Source from Agency Agents library (118 personas available)
 
+## Roundtable Mode — Critical Feedback from Live Testing
+- [ ] **Don't label agents as "WORKER" in roundtable mode** — that's only for review mode. In roundtable they're just participants/advisors
+- [ ] **Manual pacing should show ONE agent at a time, not a whole round** — click Next → one agent responds → you read it → click Next → next agent responds. Currently it fires all agents in a round at once, skipping past the human
+- [ ] **Auto-advance toggle matters here too** — if they want all agents to fire at once per round, that's the auto-continue toggle. Manual = one at a time
+- [ ] **Human needs a chance to participate between each agent** — currently the round just blasts through without letting the user jump in
+- [ ] **The conversation content was actually great** — Tim said "absolutely fascinating" and the agents were debating properly (Scout referencing Quant's points, etc.)
+- [ ] **Three agents went without user getting a chance to hit Next** — inconsistent behavior, sometimes one-at-a-time, sometimes batch
+
 ## General UI
 - [ ] Dashboard: old cached versions keep showing (port conflicts, zombie processes)
 - [ ] Consider hiding right sidebar entirely in Review Loop mode
