@@ -164,6 +164,16 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
     freshSession.paused = false;
     fs.writeFileSync(filePath, JSON.stringify(freshSession, null, 2));
 
+    // Auto-extract insights
+    try {
+      const insightsUrl = new URL(`/api/advisory/sessions/${id}/insights`, "http://localhost:3000");
+      fetch(insightsUrl.toString(), { method: "POST" }).catch((e) =>
+        console.error("Auto-insights extraction failed:", e)
+      );
+    } catch (e) {
+      console.error("Auto-insights trigger failed:", e);
+    }
+
     // Auto-archive
     archiveSession(id).catch((e) => console.error("End-session archive failed:", e));
   };
