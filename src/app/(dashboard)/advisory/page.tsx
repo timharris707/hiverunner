@@ -123,6 +123,33 @@ const PACING_OPTIONS = [
   { id: "manual", label: "Manual (step-through)", desc: "Pauses after each turn — you advance manually" },
 ];
 
+function RoundsDisplay({ session }: { session: AdvisorySession }) {
+  const rounds = (session as unknown as Record<string, unknown>).rounds;
+  if (rounds === "persistent") {
+    return (
+      <span
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "4px",
+          fontSize: "9px",
+          fontWeight: 700,
+          color: "#a78bfa",
+          backgroundColor: "rgba(167,139,250,0.12)",
+          border: "1px solid rgba(167,139,250,0.3)",
+          padding: "2px 7px",
+          borderRadius: "4px",
+          fontFamily: "var(--font-mono)",
+          letterSpacing: "0.06em",
+        }}
+      >
+        ∞ PERSISTENT
+      </span>
+    );
+  }
+  return <span style={{ fontSize: "10px", fontWeight: 600, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{String(rounds ?? "—")}</span>;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getAgentRole(agentId: string): string {
@@ -541,9 +568,24 @@ function SessionListItem({
       </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <AvatarStack agentIds={session.agents} size={22} max={4} />
-        <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
-          {session.eventCount ?? session.events?.length ?? 0} events
-        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          {(session as unknown as Record<string, unknown>).rounds === "persistent" && (
+            <span style={{
+              fontSize: "8px",
+              fontWeight: 700,
+              color: "#a78bfa",
+              backgroundColor: "rgba(167,139,250,0.12)",
+              border: "1px solid rgba(167,139,250,0.25)",
+              padding: "1px 5px",
+              borderRadius: "3px",
+              fontFamily: "var(--font-mono)",
+              letterSpacing: "0.04em",
+            }}>∞</span>
+          )}
+          <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>
+            {session.eventCount ?? session.events?.length ?? 0} events
+          </span>
+        </div>
       </div>
     </button>
   );
@@ -1680,6 +1722,19 @@ export default function AdvisoryPage() {
                       >
                         {activeSession.mode}
                       </span>
+                      {(activeSession as unknown as Record<string, unknown>).rounds === "persistent" && (
+                        <span style={{
+                          fontSize: "9px",
+                          fontWeight: 700,
+                          color: "#a78bfa",
+                          backgroundColor: "rgba(167,139,250,0.12)",
+                          border: "1px solid rgba(167,139,250,0.3)",
+                          padding: "2px 7px",
+                          borderRadius: "4px",
+                          fontFamily: "var(--font-mono)",
+                          letterSpacing: "0.04em",
+                        }}>∞ PERSISTENT</span>
+                      )}
                       {activeSession.model && (
                         <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
                           {activeSession.model}
@@ -2292,7 +2347,10 @@ export default function AdvisoryPage() {
                     : "gemini-flash"
                 } />
                 <InfoRow label="Events" value={String(events.length > 0 ? events.length : (activeSession.eventCount ?? 0))} />
-                <InfoRow label="Rounds" value={String((activeSession as unknown as Record<string, unknown>).rounds ?? "—")} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>Rounds</span>
+                  <RoundsDisplay session={activeSession} />
+                </div>
                 <InfoRow label="Started" value={formatDate(activeSession.createdAt)} />
                 {activeSession.completedAt && (
                   <InfoRow label="Ended" value={formatDate(activeSession.completedAt)} />
