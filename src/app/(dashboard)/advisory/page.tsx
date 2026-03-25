@@ -1276,14 +1276,27 @@ export default function AdvisoryPage() {
     if (!activeSession) return;
     setEndingSession(true);
     try {
-      // 1. Trigger the end-session synthesis (fire-and-forget on server)
+      // 1. Immediately inject a "generating synthesis" placeholder into the event stream
+      const synthesisPlaceholder = {
+        id: `evt_synth_pending_${Date.now()}`,
+        timestamp: new Date().toISOString(),
+        type: "supervisor",
+        speaker: "System",
+        emoji: "⏳",
+        role: "supervisor" as const,
+        text: "⏳ **Generating final synthesis...** Henry is reviewing the full discussion and preparing closing remarks. This may take 15–30 seconds.",
+      };
+      setEvents((prev) => [...prev, synthesisPlaceholder]);
+      setTimeout(() => scrollToBottom(), 100);
+
+      // 2. Trigger the end-session synthesis (fire-and-forget on server)
       await fetch(`/api/advisory/sessions/${activeSession.id}/end`, {
         method: "POST",
       });
-      // 2. Reload to see the updated session (events are still intact)
+      // 3. Reload to see the updated session (events are still intact)
       await loadSessionEvents(activeSession.id, true);
       await loadSessions();
-      // 3. Keep polling active so the synthesis event appears when it arrives
+      // 4. Keep polling active so the synthesis event appears when it arrives
       setIsGenerating(true);
     } catch (e) {
       console.error("End session error:", e);
@@ -1876,66 +1889,6 @@ export default function AdvisoryPage() {
                     {advancingTurn ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
                     Next Turn →
                   </button>
-                  {!endSessionConfirm ? (
-                    <button
-                      onClick={() => setEndSessionConfirm(true)}
-                      style={{
-                        padding: "8px 14px",
-                        borderRadius: "7px",
-                        border: "1px solid rgba(239,68,68,0.4)",
-                        backgroundColor: "rgba(239,68,68,0.08)",
-                        color: "#ef4444",
-                        cursor: "pointer",
-                        fontSize: "12px",
-                        fontWeight: 600,
-                        display: "flex",
-                        alignItems: "center",
-                        gap: "6px",
-                      }}
-                    >
-                      <X size={12} />
-                      End Session
-                    </button>
-                  ) : (
-                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                      <span style={{ fontSize: "10px", color: "#ef4444", fontWeight: 600 }}>Confirm end?</span>
-                      <button
-                        onClick={handleEndSession}
-                        disabled={endingSession}
-                        style={{
-                          padding: "5px 10px",
-                          borderRadius: "5px",
-                          border: "none",
-                          backgroundColor: "#ef4444",
-                          color: "#fff",
-                          cursor: endingSession ? "not-allowed" : "pointer",
-                          fontSize: "11px",
-                          fontWeight: 700,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: "4px",
-                        }}
-                      >
-                        {endingSession ? <Loader2 size={10} className="animate-spin" /> : null}
-                        Yes, end
-                      </button>
-                      <button
-                        onClick={() => setEndSessionConfirm(false)}
-                        style={{
-                          padding: "5px 8px",
-                          borderRadius: "5px",
-                          border: "1px solid rgba(239,68,68,0.3)",
-                          backgroundColor: "transparent",
-                          color: "#ef4444",
-                          cursor: "pointer",
-                          fontSize: "11px",
-                          fontWeight: 600,
-                        }}
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  )}
                 </div>
               )}
 
@@ -1949,7 +1902,7 @@ export default function AdvisoryPage() {
                     flexShrink: 0,
                   }}
                 >
-                  <div style={{ display: "flex", gap: "10px", alignItems: "flex-end" }}>
+                  <div style={{ display: "flex", gap: "10px", alignItems: "flex-start" }}>
                     <div style={{ flex: 1 }}>
                       <textarea
                         value={humanMessage}
@@ -1974,7 +1927,7 @@ export default function AdvisoryPage() {
                         }}
                       />
                       <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "4px" }}>
-                        ⌘↵ to send · Appears as a Supervisor directive in the stream
+                        ⌘↵ to send
                       </div>
                     </div>
                     <button
@@ -1995,11 +1948,11 @@ export default function AdvisoryPage() {
                         opacity: sendingMessage || !humanMessage.trim() ? 0.5 : 1,
                         flexShrink: 0,
                         fontFamily: "var(--font-heading)",
-                        height: "fit-content",
+                        marginTop: "0px",
                       }}
                     >
                       {sendingMessage ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                      Send as Directive
+                      Send
                     </button>
                   </div>
                 </div>

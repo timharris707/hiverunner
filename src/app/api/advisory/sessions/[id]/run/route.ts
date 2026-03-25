@@ -196,7 +196,9 @@ Your communication style:
 - Say things like "Building on what [Name] proposed..." or "I'd push back on [Name]'s assumption that..."
 - This is a conversation, not a series of independent monologues — engage with what others have actually said
 
-This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best: sharp, knowledgeable, thorough, and focused on delivering actionable insight.`;
+This is a high-stakes advisory session. Tim is counting on this board to make real decisions. Respond as ${agent.name} would at their absolute best: sharp, knowledgeable, thorough, and focused on delivering actionable insight.
+
+**Critical instruction on group dynamics:** If all participants seem to be agreeing or converging on the same direction, one agent should naturally play devil's advocate and push back with counter-arguments, risks, or alternative perspectives. Healthy disagreement produces better decisions than echo chambers. Don't agree for the sake of harmony — if something deserves scrutiny, provide it.`;
 }
 
 // ─── Build conversation history string ───────────────────────────────────────
@@ -389,9 +391,23 @@ async function runRoundtable(
       );
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
+
+      // Check if previous speakers have all been agreeing (for contrarian injection)
+      const recentEvents = events.filter((e: { type: string; text: string }) => e.type === "worker" || e.type === "supervisor").slice(-4);
+      const seemsLikeConsensus = recentEvents.length >= 2 && recentEvents.every((e: { text: string }) =>
+        !e.text.toLowerCase().includes("however") &&
+        !e.text.toLowerCase().includes("push back") &&
+        !e.text.toLowerCase().includes("disagree") &&
+        !e.text.toLowerCase().includes("concern") &&
+        !e.text.toLowerCase().includes("risk")
+      );
+      const contrarianNote = seemsLikeConsensus && !isFirstTurn
+        ? "\n\n**Note:** The previous speakers have all agreed on a direction. Challenge it. Present the strongest counter-argument or identify the risks they've glossed over. Tim values diverse perspectives over consensus."
+        : "";
+
       const userPrompt = isFirstTurn
         ? `Topic for this roundtable: ${topic}\n\n${history === "No prior discussion yet." ? "You are the first to speak. Open the discussion with your perspective." : `Previous discussion:\n\n${history}\n\nNow it's your turn to contribute.`}`
-        : `Topic: ${topic}\n\nPrevious discussion:\n\n${history}\n\nYou've already spoken once. Now it's round ${round} — build on what's been said, push back on anything you disagree with, or take the discussion in a new direction.`;
+        : `Topic: ${topic}\n\nPrevious discussion:\n\n${history}\n\nYou've already spoken once. Now it's round ${round} — build on what's been said, push back on anything you disagree with, or take the discussion in a new direction.${contrarianNote}`;
 
       let text = "";
       try {
