@@ -5171,7 +5171,7 @@ export default function AdvisoryPage() {
         </div>
 
         {/* ─── RIGHT SIDEBAR — Session metadata (desktop only) ── */}
-        {activeSession && (
+        {activeSession && false && (
           <div
             className="advisory-right-sidebar"
             style={{
