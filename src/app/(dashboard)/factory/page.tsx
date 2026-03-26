@@ -1,11 +1,12 @@
 "use client";
 
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { getAgentByAnyId } from "@/config/agents";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Priority = "high" | "medium" | "low";
-type PipelineStatus = "backlog" | "building" | "deploying" | "live";
+type PipelineStatus = "backlog" | "building" | "deployed" | "shipped";
 
 interface Product {
   id: string;
@@ -28,11 +29,26 @@ interface Product {
 
 const PRODUCTS: Product[] = [
   {
+    id: "mission-control",
+    emoji: "⚡",
+    name: "Mission Control",
+    description: "Central dashboard and command center",
+    status: "deployed",
+    priority: "high",
+    tags: ["Next.js", "React", "Tailwind"],
+    agentId: "pixel",
+    color: "#ef4444",
+    github: "https://github.com",
+    vercel: true,
+    isLive: true,
+    timeInStage: "14d in stage",
+  },
+  {
     id: "snapaudit",
     emoji: "🔍",
     name: "SnapAudit",
-    description: "AI website audit SaaS",
-    status: "live",
+    description: "AI website audit SaaS — needs marketing push",
+    status: "deployed",
     priority: "medium",
     tags: ["Next.js", "GPT-4o", "Stripe"],
     agentId: "pixel",
@@ -41,6 +57,47 @@ const PRODUCTS: Product[] = [
     vercel: true,
     isLive: true,
     timeInStage: "5d in stage",
+  },
+  {
+    id: "crypto-trading",
+    emoji: "₿",
+    name: "Crypto Trading Bot",
+    description: "Automated crypto trading with CCXT",
+    status: "building",
+    priority: "high",
+    tags: ["Python", "CCXT", "FastAPI", "Docker"],
+    agentId: "cipher",
+    color: "#f59e0b",
+    github: "https://github.com",
+    vercel: false,
+    timeInStage: "12h in stage",
+  },
+  {
+    id: "weather-trading",
+    emoji: "🌤️",
+    name: "Weather Trading Bot",
+    description: "Weather prediction on Kalshi",
+    status: "building",
+    priority: "high",
+    tags: ["Python", "scikit-learn", "SQLite"],
+    agentId: "nimbus",
+    color: "#06b6d4",
+    github: "https://github.com",
+    timeInStage: "8h in stage",
+  },
+  {
+    id: "stock-options",
+    emoji: "📈",
+    name: "Stock & Options Trading",
+    description: "Options-first trading system",
+    status: "backlog",
+    priority: "high",
+    tags: ["Python", "Polygon", "FastAPI"],
+    agentId: "atlas",
+    color: "#10b981",
+    github: "https://github.com",
+    blocked: "Blocked on API key",
+    timeInStage: "3d in stage",
   },
   {
     id: "advisory-board",
@@ -56,47 +113,6 @@ const PRODUCTS: Product[] = [
     timeInStage: "1d in stage",
   },
   {
-    id: "crypto-trading",
-    emoji: "₿",
-    name: "Crypto Trading Bot",
-    description: "Automated crypto trading with CCXT",
-    status: "deploying",
-    priority: "high",
-    tags: ["Python", "CCXT", "FastAPI", "Docker"],
-    agentId: "cipher",
-    color: "#f59e0b",
-    github: "https://github.com",
-    vercel: false,
-    timeInStage: "12h in stage",
-  },
-  {
-    id: "weather-trading",
-    emoji: "🌤️",
-    name: "Weather Trading Bot",
-    description: "Weather prediction on Kalshi",
-    status: "deploying",
-    priority: "high",
-    tags: ["Python", "scikit-learn", "SQLite"],
-    agentId: "nimbus",
-    color: "#06b6d4",
-    github: "https://github.com",
-    timeInStage: "8h in stage",
-  },
-  {
-    id: "stock-options",
-    emoji: "📈",
-    name: "Stock & Options Trading",
-    description: "Options-first trading system",
-    status: "building",
-    priority: "high",
-    tags: ["Python", "Polygon", "FastAPI"],
-    agentId: "atlas",
-    color: "#10b981",
-    github: "https://github.com",
-    blocked: "Needs API key",
-    timeInStage: "3d in stage",
-  },
-  {
     id: "idea-intake",
     emoji: "💡",
     name: "Idea Intake Pipeline",
@@ -109,22 +125,41 @@ const PRODUCTS: Product[] = [
     github: "https://github.com",
     timeInStage: "2d in stage",
   },
-  {
-    id: "mission-control",
-    emoji: "⚡",
-    name: "Mission Control",
-    description: "Central dashboard and command center",
-    status: "live",
-    priority: "high",
-    tags: ["Next.js", "React", "Tailwind"],
-    agentId: "pixel",
-    color: "#ef4444",
-    github: "https://github.com",
-    vercel: true,
-    isLive: true,
-    timeInStage: "14d in stage",
-  },
 ];
+
+// ─── Agent-to-Product mapping ────────────────────────────────────────────────
+
+interface AgentSprite {
+  agentId: string;
+  agentName: string;
+  productName: string;
+  status: "building" | "deployed";
+  animDelay: number;
+}
+
+function getActiveAgentSprites(): AgentSprite[] {
+  const activeProducts = PRODUCTS.filter(
+    (p) => p.status === "building" || p.status === "deployed"
+  );
+
+  const sprites: AgentSprite[] = [];
+  let delayIndex = 0;
+
+  for (const product of activeProducts) {
+    const agent = getAgentByAnyId(product.agentId);
+    const name = agent?.name?.replace(/\s*[^\w\s].*$/, "") ?? product.agentId;
+    sprites.push({
+      agentId: product.agentId,
+      agentName: name,
+      productName: product.name,
+      status: product.status as "building" | "deployed",
+      animDelay: delayIndex * 0.4,
+    });
+    delayIndex++;
+  }
+
+  return sprites;
+}
 
 // ─── Pipeline Columns ─────────────────────────────────────────────────────────
 
@@ -136,8 +171,8 @@ const COLUMNS: {
 }[] = [
   { id: "backlog", label: "Backlog", emoji: "📋", accent: "#6366f1" },
   { id: "building", label: "Building", emoji: "🔨", accent: "#f59e0b" },
-  { id: "deploying", label: "Deploying", emoji: "🚀", accent: "#06b6d4" },
-  { id: "live", label: "Live", emoji: "🟢", accent: "#10b981" },
+  { id: "deployed", label: "Deployed", emoji: "🚀", accent: "#06b6d4" },
+  { id: "shipped", label: "Shipped ✅", emoji: "🟢", accent: "#10b981" },
 ];
 
 const PRIORITY_BADGES: Record<Priority, { icon: string; color: string }> = {
@@ -204,6 +239,156 @@ function ConveyorBelt() {
           }}
         />
       ))}
+    </div>
+  );
+}
+
+// ─── Agent Sprite ─────────────────────────────────────────────────────────────
+
+function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
+  const isBuilding = sprite.status === "building";
+  const glowColor = isBuilding ? "#22c55e" : "#3b82f6";
+
+  return (
+    <div
+      className="group relative flex flex-col items-center"
+      style={{ minWidth: 72 }}
+    >
+      {/* Status label */}
+      <div
+        className="mb-1.5"
+        style={{
+          fontSize: 10,
+          color: glowColor,
+          fontFamily: "var(--font-mono)",
+          letterSpacing: "0.03em",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {isBuilding ? (
+          <span className="inline-flex items-center gap-0.5">
+            building
+            <span style={{ animation: "ellipsis-anim 1.4s steps(4, end) infinite" }}>
+              ...
+            </span>
+          </span>
+        ) : (
+          <span>✅ monitoring</span>
+        )}
+      </div>
+
+      {/* Avatar with glow ring + bobbing */}
+      <div
+        className="relative"
+        style={{
+          animation: `agent-bob 3s ease-in-out infinite`,
+          animationDelay: `${sprite.animDelay}s`,
+        }}
+      >
+        {/* Glow ring */}
+        <div
+          className="absolute rounded-full"
+          style={{
+            inset: -4,
+            border: `2px solid ${glowColor}66`,
+            boxShadow: `0 0 10px ${glowColor}44, inset 0 0 6px ${glowColor}22`,
+            animation: `glow-pulse 2.5s ease-in-out infinite`,
+            animationDelay: `${sprite.animDelay * 0.7}s`,
+            borderRadius: "50%",
+          }}
+        />
+        <AgentAvatar agentId={sprite.agentId} size={38} borderWidth={2} />
+      </div>
+
+      {/* Agent name */}
+      <div
+        className="mt-1.5"
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color: "#e2e8f0",
+          fontFamily: "var(--font-heading, var(--font-body))",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {sprite.agentName}
+      </div>
+
+      {/* Product name */}
+      <div
+        style={{
+          fontSize: 9,
+          color: "rgba(148,163,184,0.7)",
+          fontFamily: "var(--font-mono)",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+          marginTop: 1,
+        }}
+      >
+        {sprite.productName}
+      </div>
+
+      {/* Hover tooltip */}
+      <div
+        className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50"
+        style={{
+          padding: "6px 10px",
+          backgroundColor: "rgba(15,23,42,0.95)",
+          border: "1px solid rgba(99,102,241,0.3)",
+          borderRadius: 8,
+          fontSize: 11,
+          color: "#e2e8f0",
+          fontFamily: "var(--font-mono)",
+          whiteSpace: "nowrap",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+        }}
+      >
+        {sprite.agentName} — working on {sprite.productName}
+      </div>
+    </div>
+  );
+}
+
+// ─── Workshop Floor ───────────────────────────────────────────────────────────
+
+function WorkshopFloor() {
+  const sprites = getActiveAgentSprites();
+
+  return (
+    <div
+      className="mx-6 mb-4 rounded-xl overflow-hidden"
+      style={{
+        background:
+          "linear-gradient(180deg, rgba(30,27,75,0.5) 0%, rgba(15,23,42,0.6) 100%)",
+        border: "1px solid rgba(99,102,241,0.15)",
+        padding: "14px 20px 16px",
+      }}
+    >
+      {/* Section label */}
+      <div
+        className="flex items-center gap-2 mb-3"
+        style={{
+          fontSize: 11,
+          color: "rgba(199,210,254,0.5)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        <span style={{ fontSize: 13 }}>🤖</span>
+        Workshop Floor — Active Agents
+      </div>
+
+      {/* Agent sprites row */}
+      <div className="flex items-start gap-6 overflow-x-auto pb-1">
+        {sprites.map((sprite) => (
+          <AgentSpriteComponent
+            key={`${sprite.agentId}-${sprite.productName}`}
+            sprite={sprite}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -439,23 +624,24 @@ export default function SoftwareFactoryPage() {
   const statsByStatus: Record<PipelineStatus, Product[]> = {
     backlog: [],
     building: [],
-    deploying: [],
-    live: [],
+    deployed: [],
+    shipped: [],
   };
   for (const p of PRODUCTS) {
     statsByStatus[p.status].push(p);
   }
 
-  const shipped = statsByStatus.live.length;
+  const shipped = statsByStatus.shipped.length;
+  const deployed = statsByStatus.deployed.length;
   const building = statsByStatus.building.length;
   const backlog = statsByStatus.backlog.length;
   const liveRevenue = PRODUCTS.filter((p) => p.isLive).length;
 
   const STATS = [
     { label: "Shipped", value: shipped, icon: "🚀", color: "#10b981" },
+    { label: "Deployed", value: deployed, icon: "🌐", color: "#06b6d4" },
     { label: "Building", value: building, icon: "🔨", color: "#f59e0b" },
     { label: "Backlog", value: backlog, icon: "📋", color: "#6366f1" },
-    { label: "Avg Build Time", value: "~4h", icon: "⏱️", color: "#8b5cf6" },
     { label: "Products Live", value: liveRevenue, icon: "💰", color: "#ec4899" },
   ];
 
@@ -476,6 +662,21 @@ export default function SoftwareFactoryPage() {
         @keyframes pulse-glow {
           0%, 100% { opacity: 1; box-shadow: 0 0 6px #10b98188; }
           50% { opacity: 0.6; box-shadow: 0 0 12px #10b981aa; }
+        }
+        @keyframes agent-bob {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-2.5px); }
+        }
+        @keyframes glow-pulse {
+          0%, 100% { opacity: 0.6; }
+          50% { opacity: 1; }
+        }
+        @keyframes ellipsis-anim {
+          0% { content: ''; width: 0; }
+          25% { width: 0.3em; }
+          50% { width: 0.6em; }
+          75% { width: 0.9em; }
+          100% { width: 0.9em; }
         }
       `}</style>
 
@@ -562,6 +763,9 @@ export default function SoftwareFactoryPage() {
       <div className="px-6">
         <ConveyorBelt />
       </div>
+
+      {/* ── Workshop Floor — Animated Agent Sprites ────────────────────────── */}
+      <WorkshopFloor />
 
       {/* ── Kanban Columns ─────────────────────────────────────────────────── */}
       <div className="px-6 pb-8">
