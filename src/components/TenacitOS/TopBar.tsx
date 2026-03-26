@@ -68,7 +68,7 @@ export function TopBar() {
         }}
       >
         {/* Left: Logo & Title */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" style={{ paddingLeft: "10px" }}>
           <span style={{ fontSize: "20px" }}>⚡</span>
           <h1
             style={{
