@@ -20,6 +20,7 @@ import {
   Workflow,
   Terminal,
   Search,
+  Lightbulb,
   Shield,
   FileBarChart,
   Users,
@@ -50,6 +51,7 @@ const navItems: (NavItem | null)[] = [
   { href: "/memory", label: "Memory", icon: Brain },
   { href: "/files", label: "Files", icon: FolderOpen },
   { href: "/search", label: "Search", icon: Search },
+  { href: "/ideas", label: "Ideas", icon: Lightbulb },
   { href: "/reports", label: "Reports", icon: FileBarChart },
   null, // separator
   { href: "/sessions", label: "Sessions", icon: History },
