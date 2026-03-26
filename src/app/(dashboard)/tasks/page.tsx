@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   Kanban,
   Plus,
@@ -20,6 +20,16 @@ import {
   Film,
   ImageIcon,
   Trash2,
+  ExternalLink,
+  Tag,
+  Calendar,
+  User,
+  FolderOpen,
+  AlertCircle,
+  StickyNote,
+  Wrench,
+  Bug,
+  Sparkles,
 } from "lucide-react";
 
 interface Attachment {
@@ -41,6 +51,9 @@ interface Task {
   type?: "feature" | "bug" | "maintenance";
   tags?: string[];
   attachments?: Attachment[];
+  source_url?: string;
+  github_issue?: string;
+  notes?: string;
   created: string;
   updated: string;
   completedAt?: string;
@@ -84,6 +97,11 @@ const ASSIGNEE_EMOJIS: Record<string, string> = {
 
 const ALL_ASSIGNEES = Object.keys(ASSIGNEE_EMOJIS);
 const ALL_PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
+const ALL_TYPES: { id: Task["type"]; label: string; icon: React.ComponentType<any> }[] = [
+  { id: "feature", label: "Feature", icon: Sparkles },
+  { id: "bug", label: "Bug", icon: Bug },
+  { id: "maintenance", label: "Maintenance", icon: Wrench },
+];
 
 function formatDate(dateStr: string) {
   try {
@@ -94,9 +112,170 @@ function formatDate(dateStr: string) {
   }
 }
 
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isImageType(type: string) {
+  return type.startsWith("image/");
+}
+
+function isVideoType(type: string) {
+  return type.startsWith("video/");
+}
+
+function AttachmentIcon({ type }: { type: string }) {
+  if (isImageType(type)) return <ImageIcon className="w-4 h-4" />;
+  if (isVideoType(type)) return <Film className="w-4 h-4" />;
+  return <FileText className="w-4 h-4" />;
+}
+
+// Shared drop zone for file attachments
+function AttachmentDropZone({
+  files,
+  onFilesAdded,
+  onFileRemoved,
+}: {
+  files: File[];
+  onFilesAdded: (files: File[]) => void;
+  onFileRemoved: (index: number) => void;
+}) {
+  const [isDragging, setIsDragging] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const dropped = Array.from(e.dataTransfer.files);
+    if (dropped.length > 0) onFilesAdded(dropped);
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const items = e.clipboardData.items;
+    const pasted: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      const file = items[i].getAsFile();
+      if (file) pasted.push(file);
+    }
+    if (pasted.length > 0) {
+      e.preventDefault();
+      onFilesAdded(pasted);
+    }
+  };
+
+  return (
+    <div>
+      <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+        Attachments
+      </label>
+      <div
+        onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); }}
+        onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+        onDrop={handleDrop}
+        onPaste={handlePaste}
+        onClick={() => fileInputRef.current?.click()}
+        tabIndex={0}
+        style={{
+          border: `2px dashed ${isDragging ? "var(--accent)" : "var(--border)"}`,
+          borderRadius: "0.5rem",
+          padding: files.length > 0 ? "0.5rem" : "1rem",
+          backgroundColor: isDragging ? "rgba(255,59,48,0.05)" : "var(--card-elevated)",
+          cursor: "pointer",
+          transition: "all 0.15s ease",
+          minHeight: files.length > 0 ? undefined : "60px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: files.length > 0 ? "stretch" : "center",
+          justifyContent: "center",
+          gap: "0.5rem",
+        }}
+      >
+        {files.length === 0 ? (
+          <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.8rem" }}>
+            <Upload className="w-4 h-4" />
+            <span>Drop files, paste images, or click to browse</span>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+            {files.map((file, i) => (
+              <div
+                key={i}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.375rem",
+                  padding: "0.25rem 0.5rem",
+                  borderRadius: "0.375rem",
+                  backgroundColor: "var(--surface)",
+                  border: "1px solid var(--border)",
+                  fontSize: "0.75rem",
+                  color: "var(--text-secondary)",
+                  maxWidth: "200px",
+                }}
+              >
+                {isImageType(file.type) ? (
+                  <img
+                    src={URL.createObjectURL(file)}
+                    alt=""
+                    style={{ width: 20, height: 20, borderRadius: 3, objectFit: "cover" }}
+                  />
+                ) : (
+                  <AttachmentIcon type={file.type} />
+                )}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                  {file.name}
+                </span>
+                <span style={{ color: "var(--text-muted)", fontSize: "0.65rem", flexShrink: 0 }}>
+                  {formatFileSize(file.size)}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onFileRemoved(i); }}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, display: "flex" }}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            <div style={{ display: "flex", alignItems: "center", gap: "0.25rem", padding: "0.25rem 0.5rem", fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <Plus className="w-3 h-3" /> Add more
+            </div>
+          </div>
+        )}
+      </div>
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*,video/*,application/pdf,.md,.txt,.csv,.json"
+        style={{ display: "none" }}
+        onChange={(e) => {
+          const selected = Array.from(e.target.files || []);
+          if (selected.length > 0) onFilesAdded(selected);
+          e.target.value = "";
+        }}
+      />
+    </div>
+  );
+}
+
+async function uploadAttachments(taskId: string, files: File[]): Promise<Attachment[]> {
+  const formData = new FormData();
+  formData.append("taskId", taskId);
+  for (const file of files) {
+    formData.append("files", file);
+  }
+  const res = await fetch("/api/tasks/attachments", { method: "POST", body: formData });
+  const data = await res.json();
+  return data.attachments || [];
+}
+
 interface NewTaskModalProps {
   onClose: () => void;
-  onSave: (task: Partial<Task>) => void;
+  onSave: (task: Partial<Task>, files?: File[]) => void;
   defaultStatus?: Task["status"];
   projectsMap: Record<string, ProjectInfo>;
 }
@@ -108,13 +287,17 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   const [priority, setPriority] = useState<Task["priority"]>("P2");
   const [assignee, setAssignee] = useState("");
   const [project, setProject] = useState("");
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) return;
     setSaving(true);
-    await onSave({ title: title.trim(), description: description.trim() || undefined, status, priority, assignee: assignee || undefined, project: project || undefined });
+    await onSave(
+      { title: title.trim(), description: description.trim() || undefined, status, priority, assignee: assignee || undefined, project: project || undefined },
+      pendingFiles.length > 0 ? pendingFiles : undefined,
+    );
     setSaving(false);
   };
 
@@ -124,7 +307,7 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
       onClick={onClose}
     >
       <div
-        style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "520px", border: "1px solid var(--border)" }}
+        style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "520px", border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border)" }}>
@@ -164,6 +347,13 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
               style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }}
             />
           </div>
+
+          {/* Attachments */}
+          <AttachmentDropZone
+            files={pendingFiles}
+            onFilesAdded={(newFiles) => setPendingFiles((prev) => [...prev, ...newFiles])}
+            onFileRemoved={(i) => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+          />
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
             <div>
@@ -251,14 +441,234 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   );
 }
 
-function TaskCard({ task, onDragStart, onStatusChange, projectsMap, isBuilding }: { task: Task; onDragStart: (e: React.DragEvent, task: Task) => void; onStatusChange: (id: string, status: Task["status"]) => void; projectsMap: Record<string, ProjectInfo>; isBuilding?: boolean }) {
+// Task Detail Modal — view task with attachments, add/remove files
+function TaskDetailModal({
+  task,
+  onClose,
+  onTaskUpdated,
+  projectsMap,
+}: {
+  task: Task;
+  onClose: () => void;
+  onTaskUpdated: (updated: Task) => void;
+  projectsMap: Record<string, ProjectInfo>;
+}) {
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  const proj = projectsMap[task.project || ""];
+  const attachments = task.attachments || [];
+
+  const handleUpload = async () => {
+    if (pendingFiles.length === 0) return;
+    setUploading(true);
+    try {
+      const newAttachments = await uploadAttachments(task.id, pendingFiles);
+      const allAttachments = [...attachments, ...newAttachments];
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, attachments: allAttachments }),
+      });
+      const data = await res.json();
+      if (data.task) onTaskUpdated(data.task);
+      setPendingFiles([]);
+    } catch (err) {
+      console.error("Upload failed:", err);
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemoveAttachment = async (att: Attachment) => {
+    try {
+      await fetch("/api/tasks/attachments", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ path: att.path }),
+      });
+      const updated = attachments.filter((a) => a.id !== att.id);
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, attachments: updated }),
+      });
+      const data = await res.json();
+      if (data.task) onTaskUpdated(data.task);
+    } catch (err) {
+      console.error("Delete failed:", err);
+    }
+  };
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}
+      onClick={onClose}
+    >
+      <div
+        style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "640px", border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
+            <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${PRIORITY_COLORS[task.priority]}20`, color: PRIORITY_COLORS[task.priority] }}>
+              {task.priority}
+            </span>
+            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{task.id}</span>
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem" }}>
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--text-primary)", fontSize: "1.25rem", lineHeight: 1.3, margin: 0 }}>
+            {task.title}
+          </h2>
+
+          {/* Meta row */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
+            {task.assignee && (
+              <span className="text-xs flex items-center gap-1 px-2 py-1 rounded" style={{ backgroundColor: "var(--card-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
+                {ASSIGNEE_EMOJIS[task.assignee] || "🤖"} {task.assignee}
+              </span>
+            )}
+            {proj && (
+              <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: `${proj.color}15`, color: proj.color, border: `1px solid ${proj.color}30` }}>
+                {proj.emoji} {proj.name}
+              </span>
+            )}
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+              Created {formatDate(task.created)}
+            </span>
+          </div>
+
+          {task.description && (
+            <div style={{ fontSize: "0.875rem", color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+              {task.description}
+            </div>
+          )}
+
+          {/* Existing attachments */}
+          {attachments.length > 0 && (
+            <div>
+              <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Attachments ({attachments.length})
+              </label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.5rem" }}>
+                {attachments.map((att) => (
+                  <div
+                    key={att.id}
+                    style={{
+                      borderRadius: "0.5rem",
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--card-elevated)",
+                      overflow: "hidden",
+                    }}
+                  >
+                    {isImageType(att.type) ? (
+                      <div
+                        style={{ width: "100%", height: "100px", cursor: "pointer" }}
+                        onClick={() => setLightboxSrc(`/api/tasks/attachments?path=${encodeURIComponent(att.path)}`)}
+                      >
+                        <img
+                          src={`/api/tasks/attachments?path=${encodeURIComponent(att.path)}`}
+                          alt={att.name}
+                          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+                        />
+                      </div>
+                    ) : isVideoType(att.type) ? (
+                      <div style={{ width: "100%", height: "100px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
+                        <Film className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
+                      </div>
+                    ) : (
+                      <div style={{ width: "100%", height: "100px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
+                        <FileText className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
+                      </div>
+                    )}
+                    <div style={{ padding: "0.375rem 0.5rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                      <span style={{ fontSize: "0.65rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                        {att.name}
+                      </span>
+                      <button
+                        onClick={() => handleRemoveAttachment(att)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: 0, display: "flex", flexShrink: 0 }}
+                        title="Remove"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Add more attachments */}
+          <AttachmentDropZone
+            files={pendingFiles}
+            onFilesAdded={(newFiles) => setPendingFiles((prev) => [...prev, ...newFiles])}
+            onFileRemoved={(i) => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
+          />
+
+          {pendingFiles.length > 0 && (
+            <button
+              onClick={handleUpload}
+              disabled={uploading}
+              style={{
+                padding: "0.625rem", borderRadius: "0.5rem",
+                backgroundColor: "var(--accent)", border: "none",
+                color: "#000", fontWeight: 700, fontSize: "0.875rem",
+                cursor: uploading ? "not-allowed" : "pointer",
+                opacity: uploading ? 0.7 : 1,
+              }}
+            >
+              {uploading ? "Uploading..." : `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? "s" : ""}`}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <div
+          style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100, cursor: "pointer" }}
+          onClick={(e) => { e.stopPropagation(); setLightboxSrc(null); }}
+        >
+          <img src={lightboxSrc} alt="" style={{ maxWidth: "90vw", maxHeight: "90vh", borderRadius: "0.5rem", objectFit: "contain" }} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TaskCard({
+  task,
+  onDragStart,
+  onStatusChange,
+  onClick,
+  projectsMap,
+  isBuilding,
+}: {
+  task: Task;
+  onDragStart: (e: React.DragEvent, task: Task) => void;
+  onStatusChange: (id: string, status: Task["status"]) => void;
+  onClick: (task: Task) => void;
+  projectsMap: Record<string, ProjectInfo>;
+  isBuilding?: boolean;
+}) {
   const proj = projectsMap[task.project || ""];
   const projectColor = proj?.color || "#6b7280";
   const projectLabel = proj ? `${proj.emoji} ${proj.name}` : task.project || "";
+  const attachmentCount = task.attachments?.length || 0;
+
   return (
     <div
       draggable
       onDragStart={(e) => onDragStart(e, task)}
+      onClick={() => onClick(task)}
       className="p-3 rounded-lg mb-2 last:mb-0 transition-all hover:scale-[1.01] cursor-grab active:cursor-grabbing"
       style={{
         backgroundColor: "var(--card)",
@@ -310,6 +720,25 @@ function TaskCard({ task, onDragStart, onStatusChange, projectsMap, isBuilding }
       {task.description && (
         <div className="text-xs mb-2 line-clamp-2" style={{ color: "var(--text-muted)" }}>
           {task.description}
+        </div>
+      )}
+
+      {/* Image thumbnail strip */}
+      {attachmentCount > 0 && task.attachments!.some((a) => isImageType(a.type)) && (
+        <div className="flex gap-1 mb-2 overflow-hidden" style={{ maxHeight: "40px" }}>
+          {task.attachments!.filter((a) => isImageType(a.type)).slice(0, 3).map((att) => (
+            <img
+              key={att.id}
+              src={`/api/tasks/attachments?path=${encodeURIComponent(att.path)}`}
+              alt=""
+              style={{ width: 40, height: 40, borderRadius: 4, objectFit: "cover", border: "1px solid var(--border)" }}
+            />
+          ))}
+          {task.attachments!.filter((a) => isImageType(a.type)).length > 3 && (
+            <div style={{ width: 40, height: 40, borderRadius: 4, backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", color: "var(--text-muted)" }}>
+              +{task.attachments!.filter((a) => isImageType(a.type)).length - 3}
+            </div>
+          )}
         </div>
       )}
 
@@ -365,6 +794,15 @@ function TaskCard({ task, onDragStart, onStatusChange, projectsMap, isBuilding }
               {task.assignee}
             </span>
           )}
+          {attachmentCount > 0 && (
+            <span
+              className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: "var(--card-elevated)", color: "var(--text-muted)" }}
+            >
+              <Paperclip className="w-3 h-3" />
+              {attachmentCount}
+            </span>
+          )}
         </div>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           {formatDate(task.updated)}
@@ -398,6 +836,7 @@ export default function TasksPage() {
   const [newTaskStatus, setNewTaskStatus] = useState<Task["status"]>("backlog");
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<Task["status"] | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   // Listen for Cmd+T global shortcut to open new task modal
   useEffect(() => {
@@ -420,7 +859,6 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchTasks();
-    // Fetch projects for colors/names
     fetch("/api/projects")
       .then((r) => r.json())
       .then((data) => {
@@ -431,12 +869,11 @@ export default function TasksPage() {
         setProjectsMap(map);
       })
       .catch(console.error);
-    // Auto-refresh every 30 seconds
     const interval = setInterval(fetchTasks, 30_000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleCreateTask = async (taskData: Partial<Task>) => {
+  const handleCreateTask = async (taskData: Partial<Task>, files?: File[]) => {
     try {
       const res = await fetch("/api/tasks", {
         method: "POST",
@@ -445,7 +882,23 @@ export default function TasksPage() {
       });
       const data = await res.json();
       if (data.task) {
-        setTasks((prev) => [data.task, ...prev]);
+        let createdTask = data.task;
+
+        // Upload attachments if provided
+        if (files && files.length > 0) {
+          const attachments = await uploadAttachments(createdTask.id, files);
+          if (attachments.length > 0) {
+            const patchRes = await fetch("/api/tasks", {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: createdTask.id, attachments }),
+            });
+            const patchData = await patchRes.json();
+            if (patchData.task) createdTask = patchData.task;
+          }
+        }
+
+        setTasks((prev) => [createdTask, ...prev]);
         setShowNewTask(false);
       }
     } catch (error) {
@@ -456,7 +909,6 @@ export default function TasksPage() {
   const [buildingTaskId, setBuildingTaskId] = useState<string | null>(null);
 
   const handleStatusChange = async (id: string, newStatus: Task["status"]) => {
-    // Optimistic update
     setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: newStatus, updated: new Date().toISOString() } : t));
     try {
       await fetch("/api/tasks", {
@@ -465,7 +917,6 @@ export default function TasksPage() {
         body: JSON.stringify({ id, status: newStatus }),
       });
 
-      // 🏭 SOFTWARE FACTORY: Auto-spawn build agent when moved to in-progress
       if (newStatus === "in-progress") {
         setBuildingTaskId(id);
         try {
@@ -484,11 +935,15 @@ export default function TasksPage() {
       }
     } catch (error) {
       console.error("Error updating task:", error);
-      fetchTasks(); // revert on error
+      fetchTasks();
     }
   };
 
-  // Drag & drop handlers
+  const handleTaskUpdated = (updated: Task) => {
+    setTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t));
+    setSelectedTask(updated);
+  };
+
   const handleDragStart = (e: React.DragEvent, task: Task) => {
     setDraggedTask(task);
     e.dataTransfer.effectAllowed = "move";
@@ -518,10 +973,7 @@ export default function TasksPage() {
   const filteredTasks = filter === "all" ? tasks : tasks.filter((t) => t.project === filter);
 
   const tasksByStatus = COLUMNS.reduce((acc, col) => {
-    // Sort by most recently updated so newest items appear at top
-    acc[col.id] = filteredTasks
-      .filter((t) => t.status === col.id)
-      .sort((a, b) => new Date(b.updated || b.created).getTime() - new Date(a.updated || a.created).getTime());
+    acc[col.id] = filteredTasks.filter((t) => t.status === col.id);
     return acc;
   }, {} as Record<string, Task[]>);
 
@@ -681,6 +1133,7 @@ export default function TasksPage() {
                       task={task}
                       onDragStart={handleDragStart}
                       onStatusChange={handleStatusChange}
+                      onClick={setSelectedTask}
                       projectsMap={projectsMap}
                       isBuilding={buildingTaskId === task.id}
                     />
@@ -698,6 +1151,16 @@ export default function TasksPage() {
           onClose={() => setShowNewTask(false)}
           onSave={handleCreateTask}
           defaultStatus={newTaskStatus}
+          projectsMap={projectsMap}
+        />
+      )}
+
+      {/* Task Detail Modal */}
+      {selectedTask && (
+        <TaskDetailModal
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onTaskUpdated={handleTaskUpdated}
           projectsMap={projectsMap}
         />
       )}
