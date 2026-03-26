@@ -175,7 +175,10 @@ export default function AdvisoryPage() {
 
   useEffect(() => {
     if (events.length === 0) return;
-    if (isNearBottom()) {
+    // If we're waiting for an agent response (isGenerating) or near bottom, always auto-scroll
+    // This prevents the "New messages" toast from appearing when a response just came in
+    if (isGenerating || isNearBottom()) {
+      // Scroll to bottom smoothly to show the new response
       scrollToBottom();
       setShowNewMessages(false);
     } else {
