@@ -935,19 +935,23 @@ export default function AdvisoryPage() {
                           </button>
                         </div>
                       )}
-                      <button onClick={handleCopyToClipboard} title="Copy as Markdown"
-                        style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: copiedToast ? "rgba(74,222,128,0.15)" : "var(--surface-elevated)", color: copiedToast ? "#4ade80" : "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
-                        <Copy size={12} /> {copiedToast ? "Copied!" : "Copy"}
-                      </button>
-                      <button onClick={handleExportMarkdown} title="Export as plain text file"
-                        style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
-                        <Download size={12} /> Export
-                      </button>
-                      <button onClick={handleExportPDF} disabled={exportingPDF} title="Print / Save PDF"
-                        style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.7 : 1, transition: "all 150ms ease" }}>
-                        {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
-                        {exportingPDF ? "Opening..." : "Print / PDF"}
-                      </button>
+                      {activeSession.status === "completed" && (
+                        <>
+                          <button onClick={handleCopyToClipboard} title="Copy as Markdown"
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: copiedToast ? "rgba(74,222,128,0.15)" : "var(--surface-elevated)", color: copiedToast ? "#4ade80" : "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
+                            <Copy size={12} /> {copiedToast ? "Copied!" : "Copy"}
+                          </button>
+                          <button onClick={handleExportMarkdown} title="Export as plain text file"
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            <Download size={12} /> Export
+                          </button>
+                          <button onClick={handleExportPDF} disabled={exportingPDF} title="Print / Save PDF"
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.7 : 1, transition: "all 150ms ease" }}>
+                            {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
+                            {exportingPDF ? "Opening..." : "Print / PDF"}
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
