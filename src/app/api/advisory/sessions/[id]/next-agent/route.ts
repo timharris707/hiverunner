@@ -130,7 +130,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays } = session;
+  const { topic, mode, agents = [], personaOverlays, agentModelOverrides } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -157,6 +157,19 @@ export async function POST(
   const events = session.events || [];
   const { agentId } = determineNextAgent(agents as string[], events);
   const agent = AGENT_DEFS[agentId];
+
+  // Check for per-agent model override
+  const agentOverrideModel = agentModelOverrides?.[agentId];
+  if (agentOverrideModel) {
+    if (agentOverrideModel.includes("/")) {
+      resolvedModel = agentOverrideModel.replace(":thinking", "");
+    } else {
+      // Determine provider prefix based on model name
+      const prefix = agentOverrideModel.startsWith("gpt") ? "openai/"
+        : agentOverrideModel.startsWith("gemini") ? "google/" : "anthropic/";
+      resolvedModel = `${prefix}${agentOverrideModel}`.replace(":thinking", "");
+    }
+  }
 
   // Set thinkingAgent so the UI can show who's about to respond
   try {

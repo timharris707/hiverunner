@@ -204,6 +204,12 @@ export default function AdvisoryPage() {
           }
           if (typeof data.paused === "boolean") {
             setIsPaused(data.paused);
+            // When server says session is paused and no agent is thinking, clear generating state
+            // This ensures manual pacing correctly halts between agents
+            if (data.paused && !data.thinkingAgent) {
+              setIsGenerating(false);
+              setConnectingToAI(false);
+            }
           }
           setThinkingAgent(data.thinkingAgent ?? null);
           // Clear connecting state once we know which agent is thinking
@@ -478,7 +484,7 @@ export default function AdvisoryPage() {
   };
 
   const handleNextTurn = async () => {
-    if (!activeSession) return;
+    if (!activeSession || advancingTurn || isGenerating) return;
     setAdvancingTurn(true);
     setConnectingToAI(true);
     try {
@@ -1177,11 +1183,13 @@ export default function AdvisoryPage() {
 
                   {/* Completed session summary */}
                   {activeSession.status === "completed" && (
-                    <div style={{ padding: "14px 24px", borderTop: "2px solid rgba(74,222,128,0.4)", backgroundColor: "rgba(74,222,128,0.05)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
-                      <CheckCircle2 size={16} color="#4ade80" />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: "12px", fontWeight: 700, color: "#4ade80" }}>Session Completed</div>
-                        <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "1px" }}>
+                    <div style={{ padding: "14px 24px", borderTop: "2px solid rgba(74,222,128,0.4)", backgroundColor: "rgba(74,222,128,0.05)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0, flexWrap: "wrap" }}>
+                      <CheckCircle2 size={18} color="#4ade80" />
+                      <div style={{ flex: 1, minWidth: "200px" }}>
+                        <div style={{ fontSize: "13px", fontWeight: 700, color: "#4ade80" }}>
+                          Session Complete — {activeSession.title || activeSession.topic.slice(0, 60)}
+                        </div>
+                        <div style={{ fontSize: "11px", color: "var(--text-muted)", marginTop: "2px" }}>
                           {activeSession.completedAt ? formatDate(activeSession.completedAt) : ""}
                           {activeSession.outcome ? ` · ${activeSession.outcome.replace(/-/g, " ")}` : ""}
                         </div>

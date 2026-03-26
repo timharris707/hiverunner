@@ -49,6 +49,7 @@ export interface AdvisorySession {
   insights?: SessionInsights | null;
   referenceContext?: string;
   reviewLoop?: ReviewLoopState | null;
+  agentModelOverrides?: Record<string, string>;
 }
 
 export interface ReviewTaskState {

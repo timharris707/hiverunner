@@ -74,6 +74,7 @@ export const MODELS: ModelOption[] = [
   { id: "claude-sonnet-4-6", label: "Claude Sonnet (Fast)", desc: "Best speed / cost ratio. Great for most sessions." },
   { id: "claude-opus-4-6", label: "Claude Opus (Deep)", desc: "Most capable. Slower but higher quality reasoning." },
   { id: "gpt-5.4", label: "GPT-5.4 (Alternative)", desc: "OpenAI alternative. Different reasoning style." },
+  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", desc: "Google's latest. Strong at analysis and code." },
 ];
 
 // ─── Pacing ──────────────────────────────────────────────────────────────────

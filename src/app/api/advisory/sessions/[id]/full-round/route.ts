@@ -134,7 +134,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays } = session;
+  const { topic, mode, agents = [], personaOverlays, agentModelOverrides } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -164,6 +164,19 @@ export async function POST(
       const currentSession = JSON.parse(currentRaw);
       if (currentSession.status !== "active") return;
 
+      // Resolve per-agent model override
+      let agentModel = resolvedModel;
+      const agentOverrideModel = agentModelOverrides?.[agentId];
+      if (agentOverrideModel) {
+        if (agentOverrideModel.includes("/")) {
+          agentModel = agentOverrideModel.replace(":thinking", "");
+        } else {
+          const prefix = agentOverrideModel.startsWith("gpt") ? "openai/"
+            : agentOverrideModel.startsWith("gemini") ? "google/" : "anthropic/";
+          agentModel = `${prefix}${agentOverrideModel}`.replace(":thinking", "");
+        }
+      }
+
       const events = currentSession.events || [];
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
@@ -172,7 +185,7 @@ export async function POST(
 
       let text = "";
       try {
-        text = await callGateway(systemPrompt, userPrompt, resolvedModel, maxTokens);
+        text = await callGateway(systemPrompt, userPrompt, agentModel, maxTokens);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
@@ -186,7 +199,7 @@ export async function POST(
         emoji: agent?.emoji || "💬",
         role: agentId === "Henry" ? "supervisor" : "worker",
         text,
-        model: resolvedModel,
+        model: agentModel,
       });
 
       // Small delay between agents

@@ -525,6 +525,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   // Per-agent overlay map: { agentId: overlayId[] } — max 2 overlays per agent
   const [personaOverlays, setPersonaOverlays] = useState<Record<string, string[]>>({});
   const [overlayCatalogAgent, setOverlayCatalogAgent] = useState<string | null>(null);
+  // Per-agent model overrides: { agentId: modelId } — empty means use session default
+  const [agentModelOverrides, setAgentModelOverrides] = useState<Record<string, string>>({});
   const MAX_OVERLAYS_PER_AGENT = 2;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -663,12 +665,13 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           personaOverlaysList: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
           referenceContext: referenceContext.trim() || undefined,
           reviewLoop: reviewLoopPayload,
+          agentModelOverrides: Object.keys(agentModelOverrides).length > 0 ? agentModelOverrides : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
       const data = await res.json();
 
-      // Step 2: For review mode, trigger the loop start; for roundtable, trigger run
+      // Step 2: For review mode, trigger the loop start; for roundtable, page.handleLaunch handles firing
       try {
         if (mode === "review" && reviewLoopPayload) {
           await fetch(`/api/advisory/sessions/${data.session.id}/review-loop`, {
@@ -676,11 +679,9 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ action: "start" }),
           });
-        } else {
-          await fetch(`/api/advisory/sessions/${data.session.id}/run`, {
-            method: "POST",
-          });
         }
+        // Roundtable: do NOT call /run here — page.handleLaunch fires next-agent or full-round
+        // based on pacing mode, avoiding a race condition where multiple agents fire at once.
       } catch (runErr) {
         console.warn("Run trigger error (non-fatal):", runErr);
       }
@@ -1623,6 +1624,41 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{agentId}</div>
                           <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{agentDef?.role ?? "Agent"}</div>
+                        </div>
+                        {/* Per-agent model selector */}
+                        <div style={{ flexShrink: 0 }}>
+                          <select
+                            value={agentModelOverrides[agentId] || ""}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setAgentModelOverrides((prev) => {
+                                if (!val) {
+                                  const next = { ...prev };
+                                  delete next[agentId];
+                                  return next;
+                                }
+                                return { ...prev, [agentId]: val };
+                              });
+                            }}
+                            style={{
+                              padding: "4px 8px",
+                              borderRadius: "6px",
+                              border: `1px solid ${agentModelOverrides[agentId] ? "rgba(139,92,246,0.5)" : "var(--border)"}`,
+                              backgroundColor: agentModelOverrides[agentId] ? "rgba(139,92,246,0.08)" : "var(--surface)",
+                              color: agentModelOverrides[agentId] ? "#a78bfa" : "var(--text-muted)",
+                              fontSize: "10px",
+                              fontWeight: agentModelOverrides[agentId] ? 700 : 500,
+                              fontFamily: "var(--font-mono)",
+                              cursor: "pointer",
+                              outline: "none",
+                              maxWidth: "150px",
+                            }}
+                          >
+                            <option value="">Session Default</option>
+                            {MODELS.map((m) => (
+                              <option key={m.id} value={m.id}>{m.label}</option>
+                            ))}
+                          </select>
                         </div>
                       </div>
 
