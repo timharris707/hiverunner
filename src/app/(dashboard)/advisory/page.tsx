@@ -1154,7 +1154,7 @@ export default function AdvisoryPage() {
                   {[
                     { icon: "🔄", label: "Roundtables", desc: "Open collaborative discussion" },
                     { icon: "🔍", label: "Review Loops", desc: "Worker + reviewer approval chain" },
-                    { icon: "👤", label: "Human Input", desc: "Jump in anytime" },
+                    { icon: "👤", label: "Join the Conversation", desc: "Jump in anytime to share your perspective, ask questions, or steer the discussion" },
                   ].map((f) => (
                     <div key={f.label} style={{ padding: "12px 16px", borderRadius: "10px", border: "1px solid var(--border)", backgroundColor: "var(--surface)", textAlign: "center", minWidth: "120px" }}>
                       <div style={{ fontSize: "20px", marginBottom: "4px" }}>{f.icon}</div>
