@@ -13,13 +13,14 @@ import {
   Eye,
   X,
   GripVertical,
+  ListOrdered,
 } from "lucide-react";
 
 interface Task {
   id: string;
   title: string;
   description?: string;
-  status: "backlog" | "in-progress" | "review" | "done";
+  status: "backlog" | "on-deck" | "in-progress" | "review" | "done";
   priority: "P0" | "P1" | "P2" | "P3";
   assignee?: string;
   project?: string;
@@ -39,6 +40,7 @@ interface ProjectInfo {
 
 const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<any>; color: string }[] = [
   { id: "backlog", label: "Backlog", icon: Inbox, color: "#6b7280" },
+  { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
   { id: "review", label: "Review", icon: Eye, color: "#60a5fa" },
   { id: "done", label: "Done", icon: CheckCircle2, color: "#4ade80" },
