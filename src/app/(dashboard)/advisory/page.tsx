@@ -1000,7 +1000,7 @@ export default function AdvisoryPage() {
 
           {activeSession ? (
             <>
-              {/* ── Session header ── */}
+              {/* ── Session header (STICKY — always visible) ── */}
               <div
                 className="advisory-session-header"
                 style={{
@@ -1008,6 +1008,9 @@ export default function AdvisoryPage() {
                   borderBottom: `1px solid ${sessionData?.specialist ? "rgba(16,185,129,0.3)" : "var(--border)"}`,
                   backgroundColor: sessionData?.specialist ? "rgba(16,185,129,0.03)" : "var(--surface)",
                   flexShrink: 0,
+                  position: "sticky",
+                  top: 0,
+                  zIndex: 20,
                 }}
               >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
