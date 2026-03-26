@@ -110,62 +110,7 @@ export default function EventBubble({
         overflow: "hidden",
       }}
     >
-      {/* Action buttons — appear on hover for non-system messages */}
-      {!isSystem && !isError && (hovered || copyState === "copied") && (
-        <div style={{
-          position: "absolute",
-          top: "10px",
-          right: "10px",
-          display: "flex",
-          gap: "4px",
-          zIndex: 2,
-        }}>
-          {onFork && hovered && (
-            <button
-              onClick={onFork}
-              title="Fork from here — create a new session branching from this point"
-              style={{
-                padding: "4px 8px",
-                borderRadius: "6px",
-                border: "1px solid rgba(139,92,246,0.3)",
-                backgroundColor: "rgba(139,92,246,0.08)",
-                color: "#a78bfa",
-                cursor: "pointer",
-                fontSize: "10px",
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                gap: "4px",
-                transition: "all 150ms ease",
-              }}
-            >
-              <GitBranch size={11} />
-              Fork
-            </button>
-          )}
-          <button
-            onClick={handleCopyMessage}
-            title="Copy message"
-            style={{
-              padding: "4px 8px",
-              borderRadius: "6px",
-              border: `1px solid ${copyState === "copied" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
-              backgroundColor: copyState === "copied" ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
-              color: copyState === "copied" ? "#4ade80" : "var(--text-muted)",
-              cursor: "pointer",
-              fontSize: "10px",
-              fontWeight: 600,
-              display: "flex",
-              alignItems: "center",
-              gap: "4px",
-              transition: "all 150ms ease",
-            }}
-          >
-            <Copy size={11} />
-            {copyState === "copied" ? "Copied!" : "Copy"}
-          </button>
-        </div>
-      )}
+      {/* Action buttons removed from absolute position — now inline with timestamp */}
 
       {/* Header */}
       <div style={{ display: "flex", alignItems: "flex-start", gap: "10px", marginBottom: "8px" }}>
@@ -224,8 +169,58 @@ export default function EventBubble({
                 — CEO
               </span>
             )}
-            <span style={{ marginLeft: "auto", fontSize: "11px", color: "var(--text-muted)", whiteSpace: "nowrap", paddingRight: hovered && !isSystem && !isError ? "70px" : "0" }}>
-              {formatTime(event.timestamp)}
+            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+              <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                {formatTime(event.timestamp)}
+              </span>
+              {!isSystem && !isError && (hovered || copyState === "copied") && (
+                <>
+                  {onFork && hovered && (
+                    <button
+                      onClick={onFork}
+                      title="Fork from here — create a new session branching from this point"
+                      style={{
+                        padding: "4px 8px",
+                        borderRadius: "6px",
+                        border: "1px solid rgba(139,92,246,0.3)",
+                        backgroundColor: "rgba(139,92,246,0.08)",
+                        color: "#a78bfa",
+                        cursor: "pointer",
+                        fontSize: "10px",
+                        fontWeight: 600,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "4px",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <GitBranch size={11} />
+                      Fork
+                    </button>
+                  )}
+                  <button
+                    onClick={handleCopyMessage}
+                    title="Copy message"
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: "6px",
+                      border: `1px solid ${copyState === "copied" ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+                      backgroundColor: copyState === "copied" ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
+                      color: copyState === "copied" ? "#4ade80" : "var(--text-muted)",
+                      cursor: "pointer",
+                      fontSize: "10px",
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "4px",
+                      transition: "all 150ms ease",
+                    }}
+                  >
+                    <Copy size={11} />
+                    {copyState === "copied" ? "Copied!" : "Copy"}
+                  </button>
+                </>
+              )}
             </span>
           </div>
 
