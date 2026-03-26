@@ -1039,6 +1039,45 @@ export default function AdvisoryPage() {
               {/* Events stream — full width center area */}
               <div style={{ display: "flex", flex: 1, overflow: "hidden", minWidth: 0 }}>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
+                  {/* Persistent round indicator */}
+                  {activeSession?.status === "active" && events.length > 0 && (
+                    <div style={{
+                      padding: "8px 24px",
+                      backgroundColor: "var(--surface)",
+                      borderBottom: "1px solid var(--border)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: "8px",
+                    }}>
+                      <span style={{
+                        fontSize: "11px",
+                        fontWeight: 700,
+                        color: "var(--accent)",
+                        letterSpacing: "0.5px",
+                      }}>
+                        ROUND {totalRoundsRef.current} {activeSession?.rounds && activeSession.rounds !== "persistent" ? `OF ${activeSession.rounds}` : ""}
+                      </span>
+                      {activeSession?.rounds && activeSession.rounds !== "persistent" && (
+                        <div style={{
+                          display: "flex",
+                          gap: "3px",
+                          alignItems: "center",
+                        }}>
+                          {Array.from({ length: Number(activeSession.rounds) || 3 }, (_, i) => (
+                            <div key={i} style={{
+                              width: "8px",
+                              height: "8px",
+                              borderRadius: "50%",
+                              backgroundColor: i < totalRoundsRef.current ? "var(--accent)" : "var(--border)",
+                              transition: "background-color 0.3s",
+                            }} />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {/* FIX: overflowY auto for scrollable events stream */}
                   <div
                     ref={scrollContainerRef}
