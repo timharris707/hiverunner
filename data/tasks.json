@@ -1,5 +1,39 @@
 [
   {
+    "id": "TASK-101",
+    "title": "Export as Markdown (.md) option",
+    "description": "Add 'Export MD' alongside PDF. Clean formatted markdown file with session metadata, agent responses, timestamps. Downloadable file.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "advisory",
+      "export",
+      "markdown"
+    ],
+    "created": "2026-03-26T11:26:00.000Z",
+    "updated": "2026-03-26T11:26:00.000Z"
+  },
+  {
+    "id": "TASK-102",
+    "title": "Copy/Export buttons still grayed out after session completion",
+    "description": "Session shows DONE badge but Copy and Export buttons remain grayed/disabled. Enable condition not detecting completed state properly.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "advisory",
+      "export",
+      "ui"
+    ],
+    "created": "2026-03-26T11:26:00.000Z",
+    "updated": "2026-03-26T11:26:00.000Z"
+  },
+  {
     "id": "TASK-098",
     "title": "PDF: Remove browser header/footer, suppress date/URL line",
     "description": "Use @page CSS or PDF library to remove browser-injected header/footer from print output. The date stamp and URL at top of every page looks unprofessional.",
