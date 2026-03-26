@@ -57,6 +57,7 @@ export default function AdvisoryPage() {
   // ── Core session state ────────────────────────────────────────────────────
   const [sessions, setSessions] = useState<AdvisorySession[]>([]);
   const [activeSession, setActiveSession] = useState<AdvisorySession | null>(null);
+  const eventsRef = useRef<AdvisoryEvent[]>([]);
   const [events, setEvents] = useState<AdvisoryEvent[]>([]);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [humanMessage, setHumanMessage] = useState("");
@@ -231,7 +232,10 @@ export default function AdvisoryPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [events]);
 
-  // ── Polling ──────��───────────────────────────────��────────────────────────
+  // Keep eventsRef in sync
+  useEffect(() => { eventsRef.current = events; }, [events]);
+
+  // ── Polling ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (pollingRef.current) clearInterval(pollingRef.current);
@@ -239,7 +243,8 @@ export default function AdvisoryPage() {
     if (activeSession?.status === "active") {
       pollingRef.current = setInterval(async () => {
         try {
-          const lastId = events.length > 0 ? events[events.length - 1].id : undefined;
+          const currentEvents = eventsRef.current;
+          const lastId = currentEvents.length > 0 ? currentEvents[currentEvents.length - 1].id : undefined;
           const url = lastId
             ? `/api/advisory/sessions/${activeSession.id}/events?after=${lastId}`
             : `/api/advisory/sessions/${activeSession.id}/events`;
@@ -276,8 +281,11 @@ export default function AdvisoryPage() {
             setIsGenerating(false);
             setThinkingAgent(null);
             setConnectingToAI(false);
-            await loadSessions();
+            // Reload session data but KEEP the active session selected
+            // Don't call loadSessions() here as it can cause the active session to deselect
             await loadSessionEvents(activeSession.id);
+            // Refresh session list in background without disrupting active view
+            loadSessions();
           }
           if (activeSession.mode === "review") {
             try {
@@ -299,7 +307,9 @@ export default function AdvisoryPage() {
     return () => {
       if (pollingRef.current) clearInterval(pollingRef.current);
     };
-  }, [activeSession, events, loadSessions, loadSessionEvents]);
+  // NOTE: intentionally excluding `events` from deps to prevent polling restart on every new event
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession?.id, activeSession?.status, loadSessions, loadSessionEvents, autoPlay]);
 
   // ── Session handlers ──────────────────────────────────────────────────────
 
