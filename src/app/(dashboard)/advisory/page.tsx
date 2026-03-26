@@ -69,6 +69,7 @@ export default function AdvisoryPage() {
   const [exportingPDF, setExportingPDF] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [autoPlay, setAutoPlay] = useState(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
   const [endSessionConfirm, setEndSessionConfirm] = useState(false);
@@ -255,6 +256,12 @@ export default function AdvisoryPage() {
             if (data.paused && !data.thinkingAgent) {
               setIsGenerating(false);
               setConnectingToAI(false);
+              // AUTO-PLAY: If enabled, automatically trigger the next agent after a short delay
+              if (autoPlay && activeSession?.status === "active") {
+                setTimeout(() => {
+                  handleNextTurn();
+                }, 1500); // 1.5s delay so user can see the response landed before next starts
+              }
             }
           }
           setThinkingAgent(data.thinkingAgent ?? null);
@@ -1214,13 +1221,38 @@ export default function AdvisoryPage() {
                   {activeSession.status === "active" && isPaused && (
                     <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(251,146,60,0.2)", backgroundColor: "rgba(251,146,60,0.04)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                       <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
-                        {sessionData?.pacing === "manual" ? "Manual mode \u00b7 Read the response, then click Next Agent" : "Session paused \u00b7 Resume or advance"}
+                        {autoPlay ? "Auto-play · Agents will advance automatically" : sessionData?.pacing === "manual" ? "Manual mode · Read the response, then click Next Agent" : "Session paused · Resume or advance"}
                       </span>
-                      <button onClick={handleNextTurn} disabled={advancingTurn || isGenerating}
-                        style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: (advancingTurn || isGenerating) ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: (advancingTurn || isGenerating) ? 0.7 : 1, fontFamily: "var(--font-heading)" }}>
-                        {advancingTurn ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
-                        {sessionData?.pacing === "manual" ? "Next Agent \u2192" : "Next Turn \u2192"}
+                      {/* Auto-play toggle */}
+                      <button
+                        onClick={() => {
+                          const newAutoPlay = !autoPlay;
+                          setAutoPlay(newAutoPlay);
+                          // If turning on auto-play while paused, immediately trigger next
+                          if (newAutoPlay && isPaused && !isGenerating) {
+                            setTimeout(() => handleNextTurn(), 500);
+                          }
+                        }}
+                        style={{
+                          padding: "6px 12px", borderRadius: "6px",
+                          border: `1px solid ${autoPlay ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
+                          backgroundColor: autoPlay ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
+                          color: autoPlay ? "#4ade80" : "var(--text-muted)",
+                          cursor: "pointer", fontSize: "11px", fontWeight: 600,
+                          display: "flex", alignItems: "center", gap: "5px",
+                          transition: "all 150ms ease",
+                        }}
+                      >
+                        {autoPlay ? <Pause size={11} /> : <Play size={11} />}
+                        {autoPlay ? "Auto-play ON" : "Auto-play"}
                       </button>
+                      {!autoPlay && (
+                        <button onClick={handleNextTurn} disabled={advancingTurn || isGenerating}
+                          style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: (advancingTurn || isGenerating) ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: (advancingTurn || isGenerating) ? 0.7 : 1, fontFamily: "var(--font-heading)" }}>
+                          {advancingTurn ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
+                          Next Agent →
+                        </button>
+                      )}
                     </div>
                   )}
 
