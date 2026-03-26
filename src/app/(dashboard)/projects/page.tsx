@@ -24,7 +24,9 @@ interface Project {
 
 const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   active: { bg: "#10B98120", text: "#10B981", label: "Active" },
+  inactive: { bg: "#6B728020", text: "#9CA3AF", label: "Inactive" },
   completed: { bg: "#3B82F620", text: "#3B82F6", label: "Completed" },
+  archived: { bg: "#52525B20", text: "#71717A", label: "Archived" },
   "on-hold": { bg: "#F59E0B20", text: "#F59E0B", label: "On Hold" },
 };
 
@@ -296,8 +298,8 @@ export default function ProjectsPage() {
           {[
             { key: "all", label: "All" },
             { key: "active", label: "Active" },
-            { key: "completed", label: "Completed" },
-            { key: "on-hold", label: "On Hold" },
+            { key: "inactive", label: "Inactive" },
+            { key: "archived", label: "Archived" },
           ].map((f) => (
             <button
               key={f.key}
