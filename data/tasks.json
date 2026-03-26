@@ -380,7 +380,7 @@
     "id": "TASK-095",
     "title": "Action items \u2192 Tasks pipeline from Advisory Board sessions",
     "description": "After session ends, extract all action items/commitments from conversation. Show as checklist with options: Schedule (calendar), Now (spawn agent), Skip. Create real tasks on board.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P0",
     "assignee": "Henry \u26a1",
     "project": "advisory-board",
@@ -391,7 +391,7 @@
       "killer-feature"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z",
+    "updated": "2026-03-26T15:30:00.000Z",
     "created_by": "henry"
   },
   {
