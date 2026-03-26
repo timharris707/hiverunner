@@ -1159,7 +1159,7 @@ export default function AdvisoryPage() {
                     <div key={f.label} style={{ padding: "12px 16px", borderRadius: "10px", border: "1px solid var(--border)", backgroundColor: "var(--surface)", textAlign: "center", minWidth: "120px" }}>
                       <div style={{ fontSize: "20px", marginBottom: "4px" }}>{f.icon}</div>
                       <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{f.label}</div>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px" }}>{f.desc}</div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px", textAlign: "center" }}>{f.desc}</div>
                     </div>
                   ))}
                 </div>
