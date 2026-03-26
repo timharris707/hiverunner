@@ -1,5 +1,62 @@
 [
   {
+    "id": "TASK-120",
+    "title": "Personality trait pills \u2014 per-agent customizable traits (skeptical, shy, bold, etc.)",
+    "description": "Add personality trait selection per agent in wizard. Selectable pills: Skeptical, Encouraging, Difficult, Shy, Bold, Cautious, Provocative, Empathetic, Analytical, Creative. Plus communication style: Verbose, Concise, Thoughtful, Rapid-fire. Plus intensity slider: Gentle to Aggressive. All inject into system prompt to dramatically change agent output personality.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Henry \u26a1",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "personality",
+      "customization",
+      "killer-feature"
+    ],
+    "created": "2026-03-26T16:54:00.000Z",
+    "updated": "2026-03-26T16:54:00.000Z",
+    "created_by": "tim"
+  },
+  {
+    "id": "TASK-121",
+    "title": "Per-agent response length \u2014 quiet thinker vs verbose explainer in same session",
+    "description": "Allow setting response length PER AGENT instead of session-wide. One agent on Concise (2 sentences, high impact) while another on Verbose (detailed analysis). Creates realistic meeting dynamics where people communicate differently.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "per-agent",
+      "response-length"
+    ],
+    "created": "2026-03-26T16:54:00.000Z",
+    "updated": "2026-03-26T16:54:00.000Z",
+    "created_by": "tim"
+  },
+  {
+    "id": "TASK-122",
+    "title": "Competitive Ideation Mode \u2014 agents pitch, debate, and vote on best idea",
+    "description": "New session type: Round 1 = each agent pitches their best outside-the-box idea. Round 2 = agents debate and poke holes. Round 3 = each agent votes for strongest idea (not their own). Final = ranked results with vote counts and reasoning. Landing page pitch: '5 AI advisors, 5 wild ideas, 1 winner.'",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Henry \u26a1",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "ideation",
+      "competition",
+      "session-type",
+      "killer-feature"
+    ],
+    "created": "2026-03-26T16:54:00.000Z",
+    "updated": "2026-03-26T16:54:00.000Z",
+    "created_by": "tim"
+  },
+  {
     "id": "TASK-117",
     "title": "Moderator role for roundtable \u2014 opens, guides, interjects, closes",
     "description": "Add explicit Moderator selection in launch wizard (default: Henry). Moderator responsibilities: opens session with agenda framing, can interject between any agent to keep discussion on track, doesn't wait for turn order, delivers final synthesis/conclusions, assigns action items. If Henry is in session he's auto-selected as moderator. If not, first agent or user's choice. Moderator speaks with a distinct framing: 'Let me redirect us...' / 'Good point, but we're drifting...' / 'Let me summarize where we are...'",
