@@ -19,6 +19,8 @@ interface Idea {
   title: string;
   source: string;
   source_url: string;
+  source_timestamp?: string;
+  source_context?: string;
   discovered_at: string;
   discovered_by: string;
   status: string;
@@ -313,9 +315,16 @@ function DetailDrawer({ idea, onClose }: { idea: Idea; onClose: () => void }) {
 
         <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
           {idea.source_url && (
-            <a href={idea.source_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-              Source Link <ExternalLink size={11} />
-            </a>
+            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+              <a href={idea.source_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                {idea.source === "youtube" ? "📹" : "🔗"} Source{idea.source_timestamp ? ` @ ${idea.source_timestamp}` : ""} <ExternalLink size={11} />
+              </a>
+              {idea.source_context && (
+                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "2px" }}>
+                  {idea.source_context}
+                </span>
+              )}
+            </div>
           )}
           <GithubIssueLink issue={idea.github_issue} />
           <span>Discovered {new Date(idea.discovered_at).toLocaleDateString()}</span>
