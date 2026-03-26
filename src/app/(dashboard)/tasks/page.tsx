@@ -937,11 +937,17 @@ function TaskCard({
         )}
       </div>
 
-      {/* Build indicator */}
+      {/* Build indicator — spawning (yellow) or actively building (green pulse) */}
       {isBuilding && (
         <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
           <span className="animate-pulse">🏭</span>
           <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>AGENT SPAWNING...</span>
+        </div>
+      )}
+      {!isBuilding && task.status === "in-progress" && (task as any).buildTriggeredAt && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}>
+          <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
+          <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>AGENT BUILDING</span>
         </div>
       )}
 
