@@ -1153,15 +1153,15 @@ export default function AdvisoryPage() {
                       {activeSession.status === "completed" && (
                         <>
                           <button onClick={handleCopyToClipboard} title="Copy as Markdown"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: copiedToast ? "rgba(74,222,128,0.15)" : "var(--surface-elevated)", color: copiedToast ? "#4ade80" : "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: `1px solid ${copiedToast ? "rgba(74,222,128,0.4)" : "rgba(96,165,250,0.4)"}`, backgroundColor: copiedToast ? "rgba(74,222,128,0.1)" : "rgba(96,165,250,0.1)", color: copiedToast ? "#4ade80" : "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
                             <Copy size={12} /> {copiedToast ? "Copied!" : "Copy"}
                           </button>
                           <button onClick={handleExportMarkdown} title="Export as plain text file"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                             <Download size={12} /> Export
                           </button>
                           <button onClick={handleExportMD} title="Export as Markdown file"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                             <FileDown size={12} /> Export MD
                           </button>
                           <button onClick={handleExportPDF} disabled={exportingPDF} title="Print / Save PDF"
@@ -1437,7 +1437,7 @@ export default function AdvisoryPage() {
                         Continue Discussion
                       </button>
                       <button onClick={handleExportMD} title="Export as Markdown file"
-                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                         <FileDown size={12} /> Export MD
                       </button>
                       <button onClick={handleExportPDF} disabled={exportingPDF} title="Export as PDF"
