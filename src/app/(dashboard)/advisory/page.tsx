@@ -926,6 +926,7 @@ export default function AdvisoryPage() {
                             event={event}
                             sessionOverlays={(sessionData?.personaOverlays as Record<string, string> | string[] | undefined) ?? {}}
                             sessionTopic={activeSession?.topic}
+                            sessionMode={activeSession?.mode}
                             onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
                             onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
                           />

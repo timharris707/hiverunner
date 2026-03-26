@@ -30,6 +30,7 @@ interface EventBubbleProps {
   event: AdvisoryEvent;
   sessionOverlays?: Record<string, string> | string[];
   sessionTopic?: string;
+  sessionMode?: string;
   onRetry?: () => void;
   onFork?: () => void;
 }
@@ -38,6 +39,7 @@ export default function EventBubble({
   event,
   sessionOverlays = {},
   sessionTopic,
+  sessionMode,
   onRetry,
   onFork,
 }: EventBubbleProps) {
@@ -233,7 +235,7 @@ export default function EventBubble({
                 border: "1px solid rgba(239,68,68,0.4)", padding: "2px 6px",
                 borderRadius: "4px", fontFamily: "var(--font-mono)",
               }}>ERROR</span>
-            ) : (
+            ) : (sessionMode === "roundtable" && (badge.label === "WORKER" || badge.label === "SUPERVISOR")) ? null : (
               <span
                 style={{
                   fontSize: "9px",
