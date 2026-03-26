@@ -1,5 +1,24 @@
 [
   {
+    "id": "TASK-116",
+    "title": "Dynamic persona generation \u2014 AI creates custom overlays based on session topic",
+    "description": "When user enters a topic in the wizard, use AI to generate 3-5 recommended persona overlays specifically tailored to that topic. E.g. 'AI dating coach' generates: Relationship Psychology Expert, Dating App Veteran, Ethics & Safety Advisor, Dating Industry Analyst. Each with name, expertise description, and relevant background. Replaces static overlay list with intelligent, topic-aware recommendations. MASSIVE competitive moat.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Henry \u26a1",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "personas",
+      "ai-generated",
+      "killer-feature"
+    ],
+    "created": "2026-03-26T14:49:00.000Z",
+    "updated": "2026-03-26T14:49:00.000Z",
+    "created_by": "tim"
+  },
+  {
     "id": "TASK-115",
     "title": "Spruce up org chart \u2014 departments, capabilities, status, model badges",
     "description": "Redesign the Agents/org chart page inspired by Vibe with AI's org chart. Add: department groupings (Trading, Engineering, Research, Creative, Legal), active/idle status per agent, model badge (Sonnet/Opus), capabilities list per agent, last active timestamp, cron job count, active task count per department. Hierarchical layout: Tim (Founder) \u2192 Henry (Chief of Staff) \u2192 Department leads \u2192 Agents. Dark theme with colored department borders and gold/green status badges.",
@@ -138,7 +157,7 @@
     "id": "TASK-1774558729780",
     "title": "Smart LLM Router \u2014 Auto-route tasks to optimal model",
     "description": "Build a routing layer that auto-assigns tasks to the right model. Opus for complex reasoning, Sonnet for coding, Gemini for search, local for boilerplate. Could cut costs 50-70%.",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P0",
     "assignee": "Forge \ud83d\udd27",
     "project": "mission-control",
@@ -148,13 +167,14 @@
       "idea-tw-002"
     ],
     "created": "2026-03-26T20:58:49.780Z",
-    "updated": "2026-03-26T21:35:40.955Z",
+    "updated": "2026-03-26T21:44:02.025Z",
     "source_review": "review-001",
     "source_takeaway": "tw-002",
     "github_issue": "harris-autonomous/mission-control#2",
     "source_url": "https://youtu.be/GzNM_bp1WaE?t=24",
     "created_by": "ideas-pipeline",
-    "buildTriggeredAt": "2026-03-26T21:35:40.955Z"
+    "buildTriggeredAt": "2026-03-26T21:35:40.955Z",
+    "buildOutput": "Build completed successfully"
   },
   {
     "id": "TASK-101",
