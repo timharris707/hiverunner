@@ -61,17 +61,19 @@ async function triggerFollowUp(
 ) {
   const { readFileSync } = await import("fs");
 
-  // Get gateway config
-  let gatewayUrl = "http://127.0.0.1:18789/v1/chat/completions";
-  let gatewayToken = "";
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    gatewayToken = config?.gateway?.auth?.token || "";
-    gatewayUrl = `http://127.0.0.1:${port}/v1/chat/completions`;
-  } catch {
-    // use defaults
+  // Get gateway config — env vars first (Vercel), then local config
+  let gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:18789/v1/chat/completions";
+  let gatewayToken = process.env.GATEWAY_TOKEN || "";
+  if (!process.env.GATEWAY_URL) {
+    try {
+      const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
+      const config = JSON.parse(readFileSync(configPath, "utf-8"));
+      const port = config?.gateway?.port || 18789;
+      gatewayToken = config?.gateway?.auth?.token || "";
+      gatewayUrl = `http://127.0.0.1:${port}/v1/chat/completions`;
+    } catch {
+      // use defaults
+    }
   }
 
   if (!gatewayToken) return;

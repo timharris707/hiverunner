@@ -50,6 +50,9 @@ const AGENT_DEFS = buildAgentDefs();
 // ─── Gateway helpers ─────────────────────────────────────────────────────────
 
 function getGatewayConfig(): { url: string; token: string } {
+  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
+    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
+  }
   try {
     const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8"));

@@ -127,6 +127,11 @@ const PERSONA_CONTENT: Record<string, string> = {
 // ─── Gateway config helper ────────────────────────────────────────────────────
 
 function getGatewayConfig(): { url: string; token: string } {
+  // Check env vars first (for Vercel/remote deployment)
+  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
+    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
+  }
+  // Fall back to local config file
   try {
     const configPath = path.join(
       process.env.HOME || "",
