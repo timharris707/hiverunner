@@ -61,8 +61,11 @@ function cleanText(text: string): string {
     .replace(/^#{1,6}\s+/gm, "")
     .replace(/^>\s+/gm, "")
     .replace(/^[-*_]{3,}\s*$/gm, "")
-    .replace(/[¡]/g, "")
+    .replace(/[¡¿]/g, "")
     .replace(/[=]{3,}/g, "")
+    .replace(/^[-*+]\s+/gm, "\u2022 ")
+    .replace(/^\d+\.\s+/gm, "")
+    .replace(/~~([^~]+)~~/g, "$1")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }
@@ -102,7 +105,7 @@ function getPrintCSS(): string {
     }
 
     body {
-      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-family: "Georgia", "Times New Roman", "Cambria", serif;
       font-size: 11px;
       line-height: 1.7;
       color: #1e293b;
@@ -124,6 +127,7 @@ function getPrintCSS(): string {
     }
 
     .pdf-brand {
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       font-size: 9px;
       font-weight: 700;
       letter-spacing: 2.5px;
@@ -133,6 +137,7 @@ function getPrintCSS(): string {
     }
 
     .pdf-title {
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       font-size: 20px;
       font-weight: 800;
       color: #0f172a;
@@ -159,6 +164,7 @@ function getPrintCSS(): string {
 
     /* Participants */
     .pdf-section-label {
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       font-size: 8px;
       font-weight: 700;
       letter-spacing: 2px;
@@ -198,6 +204,7 @@ function getPrintCSS(): string {
       gap: 12px;
       margin: 24px 0 16px;
       page-break-inside: avoid;
+      page-break-before: auto;
     }
 
     .pdf-round-divider::before,
@@ -225,7 +232,16 @@ function getPrintCSS(): string {
       border-radius: 6px;
       border: 1px solid #e2e8f0;
       background: #fafbfc;
-      page-break-inside: avoid;
+      page-break-inside: auto;
+    }
+
+    .pdf-event-header {
+      page-break-after: avoid;
+    }
+
+    .pdf-event-content p {
+      orphans: 3;
+      widows: 3;
     }
 
     .pdf-event-human {
@@ -248,6 +264,7 @@ function getPrintCSS(): string {
     }
 
     .pdf-event-speaker {
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       font-size: 13px;
       font-weight: 700;
       color: #0f172a;
@@ -320,6 +337,7 @@ function getPrintCSS(): string {
     }
 
     .pdf-footer-brand {
+      font-family: "Inter", -apple-system, system-ui, sans-serif;
       font-weight: 700;
       letter-spacing: 1px;
       text-transform: uppercase;
