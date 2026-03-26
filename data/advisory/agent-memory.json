@@ -1,1 +1,95 @@
-[]
+[
+  {
+    "id": "mem_1774490956848_dyzb6",
+    "agent": "Henry",
+    "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+    "sessionId": "session-1774478451842-41f7e5fc",
+    "date": "2026-03-25T22:40:51.843Z",
+    "decisions": [
+      "BoardRunner's differentiation is structured deliberation as a product, not 'talk to multiple AI agents' — positioning must center on decision-making process, not chatbot features.",
+      "Reversed position to support free tier with Pixel's modification: view deliberations free, run deliberations paid.",
+      "Proposed a Deliberation Quality Score using semantic similarity between agent outputs and novel argument detection to prove multi-agent value."
+    ],
+    "insights": [
+      "The single biggest existential risk isn't OpenAI competition — it's the quality gap between what the landing page promises and what the product delivers in the first 60 seconds of use.",
+      "Liability is an unaddressed risk: positioning as 'the advisory board you can't afford' for million-dollar decisions without being a registered advisor or licensed consultant creates legal exposure.",
+      "The team needs to identify the 'aha moment' timeline — how quickly a new user experiences the value of structured deliberation — because that determines retention more than any pricing model."
+    ],
+    "actionItems": [
+      "Define and prototype the Deliberation Quality Score metric to validate that multi-agent output is measurably better than single-model prompting.",
+      "Map the first-60-seconds product experience to ensure it delivers on the 'room you wish you had' narrative immediately."
+    ]
+  },
+  {
+    "id": "mem_1774490956848_cggai",
+    "agent": "Quant",
+    "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+    "sessionId": "session-1774478451842-41f7e5fc",
+    "date": "2026-03-25T22:40:51.843Z",
+    "decisions": [
+      "The core hypothesis — that structured multi-agent deliberation produces measurably better decisions than a single frontier model with good prompting — must be validated with out-of-sample evidence before building GTM around it.",
+      "Henry's Deliberation Quality Score concept is the most important idea in the session but is underbuilt; it needs rigorous statistical methodology, not just semantic similarity."
+    ],
+    "insights": [
+      "Correlated noise is the key risk: if all agents draw from the same underlying model weights, 'diverse perspectives' may be theater rather than genuine epistemic diversity, undermining the entire value proposition.",
+      "Delivered the most rigorous operational blueprint including unit economics analysis, warning that mistakes that look brilliant in strategy sessions become catastrophic in a P&L twelve months later."
+    ],
+    "actionItems": [
+      "Design a controlled experiment comparing BoardRunner deliberation outputs against single-model baselines to generate real evidence of decision quality improvement."
+    ]
+  },
+  {
+    "id": "mem_1774490956848_mcgm8",
+    "agent": "Scout",
+    "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+    "sessionId": "session-1774478451842-41f7e5fc",
+    "date": "2026-03-25T22:40:51.843Z",
+    "decisions": [
+      "Won the free tier argument alongside Quill — free access is necessary for market penetration, validated by competitive landscape pressure.",
+      "Proposed targeting pre-deliberation for regulated industries as a beachhead vertical where structured process has compliance value beyond just decision quality."
+    ],
+    "insights": [
+      "Every serious AI lab is converging on multi-agent orchestration as a product surface — Google DeepMind, OpenAI's GPT store evolution — giving BoardRunner a 12-18 month window that is shrinking faster than anticipated.",
+      "The competitive landscape is moving in an unanticipated direction that could change the shape of Quant's operational plan, with major labs potentially shipping native multi-persona features."
+    ],
+    "actionItems": [
+      "Continue monitoring competitive landscape signals and report back on lab-native multi-agent product launches that could compress the differentiation window."
+    ]
+  },
+  {
+    "id": "mem_1774490956848_sgtqf",
+    "agent": "Quill",
+    "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+    "sessionId": "session-1774478451842-41f7e5fc",
+    "date": "2026-03-25T22:40:51.843Z",
+    "decisions": [
+      "Won the free tier argument with Scout — accessibility drives adoption and word-of-mouth for a novel product category.",
+      "Positioning should be 'the room you wish you had' — an emotionally resonant narrative, not technical framing like 'governance-in-a-box' which has the emotional resonance of a tax form."
+    ],
+    "insights": [
+      "The team was over-indexing on what BoardRunner does and under-indexing on what it means; positioning statements like 'governance-in-a-box' and 'measurable decision quality' are correct but emotionally dead and won't drive purchases.",
+      "The product needs to evoke the feeling of having access to a senior advisory team — aspiration and empowerment — not process optimization."
+    ],
+    "actionItems": [
+      "Develop landing page narrative and copy around 'the room you wish you had' positioning to validate emotional resonance with target users."
+    ]
+  },
+  {
+    "id": "mem_1774490956848_4z9tq",
+    "agent": "Pixel",
+    "topic": "We're building BoardRunner.ai — an AI advisory board product where users create teams of specialized AI agents and run structured deliberations (roundtables, reviews, deep dives). We need to figure out: Who is our target customer? What's our pricing model? How do we differentiate from ChatGPT/Claude/CrewAI? What's our launch strategy? We have a working MVP today.",
+    "sessionId": "session-1774478451842-41f7e5fc",
+    "date": "2026-03-25T22:40:51.843Z",
+    "decisions": [
+      "Proposed the critical free/paid split mechanic: view deliberations free, run deliberations paid — resolving the free tier debate with a concrete UX boundary.",
+      "The MVP must move beyond chat-log UX; sequential text blocks that look like a Discord thread will not sell at $99/month regardless of how good the positioning is."
+    ],
+    "insights": [
+      "The product experience is the unsolved problem: compelling landing page narratives collapse the second someone opens the product and sees a wall of sequential text, so the UX must visually communicate structured deliberation, not conversation.",
+      "The feel of the product — not the positioning or pricing — is what determines whether users convert from free to paid; it must feel like a boardroom, not a chatroom."
+    ],
+    "actionItems": [
+      "Design and prototype a deliberation UI that visually differentiates BoardRunner from chat interfaces — structured panels, synthesis views, argument mapping — to match the 'room you wish you had' narrative."
+    ]
+  }
+]

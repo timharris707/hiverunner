@@ -288,76 +288,7 @@
   "title": "BoardRunner.ai Go-to-Market Strategy Deliberation",
   "completedAt": "2026-03-26T02:07:19.383Z",
   "outcome": "ended-by-user",
-  "insights": {
-    "actionItems": [
-      {
-        "description": "Register runquorum.ai domain immediately and set up Vercel project with DNS pointing",
-        "assignedAgent": "Henry",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Build end-to-end deliberation flow: Decision Canvas input → orchestration pipeline → progressive rendering → Deliberation Brief with PDF export and shareable Deliberation Card, all working by hour 72",
-        "assignedAgent": "Pixel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Deliver character bibles for 5 agent personas (CFO, market analyst, risk officer, product strategist, contrarian generalist) with linguistic fingerprints, argumentation patterns, and anti-patterns by hour 16 of sprint",
-        "assignedAgent": "Quill",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Build orchestration pipeline with keyword-based information partitioning v1, model routing (Sonnet 4 default + Opus for synthesis), and Deliberation Quality Score instrumentation scaffolding",
-        "assignedAgent": "Quant",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Identify and contact 5 test users from personal network (a founder, an investor, a product leader, a consultant, an operator) who will bring real strategic questions for validation at hour 72",
-        "assignedAgent": "Henry",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Brief the 5 test users on testing protocol, run competitive domain availability check on Quorum name variants (quorum.ai, runquorum.ai, getquorum.ai, quorumhq.com), and set up PostHog session recording for user testing",
-        "assignedAgent": "Scout",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Write landing page copy built around 'What's the decision you've been avoiding?', first 'Behind the Deliberation' content piece using Anthropic consumer-vs-enterprise case study, and 3 LinkedIn teaser posts showing output artifact",
-        "assignedAgent": "Quill",
-        "priority": "medium",
-        "status": "pending"
-      },
-      {
-        "description": "Build canonical calibration test suite of 25-30 benchmark deliberation scenarios to detect quality degradation on model updates — target delivery by month 2",
-        "assignedAgent": "Quant",
-        "priority": "medium",
-        "status": "pending"
-      }
-    ],
-    "keyDecisions": [
-      "Product renamed from BoardRunner to Quorum — the word carries governance legitimacy, cross-cultural recognition, and naturally creates product vocabulary ('calling a quorum', 'quorum members')",
-      "Core positioning is 'Make your thinking visible' — selling a human outcome, not an AI mechanic, to avoid the 'AI wrapper' perception that kills pricing power",
-      "Free tier is read-only: viewing shared deliberations is free (content/distribution engine), running deliberations is paid — resolving the free-tier debate with Figma's inspect-vs-edit model",
-      "Launch pricing is $99/month for 10 deliberation credits with $8/credit overage — single tier, no complexity, gather 90 days of usage data before introducing Creator and Team tiers",
-      "72-hour sprint converges on ONE working end-to-end deliberation tested on 5 real humans rather than parallel disconnected workstreams — Quant's convergence approach with Scout's real-user validation modification"
-    ],
-    "openQuestions": [
-      "What is the actual team headcount available? The plan requires 3-4 dedicated builders minimum — if fewer, scope must shrink with billing infra cut first, then public boardroom, then Deliberation Card",
-      "What is the liability framework for a product marketing advisory-board-grade decision support? Disclaimers need to be visible on every output artifact and legal review is needed before public launch",
-      "Should the go/no-go criteria be formally ratified as '3 out of 5 test users independently say the deliberation surfaced something they hadn't considered'?",
-      "Is the first public deliberation topic approved as 'Should Anthropic have released Claude as a consumer product or stayed enterprise-only?' — chosen for target audience engagement and shareability"
-    ],
-    "risksIdentified": [
-      "Correlated noise: if all agents run on the same foundation model with different system prompts, outputs may be semantically interchangeable — the existential product risk that information asymmetry and voice differentiation must solve in the 72-hour sprint",
-      "Prompt engineering unpredictability: core product value depends on prompt craft, the least testable discipline in software, with no automated quality floor until the Deliberation Quality Score infrastructure is built",
-      "Competitive clock is 12-18 months (possibly faster) before major labs ship multi-agent deliberation as a commodity feature, AND vertical SaaS incumbents (Carta, Visible.vc, Ironclad) are already bolting on deliberation features to existing workflows with superior distribution",
-      "Calibration decay: foundation model updates will silently degrade tuned deliberation quality — without the canonical test suite, quality could crater for weeks before being detected through churn data"
-    ],
-    "extractedAt": "2026-03-26T02:07:47.491Z"
-  }
+  "archived": true,
+  "archivedAt": "2026-03-26T02:09:16.849Z",
+  "transcriptPath": "/Users/timharris/.openclaw/workspace/memory/advisory/2026-03-25-we-re-building-boardrunner-ai-an-ai-advisory-board-product-w.md"
 }
