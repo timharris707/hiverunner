@@ -23,10 +23,18 @@ interface Task {
   priority: "P0" | "P1" | "P2" | "P3";
   assignee?: string;
   project?: string;
+  type?: "feature" | "bug" | "maintenance";
   tags?: string[];
   created: string;
   updated: string;
   completedAt?: string;
+}
+
+interface ProjectInfo {
+  id: string;
+  name: string;
+  emoji: string;
+  color: string;
 }
 
 const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<any>; color: string }[] = [
@@ -43,17 +51,7 @@ const PRIORITY_COLORS: Record<string, string> = {
   P3: "#6b7280",
 };
 
-const PROJECT_COLORS: Record<string, string> = {
-  "Crypto Trading Bot": "#4ade80",
-  "Mission Control": "#60a5fa",
-  "Karpathy Loop": "#f59e0b",
-  Trading: "#4ade80",
-  Engineering: "#60a5fa",
-  Research: "#a78bfa",
-  Org: "#94a3b8",
-  Insight: "#f472b6",
-  "New Product": "#c084fc",
-};
+// PROJECT_COLORS is now loaded dynamically from projects.json
 
 const ASSIGNEE_EMOJIS: Record<string, string> = {
   Henry: "⚡",
@@ -68,10 +66,6 @@ const ASSIGNEE_EMOJIS: Record<string, string> = {
   Counsel: "⚖️",
 };
 
-const ALL_PROJECTS = [
-  "Crypto Trading Bot", "Mission Control", "Karpathy Loop",
-  "Trading", "Engineering", "Research", "Org", "Insight", "New Product",
-];
 const ALL_ASSIGNEES = Object.keys(ASSIGNEE_EMOJIS);
 const ALL_PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 
@@ -88,9 +82,10 @@ interface NewTaskModalProps {
   onClose: () => void;
   onSave: (task: Partial<Task>) => void;
   defaultStatus?: Task["status"];
+  projectsMap: Record<string, ProjectInfo>;
 }
 
-function NewTaskModal({ onClose, onSave, defaultStatus = "backlog" }: NewTaskModalProps) {
+function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap }: NewTaskModalProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<Task["status"]>(defaultStatus);
@@ -207,7 +202,7 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog" }: NewTaskMod
                 style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none" }}
               >
                 <option value="">No Project</option>
-                {ALL_PROJECTS.map((p) => <option key={p} value={p}>{p}</option>)}
+                {Object.values(projectsMap).map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
               </select>
             </div>
           </div>
@@ -240,8 +235,10 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog" }: NewTaskMod
   );
 }
 
-function TaskCard({ task, onDragStart, onStatusChange }: { task: Task; onDragStart: (e: React.DragEvent, task: Task) => void; onStatusChange: (id: string, status: Task["status"]) => void }) {
-  const projectColor = PROJECT_COLORS[task.project || ""] || "#6b7280";
+function TaskCard({ task, onDragStart, onStatusChange, projectsMap }: { task: Task; onDragStart: (e: React.DragEvent, task: Task) => void; onStatusChange: (id: string, status: Task["status"]) => void; projectsMap: Record<string, ProjectInfo> }) {
+  const proj = projectsMap[task.project || ""];
+  const projectColor = proj?.color || "#6b7280";
+  const projectLabel = proj ? `${proj.emoji} ${proj.name}` : task.project || "";
   return (
     <div
       draggable
@@ -250,6 +247,7 @@ function TaskCard({ task, onDragStart, onStatusChange }: { task: Task; onDragSta
       style={{
         backgroundColor: "var(--card)",
         border: "1px solid var(--border)",
+        borderLeft: `3px solid ${projectColor}`,
       }}
     >
       {/* Priority + Project */}
@@ -265,14 +263,14 @@ function TaskCard({ task, onDragStart, onStatusChange }: { task: Task; onDragSta
         </span>
         {task.project && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded truncate max-w-[100px]"
+            className="text-xs px-1.5 py-0.5 rounded truncate max-w-[140px]"
             style={{
               backgroundColor: `${projectColor}15`,
               color: projectColor,
               border: `1px solid ${projectColor}30`,
             }}
           >
-            {task.project}
+            {projectLabel}
           </span>
         )}
       </div>
@@ -329,6 +327,7 @@ function TaskCard({ task, onDragStart, onStatusChange }: { task: Task; onDragSta
 
 export default function TasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [projectsMap, setProjectsMap] = useState<Record<string, ProjectInfo>>({});
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<string>("all");
   const [showNewTask, setShowNewTask] = useState(false);
@@ -357,6 +356,17 @@ export default function TasksPage() {
 
   useEffect(() => {
     fetchTasks();
+    // Fetch projects for colors/names
+    fetch("/api/projects")
+      .then((r) => r.json())
+      .then((data) => {
+        const map: Record<string, ProjectInfo> = {};
+        for (const p of data.projects || []) {
+          map[p.id] = { id: p.id, name: p.name, emoji: p.emoji, color: p.color };
+        }
+        setProjectsMap(map);
+      })
+      .catch(console.error);
     // Auto-refresh every 30 seconds
     const interval = setInterval(fetchTasks, 30_000);
     return () => clearInterval(interval);
@@ -420,7 +430,7 @@ export default function TasksPage() {
     setDragOverColumn(null);
   };
 
-  const projects = ["all", ...Array.from(new Set(tasks.map((t) => t.project || "").filter(Boolean)))];
+  const projectIds = ["all", ...Array.from(new Set(tasks.map((t) => t.project || "").filter(Boolean)))];
   const filteredTasks = filter === "all" ? tasks : tasks.filter((t) => t.project === filter);
 
   const tasksByStatus = COLUMNS.reduce((acc, col) => {
@@ -481,25 +491,30 @@ export default function TasksPage() {
 
         {/* Project Filter */}
         <div className="flex gap-2 mt-4 flex-wrap">
-          {projects.map((p) => (
-            <button
-              key={p}
-              onClick={() => setFilter(p)}
-              className="text-sm px-3 py-1 rounded-full font-medium transition-all"
-              style={{
-                backgroundColor: filter === p ? "var(--accent)" : "var(--card)",
-                color: filter === p ? "var(--background)" : "var(--text-secondary)",
-                border: `1px solid ${filter === p ? "var(--accent)" : "var(--border)"}`,
-              }}
-            >
-              {p === "all" ? "All Projects" : p}
-              {p !== "all" && (
-                <span className="ml-1.5 opacity-70">
-                  {tasks.filter((t) => t.project === p).length}
-                </span>
-              )}
-            </button>
-          ))}
+          {projectIds.map((p) => {
+            const proj = projectsMap[p];
+            const label = p === "all" ? "All Projects" : proj ? `${proj.emoji} ${proj.name}` : p;
+            return (
+              <button
+                key={p}
+                onClick={() => setFilter(p)}
+                className="text-sm px-3 py-1 rounded-full font-medium transition-all"
+                style={{
+                  backgroundColor: filter === p ? "var(--accent)" : "var(--card)",
+                  color: filter === p ? "var(--background)" : "var(--text-secondary)",
+                  border: `1px solid ${filter === p ? "var(--accent)" : "var(--border)"}`,
+                  cursor: "pointer",
+                }}
+              >
+                {label}
+                {p !== "all" && (
+                  <span className="ml-1.5 opacity-70">
+                    {tasks.filter((t) => t.project === p).length}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -579,6 +594,7 @@ export default function TasksPage() {
                       task={task}
                       onDragStart={handleDragStart}
                       onStatusChange={handleStatusChange}
+                      projectsMap={projectsMap}
                     />
                   ))
                 )}
@@ -594,6 +610,7 @@ export default function TasksPage() {
           onClose={() => setShowNewTask(false)}
           onSave={handleCreateTask}
           defaultStatus={newTaskStatus}
+          projectsMap={projectsMap}
         />
       )}
     </div>

@@ -32,6 +32,7 @@ const navSections = [
   {
     items: [
       { href: "/", label: "Dashboard", icon: LayoutDashboard },
+      { href: "/projects", label: "Projects", icon: FolderOpen },
       { href: "/tasks", label: "Task Board", icon: GitBranch },
       { href: "/agents", label: "Agents", icon: Users },
       { href: "/trading", label: "Trading Desk", icon: TrendingUp },

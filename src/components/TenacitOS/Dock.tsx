@@ -37,8 +37,9 @@ interface NavItem {
 // Flat ordered list with null = separator
 const navItems: (NavItem | null)[] = [
   { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
-  { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "2" },
-  { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "3" },
+  { href: "/projects", label: "Projects", icon: FolderOpen, shortcutKey: "2" },
+  { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "3" },
+  { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "4" },
   { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
   { href: "/office", label: "3D Office", icon: Building2 },
   { href: "/factory", label: "Factory Floor", icon: Factory },
