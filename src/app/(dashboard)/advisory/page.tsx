@@ -57,7 +57,20 @@ export default function AdvisoryPage() {
   // ── Core session state ────────────────────────────────────────────────────
   const [sessions, setSessions] = useState<AdvisorySession[]>([]);
   const [activeSession, setActiveSession] = useState<AdvisorySession | null>(null);
+  const activeSessionRef = useRef<AdvisorySession | null>(null);
   const eventsRef = useRef<AdvisoryEvent[]>([]);
+
+  // Keep ref in sync — used to prevent session deselection during polling
+  useEffect(() => { activeSessionRef.current = activeSession; }, [activeSession]);
+
+  // GUARD: If activeSession becomes null but ref still has a value, restore it
+  // This prevents the "kicked to landing page" bug during polling re-renders
+  useEffect(() => {
+    if (!activeSession && activeSessionRef.current && activeSessionRef.current.status === "active") {
+      console.warn("Active session was cleared unexpectedly — restoring from ref");
+      setActiveSession(activeSessionRef.current);
+    }
+  }, [activeSession]);
   const [events, setEvents] = useState<AdvisoryEvent[]>([]);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [humanMessage, setHumanMessage] = useState("");
@@ -282,10 +295,8 @@ export default function AdvisoryPage() {
             setThinkingAgent(null);
             setConnectingToAI(false);
             // Reload session data but KEEP the active session selected
-            // Don't call loadSessions() here as it can cause the active session to deselect
+            // Do NOT call loadSessions() during polling — it causes re-renders that can deselect the active session
             await loadSessionEvents(activeSession.id);
-            // Refresh session list in background without disrupting active view
-            loadSessions();
           }
           if (activeSession.mode === "review") {
             try {

@@ -24,7 +24,7 @@
   "specialistAgent": null,
   "forkedFrom": null,
   "forkedAtEvent": null,
-  "paused": true,
+  "paused": false,
   "events": [
     {
       "id": "evt_001",
@@ -96,5 +96,5 @@
       "model": "anthropic/claude-sonnet-4-6"
     }
   ],
-  "thinkingAgent": null
+  "thinkingAgent": "Henry"
 }
