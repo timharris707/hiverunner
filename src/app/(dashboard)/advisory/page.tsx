@@ -259,6 +259,15 @@ export default function AdvisoryPage() {
     await loadSessions();
     await handleSelectSession(session);
     setActiveView("live");
+    // Auto-start Round 1 so the user doesn't need to hit Resume first
+    if (session.mode !== "review") {
+      try {
+        setConnectingToAI(true);
+        await fetch(`/api/advisory/sessions/${session.id}/full-round`, { method: "POST" });
+      } catch (e) {
+        console.error("Auto-start round 1 error:", e);
+      }
+    }
   };
 
   const handleSendMessage = async () => {
