@@ -154,7 +154,16 @@ function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOv
 - Vary your paragraph length — mix short punchy points with longer analysis.
 - Be strongly opinionated. No hedging.`;
 
-  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\n${voicePrompt}\n\nIMPORTANT — Make your response feel HUMAN:\n- VARY your paragraph length. Some paragraphs should be 1 sentence. Others should be 4-5 sentences. Never make them all the same length.\n- Use occasional one-liners for emphasis.\n- Build on what others said — reference participants by name.\n- Propose concrete next steps, timelines, and resource requirements.\n- Never use filler phrases — dive straight into your analysis.\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
+  // Length-aware instructions
+  const LENGTH_INSTRUCTIONS: Record<string, string> = {
+    concise: "CRITICAL: Keep your response SHORT and PUNCHY. Maximum 2-3 short paragraphs. Get to the point fast. No lengthy analysis — just your sharpest take in under 150 words.",
+    balanced: "Aim for 3-4 paragraphs. Mix analysis with actionable points. Be thorough but don't ramble.",
+    detailed: "Give a thorough response with 4-6 paragraphs. Include analysis, examples, and detailed recommendations.",
+    verbose: "Go deep. 6+ paragraphs, full analysis, extensive examples, data points, and comprehensive recommendations.",
+  };
+  const lengthInstruction = LENGTH_INSTRUCTIONS[responseLength] || LENGTH_INSTRUCTIONS.balanced;
+
+  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\n${voicePrompt}\n\n**Response length: ${responseLength.toUpperCase()}**\n${lengthInstruction}\n\nIMPORTANT — Make your response feel HUMAN:\n- VARY your paragraph length. Some paragraphs should be 1 sentence. Others should be 4-5 sentences. Never make them all the same length.\n- Use occasional one-liners for emphasis.\n- Build on what others said — reference participants by name.\n- Propose concrete next steps, timelines, and resource requirements.\n- Never use filler phrases — dive straight into your analysis.\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
 }
 
 function buildHistoryString(events: Array<{ speaker: string; text: string; type: string }>): string {
