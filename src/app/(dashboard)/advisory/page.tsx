@@ -1226,7 +1226,7 @@ export default function AdvisoryPage() {
                             )}
                             {configuredRounds > 0 && (
                               <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                                {agentResponses}/{totalSteps}
+                                {Math.round(progressPct)}%
                               </span>
                             )}
                           </>
