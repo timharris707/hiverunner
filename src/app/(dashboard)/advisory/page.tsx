@@ -984,7 +984,7 @@ export default function AdvisoryPage() {
                             ref={humanInputRef}
                             value={humanMessage}
                             onChange={(e) => setHumanMessage(e.target.value)}
-                            placeholder={sessionData?.specialist ? `Continue your conversation with ${sessionData?.specialistAgent || activeSession.agents[0]}...` : "Type a directive to inject into the session..."}
+                            placeholder={sessionData?.specialist ? `Continue your conversation with ${sessionData?.specialistAgent || activeSession.agents[0]}...` : "Jump in — share your thoughts or steer the conversation..."}
                             rows={2}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (humanMessage.trim()) handleSendMessage(); }
@@ -1009,7 +1009,7 @@ export default function AdvisoryPage() {
                   {activeSession.status === "active" && sessionData?.rounds === "persistent" && (
                     <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(139,92,246,0.2)", backgroundColor: "rgba(139,92,246,0.04)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                       <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
-                        {sessionData?.specialist ? `Deep dive with ${sessionData?.specialistAgent || activeSession.agents[0]} — ask anything` : "Persistent session — agents wait for your directives"}
+                        {sessionData?.specialist ? `Deep dive with ${sessionData?.specialistAgent || activeSession.agents[0]} — ask anything` : "Persistent session — agents wait for your input"}
                       </span>
                       <button onClick={handleFullRound} disabled={requestingFullRound || isGenerating}
                         style={{ padding: "7px 14px", borderRadius: "7px", border: "1px solid rgba(139,92,246,0.5)", backgroundColor: "rgba(139,92,246,0.12)", color: "#a78bfa", cursor: requestingFullRound || isGenerating ? "not-allowed" : "pointer", fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: requestingFullRound || isGenerating ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
@@ -1063,7 +1063,7 @@ export default function AdvisoryPage() {
                   {[
                     { icon: "🔄", label: "Roundtables", desc: "Open collaborative discussion" },
                     { icon: "🔍", label: "Review Loops", desc: "Worker + reviewer approval chain" },
-                    { icon: "👤", label: "Human Input", desc: "Jump in with directives" },
+                    { icon: "👤", label: "Human Input", desc: "Jump in anytime" },
                   ].map((f) => (
                     <div key={f.label} style={{ padding: "12px 16px", borderRadius: "10px", border: "1px solid var(--border)", backgroundColor: "var(--surface)", textAlign: "center", minWidth: "120px" }}>
                       <div style={{ fontSize: "20px", marginBottom: "4px" }}>{f.icon}</div>

@@ -216,7 +216,7 @@ export function getEventIcon(type: string, verdict?: string): string {
 }
 
 export function getRoleBadge(role: string, type?: string, speaker?: string): { label: string; color: string } {
-  if (speaker === "Tim") return { label: "DIRECTIVE", color: "#fbbf24" };
+  if (speaker === "Tim") return { label: "HUMAN", color: "#fbbf24" };
   if (type === "start" || type === "complete") return { label: "SYSTEM", color: "#8b5cf6" };
   if (role === "supervisor") return { label: "SUPERVISOR", color: "#fb923c" };
   if (role === "reviewer") return { label: "REVIEWER", color: "#60a5fa" };
