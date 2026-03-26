@@ -55,7 +55,7 @@ export function TopBar() {
         style={{
           position: "fixed",
           top: 0,
-          left: isMobile ? 0 : "68px", // Width of dock (0 on mobile)
+          left: isMobile ? 0 : "168px", // Width of dock/sidebar (0 on mobile)
           right: 0,
           height: "48px",
           backgroundColor: "var(--surface)",
@@ -81,18 +81,18 @@ export function TopBar() {
           >
             Never Idle
           </h1>
-          <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 2px" }}>|</span>
+          <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 4px" }}>|</span>
           <span
             style={{
               fontFamily: "var(--font-body)",
               fontSize: "12px",
-              fontWeight: 400,
+              fontWeight: 600,
               fontStyle: "italic",
-              color: "var(--text-muted)",
-              letterSpacing: "0.2px",
+              color: "var(--text-secondary)",
+              letterSpacing: "0.3px",
             }}
           >
-            Build an autonomous organization that produces value 24/7
+            &ldquo;Build an autonomous organization that produces value 24/7&rdquo;
           </span>
         </div>
 
