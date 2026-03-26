@@ -263,7 +263,20 @@ export default function AdvisoryPage() {
     if (session.mode !== "review") {
       try {
         setConnectingToAI(true);
-        await fetch(`/api/advisory/sessions/${session.id}/full-round`, { method: "POST" });
+        setIsPaused(false);
+        const sd = session as unknown as Record<string, unknown>;
+        if (sd.pacing === "manual") {
+          // Manual pacing: fire one agent at a time, then auto-pause
+          const res = await fetch(`/api/advisory/sessions/${session.id}/next-agent`, { method: "POST" });
+          const data = await res.json();
+          setIsGenerating(true);
+          if (data.nextAgent) {
+            setThinkingAgent(data.nextAgent);
+            setConnectingToAI(false);
+          }
+        } else {
+          await fetch(`/api/advisory/sessions/${session.id}/full-round`, { method: "POST" });
+        }
       } catch (e) {
         console.error("Auto-start round 1 error:", e);
       }
@@ -407,11 +420,22 @@ export default function AdvisoryPage() {
       });
       setIsPaused(newPaused);
       setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
-      // When resuming, trigger a full round of agent responses
+      // When resuming, trigger agent responses
       if (!newPaused) {
         setConnectingToAI(true);
-        await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
-        setIsGenerating(true);
+        if (sessionData?.pacing === "manual") {
+          // Manual pacing: fire one agent at a time
+          const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
+          const data = await res.json();
+          setIsGenerating(true);
+          if (data.nextAgent) {
+            setThinkingAgent(data.nextAgent);
+            setConnectingToAI(false);
+          }
+        } else {
+          await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
+          setIsGenerating(true);
+        }
       }
     } catch (e) {
       console.error("Pause toggle error:", e);
@@ -442,8 +466,12 @@ export default function AdvisoryPage() {
   };
 
   const handleEndSession = async () => {
-    if (!activeSession) return;
+    if (!activeSession || endingSession) return;
     setEndingSession(true);
+    // Immediately hide the deliberating indicator
+    setIsGenerating(false);
+    setThinkingAgent(null);
+    setConnectingToAI(false);
     try {
       const synthesisPlaceholder: AdvisoryEvent = {
         id: `evt_synth_pending_${Date.now()}`,
