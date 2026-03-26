@@ -1184,31 +1184,54 @@ export default function AdvisoryPage() {
                       justifyContent: "center",
                       gap: "8px",
                     }}>
-                      <span style={{
-                        fontSize: "11px",
-                        fontWeight: 700,
-                        color: "var(--accent)",
-                        letterSpacing: "0.5px",
-                      }}>
-                        ROUND {totalRoundsRef.current} {activeSession?.rounds && activeSession.rounds !== "persistent" ? `OF ${activeSession.rounds}` : ""}
-                      </span>
-                      {activeSession?.rounds && activeSession.rounds !== "persistent" && (
-                        <div style={{
-                          display: "flex",
-                          gap: "3px",
-                          alignItems: "center",
-                        }}>
-                          {Array.from({ length: Number(activeSession.rounds) || 3 }, (_, i) => (
-                            <div key={i} style={{
-                              width: "8px",
-                              height: "8px",
-                              borderRadius: "50%",
-                              backgroundColor: i < totalRoundsRef.current ? "var(--accent)" : "var(--border)",
-                              transition: "background-color 0.3s",
-                            }} />
-                          ))}
-                        </div>
-                      )}
+                      {(() => {
+                        const configuredRounds = activeSession?.rounds && activeSession.rounds !== "persistent" ? Number(activeSession.rounds) : 0;
+                        const numAgents = activeSession?.agents?.length || 1;
+                        const totalSteps = configuredRounds * numAgents;
+                        // Count completed agent responses
+                        const agentResponses = events.filter(
+                          (e) => e.speaker !== "Tim" && e.speaker !== "System" && e.type !== "start" && e.type !== "complete" && !e.error
+                        ).length;
+                        const progressPct = totalSteps > 0 ? Math.min((agentResponses / totalSteps) * 100, 100) : 0;
+
+                        return (
+                          <>
+                            <span style={{
+                              fontSize: "11px",
+                              fontWeight: 700,
+                              color: "var(--accent)",
+                              letterSpacing: "0.5px",
+                            }}>
+                              ROUND {totalRoundsRef.current} {configuredRounds ? `OF ${configuredRounds}` : ""}
+                            </span>
+                            {configuredRounds > 0 && (
+                              <div style={{
+                                flex: 1,
+                                maxWidth: "200px",
+                                height: "6px",
+                                backgroundColor: "var(--border)",
+                                borderRadius: "3px",
+                                overflow: "hidden",
+                                position: "relative",
+                              }}>
+                                <div style={{
+                                  width: `${progressPct}%`,
+                                  height: "100%",
+                                  backgroundColor: progressPct >= 100 ? "#22c55e" : "var(--accent)",
+                                  borderRadius: "3px",
+                                  transition: "width 0.5s ease-out",
+                                  boxShadow: progressPct >= 100 ? "0 0 8px #22c55e66" : "0 0 6px var(--accent)44",
+                                }} />
+                              </div>
+                            )}
+                            {configuredRounds > 0 && (
+                              <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                {agentResponses}/{totalSteps}
+                              </span>
+                            )}
+                          </>
+                        );
+                      })()}
                     </div>
                   )}
 
