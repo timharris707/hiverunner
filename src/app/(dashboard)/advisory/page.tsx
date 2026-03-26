@@ -672,6 +672,39 @@ export default function AdvisoryPage() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showLaunchModal, endSessionConfirm, mobileSidebarOpen, showCompareView, compareMode]);
 
+  // ── Round tracking ──────────────────────────────────────────────────────
+  // Compute which round each event belongs to by tracking agent cycles.
+  // A new round starts when we see a non-human, non-system speaker that
+  // already appeared in the current round (i.e. the agent list is cycling).
+
+  const roundMap = new Map<string, number>();
+  const totalRoundsRef = useRef(1);
+  (() => {
+    const agentEvents = events.filter(
+      (e) => e.speaker !== "Tim" && e.speaker !== "System" && e.type !== "start" && e.type !== "complete" && !e.error
+    );
+    let round = 1;
+    const seenInRound = new Set<string>();
+    for (const e of agentEvents) {
+      if (seenInRound.has(e.speaker)) {
+        round++;
+        seenInRound.clear();
+      }
+      seenInRound.add(e.speaker);
+      roundMap.set(e.id, round);
+    }
+    totalRoundsRef.current = round;
+    // Also assign rounds to human/system events based on surrounding context
+    let lastRound = 1;
+    for (const e of events) {
+      if (roundMap.has(e.id)) {
+        lastRound = roundMap.get(e.id)!;
+      } else {
+        roundMap.set(e.id, lastRound);
+      }
+    }
+  })();
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const sessionData = activeSession as unknown as Record<string, unknown> | null;
@@ -925,17 +958,33 @@ export default function AdvisoryPage() {
                       </div>
                     ) : (
                       <>
-                        {events.map((event) => (
-                          <EventBubble
-                            key={event.id}
-                            event={event}
-                            sessionOverlays={(sessionData?.personaOverlays as Record<string, string> | string[] | undefined) ?? {}}
-                            sessionTopic={activeSession?.topic}
-                            sessionMode={activeSession?.mode}
-                            onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
-                            onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
-                          />
-                        ))}
+                        {events.map((event, idx) => {
+                          const eventRound = roundMap.get(event.id) ?? 1;
+                          const prevRound = idx > 0 ? (roundMap.get(events[idx - 1].id) ?? 1) : 0;
+                          const showDivider = eventRound > prevRound && eventRound > 1;
+                          const totalRounds = totalRoundsRef.current;
+                          return (
+                            <div key={event.id}>
+                              {showDivider && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0", opacity: 0.5 }}>
+                                  <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
+                                  <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
+                                    Round {eventRound}{totalRounds > 1 ? ` of ${totalRounds}` : ""}
+                                  </span>
+                                  <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
+                                </div>
+                              )}
+                              <EventBubble
+                                event={event}
+                                sessionOverlays={(sessionData?.personaOverlays as Record<string, string> | string[] | undefined) ?? {}}
+                                sessionTopic={activeSession?.topic}
+                                sessionMode={activeSession?.mode}
+                                onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
+                                onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
+                              />
+                            </div>
+                          );
+                        })}
                         {endingSession && activeSession?.status === "active" && (
                           <TypingIndicator agentId="Henry" overrideLabel="Henry is writing the final summary..." />
                         )}
