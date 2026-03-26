@@ -508,7 +508,7 @@ function ProductCard({ product }: { product: Product }) {
       {/* Blocked badge */}
       {product.blocked && (
         <div
-          className="flex items-center gap-1.5 rounded-md mb-2.5 text-xs"
+          className="flex items-center gap-1.5 rounded-md mb-4 text-xs"
           style={{
             padding: "4px 8px",
             backgroundColor: "rgba(239,68,68,0.08)",
@@ -627,7 +627,7 @@ function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3.5">
         {products.length === 0 ? (
           <div
             className="text-center py-8 rounded-lg"
