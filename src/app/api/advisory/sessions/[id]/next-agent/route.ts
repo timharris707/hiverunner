@@ -156,10 +156,10 @@ function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOv
 
   // Length-aware instructions
   const LENGTH_INSTRUCTIONS: Record<string, string> = {
-    concise: "CRITICAL: Keep your response SHORT and PUNCHY. Maximum 2-3 short paragraphs. Get to the point fast. No lengthy analysis — just your sharpest take in under 150 words.",
-    balanced: "Aim for 3-4 paragraphs. Mix analysis with actionable points. Be thorough but don't ramble.",
-    detailed: "Give a thorough response with 4-6 paragraphs. Include analysis, examples, and detailed recommendations.",
-    verbose: "Go deep. 6+ paragraphs, full analysis, extensive examples, data points, and comprehensive recommendations.",
+    concise: "ABSOLUTE MAXIMUM: 100 words. 2 short paragraphs. That's it. No headers, no bullet lists, no lengthy analysis. Just your single sharpest insight and one concrete recommendation. If you write more than 100 words you have FAILED this instruction.",
+    balanced: "Keep it to 150-250 words. 2-3 paragraphs max. One key insight, one recommendation, done.",
+    detailed: "Aim for 300-500 words. 3-4 paragraphs. Include analysis and specific recommendations.",
+    verbose: "Go deep. 500+ words, full analysis, extensive examples, data points, and comprehensive recommendations.",
   };
   const lengthInstruction = LENGTH_INSTRUCTIONS[responseLength] || LENGTH_INSTRUCTIONS.balanced;
 
@@ -238,9 +238,9 @@ export async function POST(
   // Resolve response length
   const responseLength = (session.responseLength as string) || "balanced";
   const LENGTH_MAX_TOKENS: Record<string, number> = {
-    concise: 1024,
-    balanced: 2048,
-    detailed: 3072,
+    concise: 350,
+    balanced: 1024,
+    detailed: 2048,
     verbose: 4096,
   };
   const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 2048;
