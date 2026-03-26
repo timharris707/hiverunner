@@ -1,5 +1,56 @@
 [
   {
+    "id": "TASK-080",
+    "title": "Factory Floor \u2014 Wire to live OpenClaw sessions",
+    "description": "Check OpenClaw API for actually running sessions/agents. Replace hardcoded agent states with real-time data showing which agents are truly active.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Forge \ud83d\udd27",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "factory",
+      "real-time",
+      "openclaw-api"
+    ],
+    "created": "2026-03-26T10:21:00.000Z",
+    "updated": "2026-03-26T10:21:00.000Z"
+  },
+  {
+    "id": "TASK-081",
+    "title": "Factory Floor \u2014 Show live model per agent from OpenClaw",
+    "description": "Query which model each agent is actually running on (Opus/Sonnet/Gemini) and display in real-time instead of hardcoded assignments.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Forge \ud83d\udd27",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "factory",
+      "real-time",
+      "models"
+    ],
+    "created": "2026-03-26T10:21:00.000Z",
+    "updated": "2026-03-26T10:21:00.000Z"
+  },
+  {
+    "id": "TASK-082",
+    "title": "Factory Floor \u2014 Real-time status updates",
+    "description": "Auto-refresh factory page with live agent states. WebSocket or polling to show agents starting/stopping/completing in real-time.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Forge \ud83d\udd27",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "factory",
+      "real-time",
+      "websocket"
+    ],
+    "created": "2026-03-26T10:21:00.000Z",
+    "updated": "2026-03-26T10:21:00.000Z"
+  },
+  {
     "id": "TASK-070",
     "title": "Auto-spawn agent when task moves to In Progress",
     "description": "Drag task to In Progress \u2192 auto-spawns a build agent via OpenClaw. Task description becomes the agent's prompt. Agent updates task status on completion.",
