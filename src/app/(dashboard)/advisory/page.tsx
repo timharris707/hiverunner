@@ -319,8 +319,8 @@ export default function AdvisoryPage() {
             setActiveSession((s) => s ? { ...s, status: data.status, completedAt: data.completedAt || new Date().toISOString() } : s);
             // Update the sessions list so sidebar shows DONE badge
             setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, status: data.status } : s));
-            // Clear persisted session ID — session is no longer active
-            localStorage.removeItem("advisory_active_session_id");
+            // DON'T clear localStorage here — keep the session visible until user navigates away
+            // localStorage is only cleared when user starts a NEW session or explicitly leaves
             // Reload session data but KEEP the active session selected
             await loadSessionEvents(activeSession.id);
           }
@@ -369,6 +369,8 @@ export default function AdvisoryPage() {
     setShowLaunchModal(false);
     setMobileSidebarOpen(false);
     setIsGenerating(true);
+    // Clear any previous session from localStorage when starting a new one
+    localStorage.removeItem("advisory_active_session_id");
     await loadSessions();
     await handleSelectSession(session);
     setActiveView("live");
