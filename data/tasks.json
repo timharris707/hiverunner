@@ -1,5 +1,56 @@
 [
   {
+    "id": "TASK-098",
+    "title": "PDF: Remove browser header/footer, suppress date/URL line",
+    "description": "Use @page CSS or PDF library to remove browser-injected header/footer from print output. The date stamp and URL at top of every page looks unprofessional.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "advisory",
+      "pdf",
+      "polish"
+    ],
+    "created": "2026-03-26T11:25:00.000Z",
+    "updated": "2026-03-26T11:25:00.000Z"
+  },
+  {
+    "id": "TASK-099",
+    "title": "PDF: Page breaks between agent responses",
+    "description": "Each agent response should start on a new page. Use page-break-before or break-before CSS. No response should be split across pages.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "advisory",
+      "pdf",
+      "polish"
+    ],
+    "created": "2026-03-26T11:25:00.000Z",
+    "updated": "2026-03-26T11:25:00.000Z"
+  },
+  {
+    "id": "TASK-100",
+    "title": "PDF: Remove WORKER badges in roundtable mode",
+    "description": "Roundtable PDF shows Worker/WORKER badges on Quant and Scout. Should show persona role or no badge. WORKER/REVIEWER only for review loop mode.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "advisory",
+      "pdf",
+      "roundtable"
+    ],
+    "created": "2026-03-26T11:25:00.000Z",
+    "updated": "2026-03-26T11:25:00.000Z"
+  },
+  {
     "id": "TASK-090",
     "title": "P0: Fix session deselection during polling",
     "description": "Active session keeps getting cleared during polling, kicking user to landing page. Happened 4+ times in one test session. Root cause: likely Next.js component remount or state cascade from loadSessions(). localStorage persistence helped but didn't fully solve it.",
