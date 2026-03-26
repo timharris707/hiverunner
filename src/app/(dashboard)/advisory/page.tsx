@@ -34,6 +34,7 @@ import type {
 import {
   formatDate,
   formatMarkdownExport,
+  formatMarkdownFileExport,
   slugify,
   getStatusBadge,
 } from "@/components/advisory/constants";
@@ -511,6 +512,21 @@ export default function AdvisoryPage() {
     const topicSlug = slugify(activeSession.topic);
     const fileName = `advisory-${dateStr}-${topicSlug}.txt`;
     const blob = new Blob([markdown], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMD = () => {
+    if (!activeSession) return;
+    const md = formatMarkdownFileExport(activeSession, events);
+    const dateStr = new Date(activeSession.createdAt).toISOString().split("T")[0];
+    const topicSlug = slugify(activeSession.topic);
+    const fileName = `${topicSlug}-${dateStr}.md`;
+    const blob = new Blob([md], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -1130,6 +1146,10 @@ export default function AdvisoryPage() {
                             style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                             <Download size={12} /> Export
                           </button>
+                          <button onClick={handleExportMD} title="Export as Markdown file"
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            <FileDown size={12} /> Export MD
+                          </button>
                           <button onClick={handleExportPDF} disabled={exportingPDF} title="Print / Save PDF"
                             style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.7 : 1, transition: "all 150ms ease" }}>
                             {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
@@ -1377,6 +1397,10 @@ export default function AdvisoryPage() {
                         style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.5)", backgroundColor: continuing ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.12)", color: "#a78bfa", cursor: continuing ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 700, opacity: continuing ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
                         {continuing ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
                         Continue Discussion
+                      </button>
+                      <button onClick={handleExportMD} title="Export as Markdown file"
+                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                        <FileDown size={12} /> Export MD
                       </button>
                       <button onClick={handleExportPDF} disabled={exportingPDF} title="Export as PDF"
                         style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.08)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.6 : 1 }}>

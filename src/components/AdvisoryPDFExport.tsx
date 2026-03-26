@@ -88,14 +88,11 @@ function getRoleLabel(role: string, type: string): string {
 function getPrintCSS(): string {
   return `
     @page {
-      size: A4;
-      margin: 1in 0.75in;
-      @bottom-center {
-        content: counter(page) " of " counter(pages);
-        font-size: 9px;
-        color: #94a3b8;
-        font-family: "Inter", -apple-system, system-ui, sans-serif;
-      }
+      size: letter;
+      margin: 0.6in;
+    }
+    @page :first {
+      margin-top: 0.6in;
     }
 
     * {
@@ -223,6 +220,14 @@ function getPrintCSS(): string {
       text-transform: uppercase;
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
       white-space: nowrap;
+    }
+
+    /* Page breaks between agent responses */
+    .pdf-event-block:not(:first-child) {
+      page-break-before: always;
+    }
+    .pdf-event-block {
+      page-break-inside: avoid;
     }
 
     /* Event blocks */
@@ -445,18 +450,26 @@ function buildPrintHTML(session: PDFSession, events: PDFEvent[]): string {
 
     const parasHTML = paragraphs.map((p) => `<p>${escapeHTML(p)}</p>`).join("");
 
+    // In roundtable mode, hide WORKER/SUPERVISOR/REVIEWER role badges (only show APPROVED/REJECTED/HUMAN)
+    const showBadge = session.mode !== "roundtable" || isHuman || event.type === "approve" || event.type === "reject";
+    const badgeHTML = showBadge
+      ? `<span class="pdf-event-badge ${badgeClass}">${escapeHTML(isHuman ? "HUMAN" : event.type === "approve" ? "APPROVED" : event.type === "reject" ? "REJECTED" : roleLabel.toUpperCase())}</span>`
+      : "";
+
     eventsHTML += `
-      <div class="${eventClass}">
-        <div class="pdf-event-header">
-          <div>
-            <span class="pdf-event-speaker">${event.emoji} ${escapeHTML(isHuman ? "Tim Harris" : event.speaker)}</span>
-            <span class="pdf-event-role">— ${escapeHTML(isHuman ? "CEO" : roleLabel)}</span>
-            <span class="pdf-event-badge ${badgeClass}">${escapeHTML(isHuman ? "HUMAN" : event.type === "approve" ? "APPROVED" : event.type === "reject" ? "REJECTED" : roleLabel.toUpperCase())}</span>
-            ${event.model ? `<span class="pdf-event-model">${escapeHTML(event.model)}</span>` : ""}
+      <div class="pdf-event-block">
+        <div class="${eventClass}">
+          <div class="pdf-event-header">
+            <div>
+              <span class="pdf-event-speaker">${event.emoji} ${escapeHTML(isHuman ? "Tim Harris" : event.speaker)}</span>
+              <span class="pdf-event-role">— ${escapeHTML(isHuman ? "CEO" : roleLabel)}</span>
+              ${badgeHTML}
+              ${event.model ? `<span class="pdf-event-model">${escapeHTML(event.model)}</span>` : ""}
+            </div>
+            <span class="pdf-event-time">${formatTime(event.timestamp)}</span>
           </div>
-          <span class="pdf-event-time">${formatTime(event.timestamp)}</span>
+          <div class="pdf-event-content">${parasHTML}</div>
         </div>
-        <div class="pdf-event-content">${parasHTML}</div>
       </div>
     `;
   }

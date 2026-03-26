@@ -338,3 +338,114 @@ export function formatMarkdownExport(session: AdvisorySession, events: AdvisoryE
 
   return lines.join("\n");
 }
+
+/**
+ * Generate a clean Markdown (.md) export with round grouping.
+ */
+export function formatMarkdownFileExport(session: AdvisorySession, events: AdvisoryEvent[]): string {
+  const topic = session.topic;
+  const mode = session.mode;
+  const dateStr = new Date(session.createdAt).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  const rawOverlays = (session as unknown as Record<string, unknown>).personaOverlays;
+  const overlaysObj: Record<string, string> = Array.isArray(rawOverlays)
+    ? {}
+    : (rawOverlays as Record<string, string>) ?? {};
+
+  const allEvents = events as (AdvisoryEvent & { model?: string })[];
+  const modelsUsed = [...new Set(allEvents.map((e) => e.model).filter(Boolean))];
+  const modelsStr = modelsUsed.length > 0 ? modelsUsed.join(", ") : "N/A";
+
+  // Build participants line
+  const participantParts: string[] = [];
+  for (const agentDisplayName of session.agents) {
+    const agentConfig = getAgentByAnyId(agentDisplayName);
+    const emoji = agentConfig?.emoji ?? "🤖";
+    participantParts.push(`${agentDisplayName} ${emoji}`);
+  }
+
+  // Compute rounds from display events
+  const displayEvents = events.filter((e) => e.text && e.speaker && e.type !== "start");
+  const agentEvents = displayEvents.filter(
+    (e) => e.speaker !== "Tim" && e.speaker !== "System" && e.type !== "complete" && e.type !== "error"
+  );
+  const roundForEvent = new Map<string, number>();
+  let round = 1;
+  const seenInRound = new Set<string>();
+  for (const e of agentEvents) {
+    if (seenInRound.has(e.speaker)) {
+      round++;
+      seenInRound.clear();
+    }
+    seenInRound.add(e.speaker);
+    roundForEvent.set(e.id, round);
+  }
+  const totalRounds = round;
+  // Backfill non-agent events
+  let lastRound = 1;
+  for (const e of displayEvents) {
+    if (roundForEvent.has(e.id)) {
+      lastRound = roundForEvent.get(e.id)!;
+    } else {
+      roundForEvent.set(e.id, lastRound);
+    }
+  }
+
+  const modeLabel = mode === "review" ? "Review Loop" : "Roundtable";
+  const lines: string[] = [
+    `# ${topic}`,
+    ``,
+    `**Date:** ${dateStr} | **Mode:** ${modeLabel} | **Model:** ${modelsStr} | **Rounds:** ${totalRounds}`,
+    `**Participants:** ${participantParts.join(", ")}`,
+    ``,
+    `---`,
+    ``,
+  ];
+
+  let prevRound = 0;
+  for (const event of displayEvents) {
+    const eventRound = roundForEvent.get(event.id) ?? 1;
+
+    if (eventRound > prevRound) {
+      if (eventRound > 1) lines.push(`---`, ``);
+      lines.push(`## Round ${eventRound}`, ``);
+    }
+    prevRound = eventRound;
+
+    const agentConfig = getAgentByAnyId(event.speaker);
+    const role = agentConfig?.role ?? getAgentRole(event.speaker);
+    const emoji = agentConfig?.emoji ?? event.emoji ?? "";
+    const speakerOverlayId = overlaysObj[event.speaker];
+    const overlayStr = speakerOverlayId
+      ? ` [${getOverlayEmoji(speakerOverlayId)} ${getOverlayName(speakerOverlayId)}]`
+      : "";
+    const timeStr = new Date(event.timestamp).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+    const isHuman = event.speaker === "Tim";
+    const speakerName = isHuman ? "Tim Harris" : event.speaker;
+    const speakerRole = isHuman ? "CEO" : role;
+
+    lines.push(`### ${emoji} ${speakerName} — ${speakerRole}${overlayStr}`);
+    lines.push(`*${timeStr}*`);
+    lines.push(``);
+    lines.push(event.text.trim());
+    lines.push(``);
+  }
+
+  // Overall assessment — look for Henry's last "complete" type event
+  const synthesisEvent = events.find((e) => e.type === "complete" && e.speaker === "Henry");
+  if (synthesisEvent && synthesisEvent.text) {
+    lines.push(`---`, ``);
+    lines.push(`## Overall Assessment`);
+    lines.push(`*Henry's synthesis*`);
+    lines.push(``);
+    lines.push(synthesisEvent.text.trim());
+    lines.push(``);
+  }
+
+  return lines.join("\n");
+}
