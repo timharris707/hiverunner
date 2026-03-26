@@ -134,6 +134,7 @@ interface AgentSprite {
   agentName: string;
   productName: string;
   status: "building" | "deployed";
+  model: string;
   animDelay: number;
 }
 
@@ -148,11 +149,23 @@ function getActiveAgentSprites(): AgentSprite[] {
   for (const product of activeProducts) {
     const agent = getAgentByAnyId(product.agentId);
     const name = agent?.name?.replace(/\s*[^\w\s].*$/, "") ?? product.agentId;
+    // Assign models based on agent/task type
+    const MODEL_MAP: Record<string, string> = {
+      pixel: "Sonnet 4.6",
+      cipher: "Sonnet 4.6",
+      nimbus: "Sonnet 4.6",
+      atlas: "Sonnet 4.6",
+      scout: "Gemini Pro",
+      henry: "Opus 4.6",
+      forge: "Opus 4.6",
+      quill: "Sonnet 4.6",
+    };
     sprites.push({
       agentId: product.agentId,
       agentName: name,
       productName: product.name,
       status: product.status as "building" | "deployed",
+      model: MODEL_MAP[product.agentId] || "Sonnet 4.6",
       animDelay: delayIndex * 0.4,
     });
     delayIndex++;
@@ -329,6 +342,26 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
         {sprite.productName}
       </div>
 
+      {/* Model badge */}
+      <div
+        style={{
+          fontSize: 8,
+          fontWeight: 600,
+          color: "rgba(167,139,250,0.9)",
+          fontFamily: "var(--font-mono)",
+          textAlign: "center",
+          whiteSpace: "nowrap",
+          marginTop: 3,
+          padding: "1px 6px",
+          borderRadius: 4,
+          backgroundColor: "rgba(139,92,246,0.12)",
+          border: "1px solid rgba(139,92,246,0.2)",
+          letterSpacing: "0.5px",
+        }}
+      >
+        {sprite.model}
+      </div>
+
       {/* Hover tooltip */}
       <div
         className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50"
@@ -344,7 +377,7 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
           boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
         }}
       >
-        {sprite.agentName} — working on {sprite.productName}
+        {sprite.agentName} — working on {sprite.productName} ({sprite.model})
       </div>
     </div>
   );
