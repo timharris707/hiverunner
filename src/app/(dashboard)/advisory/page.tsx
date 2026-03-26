@@ -407,21 +407,10 @@ export default function AdvisoryPage() {
       });
       setIsPaused(newPaused);
       setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
-      // When resuming, trigger agent responses
+      // When resuming, trigger a full round of agent responses
       if (!newPaused) {
         setConnectingToAI(true);
-        if (sessionData?.pacing === "manual") {
-          // Manual pacing: fire one agent at a time
-          const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
-          const data = await res.json();
-          if (data.nextAgent) {
-            setThinkingAgent(data.nextAgent);
-            setConnectingToAI(false);
-          }
-        } else {
-          // Auto pacing: fire all agents in a full round
-          await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
-        }
+        await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
         setIsGenerating(true);
       }
     } catch (e) {
