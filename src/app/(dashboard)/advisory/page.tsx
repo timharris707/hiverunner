@@ -76,6 +76,7 @@ export default function AdvisoryPage() {
   const [advancingTurn, setAdvancingTurn] = useState(false);
   const [requestingFullRound, setRequestingFullRound] = useState(false);
   const [thinkingAgent, setThinkingAgent] = useState<string | null>(null);
+  const [connectingToAI, setConnectingToAI] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterAgent, setFilterAgent] = useState<string>("");
   const [showFilters, setShowFilters] = useState(false);
@@ -199,12 +200,17 @@ export default function AdvisoryPage() {
             setIsPaused(data.paused);
           }
           setThinkingAgent(data.thinkingAgent ?? null);
+          // Clear connecting state once we know which agent is thinking
+          if (data.thinkingAgent) setConnectingToAI(false);
+          // Also clear if new events arrived (agent responded)
+          if (data.events && data.events.length > 0) setConnectingToAI(false);
           if (data.title) {
             setActiveSession((s) => s && !s.title ? { ...s, title: data.title } : s);
           }
           if (data.status && data.status !== "active") {
             setIsGenerating(false);
             setThinkingAgent(null);
+            setConnectingToAI(false);
             await loadSessions();
             await loadSessionEvents(activeSession.id);
           }
@@ -258,6 +264,7 @@ export default function AdvisoryPage() {
   const handleSendMessage = async () => {
     if (!humanMessage.trim() || !activeSession) return;
     setSendingMessage(true);
+    setConnectingToAI(true);
     try {
       const res = await fetch(`/api/advisory/sessions/${activeSession.id}/message`, {
         method: "POST",
@@ -393,11 +400,15 @@ export default function AdvisoryPage() {
       setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
       // When resuming, trigger agent responses
       if (!newPaused) {
+        setConnectingToAI(true);
         if (sessionData?.pacing === "manual") {
           // Manual pacing: fire one agent at a time
           const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
           const data = await res.json();
-          if (data.nextAgent) setThinkingAgent(data.nextAgent);
+          if (data.nextAgent) {
+            setThinkingAgent(data.nextAgent);
+            setConnectingToAI(false);
+          }
         } else {
           // Auto pacing: fire all agents in a full round
           await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
@@ -414,6 +425,7 @@ export default function AdvisoryPage() {
   const handleNextTurn = async () => {
     if (!activeSession) return;
     setAdvancingTurn(true);
+    setConnectingToAI(true);
     try {
       // For manual pacing: fire one agent at a time via next-agent endpoint
       const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
@@ -422,6 +434,7 @@ export default function AdvisoryPage() {
       setIsGenerating(true);
       if (data.nextAgent) {
         setThinkingAgent(data.nextAgent);
+        setConnectingToAI(false);
       }
     } catch (e) {
       console.error("Next turn error:", e);
@@ -460,6 +473,7 @@ export default function AdvisoryPage() {
   const handleFullRound = async () => {
     if (!activeSession) return;
     setRequestingFullRound(true);
+    setConnectingToAI(true);
     try {
       await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
       setIsGenerating(true);
@@ -1004,7 +1018,13 @@ export default function AdvisoryPage() {
                           <TypingIndicator agentId="Henry" overrideLabel="Henry is writing the final summary..." />
                         )}
                         {isGenerating && activeSession?.status === "active" && !isPaused && !endingSession && (
-                          <TypingIndicator agentId={thinkingAgent} />
+                          <TypingIndicator
+                            agentId={thinkingAgent}
+                            overrideLabel={connectingToAI && !thinkingAgent ? "Connecting to AI..." : undefined}
+                          />
+                        )}
+                        {connectingToAI && !isGenerating && activeSession?.status === "active" && !endingSession && (
+                          <TypingIndicator agentId={null} overrideLabel="Connecting to AI..." />
                         )}
                         {activeSession?.status === "completed" && (
                           <SessionInsightsPanel
