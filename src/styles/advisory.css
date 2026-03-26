@@ -23,6 +23,8 @@
   font-weight: 700;
   word-break: normal;
   overflow-wrap: break-word;
+  margin-left: -46px;
+  padding-left: 0;
 }
 .advisory-markdown code {
   font-family: var(--font-mono);

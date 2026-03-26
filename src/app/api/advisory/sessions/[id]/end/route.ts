@@ -131,12 +131,27 @@ export async function POST(
 
 You are delivering the final synthesis for an advisory board session that Tim has chosen to end. This is your closing statement.
 
-Your synthesis must cover:
-1. **Key Decisions** — concrete conclusions or consensus positions reached
-2. **Key Findings** — the most important insights, data points, or recommendations surfaced
-3. **Action Items** — specific next steps with suggested owners (from session participants)
-4. **Open Questions** — unresolved issues that need follow-up
-5. **Overall Assessment** — a brief verdict on where things stand and what Tim should do next
+You MUST use EXACTLY this structure with these markdown headers. Do not skip any section:
+
+## Overall Assessment
+[2-3 paragraphs synthesizing the full discussion — what was debated, where consensus formed, and the overall verdict on the topic. Be specific, reference actual points made by participants.]
+
+## Key Decisions
+- [Decision 1 — who advocated for it and why it was agreed upon]
+- [Decision 2]
+- [Continue for each concrete conclusion reached]
+
+## Action Items
+- [ ] [Agent Name]: [Specific action item with timeline, e.g. "Draft the API spec by end of week"]
+- [ ] [Agent Name]: [Action item with timeline]
+- [ ] Tim: [Any action items for Tim specifically]
+
+## Open Questions
+- [Question that surfaced but wasn't resolved]
+- [Area that needs further research or a follow-up session]
+
+## What Tim Should Do Next
+[1-2 concrete, actionable next steps Tim should take immediately. Be direct and specific — not vague advice.]
 
 Be direct, specific, and crisp. No filler. Reference the actual content of the discussion. Tim is counting on this to be actionable.${overlayContext}`;
 
