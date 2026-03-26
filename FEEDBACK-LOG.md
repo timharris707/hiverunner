@@ -26,10 +26,10 @@
 
 ## PDF Export
 - [x] **White background for print** — dark theme is unusable for printing (runs out of ink)
-- [ ] Strip all markdown artifacts (`=`, `>`, `#` rendering as weird symbols)
-- [ ] Fix `¡` characters appearing before headings (encoding issue from markdown stripping)
-- [ ] Clean typography, professional report look
-- [ ] Should be something you'd actually hand to a client
+- [x] Strip all markdown artifacts (`=`, `>`, `#` rendering as weird symbols)
+- [x] Fix `¡` characters appearing before headings (encoding issue from markdown stripping)
+- [x] Clean typography, professional report look
+- [x] Should be something you'd actually hand to a client
 
 ## Modal/Wizard Bugs
 - [ ] Drag-selecting text in textarea can close the modal (fixed partially — needs verification)
@@ -65,9 +65,9 @@
 
 ## Roundtable Mode — Critical Feedback from Live Testing
 - [x] **Don't label agents as "WORKER" in roundtable mode** — that's only for review mode. In roundtable they're just participants/advisors
-- [ ] **Manual pacing should show ONE agent at a time, not a whole round** — click Next → one agent responds → you read it → click Next → next agent responds. Currently it fires all agents in a round at once, skipping past the human
+- [x] **Manual pacing should show ONE agent at a time, not a whole round** — click Next → one agent responds → you read it → click Next → next agent responds. Currently it fires all agents in a round at once, skipping past the human
 - [ ] **Auto-advance toggle matters here too** — if they want all agents to fire at once per round, that's the auto-continue toggle. Manual = one at a time
-- [ ] **Human needs a chance to participate between each agent** — currently the round just blasts through without letting the user jump in
+- [x] **Human needs a chance to participate between each agent** — currently the round just blasts through without letting the user jump in
 - [ ] **The conversation content was actually great** — Tim said "absolutely fascinating" and the agents were debating properly (Scout referencing Quant's points, etc.)
 - [ ] **Three agents went without user getting a chance to hit Next** — inconsistent behavior, sometimes one-at-a-time, sometimes batch
 
@@ -79,12 +79,12 @@
 - [ ] Export/Copy/PDF buttons should only become active AFTER session completes
 
 ## Round Tracking
-- [ ] Show "Round 2 of 3" indicator somewhere visible (header or between rounds as divider)
-- [ ] Without this, users lose track of where they are in the conversation
+- [x] Show "Round 2 of 3" indicator somewhere visible (header or between rounds as divider)
+- [x] Without this, users lose track of where they are in the conversation
 
 ## Waiting/Loading States
-- [ ] When waiting for API response after hitting Next Turn, show "Connecting to AI..." or "Waiting for response..." immediately
-- [ ] Current delay of 15-20 seconds with no feedback feels broken
+- [x] When waiting for API response after hitting Next Turn, show "Connecting to AI..." or "Waiting for response..." immediately
+- [x] Current delay of 15-20 seconds with no feedback feels broken
 
 ## General UI
 - [ ] Dashboard: old cached versions keep showing (port conflicts, zombie processes)
