@@ -94,6 +94,7 @@ export default function AdvisoryPage() {
   const [newTaskText, setNewTaskText] = useState("");
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [loopAdvancing, setLoopAdvancing] = useState(false);
+  const [loopStarted, setLoopStarted] = useState(false);
   const [continuing, setContinuing] = useState(false);
   const [forking, setForking] = useState(false);
   const [deepDiveAgent, setDeepDiveAgent] = useState<{ id: string; name: string; emoji: string; role: string } | null>(null);
@@ -143,6 +144,11 @@ export default function AdvisoryPage() {
         }
         if (data.session.reviewLoop) {
           setReviewLoop(data.session.reviewLoop);
+          // If any task has been worked on, the loop has been started
+          const hasStarted = data.session.reviewLoop.tasks.some(
+            (t: { status: string }) => t.status !== "pending"
+          );
+          if (hasStarted) setLoopStarted(true);
         }
       }
     } catch (e) {
@@ -244,6 +250,7 @@ export default function AdvisoryPage() {
     setEndSessionConfirm(false);
     setSessionInsights(null);
     setMobileSidebarOpen(false);
+    setLoopStarted(false);
     await loadSessionEvents(session.id);
     try {
       const res = await fetch(`/api/advisory/sessions/${session.id}/insights`);
@@ -343,6 +350,32 @@ export default function AdvisoryPage() {
   const handleOverrideTask = async (taskId: number, newStatus: string, notes?: string) => {
     if (!activeSession) return;
     await handleLoopAction("override", { taskId, newStatus, notes });
+  };
+
+  const handleStartLoop = async () => {
+    if (!activeSession) return;
+    setLoopStarted(true);
+    await handleLoopAction("start");
+  };
+
+  const handleStopLoop = async () => {
+    if (!activeSession) return;
+    setLoopStarted(false);
+    // End the session
+    try {
+      await fetch(`/api/advisory/sessions/${activeSession.id}/end`, { method: "POST" });
+      await loadSessionEvents(activeSession.id);
+      await loadSessions();
+    } catch (e) {
+      console.error("Stop loop error:", e);
+    }
+  };
+
+  const handleSkipTask = async () => {
+    if (!activeSession || !reviewLoop) return;
+    const currentTask = reviewLoop.tasks[reviewLoop.currentTaskIndex];
+    if (!currentTask) return;
+    await handleLoopAction("override", { taskId: currentTask.id, newStatus: "approved", notes: "Skipped by user" });
   };
 
   // ── Session controls ──────────────────────────────────────────────────────
@@ -784,6 +817,9 @@ export default function AdvisoryPage() {
             onAdvance={() => handleLoopAction("advance")}
             onPause={() => handleLoopAction("pause")}
             onResume={() => handleLoopAction("resume")}
+            onStartLoop={handleStartLoop}
+            onStopLoop={handleStopLoop}
+            onSkipTask={handleSkipTask}
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
             newTaskText={newTaskText}
@@ -792,6 +828,7 @@ export default function AdvisoryPage() {
             loopAdvancing={loopAdvancing}
             sessionStatus={activeSession?.status || "active"}
             onSetAutoContinue={(val) => handleLoopAction("set-auto-continue", { autoContinue: val })}
+            loopStarted={loopStarted}
           />
         ) : (
           <SessionSidebar
