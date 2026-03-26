@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Cpu, HardDrive, MemoryStick, Shield, ShieldCheck, Clock } from "lucide-react";
+import { DOCK_WIDTH } from "./Dock";
 
 interface SystemStats {
   cpu: number;
@@ -105,7 +106,7 @@ export function StatusBar() {
       style={{
         position: "fixed",
         bottom: 0,
-        left: "168px",
+        left: `${DOCK_WIDTH}px`,
         right: 0,
         height: "32px",
         backgroundColor: "var(--surface)",
@@ -114,7 +115,7 @@ export function StatusBar() {
         alignItems: "center",
         padding: "0 16px",
         gap: "16px",
-        zIndex: 40,
+        zIndex: 51,
       }}
     >
       {/* CPU */}
