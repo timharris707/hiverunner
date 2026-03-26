@@ -391,6 +391,11 @@ export default function AdvisoryPage() {
       });
       setIsPaused(newPaused);
       setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
+      // When resuming, auto-trigger the next round of agent responses
+      if (!newPaused) {
+        await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
+        setIsGenerating(true);
+      }
     } catch (e) {
       console.error("Pause toggle error:", e);
     } finally {
