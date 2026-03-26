@@ -627,7 +627,7 @@ function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-3.5">
+      <div className="flex flex-col gap-2.5">
         {products.length === 0 ? (
           <div
             className="text-center py-8 rounded-lg"
@@ -804,7 +804,7 @@ export default function SoftwareFactoryPage() {
       {/* ── Kanban Columns ─────────────────────────────────────────────────── */}
       <div className="px-6 pb-8">
         <div
-          className="grid gap-6"
+          className="grid gap-x-8 gap-y-0"
           style={{
             gridTemplateColumns: "repeat(4, 1fr)",
             minWidth: 0,
