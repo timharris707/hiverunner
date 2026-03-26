@@ -1031,17 +1031,16 @@ export default function AdvisoryPage() {
 
           {activeSession ? (
             <>
-              {/* ── Session header (STICKY — always visible) ── */}
+              {/* ── Session header (ALWAYS VISIBLE — never scrolls) ── */}
               <div
                 className="advisory-session-header"
                 style={{
-                  padding: "16px 24px",
+                  padding: "12px 24px",
                   borderBottom: `1px solid ${sessionData?.specialist ? "rgba(16,185,129,0.3)" : "var(--border)"}`,
                   backgroundColor: sessionData?.specialist ? "rgba(16,185,129,0.03)" : "var(--surface)",
                   flexShrink: 0,
-                  position: "sticky",
-                  top: 0,
                   zIndex: 20,
+                  overflow: "hidden",
                 }}
               >
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
@@ -1181,6 +1180,7 @@ export default function AdvisoryPage() {
                       borderBottom: "1px solid var(--border)",
                       display: "flex",
                       alignItems: "center",
+                      flexShrink: 0,
                       justifyContent: "center",
                       gap: "8px",
                     }}>
