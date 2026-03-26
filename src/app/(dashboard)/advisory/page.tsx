@@ -112,31 +112,20 @@ export default function AdvisoryPage() {
     return el.scrollTop + el.clientHeight >= el.scrollHeight - 100;
   }, []);
 
-  const scrollToBottom = useCallback((smooth = true) => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    if (!smooth) {
-      el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
-      return;
-    }
-    // Sexy scroll: fast ease-out with subtle bounce at the end
-    const target = el.scrollHeight - el.clientHeight;
+  const sexyScrollTo = useCallback((el: HTMLElement, target: number) => {
     const start = el.scrollTop;
     const distance = target - start;
-    if (distance <= 0) return;
-    const duration = Math.min(600, Math.max(300, distance * 0.5)); // adaptive speed
+    if (Math.abs(distance) <= 2) return;
+    const duration = Math.min(600, Math.max(300, Math.abs(distance) * 0.5));
     let startTime: number | null = null;
 
     const easeOutBounce = (t: number): number => {
-      // Fast deceleration with a tiny bounce
       if (t < 0.85) {
-        // Main ease-out (fast then slowing)
         const p = t / 0.85;
         return 1 - Math.pow(1 - p, 3);
       } else {
-        // Subtle bounce overshoot and settle
         const p = (t - 0.85) / 0.15;
-        const bounce = Math.sin(p * Math.PI) * 0.012; // very subtle 1.2% bounce
+        const bounce = Math.sin(p * Math.PI) * 0.012;
         return 1 + bounce;
       }
     };
@@ -145,14 +134,32 @@ export default function AdvisoryPage() {
       if (!startTime) startTime = time;
       const elapsed = time - startTime;
       const progress = Math.min(elapsed / duration, 1);
-      const eased = easeOutBounce(progress);
-      el.scrollTop = start + distance * eased;
-      if (progress < 1) {
-        requestAnimationFrame(animate);
-      }
+      el.scrollTop = start + distance * easeOutBounce(progress);
+      if (progress < 1) requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);
   }, []);
+
+  const scrollToBottom = useCallback((smooth = true) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const target = el.scrollHeight - el.clientHeight;
+    if (!smooth) { el.scrollTo({ top: target, behavior: "instant" }); return; }
+    sexyScrollTo(el, target);
+  }, [sexyScrollTo]);
+
+  // Scroll to the TOP of the latest message (not the bottom of the page)
+  const scrollToLatestMessage = useCallback(() => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    // Find the last event bubble element
+    const bubbles = el.querySelectorAll("[data-event-id]");
+    if (bubbles.length === 0) { scrollToBottom(true); return; }
+    const lastBubble = bubbles[bubbles.length - 1] as HTMLElement;
+    // Target: top of the last message, with a small offset so it's not flush against the edge
+    const target = lastBubble.offsetTop - 20;
+    sexyScrollTo(el, Math.max(0, target));
+  }, [sexyScrollTo, scrollToBottom]);
 
   // ── Data loading ──────────────────────────────────────────────────────────
 
@@ -212,10 +219,10 @@ export default function AdvisoryPage() {
   useEffect(() => {
     if (events.length === 0) return;
     // If we're waiting for an agent response (isGenerating) or near bottom, always auto-scroll
-    // This prevents the "New messages" toast from appearing when a response just came in
     if (isGenerating || isNearBottom()) {
-      // Scroll to bottom smoothly to show the new response
-      scrollToBottom();
+      // Scroll to the TOP of the latest message, not the bottom of the page
+      // Small delay to let the DOM render the new message first
+      setTimeout(() => scrollToLatestMessage(), 50);
       setShowNewMessages(false);
     } else {
       setShowNewMessages(true);
@@ -537,7 +544,7 @@ export default function AdvisoryPage() {
         setConnectingToAI(false);
       }
       // Auto-scroll to show the "thinking..." indicator so user knows something is happening
-      setTimeout(() => scrollToBottom(true), 150);
+      setTimeout(() => scrollToBottom(true), 150); // scroll to bottom for thinking indicator, then scrollToLatestMessage when response arrives
     } catch (e) {
       console.error("Next turn error:", e);
     } finally {
@@ -1142,7 +1149,7 @@ export default function AdvisoryPage() {
                           const showRound1 = eventRound === 1 && prevRound === 0 && totalRounds > 1 && isFirstAgentEvent;
                           const showDivider = (eventRound > prevRound && eventRound > 1) || showRound1;
                           return (
-                            <div key={event.id}>
+                            <div key={event.id} data-event-id={event.id}>
                               {showDivider && (
                                 <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0", opacity: 0.5 }}>
                                   <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
