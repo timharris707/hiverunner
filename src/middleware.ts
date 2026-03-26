@@ -48,6 +48,12 @@ const INTERNAL_API_PREFIXES = [
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") || "";
+
+  // Skip auth entirely on localhost (development)
+  if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
+    return NextResponse.next();
+  }
 
   // Always allow public pages
   if (PUBLIC_PAGES.has(pathname)) {
