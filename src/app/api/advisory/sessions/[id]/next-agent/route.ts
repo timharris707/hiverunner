@@ -200,8 +200,14 @@ function determineNextAgent(agents: string[], events: Array<{ speaker: string; t
     }
   }
 
-  // All agents have spoken — start a new round with the first agent
-  return { agentId: agents[0], isNewRound: true };
+  // All agents have spoken — start a new round
+  // But avoid the same agent speaking twice in a row
+  const lastSpeaker = agentEvents.length > 0 ? agentEvents[agentEvents.length - 1].speaker : null;
+  const firstAgent = agents[0];
+  if (firstAgent === lastSpeaker && agents.length > 1) {
+    return { agentId: agents[1], isNewRound: true };
+  }
+  return { agentId: firstAgent, isNewRound: true };
 }
 
 export async function POST(
