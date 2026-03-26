@@ -4,98 +4,90 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import {
   Lightbulb,
-  Search,
   Plus,
   X,
   ExternalLink,
-  ArrowRight,
-  Filter,
+  ChevronDown,
+  ChevronRight,
+  Star,
+  Archive,
+  Trash2,
+  Check,
+  XCircle,
+  Hammer,
 } from "lucide-react";
 
 /* ── types ─────────────────────────────────────────────────────── */
 
-interface Idea {
+interface Takeaway {
   id: string;
   title: string;
-  source: string;
-  source_url: string;
-  source_timestamp?: string;
-  source_context?: string;
-  discovered_at: string;
-  discovered_by: string;
-  status: string;
-  summary: string;
+  description: string;
+  video_timestamp: string;
+  video_url: string;
+  video_context: string;
   priority: string;
   effort: string;
-  tags: string[];
+  status: string;
   github_issue: string;
   assigned_to: string;
+  notes: string;
+}
+
+interface Review {
+  id: string;
+  type: string;
+  url: string;
+  title: string;
+  channel: string;
+  thumbnail: string;
+  duration: string;
+  reviewed_at: string;
+  submitted_by: string;
+  status: string;
+  summary: string;
+  assessment: string;
+  rating: number;
+  takeaways: Takeaway[];
 }
 
 /* ── constants ─────────────────────────────────────────────────── */
 
-const STATUS_ORDER = [
-  "idea",
-  "discovered",
-  "reviewed",
-  "approved",
-  "building",
-  "shipped",
-  "rejected",
-  "parked",
-];
-
-const STATUS_META: Record<string, { label: string; color: string; bg: string }> = {
-  idea: { label: "Discovered", color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
-  discovered: { label: "Discovered", color: "#60a5fa", bg: "rgba(96,165,250,0.12)" },
-  reviewed: { label: "Reviewed", color: "#a78bfa", bg: "rgba(167,139,250,0.12)" },
-  approved: { label: "Approved", color: "#34d399", bg: "rgba(52,211,153,0.12)" },
-  building: { label: "Building", color: "#fbbf24", bg: "rgba(251,191,36,0.12)" },
-  shipped: { label: "Shipped", color: "#10b981", bg: "rgba(16,185,129,0.12)" },
-  rejected: { label: "Rejected", color: "#f87171", bg: "rgba(248,113,113,0.12)" },
-  parked: { label: "Parked", color: "#9ca3af", bg: "rgba(156,163,175,0.12)" },
+const SOURCE_BADGES: Record<string, { icon: string; label: string }> = {
+  youtube: { icon: "🎬", label: "YouTube" },
+  reddit: { icon: "💬", label: "Reddit" },
+  hn: { icon: "🔶", label: "HN" },
+  article: { icon: "🔗", label: "Article" },
+  manual: { icon: "🔗", label: "Link" },
 };
 
-const PRIORITY_META: Record<string, { label: string; color: string; bg: string }> = {
-  high: { label: "High", color: "#f87171", bg: "rgba(248,113,113,0.15)" },
-  medium: { label: "Med", color: "#fbbf24", bg: "rgba(251,191,36,0.15)" },
-  low: { label: "Low", color: "#34d399", bg: "rgba(52,211,153,0.15)" },
+const TAKEAWAY_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  idea: { label: "Idea", color: "#60a5fa", bg: "rgba(96,165,250,0.15)" },
+  approved: { label: "Approved", color: "#34d399", bg: "rgba(52,211,153,0.15)" },
+  building: { label: "Building", color: "#fbbf24", bg: "rgba(251,191,36,0.15)" },
+  shipped: { label: "Shipped", color: "#10b981", bg: "rgba(16,185,129,0.15)" },
+  rejected: { label: "Rejected", color: "#f87171", bg: "rgba(248,113,113,0.15)" },
 };
 
-const SOURCE_ICONS: Record<string, string> = {
-  youtube: "🎬",
-  reddit: "💬",
-  hn: "🔶",
-  manual: "🔗",
-  scout: "🔭",
+const REVIEW_STATUS: Record<string, { label: string; color: string; bg: string }> = {
+  active: { label: "Active", color: "#60a5fa", bg: "rgba(96,165,250,0.15)" },
+  archived: { label: "Archived", color: "#9ca3af", bg: "rgba(156,163,175,0.15)" },
+  rejected: { label: "Rejected", color: "#f87171", bg: "rgba(248,113,113,0.15)" },
 };
+
+const PRIORITY_ICONS: Record<string, string> = {
+  high: "🔴",
+  medium: "🟡",
+  low: "🟢",
+};
+
+type FilterTab = "all" | "active" | "archived" | "rejected";
 
 /* ── helpers ────────────────────────────────────────────────────── */
 
-function Badge({
-  label,
-  color,
-  bg,
-}: {
-  label: string;
-  color: string;
-  bg: string;
-}) {
-  return (
-    <span
-      style={{
-        fontSize: "10px",
-        fontWeight: 600,
-        padding: "2px 7px",
-        borderRadius: "4px",
-        color,
-        backgroundColor: bg,
-        whiteSpace: "nowrap",
-      }}
-    >
-      {label}
-    </span>
-  );
+function getVideoId(url: string): string | null {
+  const m = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+  return m ? m[1] : null;
 }
 
 function GithubIssueLink({ issue }: { issue: string }) {
@@ -107,20 +99,35 @@ function GithubIssueLink({ issue }: { issue: string }) {
       href={`https://github.com/${m[1]}/issues/${m[2]}`}
       target="_blank"
       rel="noopener noreferrer"
-      style={{ color: "var(--text-muted)", fontSize: "11px", display: "inline-flex", alignItems: "center", gap: "3px" }}
+      className="inline-flex items-center gap-1 text-[11px] hover:underline"
+      style={{ color: "var(--text-muted)" }}
     >
       #{m[2]} <ExternalLink size={10} />
     </a>
   );
 }
 
-/* ── submit modal ──────────────────────────────────────────────── */
+function StarRating({ rating }: { rating: number }) {
+  return (
+    <div className="flex items-center gap-0.5">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star
+          key={i}
+          size={14}
+          fill={i <= rating ? "#fbbf24" : "transparent"}
+          color={i <= rating ? "#fbbf24" : "var(--text-muted)"}
+          strokeWidth={1.5}
+        />
+      ))}
+    </div>
+  );
+}
+
+/* ── submit URL modal ──────────────────────────────────────────── */
 
 function SubmitModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitted: () => void }) {
   const [url, setUrl] = useState("");
   const [title, setTitle] = useState("");
-  const [notes, setNotes] = useState("");
-  const [source, setSource] = useState("manual");
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async () => {
@@ -129,7 +136,7 @@ function SubmitModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitte
       await fetch("/api/ideas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, title, notes, source }),
+        body: JSON.stringify({ url, title }),
       });
       onSubmitted();
       onClose();
@@ -140,290 +147,545 @@ function SubmitModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitte
 
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "rgba(0,0,0,0.6)",
-        backdropFilter: "blur(4px)",
-      }}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
       onClick={onClose}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: "var(--surface)",
-          border: "1px solid var(--border)",
-          borderRadius: "12px",
-          padding: "24px",
-          width: "100%",
-          maxWidth: "480px",
-          display: "flex",
-          flexDirection: "column",
-          gap: "16px",
-        }}
+        className="flex flex-col gap-4 w-full max-w-[480px] rounded-xl p-6"
+        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <h3 style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-            Submit Idea
+        <div className="flex justify-between items-center">
+          <h3 className="text-base font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
+            Submit URL for Review
           </h3>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
+          <button onClick={onClose} className="border-none bg-transparent cursor-pointer" style={{ color: "var(--text-muted)" }}>
             <X size={18} />
           </button>
         </div>
 
         <input
-          className="input"
-          placeholder="URL (optional)"
+          placeholder="Paste URL (YouTube, Reddit, article…)"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "10px 12px", color: "var(--text-primary)", fontSize: "13px", width: "100%" }}
+          className="w-full rounded-lg px-3 py-2.5 text-[13px]"
+          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+          autoFocus
         />
         <input
-          className="input"
-          placeholder="Title"
+          placeholder="Title (optional — auto-detected for YouTube)"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "10px 12px", color: "var(--text-primary)", fontSize: "13px", width: "100%" }}
+          className="w-full rounded-lg px-3 py-2.5 text-[13px]"
+          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
         />
-        <textarea
-          placeholder="Notes (optional)"
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "10px 12px", color: "var(--text-primary)", fontSize: "13px", width: "100%", resize: "vertical" }}
-        />
-        <select
-          value={source}
-          onChange={(e) => setSource(e.target.value)}
-          style={{ backgroundColor: "var(--bg)", border: "1px solid var(--border)", borderRadius: "8px", padding: "10px 12px", color: "var(--text-primary)", fontSize: "13px", width: "100%" }}
-        >
-          <option value="manual">🔗 Manual</option>
-          <option value="youtube">🎬 YouTube</option>
-          <option value="reddit">💬 Reddit</option>
-          <option value="hn">🔶 Hacker News</option>
-          <option value="scout">🔭 Scout</option>
-        </select>
 
         <button
           onClick={handleSubmit}
-          disabled={submitting || (!url && !title)}
+          disabled={submitting || !url}
+          className="rounded-lg px-4 py-2.5 text-[13px] font-semibold border-none cursor-pointer"
           style={{
             backgroundColor: "var(--accent)",
             color: "#fff",
-            border: "none",
-            borderRadius: "8px",
-            padding: "10px 16px",
-            fontSize: "13px",
-            fontWeight: 600,
-            cursor: submitting || (!url && !title) ? "not-allowed" : "pointer",
-            opacity: submitting || (!url && !title) ? 0.5 : 1,
+            opacity: submitting || !url ? 0.5 : 1,
+            cursor: submitting || !url ? "not-allowed" : "pointer",
           }}
         >
-          {submitting ? "Submitting…" : "Submit Idea"}
+          {submitting ? "Submitting…" : "Submit for Review"}
         </button>
       </div>
     </div>
   );
 }
 
-/* ── detail drawer ─────────────────────────────────────────────── */
+/* ── confirm dialog ────────────────────────────────────────────── */
 
-function DetailDrawer({ idea, onClose }: { idea: Idea; onClose: () => void }) {
-  const sm = STATUS_META[idea.status] ?? STATUS_META.idea;
-  const pm = PRIORITY_META[idea.priority] ?? PRIORITY_META.medium;
-
+function ConfirmDialog({
+  message,
+  onConfirm,
+  onCancel,
+}: {
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
   return (
     <div
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 100,
-        display: "flex",
-        justifyContent: "flex-end",
-        backgroundColor: "rgba(0,0,0,0.5)",
-        backdropFilter: "blur(3px)",
-      }}
-      onClick={onClose}
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      style={{ backgroundColor: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+      onClick={onCancel}
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        style={{
-          width: "100%",
-          maxWidth: "520px",
-          backgroundColor: "var(--surface)",
-          borderLeft: "1px solid var(--border)",
-          padding: "28px 24px",
-          overflowY: "auto",
-          display: "flex",
-          flexDirection: "column",
-          gap: "18px",
-        }}
+        className="flex flex-col gap-4 w-full max-w-[360px] rounded-xl p-6"
+        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-            <span style={{ fontSize: "22px" }}>{SOURCE_ICONS[idea.source] ?? "🔗"}</span>
-            <h2 style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
-              {idea.title}
-            </h2>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", flexShrink: 0 }}>
-            <X size={20} />
+        <p className="text-sm" style={{ color: "var(--text-primary)" }}>{message}</p>
+        <div className="flex gap-3 justify-end">
+          <button
+            onClick={onCancel}
+            className="rounded-lg px-4 py-2 text-xs border-none cursor-pointer"
+            style={{ backgroundColor: "var(--surface-elevated)", color: "var(--text-secondary)" }}
+          >
+            Cancel
           </button>
-        </div>
-
-        <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-          <Badge label={sm.label} color={sm.color} bg={sm.bg} />
-          <Badge label={`Priority: ${pm.label}`} color={pm.color} bg={pm.bg} />
-          <Badge label={`Effort: ${idea.effort}`} color="var(--text-secondary)" bg="rgba(255,255,255,0.06)" />
-        </div>
-
-        <p style={{ fontSize: "13px", lineHeight: 1.7, color: "var(--text-secondary)" }}>
-          {idea.summary || "No summary available."}
-        </p>
-
-        {idea.assigned_to && (
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <AgentAvatar agentId={idea.assigned_to} size={28} />
-            <span style={{ fontSize: "12px", color: "var(--text-secondary)" }}>
-              Assigned to <strong style={{ color: "var(--text-primary)" }}>{idea.assigned_to}</strong>
-            </span>
-          </div>
-        )}
-
-        {idea.tags.length > 0 && (
-          <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-            {idea.tags.map((t) => (
-              <span
-                key={t}
-                style={{
-                  fontSize: "10px",
-                  padding: "2px 8px",
-                  borderRadius: "4px",
-                  backgroundColor: "rgba(255,255,255,0.05)",
-                  color: "var(--text-muted)",
-                }}
-              >
-                {t}
-              </span>
-            ))}
-          </div>
-        )}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px", fontSize: "12px", color: "var(--text-muted)" }}>
-          {idea.source_url && (
-            <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <a href={idea.source_url} target="_blank" rel="noopener noreferrer" style={{ color: "var(--info)", display: "inline-flex", alignItems: "center", gap: "4px" }}>
-                {idea.source === "youtube" ? "📹" : "🔗"} Source{idea.source_timestamp ? ` @ ${idea.source_timestamp}` : ""} <ExternalLink size={11} />
-              </a>
-              {idea.source_context && (
-                <span style={{ fontSize: "11px", color: "var(--text-muted)", fontStyle: "italic", paddingLeft: "2px" }}>
-                  {idea.source_context}
-                </span>
-              )}
-            </div>
-          )}
-          <GithubIssueLink issue={idea.github_issue} />
-          <span>Discovered {new Date(idea.discovered_at).toLocaleDateString()}</span>
+          <button
+            onClick={onConfirm}
+            className="rounded-lg px-4 py-2 text-xs font-semibold border-none cursor-pointer"
+            style={{ backgroundColor: "#ef4444", color: "#fff" }}
+          >
+            Delete
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ── idea card ─────────────────────────────────────────────────── */
+/* ── takeaway row ──────────────────────────────────────────────── */
 
-function IdeaCard({ idea, onClick }: { idea: Idea; onClick: () => void }) {
-  const sm = STATUS_META[idea.status] ?? STATUS_META.idea;
-  const pm = PRIORITY_META[idea.priority] ?? PRIORITY_META.medium;
+function TakeawayRow({
+  takeaway,
+  reviewId,
+  onUpdate,
+}: {
+  takeaway: Takeaway;
+  reviewId: string;
+  onUpdate: () => void;
+}) {
+  const [notes, setNotes] = useState(takeaway.notes);
+  const [saving, setSaving] = useState(false);
+  const sm = TAKEAWAY_STATUS[takeaway.status] ?? TAKEAWAY_STATUS.idea;
+
+  const updateTakeaway = async (updates: Partial<Takeaway>) => {
+    setSaving(true);
+    try {
+      await fetch(`/api/ideas/${reviewId}/takeaways/${takeaway.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      onUpdate();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveNotes = () => {
+    if (notes !== takeaway.notes) {
+      updateTakeaway({ notes });
+    }
+  };
 
   return (
-    <button
-      onClick={onClick}
+    <div
+      className="rounded-lg p-4 flex flex-col gap-3 transition-colors"
       style={{
-        textAlign: "left",
-        backgroundColor: "var(--surface)",
+        backgroundColor: "var(--bg)",
         border: "1px solid var(--border)",
-        borderRadius: "10px",
-        padding: "16px",
-        cursor: "pointer",
-        display: "flex",
-        flexDirection: "column",
-        gap: "10px",
-        transition: "border-color 150ms ease, background-color 150ms ease",
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.borderColor = sm.color;
-        e.currentTarget.style.backgroundColor = "var(--surface-elevated)";
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.borderColor = "var(--border)";
-        e.currentTarget.style.backgroundColor = "var(--surface)";
       }}
     >
-      {/* header row */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "8px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-          <span style={{ fontSize: "16px", flexShrink: 0 }}>{SOURCE_ICONS[idea.source] ?? "🔗"}</span>
-          <span style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {idea.title}
-          </span>
-        </div>
-        <ArrowRight size={14} color="var(--text-muted)" style={{ flexShrink: 0, marginTop: "2px" }} />
-      </div>
-
-      {/* badges */}
-      <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-        <Badge label={sm.label} color={sm.color} bg={sm.bg} />
-        <Badge label={pm.label} color={pm.color} bg={pm.bg} />
-        <Badge label={idea.effort} color="var(--text-secondary)" bg="rgba(255,255,255,0.06)" />
-      </div>
-
-      {/* summary */}
-      <p style={{ fontSize: "11px", lineHeight: 1.5, color: "var(--text-muted)", margin: 0, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-        {idea.summary}
-      </p>
-
-      {/* footer */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div style={{ display: "flex", gap: "4px", flexWrap: "wrap" }}>
-          {idea.tags.slice(0, 3).map((t) => (
-            <span key={t} style={{ fontSize: "9px", padding: "1px 6px", borderRadius: "3px", backgroundColor: "rgba(255,255,255,0.04)", color: "var(--text-muted)" }}>
-              {t}
+      {/* Top row: title + badges */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[13px] font-semibold" style={{ color: "var(--text-primary)" }}>
+              {takeaway.title}
             </span>
-          ))}
+            <span
+              className="text-[10px] font-semibold px-2 py-0.5 rounded"
+              style={{ color: sm.color, backgroundColor: sm.bg }}
+            >
+              {sm.label}
+            </span>
+            <span className="text-[11px]">{PRIORITY_ICONS[takeaway.priority] ?? "🟡"}</span>
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded"
+              style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "var(--text-muted)" }}
+            >
+              {takeaway.effort}
+            </span>
+          </div>
+          <p className="text-[12px] m-0 leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+            {takeaway.description}
+          </p>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <GithubIssueLink issue={idea.github_issue} />
-          {idea.assigned_to && <AgentAvatar agentId={idea.assigned_to} size={22} />}
-        </div>
+
+        {/* Agent avatar */}
+        {takeaway.assigned_to && (
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <AgentAvatar agentId={takeaway.assigned_to} size={24} />
+            <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+              {takeaway.assigned_to}
+            </span>
+          </div>
+        )}
       </div>
-    </button>
+
+      {/* Timestamp + context + GitHub */}
+      <div className="flex items-center gap-4 flex-wrap">
+        {takeaway.video_url && (
+          <a
+            href={takeaway.video_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 text-[12px] font-mono font-semibold px-2 py-1 rounded-md no-underline transition-colors hover:brightness-110"
+            style={{
+              color: "#f59e0b",
+              backgroundColor: "rgba(245,158,11,0.1)",
+              border: "1px solid rgba(245,158,11,0.2)",
+            }}
+          >
+            📹 @{takeaway.video_timestamp}
+          </a>
+        )}
+        {takeaway.video_context && (
+          <span className="text-[11px] italic" style={{ color: "var(--text-muted)" }}>
+            {takeaway.video_context}
+          </span>
+        )}
+        <GithubIssueLink issue={takeaway.github_issue} />
+      </div>
+
+      {/* Action buttons + notes */}
+      <div className="flex items-center gap-3 flex-wrap">
+        {/* Status transition buttons */}
+        {takeaway.status === "idea" && (
+          <>
+            <button
+              onClick={() => updateTakeaway({ status: "approved" })}
+              disabled={saving}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+              style={{ backgroundColor: "rgba(52,211,153,0.15)", color: "#34d399" }}
+            >
+              <Check size={12} /> Approve
+            </button>
+            <button
+              onClick={() => updateTakeaway({ status: "rejected" })}
+              disabled={saving}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+              style={{ backgroundColor: "rgba(248,113,113,0.15)", color: "#f87171" }}
+            >
+              <XCircle size={12} /> Reject
+            </button>
+          </>
+        )}
+        {takeaway.status === "approved" && (
+          <button
+            onClick={() => updateTakeaway({ status: "building" })}
+            disabled={saving}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+            style={{ backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }}
+          >
+            <Hammer size={12} /> Start Build
+          </button>
+        )}
+        {takeaway.status === "building" && (
+          <button
+            onClick={() => updateTakeaway({ status: "shipped" })}
+            disabled={saving}
+            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+            style={{ backgroundColor: "rgba(16,185,129,0.15)", color: "#10b981" }}
+          >
+            <Check size={12} /> Mark Shipped
+          </button>
+        )}
+
+        {/* Notes */}
+        <input
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          onBlur={saveNotes}
+          placeholder="Add notes…"
+          className="flex-1 min-w-[120px] text-[11px] rounded-md px-2.5 py-1.5"
+          style={{
+            backgroundColor: "var(--surface)",
+            border: "1px solid var(--border)",
+            color: "var(--text-secondary)",
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/* ── review card ───────────────────────────────────────────────── */
+
+function ReviewCard({
+  review,
+  onUpdate,
+  defaultExpanded,
+}: {
+  review: Review;
+  onUpdate: () => void;
+  defaultExpanded?: boolean;
+}) {
+  const [expanded, setExpanded] = useState(defaultExpanded ?? (review.status === "active"));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const rs = REVIEW_STATUS[review.status] ?? REVIEW_STATUS.active;
+  const source = SOURCE_BADGES[review.type] ?? SOURCE_BADGES.manual;
+  const videoId = getVideoId(review.url);
+  const thumbnailUrl = videoId
+    ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`
+    : review.thumbnail;
+
+  const implementedCount = review.takeaways.filter(
+    (t) => t.status === "shipped" || t.status === "building"
+  ).length;
+  const totalTakeaways = review.takeaways.length;
+  const progressPct = totalTakeaways > 0 ? (implementedCount / totalTakeaways) * 100 : 0;
+
+  const updateReview = async (updates: Partial<Review>) => {
+    await fetch(`/api/ideas/${review.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updates),
+    });
+    onUpdate();
+  };
+
+  const deleteReview = async () => {
+    await fetch(`/api/ideas/${review.id}`, { method: "DELETE" });
+    onUpdate();
+  };
+
+  const isArchived = review.status === "archived";
+
+  return (
+    <>
+      <div
+        className="rounded-xl overflow-hidden transition-all"
+        style={{
+          backgroundColor: "var(--surface)",
+          border: `1px solid ${isArchived ? "var(--border)" : "var(--border)"}`,
+          opacity: isArchived ? 0.6 : 1,
+        }}
+      >
+        {/* Card header */}
+        <div className="flex gap-4 p-4">
+          {/* Thumbnail */}
+          {thumbnailUrl && (
+            <a
+              href={review.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-shrink-0 rounded-lg overflow-hidden block"
+              style={{ width: 200, height: 112 }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={thumbnailUrl}
+                alt={review.title}
+                className="w-full h-full object-cover"
+                style={{ width: 200, height: 112 }}
+              />
+            </a>
+          )}
+
+          {/* Info section */}
+          <div className="flex-1 min-w-0 flex flex-col gap-2">
+            {/* Title row */}
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex-1 min-w-0">
+                <h3
+                  className="text-[16px] font-bold m-0 leading-snug"
+                  style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}
+                >
+                  {review.title}
+                </h3>
+                <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                  {/* Source badge */}
+                  <span
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
+                    style={{ backgroundColor: "rgba(255,255,255,0.06)", color: "var(--text-secondary)" }}
+                  >
+                    {source.icon} {source.label}
+                  </span>
+                  {/* Status badge */}
+                  <span
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-md"
+                    style={{ color: rs.color, backgroundColor: rs.bg }}
+                  >
+                    {rs.label}
+                  </span>
+                  {/* Date + submitter */}
+                  <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+                    Reviewed {new Date(review.reviewed_at).toLocaleDateString()} · Submitted by{" "}
+                    <span style={{ color: "var(--text-secondary)" }}>{review.submitted_by}</span>
+                  </span>
+                </div>
+              </div>
+
+              {/* Review actions */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {review.status === "active" && (
+                  <button
+                    onClick={() => updateReview({ status: "archived" })}
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer"
+                    style={{ backgroundColor: "rgba(156,163,175,0.12)", color: "var(--text-muted)" }}
+                    title="Archive review"
+                  >
+                    <Archive size={12} /> Archive
+                  </button>
+                )}
+                {review.status === "archived" && (
+                  <button
+                    onClick={() => updateReview({ status: "active" })}
+                    className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer"
+                    style={{ backgroundColor: "rgba(96,165,250,0.12)", color: "#60a5fa" }}
+                    title="Restore review"
+                  >
+                    Restore
+                  </button>
+                )}
+                <button
+                  onClick={() => setConfirmDelete(true)}
+                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer"
+                  style={{ backgroundColor: "rgba(248,113,113,0.1)", color: "#f87171" }}
+                  title="Delete review"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            </div>
+
+            {/* Rating + progress */}
+            <div className="flex items-center gap-4 flex-wrap">
+              <StarRating rating={review.rating} />
+              {totalTakeaways > 0 && (
+                <div className="flex items-center gap-2 flex-1 min-w-[120px] max-w-[240px]">
+                  <div
+                    className="flex-1 h-[6px] rounded-full overflow-hidden"
+                    style={{ backgroundColor: "rgba(255,255,255,0.06)" }}
+                  >
+                    <div
+                      className="h-full rounded-full transition-all"
+                      style={{
+                        width: `${progressPct}%`,
+                        backgroundColor: "#10b981",
+                      }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-mono flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                    {implementedCount}/{totalTakeaways}
+                  </span>
+                </div>
+              )}
+              {review.duration && (
+                <span className="text-[10px]" style={{ color: "var(--text-muted)" }}>
+                  {review.duration}
+                </span>
+              )}
+            </div>
+
+            {/* Expand toggle */}
+            <button
+              onClick={() => setExpanded(!expanded)}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold border-none bg-transparent cursor-pointer mt-auto self-start px-0"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+              {expanded ? "Collapse" : `Show ${totalTakeaways} takeaway${totalTakeaways !== 1 ? "s" : ""}`}
+            </button>
+          </div>
+        </div>
+
+        {/* Expanded content */}
+        {expanded && (
+          <div
+            className="px-4 pb-4 flex flex-col gap-4"
+            style={{ borderTop: "1px solid var(--border)" }}
+          >
+            {/* Summary blockquote */}
+            {review.summary && (
+              <div className="mt-4">
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                  Henry&apos;s Summary
+                </h4>
+                <blockquote
+                  className="m-0 text-[12px] leading-relaxed rounded-lg p-4"
+                  style={{
+                    color: "var(--text-secondary)",
+                    backgroundColor: "rgba(96,165,250,0.06)",
+                    borderLeft: "3px solid #60a5fa",
+                  }}
+                >
+                  {review.summary}
+                </blockquote>
+              </div>
+            )}
+
+            {/* Assessment */}
+            {review.assessment && (
+              <div>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-2" style={{ color: "var(--text-muted)" }}>
+                  Henry&apos;s Assessment
+                </h4>
+                <div
+                  className="text-[12px] leading-relaxed rounded-lg p-4"
+                  style={{
+                    color: "var(--text-secondary)",
+                    backgroundColor: "rgba(251,191,36,0.06)",
+                    borderLeft: "3px solid #fbbf24",
+                  }}
+                >
+                  {review.assessment}
+                </div>
+              </div>
+            )}
+
+            {/* Takeaways list */}
+            {review.takeaways.length > 0 && (
+              <div>
+                <h4 className="text-[11px] font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--text-muted)" }}>
+                  Takeaways ({review.takeaways.length})
+                </h4>
+                <div className="flex flex-col gap-3">
+                  {review.takeaways.map((tw) => (
+                    <TakeawayRow
+                      key={tw.id}
+                      takeaway={tw}
+                      reviewId={review.id}
+                      onUpdate={onUpdate}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <ConfirmDialog
+          message={`Delete "${review.title}"? This cannot be undone.`}
+          onConfirm={() => {
+            deleteReview();
+            setConfirmDelete(false);
+          }}
+          onCancel={() => setConfirmDelete(false)}
+        />
+      )}
+    </>
   );
 }
 
 /* ── main page ─────────────────────────────────────────────────── */
 
 export default function IdeasPage() {
-  const [ideas, setIdeas] = useState<Idea[]>([]);
+  const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [filterStatus, setFilterStatus] = useState<string>("all");
-  const [filterPriority, setFilterPriority] = useState<string>("all");
-  const [filterSource, setFilterSource] = useState<string>("all");
-  const [filterAgent, setFilterAgent] = useState<string>("all");
+  const [tab, setTab] = useState<FilterTab>("all");
   const [showModal, setShowModal] = useState(false);
-  const [selected, setSelected] = useState<Idea | null>(null);
-  const [showFilters, setShowFilters] = useState(false);
 
-  const fetchIdeas = useCallback(async () => {
+  const fetchReviews = useCallback(async () => {
     try {
       const res = await fetch("/api/ideas");
       const data = await res.json();
-      setIdeas(data.ideas ?? []);
+      setReviews(data.reviews ?? []);
     } catch {
       /* silent */
     } finally {
@@ -431,221 +693,162 @@ export default function IdeasPage() {
     }
   }, []);
 
-  useEffect(() => { fetchIdeas(); }, [fetchIdeas]);
+  useEffect(() => {
+    fetchReviews();
+  }, [fetchReviews]);
 
-  /* derived */
-  const sources = useMemo(() => [...new Set(ideas.map((i) => i.source))], [ideas]);
-  const agents = useMemo(() => [...new Set(ideas.map((i) => i.assigned_to).filter(Boolean))], [ideas]);
-
+  /* filtered by tab */
   const filtered = useMemo(() => {
-    return ideas.filter((i) => {
-      if (filterStatus !== "all" && i.status !== filterStatus) return false;
-      if (filterPriority !== "all" && i.priority !== filterPriority) return false;
-      if (filterSource !== "all" && i.source !== filterSource) return false;
-      if (filterAgent !== "all" && i.assigned_to !== filterAgent) return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          i.title.toLowerCase().includes(q) ||
-          i.summary.toLowerCase().includes(q) ||
-          i.tags.some((t) => t.toLowerCase().includes(q))
-        );
-      }
-      return true;
-    });
-  }, [ideas, search, filterStatus, filterPriority, filterSource, filterAgent]);
+    if (tab === "all") return reviews;
+    return reviews.filter((r) => r.status === tab);
+  }, [reviews, tab]);
 
   /* stats */
   const stats = useMemo(() => {
-    const byStatus: Record<string, number> = {};
-    const byPriority: Record<string, number> = {};
-    ideas.forEach((i) => {
-      byStatus[i.status] = (byStatus[i.status] || 0) + 1;
-      byPriority[i.priority] = (byPriority[i.priority] || 0) + 1;
-    });
-    return { total: ideas.length, byStatus, byPriority };
-  }, [ideas]);
+    const totalTakeaways = reviews.reduce((sum, r) => sum + r.takeaways.length, 0);
+    const implemented = reviews.reduce(
+      (sum, r) => sum + r.takeaways.filter((t) => t.status === "shipped").length,
+      0
+    );
+    const pending = reviews.reduce(
+      (sum, r) =>
+        sum +
+        r.takeaways.filter((t) => t.status === "idea" || t.status === "approved").length,
+      0
+    );
+    return {
+      totalReviews: reviews.length,
+      totalTakeaways,
+      implemented,
+      pending,
+    };
+  }, [reviews]);
+
+  const tabs: { key: FilterTab; label: string }[] = [
+    { key: "all", label: "All" },
+    { key: "active", label: "Active" },
+    { key: "archived", label: "Archived" },
+    { key: "rejected", label: "Rejected" },
+  ];
 
   return (
-    <div style={{ maxWidth: "1200px", margin: "0 auto" }}>
-      {/* hero */}
-      <div style={{ marginBottom: "28px" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+    <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
+      {/* Hero */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
           <div
-            style={{
-              width: "42px",
-              height: "42px",
-              borderRadius: "10px",
-              backgroundColor: "rgba(251,191,36,0.12)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+            className="w-[42px] h-[42px] rounded-[10px] flex items-center justify-center"
+            style={{ backgroundColor: "rgba(251,191,36,0.12)" }}
           >
             <Lightbulb size={22} color="#fbbf24" />
           </div>
           <div>
-            <h1 style={{ fontSize: "22px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-heading)", margin: 0 }}>
+            <h1
+              className="text-[22px] font-bold m-0"
+              style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}
+            >
               Idea Pipeline
             </h1>
-            <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: 0 }}>
-              Capture, analyze, and ship ideas from any source
+            <p className="text-[12px] m-0" style={{ color: "var(--text-muted)" }}>
+              Reviews &amp; Takeaways from videos, articles, and research
             </p>
           </div>
         </div>
 
-        {/* stat chips */}
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <StatChip label="Total" value={stats.total} color="#60a5fa" />
-          {STATUS_ORDER.filter((s) => stats.byStatus[s]).map((s) => {
-            const m = STATUS_META[s];
-            return <StatChip key={s} label={m.label} value={stats.byStatus[s]} color={m.color} />;
-          })}
+        {/* Stats bar */}
+        <div className="flex gap-3 flex-wrap">
+          <StatChip label="Reviews" value={stats.totalReviews} color="#60a5fa" />
+          <StatChip label="Takeaways" value={stats.totalTakeaways} color="#a78bfa" />
+          <StatChip label="Shipped" value={stats.implemented} color="#10b981" />
+          <StatChip label="Pending" value={stats.pending} color="#fbbf24" />
         </div>
       </div>
 
-      {/* toolbar */}
-      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", flexWrap: "wrap", alignItems: "center" }}>
-        <div style={{ position: "relative", flex: "1 1 220px", maxWidth: "320px" }}>
-          <Search size={14} color="var(--text-muted)" style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)" }} />
-          <input
-            placeholder="Search ideas…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{
-              width: "100%",
-              backgroundColor: "var(--bg)",
-              border: "1px solid var(--border)",
-              borderRadius: "8px",
-              padding: "8px 12px 8px 30px",
-              color: "var(--text-primary)",
-              fontSize: "12px",
-            }}
-          />
+      {/* Toolbar: tabs + submit button */}
+      <div className="flex items-center justify-between gap-4 mb-5 flex-wrap">
+        <div className="flex gap-1 rounded-lg p-1" style={{ backgroundColor: "var(--bg)" }}>
+          {tabs.map((t) => (
+            <button
+              key={t.key}
+              onClick={() => setTab(t.key)}
+              className="text-[12px] font-semibold px-3 py-1.5 rounded-md border-none cursor-pointer transition-colors"
+              style={{
+                backgroundColor: tab === t.key ? "var(--surface-elevated)" : "transparent",
+                color: tab === t.key ? "var(--text-primary)" : "var(--text-muted)",
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
-
-        <button
-          onClick={() => setShowFilters((p) => !p)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            backgroundColor: showFilters ? "var(--accent-soft)" : "var(--surface)",
-            border: "1px solid var(--border)",
-            borderRadius: "8px",
-            padding: "8px 12px",
-            color: showFilters ? "var(--accent)" : "var(--text-secondary)",
-            fontSize: "12px",
-            cursor: "pointer",
-          }}
-        >
-          <Filter size={13} /> Filters
-        </button>
 
         <button
           onClick={() => setShowModal(true)}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "5px",
-            backgroundColor: "var(--accent)",
-            border: "none",
-            borderRadius: "8px",
-            padding: "8px 14px",
-            color: "#fff",
-            fontSize: "12px",
-            fontWeight: 600,
-            cursor: "pointer",
-            marginLeft: "auto",
-          }}
+          className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 rounded-lg border-none cursor-pointer"
+          style={{ backgroundColor: "var(--accent)", color: "#fff" }}
         >
-          <Plus size={14} /> Submit Idea
+          <Plus size={14} /> Submit URL
         </button>
       </div>
 
-      {/* filter row */}
-      {showFilters && (
-        <div style={{ display: "flex", gap: "10px", marginBottom: "16px", flexWrap: "wrap" }}>
-          <FilterSelect label="Status" value={filterStatus} onChange={setFilterStatus} options={[{ value: "all", label: "All Statuses" }, ...STATUS_ORDER.map((s) => ({ value: s, label: STATUS_META[s].label }))]} />
-          <FilterSelect label="Priority" value={filterPriority} onChange={setFilterPriority} options={[{ value: "all", label: "All Priorities" }, { value: "high", label: "High" }, { value: "medium", label: "Medium" }, { value: "low", label: "Low" }]} />
-          <FilterSelect label="Source" value={filterSource} onChange={setFilterSource} options={[{ value: "all", label: "All Sources" }, ...sources.map((s) => ({ value: s, label: `${SOURCE_ICONS[s] ?? "🔗"} ${s}` }))]} />
-          <FilterSelect label="Agent" value={filterAgent} onChange={setFilterAgent} options={[{ value: "all", label: "All Agents" }, ...agents.map((a) => ({ value: a, label: a }))]} />
-        </div>
-      )}
-
-      {/* card grid */}
+      {/* Reviews list */}
       {loading ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)", fontSize: "13px" }}>Loading ideas…</div>
+        <div className="text-center py-16 text-[13px]" style={{ color: "var(--text-muted)" }}>
+          Loading reviews…
+        </div>
       ) : filtered.length === 0 ? (
-        <div style={{ textAlign: "center", padding: "60px 0", color: "var(--text-muted)", fontSize: "13px" }}>
-          No ideas found.{" "}
-          <button onClick={() => setShowModal(true)} style={{ background: "none", border: "none", color: "var(--accent)", cursor: "pointer", textDecoration: "underline", fontSize: "13px" }}>
-            Submit one?
+        <div className="text-center py-16 text-[13px]" style={{ color: "var(--text-muted)" }}>
+          No reviews found.{" "}
+          <button
+            onClick={() => setShowModal(true)}
+            className="bg-transparent border-none underline cursor-pointer text-[13px]"
+            style={{ color: "var(--accent)" }}
+          >
+            Submit a URL?
           </button>
         </div>
       ) : (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))",
-            gap: "14px",
-          }}
-        >
-          {filtered.map((idea) => (
-            <IdeaCard key={idea.id} idea={idea} onClick={() => setSelected(idea)} />
+        <div className="flex flex-col gap-4">
+          {filtered.map((review) => (
+            <ReviewCard
+              key={review.id}
+              review={review}
+              onUpdate={fetchReviews}
+              defaultExpanded={review.status === "active"}
+            />
           ))}
         </div>
       )}
 
-      {/* modals */}
-      {showModal && <SubmitModal onClose={() => setShowModal(false)} onSubmitted={fetchIdeas} />}
-      {selected && <DetailDrawer idea={selected} onClose={() => setSelected(null)} />}
+      {/* Modals */}
+      {showModal && (
+        <SubmitModal onClose={() => setShowModal(false)} onSubmitted={fetchReviews} />
+      )}
     </div>
   );
 }
 
-/* ── small components ──────────────────────────────────────────── */
+/* ── stat chip ─────────────────────────────────────────────────── */
 
 function StatChip({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: "6px",
-        padding: "6px 12px",
-        borderRadius: "8px",
-        backgroundColor: "var(--surface)",
-        border: "1px solid var(--border)",
-      }}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg"
+      style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}
     >
-      <span style={{ width: "7px", height: "7px", borderRadius: "50%", backgroundColor: color, flexShrink: 0 }} />
-      <span style={{ fontSize: "11px", color: "var(--text-muted)" }}>{label}</span>
-      <span style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}>{value}</span>
+      <span
+        className="w-[7px] h-[7px] rounded-full flex-shrink-0"
+        style={{ backgroundColor: color }}
+      />
+      <span className="text-[11px]" style={{ color: "var(--text-muted)" }}>
+        {label}
+      </span>
+      <span
+        className="text-[14px] font-bold"
+        style={{ color: "var(--text-primary)", fontFamily: "var(--font-mono)" }}
+      >
+        {value}
+      </span>
     </div>
-  );
-}
-
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
-  return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      style={{
-        backgroundColor: "var(--bg)",
-        border: "1px solid var(--border)",
-        borderRadius: "6px",
-        padding: "6px 10px",
-        color: "var(--text-secondary)",
-        fontSize: "11px",
-      }}
-    >
-      {options.map((o) => (
-        <option key={o.value} value={o.value}>
-          {o.label}
-        </option>
-      ))}
-    </select>
   );
 }

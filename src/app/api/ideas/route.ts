@@ -2,68 +2,78 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 
-const IDEAS_PATH = path.join(
+const REVIEWS_PATH = path.join(
   process.env.HOME || "/Users/timharris",
-  ".openclaw/workspace/projects/idea-intake/ideas.json"
+  ".openclaw/workspace/projects/idea-intake/reviews.json"
 );
 
-async function readIdeas() {
+export async function readReviews() {
   try {
-    const raw = await fs.readFile(IDEAS_PATH, "utf-8");
+    const raw = await fs.readFile(REVIEWS_PATH, "utf-8");
     return JSON.parse(raw);
   } catch {
-    return { ideas: [], meta: { last_updated: new Date().toISOString(), total_ideas: 0, next_id: 1 } };
+    return { reviews: [], meta: { last_updated: new Date().toISOString(), total_reviews: 0, next_review_id: 1, next_takeaway_id: 1 } };
   }
 }
 
-async function writeIdeas(data: Record<string, unknown>) {
-  await fs.writeFile(IDEAS_PATH, JSON.stringify(data, null, 2), "utf-8");
+export async function writeReviews(data: Record<string, unknown>) {
+  await fs.writeFile(REVIEWS_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 
 export async function GET() {
-  const data = await readIdeas();
+  const data = await readReviews();
   return NextResponse.json(data);
 }
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { url, title, notes, source } = body as {
+  const { url, title, source } = body as {
     url?: string;
     title?: string;
-    notes?: string;
     source?: string;
   };
 
-  if (!title && !url) {
-    return NextResponse.json({ error: "title or url is required" }, { status: 400 });
+  if (!url && !title) {
+    return NextResponse.json({ error: "url or title is required" }, { status: 400 });
   }
 
-  const data = await readIdeas();
-  const nextId = data.meta?.next_id ?? data.ideas.length + 1;
+  const data = await readReviews();
+  const nextId = data.meta?.next_review_id ?? data.reviews.length + 1;
 
-  const newIdea = {
-    id: `idea-${String(nextId).padStart(3, "0")}`,
-    title: title || url || "Untitled Idea",
-    source: source || "manual",
-    source_url: url || "",
-    discovered_at: new Date().toISOString(),
-    discovered_by: "tim",
-    status: "idea",
-    summary: notes || "",
-    priority: "medium",
-    effort: "medium",
-    tags: [],
-    github_issue: "",
-    assigned_to: "",
+  const newReview = {
+    id: `review-${String(nextId).padStart(3, "0")}`,
+    type: source || "manual",
+    url: url || "",
+    title: title || url || "Untitled Review",
+    channel: "",
+    thumbnail: "",
+    duration: "",
+    reviewed_at: new Date().toISOString(),
+    submitted_by: "tim",
+    status: "active",
+    summary: "",
+    assessment: "",
+    rating: 0,
+    takeaways: [],
   };
 
-  data.ideas.push(newIdea);
+  // Auto-detect YouTube and set thumbnail
+  if (url) {
+    const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch) {
+      newReview.type = "youtube";
+      newReview.thumbnail = `https://img.youtube.com/vi/${ytMatch[1]}/mqdefault.jpg`;
+    }
+  }
+
+  data.reviews.push(newReview);
   data.meta = {
+    ...data.meta,
     last_updated: new Date().toISOString(),
-    total_ideas: data.ideas.length,
-    next_id: nextId + 1,
+    total_reviews: data.reviews.length,
+    next_review_id: nextId + 1,
   };
 
-  await writeIdeas(data);
-  return NextResponse.json(newIdea, { status: 201 });
+  await writeReviews(data);
+  return NextResponse.json(newReview, { status: 201 });
 }
