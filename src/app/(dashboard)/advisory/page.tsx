@@ -204,9 +204,18 @@ export default function AdvisoryPage() {
         if (!preserveEvents || (data.session.events?.length ?? 0) > 0) {
           setEvents(data.session.events || []);
         }
+        // Restore thinking/generating state if an agent is mid-response
+        if (data.session.thinkingAgent) {
+          setThinkingAgent(data.session.thinkingAgent);
+          setIsGenerating(true);
+          setConnectingToAI(false);
+        } else if (data.session.status === "active" && !data.session.paused) {
+          // Session is active and not paused but no thinking agent — might be processing
+          setIsGenerating(true);
+          setConnectingToAI(true);
+        }
         if (data.session.reviewLoop) {
           setReviewLoop(data.session.reviewLoop);
-          // If any task has been worked on, the loop has been started
           const hasStarted = data.session.reviewLoop.tasks.some(
             (t: { status: string }) => t.status !== "pending"
           );
@@ -1277,7 +1286,7 @@ export default function AdvisoryPage() {
                         }}
                       >
                         {autoPlay ? <Pause size={11} /> : <Play size={11} />}
-                        {autoPlay ? "Auto-play ON" : "▶ Auto-play"}
+                        {autoPlay ? "Auto-play ON" : "Auto-play"}
                       </button>
                       {!autoPlay && (
                         <button onClick={handleNextTurn} disabled={advancingTurn || isGenerating}
