@@ -391,9 +391,17 @@ export default function AdvisoryPage() {
       });
       setIsPaused(newPaused);
       setActiveSession((s) => s ? { ...s, paused: newPaused } : s);
-      // When resuming, auto-trigger the next round of agent responses
+      // When resuming, trigger agent responses
       if (!newPaused) {
-        await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
+        if (sessionData?.pacing === "manual") {
+          // Manual pacing: fire one agent at a time
+          const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
+          const data = await res.json();
+          if (data.nextAgent) setThinkingAgent(data.nextAgent);
+        } else {
+          // Auto pacing: fire all agents in a full round
+          await fetch(`/api/advisory/sessions/${activeSession.id}/full-round`, { method: "POST" });
+        }
         setIsGenerating(true);
       }
     } catch (e) {
@@ -407,13 +415,14 @@ export default function AdvisoryPage() {
     if (!activeSession) return;
     setAdvancingTurn(true);
     try {
-      await fetch(`/api/advisory/sessions/${activeSession.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ paused: false }),
-      });
+      // For manual pacing: fire one agent at a time via next-agent endpoint
+      const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
+      const data = await res.json();
       setIsPaused(false);
-      setActiveSession((s) => s ? { ...s, paused: false } : s);
+      setIsGenerating(true);
+      if (data.nextAgent) {
+        setThinkingAgent(data.nextAgent);
+      }
     } catch (e) {
       console.error("Next turn error:", e);
     } finally {
@@ -1018,12 +1027,12 @@ export default function AdvisoryPage() {
                   {activeSession.status === "active" && isPaused && (
                     <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(251,146,60,0.2)", backgroundColor: "rgba(251,146,60,0.04)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                       <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
-                        {sessionData?.pacing === "manual" ? "Manual mode · Advance when ready" : "Session paused · Resume or advance"}
+                        {sessionData?.pacing === "manual" ? "Manual mode \u00b7 Read the response, then click Next Agent" : "Session paused \u00b7 Resume or advance"}
                       </span>
-                      <button onClick={handleNextTurn} disabled={advancingTurn}
-                        style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: advancingTurn ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: advancingTurn ? 0.7 : 1, fontFamily: "var(--font-heading)" }}>
+                      <button onClick={handleNextTurn} disabled={advancingTurn || isGenerating}
+                        style={{ padding: "8px 16px", borderRadius: "7px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: (advancingTurn || isGenerating) ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: (advancingTurn || isGenerating) ? 0.7 : 1, fontFamily: "var(--font-heading)" }}>
                         {advancingTurn ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={13} />}
-                        Next Turn →
+                        {sessionData?.pacing === "manual" ? "Next Agent \u2192" : "Next Turn \u2192"}
                       </button>
                     </div>
                   )}
