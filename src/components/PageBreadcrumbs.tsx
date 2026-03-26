@@ -36,7 +36,8 @@ export function PageBreadcrumbs() {
   const pathname = usePathname();
 
   // Advisory page uses full-bleed layout with negative margins — breadcrumbs overlap
-  if (pathname === "/" || pathname === "/advisory") return null;
+  // Use startsWith to cover any advisory sub-routes
+  if (pathname === "/" || pathname.startsWith("/advisory")) return null;
 
   const segments = pathname.split("/").filter(Boolean);
 
