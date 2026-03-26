@@ -186,7 +186,7 @@
       "idea-tw-002"
     ],
     "created": "2026-03-26T20:58:49.780Z",
-    "updated": "2026-03-26T21:44:02.025Z",
+    "updated": "2026-03-26T15:15:00.000Z",
     "source_review": "review-001",
     "source_takeaway": "tw-002",
     "github_issue": "harris-autonomous/mission-control#2",
@@ -779,7 +779,7 @@
     "id": "TASK-063",
     "title": "Ideas\u2192Tasks pipeline wiring + project selector",
     "description": "Connect idea takeaways to task board with project selection dropdown",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P0",
     "assignee": "Henry \u26a1",
     "project": "mission-control",
@@ -789,7 +789,7 @@
       "wiring"
     ],
     "created": "2026-03-26T07:44:00.000Z",
-    "updated": "2026-03-26T07:44:00.000Z",
+    "updated": "2026-03-26T15:15:00.000Z",
     "created_by": "henry"
   },
   {
