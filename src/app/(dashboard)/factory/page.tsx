@@ -804,7 +804,7 @@ export default function SoftwareFactoryPage() {
       {/* ── Kanban Columns ─────────────────────────────────────────────────── */}
       <div className="px-6 pb-8">
         <div
-          className="grid gap-x-8 gap-y-0"
+          className="grid gap-x-4 gap-y-0"
           style={{
             gridTemplateColumns: "repeat(4, 1fr)",
             minWidth: 0,
