@@ -149,5 +149,77 @@
       "Run real-time competitive intelligence sweeps during the sprint to monitor whether any competitor announces or ships an overlapping product.",
       "Source stranger beta testers through channels outside Tim's personal and professional orbit to generate unbiased validation data."
     ]
+  },
+  {
+    "id": "mem_1774562393416_44udy",
+    "agent": "Quill",
+    "topic": "Should we build an AI dating coach app? Roast the idea or pitch me on it.",
+    "sessionId": "session-1774561742953-b3d03c0a",
+    "date": "2026-03-26T21:49:02.955Z",
+    "decisions": [
+      "Reframed the roast widget from a product test into a standalone viral content engine for building audience.",
+      "Positioned the dating coach app as a loneliness-economy play targeting users who struggle with dating app conversations."
+    ],
+    "insights": [
+      "The roast widget has standalone value as a content weapon regardless of whether the full dating coach app is ever built — audience is the unpriced asset.",
+      "The loneliness economy is massive ($5.6B global dating app revenue) and the core customer is someone who needs help but won't seek traditional coaching."
+    ],
+    "actionItems": [
+      "Deliver 10 sample roast outputs to Quant by tomorrow for quantitative calibration."
+    ]
+  },
+  {
+    "id": "mem_1774562393416_i2z34",
+    "agent": "Quant",
+    "topic": "Should we build an AI dating coach app? Roast the idea or pitch me on it.",
+    "sessionId": "session-1774561742953-b3d03c0a",
+    "date": "2026-03-26T21:49:02.955Z",
+    "decisions": [
+      "Flagged that the full dating coach app has ugly unit economics: 5-10% free-to-paid conversion, $15-20 ARPU, with AI inference costs of $0.30-0.80 per active user eroding margins.",
+      "Challenged the pivot to the roast widget by raising the attention fragmentation tax — the org has zero products generating autonomous revenue and distractions carry real cost."
+    ],
+    "insights": [
+      "Cheap is not the same as free; the true cost of the roast widget is attention and momentum diverted from revenue-generating projects like the crypto bot.",
+      "Every 1,000 acquired users yield only 50-100 payers at roughly $1,000-$2,000/month, making customer acquisition cost discipline critical."
+    ],
+    "actionItems": [
+      "Run quantitative calibration on the 10 sample roasts Quill provides to validate engagement assumptions."
+    ]
+  },
+  {
+    "id": "mem_1774562393416_ttqlk",
+    "agent": "Counsel",
+    "topic": "Should we build an AI dating coach app? Roast the idea or pitch me on it.",
+    "sessionId": "session-1774561742953-b3d03c0a",
+    "date": "2026-03-26T21:49:02.955Z",
+    "decisions": [
+      "Ruled the roast widget legally defensible as entertainment content with a 'for entertainment purposes only' disclaimer and standard ToS with limitation of liability.",
+      "Warned that a full dating coach app sits in regulatory terra incognita with enormous liability: manipulation claims, emotional harm, discrimination, and minor safety risks."
+    ],
+    "insights": [
+      "The risk profile drops from 'regulatory terra incognita' to routine content-generation legal territory when scoped as a stateless entertainment widget with no ongoing user relationship.",
+      "The worst-case headline for a dating coach app — 'AI Coached User Into Harassing Woman' — is a fundamentally different and more dangerous liability class than financial loss disclosures."
+    ],
+    "actionItems": [
+      "Draft the entertainment disclaimer and ToS for the roast widget."
+    ]
+  },
+  {
+    "id": "mem_1774562393416_b895b",
+    "agent": "Pixel",
+    "topic": "Should we build an AI dating coach app? Roast the idea or pitch me on it.",
+    "sessionId": "session-1774561742953-b3d03c0a",
+    "date": "2026-03-26T21:49:02.955Z",
+    "decisions": [
+      "Proposed the 2-day roast widget as the concrete, minimal-cost first build — stateless architecture, no image storage, ephemeral processing, no database needed.",
+      "Locked in the technical approach: Next.js API route, Claude vision call, return the roast — and declared the widget discussion closed to move forward."
+    ],
+    "insights": [
+      "Counsel's privacy-safe design (no image storage, ephemeral processing) isn't a compromise — it's actually cheaper and simpler to build than the alternative.",
+      "Even a Telegram bot MVP for a full dating coach (profile review, message coaching, photo analysis) requires image processing pipelines, conversation state management, and content moderation — it's not a weekend hack."
+    ],
+    "actionItems": [
+      "Build the roast widget once Quill delivers the 10 sample roasts and Quant completes calibration."
+    ]
   }
 ]

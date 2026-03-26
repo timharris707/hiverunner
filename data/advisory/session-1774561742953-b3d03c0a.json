@@ -128,76 +128,7 @@
   "aborted": true,
   "completedAt": "2026-03-26T21:58:34.682Z",
   "outcome": "ended-by-user",
-  "insights": {
-    "actionItems": [
-      {
-        "description": "Write 10 sample roast templates for Quant's quality gate review",
-        "assignedAgent": "Quill",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Write full 50 roast templates (10 brutal, 10 wholesome, 10 women's, 10 men's, 10 absurdist) once quality gate passes",
-        "assignedAgent": "Quill",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Legal review of 10 sample roasts for defamation and protected characteristic issues",
-        "assignedAgent": "Counsel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Draft ToS and privacy policy for roast widget with 'for entertainment purposes' disclaimer",
-        "assignedAgent": "Counsel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Ship stateless roast widget (Next.js on Vercel, Claude Vision API, no image storage, ephemeral processing) by Friday",
-        "assignedAgent": "Pixel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Validate weather trading strategy parameters (edge thresholds, Kelly sizing) for real market conditions before Monday — determine if autoresearch pass is needed first",
-        "assignedAgent": "Quant",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Wire weather system CronRunner into OpenClaw cron scheduler for automated paper trading",
-        "assignedAgent": "Pixel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Build lightweight Telegram alert pipeline: trade notifications, daily P&L summaries, anomaly detection on position sizes (half-day build)",
-        "assignedAgent": "Pixel",
-        "priority": "medium",
-        "status": "pending"
-      }
-    ],
-    "keyDecisions": [
-      "AI dating coach app is killed — liability exposure (uncharted case law, COPPA, discrimination), negative moat vs incumbents with outcome data, asymmetric churn destroying LTV, and opportunity cost vs trading systems make it a clear no",
-      "Roast widget greenlit as a bounded 2-day experiment — stateless architecture, no image storage, ephemeral processing, one function only (profile roasts), ships Friday with hard kill criteria (8%+ signup conversion, 500 verified emails, 50 credit cards in 2 weeks)",
-      "Weather trading system prioritized as first-to-revenue path — CronRunner already built (Phase 8 complete, 611 tests), near-zero legal friction (own capital on Polymarket/Kalshi, no registration), days not weeks from live paper trading",
-      "Trading system sequencing locked: Weather → Crypto → Stocks, ordered by both technical readiness and legal friction (Counsel's regulatory analysis becomes a permanent prioritization column)",
-      "B2B API licensing to dating platforms identified as the only viable version of dating AI that fits org DNA, but tabled as speculative with no current sales muscle to pursue"
-    ],
-    "openQuestions": [
-      "Are current weather edge thresholds and Kelly sizing parameters validated for real market conditions, or does Quant need to run an autoresearch tuning pass before paper trading goes live?",
-      "Quant flagged 'strong opinions' on trading system sequencing beyond weather-first — does he confirm or counter Pixel's weather → crypto → stocks ordering?",
-      "If the roast widget clears 8%+ conversion, what's the next audience play — LinkedIn roasts, resume reviewer, SnapAudit funnel, or something else?",
-      "When does the crypto HybridPaperExchange 30-day validation start, and who monitors it while Pixel is focused on weather infrastructure?"
-    ],
-    "risksIdentified": [
-      "Zero products generating autonomous revenue today — four trading systems in various completion stages but none live, making every distraction a compounding opportunity cost",
-      "Roast widget processes third-party personal data (other people's dating profiles) without their consent — mitigated by ephemeral stateless processing with no image retention, but CCPA exposure exists if architecture isn't implemented correctly",
-      "No alerting or monitoring infrastructure across any trading system — if a bot places a bad trade at 3 AM, nobody knows until someone manually checks",
-      "Audience-building via content (email lists, viral tools) is a depreciating asset requiring constant investment, not a truly compounding one — 2-3% monthly list decay, open rates dropping to 8-12% within 90 days"
-    ],
-    "extractedAt": "2026-03-26T21:59:00.639Z"
-  }
+  "archived": true,
+  "archivedAt": "2026-03-26T21:59:53.417Z",
+  "transcriptPath": "/Users/timharris/.openclaw/workspace/memory/advisory/2026-03-26-should-we-build-an-ai-dating-coach-app-roast-the-idea-or-pit.md"
 }

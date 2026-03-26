@@ -609,8 +609,23 @@ export default function AdvisoryPage() {
       if (data.sessionComplete) {
         // Round limit reached — session is ending with synthesis
         setIsGenerating(true);
+        setIsPaused(false);
         setConnectingToAI(false);
-        setThinkingAgent(null);
+        setThinkingAgent("Henry");
+        setAutoPlay(false);
+        // Add a synthesis placeholder so user sees immediate feedback
+        const wrappingEvent: AdvisoryEvent = {
+          id: `evt_wrapping_${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          type: "system" as any,
+          speaker: "System",
+          emoji: "📝",
+          role: "system",
+          text: "**Session complete!** All rounds finished. Henry is writing the final synthesis — this takes 15–30 seconds...",
+          model: "",
+        };
+        setEvents((prev) => [...prev, wrappingEvent]);
+        setTimeout(() => scrollToBottom(true), 150);
         // The end route is running async — polling will detect completion
         return;
       }
