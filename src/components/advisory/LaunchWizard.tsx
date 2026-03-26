@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip, ChevronDown, ChevronRight, Code, Wrench, Bug, Rocket } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip, ChevronDown, ChevronRight, Code, Wrench, Bug, Rocket, Search } from "lucide-react";
 import type { AdvisorySession, CustomAgent } from "@/types/advisory";
-import { AGENTS, PERSONA_OVERLAYS, PERSONA_OVERLAYS_EXTENDED, AGENT_RECOMMENDED_OVERLAYS, MODELS, PACING_OPTIONS, SESSION_TEMPLATES, DIVISIONS } from "./constants";
+import { AGENTS, PERSONA_OVERLAYS_EXTENDED, AGENT_RECOMMENDED_OVERLAYS, MODELS, PACING_OPTIONS, SESSION_TEMPLATES, DIVISIONS } from "./constants";
 import { AgentAvatar } from "@/components/AgentAvatar";
 
 // ─── Create Custom Agent Modal ────────────────────────────────────────────────
@@ -258,6 +258,238 @@ function CreateCustomAgentModal({
   );
 }
 
+// ─── Custom Agent Dropdown ────────────────────────────────────────────────────
+
+function AgentDropdown({
+  value,
+  onChange,
+  agents,
+  placeholder,
+  accentColor,
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  agents: { id: string; emoji: string; role: string }[];
+  placeholder: string;
+  accentColor: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selected = agents.find((a) => a.id === value);
+
+  return (
+    <div ref={ref} style={{ flex: 1, position: "relative" }}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        style={{
+          width: "100%",
+          padding: "8px 12px",
+          borderRadius: "8px",
+          border: `1px solid ${value ? accentColor : "var(--border)"}`,
+          backgroundColor: value ? `${accentColor}12` : "var(--surface-elevated)",
+          color: "var(--text-primary)",
+          fontSize: "12px",
+          cursor: "pointer",
+          outline: "none",
+          display: "flex",
+          alignItems: "center",
+          gap: "8px",
+          textAlign: "left",
+        }}
+      >
+        {selected ? (
+          <>
+            <AgentAvatar agentId={selected.id} size={22} borderWidth={1} />
+            <span style={{ fontWeight: 600 }}>{selected.id}</span>
+            <span style={{ color: "var(--text-muted)", fontSize: "11px" }}>{selected.role}</span>
+          </>
+        ) : (
+          <span style={{ color: "var(--text-muted)" }}>{placeholder}</span>
+        )}
+        <ChevronDown size={12} style={{ marginLeft: "auto", color: "var(--text-muted)" }} />
+      </button>
+      {open && (
+        <div style={{
+          position: "absolute",
+          top: "100%",
+          left: 0,
+          right: 0,
+          marginTop: "4px",
+          backgroundColor: "var(--surface)",
+          border: "1px solid var(--border)",
+          borderRadius: "10px",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+          zIndex: 50,
+          maxHeight: "240px",
+          overflowY: "auto",
+          padding: "4px",
+        }}>
+          {agents.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => { onChange(a.id); setOpen(false); }}
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: "6px",
+                border: "none",
+                backgroundColor: value === a.id ? "var(--accent-soft)" : "transparent",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: "8px",
+                textAlign: "left",
+                transition: "background-color 100ms",
+              }}
+              onMouseEnter={(e) => { if (value !== a.id) (e.currentTarget as HTMLElement).style.backgroundColor = "var(--surface-elevated)"; }}
+              onMouseLeave={(e) => { if (value !== a.id) (e.currentTarget as HTMLElement).style.backgroundColor = "transparent"; }}
+            >
+              <AgentAvatar agentId={a.id} size={24} borderWidth={1} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{a.id}</div>
+                <div style={{ fontSize: "10px", color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.role}</div>
+              </div>
+              {value === a.id && <span style={{ fontSize: "10px", color: "var(--accent)", fontWeight: 700 }}>✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Overlay Catalog Modal ───────────────────────────────────────────────────
+
+function OverlayCatalogModal({
+  agentId,
+  currentOverlays,
+  maxOverlays,
+  onToggle,
+  onClose,
+}: {
+  agentId: string;
+  currentOverlays: string[];
+  maxOverlays: number;
+  onToggle: (agentId: string, overlayId: string) => void;
+  onClose: () => void;
+}) {
+  const [search, setSearch] = useState("");
+  const recommended = AGENT_RECOMMENDED_OVERLAYS[agentId] || [];
+  const filtered = PERSONA_OVERLAYS_EXTENDED.filter((o) =>
+    o.name.toLowerCase().includes(search.toLowerCase()) ||
+    o.desc.toLowerCase().includes(search.toLowerCase())
+  );
+  // Sort: recommended first, then alphabetical
+  const sorted = [...filtered].sort((a, b) => {
+    const aRec = recommended.includes(a.id) ? 0 : 1;
+    const bRec = recommended.includes(b.id) ? 0 : 1;
+    if (aRec !== bRec) return aRec - bRec;
+    return a.name.localeCompare(b.name);
+  });
+
+  return (
+    <div
+      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, padding: "20px" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ backgroundColor: "var(--surface)", border: "1px solid var(--border)", borderRadius: "16px", width: "100%", maxWidth: "480px", maxHeight: "75vh", display: "flex", flexDirection: "column", overflow: "hidden" }}
+      >
+        {/* Header */}
+        <div style={{ padding: "20px 20px 0", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <AgentAvatar agentId={agentId} size={28} borderWidth={2} />
+              <div>
+                <h3 style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
+                  Add Expertise to {agentId}
+                </h3>
+                <p style={{ fontSize: "10px", color: "var(--text-muted)", margin: "2px 0 0" }}>
+                  {currentOverlays.length}/{maxOverlays} overlays selected
+                </p>
+              </div>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}>
+              <X size={18} />
+            </button>
+          </div>
+          {/* Search */}
+          <div style={{ position: "relative", marginBottom: "12px" }}>
+            <Search size={14} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search overlays..."
+              style={{ width: "100%", padding: "8px 12px 8px 32px", borderRadius: "8px", border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)", color: "var(--text-primary)", fontSize: "12px", outline: "none", boxSizing: "border-box" }}
+            />
+          </div>
+        </div>
+        {/* List */}
+        <div style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px" }}>
+          {sorted.map((overlay) => {
+            const isSelected = currentOverlays.includes(overlay.id);
+            const isRec = recommended.includes(overlay.id);
+            const atMax = currentOverlays.length >= maxOverlays && !isSelected;
+            return (
+              <button
+                key={overlay.id}
+                type="button"
+                onClick={() => { if (!atMax || isSelected) onToggle(agentId, overlay.id); }}
+                disabled={atMax && !isSelected}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: "8px",
+                  border: `1px solid ${isSelected ? "#a78bfa" : "var(--border)"}`,
+                  backgroundColor: isSelected ? "rgba(167,139,250,0.12)" : "var(--surface-elevated)",
+                  cursor: atMax && !isSelected ? "not-allowed" : "pointer",
+                  textAlign: "left",
+                  marginBottom: "6px",
+                  display: "flex",
+                  alignItems: "flex-start",
+                  gap: "10px",
+                  opacity: atMax && !isSelected ? 0.4 : 1,
+                  transition: "all 150ms ease",
+                }}
+              >
+                <span style={{ fontSize: "18px", lineHeight: 1, marginTop: "2px" }}>{overlay.emoji}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: isSelected ? "#a78bfa" : "var(--text-primary)" }}>{overlay.name}</span>
+                    {isRec && (
+                      <span style={{ fontSize: "8px", fontWeight: 700, color: "#4ade80", backgroundColor: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", padding: "1px 5px", borderRadius: "3px" }}>
+                        RECOMMENDED
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
+                </div>
+                {isSelected && <span style={{ fontSize: "14px", color: "#a78bfa", fontWeight: 700, marginTop: "2px" }}>✓</span>}
+              </button>
+            );
+          })}
+          {sorted.length === 0 && (
+            <div style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)", fontSize: "12px" }}>No overlays match your search</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Launch Wizard ────────────────────────────────────────────────────────────
 
 interface LaunchWizardProps {
@@ -290,8 +522,10 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
   const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed" | "verbose">("balanced");
   const [extendedThinking, setExtendedThinking] = useState(false);
-  // Per-agent overlay map: { agentId: overlayId }
-  const [personaOverlays, setPersonaOverlays] = useState<Record<string, string>>({});
+  // Per-agent overlay map: { agentId: overlayId[] } — max 2 overlays per agent
+  const [personaOverlays, setPersonaOverlays] = useState<Record<string, string[]>>({});
+  const [overlayCatalogAgent, setOverlayCatalogAgent] = useState<string | null>(null);
+  const MAX_OVERLAYS_PER_AGENT = 2;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -325,15 +559,22 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
     }
   };
 
-  const selectAgentOverlay = (agentId: string, overlayId: string) => {
+  const toggleAgentOverlay = (agentId: string, overlayId: string) => {
     setPersonaOverlays((prev) => {
-      // Toggle: if already selected, deselect
-      if (prev[agentId] === overlayId) {
-        const next = { ...prev };
-        delete next[agentId];
-        return next;
+      const current = prev[agentId] || [];
+      if (current.includes(overlayId)) {
+        // Remove overlay
+        const next = current.filter((id) => id !== overlayId);
+        if (next.length === 0) {
+          const copy = { ...prev };
+          delete copy[agentId];
+          return copy;
+        }
+        return { ...prev, [agentId]: next };
       }
-      return { ...prev, [agentId]: overlayId };
+      // Add overlay (max 2)
+      if (current.length >= MAX_OVERLAYS_PER_AGENT) return prev;
+      return { ...prev, [agentId]: [...current, overlayId] };
     });
   };
 
@@ -414,7 +655,12 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           pacing: mode === "review" ? "instant" : pacing,
           responseLength,
           extendedThinking,
-          personaOverlays: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
+          // API expects Record<string, string> — send first overlay per agent for backwards compat
+          personaOverlays: Object.keys(personaOverlays).length > 0
+            ? Object.fromEntries(Object.entries(personaOverlays).map(([k, v]) => [k, v[0]]).filter(([, v]) => v))
+            : undefined,
+          // Full multi-overlay data
+          personaOverlaysList: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
           referenceContext: referenceContext.trim() || undefined,
           reviewLoop: reviewLoopPayload,
         }),
@@ -459,8 +705,23 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
         zIndex: 200,
         padding: "20px",
       }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) (e.currentTarget as HTMLElement).dataset.backdropMouseDown = "true"; }}
-      onMouseUp={(e) => { if (e.target === e.currentTarget && (e.currentTarget as HTMLElement).dataset.backdropMouseDown === "true") onClose(); (e.currentTarget as HTMLElement).dataset.backdropMouseDown = "false"; }}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          (e.currentTarget as HTMLElement).dataset.backdropMouseDown = "true";
+          (e.currentTarget as HTMLElement).dataset.backdropMouseDownX = String(e.clientX);
+          (e.currentTarget as HTMLElement).dataset.backdropMouseDownY = String(e.clientY);
+        }
+      }}
+      onMouseUp={(e) => {
+        const el = e.currentTarget as HTMLElement;
+        // Only close if mouseDown started on backdrop AND ended on backdrop AND didn't drag far
+        if (e.target === e.currentTarget && el.dataset.backdropMouseDown === "true") {
+          const dx = Math.abs(e.clientX - Number(el.dataset.backdropMouseDownX || 0));
+          const dy = Math.abs(e.clientY - Number(el.dataset.backdropMouseDownY || 0));
+          if (dx < 5 && dy < 5) onClose();
+        }
+        el.dataset.backdropMouseDown = "false";
+      }}
       onClick={(e) => e.preventDefault()}
     >
       <div
@@ -601,7 +862,12 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               <textarea
                 value={topic}
                 onChange={(e) => setTopic(e.target.value)}
-                placeholder="What should the agents collaborate on? Be specific about objectives and context..."
+                onDoubleClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                placeholder={mode === "roundtable"
+                  ? "e.g., Should we pivot our crypto strategy to focus on DeFi protocols?\ne.g., Plan the Q2 product launch — marketing, engineering, and legal angles\ne.g., Evaluate whether to build or buy our data pipeline"
+                  : "e.g., Review and improve our API error handling across all endpoints\ne.g., Audit the authentication flow for security vulnerabilities\ne.g., Refactor the payment module for better test coverage"
+                }
                 rows={3}
                 style={{
                   width: "100%",
@@ -628,6 +894,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               <textarea
                 value={referenceContext}
                 onChange={(e) => setReferenceContext(e.target.value.slice(0, 10000))}
+                onDoubleClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 placeholder="Paste reference material — business docs, code snippets, data, or context for the agents..."
                 rows={3}
                 style={{
@@ -708,6 +976,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                   <textarea
                     value={taskListText}
                     onChange={(e) => setTaskListText(e.target.value)}
+                    onDoubleClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
                     placeholder={"1. Review authentication flow for security vulnerabilities\n2. Audit database query performance\n3. Check API rate limiting implementation\n4. Verify error handling in payment flow\n5. Review logging and observability setup"}
                     rows={8}
                     style={{
@@ -747,26 +1017,13 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <span style={{ fontSize: "10px", fontWeight: 700, color: "#60a5fa", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>WORKER</span>
                         <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Executes tasks</div>
                       </div>
-                      <select
+                      <AgentDropdown
                         value={workerAgent}
-                        onChange={(e) => setWorkerAgent(e.target.value)}
-                        style={{
-                          flex: 1,
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: `1px solid ${workerAgent ? "rgba(96,165,250,0.5)" : "var(--border)"}`,
-                          backgroundColor: workerAgent ? "rgba(96,165,250,0.08)" : "var(--surface-elevated)",
-                          color: "var(--text-primary)",
-                          fontSize: "12px",
-                          cursor: "pointer",
-                          outline: "none",
-                        }}
-                      >
-                        <option value="">Select worker agent...</option>
-                        {AGENTS.map((a) => (
-                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
-                        ))}
-                      </select>
+                        onChange={setWorkerAgent}
+                        agents={AGENTS}
+                        placeholder="Select worker agent..."
+                        accentColor="rgba(96,165,250,0.5)"
+                      />
                     </div>
                     {/* Reviewer */}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -774,26 +1031,13 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>REVIEWER</span>
                         <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Approves/rejects</div>
                       </div>
-                      <select
+                      <AgentDropdown
                         value={reviewerAgent}
-                        onChange={(e) => setReviewerAgent(e.target.value)}
-                        style={{
-                          flex: 1,
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: `1px solid ${reviewerAgent ? "rgba(251,191,36,0.5)" : "var(--border)"}`,
-                          backgroundColor: reviewerAgent ? "rgba(251,191,36,0.08)" : "var(--surface-elevated)",
-                          color: "var(--text-primary)",
-                          fontSize: "12px",
-                          cursor: "pointer",
-                          outline: "none",
-                        }}
-                      >
-                        <option value="">Select reviewer agent...</option>
-                        {AGENTS.filter((a) => a.id !== workerAgent).map((a) => (
-                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
-                        ))}
-                      </select>
+                        onChange={setReviewerAgent}
+                        agents={AGENTS.filter((a) => a.id !== workerAgent)}
+                        placeholder="Select reviewer agent..."
+                        accentColor="rgba(251,191,36,0.5)"
+                      />
                     </div>
                     {/* Supervisor */}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -801,26 +1045,13 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <span style={{ fontSize: "10px", fontWeight: 700, color: "#fb923c", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>SUPERVISOR</span>
                         <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Tracks progress</div>
                       </div>
-                      <select
+                      <AgentDropdown
                         value={supervisorAgent}
-                        onChange={(e) => setSupervisorAgent(e.target.value)}
-                        style={{
-                          flex: 1,
-                          padding: "8px 12px",
-                          borderRadius: "8px",
-                          border: `1px solid ${supervisorAgent ? "rgba(251,146,60,0.5)" : "var(--border)"}`,
-                          backgroundColor: supervisorAgent ? "rgba(251,146,60,0.08)" : "var(--surface-elevated)",
-                          color: "var(--text-primary)",
-                          fontSize: "12px",
-                          cursor: "pointer",
-                          outline: "none",
-                        }}
-                      >
-                        <option value="">Select supervisor agent...</option>
-                        {AGENTS.map((a) => (
-                          <option key={a.id} value={a.id}>{a.emoji} {a.id} — {a.role}</option>
-                        ))}
-                      </select>
+                        onChange={setSupervisorAgent}
+                        agents={AGENTS}
+                        placeholder="Select supervisor agent..."
+                        accentColor="rgba(251,146,60,0.5)"
+                      />
                     </div>
                   </div>
                 </div>
@@ -1367,18 +1598,14 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           <>
             <div style={{ marginBottom: "8px" }}>
               <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.6 }}>
-                Assign specialized expertise lenses to each agent. Each agent can have at most one overlay — it shapes how they approach and frame their contributions. All are optional.
+                Add specialized expertise to each agent. Up to {MAX_OVERLAYS_PER_AGENT} overlays per agent — each shapes how they approach their contributions. All are optional.
               </p>
 
               {/* Per-agent overlay rows */}
               <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
                 {selectedAgents.map((agentId) => {
                   const agentDef = AGENTS.find((a) => a.id === agentId);
-                  const recommended = (AGENT_RECOMMENDED_OVERLAYS[agentId] || []);
-                  const availableOverlays = PERSONA_OVERLAYS_EXTENDED.filter((o) =>
-                    recommended.includes(o.id)
-                  );
-                  const selectedOverlay = personaOverlays[agentId];
+                  const agentOverlays = personaOverlays[agentId] || [];
 
                   return (
                     <div
@@ -1393,63 +1620,68 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       {/* Agent header */}
                       <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
                         <AgentAvatar agentId={agentId} size={32} borderWidth={2} />
-                        <div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)" }}>{agentId}</div>
                           <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{agentDef?.role ?? "Agent"}</div>
                         </div>
-                        {selectedOverlay && (
-                          <span style={{
-                            marginLeft: "auto",
-                            fontSize: "9px",
-                            fontWeight: 700,
-                            color: "#a78bfa",
-                            backgroundColor: "rgba(167,139,250,0.15)",
-                            border: "1px solid rgba(167,139,250,0.4)",
-                            padding: "2px 8px",
-                            borderRadius: "12px",
-                          }}>
-                            {PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedOverlay)?.emoji} {PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedOverlay)?.name}
-                          </span>
-                        )}
                       </div>
 
-                      {/* Overlay chips */}
-                      {availableOverlays.length > 0 ? (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                          {availableOverlays.map((overlay) => {
-                            const sel = selectedOverlay === overlay.id;
+                      {/* Selected overlay badges */}
+                      {agentOverlays.length > 0 && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
+                          {agentOverlays.map((oId) => {
+                            const overlay = PERSONA_OVERLAYS_EXTENDED.find((o) => o.id === oId);
                             return (
-                              <button
-                                key={overlay.id}
-                                onClick={() => selectAgentOverlay(agentId, overlay.id)}
-                                title={overlay.desc}
+                              <span
+                                key={oId}
                                 style={{
-                                  padding: "5px 10px",
-                                  borderRadius: "20px",
-                                  border: `1px solid ${sel ? "#a78bfa" : "var(--border)"}`,
-                                  backgroundColor: sel ? "rgba(167,139,250,0.15)" : "var(--surface)",
-                                  color: sel ? "#a78bfa" : "var(--text-muted)",
-                                  cursor: "pointer",
-                                  fontSize: "10px",
-                                  fontWeight: sel ? 700 : 500,
-                                  display: "flex",
+                                  display: "inline-flex",
                                   alignItems: "center",
                                   gap: "4px",
-                                  transition: "all 150ms ease",
-                                  whiteSpace: "nowrap",
+                                  padding: "3px 10px",
+                                  borderRadius: "12px",
+                                  backgroundColor: "rgba(167,139,250,0.15)",
+                                  border: "1px solid rgba(167,139,250,0.4)",
+                                  fontSize: "10px",
+                                  fontWeight: 700,
+                                  color: "#a78bfa",
                                 }}
                               >
-                                <span>{overlay.emoji}</span>
-                                <span>{overlay.name}</span>
-                                {sel && <span style={{ fontSize: "8px" }}>✕</span>}
-                              </button>
+                                {overlay?.emoji} {overlay?.name}
+                                <button
+                                  onClick={() => toggleAgentOverlay(agentId, oId)}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#a78bfa", padding: "0 0 0 2px", fontSize: "10px", lineHeight: 1 }}
+                                >
+                                  ✕
+                                </button>
+                              </span>
                             );
                           })}
                         </div>
-                      ) : (
-                        <div style={{ fontSize: "10px", color: "var(--text-muted)", fontStyle: "italic" }}>
-                          No recommended overlays for this agent
-                        </div>
+                      )}
+
+                      {/* Add overlay button */}
+                      {agentOverlays.length < MAX_OVERLAYS_PER_AGENT && (
+                        <button
+                          onClick={() => setOverlayCatalogAgent(agentId)}
+                          style={{
+                            padding: "6px 12px",
+                            borderRadius: "20px",
+                            border: "1px dashed rgba(167,139,250,0.4)",
+                            backgroundColor: "transparent",
+                            color: "#a78bfa",
+                            cursor: "pointer",
+                            fontSize: "10px",
+                            fontWeight: 600,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "4px",
+                            transition: "all 150ms ease",
+                          }}
+                        >
+                          <Plus size={10} />
+                          Add Expertise
+                        </button>
                       )}
                     </div>
                   );
@@ -1459,11 +1691,22 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               {Object.keys(personaOverlays).length > 0 && (
                 <div style={{ padding: "8px 12px", backgroundColor: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "8px", marginBottom: "16px" }}>
                   <span style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 600 }}>
-                    {Object.keys(personaOverlays).length} agent{Object.keys(personaOverlays).length > 1 ? "s" : ""} have overlays · Each agent gets their assigned lens injected into their system prompt
+                    {Object.values(personaOverlays).flat().length} overlay{Object.values(personaOverlays).flat().length > 1 ? "s" : ""} across {Object.keys(personaOverlays).length} agent{Object.keys(personaOverlays).length > 1 ? "s" : ""} · Each overlay is injected into the agent&apos;s system prompt
                   </span>
                 </div>
               )}
             </div>
+
+            {/* Overlay Catalog Modal */}
+            {overlayCatalogAgent && (
+              <OverlayCatalogModal
+                agentId={overlayCatalogAgent}
+                currentOverlays={personaOverlays[overlayCatalogAgent] || []}
+                maxOverlays={MAX_OVERLAYS_PER_AGENT}
+                onToggle={toggleAgentOverlay}
+                onClose={() => setOverlayCatalogAgent(null)}
+              />
+            )}
 
             {error && (
               <div style={{ marginBottom: "16px", padding: "10px 12px", backgroundColor: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: "8px", color: "#ef4444", fontSize: "12px", display: "flex", alignItems: "center", gap: "6px" }}>

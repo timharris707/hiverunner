@@ -160,28 +160,20 @@ export function getAgentRole(agentId: string): string {
 }
 
 export function getOverlayName(overlayId: string): string {
-  const extraOverlays = [
-    { id: "frontend-developer", name: "Frontend Developer" },
-    { id: "rapid-prototyper", name: "Rapid Prototyper" },
-    { id: "autonomous-optimization-architect", name: "Autonomous Optimization Architect" },
-  ];
   return (
-    PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.name ??
-    extraOverlays.find((o) => o.id === overlayId)?.name ??
-    overlayId
+    PERSONA_OVERLAYS_EXTENDED.find((o) => o.id === overlayId)?.name ?? overlayId
   );
 }
 
 export function getOverlayEmoji(overlayId: string): string {
-  const extraOverlays = [
-    { id: "frontend-developer", emoji: "🎨" },
-    { id: "rapid-prototyper", emoji: "⚡" },
-    { id: "autonomous-optimization-architect", emoji: "🤖" },
-  ];
   return (
-    PERSONA_OVERLAYS.find((o) => o.id === overlayId)?.emoji ??
-    extraOverlays.find((o) => o.id === overlayId)?.emoji ??
-    "🎭"
+    PERSONA_OVERLAYS_EXTENDED.find((o) => o.id === overlayId)?.emoji ?? "🎭"
+  );
+}
+
+export function getOverlayDesc(overlayId: string): string {
+  return (
+    PERSONA_OVERLAYS_EXTENDED.find((o) => o.id === overlayId)?.desc ?? ""
   );
 }
 

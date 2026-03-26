@@ -23,7 +23,7 @@ import {
   GitBranch,
 } from "lucide-react";
 import { exportSessionAsPDF } from "@/components/AdvisoryPDFExport";
-import { AvatarStack } from "@/components/AgentAvatar";
+import { AgentAvatar, AvatarStack } from "@/components/AgentAvatar";
 import type {
   AdvisoryEvent,
   AdvisorySession,
@@ -1207,31 +1207,95 @@ export default function AdvisoryPage() {
               </div>{/* close horizontal split */}
             </>
           ) : (
-            /* Empty state */
-            <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column", gap: "16px", color: "var(--text-muted)", padding: "40px", textAlign: "center" }}>
-              <Users size={48} style={{ opacity: 0.2 }} />
-              <div>
-                <div style={{ fontSize: "18px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "8px", fontFamily: "var(--font-heading)" }}>Advisory Board</div>
-                <div style={{ fontSize: "13px", color: "var(--text-muted)", maxWidth: "360px", lineHeight: 1.6, marginBottom: "20px" }}>
-                  Launch multi-agent sessions where your AI team debates, researches, and collaborates in real-time. Select a session from the sidebar or start a new one.
+            /* Landing page — hero + agent showcase */
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", overflow: "auto", background: "radial-gradient(ellipse at 50% 0%, rgba(139,92,246,0.08) 0%, transparent 60%)" }}>
+              {/* Hero */}
+              <div style={{ textAlign: "center", maxWidth: "520px", marginBottom: "36px" }}>
+                <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-primary)", marginBottom: "12px", fontFamily: "var(--font-heading)", lineHeight: 1.2 }}>
+                  Your AI Advisory Board
                 </div>
-                <div style={{ display: "flex", gap: "12px", justifyContent: "center", flexWrap: "wrap", marginBottom: "24px" }}>
-                  {[
-                    { icon: "🔄", label: "Roundtables", desc: "Open collaborative discussion" },
-                    { icon: "🔍", label: "Review Loops", desc: "Worker + reviewer approval chain" },
-                    { icon: "👤", label: "Join the Conversation", desc: "Jump in anytime to share your perspective, ask questions, or steer the discussion" },
-                  ].map((f) => (
-                    <div key={f.label} style={{ padding: "12px 16px", borderRadius: "10px", border: "1px solid var(--border)", backgroundColor: "var(--surface)", textAlign: "center", minWidth: "120px" }}>
-                      <div style={{ fontSize: "20px", marginBottom: "4px" }}>{f.icon}</div>
-                      <div style={{ fontSize: "12px", fontWeight: 600, color: "var(--text-primary)" }}>{f.label}</div>
-                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px", textAlign: "center" }}>{f.desc}</div>
-                    </div>
-                  ))}
+                <div style={{ fontSize: "14px", color: "var(--text-muted)", lineHeight: 1.7, marginBottom: "24px" }}>
+                  Summon a team of specialized AI agents to debate, research, and collaborate on any challenge. Each agent brings unique expertise — and you can jump in to steer the conversation at any time.
                 </div>
-                <button onClick={() => setShowLaunchModal(true)}
-                  style={{ padding: "10px 24px", borderRadius: "8px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: "pointer", fontSize: "13px", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: "8px", fontFamily: "var(--font-heading)" }}>
-                  <MessageSquarePlus size={14} /> Launch First Session
+                <button
+                  onClick={() => setShowLaunchModal(true)}
+                  style={{
+                    padding: "12px 32px",
+                    borderRadius: "10px",
+                    border: "none",
+                    backgroundColor: "var(--accent)",
+                    color: "#fff",
+                    cursor: "pointer",
+                    fontSize: "14px",
+                    fontWeight: 700,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "8px",
+                    fontFamily: "var(--font-heading)",
+                    boxShadow: "0 4px 16px rgba(139,92,246,0.3)",
+                    transition: "transform 150ms ease, box-shadow 150ms ease",
+                  }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 20px rgba(139,92,246,0.4)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(139,92,246,0.3)"; }}
+                >
+                  <Plus size={16} /> Start New Session
                 </button>
+              </div>
+
+              {/* Agent Showcase Cards */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px", maxWidth: "560px", width: "100%", marginBottom: "32px" }}>
+                {[
+                  { id: "Henry", specialty: "Orchestrates teams and synthesizes decisions" },
+                  { id: "Quant", specialty: "Quantitative analysis and trading strategy" },
+                  { id: "Scout", specialty: "Research, intelligence, and trend analysis" },
+                  { id: "Atlas", specialty: "Stocks, options, and market execution" },
+                  { id: "Pixel", specialty: "Full-stack engineering and rapid prototyping" },
+                  { id: "Forge", specialty: "Backend architecture and infrastructure" },
+                ].map((agent) => (
+                  <div
+                    key={agent.id}
+                    style={{
+                      padding: "16px 12px",
+                      borderRadius: "12px",
+                      border: "1px solid var(--border)",
+                      backgroundColor: "var(--surface)",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: "8px",
+                      transition: "transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease",
+                      cursor: "default",
+                    }}
+                    onMouseEnter={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = "translateY(-3px)";
+                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(139,92,246,0.4)";
+                      (e.currentTarget as HTMLElement).style.boxShadow = "0 8px 24px rgba(0,0,0,0.15)";
+                    }}
+                    onMouseLeave={(e) => {
+                      (e.currentTarget as HTMLElement).style.transform = "translateY(0)";
+                      (e.currentTarget as HTMLElement).style.borderColor = "var(--border)";
+                      (e.currentTarget as HTMLElement).style.boxShadow = "none";
+                    }}
+                  >
+                    <AgentAvatar agentId={agent.id} size={44} borderWidth={2} />
+                    <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)", textAlign: "center" }}>{agent.id}</div>
+                    <div style={{ fontSize: "10px", color: "var(--text-muted)", textAlign: "center", lineHeight: 1.4 }}>{agent.specialty}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Feature pills */}
+              <div style={{ display: "flex", gap: "10px", justifyContent: "center", flexWrap: "wrap" }}>
+                {[
+                  { icon: "🔄", label: "Roundtables" },
+                  { icon: "🔍", label: "Review Loops" },
+                  { icon: "👤", label: "Join Anytime" },
+                  { icon: "🎭", label: "Persona Overlays" },
+                ].map((f) => (
+                  <span key={f.label} style={{ padding: "5px 14px", borderRadius: "20px", border: "1px solid var(--border)", backgroundColor: "var(--surface)", fontSize: "11px", color: "var(--text-muted)", fontWeight: 500, display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                    {f.icon} {f.label}
+                  </span>
+                ))}
               </div>
             </div>
           )}
