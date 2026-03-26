@@ -1,5 +1,25 @@
 [
   {
+    "id": "TASK-115",
+    "title": "Spruce up org chart \u2014 departments, capabilities, status, model badges",
+    "description": "Redesign the Agents/org chart page inspired by Vibe with AI's org chart. Add: department groupings (Trading, Engineering, Research, Creative, Legal), active/idle status per agent, model badge (Sonnet/Opus), capabilities list per agent, last active timestamp, cron job count, active task count per department. Hierarchical layout: Tim (Founder) \u2192 Henry (Chief of Staff) \u2192 Department leads \u2192 Agents. Dark theme with colored department borders and gold/green status badges.",
+    "status": "backlog",
+    "priority": "P2",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "org-chart",
+      "agents",
+      "ui",
+      "polish"
+    ],
+    "created": "2026-03-26T14:41:00.000Z",
+    "updated": "2026-03-26T14:41:00.000Z",
+    "created_by": "tim",
+    "source_url": ""
+  },
+  {
     "id": "TASK-1774560649396",
     "title": "Task attachments... too strict",
     "description": "We created a button that you can push and open up a finder to select a file. That's very nice, but we need to be able to paste files into a text field as well. That's what I do 99% of the time. It's a much quicker workflow on humans.",
@@ -12,11 +32,11 @@
   },
   {
     "id": "TASK-110",
-    "title": "Task attachments — paste/drop images, PDFs, files into tasks",
+    "title": "Task attachments \u2014 paste/drop images, PDFs, files into tasks",
     "description": "Add file attachment support to New Task modal and task detail view. Drag-and-drop or paste images/screenshots, PDFs, MD files, videos. Store in data/attachments/ directory. Show thumbnails for images, file icons for other types. Priority: images/screenshots first (most common use case).",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -36,7 +56,7 @@
     "description": "LLM fuel gauges showing quota usage, burndown charts, projected weekly spend, per-model cost breakdown.",
     "status": "backlog",
     "priority": "P2",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -57,7 +77,7 @@
     "description": "One-click toggle to redact sensitive info for screenshots and demos. He mentioned learning this the hard way.",
     "status": "backlog",
     "priority": "P2",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -75,10 +95,10 @@
   {
     "id": "TASK-1774558903279",
     "title": "Content & Marketing Agent",
-    "description": "His 'Mr. X' agent drafts social media content with approval flows — post to X/LinkedIn, generate YouTube ideas. We'd use Quill for this plus Insight marketing.",
+    "description": "His 'Mr. X' agent drafts social media content with approval flows \u2014 post to X/LinkedIn, generate YouTube ideas. We'd use Quill for this plus Insight marketing.",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Quill ✍️",
+    "assignee": "Quill \u270d\ufe0f",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -96,10 +116,10 @@
   {
     "id": "TASK-1774558853153",
     "title": "Software Factory Pipeline",
-    "description": "One-click idea to deployed app. Agents scan Reddit for opportunities, build MVPs autonomously. Formalize: Idea → Architecture → Build → Test → Deploy.",
+    "description": "One-click idea to deployed app. Agents scan Reddit for opportunities, build MVPs autonomously. Formalize: Idea \u2192 Architecture \u2192 Build \u2192 Test \u2192 Deploy.",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -116,11 +136,11 @@
   },
   {
     "id": "TASK-1774558729780",
-    "title": "Smart LLM Router — Auto-route tasks to optimal model",
+    "title": "Smart LLM Router \u2014 Auto-route tasks to optimal model",
     "description": "Build a routing layer that auto-assigns tasks to the right model. Opus for complex reasoning, Sonnet for coding, Gemini for search, local for boilerplate. Could cut costs 50-70%.",
     "status": "in-progress",
     "priority": "P0",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -142,7 +162,7 @@
     "description": "Add 'Export MD' alongside PDF. Clean formatted markdown file with session metadata, agent responses, timestamps. Downloadable file.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "feature",
     "tags": [
@@ -160,7 +180,7 @@
     "description": "Session shows DONE badge but Copy and Export buttons remain grayed/disabled. Enable condition not detecting completed state properly.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -178,7 +198,7 @@
     "description": "Use @page CSS or PDF library to remove browser-injected header/footer from print output. The date stamp and URL at top of every page looks unprofessional.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -196,7 +216,7 @@
     "description": "Each agent response should start on a new page. Use page-break-before or break-before CSS. No response should be split across pages.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -214,7 +234,7 @@
     "description": "Roundtable PDF shows Worker/WORKER badges on Quant and Scout. Should show persona role or no badge. WORKER/REVIEWER only for review loop mode.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -232,7 +252,7 @@
     "description": "Active session keeps getting cleared during polling, kicking user to landing page. Happened 4+ times in one test session. Root cause: likely Next.js component remount or state cascade from loadSessions(). localStorage persistence helped but didn't fully solve it.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -247,11 +267,11 @@
   },
   {
     "id": "TASK-091",
-    "title": "P0: Enforce round limit — stop session after configured rounds",
+    "title": "P0: Enforce round limit \u2014 stop session after configured rounds",
     "description": "Session configured for 3 rounds went to 5+. Backend must enforce round count and auto-end with Henry synthesis when limit reached. Currently agents keep going indefinitely.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -269,7 +289,7 @@
     "description": "Hitting End + Confirm while an agent is thinking should abort the pending API call and immediately show Session Complete. Currently Quant kept thinking after End was confirmed.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -283,11 +303,11 @@
   },
   {
     "id": "TASK-093",
-    "title": "P0: Session completion detection — show Complete banner",
+    "title": "P0: Session completion detection \u2014 show Complete banner",
     "description": "When all rounds finish, session should auto-detect completion, show Session Complete banner with export buttons. Currently shows paused state with Next Agent still active.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -305,7 +325,7 @@
     "description": "When auto-play advances, scroll should land at the TOP of the new agent response, not the bottom of the page. Same behavior as Next Agent click.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -319,11 +339,11 @@
   },
   {
     "id": "TASK-095",
-    "title": "Action items → Tasks pipeline from Advisory Board sessions",
+    "title": "Action items \u2192 Tasks pipeline from Advisory Board sessions",
     "description": "After session ends, extract all action items/commitments from conversation. Show as checklist with options: Schedule (calendar), Now (spawn agent), Skip. Create real tasks on board.",
     "status": "on-deck",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "advisory-board",
     "type": "feature",
     "tags": [
@@ -337,11 +357,11 @@
   },
   {
     "id": "TASK-096",
-    "title": "Vary agent writing styles — paragraph length, rhythm, voice",
+    "title": "Vary agent writing styles \u2014 paragraph length, rhythm, voice",
     "description": "Adjust system prompts so agents have distinct writing cadences. Mix short punchy sentences with long analysis. Each agent gets a different rhythm. Makes output feel more human.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "advisory-board",
     "type": "feature",
     "tags": [
@@ -355,11 +375,11 @@
   },
   {
     "id": "TASK-097",
-    "title": "Markdown header indentation fix — headers flush left",
+    "title": "Markdown header indentation fix \u2014 headers flush left",
     "description": "In EventBubble, section headers (h2/h3) are indented same as paragraphs. Headers should be flush left, only body paragraphs indented.",
     "status": "backlog",
     "priority": "P2",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
     "tags": [
@@ -373,11 +393,11 @@
   },
   {
     "id": "TASK-080",
-    "title": "Factory Floor — Wire to live OpenClaw sessions",
+    "title": "Factory Floor \u2014 Wire to live OpenClaw sessions",
     "description": "Check OpenClaw API for actually running sessions/agents. Replace hardcoded agent states with real-time data showing which agents are truly active.",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -391,11 +411,11 @@
   },
   {
     "id": "TASK-081",
-    "title": "Factory Floor — Show live model per agent from OpenClaw",
+    "title": "Factory Floor \u2014 Show live model per agent from OpenClaw",
     "description": "Query which model each agent is actually running on (Opus/Sonnet/Gemini) and display in real-time instead of hardcoded assignments.",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -409,11 +429,11 @@
   },
   {
     "id": "TASK-082",
-    "title": "Factory Floor — Real-time status updates",
+    "title": "Factory Floor \u2014 Real-time status updates",
     "description": "Auto-refresh factory page with live agent states. WebSocket or polling to show agents starting/stopping/completing in real-time.",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -428,10 +448,10 @@
   {
     "id": "TASK-070",
     "title": "Auto-spawn agent when task moves to In Progress",
-    "description": "Drag task to In Progress → auto-spawns a build agent via OpenClaw. Task description becomes the agent's prompt. Agent updates task status on completion.",
+    "description": "Drag task to In Progress \u2192 auto-spawns a build agent via OpenClaw. Task description becomes the agent's prompt. Agent updates task status on completion.",
     "status": "on-deck",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -445,11 +465,11 @@
   },
   {
     "id": "TASK-071",
-    "title": "Agent completion → auto-move to Done + Telegram notification",
+    "title": "Agent completion \u2192 auto-move to Done + Telegram notification",
     "description": "When build agent finishes, auto-update task to Done (or Review if UI/money/external). Send Telegram notification to Tim with summary of what was built.",
     "status": "on-deck",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -463,11 +483,11 @@
   },
   {
     "id": "TASK-072",
-    "title": "On Deck auto-promotion — agents grab next task when idle",
+    "title": "On Deck auto-promotion \u2014 agents grab next task when idle",
     "description": "When an agent finishes a task and On Deck has items, automatically move the top On Deck item to In Progress and spawn a new agent.",
     "status": "on-deck",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -484,7 +504,7 @@
     "description": "Lightweight project categorization. Products are shippable software, Infrastructure is internal, Research is experimental.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -497,11 +517,11 @@
   },
   {
     "id": "TASK-050",
-    "title": "Advisory Board — Overnight Polish Sprint (37/39 feedback items)",
+    "title": "Advisory Board \u2014 Overnight Polish Sprint (37/39 feedback items)",
     "description": "Session header UX, review loop overhaul, landing page hero, per-agent model selection, manual pacing fix",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "feature",
     "tags": [
@@ -518,7 +538,7 @@
     "description": "Video-centric reviews inbox with takeaways, timestamped source links, API routes",
     "status": "done",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "idea-intake",
     "type": "feature",
     "tags": [
@@ -531,11 +551,11 @@
   },
   {
     "id": "TASK-052",
-    "title": "Projects System — pages, detail views, task types",
+    "title": "Projects System \u2014 pages, detail views, task types",
     "description": "Projects page with card grid, detail pages with tabs, normalized task data, project types",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -552,7 +572,7 @@
     "description": "Created harris-autonomous org project board, 8 issues from video review, label taxonomy",
     "status": "done",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "infrastructure",
     "type": "feature",
     "tags": [
@@ -569,7 +589,7 @@
     "description": "Strategic roadmap with active bets, domain portfolio tracking",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "maintenance",
     "tags": [
@@ -586,7 +606,7 @@
     "description": "Rebranded from Harris Mission Control to Never Idle Mission Control with mission statement",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -599,11 +619,11 @@
   },
   {
     "id": "TASK-056",
-    "title": "Crypto bug fixes — BB columns, AppState singleton, ExperimentLog",
+    "title": "Crypto bug fixes \u2014 BB columns, AppState singleton, ExperimentLog",
     "description": "Fixed pandas-ta bbands naming, API test fixtures, truthiness bug. 550/550 tests.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Cipher ₿",
+    "assignee": "Cipher \u20bf",
     "project": "crypto-trading",
     "type": "bug",
     "tags": [
@@ -616,11 +636,11 @@
   },
   {
     "id": "TASK-057",
-    "title": "Weather Phase 8 — CronRunner, analytics, API endpoints",
+    "title": "Weather Phase 8 \u2014 CronRunner, analytics, API endpoints",
     "description": "Operational automation, performance analytics, dashboard/analytics endpoints. 611 tests.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Nimbus 🌤️",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
     "project": "weather-trading",
     "type": "feature",
     "tags": [
@@ -637,7 +657,7 @@
     "description": "Quarter-Kelly sizing, real liquidity constraints, position-aware betting",
     "status": "done",
     "priority": "P0",
-    "assignee": "Nimbus 🌤️",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
     "project": "weather-trading",
     "type": "feature",
     "tags": [
@@ -650,11 +670,11 @@
   },
   {
     "id": "TASK-059",
-    "title": "Vercel + Supabase Auth — Google OAuth on neveridle.ai",
+    "title": "Vercel + Supabase Auth \u2014 Google OAuth on neveridle.ai",
     "description": "Supabase Auth, Google OAuth, Harris Autonomous Vercel team, domain wiring",
     "status": "done",
     "priority": "P0",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "infrastructure",
     "type": "feature",
     "tags": [
@@ -667,11 +687,11 @@
   },
   {
     "id": "TASK-060",
-    "title": "Smart LLM Router — auto-route tasks to optimal model",
+    "title": "Smart LLM Router \u2014 auto-route tasks to optimal model",
     "description": "Route Opus for complex reasoning, Sonnet for coding, Gemini for search",
     "status": "backlog",
     "priority": "P0",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "infrastructure",
     "type": "feature",
     "tags": [
@@ -684,11 +704,11 @@
   },
   {
     "id": "TASK-061",
-    "title": "Quota-Aware Scheduling — maximize API value",
+    "title": "Quota-Aware Scheduling \u2014 maximize API value",
     "description": "Batch low-priority work off-peak, priority queue, debouncing, run-if-idle",
     "status": "backlog",
     "priority": "P0",
-    "assignee": "Forge 🔧",
+    "assignee": "Forge \ud83d\udd27",
     "project": "infrastructure",
     "type": "feature",
     "tags": [
@@ -705,7 +725,7 @@
     "description": "Create marketing materials, SEO, social media push for SnapAudit launch",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Quill ✍️",
+    "assignee": "Quill \u270d\ufe0f",
     "project": "snapaudit",
     "type": "feature",
     "tags": [
@@ -718,11 +738,11 @@
   },
   {
     "id": "TASK-063",
-    "title": "Ideas→Tasks pipeline wiring + project selector",
+    "title": "Ideas\u2192Tasks pipeline wiring + project selector",
     "description": "Connect idea takeaways to task board with project selection dropdown",
     "status": "in-progress",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -739,7 +759,7 @@
     "description": "Need API key to enable live market data for stock & options trading system",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Atlas 📈",
+    "assignee": "Atlas \ud83d\udcc8",
     "project": "stock-trading",
     "type": "feature",
     "tags": [
@@ -753,7 +773,7 @@
   },
   {
     "id": "TASK-015",
-    "title": "Research Polymarket + Kalshi APIs — DONE: keys configured, scanner finding live opportunities",
+    "title": "Research Polymarket + Kalshi APIs \u2014 DONE: keys configured, scanner finding live opportunities",
     "description": "Explore prediction market APIs, document rate limits, auth flows, and available markets. Focus on weather contracts where we have data edge.",
     "status": "done",
     "priority": "P1",
@@ -808,7 +828,7 @@
   {
     "id": "TASK-018",
     "title": "Design backtesting harness for Karpathy Loop on trading strategies",
-    "description": "Spec out how the autoresearch loop applies to trading. Hypothesis → test → measure → keep/discard. Framework for strategy iteration.",
+    "description": "Spec out how the autoresearch loop applies to trading. Hypothesis \u2192 test \u2192 measure \u2192 keep/discard. Framework for strategy iteration.",
     "status": "backlog",
     "priority": "P1",
     "assignee": "Henry",
@@ -880,7 +900,7 @@
   },
   {
     "id": "TASK-022",
-    "title": "First surprise project — find something cool to build Tim overnight",
+    "title": "First surprise project \u2014 find something cool to build Tim overnight",
     "description": "Autonomous creativity task. Henry + team brainstorm and start building something unexpected and delightful.",
     "status": "backlog",
     "priority": "P2",
@@ -936,7 +956,7 @@
   {
     "id": "TASK-012",
     "title": "Overnight Employee cron set up",
-    "description": "11pm PT → autonomous work via Sonnet. Evening brief cron also configured.",
+    "description": "11pm PT \u2192 autonomous work via Sonnet. Evening brief cron also configured.",
     "status": "done",
     "priority": "P0",
     "assignee": "Henry",
@@ -955,7 +975,7 @@
   {
     "id": "TASK-010",
     "title": "Morning + Evening Brief crons",
-    "description": "7am PT morning brief and 9pm PT evening brief → Telegram via Sonnet.",
+    "description": "7am PT morning brief and 9pm PT evening brief \u2192 Telegram via Sonnet.",
     "status": "done",
     "priority": "P0",
     "assignee": "Henry",
@@ -973,11 +993,11 @@
   },
   {
     "id": "MC-001",
-    "title": "Mission Control Phase 1 — Harris branding & customization",
+    "title": "Mission Control Phase 1 \u2014 Harris branding & customization",
     "description": "Rebrand TenacitOS to Harris Mission Control. Custom dashboard, agent roster, kanban, trading desk.",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -991,11 +1011,11 @@
   },
   {
     "id": "MC-002",
-    "title": "Mission Control Phase 2 — Real data wiring (sessions, cron, system, memory, files)",
+    "title": "Mission Control Phase 2 \u2014 Real data wiring (sessions, cron, system, memory, files)",
     "description": "Wire up live agent status, session tracking, cost per agent. SSE for real-time updates.",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "tags": [
@@ -1009,11 +1029,11 @@
   },
   {
     "id": "CRYPTO-001",
-    "title": "Cipher ₿ Crypto Bot — 8 phases complete, Docker infra live, paper trading ready",
+    "title": "Cipher \u20bf Crypto Bot \u2014 8 phases complete, Docker infra live, paper trading ready",
     "description": "Build the core CCXT data pipeline for crypto trading. TimescaleDB setup, historical data ingestion.",
     "status": "in-progress",
     "priority": "P0",
-    "assignee": "Cipher ₿",
+    "assignee": "Cipher \u20bf",
     "project": "crypto-trading",
     "type": "feature",
     "tags": [
@@ -1028,40 +1048,40 @@
   },
   {
     "id": "task-new-1",
-    "title": "Mission Control Phase 3 — Agents page, cost tracking, reliability, search, settings",
+    "title": "Mission Control Phase 3 \u2014 Agents page, cost tracking, reliability, search, settings",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-2",
-    "title": "Mission Control Phase 4 — Polish, nav redesign, gateway logs, reports, calendar, workflows",
+    "title": "Mission Control Phase 4 \u2014 Polish, nav redesign, gateway logs, reports, calendar, workflows",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-3",
-    "title": "Mission Control Phase 5 — Live crypto prices, Kalshi/Polymarket connected, keyboard shortcuts, 3D office, notifications, mobile",
+    "title": "Mission Control Phase 5 \u2014 Live crypto prices, Kalshi/Polymarket connected, keyboard shortcuts, 3D office, notifications, mobile",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-4",
-    "title": "Advisory Board — Launch wizard, live chat stream, human input, session history, persona overlays",
+    "title": "Advisory Board \u2014 Launch wizard, live chat stream, human input, session history, persona overlays",
     "status": "done",
     "priority": "P0",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "feature",
     "created_by": "henry"
@@ -1071,47 +1091,47 @@
     "title": "Agent avatars generated and integrated across all surfaces",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-6",
-    "title": "Agent naming — Atlas, Nimbus, Cipher, Forge, Pixel, Quant",
+    "title": "Agent naming \u2014 Atlas, Nimbus, Cipher, Forge, Pixel, Quant",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-7",
-    "title": "Provider auth setup — Anthropic, OpenAI, Google, OpenRouter",
+    "title": "Provider auth setup \u2014 Anthropic, OpenAI, Google, OpenRouter",
     "status": "done",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "infrastructure",
     "type": "maintenance",
     "created_by": "henry"
   },
   {
     "id": "task-new-8",
-    "title": "Quant 📊 added as 10th agent — Trading Strategy Architect",
+    "title": "Quant \ud83d\udcca added as 10th agent \u2014 Trading Strategy Architect",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-9",
-    "title": "Persona overlay system — 12 overlays available in Advisory Board wizard",
+    "title": "Persona overlay system \u2014 12 overlays available in Advisory Board wizard",
     "status": "done",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "feature",
     "created_by": "henry"
@@ -1121,7 +1141,7 @@
     "title": "Multi-agent task skill pulled from Mac Mini (832 files)",
     "status": "done",
     "priority": "P1",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "maintenance",
     "created_by": "henry"
@@ -1131,17 +1151,17 @@
     "title": "Agency Agents persona library pulled (118 personas)",
     "status": "done",
     "priority": "P2",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "org",
     "type": "maintenance",
     "created_by": "henry"
   },
   {
     "id": "task-new-12",
-    "title": "Nimbus 🌤️ Weather Trading Bot — 4 phases, 400 tests, scanner live with 34 opportunities",
+    "title": "Nimbus \ud83c\udf24\ufe0f Weather Trading Bot \u2014 4 phases, 400 tests, scanner live with 34 opportunities",
     "status": "in-progress",
     "priority": "P0",
-    "assignee": "Nimbus 🌤️",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
     "project": "weather-trading",
     "type": "feature",
     "created_by": "henry"
@@ -1151,7 +1171,7 @@
     "title": "Wire Advisory Board to real agent spawning (sessions_spawn)",
     "status": "backlog",
     "priority": "P0",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "advisory-board",
     "type": "feature",
     "created_by": "henry"
@@ -1161,17 +1181,17 @@
     "title": "Task board auto-sync with tasks-log.md and agent activity",
     "status": "backlog",
     "priority": "P1",
-    "assignee": "Pixel 💻",
+    "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
     "type": "feature",
     "created_by": "henry"
   },
   {
     "id": "task-new-15",
-    "title": "Mac Mini migration — prep checklist for new Mac Mini",
+    "title": "Mac Mini migration \u2014 prep checklist for new Mac Mini",
     "status": "backlog",
     "priority": "P2",
-    "assignee": "Henry ⚡",
+    "assignee": "Henry \u26a1",
     "project": "infrastructure",
     "type": "maintenance",
     "created_by": "henry"

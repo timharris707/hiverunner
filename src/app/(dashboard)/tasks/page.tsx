@@ -470,11 +470,23 @@ function TaskDetailDrawer({
   const [uploading, setUploading] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
+  const [routing, setRouting] = useState<{
+    tier: string; modelName: string; reason: string;
+    complexityScore: number; savingsPercent: number; signals: string[];
+  } | null>(null);
 
   // Animate in on mount
   useEffect(() => {
     requestAnimationFrame(() => setOpen(true));
   }, []);
+
+  // Fetch routing recommendation
+  useEffect(() => {
+    fetch(`/api/tasks/route-model?taskId=${task.id}`)
+      .then((r) => r.json())
+      .then((data) => { if (data.decision) setRouting(data.decision); })
+      .catch(() => {});
+  }, [task.id]);
 
   // Sync local state when task prop changes (e.g. after a save)
   useEffect(() => {
@@ -832,6 +844,43 @@ function TaskDetailDrawer({
             </button>
           )}
 
+          {/* LLM Router recommendation */}
+          {routing && (
+            <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
+                <label style={{ ...DRAWER_LABEL, marginBottom: 0, display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                  <span style={{ fontSize: "0.8rem" }}>{"🧠"}</span> Smart Router
+                </label>
+                {routing.savingsPercent > 0 && (
+                  <span style={{
+                    fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem",
+                    borderRadius: "9999px", backgroundColor: "rgba(74,222,128,0.12)",
+                    color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)",
+                  }}>
+                    {routing.savingsPercent}% savings
+                  </span>
+                )}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
+                <span style={{
+                  fontSize: "0.75rem", fontWeight: 700,
+                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
+                }}>
+                  {routing.modelName}
+                </span>
+                <span style={{
+                  fontSize: "0.6rem", padding: "0.1rem 0.375rem", borderRadius: "0.25rem",
+                  backgroundColor: "var(--card-elevated)", color: "var(--text-muted)", fontFamily: "monospace",
+                }}>
+                  complexity: {routing.complexityScore}/100
+                </span>
+              </div>
+              <p style={{ fontSize: "0.7rem", color: "var(--text-secondary)", margin: 0, lineHeight: 1.5 }}>
+                {routing.reason}
+              </p>
+            </div>
+          )}
+
           {/* Created by + Dates */}
           <div style={{ display: "flex", gap: "1.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
             {(task as any).created_by && (
@@ -1051,6 +1100,19 @@ function TaskCard({
               {attachmentCount}
             </span>
           )}
+          {(task as any).routedModel && (
+            <span
+              className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
+              style={{
+                backgroundColor: (task as any).routedTier === "opus" ? "rgba(245,158,11,0.1)" : (task as any).routedTier === "haiku" ? "rgba(167,139,250,0.1)" : "rgba(96,165,250,0.1)",
+                color: (task as any).routedTier === "opus" ? "#f59e0b" : (task as any).routedTier === "haiku" ? "#a78bfa" : "#60a5fa",
+                fontSize: "0.6rem", fontWeight: 600,
+              }}
+              title={`Routed to ${(task as any).routedModel} (complexity: ${(task as any).complexityScore}/100)`}
+            >
+              {"🧠"} {(task as any).routedModel}
+            </span>
+          )}
         </div>
         <span className="text-xs" style={{ color: "var(--text-muted)" }}>
           {formatDate(task.updated)}
@@ -1175,6 +1237,8 @@ export default function TasksPage() {
           });
           const buildData = await buildRes.json();
           console.log("🏭 Build agent spawned:", buildData);
+          // Refresh tasks to pick up routing metadata
+          fetchTasks();
         } catch (buildError) {
           console.error("Build trigger failed:", buildError);
         } finally {
