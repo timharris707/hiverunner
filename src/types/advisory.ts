@@ -20,6 +20,17 @@ export interface ActionItem {
   status: "pending" | "done";
 }
 
+export interface DetailedActionItem {
+  id: string;
+  title: string;
+  description: string;
+  assignedAgent: string;
+  suggestedDeadline: string;
+  priority: "high" | "medium" | "low";
+  source: string;
+  status: "pending" | "pushed" | "skipped";
+}
+
 export interface SessionInsights {
   actionItems: ActionItem[];
   keyDecisions: string[];

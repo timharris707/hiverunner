@@ -30,6 +30,7 @@ import type {
   SessionInsights,
   ReviewLoopState,
   CustomAgent,
+  DetailedActionItem,
 } from "@/types/advisory";
 import {
   formatDate,
@@ -44,6 +45,7 @@ import EventBubble from "@/components/advisory/EventBubble";
 import TypingIndicator from "@/components/advisory/TypingIndicator";
 import SessionSidebar from "@/components/advisory/SessionSidebar";
 import SessionInsightsPanel from "@/components/advisory/SessionInsightsPanel";
+import ActionItemsPanel from "@/components/advisory/ActionItemsPanel";
 import ReviewLoopPanel from "@/components/advisory/ReviewLoopPanel";
 import LaunchWizard from "@/components/advisory/LaunchWizard";
 import SessionComparison from "@/components/advisory/SessionComparison";
@@ -109,6 +111,8 @@ export default function AdvisoryPage() {
   const [compareSessions, setCompareSessions] = useState<[AdvisorySession | null, AdvisorySession | null]>([null, null]);
   const [sessionInsights, setSessionInsights] = useState<SessionInsights | null>(null);
   const [extractingInsights, setExtractingInsights] = useState(false);
+  const [actionItems, setActionItems] = useState<DetailedActionItem[]>([]);
+  const [extractingActions, setExtractingActions] = useState(false);
   const [reviewLoop, setReviewLoop] = useState<ReviewLoopState | null>(null);
   const [addingTask, setAddingTask] = useState(false);
   const [newTaskText, setNewTaskText] = useState("");
@@ -355,6 +359,7 @@ export default function AdvisoryPage() {
     setShowNewMessages(false);
     setEndSessionConfirm(false);
     setSessionInsights(null);
+    setActionItems([]);
     setMobileSidebarOpen(false);
     setLoopStarted(false);
     await loadSessionEvents(session.id);
@@ -716,15 +721,58 @@ export default function AdvisoryPage() {
   const handleExtractInsights = async () => {
     if (!activeSession) return;
     setExtractingInsights(true);
+    setExtractingActions(true);
     try {
-      const res = await fetch(`/api/advisory/sessions/${activeSession.id}/insights`, { method: "POST" });
-      const data = await res.json();
-      if (data.insights) setSessionInsights(data.insights);
+      // Extract insights and action items in parallel
+      const [insightsRes, actionsRes] = await Promise.all([
+        fetch(`/api/advisory/sessions/${activeSession.id}/insights`, { method: "POST" }),
+        fetch(`/api/advisory/sessions/${activeSession.id}/actions`, { method: "POST" }),
+      ]);
+      const insightsData = await insightsRes.json();
+      if (insightsData.insights) setSessionInsights(insightsData.insights);
+      const actionsData = await actionsRes.json();
+      if (actionsData.actions) setActionItems(actionsData.actions);
     } catch (e) {
       console.error("Insights extraction error:", e);
     } finally {
       setExtractingInsights(false);
+      setExtractingActions(false);
     }
+  };
+
+  const handlePushActionToTask = async (action: DetailedActionItem, mode: "now" | "schedule") => {
+    try {
+      const priorityMap: Record<string, string> = { high: "P1", medium: "P2", low: "P3" };
+      const res = await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: action.title,
+          description: action.description,
+          status: mode === "now" ? "in-progress" : "backlog",
+          priority: priorityMap[action.priority] || "P2",
+          assignee: action.assignedAgent,
+          project: "advisory-board",
+          type: "feature" as const,
+          tags: ["from-advisory", activeSession?.topic || ""].filter(Boolean),
+          source_url: activeSession ? `/advisory?session=${activeSession.id}` : undefined,
+          notes: action.source + (action.suggestedDeadline !== "none" ? ` | Deadline: ${action.suggestedDeadline}` : ""),
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to create task");
+      // Update local state
+      setActionItems((prev) =>
+        prev.map((a) => (a.id === action.id ? { ...a, status: "pushed" as const } : a))
+      );
+    } catch (e) {
+      console.error("Push action to task error:", e);
+    }
+  };
+
+  const handleSkipAction = (actionId: string) => {
+    setActionItems((prev) =>
+      prev.map((a) => (a.id === actionId ? { ...a, status: "skipped" as const } : a))
+    );
   };
 
   const handleToggleActionItem = async (index: number, status: "pending" | "done") => {
@@ -1313,12 +1361,28 @@ export default function AdvisoryPage() {
                           <TypingIndicator agentId={null} overrideLabel="Connecting to AI..." />
                         )}
                         {activeSession?.status === "completed" && (
-                          <SessionInsightsPanel
-                            insights={sessionInsights}
-                            onToggleAction={handleToggleActionItem}
-                            extracting={extractingInsights}
-                            onExtract={handleExtractInsights}
-                          />
+                          <>
+                            <SessionInsightsPanel
+                              insights={sessionInsights}
+                              onToggleAction={handleToggleActionItem}
+                              extracting={extractingInsights}
+                              onExtract={handleExtractInsights}
+                            />
+                            {(actionItems.length > 0 || extractingActions) && (
+                              extractingActions && actionItems.length === 0 ? (
+                                <div style={{ margin: "16px 0", padding: "16px", borderRadius: "12px", border: "1px solid rgba(10,132,255,0.3)", backgroundColor: "rgba(10,132,255,0.06)", display: "flex", alignItems: "center", gap: "10px" }}>
+                                  <Loader2 size={16} color="#0A84FF" className="animate-spin" />
+                                  <span style={{ fontSize: "12px", color: "#0A84FF", fontWeight: 600 }}>Extracting action items for the task board...</span>
+                                </div>
+                              ) : (
+                                <ActionItemsPanel
+                                  actions={actionItems}
+                                  onPushTask={handlePushActionToTask}
+                                  onSkip={handleSkipAction}
+                                />
+                              )
+                            )}
+                          </>
                         )}
                         <div ref={eventsEndRef} />
                       </>
