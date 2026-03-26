@@ -1,5 +1,98 @@
 [
   {
+    "id": "TASK-110",
+    "title": "Task attachments \u2014 paste/drop images, PDFs, files into tasks",
+    "description": "Add file attachment support to New Task modal and task detail view. Drag-and-drop or paste images/screenshots, PDFs, MD files, videos. Store in data/attachments/ directory. Show thumbnails for images, file icons for other types. Priority: images/screenshots first (most common use case).",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "task-board",
+      "attachments",
+      "images"
+    ],
+    "created": "2026-03-26T14:16:00.000Z",
+    "updated": "2026-03-26T14:16:00.000Z"
+  },
+  {
+    "id": "TASK-1774558978950",
+    "title": "Cost Intelligence Dashboard",
+    "description": "LLM fuel gauges showing quota usage, burndown charts, projected weekly spend, per-model cost breakdown.",
+    "status": "backlog",
+    "priority": "P2",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "from-idea",
+      "idea-tw-008"
+    ],
+    "created": "2026-03-26T21:02:58.950Z",
+    "updated": "2026-03-26T21:02:58.950Z",
+    "source_review": "review-001",
+    "source_takeaway": "tw-008",
+    "github_issue": "harris-autonomous/mission-control#8"
+  },
+  {
+    "id": "TASK-1774558968494",
+    "title": "Privacy/Demo Mode",
+    "description": "One-click toggle to redact sensitive info for screenshots and demos. He mentioned learning this the hard way.",
+    "status": "backlog",
+    "priority": "P2",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "from-idea",
+      "idea-tw-007"
+    ],
+    "created": "2026-03-26T21:02:48.494Z",
+    "updated": "2026-03-26T21:02:48.494Z",
+    "source_review": "review-001",
+    "source_takeaway": "tw-007",
+    "github_issue": "harris-autonomous/mission-control#7"
+  },
+  {
+    "id": "TASK-1774558903279",
+    "title": "Content & Marketing Agent",
+    "description": "His 'Mr. X' agent drafts social media content with approval flows \u2014 post to X/LinkedIn, generate YouTube ideas. We'd use Quill for this plus Insight marketing.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Quill \u270d\ufe0f",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "from-idea",
+      "idea-tw-006"
+    ],
+    "created": "2026-03-26T21:01:43.279Z",
+    "updated": "2026-03-26T21:01:43.279Z",
+    "source_review": "review-001",
+    "source_takeaway": "tw-006",
+    "github_issue": "harris-autonomous/mission-control#6"
+  },
+  {
+    "id": "TASK-1774558853153",
+    "title": "Software Factory Pipeline",
+    "description": "One-click idea to deployed app. Agents scan Reddit for opportunities, build MVPs autonomously. Formalize: Idea \u2192 Architecture \u2192 Build \u2192 Test \u2192 Deploy.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Henry \u26a1",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "from-idea",
+      "idea-tw-005"
+    ],
+    "created": "2026-03-26T21:00:53.153Z",
+    "updated": "2026-03-26T21:00:53.153Z",
+    "source_review": "review-001",
+    "source_takeaway": "tw-005",
+    "github_issue": "harris-autonomous/mission-control#5"
+  },
+  {
     "id": "TASK-1774558729780",
     "title": "Smart LLM Router \u2014 Auto-route tasks to optimal model",
     "description": "Build a routing layer that auto-assigns tasks to the right model. Opus for complex reasoning, Sonnet for coding, Gemini for search, local for boilerplate. Could cut costs 50-70%.",
