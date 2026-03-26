@@ -945,10 +945,16 @@ function TaskCard({
         </div>
       )}
       {!isBuilding && task.status === "in-progress" && (task as any).buildTriggeredAt && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}>
+        <a
+          href="/factory"
+          onClick={(e) => e.stopPropagation()}
+          className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
+          style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", textDecoration: "none" }}
+        >
           <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
           <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>AGENT BUILDING</span>
-        </div>
+          <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
+        </a>
       )}
 
       {/* Title */}
