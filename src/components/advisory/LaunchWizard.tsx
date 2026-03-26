@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
-import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip, ChevronDown, ChevronRight, Code, Wrench, Bug, Rocket, Search } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip, ChevronDown, ChevronRight, Code, Wrench, Bug, Rocket, Search, Sparkles } from "lucide-react";
 import type { AdvisorySession, CustomAgent } from "@/types/advisory";
 import { AGENTS, PERSONA_OVERLAYS_EXTENDED, AGENT_RECOMMENDED_OVERLAYS, MODELS, PACING_OPTIONS, SESSION_TEMPLATES, DIVISIONS } from "./constants";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -531,6 +531,12 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  // AI-generated persona state
+  interface AIPersona { id: string; name: string; emoji: string; description: string }
+  const [aiPersonas, setAiPersonas] = useState<AIPersona[]>([]);
+  const [aiPersonasLoading, setAiPersonasLoading] = useState(false);
+  const [aiPersonasCachedTopic, setAiPersonasCachedTopic] = useState("");
+
   // Review Loop specific state
   const [taskListText, setTaskListText] = useState("");
   const [workerAgent, setWorkerAgent] = useState("");
@@ -580,6 +586,48 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
     });
   };
 
+  // Generate AI personas when entering persona step
+  const generateAiPersonas = useCallback(async (topicText: string) => {
+    // Don't re-generate if topic hasn't changed
+    if (topicText === aiPersonasCachedTopic && aiPersonas.length > 0) return;
+    setAiPersonasLoading(true);
+    try {
+      const res = await fetch("/api/advisory/generate-personas", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic: topicText }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      const data = await res.json();
+      if (data.personas?.length > 0) {
+        setAiPersonas(data.personas);
+        setAiPersonasCachedTopic(topicText);
+        // Pre-select AI personas: assign first AI overlay to each selected agent (if they have room)
+        setPersonaOverlays((prev) => {
+          const next = { ...prev };
+          for (const agentId of selectedAgents) {
+            const current = next[agentId] || [];
+            if (current.length < MAX_OVERLAYS_PER_AGENT && data.personas[0]) {
+              // Pick the first AI persona that isn't already assigned
+              const firstAvailable = data.personas.find(
+                (p: AIPersona) => !current.includes(p.id)
+              );
+              if (firstAvailable) {
+                next[agentId] = [...current, firstAvailable.id];
+              }
+            }
+          }
+          return next;
+        });
+      }
+    } catch {
+      // Silently fall back to static list
+      console.warn("AI persona generation failed, using static overlays");
+    } finally {
+      setAiPersonasLoading(false);
+    }
+  }, [aiPersonasCachedTopic, aiPersonas.length, selectedAgents, MAX_OVERLAYS_PER_AGENT]);
+
   const handleNext = () => {
     if (!topic.trim()) { setError("Mission/Topic is required."); return; }
     if (mode === "review") {
@@ -597,6 +645,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
     }
     setError("");
     setStep("personas");
+    generateAiPersonas(topic.trim());
   };
 
   // Parse task list text into structured tasks
@@ -1602,6 +1651,147 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                 Add specialized expertise to each agent. Up to {MAX_OVERLAYS_PER_AGENT} overlays per agent — each shapes how they approach their contributions. All are optional.
               </p>
 
+              {/* AI-Generated Personas Section */}
+              {aiPersonasLoading && (
+                <div
+                  style={{
+                    padding: "20px",
+                    borderRadius: "12px",
+                    border: "1px solid rgba(168,85,247,0.3)",
+                    background: "linear-gradient(135deg, rgba(168,85,247,0.06) 0%, rgba(139,92,246,0.04) 100%)",
+                    marginBottom: "20px",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                  }}
+                >
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        style={{
+                          width: "8px",
+                          height: "8px",
+                          borderRadius: "50%",
+                          backgroundColor: "#a855f7",
+                          opacity: 0.4,
+                          animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span style={{ fontSize: "12px", color: "#c084fc", fontWeight: 600 }}>
+                    <Sparkles size={12} style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }} />
+                    Generating expert recommendations for your topic...
+                  </span>
+                  <style>{`@keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(0.8); } 50% { opacity: 1; transform: scale(1.2); } }`}</style>
+                </div>
+              )}
+
+              {aiPersonas.length > 0 && !aiPersonasLoading && (
+                <div style={{ marginBottom: "20px", animation: "fadeInUp 0.4s ease-out" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
+                    <Sparkles size={14} style={{ color: "#a855f7" }} />
+                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
+                      AI GENERATED FOR YOUR TOPIC
+                    </span>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "8px" }}>
+                    {aiPersonas.map((persona) => {
+                      const isUsed = Object.values(personaOverlays).flat().includes(persona.id);
+                      return (
+                        <button
+                          key={persona.id}
+                          type="button"
+                          onClick={() => {
+                            // Toggle this AI persona on/off all agents
+                            setPersonaOverlays((prev) => {
+                              const next = { ...prev };
+                              if (isUsed) {
+                                // Remove from all agents
+                                for (const agentId of selectedAgents) {
+                                  if (next[agentId]?.includes(persona.id)) {
+                                    next[agentId] = next[agentId].filter((id) => id !== persona.id);
+                                    if (next[agentId].length === 0) delete next[agentId];
+                                  }
+                                }
+                              } else {
+                                // Add to all agents that have room
+                                for (const agentId of selectedAgents) {
+                                  const current = next[agentId] || [];
+                                  if (current.length < MAX_OVERLAYS_PER_AGENT && !current.includes(persona.id)) {
+                                    next[agentId] = [...current, persona.id];
+                                  }
+                                }
+                              }
+                              return next;
+                            });
+                          }}
+                          style={{
+                            padding: "12px",
+                            borderRadius: "10px",
+                            border: `1px solid ${isUsed ? "rgba(168,85,247,0.5)" : "rgba(168,85,247,0.2)"}`,
+                            background: isUsed
+                              ? "linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.1) 100%)"
+                              : "linear-gradient(135deg, rgba(168,85,247,0.05) 0%, rgba(139,92,246,0.02) 100%)",
+                            cursor: "pointer",
+                            textAlign: "left",
+                            transition: "all 200ms ease",
+                            position: "relative",
+                            overflow: "hidden",
+                          }}
+                        >
+                          {/* Purple glow accent */}
+                          <div style={{
+                            position: "absolute",
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            height: "2px",
+                            background: "linear-gradient(90deg, #a855f7, #7c3aed, #a855f7)",
+                            opacity: isUsed ? 1 : 0.4,
+                          }} />
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                            <span style={{ fontSize: "22px", lineHeight: 1 }}>{persona.emoji}</span>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
+                                <span style={{ fontSize: "11px", fontWeight: 700, color: isUsed ? "#c084fc" : "var(--text-primary)" }}>
+                                  {persona.name}
+                                </span>
+                                <span style={{
+                                  fontSize: "7px",
+                                  fontWeight: 700,
+                                  color: "#a855f7",
+                                  backgroundColor: "rgba(168,85,247,0.15)",
+                                  border: "1px solid rgba(168,85,247,0.3)",
+                                  padding: "1px 4px",
+                                  borderRadius: "3px",
+                                  letterSpacing: "0.04em",
+                                }}>
+                                  AI GENERATED
+                                </span>
+                              </div>
+                              <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.4 }}>
+                                {persona.description}
+                              </div>
+                            </div>
+                            {isUsed && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>✓</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0 4px" }}>
+                    <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
+                    <span style={{ fontSize: "10px", color: "var(--text-muted)", fontWeight: 500, whiteSpace: "nowrap" }}>or choose from library</span>
+                    <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
+                  </div>
+                  <style>{`@keyframes fadeInUp { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+                </div>
+              )}
+
               {/* Per-agent overlay rows */}
               <div style={{ display: "flex", flexDirection: "column", gap: "16px", marginBottom: "16px" }}>
                 {selectedAgents.map((agentId) => {
@@ -1668,6 +1858,10 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
                           {agentOverlays.map((oId) => {
                             const overlay = PERSONA_OVERLAYS_EXTENDED.find((o) => o.id === oId);
+                            const aiOverlay = aiPersonas.find((p) => p.id === oId);
+                            const displayEmoji = overlay?.emoji ?? aiOverlay?.emoji ?? "🤖";
+                            const displayName = overlay?.name ?? aiOverlay?.name ?? oId;
+                            const isAi = !overlay && !!aiOverlay;
                             return (
                               <span
                                 key={oId}
@@ -1677,17 +1871,18 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                                   gap: "4px",
                                   padding: "3px 10px",
                                   borderRadius: "12px",
-                                  backgroundColor: "rgba(167,139,250,0.15)",
-                                  border: "1px solid rgba(167,139,250,0.4)",
+                                  backgroundColor: isAi ? "rgba(168,85,247,0.15)" : "rgba(167,139,250,0.15)",
+                                  border: `1px solid ${isAi ? "rgba(168,85,247,0.4)" : "rgba(167,139,250,0.4)"}`,
                                   fontSize: "10px",
                                   fontWeight: 700,
-                                  color: "#a78bfa",
+                                  color: isAi ? "#c084fc" : "#a78bfa",
                                 }}
                               >
-                                {overlay?.emoji} {overlay?.name}
+                                {displayEmoji} {displayName}
+                                {isAi && <span style={{ fontSize: "7px", opacity: 0.7 }}>AI</span>}
                                 <button
                                   onClick={() => toggleAgentOverlay(agentId, oId)}
-                                  style={{ background: "none", border: "none", cursor: "pointer", color: "#a78bfa", padding: "0 0 0 2px", fontSize: "10px", lineHeight: 1 }}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: isAi ? "#c084fc" : "#a78bfa", padding: "0 0 0 2px", fontSize: "10px", lineHeight: 1 }}
                                 >
                                   ✕
                                 </button>
