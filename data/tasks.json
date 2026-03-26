@@ -1,5 +1,24 @@
 [
   {
+    "id": "TASK-117",
+    "title": "Moderator role for roundtable \u2014 opens, guides, interjects, closes",
+    "description": "Add explicit Moderator selection in launch wizard (default: Henry). Moderator responsibilities: opens session with agenda framing, can interject between any agent to keep discussion on track, doesn't wait for turn order, delivers final synthesis/conclusions, assigns action items. If Henry is in session he's auto-selected as moderator. If not, first agent or user's choice. Moderator speaks with a distinct framing: 'Let me redirect us...' / 'Good point, but we're drifting...' / 'Let me summarize where we are...'",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Henry \u26a1",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "moderator",
+      "roundtable",
+      "ux"
+    ],
+    "created": "2026-03-26T15:06:00.000Z",
+    "updated": "2026-03-26T15:06:00.000Z",
+    "created_by": "tim"
+  },
+  {
     "id": "TASK-116",
     "title": "Dynamic persona generation \u2014 AI creates custom overlays based on session topic",
     "description": "When user enters a topic in the wizard, use AI to generate 3-5 recommended persona overlays specifically tailored to that topic. E.g. 'AI dating coach' generates: Relationship Psychology Expert, Dating App Veteran, Ethics & Safety Advisor, Dating Industry Analyst. Each with name, expertise description, and relevant background. Replaces static overlay list with intelligent, topic-aware recommendations. MASSIVE competitive moat.",
