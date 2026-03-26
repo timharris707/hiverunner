@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, Bell, User, Command, Settings, LogOut, ChevronDown } from "lucide-react";
+import { Bell, User, Command, Search, Settings, LogOut, ChevronDown } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 import Link from "next/link";
@@ -67,75 +67,37 @@ export function TopBar() {
           zIndex: 45,
         }}
       >
-        {/* Left: Logo & Title */}
+        {/* Left: Logo & Brand */}
         <div className="flex items-center gap-3" style={{ paddingLeft: "10px" }}>
-          <span style={{ fontSize: "20px" }}>⚡</span>
+          <span style={{ fontSize: "18px" }}>⚡</span>
           <h1
             style={{
               fontFamily: "var(--font-heading)",
-              fontSize: "16px",
+              fontSize: "15px",
               fontWeight: 700,
               color: "var(--text-primary)",
-              letterSpacing: "-0.5px",
+              letterSpacing: "-0.3px",
             }}
           >
-            Harris Mission Control
+            Never Idle
           </h1>
-          {/* Version Badge */}
-          <div
+          <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 2px" }}>|</span>
+          <span
             style={{
-              backgroundColor: "var(--accent-soft)",
-              borderRadius: "4px",
-              padding: "2px 8px",
+              fontFamily: "var(--font-body)",
+              fontSize: "12px",
+              fontWeight: 400,
+              fontStyle: "italic",
+              color: "var(--text-muted)",
+              letterSpacing: "0.2px",
             }}
           >
-            <span
-              style={{
-                fontFamily: "var(--font-body)",
-                fontSize: "9px",
-                fontWeight: 700,
-                color: "var(--accent)",
-                letterSpacing: "1px",
-              }}
-            >
-              v1.0
-            </span>
-          </div>
+            Build an autonomous organization that produces value 24/7
+          </span>
         </div>
 
-        {/* Right: Search + Notifications + User */}
+        {/* Right: Notifications + User */}
         <div className="flex items-center gap-3">
-          {/* Search Box */}
-          <button
-            onClick={() => setShowSearch(true)}
-            className="flex items-center gap-2 transition-all"
-            style={{
-              width: isMobile ? "100px" : "240px",
-              height: "32px",
-              backgroundColor: "var(--surface-elevated)",
-              borderRadius: "6px",
-              padding: "0 12px",
-            }}
-          >
-            <Search
-              className="flex-shrink-0"
-              style={{
-                width: "16px",
-                height: "16px",
-                color: "var(--text-muted)",
-              }}
-            />
-            <span
-              style={{
-                fontFamily: "var(--font-body)",
-                fontSize: "12px",
-                color: "var(--text-muted)",
-              }}
-            >
-              Search... ⌘K
-            </span>
-          </button>
-
           {/* Notifications Dropdown */}
           <NotificationDropdown />
 
