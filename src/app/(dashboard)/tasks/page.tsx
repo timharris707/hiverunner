@@ -236,7 +236,7 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   );
 }
 
-function TaskCard({ task, onDragStart, onStatusChange, projectsMap }: { task: Task; onDragStart: (e: React.DragEvent, task: Task) => void; onStatusChange: (id: string, status: Task["status"]) => void; projectsMap: Record<string, ProjectInfo> }) {
+function TaskCard({ task, onDragStart, onStatusChange, projectsMap, isBuilding }: { task: Task; onDragStart: (e: React.DragEvent, task: Task) => void; onStatusChange: (id: string, status: Task["status"]) => void; projectsMap: Record<string, ProjectInfo>; isBuilding?: boolean }) {
   const proj = projectsMap[task.project || ""];
   const projectColor = proj?.color || "#6b7280";
   const projectLabel = proj ? `${proj.emoji} ${proj.name}` : task.project || "";
@@ -275,6 +275,14 @@ function TaskCard({ task, onDragStart, onStatusChange, projectsMap }: { task: Ta
           </span>
         )}
       </div>
+
+      {/* Build indicator */}
+      {isBuilding && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
+          <span className="animate-pulse">🏭</span>
+          <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>AGENT SPAWNING...</span>
+        </div>
+      )}
 
       {/* Title */}
       <div
@@ -390,6 +398,8 @@ export default function TasksPage() {
     }
   };
 
+  const [buildingTaskId, setBuildingTaskId] = useState<string | null>(null);
+
   const handleStatusChange = async (id: string, newStatus: Task["status"]) => {
     // Optimistic update
     setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: newStatus, updated: new Date().toISOString() } : t));
@@ -399,6 +409,24 @@ export default function TasksPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id, status: newStatus }),
       });
+
+      // 🏭 SOFTWARE FACTORY: Auto-spawn build agent when moved to in-progress
+      if (newStatus === "in-progress") {
+        setBuildingTaskId(id);
+        try {
+          const buildRes = await fetch("/api/tasks/build", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId: id }),
+          });
+          const buildData = await buildRes.json();
+          console.log("🏭 Build agent spawned:", buildData);
+        } catch (buildError) {
+          console.error("Build trigger failed:", buildError);
+        } finally {
+          setTimeout(() => setBuildingTaskId(null), 3000);
+        }
+      }
     } catch (error) {
       console.error("Error updating task:", error);
       fetchTasks(); // revert on error
@@ -596,6 +624,7 @@ export default function TasksPage() {
                       onDragStart={handleDragStart}
                       onStatusChange={handleStatusChange}
                       projectsMap={projectsMap}
+                      isBuilding={buildingTaskId === task.id}
                     />
                   ))
                 )}
