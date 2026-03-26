@@ -22,7 +22,7 @@
     "id": "TASK-116",
     "title": "Dynamic persona generation \u2014 AI creates custom overlays based on session topic",
     "description": "When user enters a topic in the wizard, use AI to generate 3-5 recommended persona overlays specifically tailored to that topic. E.g. 'AI dating coach' generates: Relationship Psychology Expert, Dating App Veteran, Ethics & Safety Advisor, Dating Industry Analyst. Each with name, expertise description, and relevant background. Replaces static overlay list with intelligent, topic-aware recommendations. MASSIVE competitive moat.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P1",
     "assignee": "Henry \u26a1",
     "project": "advisory-board",
@@ -34,7 +34,7 @@
       "killer-feature"
     ],
     "created": "2026-03-26T14:49:00.000Z",
-    "updated": "2026-03-26T14:49:00.000Z",
+    "updated": "2026-03-26T16:05:00.000Z",
     "created_by": "tim"
   },
   {
