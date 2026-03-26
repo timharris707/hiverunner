@@ -105,14 +105,14 @@ export function StatusBar() {
       style={{
         position: "fixed",
         bottom: 0,
-        left: 0,
+        left: "168px",
         right: 0,
         height: "32px",
         backgroundColor: "var(--surface)",
         borderTop: "1px solid var(--border)",
         display: "flex",
         alignItems: "center",
-        padding: "0 16px 0 84px",
+        padding: "0 16px",
         gap: "16px",
         zIndex: 40,
       }}
