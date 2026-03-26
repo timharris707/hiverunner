@@ -1626,7 +1626,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                           <div style={{ fontSize: "10px", color: "var(--text-muted)" }}>{agentDef?.role ?? "Agent"}</div>
                         </div>
                         {/* Per-agent model selector */}
-                        <div style={{ flexShrink: 0 }}>
+                        <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "2px" }}>
+                          <span style={{ fontSize: "9px", fontWeight: 600, color: "var(--text-muted)", letterSpacing: "0.5px", textTransform: "uppercase" }}>Model</span>
                           <select
                             value={agentModelOverrides[agentId] || ""}
                             onChange={(e) => {

@@ -1,0 +1,40 @@
+{
+  "id": "session-1774546451993-a151a21d",
+  "topic": "What should Harris Autonomous build next? We have trading bots, SnapAudit, and Mission Control. What's the highest-impact product we could ship in the next 2 weeks?",
+  "mode": "roundtable",
+  "agents": [
+    "Henry",
+    "Quant",
+    "Scout"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-26T17:34:11.994Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": {
+    "Henry": "autonomous-optimization-architect",
+    "Quant": "trading-strategist",
+    "Scout": "reality-checker"
+  },
+  "rounds": 3,
+  "pacing": "manual",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-26T17:34:11.994Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.**\n\n**Topic:** What should Harris Autonomous build next? We have trading bots, SnapAudit, and Mission Control. What's the highest-impact product we could ship in the next 2 weeks?\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Henry, Quant, Scout\n\nStanding by for agent inputs..."
+    }
+  ],
+  "thinkingAgent": "Henry"
+}
