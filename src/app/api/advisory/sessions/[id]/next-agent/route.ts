@@ -155,6 +155,48 @@ export async function POST(
 
   // Determine which agent goes next
   const events = session.events || [];
+
+  // ── Round limit enforcement ──────────────────────────────────────────────
+  const configuredRounds = session.rounds;
+  if (configuredRounds && configuredRounds !== "persistent") {
+    const roundLimit = Number(configuredRounds);
+    if (!isNaN(roundLimit) && roundLimit > 0) {
+      // Count completed rounds: a round is complete when every agent in session.agents has spoken once
+      const agentEvents = events.filter(
+        (e: { speaker: string; type: string }) =>
+          e.speaker !== "Tim" && e.speaker !== "System" &&
+          e.type !== "start" && e.type !== "complete" && e.type !== "human-directive"
+      );
+      const agentList = agents as string[];
+      let completedRounds = 0;
+      const seenInRound = new Set<string>();
+      for (const e of agentEvents) {
+        seenInRound.add(e.speaker);
+        if (agentList.every((a: string) => seenInRound.has(a))) {
+          completedRounds++;
+          seenInRound.clear();
+        }
+      }
+
+      if (completedRounds >= roundLimit) {
+        // Round limit reached — trigger synthesis and complete the session
+        const endRes = await fetch(
+          new URL(`/api/advisory/sessions/${id}/end`, _req.url).toString(),
+          { method: "POST" }
+        );
+        const endOk = endRes.ok;
+        if (!endOk) {
+          console.error("Failed to trigger end-session from round limit enforcement");
+        }
+        return NextResponse.json({
+          ok: true,
+          sessionComplete: true,
+          message: `Round limit (${roundLimit}) reached — session ending with synthesis.`,
+        });
+      }
+    }
+  }
+
   const { agentId } = determineNextAgent(agents as string[], events);
   const agent = AGENT_DEFS[agentId];
 
@@ -183,7 +225,7 @@ export async function POST(
   const generateResponse = async () => {
     const currentRaw = fs.readFileSync(filePath, "utf-8");
     const currentSession = JSON.parse(currentRaw);
-    if (currentSession.status !== "active") return;
+    if (currentSession.status !== "active" || currentSession.aborted) return;
 
     const currentEvents = currentSession.events || [];
     const history = buildHistoryString(currentEvents);
@@ -217,6 +259,14 @@ export async function POST(
       text = data.choices?.[0]?.message?.content || "";
     } catch (err) {
       text = `⚠️ Failed to generate response: ${String(err)}`;
+    }
+
+    // Check if session was aborted (user clicked End while we were generating)
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.aborted || checkSession.status !== "active") {
+      // Session was ended — discard this response silently
+      return;
     }
 
     // Append the event

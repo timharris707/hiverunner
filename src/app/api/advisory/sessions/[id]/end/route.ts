@@ -97,6 +97,11 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
+  // Immediately set aborted flag so any in-flight agent generation discards its response
+  session.aborted = true;
+  session.status = "completed";
+  fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+
   const { topic, agents = [], personaOverlays = {} } = session;
 
   // Resolve model from session config

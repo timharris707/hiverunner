@@ -312,8 +312,14 @@ export default function AdvisoryPage() {
             setIsGenerating(false);
             setThinkingAgent(null);
             setConnectingToAI(false);
+            setIsPaused(false);
+            // Update the active session status so UI reflects completion
+            setActiveSession((s) => s ? { ...s, status: data.status, completedAt: data.completedAt || new Date().toISOString() } : s);
+            // Update the sessions list so sidebar shows DONE badge
+            setSessions((prev) => prev.map((s) => s.id === activeSession.id ? { ...s, status: data.status } : s));
+            // Clear persisted session ID — session is no longer active
+            localStorage.removeItem("advisory_active_session_id");
             // Reload session data but KEEP the active session selected
-            // Do NOT call loadSessions() during polling — it causes re-renders that can deselect the active session
             await loadSessionEvents(activeSession.id);
           }
           if (activeSession.mode === "review") {
@@ -583,6 +589,14 @@ export default function AdvisoryPage() {
       // For manual pacing: fire one agent at a time via next-agent endpoint
       const res = await fetch(`/api/advisory/sessions/${activeSession.id}/next-agent`, { method: "POST" });
       const data = await res.json();
+      if (data.sessionComplete) {
+        // Round limit reached — session is ending with synthesis
+        setIsGenerating(true);
+        setConnectingToAI(false);
+        setThinkingAgent(null);
+        // The end route is running async — polling will detect completion
+        return;
+      }
       setIsPaused(false);
       setIsGenerating(true);
       if (data.nextAgent) {
