@@ -1172,8 +1172,7 @@ export default function AdvisoryPage() {
           )}
         </div>
 
-        {/* RIGHT SIDEBAR — hidden for now (was causing layout issues) */}
-        {/* Will be added back as a toggleable panel */}
+        {/* RIGHT SIDEBAR — toggleable panel for Participants & Session Info (no Legend) */}
       </div>
 
       {/* ─── Modals ──────────────────────────────────────────────────────────── */}
