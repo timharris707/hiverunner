@@ -372,14 +372,44 @@ function TakeawayRow({
           </>
         )}
         {takeaway.status === "approved" && (
-          <button
-            onClick={() => updateTakeaway({ status: "building" })}
-            disabled={saving}
-            className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
-            style={{ backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }}
-          >
-            <Hammer size={12} /> Start Build
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await fetch(`/api/ideas/${reviewId}/takeaways/${takeaway.id}/build`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "build-now", project: "mission-control" }),
+                  });
+                  updateTakeaway({ status: "building" });
+                } finally { setSaving(false); }
+              }}
+              disabled={saving}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+              style={{ backgroundColor: "rgba(239,68,68,0.2)", color: "#ef4444" }}
+            >
+              <Hammer size={12} /> Build Now
+            </button>
+            <button
+              onClick={async () => {
+                setSaving(true);
+                try {
+                  await fetch(`/api/ideas/${reviewId}/takeaways/${takeaway.id}/build`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ action: "add-to-queue", project: "mission-control" }),
+                  });
+                  updateTakeaway({ status: "building" });
+                } finally { setSaving(false); }
+              }}
+              disabled={saving}
+              className="inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+              style={{ backgroundColor: "rgba(251,191,36,0.15)", color: "#fbbf24" }}
+            >
+              <Plus size={12} /> Add to Queue
+            </button>
+          </div>
         )}
         {takeaway.status === "building" && (
           <button
