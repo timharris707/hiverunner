@@ -18,14 +18,14 @@
 - [ ] Agent role dropdowns: replace emoji with actual avatars (needs custom dropdown component, not native `<select>`)
 
 ## Advisory Board Landing Page
-- [ ] Mission Control "M" logo needs left padding — butted against sidebar
+- [x] Mission Control "M" logo needs left padding — butted against sidebar
 - [ ] Card description text centering is off — should center within each card, not whole section
 - [ ] "Human Input" → rename to something better (not "CEO Directives" either — workshop this)
 - [ ] Add floating agent cards with avatars + specialties as visual showcase for new users
 - [ ] Overall empty state could be more inviting/engaging
 
 ## PDF Export
-- [ ] **White background for print** — dark theme is unusable for printing (runs out of ink)
+- [x] **White background for print** — dark theme is unusable for printing (runs out of ink)
 - [ ] Strip all markdown artifacts (`=`, `>`, `#` rendering as weird symbols)
 - [ ] Fix `¡` characters appearing before headings (encoding issue from markdown stripping)
 - [ ] Clean typography, professional report look
@@ -64,7 +64,7 @@
 - [ ] Source from Agency Agents library (118 personas available)
 
 ## Roundtable Mode — Critical Feedback from Live Testing
-- [ ] **Don't label agents as "WORKER" in roundtable mode** — that's only for review mode. In roundtable they're just participants/advisors
+- [x] **Don't label agents as "WORKER" in roundtable mode** — that's only for review mode. In roundtable they're just participants/advisors
 - [ ] **Manual pacing should show ONE agent at a time, not a whole round** — click Next → one agent responds → you read it → click Next → next agent responds. Currently it fires all agents in a round at once, skipping past the human
 - [ ] **Auto-advance toggle matters here too** — if they want all agents to fire at once per round, that's the auto-continue toggle. Manual = one at a time
 - [ ] **Human needs a chance to participate between each agent** — currently the round just blasts through without letting the user jump in
@@ -73,8 +73,8 @@
 
 ## End Session UX
 - [ ] When user hits End, immediately hide the "Agents deliberating..." indicator
-- [ ] Show clear state: "Session ending — Henry is writing final synthesis..."
-- [ ] Disable the End button after first click (no double-tap confusion)
+- [x] Show clear state: "Session ending — Henry is writing final synthesis..."
+- [x] Disable the End button after first click (no double-tap confusion)
 - [ ] Once synthesis is complete, show "Session Complete" banner clearly
 - [ ] Export/Copy/PDF buttons should only become active AFTER session completes
 
