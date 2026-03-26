@@ -232,16 +232,31 @@ function getPrintCSS(): string {
       border-radius: 6px;
       border: 1px solid #e2e8f0;
       background: #fafbfc;
-      page-break-inside: auto;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      overflow: visible;
     }
 
     .pdf-event-header {
       page-break-after: avoid;
+      break-after: avoid;
+    }
+
+    .pdf-event-content {
+      overflow: visible;
     }
 
     .pdf-event-content p {
       orphans: 3;
       widows: 3;
+      overflow-wrap: break-word;
+      word-wrap: break-word;
+    }
+
+    /* Allow long events to break across pages */
+    .pdf-event-long {
+      page-break-inside: auto;
+      break-inside: auto;
     }
 
     .pdf-event-human {
@@ -318,22 +333,18 @@ function getPrintCSS(): string {
       margin-bottom: 0;
     }
 
-    /* Footer */
+    /* Footer — end of document, not fixed to avoid overlapping content */
     .pdf-footer {
-      margin-top: 32px;
-      padding-top: 12px;
+      margin-top: 40px;
+      padding-top: 16px;
       border-top: 1px solid #e2e8f0;
       display: flex;
       justify-content: space-between;
       align-items: center;
       font-size: 8px;
       color: #94a3b8;
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      padding: 8px 0.75in;
-      background: #fff;
+      page-break-inside: avoid;
+      break-inside: avoid;
     }
 
     .pdf-footer-brand {
@@ -425,9 +436,12 @@ function buildPrintHTML(session: PDFSession, events: PDFEvent[]): string {
       : event.role === "supervisor" ? "pdf-badge-supervisor"
       : event.role === "reviewer" ? "pdf-badge-reviewer"
       : "pdf-badge-worker";
-    const eventClass = isHuman ? "pdf-event pdf-event-human"
-      : event.role === "supervisor" ? "pdf-event pdf-event-supervisor"
-      : "pdf-event";
+    const isLong = paragraphs.length > 4;
+    const eventClass = [
+      "pdf-event",
+      isHuman ? "pdf-event-human" : event.role === "supervisor" ? "pdf-event-supervisor" : "",
+      isLong ? "pdf-event-long" : "",
+    ].filter(Boolean).join(" ");
 
     const parasHTML = paragraphs.map((p) => `<p>${escapeHTML(p)}</p>`).join("");
 
@@ -501,13 +515,13 @@ export async function exportSessionAsPDF(
   printWindow.document.write(html);
   printWindow.document.close();
   // Wait for content to render before triggering print
-  printWindow.addEventListener("load", () => {
-    setTimeout(() => {
-      printWindow.print();
-    }, 300);
-  });
-  // Fallback in case load event already fired
-  setTimeout(() => {
+  let printed = false;
+  const doPrint = () => {
+    if (printed) return;
+    printed = true;
     printWindow.print();
-  }, 800);
+  };
+  printWindow.addEventListener("load", () => setTimeout(doPrint, 300));
+  // Fallback in case load event already fired
+  setTimeout(doPrint, 1000);
 }
