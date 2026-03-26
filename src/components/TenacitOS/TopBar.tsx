@@ -81,6 +81,18 @@ export function TopBar() {
           >
             Never Idle
           </h1>
+          <span
+            style={{
+              fontFamily: "var(--font-heading)",
+              fontSize: "11px",
+              fontWeight: 600,
+              color: "var(--accent)",
+              letterSpacing: "1.5px",
+              textTransform: "uppercase" as const,
+            }}
+          >
+            Mission Control
+          </span>
           <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 4px" }}>|</span>
           <span
             style={{
