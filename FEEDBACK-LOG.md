@@ -71,6 +71,21 @@
 - [ ] **The conversation content was actually great** — Tim said "absolutely fascinating" and the agents were debating properly (Scout referencing Quant's points, etc.)
 - [ ] **Three agents went without user getting a chance to hit Next** — inconsistent behavior, sometimes one-at-a-time, sometimes batch
 
+## End Session UX
+- [ ] When user hits End, immediately hide the "Agents deliberating..." indicator
+- [ ] Show clear state: "Session ending — Henry is writing final synthesis..."
+- [ ] Disable the End button after first click (no double-tap confusion)
+- [ ] Once synthesis is complete, show "Session Complete" banner clearly
+- [ ] Export/Copy/PDF buttons should only become active AFTER session completes
+
+## Round Tracking
+- [ ] Show "Round 2 of 3" indicator somewhere visible (header or between rounds as divider)
+- [ ] Without this, users lose track of where they are in the conversation
+
+## Waiting/Loading States
+- [ ] When waiting for API response after hitting Next Turn, show "Connecting to AI..." or "Waiting for response..." immediately
+- [ ] Current delay of 15-20 seconds with no feedback feels broken
+
 ## General UI
 - [ ] Dashboard: old cached versions keep showing (port conflicts, zombie processes)
 - [ ] Consider hiding right sidebar entirely in Review Loop mode
