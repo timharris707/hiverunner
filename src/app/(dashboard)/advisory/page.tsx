@@ -994,7 +994,7 @@ export default function AdvisoryPage() {
                           </div>
                         </div>
                         <button onClick={handleSendMessage} disabled={sendingMessage || !humanMessage.trim()}
-                          style={{ padding: "10px 18px", borderRadius: "8px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: sendingMessage || !humanMessage.trim() ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 600, display: "flex", alignItems: "center", gap: "6px", opacity: sendingMessage || !humanMessage.trim() ? 0.5 : 1, flexShrink: 0, fontFamily: "var(--font-heading)", marginTop: "0px" }}>
+                          style={{ padding: "10px 18px", borderRadius: "8px", border: "none", backgroundColor: "var(--accent)", color: "#fff", cursor: sendingMessage || !humanMessage.trim() ? "not-allowed" : "pointer", fontSize: "12px", fontWeight: 600, display: "flex", alignItems: "center", gap: "6px", opacity: sendingMessage || !humanMessage.trim() ? 0.5 : 1, flexShrink: 0, fontFamily: "var(--font-heading)", marginTop: "0px", position: "relative", zIndex: 10 }}>
                           {sendingMessage ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                           Send
                         </button>
