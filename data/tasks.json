@@ -1,5 +1,71 @@
 [
   {
+    "id": "TASK-070",
+    "title": "Auto-spawn agent when task moves to In Progress",
+    "description": "Drag task to In Progress \u2192 auto-spawns a build agent via OpenClaw. Task description becomes the agent's prompt. Agent updates task status on completion.",
+    "status": "on-deck",
+    "priority": "P0",
+    "assignee": "Henry \u26a1",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "software-factory",
+      "automation",
+      "pipeline"
+    ],
+    "created": "2026-03-26T07:53:00.000Z",
+    "updated": "2026-03-26T07:53:00.000Z"
+  },
+  {
+    "id": "TASK-071",
+    "title": "Agent completion \u2192 auto-move to Done + Telegram notification",
+    "description": "When build agent finishes, auto-update task to Done (or Review if UI/money/external). Send Telegram notification to Tim with summary of what was built.",
+    "status": "on-deck",
+    "priority": "P0",
+    "assignee": "Henry \u26a1",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "software-factory",
+      "notifications",
+      "pipeline"
+    ],
+    "created": "2026-03-26T07:53:00.000Z",
+    "updated": "2026-03-26T07:53:00.000Z"
+  },
+  {
+    "id": "TASK-072",
+    "title": "On Deck auto-promotion \u2014 agents grab next task when idle",
+    "description": "When an agent finishes a task and On Deck has items, automatically move the top On Deck item to In Progress and spawn a new agent.",
+    "status": "on-deck",
+    "priority": "P0",
+    "assignee": "Henry \u26a1",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "software-factory",
+      "automation"
+    ],
+    "created": "2026-03-26T07:53:00.000Z",
+    "updated": "2026-03-26T07:53:00.000Z"
+  },
+  {
+    "id": "TASK-073",
+    "title": "Add project types (Product/Infrastructure/Research)",
+    "description": "Lightweight project categorization. Products are shippable software, Infrastructure is internal, Research is experimental.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "projects",
+      "organization"
+    ],
+    "created": "2026-03-26T07:42:00.000Z",
+    "updated": "2026-03-26T07:42:00.000Z"
+  },
+  {
     "id": "TASK-050",
     "title": "Advisory Board \u2014 Overnight Polish Sprint (37/39 feedback items)",
     "description": "Session header UX, review loop overhaul, landing page hero, per-agent model selection, manual pacing fix",
