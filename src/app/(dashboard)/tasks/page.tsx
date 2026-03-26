@@ -14,7 +14,21 @@ import {
   X,
   GripVertical,
   ListOrdered,
+  Paperclip,
+  Upload,
+  FileText,
+  Film,
+  ImageIcon,
+  Trash2,
 } from "lucide-react";
+
+interface Attachment {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  path: string;
+}
 
 interface Task {
   id: string;
@@ -26,6 +40,7 @@ interface Task {
   project?: string;
   type?: "feature" | "bug" | "maintenance";
   tags?: string[];
+  attachments?: Attachment[];
   created: string;
   updated: string;
   completedAt?: string;
@@ -298,6 +313,46 @@ function TaskCard({ task, onDragStart, onStatusChange, projectsMap, isBuilding }
         </div>
       )}
 
+      {/* Links */}
+      {((task as any).source_url || (task as any).github_issue) && (
+        <div className="flex items-center gap-2 mb-2 flex-wrap">
+          {(task as any).source_url && (
+            <a
+              href={(task as any).source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
+              style={{
+                color: "#60a5fa",
+                backgroundColor: "rgba(96,165,250,0.08)",
+                border: "1px solid rgba(96,165,250,0.2)",
+                textDecoration: "none",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              🔗 Source
+            </a>
+          )}
+          {(task as any).github_issue && (
+            <a
+              href={`https://github.com/${(task as any).github_issue}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
+              style={{
+                color: "#a78bfa",
+                backgroundColor: "rgba(167,139,250,0.08)",
+                border: "1px solid rgba(167,139,250,0.2)",
+                textDecoration: "none",
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              GitHub
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Footer */}
       <div className="flex items-center justify-between mt-2">
         <div className="flex items-center gap-1.5">
@@ -463,7 +518,10 @@ export default function TasksPage() {
   const filteredTasks = filter === "all" ? tasks : tasks.filter((t) => t.project === filter);
 
   const tasksByStatus = COLUMNS.reduce((acc, col) => {
-    acc[col.id] = filteredTasks.filter((t) => t.status === col.id);
+    // Sort by most recently updated so newest items appear at top
+    acc[col.id] = filteredTasks
+      .filter((t) => t.status === col.id)
+      .sort((a, b) => new Date(b.updated || b.created).getTime() - new Date(a.updated || a.created).getTime());
     return acc;
   }, {} as Record<string, Task[]>);
 

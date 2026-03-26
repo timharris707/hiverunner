@@ -82,6 +82,7 @@ export async function POST(
     updated: new Date().toISOString(),
     source_review: reviewId,
     source_takeaway: takeawayId,
+    source_url: tw.video_url || "",
     github_issue: tw.github_issue || "",
     ...(body.scheduledDate ? { scheduled_date: body.scheduledDate } : {}),
   };
