@@ -256,7 +256,21 @@ function TakeawayRow({
 }) {
   const [notes, setNotes] = useState(takeaway.notes);
   const [saving, setSaving] = useState(false);
+  const [selectedProject, setSelectedProject] = useState("mission-control");
   const sm = TAKEAWAY_STATUS[takeaway.status] ?? TAKEAWAY_STATUS.idea;
+
+  const PROJECT_OPTIONS = [
+    { id: "mission-control", label: "🚀 Mission Control" },
+    { id: "advisory-board", label: "🎯 Advisory Board" },
+    { id: "crypto-trading", label: "₿ Crypto Trading" },
+    { id: "weather-trading", label: "🌤️ Weather Trading" },
+    { id: "stock-trading", label: "📈 Stock Trading" },
+    { id: "snapaudit", label: "🔍 SnapAudit" },
+    { id: "idea-intake", label: "💡 Idea Intake" },
+    { id: "infrastructure", label: "⚙️ Infrastructure" },
+    { id: "org", label: "🏛️ Organization" },
+    { id: "karpathy-loop", label: "🔬 Karpathy Loop" },
+  ];
 
   const updateTakeaway = async (updates: Partial<Takeaway>) => {
     setSaving(true);
@@ -372,7 +386,26 @@ function TakeawayRow({
           </>
         )}
         {takeaway.status === "approved" && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Project selector */}
+            <select
+              value={selectedProject}
+              onChange={(e) => setSelectedProject(e.target.value)}
+              style={{
+                fontSize: "11px",
+                fontWeight: 600,
+                padding: "4px 8px",
+                borderRadius: "6px",
+                backgroundColor: "var(--surface-elevated)",
+                color: "var(--text-secondary)",
+                border: "1px solid var(--border)",
+                cursor: "pointer",
+              }}
+            >
+              {PROJECT_OPTIONS.map((p) => (
+                <option key={p.id} value={p.id}>{p.label}</option>
+              ))}
+            </select>
             <button
               onClick={async () => {
                 setSaving(true);
@@ -380,7 +413,7 @@ function TakeawayRow({
                   await fetch(`/api/ideas/${reviewId}/takeaways/${takeaway.id}/build`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "build-now", project: "mission-control" }),
+                    body: JSON.stringify({ action: "build-now", project: selectedProject }),
                   });
                   updateTakeaway({ status: "building" });
                 } finally { setSaving(false); }
@@ -398,7 +431,7 @@ function TakeawayRow({
                   await fetch(`/api/ideas/${reviewId}/takeaways/${takeaway.id}/build`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ action: "add-to-queue", project: "mission-control" }),
+                    body: JSON.stringify({ action: "add-to-queue", project: selectedProject }),
                   });
                   updateTakeaway({ status: "building" });
                 } finally { setSaving(false); }
