@@ -497,6 +497,8 @@ export default function AdvisoryPage() {
         setThinkingAgent(data.nextAgent);
         setConnectingToAI(false);
       }
+      // Auto-scroll to show the "thinking..." indicator so user knows something is happening
+      setTimeout(() => scrollToBottom(true), 150);
     } catch (e) {
       console.error("Next turn error:", e);
     } finally {
