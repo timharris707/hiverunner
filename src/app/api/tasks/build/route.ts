@@ -2,9 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 import { exec } from "child_process";
-import { promisify } from "util";
-
-const execAsync = promisify(exec);
+import { routeTask } from "@/lib/llm-router";
 export const dynamic = "force-dynamic";
 
 const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
@@ -80,6 +78,9 @@ export async function POST(req: NextRequest) {
       `openclaw system event --text "Done: ${task.title.replace(/"/g, '\\"')}" --mode now`,
     ].join("\n");
 
+    // Route task to optimal model
+    const routing = routeTask(task);
+
     // Log the build
     const buildLog = readBuildLog();
     const buildEntry = {
@@ -92,12 +93,21 @@ export async function POST(req: NextRequest) {
       completedAt: null,
       agentType: "claude-code",
       workDir: projectDir,
+      routing: {
+        tier: routing.tier,
+        modelId: routing.modelId,
+        modelName: routing.modelName,
+        complexityScore: routing.complexityScore,
+        reason: routing.reason,
+        savingsPercent: routing.savingsPercent,
+      },
     };
     buildLog.builds.unshift(buildEntry);
     writeBuildLog(buildLog);
 
-    // Spawn the build agent (non-blocking)
-    const command = `cd "${projectDir}" && claude --permission-mode bypassPermissions --print "${agentPrompt.replace(/"/g, '\\"')}"`;
+    // Spawn the build agent with routed model (non-blocking)
+    const modelFlag = routing.tier !== "opus" ? ` --model ${routing.tier === "sonnet" ? "sonnet" : routing.tier === "haiku" ? "haiku" : "sonnet"}` : "";
+    const command = `cd "${projectDir}" && claude --permission-mode bypassPermissions${modelFlag} --print "${agentPrompt.replace(/"/g, '\\"')}"`;
 
     // Fire and forget — the agent runs in background
     exec(command, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
@@ -134,15 +144,27 @@ export async function POST(req: NextRequest) {
       }
     });
 
-    // Update task status to in-progress immediately
+    // Update task status to in-progress immediately, record routing
     task.status = "in-progress";
     task.updated = new Date().toISOString();
     task.buildTriggeredAt = new Date().toISOString();
+    task.routedModel = routing.modelName;
+    task.routedTier = routing.tier;
+    task.routingReason = routing.reason;
+    task.complexityScore = routing.complexityScore;
+    task.savingsPercent = routing.savingsPercent;
     writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
 
     return NextResponse.json({
-      message: "Build agent spawned",
+      message: `Build agent spawned → routed to ${routing.modelName}`,
       build: buildEntry,
+      routing: {
+        tier: routing.tier,
+        model: routing.modelName,
+        complexityScore: routing.complexityScore,
+        reason: routing.reason,
+        savingsPercent: routing.savingsPercent,
+      },
       task: { id: task.id, title: task.title, status: "in-progress" },
     });
   } catch (error) {

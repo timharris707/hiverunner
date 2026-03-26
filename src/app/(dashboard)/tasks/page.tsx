@@ -393,7 +393,7 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
                 onChange={(e) => setAssignee(e.target.value)}
                 style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none" }}
               >
-                <option value="">Unassigned</option>
+                <option value="">🤖 Auto-assign</option>
                 {ALL_ASSIGNEES.map((a) => <option key={a} value={a}>{ASSIGNEE_EMOJIS[a]} {a}</option>)}
               </select>
             </div>
@@ -659,7 +659,7 @@ function TaskDetailDrawer({
               onChange={(e) => patchTask({ assignee: e.target.value || undefined })}
               style={DRAWER_SELECT}
             >
-              <option value="">Unassigned</option>
+              <option value="">🤖 Auto-assign</option>
               {ALL_ASSIGNEES.map((a) => <option key={a} value={a}>{ASSIGNEE_EMOJIS[a]} {a}</option>)}
             </select>
           </div>
