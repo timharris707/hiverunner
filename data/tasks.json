@@ -416,7 +416,7 @@
     "id": "TASK-097",
     "title": "Markdown header indentation fix \u2014 headers flush left",
     "description": "In EventBubble, section headers (h2/h3) are indented same as paragraphs. Headers should be flush left, only body paragraphs indented.",
-    "status": "backlog",
+    "status": "done",
     "priority": "P2",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -427,7 +427,7 @@
       "formatting"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z",
+    "updated": "2026-03-26T15:15:00.000Z",
     "created_by": "henry"
   },
   {
