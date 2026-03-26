@@ -254,8 +254,9 @@ export default function AdvisoryPage() {
     // If we're waiting for an agent response (isGenerating) or near bottom, always auto-scroll
     if (isGenerating || isNearBottom()) {
       // Scroll to the TOP of the latest message, not the bottom of the page
-      // Small delay to let the DOM render the new message first
-      setTimeout(() => scrollToLatestMessage(), 50);
+      // Longer delay for auto-play (DOM needs time to render) vs manual
+      const delay = autoPlay ? 200 : 50;
+      setTimeout(() => scrollToLatestMessage(), delay);
       setShowNewMessages(false);
     } else {
       setShowNewMessages(true);
