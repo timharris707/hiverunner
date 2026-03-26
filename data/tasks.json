@@ -20,7 +20,7 @@
     "id": "TASK-102",
     "title": "Copy/Export buttons still grayed out after session completion",
     "description": "Session shows DONE badge but Copy and Export buttons remain grayed/disabled. Enable condition not detecting completed state properly.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P1",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -31,7 +31,7 @@
       "ui"
     ],
     "created": "2026-03-26T11:26:00.000Z",
-    "updated": "2026-03-26T11:26:00.000Z"
+    "updated": "2026-03-26T12:55:00.000Z"
   },
   {
     "id": "TASK-098",
@@ -88,7 +88,7 @@
     "id": "TASK-090",
     "title": "P0: Fix session deselection during polling",
     "description": "Active session keeps getting cleared during polling, kicking user to landing page. Happened 4+ times in one test session. Root cause: likely Next.js component remount or state cascade from loadSessions(). localStorage persistence helped but didn't fully solve it.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P0",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -100,13 +100,13 @@
       "critical"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z"
+    "updated": "2026-03-26T12:55:00.000Z"
   },
   {
     "id": "TASK-091",
     "title": "P0: Enforce round limit \u2014 stop session after configured rounds",
     "description": "Session configured for 3 rounds went to 5+. Backend must enforce round count and auto-end with Henry synthesis when limit reached. Currently agents keep going indefinitely.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P0",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -117,13 +117,13 @@
       "rounds"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z"
+    "updated": "2026-03-26T12:55:00.000Z"
   },
   {
     "id": "TASK-092",
     "title": "P0: End button must kill active agent generation",
     "description": "Hitting End + Confirm while an agent is thinking should abort the pending API call and immediately show Session Complete. Currently Quant kept thinking after End was confirmed.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P0",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -134,13 +134,13 @@
       "end-session"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z"
+    "updated": "2026-03-26T12:55:00.000Z"
   },
   {
     "id": "TASK-093",
     "title": "P0: Session completion detection \u2014 show Complete banner",
     "description": "When all rounds finish, session should auto-detect completion, show Session Complete banner with export buttons. Currently shows paused state with Next Agent still active.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P0",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
@@ -151,7 +151,7 @@
       "completion"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z"
+    "updated": "2026-03-26T12:55:00.000Z"
   },
   {
     "id": "TASK-094",
