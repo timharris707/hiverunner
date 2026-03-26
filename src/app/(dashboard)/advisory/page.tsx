@@ -1244,17 +1244,18 @@ export default function AdvisoryPage() {
                           }
                         }}
                         style={{
-                          padding: "6px 12px", borderRadius: "6px",
-                          border: `1px solid ${autoPlay ? "rgba(74,222,128,0.5)" : "var(--border)"}`,
-                          backgroundColor: autoPlay ? "rgba(74,222,128,0.12)" : "var(--surface-elevated)",
-                          color: autoPlay ? "#4ade80" : "var(--text-muted)",
-                          cursor: "pointer", fontSize: "11px", fontWeight: 600,
+                          padding: "6px 14px", borderRadius: "6px",
+                          border: `1px solid ${autoPlay ? "rgba(74,222,128,0.5)" : "rgba(139,92,246,0.5)"}`,
+                          backgroundColor: autoPlay ? "rgba(74,222,128,0.12)" : "rgba(139,92,246,0.12)",
+                          color: autoPlay ? "#4ade80" : "#a78bfa",
+                          cursor: "pointer", fontSize: "11px", fontWeight: 700,
                           display: "flex", alignItems: "center", gap: "5px",
                           transition: "all 150ms ease",
+                          letterSpacing: "0.3px",
                         }}
                       >
                         {autoPlay ? <Pause size={11} /> : <Play size={11} />}
-                        {autoPlay ? "Auto-play ON" : "Auto-play"}
+                        {autoPlay ? "Auto-play ON" : "▶ Auto-play"}
                       </button>
                       {!autoPlay && (
                         <button onClick={handleNextTurn} disabled={advancingTurn || isGenerating}
