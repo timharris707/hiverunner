@@ -439,8 +439,9 @@ function ProductCard({ product }: { product: Product }) {
         border: "1px solid var(--border, #2a2a2a)",
         borderLeft: `4px solid ${product.color}`,
         boxShadow: "0 2px 8px rgba(0,0,0,0.2)",
-        padding: "14px 14px 12px",
+        padding: "16px 16px 14px",
         cursor: "default",
+        overflow: "hidden",
       }}
     >
       {/* Top: Emoji + Name + Priority */}
@@ -626,7 +627,7 @@ function KanbanColumn({
       </div>
 
       {/* Cards */}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-4">
         {products.length === 0 ? (
           <div
             className="text-center py-8 rounded-lg"
@@ -803,7 +804,7 @@ export default function SoftwareFactoryPage() {
       {/* ── Kanban Columns ─────────────────────────────────────────────────── */}
       <div className="px-6 pb-8">
         <div
-          className="grid gap-5"
+          className="grid gap-6"
           style={{
             gridTemplateColumns: "repeat(4, 1fr)",
             minWidth: 0,
