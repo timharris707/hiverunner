@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip } from "lucide-react";
+import { Plus, X, Loader2, AlertCircle, UserPlus, Trash2, Focus, Paperclip, ChevronDown, ChevronRight, Code, Wrench, Bug, Rocket } from "lucide-react";
 import type { AdvisorySession, CustomAgent } from "@/types/advisory";
 import { AGENTS, PERSONA_OVERLAYS, PERSONA_OVERLAYS_EXTENDED, AGENT_RECOMMENDED_OVERLAYS, MODELS, PACING_OPTIONS, SESSION_TEMPLATES, DIVISIONS } from "./constants";
 import { AgentAvatar } from "@/components/AgentAvatar";
@@ -271,6 +271,7 @@ interface LaunchWizardProps {
 export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustomAgentsChange, onDeepDive }: LaunchWizardProps) {
   const [showCreateAgent, setShowCreateAgent] = useState(false);
   const [step, setStep] = useState<"config" | "personas">("config");
+  const [showTemplates, setShowTemplates] = useState(false);
   const [agentRatings, setAgentRatings] = useState<Record<string, { up: number; down: number; total: number; pct: number | null; bestTopic: string | null }>>({});
 
   useEffect(() => {
@@ -301,6 +302,14 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [supervisorAgent, setSupervisorAgent] = useState("Henry");
   const [autoContinue, setAutoContinue] = useState(true);
   const [maxRetries, setMaxRetries] = useState(3);
+
+  // Review-mode specific templates
+  const REVIEW_TEMPLATES = [
+    { id: "code-build-sprint", label: "Code Build Sprint", desc: "Rapid build-test-ship cycle with structured reviews", icon: Code, agents: { worker: "Pixel", reviewer: "Counsel", supervisor: "Henry" } },
+    { id: "refactor-cleanup", label: "Refactor & Cleanup", desc: "Systematic code improvement with quality gates", icon: Wrench, agents: { worker: "Forge", reviewer: "Pixel", supervisor: "Henry" } },
+    { id: "bug-fix-checklist", label: "Bug Fix Checklist", desc: "Triage, fix, and verify bugs one by one", icon: Bug, agents: { worker: "Forge", reviewer: "Counsel", supervisor: "Henry" } },
+    { id: "feature-implementation", label: "Feature Implementation", desc: "Build features with worker/reviewer approval chain", icon: Rocket, agents: { worker: "Pixel", reviewer: "Forge", supervisor: "Henry" } },
+  ];
 
   const toggleAgent = (id: string) => {
     setSelectedAgents((prev) =>
@@ -336,6 +345,10 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
       if (!reviewerAgent) { setError("Select a Reviewer agent."); return; }
       if (!supervisorAgent) { setError("Select a Supervisor agent."); return; }
       if (workerAgent === reviewerAgent) { setError("Worker and Reviewer must be different agents."); return; }
+      // Skip persona overlay step for review mode — agents already have assigned roles
+      setError("");
+      handleLaunch();
+      return;
     } else {
       if (selectedAgents.length < 1) { setError("Select at least one agent."); return; }
     }
@@ -473,7 +486,9 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               🚀 New Advisory Session
             </h2>
             <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "4px 0 0 0" }}>
-              {step === "config" ? "Step 1 of 2 — Configure session" : "Step 2 of 2 — Persona Overlays (optional)"}
+              {step === "config"
+                ? mode === "review" ? "Configure review loop" : "Step 1 of 2 — Configure session"
+                : "Step 2 of 2 — Persona Overlays (optional)"}
             </p>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "4px" }}>
@@ -481,62 +496,101 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           </button>
         </div>
 
-        {/* Step indicator */}
-        <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
-          {["config", "personas"].map((s, i) => (
-            <div key={s} style={{ flex: 1, height: "3px", borderRadius: "2px", backgroundColor: step === s || (i === 0) ? "var(--accent)" : "var(--border)", opacity: step === s ? 1 : i === 0 ? 0.5 : 0.3 }} />
-          ))}
-        </div>
+        {/* Step indicator — single bar for review mode (no persona step) */}
+        {mode === "review" ? (
+          <div style={{ height: "3px", borderRadius: "2px", backgroundColor: "var(--accent)", marginBottom: "20px" }} />
+        ) : (
+          <div style={{ display: "flex", gap: "6px", marginBottom: "20px" }}>
+            {["config", "personas"].map((s, i) => (
+              <div key={s} style={{ flex: 1, height: "3px", borderRadius: "2px", backgroundColor: step === s || (i === 0) ? "var(--accent)" : "var(--border)", opacity: step === s ? 1 : i === 0 ? 0.5 : 0.3 }} />
+            ))}
+          </div>
+        )}
 
         {step === "config" && (
           <>
-            {/* Templates */}
+            {/* Templates — collapsed by default */}
             <div style={{ marginBottom: "20px" }}>
-              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
-                USE TEMPLATE
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "6px" }}>
-                {SESSION_TEMPLATES.map((tmpl) => {
-                  const Icon = tmpl.icon;
-                  const isCustom = tmpl.id === "custom";
-                  return (
-                    <button
-                      key={tmpl.id}
-                      onClick={() => {
-                        if (!isCustom) {
-                          setMode(tmpl.mode);
-                          setSelectedAgents(tmpl.agents);
-                          setResponseLength(tmpl.responseLength);
-                          setRounds(tmpl.rounds);
-                          if (tmpl.topic) setTopic(tmpl.topic);
-                          setPacing(tmpl.mode === "roundtable" ? "manual" : "instant");
-                        } else {
-                          setMode("roundtable");
-                          setSelectedAgents(["Henry"]);
-                          setResponseLength("balanced");
-                          setRounds(3);
-                          setTopic("");
-                          setPacing("manual");
-                        }
-                        setPersonaOverlays({});
-                      }}
-                      style={{
-                        padding: "10px 8px",
-                        borderRadius: "8px",
-                        border: `1px solid var(--border)`,
-                        backgroundColor: "var(--surface-elevated)",
-                        cursor: "pointer",
-                        textAlign: "left",
-                        transition: "all 150ms ease",
-                      }}
-                    >
-                      <Icon size={14} style={{ color: isCustom ? "var(--text-muted)" : "var(--accent)", marginBottom: "4px" }} />
-                      <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: "2px" }}>{tmpl.label}</div>
-                      <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3 }}>{tmpl.desc}</div>
-                    </button>
-                  );
-                })}
-              </div>
+              <button
+                onClick={() => setShowTemplates((v) => !v)}
+                style={{
+                  background: "none", border: "none", cursor: "pointer", padding: "0",
+                  display: "flex", alignItems: "center", gap: "6px",
+                  fontSize: "11px", fontWeight: 600, color: "var(--accent)",
+                }}
+              >
+                {showTemplates ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                Browse templates
+              </button>
+              {showTemplates && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px", marginTop: "10px" }}>
+                  {mode === "review" ? (
+                    /* Review mode templates */
+                    REVIEW_TEMPLATES.map((tmpl) => {
+                      const Icon = tmpl.icon;
+                      return (
+                        <button
+                          key={tmpl.id}
+                          onClick={() => {
+                            setWorkerAgent(tmpl.agents.worker);
+                            setReviewerAgent(tmpl.agents.reviewer);
+                            setSupervisorAgent(tmpl.agents.supervisor);
+                            setShowTemplates(false);
+                          }}
+                          style={{
+                            padding: "10px 8px", borderRadius: "8px",
+                            border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)",
+                            cursor: "pointer", textAlign: "left", transition: "all 150ms ease",
+                          }}
+                        >
+                          <Icon size={14} style={{ color: "var(--accent)", marginBottom: "4px" }} />
+                          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: "2px" }}>{tmpl.label}</div>
+                          <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3 }}>{tmpl.desc}</div>
+                        </button>
+                      );
+                    })
+                  ) : (
+                    /* Roundtable templates */
+                    SESSION_TEMPLATES.map((tmpl) => {
+                      const Icon = tmpl.icon;
+                      const isCustom = tmpl.id === "custom";
+                      return (
+                        <button
+                          key={tmpl.id}
+                          onClick={() => {
+                            if (!isCustom) {
+                              setMode(tmpl.mode);
+                              setSelectedAgents(tmpl.agents);
+                              setResponseLength(tmpl.responseLength);
+                              setRounds(tmpl.rounds);
+                              if (tmpl.topic) setTopic(tmpl.topic);
+                              setPacing(tmpl.mode === "roundtable" ? "manual" : "instant");
+                            } else {
+                              setMode("roundtable");
+                              setSelectedAgents(["Henry"]);
+                              setResponseLength("balanced");
+                              setRounds(3);
+                              setTopic("");
+                              setPacing("manual");
+                            }
+                            setPersonaOverlays({});
+                            setShowTemplates(false);
+                          }}
+                          style={{
+                            padding: "10px 8px", borderRadius: "8px",
+                            border: "1px solid var(--border)", backgroundColor: "var(--surface-elevated)",
+                            cursor: "pointer", textAlign: "left", transition: "all 150ms ease",
+                          }}
+                        >
+                          <Icon size={14} style={{ color: isCustom ? "var(--text-muted)" : "var(--accent)", marginBottom: "4px" }} />
+                          <div style={{ fontSize: "11px", fontWeight: 600, color: "var(--text-primary)", lineHeight: 1.3, marginBottom: "2px" }}>{tmpl.label}</div>
+                          <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3 }}>{tmpl.desc}</div>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Mission/Topic */}
@@ -617,6 +671,10 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       setMode(m.id as "review" | "roundtable");
                       // Set sensible default pacing per mode
                       setPacing(m.id === "roundtable" ? "manual" : "instant");
+                      // Auto-fill topic for review mode if empty
+                      if (m.id === "review" && !topic.trim()) {
+                        setTopic("Work through the task list below");
+                      }
                     }}
                     style={{
                       padding: "12px",
@@ -1281,22 +1339,25 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               </button>
               <button
                 onClick={handleNext}
+                disabled={loading}
                 style={{
                   padding: "10px 24px",
                   borderRadius: "8px",
                   border: "none",
                   backgroundColor: "var(--accent)",
                   color: "#fff",
-                  cursor: "pointer",
+                  cursor: loading ? "not-allowed" : "pointer",
                   fontSize: "13px",
                   fontWeight: 600,
                   display: "flex",
                   alignItems: "center",
                   gap: "8px",
                   fontFamily: "var(--font-heading)",
+                  opacity: loading ? 0.7 : 1,
                 }}
               >
-                Next: Persona Overlays →
+                {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                {mode === "review" ? "Launch Review Loop" : "Next: Persona Overlays →"}
               </button>
             </div>
           </>
