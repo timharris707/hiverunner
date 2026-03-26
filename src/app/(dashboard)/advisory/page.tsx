@@ -838,8 +838,8 @@ export default function AdvisoryPage() {
                         </button>
                       )}
                       {activeSession.status === "active" && !endSessionConfirm && (
-                        <button onClick={() => setEndSessionConfirm(true)} title="End session with Henry's synthesis"
-                          style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(239,68,68,0.35)", backgroundColor: "rgba(239,68,68,0.06)", color: "#ef4444", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, transition: "all 150ms ease" }}>
+                        <button onClick={() => setEndSessionConfirm(true)} disabled={endingSession} title="End session with Henry's synthesis"
+                          style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(239,68,68,0.35)", backgroundColor: "rgba(239,68,68,0.06)", color: "#ef4444", cursor: endingSession ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, transition: "all 150ms ease", opacity: endingSession ? 0.5 : 1 }}>
                           <X size={12} /> End
                         </button>
                       )}
@@ -931,7 +931,10 @@ export default function AdvisoryPage() {
                             onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
                           />
                         ))}
-                        {isGenerating && activeSession?.status === "active" && !isPaused && (
+                        {endingSession && activeSession?.status === "active" && (
+                          <TypingIndicator agentId="Henry" overrideLabel="Henry is writing the final summary..." />
+                        )}
+                        {isGenerating && activeSession?.status === "active" && !isPaused && !endingSession && (
                           <TypingIndicator agentId={thinkingAgent} />
                         )}
                         {activeSession?.status === "completed" && (

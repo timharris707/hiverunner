@@ -5,13 +5,16 @@ import { AGENTS } from "./constants";
 
 interface TypingIndicatorProps {
   agentId: string | null;
+  overrideLabel?: string;
 }
 
-export default function TypingIndicator({ agentId }: TypingIndicatorProps) {
+export default function TypingIndicator({ agentId, overrideLabel }: TypingIndicatorProps) {
   const agentDef = agentId ? AGENTS.find((a) => a.id === agentId) : null;
-  const label = agentId
-    ? `${agentId} is thinking...`
-    : "Agents are deliberating...";
+  const label = overrideLabel
+    ? overrideLabel
+    : agentId
+      ? `${agentId} is thinking...`
+      : "Agents are deliberating...";
 
   return (
     <div
