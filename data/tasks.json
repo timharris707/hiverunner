@@ -210,7 +210,7 @@
     "id": "TASK-096",
     "title": "Vary agent writing styles \u2014 paragraph length, rhythm, voice",
     "description": "Adjust system prompts so agents have distinct writing cadences. Mix short punchy sentences with long analysis. Each agent gets a different rhythm. Makes output feel more human.",
-    "status": "backlog",
+    "status": "done",
     "priority": "P1",
     "assignee": "Henry \u26a1",
     "project": "advisory-board",
@@ -221,7 +221,7 @@
       "polish"
     ],
     "created": "2026-03-26T11:20:00.000Z",
-    "updated": "2026-03-26T11:20:00.000Z"
+    "updated": "2026-03-26T14:15:00.000Z"
   },
   {
     "id": "TASK-097",
