@@ -42,7 +42,6 @@ const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<an
   { id: "backlog", label: "Backlog", icon: Inbox, color: "#6b7280" },
   { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
-  { id: "review", label: "Review", icon: Eye, color: "#60a5fa" },
   { id: "done", label: "Done", icon: CheckCircle2, color: "#4ade80" },
 ];
 
