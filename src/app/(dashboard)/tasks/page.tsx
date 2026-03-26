@@ -4,15 +4,11 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import {
   Kanban,
   Plus,
-  Circle,
-  Clock,
   RefreshCw,
   CheckCircle2,
   Inbox,
   Play,
-  Eye,
   X,
-  GripVertical,
   ListOrdered,
   Paperclip,
   Upload,
@@ -21,12 +17,6 @@ import {
   ImageIcon,
   Trash2,
   ExternalLink,
-  Tag,
-  Calendar,
-  User,
-  FolderOpen,
-  AlertCircle,
-  StickyNote,
   Wrench,
   Bug,
   Sparkles,
@@ -450,8 +440,19 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   );
 }
 
-// Task Detail Modal — view task with attachments, add/remove files
-function TaskDetailModal({
+// Shared label style for drawer fields
+const DRAWER_LABEL: React.CSSProperties = {
+  display: "block", fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)",
+  marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.08em",
+};
+const DRAWER_SELECT: React.CSSProperties = {
+  width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem",
+  backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)",
+  color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
+};
+
+// Task Detail Drawer — slide-in from right with full inline editing
+function TaskDetailDrawer({
   task,
   onClose,
   onTaskUpdated,
@@ -462,12 +463,47 @@ function TaskDetailModal({
   onTaskUpdated: (updated: Task) => void;
   projectsMap: Record<string, ProjectInfo>;
 }) {
+  const [title, setTitle] = useState(task.title);
+  const [description, setDescription] = useState(task.description || "");
+  const [notes, setNotes] = useState(task.notes || "");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
+
+  // Animate in on mount
+  useEffect(() => {
+    requestAnimationFrame(() => setOpen(true));
+  }, []);
+
+  // Sync local state when task prop changes (e.g. after a save)
+  useEffect(() => {
+    setTitle(task.title);
+    setDescription(task.description || "");
+    setNotes(task.notes || "");
+  }, [task.id, task.title, task.description, task.notes]);
 
   const proj = projectsMap[task.project || ""];
   const attachments = task.attachments || [];
+
+  const patchTask = async (updates: Partial<Task>) => {
+    try {
+      const res = await fetch("/api/tasks", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: task.id, ...updates }),
+      });
+      const data = await res.json();
+      if (data.task) onTaskUpdated(data.task);
+    } catch (err) {
+      console.error("Patch failed:", err);
+    }
+  };
+
+  const handleClose = () => {
+    setOpen(false);
+    setTimeout(onClose, 200);
+  };
 
   const handleUpload = async () => {
     if (pendingFiles.length === 0) return;
@@ -510,76 +546,235 @@ function TaskDetailModal({
     }
   };
 
+  const colInfo = COLUMNS.find((c) => c.id === task.status);
+  const typeInfo = ALL_TYPES.find((t) => t.id === task.type);
+
   return (
     <div
-      style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}
-      onClick={onClose}
+      style={{
+        position: "fixed", inset: 0, zIndex: 1000,
+        backgroundColor: open ? "rgba(0,0,0,0.5)" : "rgba(0,0,0,0)",
+        transition: "background-color 0.2s ease",
+      }}
+      onClick={handleClose}
     >
+      {/* Drawer panel */}
       <div
-        style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "640px", border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}
+        style={{
+          position: "absolute", top: 0, right: 0, bottom: 0, width: "min(440px, 90vw)",
+          backgroundColor: "#18181b",
+          borderLeft: "1px solid var(--border)",
+          transform: open ? "translateX(0)" : "translateX(100%)",
+          transition: "transform 0.2s ease",
+          display: "flex", flexDirection: "column",
+          overflowY: "auto",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
-            <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${PRIORITY_COLORS[task.priority]}20`, color: PRIORITY_COLORS[task.priority] }}>
-              {task.priority}
-            </span>
-            <span style={{ fontSize: "0.75rem", color: "var(--text-muted)" }}>{task.id}</span>
-          </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", fontFamily: "monospace" }}>{task.id}</span>
+          <button onClick={handleClose} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem" }}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div style={{ padding: "1.5rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
-          <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--text-primary)", fontSize: "1.25rem", lineHeight: 1.3, margin: 0 }}>
-            {task.title}
-          </h2>
-
-          {/* Meta row */}
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", alignItems: "center" }}>
-            {task.assignee && (
-              <span className="text-xs flex items-center gap-1 px-2 py-1 rounded" style={{ backgroundColor: "var(--card-elevated)", color: "var(--text-secondary)", border: "1px solid var(--border)" }}>
-                {ASSIGNEE_EMOJIS[task.assignee] || "🤖"} {task.assignee}
-              </span>
-            )}
-            {proj && (
-              <span className="text-xs px-2 py-1 rounded" style={{ backgroundColor: `${proj.color}15`, color: proj.color, border: `1px solid ${proj.color}30` }}>
-                {proj.emoji} {proj.name}
-              </span>
-            )}
-            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-              Created {formatDate(task.created)}
-            </span>
+        {/* Body */}
+        <div style={{ flex: 1, padding: "1.25rem", display: "flex", flexDirection: "column", gap: "1.25rem" }}>
+          {/* Title — editable */}
+          <div>
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => { if (title.trim() && title !== task.title) patchTask({ title: title.trim() }); }}
+              onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+              style={{
+                width: "100%", background: "none", border: "none", outline: "none",
+                fontFamily: "var(--font-heading)", fontWeight: 700, fontSize: "1.2rem",
+                color: "var(--text-primary)", padding: "0.25rem 0", lineHeight: 1.3, boxSizing: "border-box",
+                borderBottom: "1px solid transparent",
+              }}
+              onFocus={(e) => { (e.target as HTMLInputElement).style.borderBottomColor = "var(--accent)"; }}
+              onBlurCapture={(e) => { (e.target as HTMLInputElement).style.borderBottomColor = "transparent"; }}
+            />
           </div>
 
-          {task.description && (
-            <div style={{ fontSize: "0.875rem", color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-              {task.description}
+          {/* Status + Priority row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div>
+              <label style={DRAWER_LABEL}>Status</label>
+              <select
+                value={task.status}
+                onChange={(e) => patchTask({ status: e.target.value as Task["status"] })}
+                style={{ ...DRAWER_SELECT, color: colInfo?.color || "var(--text-primary)" }}
+              >
+                {COLUMNS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={DRAWER_LABEL}>Priority</label>
+              <select
+                value={task.priority}
+                onChange={(e) => patchTask({ priority: e.target.value as Task["priority"] })}
+                style={{ ...DRAWER_SELECT, color: PRIORITY_COLORS[task.priority], fontWeight: 700 }}
+              >
+                {ALL_PRIORITIES.map((p) => (
+                  <option key={p} value={p}>{p} — {p === "P0" ? "Critical" : p === "P1" ? "High" : p === "P2" ? "Medium" : "Low"}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Project + Type row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div>
+              <label style={DRAWER_LABEL}>Project</label>
+              <select
+                value={task.project || ""}
+                onChange={(e) => patchTask({ project: e.target.value || undefined })}
+                style={{ ...DRAWER_SELECT, color: proj?.color || "var(--text-primary)" }}
+              >
+                <option value="">No Project</option>
+                {Object.values(projectsMap).map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={DRAWER_LABEL}>Type</label>
+              <select
+                value={task.type || ""}
+                onChange={(e) => patchTask({ type: (e.target.value || undefined) as Task["type"] })}
+                style={DRAWER_SELECT}
+              >
+                <option value="">None</option>
+                {ALL_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Assignee */}
+          <div>
+            <label style={DRAWER_LABEL}>Assignee</label>
+            <select
+              value={task.assignee || ""}
+              onChange={(e) => patchTask({ assignee: e.target.value || undefined })}
+              style={DRAWER_SELECT}
+            >
+              <option value="">Unassigned</option>
+              {ALL_ASSIGNEES.map((a) => <option key={a} value={a}>{ASSIGNEE_EMOJIS[a]} {a}</option>)}
+            </select>
+          </div>
+
+          {/* Description — editable */}
+          <div>
+            <label style={DRAWER_LABEL}>Description</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onBlur={() => { if (description !== (task.description || "")) patchTask({ description: description || undefined }); }}
+              placeholder="Add a description..."
+              rows={4}
+              style={{
+                width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem",
+                backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)",
+                color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
+                resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6,
+              }}
+            />
+          </div>
+
+          {/* Tags */}
+          {task.tags && task.tags.length > 0 && (
+            <div>
+              <label style={DRAWER_LABEL}>Tags</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "0.375rem" }}>
+                {task.tags.map((tag) => (
+                  <span
+                    key={tag}
+                    style={{
+                      fontSize: "0.75rem", padding: "0.25rem 0.625rem", borderRadius: "9999px",
+                      backgroundColor: "var(--card-elevated)", color: "var(--text-secondary)",
+                      border: "1px solid var(--border)",
+                    }}
+                  >
+                    #{tag}
+                  </span>
+                ))}
+              </div>
             </div>
           )}
 
-          {/* Existing attachments */}
+          {/* Links */}
+          {(task.source_url || task.github_issue) && (
+            <div>
+              <label style={DRAWER_LABEL}>Links</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0.375rem" }}>
+                {task.source_url && (
+                  <a
+                    href={task.source_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: "0.375rem",
+                      fontSize: "0.8rem", color: "#60a5fa", textDecoration: "none",
+                      padding: "0.375rem 0.625rem", borderRadius: "0.375rem",
+                      backgroundColor: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)",
+                      width: "fit-content",
+                    }}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> Source
+                  </a>
+                )}
+                {task.github_issue && (
+                  <a
+                    href={`https://github.com/${task.github_issue}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: "0.375rem",
+                      fontSize: "0.8rem", color: "#a78bfa", textDecoration: "none",
+                      padding: "0.375rem 0.625rem", borderRadius: "0.375rem",
+                      backgroundColor: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)",
+                      width: "fit-content",
+                    }}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" /> GitHub Issue
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Notes — editable */}
+          <div>
+            <label style={DRAWER_LABEL}>Notes</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              onBlur={() => { if (notes !== (task.notes || "")) patchTask({ notes: notes || undefined }); }}
+              placeholder="Add notes..."
+              rows={3}
+              style={{
+                width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem",
+                backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)",
+                color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
+                resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6,
+              }}
+            />
+          </div>
+
+          {/* Attachments */}
           {attachments.length > 0 && (
             <div>
-              <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.5rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Attachments ({attachments.length})
-              </label>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "0.5rem" }}>
+              <label style={DRAWER_LABEL}>Attachments ({attachments.length})</label>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: "0.5rem" }}>
                 {attachments.map((att) => (
                   <div
                     key={att.id}
-                    style={{
-                      borderRadius: "0.5rem",
-                      border: "1px solid var(--border)",
-                      backgroundColor: "var(--card-elevated)",
-                      overflow: "hidden",
-                    }}
+                    style={{ borderRadius: "0.5rem", border: "1px solid var(--border)", backgroundColor: "var(--card-elevated)", overflow: "hidden" }}
                   >
                     {isImageType(att.type) ? (
                       <div
-                        style={{ width: "100%", height: "100px", cursor: "pointer" }}
+                        style={{ width: "100%", height: "80px", cursor: "pointer" }}
                         onClick={() => setLightboxSrc(`/api/tasks/attachments?path=${encodeURIComponent(att.path)}`)}
                       >
                         <img
@@ -589,16 +784,16 @@ function TaskDetailModal({
                         />
                       </div>
                     ) : isVideoType(att.type) ? (
-                      <div style={{ width: "100%", height: "100px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
-                        <Film className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
+                      <div style={{ width: "100%", height: "80px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
+                        <Film className="w-6 h-6" style={{ color: "var(--text-muted)" }} />
                       </div>
                     ) : (
-                      <div style={{ width: "100%", height: "100px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
-                        <FileText className="w-8 h-8" style={{ color: "var(--text-muted)" }} />
+                      <div style={{ width: "100%", height: "80px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "var(--surface)" }}>
+                        <FileText className="w-6 h-6" style={{ color: "var(--text-muted)" }} />
                       </div>
                     )}
-                    <div style={{ padding: "0.375rem 0.5rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
-                      <span style={{ fontSize: "0.65rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
+                    <div style={{ padding: "0.25rem 0.375rem", display: "flex", alignItems: "center", gap: "0.25rem" }}>
+                      <span style={{ fontSize: "0.6rem", color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>
                         {att.name}
                       </span>
                       <button
@@ -615,21 +810,20 @@ function TaskDetailModal({
             </div>
           )}
 
-          {/* Add more attachments */}
+          {/* Add attachments */}
           <AttachmentDropZone
             files={pendingFiles}
             onFilesAdded={(newFiles) => setPendingFiles((prev) => [...prev, ...newFiles])}
             onFileRemoved={(i) => setPendingFiles((prev) => prev.filter((_, idx) => idx !== i))}
           />
-
           {pendingFiles.length > 0 && (
             <button
               onClick={handleUpload}
               disabled={uploading}
               style={{
-                padding: "0.625rem", borderRadius: "0.5rem",
+                padding: "0.5rem", borderRadius: "0.5rem",
                 backgroundColor: "var(--accent)", border: "none",
-                color: "#000", fontWeight: 700, fontSize: "0.875rem",
+                color: "#000", fontWeight: 700, fontSize: "0.8rem",
                 cursor: uploading ? "not-allowed" : "pointer",
                 opacity: uploading ? 0.7 : 1,
               }}
@@ -637,6 +831,18 @@ function TaskDetailModal({
               {uploading ? "Uploading..." : `Upload ${pendingFiles.length} file${pendingFiles.length > 1 ? "s" : ""}`}
             </button>
           )}
+
+          {/* Dates */}
+          <div style={{ display: "flex", gap: "1.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+            <div>
+              <label style={DRAWER_LABEL}>Created</label>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{formatDateFull(task.created)}</span>
+            </div>
+            <div>
+              <label style={DRAWER_LABEL}>Updated</label>
+              <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{formatDateFull(task.updated)}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -672,13 +878,22 @@ function TaskCard({
   const projectColor = proj?.color || "#6b7280";
   const projectLabel = proj ? `${proj.emoji} ${proj.name}` : task.project || "";
   const attachmentCount = task.attachments?.length || 0;
+  const dragRef = useRef(false);
+  const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   return (
     <div
       draggable
-      onDragStart={(e) => onDragStart(e, task)}
-      onClick={() => onClick(task)}
-      className="p-3 rounded-lg mb-2 last:mb-0 transition-all hover:scale-[1.01] cursor-grab active:cursor-grabbing"
+      onDragStart={(e) => { dragRef.current = true; onDragStart(e, task); }}
+      onDragEnd={() => { setTimeout(() => { dragRef.current = false; }, 0); }}
+      onMouseDown={(e) => { mouseDownPos.current = { x: e.clientX, y: e.clientY }; }}
+      onClick={(e) => {
+        if (dragRef.current) return;
+        const mp = mouseDownPos.current;
+        if (mp && (Math.abs(e.clientX - mp.x) > 5 || Math.abs(e.clientY - mp.y) > 5)) return;
+        onClick(task);
+      }}
+      className="p-3 rounded-lg mb-2 last:mb-0 transition-all hover:scale-[1.01] cursor-pointer"
       style={{
         backgroundColor: "var(--card)",
         border: "1px solid var(--border)",
@@ -752,11 +967,11 @@ function TaskCard({
       )}
 
       {/* Links */}
-      {((task as any).source_url || (task as any).github_issue) && (
+      {(task.source_url || task.github_issue) && (
         <div className="flex items-center gap-2 mb-2 flex-wrap">
-          {(task as any).source_url && (
+          {task.source_url && (
             <a
-              href={(task as any).source_url}
+              href={task.source_url}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
@@ -771,9 +986,9 @@ function TaskCard({
               🔗 Source
             </a>
           )}
-          {(task as any).github_issue && (
+          {task.github_issue && (
             <a
-              href={`https://github.com/${(task as any).github_issue}`}
+              href={`https://github.com/${task.github_issue}`}
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
@@ -1164,9 +1379,9 @@ export default function TasksPage() {
         />
       )}
 
-      {/* Task Detail Modal */}
+      {/* Task Detail Drawer */}
       {selectedTask && (
-        <TaskDetailModal
+        <TaskDetailDrawer
           task={selectedTask}
           onClose={() => setSelectedTask(null)}
           onTaskUpdated={handleTaskUpdated}
