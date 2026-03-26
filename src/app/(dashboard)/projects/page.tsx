@@ -223,6 +223,7 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
   const [view, setView] = useState<"grid" | "list">("grid");
 
   useEffect(() => {
@@ -233,7 +234,11 @@ export default function ProjectsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const filtered = statusFilter === "all" ? projects : projects.filter((p) => p.status === statusFilter);
+  const filtered = projects.filter((p) => {
+    if (statusFilter !== "all" && p.status !== statusFilter) return false;
+    if (typeFilter !== "all" && (p as any).type !== typeFilter) return false;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -316,6 +321,34 @@ export default function ProjectsPage() {
               {f.key !== "all" && (
                 <span className="ml-1.5 opacity-70">
                   {projects.filter((p) => f.key === "all" || p.status === f.key).length}
+                </span>
+              )}
+            </button>
+          ))}
+
+          <span style={{ color: "var(--border)", margin: "0 4px" }}>|</span>
+
+          {[
+            { key: "all", label: "All Types" },
+            { key: "product", label: "🚀 Product" },
+            { key: "infrastructure", label: "⚙️ Infrastructure" },
+            { key: "research", label: "🔬 Research" },
+          ].map((f) => (
+            <button
+              key={`type-${f.key}`}
+              onClick={() => setTypeFilter(f.key)}
+              className="text-sm px-3 py-1 rounded-full font-medium transition-all"
+              style={{
+                backgroundColor: typeFilter === f.key ? "var(--accent)" : "var(--card)",
+                color: typeFilter === f.key ? "var(--background)" : "var(--text-secondary)",
+                border: `1px solid ${typeFilter === f.key ? "var(--accent)" : "var(--border)"}`,
+                cursor: "pointer",
+              }}
+            >
+              {f.label}
+              {f.key !== "all" && (
+                <span className="ml-1.5 opacity-70">
+                  {projects.filter((p) => (p as any).type === f.key).length}
                 </span>
               )}
             </button>

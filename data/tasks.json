@@ -1,5 +1,24 @@
 [
   {
+    "id": "TASK-1774558729780",
+    "title": "Smart LLM Router \u2014 Auto-route tasks to optimal model",
+    "description": "Build a routing layer that auto-assigns tasks to the right model. Opus for complex reasoning, Sonnet for coding, Gemini for search, local for boilerplate. Could cut costs 50-70%.",
+    "status": "in-progress",
+    "priority": "P0",
+    "assignee": "Forge \ud83d\udd27",
+    "project": "mission-control",
+    "type": "feature",
+    "tags": [
+      "from-idea",
+      "idea-tw-002"
+    ],
+    "created": "2026-03-26T20:58:49.780Z",
+    "updated": "2026-03-26T20:58:49.780Z",
+    "source_review": "review-001",
+    "source_takeaway": "tw-002",
+    "github_issue": "harris-autonomous/mission-control#2"
+  },
+  {
     "id": "TASK-101",
     "title": "Export as Markdown (.md) option",
     "description": "Add 'Export MD' alongside PDF. Clean formatted markdown file with session metadata, agent responses, timestamps. Downloadable file.",
@@ -326,7 +345,7 @@
     "id": "TASK-073",
     "title": "Add project types (Product/Infrastructure/Research)",
     "description": "Lightweight project categorization. Products are shippable software, Infrastructure is internal, Research is experimental.",
-    "status": "on-deck",
+    "status": "done",
     "priority": "P1",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "mission-control",
@@ -336,7 +355,7 @@
       "organization"
     ],
     "created": "2026-03-26T07:42:00.000Z",
-    "updated": "2026-03-26T07:42:00.000Z"
+    "updated": "2026-03-26T14:10:00.000Z"
   },
   {
     "id": "TASK-050",
