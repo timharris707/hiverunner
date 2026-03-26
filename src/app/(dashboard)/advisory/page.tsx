@@ -60,17 +60,21 @@ export default function AdvisoryPage() {
   const activeSessionRef = useRef<AdvisorySession | null>(null);
   const eventsRef = useRef<AdvisoryEvent[]>([]);
 
-  // Keep ref in sync — used to prevent session deselection during polling
-  useEffect(() => { activeSessionRef.current = activeSession; }, [activeSession]);
-
-  // GUARD: If activeSession becomes null but ref still has a value, restore it
-  // This prevents the "kicked to landing page" bug during polling re-renders
+  // Persist active session ID to localStorage to survive component remounts
   useEffect(() => {
-    if (!activeSession && activeSessionRef.current && activeSessionRef.current.status === "active") {
-      console.warn("Active session was cleared unexpectedly — restoring from ref");
-      setActiveSession(activeSessionRef.current);
+    activeSessionRef.current = activeSession;
+    if (activeSession) {
+      localStorage.setItem("advisory_active_session_id", activeSession.id);
     }
   }, [activeSession]);
+
+  // On mount: restore active session from localStorage if we have one
+  const [restoredSessionId] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("advisory_active_session_id");
+    }
+    return null;
+  });
   const [events, setEvents] = useState<AdvisoryEvent[]>([]);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [humanMessage, setHumanMessage] = useState("");
@@ -227,6 +231,11 @@ export default function AdvisoryPage() {
   useEffect(() => {
     loadSessions();
     loadCustomAgents();
+    // Auto-restore active session from localStorage on mount
+    if (restoredSessionId) {
+      loadSessionEvents(restoredSessionId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSessions, loadCustomAgents]);
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
@@ -583,6 +592,8 @@ export default function AdvisoryPage() {
   const handleEndSession = async () => {
     if (!activeSession || endingSession) return;
     setEndingSession(true);
+    // Clear persisted session — user is intentionally ending
+    localStorage.removeItem("advisory_active_session_id");
     // Immediately hide the deliberating indicator
     setIsGenerating(false);
     setThinkingAgent(null);
