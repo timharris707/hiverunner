@@ -832,8 +832,20 @@ function TaskDetailDrawer({
             </button>
           )}
 
-          {/* Dates */}
-          <div style={{ display: "flex", gap: "1.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)" }}>
+          {/* Created by + Dates */}
+          <div style={{ display: "flex", gap: "1.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
+            {(task as any).created_by && (
+              <div>
+                <label style={DRAWER_LABEL}>Created by</label>
+                <span style={{
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  color: (task as any).created_by === "tim" ? "#60a5fa" : (task as any).created_by === "ideas-pipeline" ? "#fbbf24" : "#a78bfa",
+                }}>
+                  {(task as any).created_by === "tim" ? "👤 Tim" : (task as any).created_by === "ideas-pipeline" ? "💡 Ideas Pipeline" : "⚡ Henry"}
+                </span>
+              </div>
+            )}
             <div>
               <label style={DRAWER_LABEL}>Created</label>
               <span style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{formatDateFull(task.created)}</span>
@@ -1102,7 +1114,7 @@ export default function TasksPage() {
       const res = await fetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(taskData),
+        body: JSON.stringify({ ...taskData, created_by: "tim" }),
       });
       const data = await res.json();
       if (data.task) {
