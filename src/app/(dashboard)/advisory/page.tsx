@@ -115,7 +115,43 @@ export default function AdvisoryPage() {
   const scrollToBottom = useCallback((smooth = true) => {
     const el = scrollContainerRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? "smooth" : "instant" });
+    if (!smooth) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "instant" });
+      return;
+    }
+    // Sexy scroll: fast ease-out with subtle bounce at the end
+    const target = el.scrollHeight - el.clientHeight;
+    const start = el.scrollTop;
+    const distance = target - start;
+    if (distance <= 0) return;
+    const duration = Math.min(600, Math.max(300, distance * 0.5)); // adaptive speed
+    let startTime: number | null = null;
+
+    const easeOutBounce = (t: number): number => {
+      // Fast deceleration with a tiny bounce
+      if (t < 0.85) {
+        // Main ease-out (fast then slowing)
+        const p = t / 0.85;
+        return 1 - Math.pow(1 - p, 3);
+      } else {
+        // Subtle bounce overshoot and settle
+        const p = (t - 0.85) / 0.15;
+        const bounce = Math.sin(p * Math.PI) * 0.012; // very subtle 1.2% bounce
+        return 1 + bounce;
+      }
+    };
+
+    const animate = (time: number) => {
+      if (!startTime) startTime = time;
+      const elapsed = time - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      const eased = easeOutBounce(progress);
+      el.scrollTop = start + distance * eased;
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    requestAnimationFrame(animate);
   }, []);
 
   // ── Data loading ──────────────────────────────────────────────────────────
