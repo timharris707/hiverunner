@@ -35,7 +35,8 @@ const LABEL_MAP: Record<string, string> = {
 export function PageBreadcrumbs() {
   const pathname = usePathname();
 
-  if (pathname === "/") return null;
+  // Advisory page uses full-bleed layout with negative margins — breadcrumbs overlap
+  if (pathname === "/" || pathname === "/advisory") return null;
 
   const segments = pathname.split("/").filter(Boolean);
 
