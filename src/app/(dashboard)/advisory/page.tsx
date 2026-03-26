@@ -969,15 +969,22 @@ export default function AdvisoryPage() {
                         {events.map((event, idx) => {
                           const eventRound = roundMap.get(event.id) ?? 1;
                           const prevRound = idx > 0 ? (roundMap.get(events[idx - 1].id) ?? 1) : 0;
-                          const showDivider = eventRound > prevRound && eventRound > 1;
                           const totalRounds = totalRoundsRef.current;
+                          // Show divider when entering a new round — including round 1 if multiple rounds exist
+                          const isFirstAgentEvent = idx > 0 && event.speaker !== "System" && event.type !== "start";
+                          const showRound1 = eventRound === 1 && prevRound === 0 && totalRounds > 1 && isFirstAgentEvent;
+                          const showDivider = (eventRound > prevRound && eventRound > 1) || showRound1;
                           return (
                             <div key={event.id}>
                               {showDivider && (
                                 <div style={{ display: "flex", alignItems: "center", gap: "12px", margin: "18px 0", opacity: 0.5 }}>
                                   <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
                                   <span style={{ fontSize: "10px", fontWeight: 700, color: "var(--text-muted)", fontFamily: "var(--font-mono)", letterSpacing: "0.08em", whiteSpace: "nowrap" }}>
-                                    Round {eventRound}{totalRounds > 1 ? ` of ${totalRounds}` : ""}
+                                    Round {eventRound}{(() => {
+                                      const configuredRounds = sessionData?.rounds;
+                                      const displayTotal = typeof configuredRounds === "number" ? configuredRounds : totalRounds;
+                                      return displayTotal > 1 ? ` of ${displayTotal}` : "";
+                                    })()}
                                   </span>
                                   <div style={{ flex: 1, height: "1px", backgroundColor: "var(--border)" }} />
                                 </div>
