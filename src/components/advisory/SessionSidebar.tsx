@@ -454,9 +454,9 @@ export default function SessionSidebar({
               </div>
             );
           }
-          return displaySessions.map((s) => (
+          return displaySessions.map((s, idx) => (
             <SessionListItem
-              key={s.id}
+              key={`${s.id}-${idx}`}
               session={s}
               active={activeSession?.id === s.id}
               onClick={() => onSelectSession(s)}
