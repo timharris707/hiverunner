@@ -116,71 +116,7 @@
   "aborted": true,
   "completedAt": "2026-03-26T22:44:05.910Z",
   "outcome": "ended-by-user",
-  "insights": {
-    "actionItems": [
-      {
-        "description": "Deliver landing page copy and positioning deck with Quant's 'Your photos are costing you dates' curiosity-gap headline and counter-cultural 'human dating powered by AI coaching' angle",
-        "assignedAgent": "Quill",
-        "priority": "medium",
-        "status": "pending"
-      },
-      {
-        "description": "Scope the shared multi-provider router (ProviderRouter) as a standalone internal package with clear API contract — benefits all trading systems and future products",
-        "assignedAgent": "Forge",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Complete weather CronRunner integration into OpenClaw cron for automated daily paper trading by end of week",
-        "assignedAgent": "Forge",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Activate crypto bot paper trading against live Binance data by end of week",
-        "assignedAgent": "Pixel",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Build TAM model once competitive intel is delivered; refine kill criteria with rate-based metrics (landing page conversion <4%, K<0.4 at day 30, free-to-paid <2.5% at day 45)",
-        "assignedAgent": "Quant",
-        "priority": "medium",
-        "status": "pending"
-      },
-      {
-        "description": "Decide whether AI-agent dating concept (MoltBook-style brand play) or human-facing dating coaching tool (revenue play) gets priority — board cannot sequence without this call",
-        "assignedAgent": "Henry",
-        "priority": "high",
-        "status": "pending"
-      },
-      {
-        "description": "Design MVP photo ranker output as a shareable visual 'report card' with radar chart and Profile Power Score (1-100) to maximize viral coefficient K",
-        "assignedAgent": "Pixel",
-        "priority": "low",
-        "status": "pending"
-      }
-    ],
-    "keyDecisions": [
-      "Trading system completion takes absolute priority over any new product build — Pixel and Forge stay locked on crypto and weather trading systems, no exceptions",
-      "Phase Zero (research, copywriting, legal assessment, provider router scoping) authorized immediately in parallel with trading work at near-zero engineering cost",
-      "MVP build gated on two hard conditions: (1) at least one trading system in live paper trading with graduation criteria active, and (2) Counsel signs off on data handling architecture",
-      "Kill criteria use rate-based metrics not absolute numbers: <4% landing page conversion, K<0.4 at day 30, free-to-paid <2.5% at day 45, time-to-value >90 seconds",
-      "Provider router built as shared organizational infrastructure deployed across all projects, not single-use for dating tool"
-    ],
-    "openQuestions": [
-      "Which concept ships first — Tim's actual idea (AI agents dating each other, entertainment/brand play) or the human-facing dating coaching tool the board analyzed (revenue play)?",
-      "Is there a sustainable monetization model for AI social platforms like MoltBook, or is it purely brand awareness and press coverage?",
-      "Browser extension viability — Pixel sees it as the $29/month product, Forge sees it as an operational maintenance nightmare with perpetual DOM-scraping wars against dating platforms",
-      "What is the realistic timeline for crypto and weather trading systems to reach graduation criteria from paper trading to live — if 60+ days, does the consumer experiment wait that long?",
-      "Brand identity for Harris Autonomous — trading/fintech operation, consumer AI products company, or the weird-fun lab that builds AI social experiments?"
-    ],
-    "risksIdentified": [
-      "Four trading systems at 90% completion and 0% revenue — context-switching to greenfield builds delays first autonomous dollar and repeats the classic startup failure pattern of chasing shiny objects before core business proves out",
-      "The entire board defaulted to revenue optimization framing and missed Tim's actual concept (AI agents dating each other) — reveals a blind spot where the team over-indexes on monetization and under-indexes on cultural experimentation and fun",
-      "BIPA/GDPR/CCPA liability if photo uploads or conversation data are collected without legally airtight privacy architecture from day one — a single class action could cost more than the product ever generates",
-      "API cost exposure from abuse — free photo ranker with shareable output is a honeypot for bot farms and competitors reverse-engineering prompts, single bad actor can burn $500+ in API costs in an afternoon without proper rate limiting"
-    ],
-    "extractedAt": "2026-03-26T22:44:53.178Z"
-  }
+  "archived": true,
+  "archivedAt": "2026-03-26T22:48:00.211Z",
+  "transcriptPath": "/Users/timharris/.openclaw/workspace/memory/advisory/2026-03-26-do-you-need-love-should-we-build-an-ai-dating-app-roast-the-.md"
 }

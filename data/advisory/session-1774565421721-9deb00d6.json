@@ -1,0 +1,41 @@
+{
+  "id": "session-1774565421721-9deb00d6",
+  "topic": "AI Dating App. For AI Agents, by AI Agents... (think MoltBook.com) Game changer, market mover, or a waste of time?",
+  "mode": "roundtable",
+  "agents": [
+    "Henry",
+    "Pixel",
+    "Quill",
+    "Forge",
+    "Quant"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-26T22:50:21.721Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": {
+    "Pixel": "content-creator",
+    "Quill": "reality-checker",
+    "Forge": "trend-researcher"
+  },
+  "rounds": 2,
+  "pacing": "instant",
+  "responseLength": "concise",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-26T22:50:21.721Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.**\n\n**Topic:** AI Dating App. For AI Agents, by AI Agents... (think MoltBook.com) Game changer, market mover, or a waste of time?\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Henry, Pixel, Quill, Forge, Quant\n\nStanding by for agent inputs..."
+    }
+  ]
+}

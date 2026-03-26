@@ -1726,8 +1726,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               </div>
 
               {Object.keys(personaOverlays).length > 0 && (
-                <div style={{ padding: "8px 12px", backgroundColor: "var(--accent-soft)", border: "1px solid var(--accent)", borderRadius: "8px", marginBottom: "16px" }}>
-                  <span style={{ fontSize: "11px", color: "var(--accent)", fontWeight: 600 }}>
+                <div style={{ padding: "8px 12px", backgroundColor: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.2)", borderRadius: "8px", marginBottom: "16px" }}>
+                  <span style={{ fontSize: "11px", color: "rgba(148,163,184,0.7)", fontWeight: 500 }}>
                     {Object.values(personaOverlays).flat().length} overlay{Object.values(personaOverlays).flat().length > 1 ? "s" : ""} across {Object.keys(personaOverlays).length} agent{Object.keys(personaOverlays).length > 1 ? "s" : ""} · Each overlay is injected into the agent&apos;s system prompt
                   </span>
                 </div>
