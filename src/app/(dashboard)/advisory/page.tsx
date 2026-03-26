@@ -726,30 +726,50 @@ export default function AdvisoryPage() {
       <div className="advisory-layout" style={{ display: "flex", height: "calc(100vh - 80px)", gap: "0", minHeight: 0, position: "relative", margin: "-24px", width: "calc(100% + 48px)" }}>
 
         {/* ─── LEFT SIDEBAR ──────────────────────────────── */}
-        <SessionSidebar
-          sessions={sessions}
-          activeSession={activeSession}
-          activeView={activeView}
-          loading={loading}
-          refreshing={refreshing}
-          searchQuery={searchQuery}
-          filterAgent={filterAgent}
-          showFilters={showFilters}
-          compareMode={compareMode}
-          compareSelections={compareSelections}
-          mobileSidebarOpen={mobileSidebarOpen}
-          onSelectSession={handleSelectSession}
-          onActiveViewChange={setActiveView}
-          onRefresh={handleRefresh}
-          onSearchChange={setSearchQuery}
-          onFilterAgentChange={setFilterAgent}
-          onShowFiltersChange={setShowFilters}
-          onCompareModeToggle={() => { setCompareMode((v) => !v); setCompareSelections([]); }}
-          onCompareToggle={handleToggleCompareSelection}
-          onOpenCompare={handleOpenCompare}
-          onShowLaunchModal={() => setShowLaunchModal(true)}
-          onMobileSidebarClose={() => setMobileSidebarOpen(false)}
-        />
+        {/* When a review loop session is active, replace the session list with the task panel */}
+        {reviewLoop && activeSession?.mode === "review" ? (
+          <ReviewLoopPanel
+            loop={reviewLoop}
+            onOverride={handleOverrideTask}
+            onAddTask={handleAddLoopTask}
+            onAdvance={() => handleLoopAction("advance")}
+            onPause={() => handleLoopAction("pause")}
+            onResume={() => handleLoopAction("resume")}
+            selectedTaskId={selectedTaskId}
+            onSelectTask={setSelectedTaskId}
+            newTaskText={newTaskText}
+            onNewTaskTextChange={setNewTaskText}
+            addingTask={addingTask}
+            loopAdvancing={loopAdvancing}
+            sessionStatus={activeSession?.status || "active"}
+            onSetAutoContinue={(val) => handleLoopAction("set-auto-continue", { autoContinue: val })}
+          />
+        ) : (
+          <SessionSidebar
+            sessions={sessions}
+            activeSession={activeSession}
+            activeView={activeView}
+            loading={loading}
+            refreshing={refreshing}
+            searchQuery={searchQuery}
+            filterAgent={filterAgent}
+            showFilters={showFilters}
+            compareMode={compareMode}
+            compareSelections={compareSelections}
+            mobileSidebarOpen={mobileSidebarOpen}
+            onSelectSession={handleSelectSession}
+            onActiveViewChange={setActiveView}
+            onRefresh={handleRefresh}
+            onSearchChange={setSearchQuery}
+            onFilterAgentChange={setFilterAgent}
+            onShowFiltersChange={setShowFilters}
+            onCompareModeToggle={() => { setCompareMode((v) => !v); setCompareSelections([]); }}
+            onCompareToggle={handleToggleCompareSelection}
+            onOpenCompare={handleOpenCompare}
+            onShowLaunchModal={() => setShowLaunchModal(true)}
+            onMobileSidebarClose={() => setMobileSidebarOpen(false)}
+          />
+        )}
 
         {/* ─── MAIN CONTENT ─────────────────────────────── */}
         {/* FIX: minWidth:0 prevents flex child from overflowing (text wrapping bug) */}
@@ -920,29 +940,8 @@ export default function AdvisoryPage() {
                 </div>
               )}
 
-              {/* Horizontal split: Review Loop panel + Events */}
+              {/* Events stream — full width center area */}
               <div style={{ display: "flex", flex: 1, overflow: "hidden", minWidth: 0 }}>
-                {/* Review Loop Task Panel (left) */}
-                {reviewLoop && activeSession?.mode === "review" && (
-                  <ReviewLoopPanel
-                    loop={reviewLoop}
-                    onOverride={handleOverrideTask}
-                    onAddTask={handleAddLoopTask}
-                    onAdvance={() => handleLoopAction("advance")}
-                    onPause={() => handleLoopAction("pause")}
-                    onResume={() => handleLoopAction("resume")}
-                    selectedTaskId={selectedTaskId}
-                    onSelectTask={setSelectedTaskId}
-                    newTaskText={newTaskText}
-                    onNewTaskTextChange={setNewTaskText}
-                    addingTask={addingTask}
-                    loopAdvancing={loopAdvancing}
-                    sessionStatus={activeSession?.status || "active"}
-                    onSetAutoContinue={(val) => handleLoopAction("set-auto-continue", { autoContinue: val })}
-                  />
-                )}
-
-                {/* Events stream column */}
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
                   {/* FIX: overflowY auto for scrollable events stream */}
                   <div
