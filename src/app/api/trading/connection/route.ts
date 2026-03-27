@@ -44,12 +44,14 @@ export async function GET() {
     // ignore
   }
 
-  // --- Kalshi + Polymarket (from weather-trading .env) ---
+  // --- Kalshi + Polymarket (from weather-trading .env + PEM check) ---
   const env = parseEnvFile(WEATHER_TRADING_ENV);
 
   const kalshiApiKey = env["KALSHI_API_KEY"] || "";
-  const kalshiKeyPath = env["KALSHI_PRIVATE_KEY_PATH"] || "";
-  const kalshiConfigured = kalshiApiKey.length > 0;
+  const kalshiKeyPath = env["KALSHI_PRIVATE_KEY_PATH"] || join(WORKSPACE, "projects", "weather-trading", "kalshi_private_key.pem");
+  const kalshiPemExists = existsSync(join(WORKSPACE, "projects", "weather-trading", "kalshi_private_key.pem"));
+  // Kalshi is "configured" if we have the PEM (scanner works on public API) or full API key
+  const kalshiConfigured = kalshiApiKey.length > 0 || kalshiPemExists;
 
   const polymarketApiKey = env["POLYMARKET_API_KEY"] || "";
   const polymarketApiSecret = env["POLYMARKET_API_SECRET"] || "";
@@ -63,7 +65,7 @@ export async function GET() {
     },
     kalshi: {
       configured: kalshiConfigured,
-      keyId: kalshiConfigured ? kalshiApiKey.slice(-8) : null,
+      keyId: kalshiApiKey ? kalshiApiKey.slice(-8) : (kalshiPemExists ? "PEM ✓ (read-only)" : null),
       keyPath: kalshiKeyPath || null,
       exchange: "kalshi",
     },
