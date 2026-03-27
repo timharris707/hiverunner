@@ -260,6 +260,7 @@ export async function POST(
     const roundLimit = Number(configuredRounds);
     if (!isNaN(roundLimit) && roundLimit > 0) {
       // Count completed rounds: a round is complete when every agent in session.agents has spoken once
+      // Only count agent events from THIS session's events array
       const agentEvents = events.filter(
         (e: { speaker: string; type: string }) =>
           e.speaker !== "Tim" && e.speaker !== "System" &&
@@ -276,7 +277,10 @@ export async function POST(
         }
       }
 
-      if (completedRounds >= roundLimit) {
+      console.log('Round check: completed=' + completedRounds + ' limit=' + roundLimit + ' agentEvents=' + agentEvents.length);
+
+      // Guard: don't trigger round limit if no real agent responses yet
+      if (completedRounds >= roundLimit && completedRounds > 0 && agentEvents.length > 0) {
         // Round limit reached — trigger synthesis and complete the session
         const endRes = await fetch(
           new URL(`/api/advisory/sessions/${id}/end`, _req.url).toString(),

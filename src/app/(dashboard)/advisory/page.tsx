@@ -63,21 +63,10 @@ export default function AdvisoryPage() {
   const activeSessionRef = useRef<AdvisorySession | null>(null);
   const eventsRef = useRef<AdvisoryEvent[]>([]);
 
-  // Persist active session ID to localStorage to survive component remounts
+  // Keep activeSessionRef in sync (no more localStorage persistence — causes contamination)
   useEffect(() => {
     activeSessionRef.current = activeSession;
-    if (activeSession) {
-      localStorage.setItem("advisory_active_session_id", activeSession.id);
-    }
   }, [activeSession]);
-
-  // On mount: restore active session from localStorage if we have one
-  const [restoredSessionId] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem("advisory_active_session_id");
-    }
-    return null;
-  });
   const [events, setEvents] = useState<AdvisoryEvent[]>([]);
   const [showLaunchModal, setShowLaunchModal] = useState(false);
   const [humanMessage, setHumanMessage] = useState("");
@@ -243,15 +232,25 @@ export default function AdvisoryPage() {
     }
   }, []);
 
+  // On mount: load sessions, then auto-select any active session (replaces localStorage restoration)
   useEffect(() => {
-    loadSessions();
-    loadCustomAgents();
-    // Auto-restore active session from localStorage on mount
-    if (restoredSessionId) {
-      loadSessionEvents(restoredSessionId);
-    }
+    (async () => {
+      await loadSessions();
+      await loadCustomAgents();
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadSessions, loadCustomAgents]);
+
+  // Once sessions load, auto-select the active one (if any) — eliminates stale-ID contamination
+  useEffect(() => {
+    if (sessions.length > 0 && !activeSession) {
+      const active = sessions.find((s) => s.status === "active");
+      if (active) {
+        loadSessionEvents(active.id);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessions]);
 
   // ── Auto-scroll ───────────────────────────────────────────────────────────
 
@@ -294,9 +293,14 @@ export default function AdvisoryPage() {
           }
           if (typeof data.paused === "boolean") {
             setIsPaused(data.paused);
-            // When no agent is thinking (regardless of paused state), clear generating state
             if (!data.thinkingAgent) {
-              setIsGenerating(false);
+              // Session is active and not paused but no thinkingAgent — show generic indicator
+              // This catches the gap between next-agent call and thinkingAgent being set
+              if (data.status === "active" && !data.paused) {
+                setIsGenerating(true);
+              } else {
+                setIsGenerating(false);
+              }
               setConnectingToAI(false);
             }
           }
@@ -388,35 +392,48 @@ export default function AdvisoryPage() {
     setShowLaunchModal(false);
     setMobileSidebarOpen(false);
     setIsGenerating(true);
-    // Clear any previous session and immediately set the NEW session ID
-    // This prevents the old session from being restored on component remount
-    localStorage.setItem("advisory_active_session_id", session.id);
     await loadSessions();
     await handleSelectSession(session);
     setActiveView("live");
     // Auto-start Round 1 so the user doesn't need to hit Resume first
     if (session.mode !== "review") {
-      try {
-        setConnectingToAI(true);
-        setIsPaused(false);
-        // Small delay to ensure session file is fully written before firing first agent
-        await new Promise((r) => setTimeout(r, 500));
-        const sd = session as unknown as Record<string, unknown>;
-        if (sd.pacing === "manual") {
-          // Manual pacing: fire one agent at a time, then auto-pause
-          const res = await fetch(`/api/advisory/sessions/${session.id}/next-agent`, { method: "POST" });
-          const data = await res.json();
-          setIsGenerating(true);
-          if (data.nextAgent) {
-            setThinkingAgent(data.nextAgent);
-            setConnectingToAI(false);
+      setConnectingToAI(true);
+      setIsPaused(false);
+      const sd = session as unknown as Record<string, unknown>;
+      // Fire first agent with retry to handle session file not yet written
+      const fireFirstAgent = async (attempt = 1): Promise<void> => {
+        try {
+          if (sd.pacing === "manual") {
+            const res = await fetch(`/api/advisory/sessions/${session.id}/next-agent`, { method: "POST" });
+            const data = await res.json();
+            if (!res.ok && attempt < 3) {
+              await new Promise((r) => setTimeout(r, 500 * attempt));
+              return fireFirstAgent(attempt + 1);
+            }
+            setIsGenerating(true);
+            if (data.nextAgent) {
+              setThinkingAgent(data.nextAgent);
+              setConnectingToAI(false);
+            }
+          } else {
+            const res = await fetch(`/api/advisory/sessions/${session.id}/full-round`, { method: "POST" });
+            if (!res.ok && attempt < 3) {
+              await new Promise((r) => setTimeout(r, 500 * attempt));
+              return fireFirstAgent(attempt + 1);
+            }
+            setIsGenerating(true);
           }
-        } else {
-          await fetch(`/api/advisory/sessions/${session.id}/full-round`, { method: "POST" });
+        } catch (e) {
+          if (attempt < 3) {
+            await new Promise((r) => setTimeout(r, 500 * attempt));
+            return fireFirstAgent(attempt + 1);
+          }
+          console.error("Auto-start round 1 error after retries:", e);
         }
-      } catch (e) {
-        console.error("Auto-start round 1 error:", e);
-      }
+      };
+      // Delay to ensure session file is written, then fire with retry
+      await new Promise((r) => setTimeout(r, 500));
+      await fireFirstAgent();
     }
   };
 
@@ -671,8 +688,6 @@ export default function AdvisoryPage() {
   const handleEndSession = async () => {
     if (!activeSession || endingSession) return;
     setEndingSession(true);
-    // Clear persisted session — user is intentionally ending
-    localStorage.removeItem("advisory_active_session_id");
     // Immediately hide the deliberating indicator
     setIsGenerating(false);
     setThinkingAgent(null);
@@ -1428,9 +1443,14 @@ export default function AdvisoryPage() {
                         onClick={() => {
                           const newAutoPlay = !autoPlay;
                           setAutoPlay(newAutoPlay);
-                          // If turning on auto-play, immediately trigger next agent regardless of pause state
+                          // If turning on auto-play, immediately trigger next agent
+                          // Also handles fresh sessions where no agents have spoken yet
                           if (newAutoPlay && !isGenerating && !advancingTurn) {
-                            setTimeout(() => handleNextTurn(), 500);
+                            const hasAgentEvents = eventsRef.current.some(
+                              (e) => e.speaker !== "Tim" && e.speaker !== "System" && e.type !== "start" && e.type !== "complete"
+                            );
+                            // Fire immediately whether or not agents have spoken — covers fresh sessions
+                            setTimeout(() => handleNextTurn(), hasAgentEvents ? 500 : 200);
                           }
                         }}
                         style={{
