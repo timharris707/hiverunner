@@ -44,6 +44,11 @@ interface Task {
   source_url?: string;
   github_issue?: string;
   notes?: string;
+  buildState?: "queued" | "spawning" | "running" | "completed" | "failed";
+  buildError?: string | null;
+  buildTriggeredAt?: string;
+  reviewRequired?: boolean;
+  reviewStatus?: string;
   created: string;
   updated: string;
   completedAt?: string;
@@ -1006,24 +1011,41 @@ function TaskCard({
         )}
       </div>
 
-      {/* Build indicator — spawning (yellow) or actively building (green pulse) */}
-      {isBuilding && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
-          <span className="animate-pulse">🏭</span>
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>AGENT SPAWNING...</span>
-        </div>
-      )}
-      {!isBuilding && task.status === "in-progress" && (task as any).buildTriggeredAt && (
-        <a
-          href="/factory"
-          onClick={(e) => e.stopPropagation()}
-          className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
-          style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", textDecoration: "none" }}
-        >
-          <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>AGENT BUILDING</span>
-          <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
-        </a>
+      {/* Build indicator — server-truthful queue/build/failure state */}
+      {(isBuilding || (task.status === "in-progress" && ["queued", "spawning", "running", "failed"].includes(task.buildState || ""))) && (
+        task.buildState === "failed" ? (
+          <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}>
+            <span>⚠️</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#f87171", letterSpacing: "0.5px" }}>BUILD FAILED</span>
+          </div>
+        ) : task.buildState === "queued" ? (
+          <a
+            href="/factory"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
+            style={{ backgroundColor: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.25)", textDecoration: "none" }}
+          >
+            <span>⏳</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.5px" }}>QUEUED FOR BUILDER</span>
+            <span style={{ fontSize: "9px", color: "rgba(192,132,252,0.7)", marginLeft: "auto" }}>→ Factory</span>
+          </a>
+        ) : isBuilding || task.buildState === "spawning" ? (
+          <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
+            <span className="animate-pulse">🏭</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>AGENT SPAWNING...</span>
+          </div>
+        ) : (
+          <a
+            href="/factory"
+            onClick={(e) => e.stopPropagation()}
+            className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
+            style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", textDecoration: "none" }}
+          >
+            <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>AGENT BUILDING</span>
+            <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
+          </a>
+        )
       )}
 
       {/* Title */}
@@ -1249,21 +1271,8 @@ export default function TasksPage() {
 
       if (newStatus === "in-progress") {
         setBuildingTaskId(id);
-        try {
-          const buildRes = await fetch("/api/tasks/build", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId: id }),
-          });
-          const buildData = await buildRes.json();
-          console.log("🏭 Build agent spawned:", buildData);
-          // Refresh tasks to pick up routing metadata
-          fetchTasks();
-        } catch (buildError) {
-          console.error("Build trigger failed:", buildError);
-        } finally {
-          setTimeout(() => setBuildingTaskId(null), 3000);
-        }
+        fetchTasks();
+        setTimeout(() => setBuildingTaskId(null), 3000);
       }
     } catch (error) {
       console.error("Error updating task:", error);
