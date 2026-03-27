@@ -121,14 +121,14 @@ export function WeeklyCalendar() {
               return (
                 <div
                   key={`${day.toISOString()}-${hour}`}
-                  className={`p-1 min-h-[48px] border-r border-gray-800 last:border-r-0 ${
+                  className={`p-1 min-h-[48px] overflow-hidden border-r border-gray-800 last:border-r-0 ${
                     isSameDay(day, new Date()) ? "bg-emerald-500/5" : ""
                   }`}
                 >
                   {dayTasks.map((task) => (
                     <div
                       key={task.id}
-                      className="bg-emerald-600/20 border-l-2 border-emerald-500 px-2 py-1 rounded text-xs mb-1"
+                      className="w-full bg-emerald-600/20 border-l-2 border-emerald-500 px-2 py-1 rounded text-xs mb-1 overflow-hidden"
                     >
                       <div className="font-medium text-emerald-400 truncate">
                         {task.name}
