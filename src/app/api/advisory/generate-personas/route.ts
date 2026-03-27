@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
 
     const systemPrompt = `You are an expert at designing advisory board compositions. Given a discussion topic, you generate specialized expert personas that would provide the most valuable and diverse perspectives for that specific discussion.
 
-Each persona should be a specialized expert lens — not a generic role, but tailored to the specific topic. Think about what unique angles, expertise areas, and critical perspectives would make this advisory discussion excellent.
+Each persona should be a specialized expert lens — not a generic role, but tailored to the specific topic. Think about what unique angles, expertise areas, and critical perspectives would make this advisory discussion excellent. Aim for diversity — cover contrarian views, adjacent domains, and non-obvious angles beyond the core subject.
 
-Return ONLY a valid JSON array with 4-5 persona objects. Each object must have:
+Return ONLY a valid JSON array with 8-10 persona objects. Each object must have:
 - "id": kebab-case identifier (e.g., "market-risk-analyst")
 - "name": short expert title (2-4 words)
 - "emoji": single relevant emoji
@@ -52,7 +52,7 @@ Return ONLY a valid JSON array with 4-5 persona objects. Each object must have:
 
 No markdown, no explanation — just the JSON array.`;
 
-    const userPrompt = `Generate 4-5 specialized expert personas for an advisory board discussion on this topic:
+    const userPrompt = `Generate 8-10 specialized expert personas for an advisory board discussion on this topic:
 
 "${topic}"
 
@@ -70,7 +70,7 @@ Return only the JSON array.`;
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 1024,
+        max_tokens: 2048,
         temperature: 0.7,
       }),
     });
@@ -96,7 +96,7 @@ Return only the JSON array.`;
     // Validate structure
     const personas = parsed
       .filter((p) => p.id && p.name && p.emoji && p.description)
-      .slice(0, 6)
+      .slice(0, 12)
       .map((p) => ({
         id: `ai-${p.id}`,
         name: String(p.name).slice(0, 40),

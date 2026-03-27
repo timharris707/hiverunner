@@ -536,6 +536,11 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [aiPersonas, setAiPersonas] = useState<AIPersona[]>([]);
   const [aiPersonasLoading, setAiPersonasLoading] = useState(false);
   const [aiPersonasCachedTopic, setAiPersonasCachedTopic] = useState("");
+  // Click-to-assign: selected persona waiting to be assigned to an agent
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  // Drag-and-drop: persona being dragged
+  const [draggingPersonaId, setDraggingPersonaId] = useState<string | null>(null);
+  const [dragOverAgentId, setDragOverAgentId] = useState<string | null>(null);
 
   // Review Loop specific state
   const [taskListText, setTaskListText] = useState("");
@@ -602,27 +607,16 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
       if (data.personas?.length > 0) {
         setAiPersonas(data.personas);
         setAiPersonasCachedTopic(topicText);
-        // Pre-select AI personas: replace any static overlays with AI ones
+        // Clear static overlays — user will assign AI personas via click or drag
         setPersonaOverlays((prev) => {
           const next = { ...prev };
           for (const agentId of selectedAgents) {
-            // Clear existing static overlays — AI personas replace them
             const current = (next[agentId] || []).filter((id) => id.startsWith("ai-"));
-            if (current.length < MAX_OVERLAYS_PER_AGENT && data.personas[0]) {
-              // Pick the first AI persona that isn't already assigned
-              const firstAvailable = data.personas.find(
-                (p: AIPersona) => !current.includes(p.id)
-              );
-              if (firstAvailable) {
-                next[agentId] = [...current, firstAvailable.id];
-              } else {
-                next[agentId] = current;
-              }
+            if (current.length === 0) {
+              delete next[agentId];
             } else {
               next[agentId] = current;
             }
-            // Clean up empty entries
-            if (next[agentId]?.length === 0) delete next[agentId];
           }
           return next;
         });
@@ -1657,7 +1651,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           <>
             <div style={{ marginBottom: "8px" }}>
               <p style={{ fontSize: "12px", color: "var(--text-muted)", margin: "0 0 16px 0", lineHeight: 1.6 }}>
-                Add specialized expertise to each agent. Up to {MAX_OVERLAYS_PER_AGENT} overlays per agent — each shapes how they approach their contributions. All are optional.
+                Add specialized expertise to each agent. Click a persona to select it, then click an agent to assign — or drag and drop. Up to {MAX_OVERLAYS_PER_AGENT} overlays per agent.
               </p>
 
               {/* AI-Generated Personas Section */}
@@ -1705,49 +1699,68 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       AI GENERATED FOR YOUR TOPIC
                     </span>
                   </div>
+                  {selectedPersonaId && (
+                    <div style={{
+                      padding: "8px 12px",
+                      marginBottom: "8px",
+                      borderRadius: "8px",
+                      backgroundColor: "rgba(168,85,247,0.1)",
+                      border: "1px solid rgba(168,85,247,0.3)",
+                      fontSize: "11px",
+                      color: "#c084fc",
+                      fontWeight: 600,
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "8px",
+                    }}>
+                      <span>Click an agent below to assign &quot;{aiPersonas.find(p => p.id === selectedPersonaId)?.name ?? PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedPersonaId)?.name ?? selectedPersonaId}&quot;</span>
+                      <button
+                        onClick={() => setSelectedPersonaId(null)}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#c084fc", fontSize: "10px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "rgba(168,85,247,0.15)" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
                   <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: "8px" }}>
                     {aiPersonas.map((persona) => {
                       const isUsed = Object.values(personaOverlays).flat().includes(persona.id);
+                      const isHighlighted = selectedPersonaId === persona.id;
                       return (
                         <button
                           key={persona.id}
                           type="button"
+                          draggable
+                          onDragStart={(e) => {
+                            setDraggingPersonaId(persona.id);
+                            setSelectedPersonaId(null);
+                            e.dataTransfer.effectAllowed = "copy";
+                            e.dataTransfer.setData("text/plain", persona.id);
+                          }}
+                          onDragEnd={() => {
+                            setDraggingPersonaId(null);
+                            setDragOverAgentId(null);
+                          }}
                           onClick={() => {
-                            // Toggle this AI persona on/off all agents
-                            setPersonaOverlays((prev) => {
-                              const next = { ...prev };
-                              if (isUsed) {
-                                // Remove from all agents
-                                for (const agentId of selectedAgents) {
-                                  if (next[agentId]?.includes(persona.id)) {
-                                    next[agentId] = next[agentId].filter((id) => id !== persona.id);
-                                    if (next[agentId].length === 0) delete next[agentId];
-                                  }
-                                }
-                              } else {
-                                // Add to all agents that have room
-                                for (const agentId of selectedAgents) {
-                                  const current = next[agentId] || [];
-                                  if (current.length < MAX_OVERLAYS_PER_AGENT && !current.includes(persona.id)) {
-                                    next[agentId] = [...current, persona.id];
-                                  }
-                                }
-                              }
-                              return next;
-                            });
+                            // Toggle highlight for click-to-assign
+                            setSelectedPersonaId((prev) => prev === persona.id ? null : persona.id);
                           }}
                           style={{
                             padding: "12px",
                             borderRadius: "10px",
-                            border: `1px solid ${isUsed ? "rgba(168,85,247,0.5)" : "rgba(168,85,247,0.2)"}`,
-                            background: isUsed
-                              ? "linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.1) 100%)"
-                              : "linear-gradient(135deg, rgba(168,85,247,0.05) 0%, rgba(139,92,246,0.02) 100%)",
-                            cursor: "pointer",
+                            border: `1px solid ${isHighlighted ? "#a855f7" : isUsed ? "rgba(168,85,247,0.5)" : "rgba(168,85,247,0.2)"}`,
+                            background: isHighlighted
+                              ? "linear-gradient(135deg, rgba(168,85,247,0.25) 0%, rgba(139,92,246,0.18) 100%)"
+                              : isUsed
+                                ? "linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.1) 100%)"
+                                : "linear-gradient(135deg, rgba(168,85,247,0.05) 0%, rgba(139,92,246,0.02) 100%)",
+                            cursor: draggingPersonaId ? "grabbing" : "grab",
                             textAlign: "left",
                             transition: "all 200ms ease",
                             position: "relative",
                             overflow: "hidden",
+                            boxShadow: isHighlighted ? "0 0 12px rgba(168,85,247,0.3)" : "none",
+                            transform: isHighlighted ? "scale(1.02)" : "none",
                           }}
                         >
                           {/* Purple glow accent */}
@@ -1758,13 +1771,13 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                             right: 0,
                             height: "2px",
                             background: "linear-gradient(90deg, #a855f7, #7c3aed, #a855f7)",
-                            opacity: isUsed ? 1 : 0.4,
+                            opacity: isHighlighted ? 1 : isUsed ? 1 : 0.4,
                           }} />
                           <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                             <span style={{ fontSize: "22px", lineHeight: 1 }}>{persona.emoji}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                                <span style={{ fontSize: "11px", fontWeight: 700, color: isUsed ? "#c084fc" : "var(--text-primary)" }}>
+                                <span style={{ fontSize: "11px", fontWeight: 700, color: isHighlighted || isUsed ? "#c084fc" : "var(--text-primary)" }}>
                                   {persona.name}
                                 </span>
                                 <span style={{
@@ -1784,7 +1797,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                                 {persona.description}
                               </div>
                             </div>
-                            {isUsed && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>✓</span>}
+                            {isHighlighted && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>⎋</span>}
+                            {!isHighlighted && isUsed && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>✓</span>}
                           </div>
                         </button>
                       );
@@ -1806,15 +1820,44 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                 {selectedAgents.map((agentId) => {
                   const agentDef = AGENTS.find((a) => a.id === agentId);
                   const agentOverlays = personaOverlays[agentId] || [];
+                  const isDragOver = dragOverAgentId === agentId;
+                  const isClickTarget = !!selectedPersonaId;
+                  const canReceive = agentOverlays.length < MAX_OVERLAYS_PER_AGENT;
 
                   return (
                     <div
                       key={agentId}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = canReceive ? "copy" : "none";
+                        setDragOverAgentId(agentId);
+                      }}
+                      onDragLeave={() => {
+                        setDragOverAgentId((prev) => prev === agentId ? null : prev);
+                      }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        setDragOverAgentId(null);
+                        setDraggingPersonaId(null);
+                        const overlayId = e.dataTransfer.getData("text/plain");
+                        if (overlayId && canReceive && !agentOverlays.includes(overlayId)) {
+                          toggleAgentOverlay(agentId, overlayId);
+                        }
+                      }}
+                      onClick={() => {
+                        if (selectedPersonaId && canReceive && !agentOverlays.includes(selectedPersonaId)) {
+                          toggleAgentOverlay(agentId, selectedPersonaId);
+                          setSelectedPersonaId(null);
+                        }
+                      }}
                       style={{
                         padding: "12px",
                         borderRadius: "10px",
-                        border: "1px solid var(--border)",
-                        backgroundColor: "var(--surface-elevated)",
+                        border: `1px solid ${isDragOver && canReceive ? "#a855f7" : isClickTarget && canReceive ? "rgba(168,85,247,0.5)" : "var(--border)"}`,
+                        backgroundColor: isDragOver && canReceive ? "rgba(168,85,247,0.08)" : "var(--surface-elevated)",
+                        cursor: isClickTarget && canReceive ? "pointer" : "default",
+                        transition: "all 200ms ease",
+                        boxShadow: isDragOver && canReceive ? "0 0 16px rgba(168,85,247,0.2)" : "none",
                       }}
                     >
                       {/* Agent header */}
