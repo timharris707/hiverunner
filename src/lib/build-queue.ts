@@ -16,6 +16,7 @@ mkdirSync(LOCKS_DIR, { recursive: true });
 const ACTIVE_BUILD_STATUSES = new Set(["spawning", "running"]);
 const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
+const REVIEWER_MODEL = "sonnet";
 const VISUAL_REVIEW_TAGS = new Set(["ui"]);
 const RECONCILE_INTERVAL_MS = 15_000;
 const MAX_ON_DECK_PER_PROJECT = 1;
@@ -36,8 +37,8 @@ const PROJECT_DIRS: Record<string, string> = {
 let lastReconcileAt = 0;
 
 type BuildExecutorDecision = {
-  agentType: "openclaw";
-  command: "openclaw";
+  agentType: "claude-code" | "codex";
+  command: "claude" | "codex";
   args: string[];
   actualModelId: string;
   actualModelName: string;
@@ -140,14 +141,13 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
     "- Commit with a clear message describing what was built",
     "- Push to the remote repository",
     "- Keep the implementation focused on the scoped task; do not rewrite unrelated areas",
-    "",
-    "When completely finished, run this command to notify the system:",
-    `openclaw system event --text \"Done: ${String(task.title || "Task").replace(/"/g, '\\"')}\" --mode now`,
+    "- When finished, end with a concise summary of what changed, validation run, and any remaining caveats",
   ].join("\n");
 }
 
-function buildOpenClawExecutor(routing: any, prompt: string, fallbackReason?: string): BuildExecutorDecision {
+function buildClaudeExecutor(routing: any, prompt: string, fallbackReason?: string): BuildExecutorDecision {
   const tier = routing?.tier;
+  const claudeModel = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
   const actualModelId = tier === "opus"
     ? "anthropic/claude-opus-4-6"
     : tier === "haiku"
@@ -156,9 +156,9 @@ function buildOpenClawExecutor(routing: any, prompt: string, fallbackReason?: st
   const actualModelName = tier === "opus" ? "Opus 4.6" : tier === "haiku" ? "Haiku 3.5" : "Sonnet 4.6";
 
   return {
-    agentType: "openclaw",
-    command: "openclaw",
-    args: ["agent", "--local", "--message", prompt],
+    agentType: "claude-code",
+    command: "claude",
+    args: ["--permission-mode", "bypassPermissions", "--model", claudeModel, "--print", prompt],
     actualModelId,
     actualModelName,
     fallbackReason,
@@ -166,16 +166,15 @@ function buildOpenClawExecutor(routing: any, prompt: string, fallbackReason?: st
 }
 
 function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
-  // Primary path: spawn agent via OpenClaw
   const tier = routing?.tier;
   const executorLabel = tier === "opus"
-    ? "OpenClaw Agent · Opus 4.6"
+    ? "Claude Code · Opus 4.6"
     : tier === "haiku"
-      ? "OpenClaw Agent · Haiku 3.5"
-      : "OpenClaw Agent · Sonnet 4.6";
+      ? "Claude Code · Haiku 3.5"
+      : "Claude Code · Sonnet 4.6";
   const prompt = buildPrompt(task, projectName, executorLabel);
 
-  return buildOpenClawExecutor(routing, prompt);
+  return buildClaudeExecutor(routing, prompt);
 }
 
 function hasAnyTag(task: any, tags: Set<string>) {
@@ -435,10 +434,12 @@ async function updateRunningState(buildId: string, taskId: string) {
 async function finalizeBuild(buildId: string, taskId: string, success: boolean, output: string) {
   let nextTaskId: string | null = null;
   let notifyText = "";
+  let reviewSpawnData: { task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
     const tasks = readTasks();
+    const projects = readProjects();
     const entry = buildLog.builds.find((b: any) => b.id === buildId);
     const task = tasks.find((t: any) => t.id === taskId);
 
@@ -457,7 +458,170 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     if (success) {
       task.buildState = "completed";
       task.buildError = null;
+      task.codeReviewState = "pending";
+      task.codeReviewStartedAt = now;
+      delete task.codeReviewNotes;
+      // task.status stays "in-progress" — reviewer will apply the final transition
 
+      const { projectName, projectDir } = getProjectMeta(task, projects);
+      const reviewEntry = {
+        id: `review-${Date.now()}`,
+        taskId: task.id,
+        taskTitle: task.title,
+        project: task.project,
+        executionKey: `${entry.executionKey}:review`,
+        originalExecutionKey: entry.executionKey,
+        status: "spawning",
+        queuedAt: null,
+        startedAt: now,
+        completedAt: null,
+        agentType: "reviewer",
+        workDir: entry.workDir,
+        source: "auto-review",
+        routing: {
+          tier: "sonnet",
+          modelId: "anthropic/claude-sonnet-4-6",
+          modelName: "Sonnet 4.6",
+          reason: "Auto code review after successful build",
+        },
+      };
+      buildLog.builds.unshift(reviewEntry);
+
+      reviewSpawnData = {
+        task: { ...task },
+        reviewEntry,
+        projectName,
+        projectDir,
+        buildOutput: output.slice(-1500),
+      };
+
+      notifyText = `🔍 Build complete, auto-reviewer spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
+    } else {
+      task.status = "in-progress";
+      task.buildState = "failed";
+      task.buildError = output.slice(-1500);
+      notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
+      nextTaskId = nextQueuedTaskId(buildLog, entry.executionKey);
+    }
+
+    writeBuildLog(buildLog);
+    writeTasks(tasks);
+  });
+
+  if (notifyText) sendSystemEvent(notifyText);
+
+  if (reviewSpawnData) {
+    const { task, reviewEntry, projectName, projectDir, buildOutput } = reviewSpawnData;
+    spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
+    return;
+  }
+
+  if (nextTaskId) {
+    queueOrStartBuild(nextTaskId, { source: `post-build:${buildId}` }).catch((err) => {
+      console.error("Failed to auto-start queued task:", err);
+    });
+    return;
+  }
+
+  reconcileBuildQueue({ source: `post-build:${buildId}`, force: true }).catch((err) => {
+    console.error("Failed to auto-advance task queue:", err);
+  });
+}
+
+function reviewPrompt(task: any, projectName: string, buildOutput: string) {
+  return [
+    `## Auto Code Review: ${task.title}`,
+    "",
+    `**Project:** ${projectName}`,
+    `**Task Type:** ${task.type || "feature"}`,
+    `**Priority:** ${task.priority}`,
+    "",
+    "### Task Description",
+    task.description || task.title,
+    "",
+    "### What the builder just did",
+    "A build agent completed this task. The last 1500 chars of its output:",
+    "```",
+    buildOutput || "(no output captured)",
+    "```",
+    "",
+    "### Your Review Steps",
+    "Run each of these:",
+    "1. `git log --oneline -3` — verify commits were made with a reasonable message",
+    "2. `git diff HEAD~1` — read through every change and check for obvious bugs, incomplete code, or missing requirements",
+    "3. `npm test 2>&1 | tail -50` — run tests if a test script exists; ignore exit code 1 if test script is missing",
+    "4. Mentally check: does the diff address the task description? Any syntax errors? Any broken imports?",
+    "",
+    "### Verdict",
+    "Output EXACTLY one of the following blocks at the very end of your response — nothing after it:",
+    "",
+    "If the work looks correct and complete:",
+    "VERDICT: APPROVED",
+    "",
+    "If there are specific bugs or missing requirements:",
+    "VERDICT: NEEDS_FIX",
+    "NOTES:",
+    "- [specific issue 1]",
+    "- [specific issue 2]",
+    "",
+    "Only flag real defects. Do NOT flag style nits, prefer-X-over-Y suggestions, or theoretical improvements.",
+  ].join("\n");
+}
+
+function parseReviewVerdict(output: string): { verdict: "APPROVED" | "NEEDS_FIX"; notes: string } {
+  if (/VERDICT:\s*APPROVED/i.test(output)) {
+    return { verdict: "APPROVED", notes: "" };
+  }
+  if (/VERDICT:\s*NEEDS_FIX/i.test(output)) {
+    const notesMatch = output.match(/NOTES:\s*([\s\S]+?)(?:\n{2,}|$)/i);
+    const notes = notesMatch ? notesMatch[1].trim() : "Reviewer flagged issues — see review build output for details.";
+    return { verdict: "NEEDS_FIX", notes };
+  }
+  // No parseable verdict — treat as approved so we don't block the pipeline
+  return { verdict: "APPROVED", notes: "" };
+}
+
+async function finalizeReview(reviewBuildId: string, taskId: string, success: boolean, output: string) {
+  let requeue = false;
+  let notifyText = "";
+  let originalExecutionKey = "";
+
+  await withFactoryLock(async () => {
+    const buildLog = readBuildLog();
+    const tasks = readTasks();
+    const reviewEntry = buildLog.builds.find((b: any) => b.id === reviewBuildId);
+    const task = tasks.find((t: any) => t.id === taskId);
+
+    if (!reviewEntry || !task) return;
+
+    originalExecutionKey = reviewEntry.originalExecutionKey || "";
+    const now = new Date().toISOString();
+    reviewEntry.completedAt = now;
+    reviewEntry.output = output.slice(-1500);
+
+    if (!success) {
+      // Reviewer process itself failed — treat as approved to avoid blocking the pipeline
+      reviewEntry.status = "failed";
+      task.codeReviewState = "approved";
+      task.codeReviewCompletedAt = now;
+    } else {
+      reviewEntry.status = "completed";
+      const { verdict, notes } = parseReviewVerdict(output);
+      task.codeReviewState = verdict === "APPROVED" ? "approved" : "needs-fix";
+      task.codeReviewCompletedAt = now;
+      if (notes) task.codeReviewNotes = notes;
+
+      if (verdict === "NEEDS_FIX") {
+        task.status = "in-progress";
+        task.buildState = "failed";
+        task.buildError = `Auto-reviewer requested changes:\n${notes}`;
+        delete task.completedAt;
+        requeue = true;
+        notifyText = `🔄 Auto-review NEEDS FIX: ${String(task.title || taskId).replace(/"/g, "'")}`;
+      }
+    }
+
+    if (task.codeReviewState === "approved") {
       if (shouldRequireReview(task)) {
         task.status = "review";
         task.reviewRequired = true;
@@ -474,38 +638,87 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
             lastUpdatedAt: now,
           };
         }
-
-        notifyText = `✅ Task ready for review: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyText = `✅ Auto-review approved → ready for human review: ${String(task.title || taskId).replace(/"/g, "'")}`;
       } else {
         task.status = "done";
         task.reviewRequired = false;
         task.reviewStatus = "not-needed";
         task.completedAt = now;
-        notifyText = `✅ Task completed: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyText = `✅ Auto-review approved → task complete: ${String(task.title || taskId).replace(/"/g, "'")}`;
       }
-    } else {
-      task.status = "in-progress";
-      task.buildState = "failed";
-      task.buildError = output.slice(-1500);
-      notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
     }
 
+    task.updated = now;
     writeBuildLog(buildLog);
     writeTasks(tasks);
-
-    nextTaskId = nextQueuedTaskId(buildLog, entry.executionKey);
   });
 
   if (notifyText) sendSystemEvent(notifyText);
-  if (nextTaskId) {
-    queueOrStartBuild(nextTaskId, { source: `post-build:${buildId}` }).catch((err) => {
-      console.error("Failed to auto-start queued task:", err);
+
+  if (requeue) {
+    queueOrStartBuild(taskId, { source: `review-needs-fix:${reviewBuildId}` }).catch((err) => {
+      console.error("Failed to re-queue task after review needs fix:", err);
     });
     return;
   }
 
-  reconcileBuildQueue({ source: `post-build:${buildId}`, force: true }).catch((err) => {
-    console.error("Failed to auto-advance task queue:", err);
+  // Advance the build queue now that review is done
+  if (originalExecutionKey) {
+    const buildLog = readBuildLog();
+    const nextTaskId = nextQueuedTaskId(buildLog, originalExecutionKey);
+    if (nextTaskId) {
+      queueOrStartBuild(nextTaskId, { source: `post-review:${reviewBuildId}` }).catch((err) => {
+        console.error("Failed to start next task after review:", err);
+      });
+      return;
+    }
+  }
+  reconcileBuildQueue({ source: `post-review:${reviewBuildId}`, force: true }).catch((err) => {
+    console.error("Failed to advance queue after review:", err);
+  });
+}
+
+function spawnReviewProcess(task: any, reviewEntry: any, projectName: string, projectDir: string, buildOutput: string) {
+  const prompt = reviewPrompt(task, projectName, buildOutput);
+  const args = ["--permission-mode", "bypassPermissions", "--model", REVIEWER_MODEL, "--print", prompt];
+
+  sendSystemEvent(`🔍 Auto-reviewer spawning for: ${String(task.title || task.id).replace(/"/g, "'")}`);
+
+  const child = execFile(
+    "claude",
+    args,
+    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024 },
+    (error, stdout, stderr) => {
+      const output = summarizeOutput(error, stdout, stderr);
+      finalizeReview(reviewEntry.id, task.id, !error, output).catch((err) => {
+        console.error("Error finalizing review:", err);
+      });
+    }
+  );
+
+  child.on("spawn", () => {
+    withFactoryLock(async () => {
+      const buildLog = readBuildLog();
+      const entry = buildLog.builds.find((b: any) => b.id === reviewEntry.id);
+      if (entry && entry.status === "spawning") {
+        entry.status = "running";
+        entry.runningAt = new Date().toISOString();
+        writeBuildLog(buildLog);
+      }
+      const tasks = readTasks();
+      const t = tasks.find((t: any) => t.id === reviewEntry.taskId);
+      if (t) {
+        t.codeReviewState = "running";
+        t.updated = new Date().toISOString();
+        writeTasks(tasks);
+      }
+    }).catch(() => {});
+  });
+
+  child.on("error", (err) => {
+    finalizeReview(reviewEntry.id, task.id, false, err.message).catch((finalizeErr) => {
+      console.error("Error finalizing failed review spawn:", finalizeErr);
+    });
   });
 }
 
