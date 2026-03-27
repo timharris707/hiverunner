@@ -47,8 +47,19 @@ interface Task {
   buildState?: "queued" | "spawning" | "running" | "completed" | "failed";
   buildError?: string | null;
   buildTriggeredAt?: string;
+  buildQueuedAt?: string;
+  buildStartedAt?: string;
+  buildCompletedAt?: string;
+  activeBuildId?: string;
+  routedModel?: string;
+  routedTier?: string;
+  routingReason?: string;
+  complexityScore?: number;
+  savingsPercent?: number;
   reviewRequired?: boolean;
   reviewStatus?: string;
+  reviewRequestedAt?: string;
+  reviewCompletedAt?: string;
   created: string;
   updated: string;
   completedAt?: string;
@@ -65,6 +76,7 @@ const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<an
   { id: "backlog", label: "Backlog", icon: Inbox, color: "#6b7280" },
   { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
+  { id: "review", label: "Review", icon: CheckCircle2, color: "#60a5fa" },
   { id: "done", label: "Done", icon: CheckCircle2, color: "#4ade80" },
 ];
 
@@ -277,6 +289,16 @@ async function uploadAttachments(taskId: string, files: File[]): Promise<Attachm
   return data.attachments || [];
 }
 
+async function triggerBuildRetry(taskId: string): Promise<Task | null> {
+  const res = await fetch("/api/tasks/build", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ taskId, action: "retry" }),
+  });
+  const data = await res.json();
+  return data.task || null;
+}
+
 interface NewTaskModalProps {
   onClose: () => void;
   onSave: (task: Partial<Task>, files?: File[]) => void;
@@ -313,7 +335,6 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   return (
     <div
       style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}
-      onClick={onClose}
     >
       <div
         style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "520px", border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}
@@ -516,6 +537,7 @@ function TaskDetailDrawer({
   const [notes, setNotes] = useState(task.notes || "");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [retryingBuild, setRetryingBuild] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [routing, setRouting] = useState<{
@@ -557,6 +579,18 @@ function TaskDetailDrawer({
       if (data.task) onTaskUpdated(data.task);
     } catch (err) {
       console.error("Patch failed:", err);
+    }
+  };
+
+  const handleRetryBuild = async () => {
+    try {
+      setRetryingBuild(true);
+      const updated = await triggerBuildRetry(task.id);
+      if (updated) onTaskUpdated(updated);
+    } catch (err) {
+      console.error("Retry failed:", err);
+    } finally {
+      setRetryingBuild(false);
     }
   };
 
