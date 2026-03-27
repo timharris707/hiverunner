@@ -1,5 +1,59 @@
 [
   {
+    "id": "TASK-125",
+    "title": "Fix: static overlays bleeding into AI-generated persona selections",
+    "description": "Reality Checker (static overlay) appeared on Quill despite user only selecting AI-generated personas. Overlay assignment is mixing static and AI sources. Need to ensure clean separation: when user selects AI personas, static ones should be fully removed unless explicitly added.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "boardrunner",
+      "personas",
+      "overlay-bug"
+    ],
+    "created": "2026-03-26T17:28:00.000Z",
+    "updated": "2026-03-26T17:28:00.000Z",
+    "created_by": "tim"
+  },
+  {
+    "id": "TASK-126",
+    "title": "Show session settings in header or sidebar \u2014 model, rounds, response length visible during session",
+    "description": "Once a session is running, there's no way to see what settings were picked (Concise vs Verbose, model, round count). Show these as small badges in the session header or on the sidebar live card.",
+    "status": "backlog",
+    "priority": "P2",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "feature",
+    "tags": [
+      "boardrunner",
+      "ui",
+      "settings"
+    ],
+    "created": "2026-03-26T17:28:00.000Z",
+    "updated": "2026-03-26T17:28:00.000Z",
+    "created_by": "tim"
+  },
+  {
+    "id": "TASK-127",
+    "title": "AI persona overlay UX \u2014 click persona then click agent, or drag-and-drop assignment",
+    "description": "Current UX for assigning AI-generated personas to agents is confusing. Clicking applies to all agents. Need: click persona to highlight, then click specific agent to assign. Or drag persona onto agent card. Also generate 2x the number of personas for more variety.",
+    "status": "on-deck",
+    "priority": "P1",
+    "assignee": "Pixel \ud83d\udcbb",
+    "project": "advisory-board",
+    "type": "bug",
+    "tags": [
+      "boardrunner",
+      "personas",
+      "ux"
+    ],
+    "created": "2026-03-26T17:28:00.000Z",
+    "updated": "2026-03-26T17:28:00.000Z",
+    "created_by": "tim"
+  },
+  {
     "id": "TASK-120",
     "title": "Personality trait pills \u2014 per-agent customizable traits (skeptical, shy, bold, etc.)",
     "description": "Add personality trait selection per agent in wizard. Selectable pills: Skeptical, Encouraging, Difficult, Shy, Bold, Cautious, Provocative, Empathetic, Analytical, Creative. Plus communication style: Verbose, Concise, Thoughtful, Rapid-fire. Plus intensity slider: Gentle to Aggressive. All inject into system prompt to dramatically change agent output personality.",
