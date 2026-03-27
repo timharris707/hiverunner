@@ -65,10 +65,21 @@ function getAgentOverlay(
   return personaOverlays[agentId];
 }
 
-function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string): string {
+function resolveOverlayContent(overlayId: string, aiPersonas?: Array<{ id: string; name: string; description: string }>): string | null {
+  // Check static overlays first
+  if (PERSONA_CONTENT[overlayId]) return PERSONA_CONTENT[overlayId];
+  // For AI-generated personas, use description from session metadata
+  if (overlayId.startsWith("ai-") && aiPersonas) {
+    const aiPersona = aiPersonas.find((p) => p.id === overlayId);
+    if (aiPersona) return aiPersona.description;
+  }
+  return null;
+}
+
+function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) return `You are an AI agent participating in a ${mode} session about: ${topic}`;
-  const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
+  const overlayContent = agentOverlay ? resolveOverlayContent(agentOverlay, aiPersonas) : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
   const referenceBlock = referenceContext ? `\n\n**Reference material provided for this session:**\n${referenceContext}\n` : "";
   // Per-agent voice/style to make responses feel human and distinct
@@ -228,7 +239,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, agentModelOverrides } = session;
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -332,7 +343,7 @@ export async function POST(
     const currentEvents = currentSession.events || [];
     const history = buildHistoryString(currentEvents);
     const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-    const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined);
+    const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas);
     const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nBuild on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
 
     let text = "";

@@ -26,11 +26,19 @@ import {
   formatModelName,
 } from "./constants";
 
+interface AIPersonaMeta {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string;
+}
+
 interface EventBubbleProps {
   event: AdvisoryEvent;
   sessionOverlays?: Record<string, string> | string[];
   sessionTopic?: string;
   sessionMode?: string;
+  aiPersonas?: AIPersonaMeta[];
   onRetry?: () => void;
   onFork?: () => void;
 }
@@ -40,6 +48,7 @@ export default function EventBubble({
   sessionOverlays = {},
   sessionTopic,
   sessionMode,
+  aiPersonas,
   onRetry,
   onFork,
 }: EventBubbleProps) {
@@ -78,6 +87,8 @@ export default function EventBubble({
     if (!sessionOverlays) return [];
     if (Array.isArray(sessionOverlays)) {
       return sessionOverlays.filter((oid) => {
+        // AI-generated personas apply to all agents
+        if (oid.startsWith("ai-")) return true;
         const o = PERSONA_OVERLAYS.find((p) => p.id === oid);
         return o?.relevantAgents.includes(event.speaker);
       });
@@ -85,6 +96,22 @@ export default function EventBubble({
     const overlayId = sessionOverlays[event.speaker];
     return overlayId ? [overlayId] : [];
   })();
+
+  // Helper to resolve overlay name/emoji for both static and AI-generated personas
+  const resolveOverlayName = (oid: string): string => {
+    if (oid.startsWith("ai-") && aiPersonas) {
+      const ai = aiPersonas.find((p) => p.id === oid);
+      if (ai) return ai.name;
+    }
+    return getOverlayName(oid);
+  };
+  const resolveOverlayEmoji = (oid: string): string => {
+    if (oid.startsWith("ai-") && aiPersonas) {
+      const ai = aiPersonas.find((p) => p.id === oid);
+      if (ai) return ai.emoji;
+    }
+    return getOverlayEmoji(oid);
+  };
 
   const handleCopyMessage = async () => {
     try {
@@ -267,7 +294,7 @@ export default function EventBubble({
                   letterSpacing: "0.04em",
                 }}
               >
-                {getOverlayEmoji(oid)} {getOverlayName(oid)}
+                {resolveOverlayEmoji(oid)} {resolveOverlayName(oid)}
               </span>
             ))}
             {event.model && !isSystem && !isHuman && !isError && (

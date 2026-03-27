@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
       reviewStyle: reviewStyle || "open",
       model: model || "claude-opus-4-6",
       personaOverlays: personaOverlays || [],
+      personaOverlaysList: personaOverlaysList || undefined,
+      aiPersonas: aiPersonas || undefined,
       rounds: rounds ?? 3,
       pacing: pacing || "instant",
       responseLength: responseLength || "balanced",

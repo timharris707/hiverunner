@@ -602,11 +602,12 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
       if (data.personas?.length > 0) {
         setAiPersonas(data.personas);
         setAiPersonasCachedTopic(topicText);
-        // Pre-select AI personas: assign first AI overlay to each selected agent (if they have room)
+        // Pre-select AI personas: replace any static overlays with AI ones
         setPersonaOverlays((prev) => {
           const next = { ...prev };
           for (const agentId of selectedAgents) {
-            const current = next[agentId] || [];
+            // Clear existing static overlays — AI personas replace them
+            const current = (next[agentId] || []).filter((id) => id.startsWith("ai-"));
             if (current.length < MAX_OVERLAYS_PER_AGENT && data.personas[0]) {
               // Pick the first AI persona that isn't already assigned
               const firstAvailable = data.personas.find(
@@ -614,8 +615,14 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               );
               if (firstAvailable) {
                 next[agentId] = [...current, firstAvailable.id];
+              } else {
+                next[agentId] = current;
               }
+            } else {
+              next[agentId] = current;
             }
+            // Clean up empty entries
+            if (next[agentId]?.length === 0) delete next[agentId];
           }
           return next;
         });
@@ -712,6 +719,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
             : undefined,
           // Full multi-overlay data
           personaOverlaysList: Object.keys(personaOverlays).length > 0 ? personaOverlays : undefined,
+          // AI persona metadata for system prompts and badge display
+          aiPersonas: aiPersonas.length > 0 ? aiPersonas : undefined,
           referenceContext: referenceContext.trim() || undefined,
           reviewLoop: reviewLoopPayload,
           agentModelOverrides: Object.keys(agentModelOverrides).length > 0 ? agentModelOverrides : undefined,

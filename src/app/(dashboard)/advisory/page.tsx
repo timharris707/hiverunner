@@ -1372,6 +1372,7 @@ export default function AdvisoryPage() {
                               <EventBubble
                                 event={event}
                                 sessionOverlays={(sessionData?.personaOverlays as Record<string, string> | string[] | undefined) ?? {}}
+                                aiPersonas={sessionData?.aiPersonas as Array<{ id: string; name: string; emoji: string; description: string }> | undefined}
                                 sessionTopic={activeSession?.topic}
                                 sessionMode={activeSession?.mode}
                                 onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
