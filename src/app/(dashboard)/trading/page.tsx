@@ -522,12 +522,7 @@ export default function TradingPage() {
             className="flex items-center gap-4 p-4 rounded-xl mb-4"
             style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
           >
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-              style={{ backgroundColor: "#60a5fa20", border: "1px solid #60a5fa40" }}
-            >
-              {"\u{1F329}\uFE0F"}
-            </div>
+            <AgentAvatar agentId="t2" size={48} borderWidth={2} />
             <div className="flex-1">
               <div className="font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
                 Nimbus — Weather Prediction Trader
@@ -1115,6 +1110,7 @@ export default function TradingPage() {
             {[
               {
                 name: "Cipher — Crypto Bot",
+                agentId: "t3",
                 emoji: "\u20BF",
                 color: "#f59e0b",
                 path: "/Users/timharris/.openclaw/workspace/projects/crypto-trading",
@@ -1122,6 +1118,7 @@ export default function TradingPage() {
               },
               {
                 name: "Nimbus — Weather Trading",
+                agentId: "t2",
                 emoji: "\u{1F324}\uFE0F",
                 color: "#60a5fa",
                 path: "/Users/timharris/.openclaw/workspace/projects/weather-trading",
@@ -1129,6 +1126,7 @@ export default function TradingPage() {
               },
               {
                 name: "Karpathy Loop",
+                agentId: null,
                 emoji: "\u{1F52C}",
                 color: "#a78bfa",
                 path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop",
@@ -1141,7 +1139,11 @@ export default function TradingPage() {
                 className="flex items-center gap-3 p-4 rounded-xl transition-all hover:scale-[1.01]"
                 style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${project.color}30` }}
               >
-                <span className="text-2xl">{project.emoji}</span>
+                {project.agentId ? (
+                  <AgentAvatar agentId={project.agentId} size={40} borderWidth={2} />
+                ) : (
+                  <span className="text-2xl">{project.emoji}</span>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{project.name}</div>
                   <div className="flex items-center gap-1.5 mt-1">
