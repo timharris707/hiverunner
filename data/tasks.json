@@ -2,9 +2,9 @@
   {
     "id": "TASK-125",
     "title": "Fix: static overlays bleeding into AI-generated persona selections",
-    "description": "Reality Checker (static overlay) appeared on Quill despite user only selecting AI-generated personas. Overlay assignment is mixing static and AI sources. Need to ensure clean separation: when user selects AI personas, static ones should be fully removed unless explicitly added.",
+    "description": "Reality Checker (static overlay) appeared on Quill despite user only selecting AI-generated personas. Overlay assignment is mixing static and AI sources. Need to ensure clean separation: when user selects AI personas, static ones should be fully removed unless explicitly added. ALSO: AI-generated personas are not being saved to the session correctly. Agents show static overlays (Trend Researcher, Reality Checker) instead of the AI personas the user selected. The persona-to-agent mapping must persist from wizard \u2192 session \u2192 system prompt \u2192 display badge.",
     "status": "on-deck",
-    "priority": "P1",
+    "priority": "P0",
     "assignee": "Pixel \ud83d\udcbb",
     "project": "advisory-board",
     "type": "bug",
