@@ -195,7 +195,7 @@ function AttachmentDropZone({
         {files.length === 0 ? (
           <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", color: "var(--text-muted)", fontSize: "0.8rem" }}>
             <Upload className="w-4 h-4" />
-            <span>Drop files, paste images, or click to browse</span>
+            <span>Drop files, paste anywhere, or click to browse</span>
           </div>
         ) : (
           <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
@@ -308,6 +308,16 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
       <div
         style={{ backgroundColor: "var(--card)", borderRadius: "1rem", width: "100%", maxWidth: "520px", border: "1px solid var(--border)", maxHeight: "90vh", overflowY: "auto" }}
         onClick={(e) => e.stopPropagation()}
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.items)
+            .filter((item) => item.kind === "file")
+            .map((item) => item.getAsFile())
+            .filter((f): f is File => f !== null);
+          if (files.length > 0) {
+            e.preventDefault();
+            setPendingFiles((prev) => [...prev, ...files]);
+          }
+        }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1.25rem 1.5rem", borderBottom: "1px solid var(--border)" }}>
           <h2 style={{ fontFamily: "var(--font-heading)", fontWeight: 700, color: "var(--text-primary)", fontSize: "1.1rem" }}>
@@ -582,6 +592,16 @@ function TaskDetailDrawer({
           overflowY: "auto",
         }}
         onClick={(e) => e.stopPropagation()}
+        onPaste={(e) => {
+          const files = Array.from(e.clipboardData.items)
+            .filter((item) => item.kind === "file")
+            .map((item) => item.getAsFile())
+            .filter((f): f is File => f !== null);
+          if (files.length > 0) {
+            e.preventDefault();
+            setPendingFiles((prev) => [...prev, ...files]);
+          }
+        }}
       >
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
