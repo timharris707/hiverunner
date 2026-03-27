@@ -91,6 +91,7 @@ export default function AdvisoryPage() {
   const [archiving, setArchiving] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [autoPlay, setAutoPlay] = useState(false);
+  const autoPlayTriggeredRef = useRef(false);
   const [togglingPause, setTogglingPause] = useState(false);
   const [showNewMessages, setShowNewMessages] = useState(false);
   const [endSessionConfirm, setEndSessionConfirm] = useState(false);
@@ -293,18 +294,31 @@ export default function AdvisoryPage() {
           }
           if (typeof data.paused === "boolean") {
             setIsPaused(data.paused);
-            // When server says session is paused and no agent is thinking, clear generating state
-            // This ensures manual pacing correctly halts between agents
-            if (data.paused && !data.thinkingAgent) {
+            // When no agent is thinking (regardless of paused state), clear generating state
+            if (!data.thinkingAgent) {
               setIsGenerating(false);
               setConnectingToAI(false);
-              // AUTO-PLAY: If enabled, automatically trigger the next agent after a short delay
-              if (autoPlay && activeSession?.status === "active") {
-                setTimeout(() => {
-                  handleNextTurn();
-                }, 1500); // 1.5s delay so user can see the response landed before next starts
-              }
             }
+          }
+          // AUTO-PLAY: trigger next agent when session is idle (no one thinking) and we have events
+          // Uses a ref guard to prevent multiple triggers from rapid polling cycles
+          if (!data.thinkingAgent && autoPlay && activeSession?.status === "active" && !autoPlayTriggeredRef.current) {
+            const currentEvents = eventsRef.current;
+            const hasAgentEvents = currentEvents.some(
+              (e) => e.speaker !== "Tim" && e.speaker !== "System" && e.type !== "start" && e.type !== "complete"
+            );
+            if (hasAgentEvents) {
+              autoPlayTriggeredRef.current = true;
+              setTimeout(() => {
+                handleNextTurn();
+                // Reset the guard after a delay to allow the next cycle
+                setTimeout(() => { autoPlayTriggeredRef.current = false; }, 3000);
+              }, 1500);
+            }
+          }
+          // Reset guard when an agent starts thinking (new cycle begins)
+          if (data.thinkingAgent) {
+            autoPlayTriggeredRef.current = false;
           }
           setThinkingAgent(data.thinkingAgent ?? null);
           // Clear connecting state once we know which agent is thinking
