@@ -19,6 +19,7 @@ import {
   Target,
 } from "lucide-react";
 import Link from "next/link";
+import { AgentAvatar } from "@/components/AgentAvatar";
 
 const TRADERS = [
   {
@@ -918,12 +919,7 @@ export default function TradingPage() {
             className="flex items-center gap-4 p-4 rounded-xl mb-4"
             style={{ backgroundColor: "var(--card-elevated)", border: "1px solid #10b98120" }}
           >
-            <div
-              className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl flex-shrink-0"
-              style={{ backgroundColor: "#10b98120", border: "1px solid #10b98140" }}
-            >
-              {"\u{1F4CA}"}
-            </div>
+            <AgentAvatar agentId="quant" size={48} borderWidth={2} />
             <div className="flex-1">
               <div className="font-bold" style={{ color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>
                 Quant — Trading Strategy Architect
@@ -986,7 +982,7 @@ export default function TradingPage() {
                 }}
               >
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-3xl">{trader.emoji}</span>
+                  <AgentAvatar agentId={trader.id} size={48} borderWidth={2} />
                   <span
                     className="text-xs font-bold px-2.5 py-1 rounded-full flex items-center gap-1.5"
                     style={{
