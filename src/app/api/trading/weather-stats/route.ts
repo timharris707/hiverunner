@@ -53,6 +53,7 @@ export async function GET() {
             `SELECT
               COUNT(*) as total_trades,
               SUM(CASE WHEN status='open' THEN 1 ELSE 0 END) as open_trades,
+              SUM(CASE WHEN status='open' AND settlement_scheduled_at IS NOT NULL AND settlement_scheduled_at <= datetime('now') THEN 1 ELSE 0 END) as awaiting_settlement,
               SUM(CASE WHEN status='won' THEN 1 ELSE 0 END) as won,
               SUM(CASE WHEN status='lost' THEN 1 ELSE 0 END) as lost,
               SUM(pnl) as total_pnl,
@@ -67,8 +68,16 @@ export async function GET() {
 
         const recentTrades = db
           .prepare(
-            `SELECT trade_id, ticker, side, price, cost, status, pnl, city, target_date, created_at
-             FROM trades ORDER BY created_at DESC LIMIT 20`
+            `SELECT trade_id, ticker, side, quantity, price, cost, edge, status, pnl, payout, actual_outcome, actual_temp, city, target_date, threshold, forecast_mean, settlement_scheduled_at, resolved_at, created_at
+             FROM trades ORDER BY created_at DESC LIMIT 40`
+          )
+          .all();
+
+        // Also fetch recently resolved trades separately for clear reporting
+        const resolvedTrades = db
+          .prepare(
+            `SELECT trade_id, ticker, side, quantity, price, cost, edge, status, pnl, payout, actual_outcome, actual_temp, city, target_date, threshold, forecast_mean, settlement_scheduled_at, resolved_at, created_at
+             FROM trades WHERE status IN ('won', 'lost') ORDER BY resolved_at DESC LIMIT 30`
           )
           .all();
 
@@ -78,6 +87,7 @@ export async function GET() {
         liveStats = {
           totalTrades: tradeStats.total_trades || 0,
           openTrades: tradeStats.open_trades || 0,
+          awaitingSettlement: tradeStats.awaiting_settlement || 0,
           won: tradeStats.won || 0,
           lost: tradeStats.lost || 0,
           winRate: resolved > 0 ? ((tradeStats.won || 0) / resolved) * 100 : 0,
@@ -85,6 +95,7 @@ export async function GET() {
           openExposure: tradeStats.open_exposure || 0,
           bankroll: bankroll?.bankroll ?? null,
           recentTrades,
+          resolvedTrades,
         };
       } catch {
         // SQLite read failed — continue with summary data only

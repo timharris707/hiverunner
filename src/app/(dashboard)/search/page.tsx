@@ -3,6 +3,8 @@
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { FileText, Brain, FolderOpen, Activity } from "lucide-react";
 
+export const dynamic = "force-dynamic";
+
 const sources = [
   { icon: Brain, label: "Memory Files", desc: "memory/*.md + MEMORY.md", color: "#3b82f6" },
   { icon: FileText, label: "Workspace Docs", desc: "AUTONOMOUS.md, AGENTS.md, SOUL.md", color: "#f59e0b" },

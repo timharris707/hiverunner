@@ -5,6 +5,8 @@ export const metadata = {
   description: 'See your agents working in real time in a 3D environment',
 };
 
+export const dynamic = 'force-dynamic';
+
 export default function OfficePage() {
   return <Office3D />;
 }

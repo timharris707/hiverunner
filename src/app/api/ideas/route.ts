@@ -21,8 +21,80 @@ export async function writeReviews(data: Record<string, unknown>) {
   await fs.writeFile(REVIEWS_PATH, JSON.stringify(data, null, 2), "utf-8");
 }
 
+function hasProcessingTaskForReview(reviewId: string) {
+  const tasks = readTasks();
+  return tasks.some(
+    (task) =>
+      task.reviewId === reviewId ||
+      String(task.description || "").includes(`**Review ID:** ${reviewId}`)
+  );
+}
+
+async function enqueueProcessingTaskForReview(review: {
+  id: string;
+  type?: string;
+  url?: string;
+  title?: string;
+}) {
+  if (review.type !== "youtube" || hasProcessingTaskForReview(review.id)) {
+    return false;
+  }
+
+  const tasks = readTasks();
+  const processingTask = {
+    id: `TASK-${Date.now()}`,
+    title: `Process YouTube video: ${review.title}`,
+    description: [
+      `A new YouTube video was added to Ideas and needs to be processed.`,
+      ``,
+      `**Review ID:** ${review.id}`,
+      `**URL:** ${review.url || ""}`,
+      `**Title:** ${review.title || "Untitled Review"}`,
+      ``,
+      `### Steps`,
+      `1. Use the existing YouTube scraper (check the idea-intake project for scraper scripts) to fetch the transcript and metadata for this video URL`,
+      `2. Generate a comprehensive summary (2-3 paragraphs) describing the video content`,
+      `3. Write an assessment of its relevance and value to the project`,
+      `4. Extract 3-8 actionable takeaways with video timestamps, priority (high/medium/low), and effort (small/medium/large)`,
+      `5. Update the review entry in ~/.openclaw/workspace/projects/idea-intake/reviews.json:`,
+      `   - Set \`summary\` to the generated summary`,
+      `   - Set \`assessment\` to the generated assessment`,
+      `   - Set \`rating\` to a score from 1-5 based on relevance`,
+      `   - Set \`takeaways\` array with objects matching the existing takeaway schema (id, title, description, video_timestamp, video_url, video_context, priority, effort, status: "idea")`,
+      `   - Set \`title\` and \`channel\` if they can be extracted from the video metadata`,
+    ].join("\n"),
+    status: "in-progress",
+    priority: "P2",
+    project: "idea-intake",
+    type: "feature",
+    tags: ["youtube", "processing", "auto"],
+    reviewId: review.id,
+    created: new Date().toISOString(),
+    updated: new Date().toISOString(),
+  };
+
+  tasks.unshift(processingTask);
+  writeTasks(tasks);
+  await queueOrStartBuild(processingTask.id, { source: "ideas-post-youtube" });
+  return true;
+}
+
+async function backfillProcessingTasksForExistingReviews(data: { reviews?: Array<Record<string, unknown>> }) {
+  const unprocessedYouTubeReviews = (data.reviews ?? []).filter((review) => {
+    const takeaways = Array.isArray(review.takeaways) ? review.takeaways : [];
+    const hasSummary = Boolean(review.summary);
+    const hasAssessment = Boolean(review.assessment);
+    return review.type === "youtube" && (!hasSummary || !hasAssessment || takeaways.length === 0);
+  });
+
+  for (const review of unprocessedYouTubeReviews) {
+    await enqueueProcessingTaskForReview(review as { id: string; type?: string; url?: string; title?: string });
+  }
+}
+
 export async function GET() {
   const data = await readReviews();
+  await backfillProcessingTasksForExistingReviews(data);
   return NextResponse.json(data);
 }
 
@@ -79,42 +151,7 @@ export async function POST(req: NextRequest) {
 
   // When a YouTube video is added, automatically create a processing task
   if (newReview.type === "youtube") {
-    const tasks = readTasks();
-    const processingTask = {
-      id: `TASK-${Date.now()}`,
-      title: `Process YouTube video: ${newReview.title}`,
-      description: [
-        `A new YouTube video was added to Ideas and needs to be processed.`,
-        ``,
-        `**Review ID:** ${newReview.id}`,
-        `**URL:** ${newReview.url}`,
-        `**Title:** ${newReview.title}`,
-        ``,
-        `### Steps`,
-        `1. Use the existing YouTube scraper (check the idea-intake project for scraper scripts) to fetch the transcript and metadata for this video URL`,
-        `2. Generate a comprehensive summary (2-3 paragraphs) describing the video content`,
-        `3. Write an assessment of its relevance and value to the project`,
-        `4. Extract 3-8 actionable takeaways with video timestamps, priority (high/medium/low), and effort (small/medium/large)`,
-        `5. Update the review entry in ~/.openclaw/workspace/projects/idea-intake/reviews.json:`,
-        `   - Set \`summary\` to the generated summary`,
-        `   - Set \`assessment\` to the generated assessment`,
-        `   - Set \`rating\` to a score from 1-5 based on relevance`,
-        `   - Set \`takeaways\` array with objects matching the existing takeaway schema (id, title, description, video_timestamp, video_url, video_context, priority, effort, status: "idea")`,
-        `   - Set \`title\` and \`channel\` if they can be extracted from the video metadata`,
-      ].join("\n"),
-      status: "in-progress",
-      priority: "P2",
-      project: "idea-intake",
-      type: "feature",
-      tags: ["youtube", "processing", "auto"],
-      reviewId: newReview.id,
-      created: new Date().toISOString(),
-      updated: new Date().toISOString(),
-    };
-
-    tasks.unshift(processingTask);
-    writeTasks(tasks);
-    await queueOrStartBuild(processingTask.id, { source: "ideas-post-youtube" });
+    await enqueueProcessingTaskForReview(newReview);
   }
 
   return NextResponse.json(newReview, { status: 201 });

@@ -20,7 +20,11 @@ export async function GET() {
     const positions = db
       .prepare(
         `SELECT trade_id, ticker, side, quantity, price, cost, edge, composite_score,
-                city, target_date, forecast_mean, forecast_std, n_models, status, created_at
+                city, target_date, settlement_scheduled_at, forecast_mean, forecast_std, n_models, status, created_at,
+                CASE
+                  WHEN settlement_scheduled_at IS NOT NULL AND settlement_scheduled_at <= datetime('now') THEN 'awaiting_settlement'
+                  ELSE 'open'
+                END as lifecycle_status
          FROM trades
          WHERE status = 'open'
          ORDER BY target_date ASC, city ASC`
@@ -42,9 +46,20 @@ export async function GET() {
       )
       .all();
 
+    const resolvedPositions = db
+      .prepare(
+        `SELECT trade_id, ticker, side, quantity, price, cost, edge, composite_score,
+                city, target_date, threshold, forecast_mean, forecast_std, n_models, status, pnl, payout, actual_outcome, actual_temp, settlement_scheduled_at, resolved_at, created_at
+         FROM trades
+         WHERE status IN ('won', 'lost')
+         ORDER BY resolved_at DESC
+         LIMIT 30`
+      )
+      .all();
+
     db.close();
 
-    return NextResponse.json({ positions, cityBreakdown });
+    return NextResponse.json({ positions, cityBreakdown, resolvedPositions });
   } catch (error) {
     console.error("[trading/positions] Error:", error);
     return NextResponse.json({ positions: [], cityBreakdown: [] }, { status: 500 });
