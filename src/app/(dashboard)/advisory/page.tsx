@@ -388,8 +388,9 @@ export default function AdvisoryPage() {
     setShowLaunchModal(false);
     setMobileSidebarOpen(false);
     setIsGenerating(true);
-    // Clear any previous session from localStorage when starting a new one
-    localStorage.removeItem("advisory_active_session_id");
+    // Clear any previous session and immediately set the NEW session ID
+    // This prevents the old session from being restored on component remount
+    localStorage.setItem("advisory_active_session_id", session.id);
     await loadSessions();
     await handleSelectSession(session);
     setActiveView("live");
