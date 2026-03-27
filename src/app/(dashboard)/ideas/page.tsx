@@ -877,7 +877,7 @@ export default function IdeasPage() {
               key={review.id}
               review={review}
               onUpdate={fetchReviews}
-              defaultExpanded={review.status === "active"}
+              defaultExpanded={false}
             />
           ))}
         </div>
