@@ -786,7 +786,7 @@ export function TaskDetailDrawer({
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
                 <span style={{
                   fontSize: "0.75rem", fontWeight: 700,
-                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
+                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "gpt-5.4" ? "#22c55e" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
                 }}>
                   {routing.modelName}
                 </span>

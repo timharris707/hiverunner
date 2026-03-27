@@ -1,5 +1,6 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Sora, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({ 
@@ -22,7 +23,6 @@ export const metadata: Metadata = {
   title: "Harris Mission Control",
   description: "Harris Autonomous — Command center for the AI org",
   manifest: "/manifest.json",
-  themeColor: "#1a1a2e",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
@@ -32,6 +32,10 @@ export const metadata: Metadata = {
   },
 };
 
+export const viewport: Viewport = {
+  themeColor: "#1a1a2e",
+};
+
 export default function RootLayout({
   children,
 }: {
@@ -39,9 +43,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <head>
-        <script dangerouslySetInnerHTML={{__html:`if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`}} />
-      </head>
       <body 
         className={`${inter.variable} ${sora.variable} ${jetbrainsMono.variable} font-sans`}
         style={{ 
@@ -50,6 +51,9 @@ export default function RootLayout({
           fontFamily: 'var(--font-body)'
         }}
       >
+        <Script id="register-service-worker" strategy="afterInteractive">
+          {`if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`}
+        </Script>
         {children}
       </body>
     </html>
