@@ -291,6 +291,8 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   const [priority, setPriority] = useState<Task["priority"]>("P2");
   const [assignee, setAssignee] = useState("");
   const [project, setProject] = useState("");
+  const [type, setType] = useState<Task["type"]>(undefined);
+  const [tagsInput, setTagsInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
@@ -298,8 +300,11 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
     e.preventDefault();
     if (!title.trim()) return;
     setSaving(true);
+    const tags = tagsInput.trim()
+      ? tagsInput.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean)
+      : undefined;
     await onSave(
-      { title: title.trim(), description: description.trim() || undefined, status, priority, assignee: assignee || undefined, project: project || undefined },
+      { title: title.trim(), description: description.trim() || undefined, status, priority, assignee: assignee || undefined, project: project || undefined, type: type || undefined, tags },
       pendingFiles.length > 0 ? pendingFiles : undefined,
     );
     setSaving(false);
@@ -424,6 +429,34 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
                 <option value="">No Project</option>
                 {Object.values(projectsMap).map((p) => <option key={p.id} value={p.id}>{p.emoji} {p.name}</option>)}
               </select>
+            </div>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+            <div>
+              <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Type
+              </label>
+              <select
+                value={type ?? ""}
+                onChange={(e) => setType((e.target.value as Task["type"]) || undefined)}
+                style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none" }}
+              >
+                <option value="">No Type</option>
+                {ALL_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: "var(--text-muted)", marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Tags
+              </label>
+              <input
+                type="text"
+                value={tagsInput}
+                onChange={(e) => setTagsInput(e.target.value)}
+                placeholder="e.g. api, auth, ui"
+                style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none", boxSizing: "border-box" }}
+              />
             </div>
           </div>
 
