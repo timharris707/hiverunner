@@ -64,7 +64,7 @@ const navItems: (NavItem | null)[] = [
 
 const DOCK_WIDTH = 168;
 
-function NavRow({ item, active }: { item: NavItem; active: boolean }) {
+function NavRow({ item, active, badge }: { item: NavItem; active: boolean; badge?: number }) {
   const Icon = item.icon;
   return (
     <Link
@@ -111,17 +111,39 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           lineHeight: 1.2,
+          flex: 1,
         }}
       >
         {item.label}
       </span>
+      {badge != null && badge > 0 && (
+        <span
+          style={{
+            backgroundColor: "var(--accent)",
+            color: "#fff",
+            fontSize: "10px",
+            fontWeight: 700,
+            borderRadius: "9999px",
+            padding: "1px 5px",
+            minWidth: "16px",
+            textAlign: "center",
+            lineHeight: "14px",
+            flexShrink: 0,
+          }}
+        >
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }
 
+const IDEAS_SEEN_KEY = "ideasSeenIds";
+
 export function Dock() {
   const pathname = usePathname();
   const [isMobile, setIsMobile] = useState(false);
+  const [newIdeasCount, setNewIdeasCount] = useState(0);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -137,6 +159,44 @@ export function Dock() {
         : pathname === item.href || pathname.startsWith(item.href + "/"),
     [pathname]
   );
+
+  const fetchNewIdeasCount = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ideas/processed-ids");
+      if (!res.ok) return;
+      const { processedIds } = await res.json() as { processedIds: string[] };
+      const seenRaw = localStorage.getItem(IDEAS_SEEN_KEY);
+      const seenIds: string[] = seenRaw ? JSON.parse(seenRaw) : [];
+      const count = processedIds.filter((id) => !seenIds.includes(id)).length;
+      setNewIdeasCount(count);
+    } catch {
+      // silently fail
+    }
+  }, []);
+
+  // Poll for new ideas every 60s
+  useEffect(() => {
+    fetchNewIdeasCount();
+    const interval = setInterval(fetchNewIdeasCount, 60_000);
+    return () => clearInterval(interval);
+  }, [fetchNewIdeasCount]);
+
+  // Mark all as seen when visiting /ideas
+  useEffect(() => {
+    if (pathname === "/ideas" || pathname.startsWith("/ideas/")) {
+      (async () => {
+        try {
+          const res = await fetch("/api/ideas/processed-ids");
+          if (!res.ok) return;
+          const { processedIds } = await res.json() as { processedIds: string[] };
+          localStorage.setItem(IDEAS_SEEN_KEY, JSON.stringify(processedIds));
+          setNewIdeasCount(0);
+        } catch {
+          // silently fail
+        }
+      })();
+    }
+  }, [pathname]);
 
   // Mobile: bottom tab bar with key pages
   if (isMobile) {
@@ -228,7 +288,14 @@ export function Dock() {
               />
             );
           }
-          return <NavRow key={item.href} item={item} active={checkActive(item)} />;
+          return (
+            <NavRow
+              key={item.href}
+              item={item}
+              active={checkActive(item)}
+              badge={item.href === "/ideas" ? newIdeasCount : undefined}
+            />
+          );
         })}
       </nav>
     </aside>
