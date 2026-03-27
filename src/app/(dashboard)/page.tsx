@@ -5,6 +5,7 @@ import { StatsCard } from "@/components/StatsCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
 import { TaskDetailDrawer, Task, ProjectInfo, PRIORITY_COLORS, formatDate } from "@/components/TaskDetailDrawer";
+import { AdvisorySessionDrawer } from "@/components/AdvisorySessionDrawer";
 import {
   CheckCircle,
   XCircle,
@@ -273,6 +274,7 @@ export default function DashboardPage() {
   const [tasksProjectsMap, setTasksProjectsMap] = useState<Record<string, ProjectInfo>>({});
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
+  const [selectedAdvisorySessionId, setSelectedAdvisorySessionId] = useState<string | null>(null);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, LiveAgentStatus>>({});
 
   const fetchDashboardData = () => {
@@ -294,7 +296,7 @@ export default function DashboardPage() {
       setLiveAgents(agentsData.agents || []);
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
       if (ds) setDashStats(ds);
-      setRecentSessions((advisoryData.sessions || []).slice(0, 3));
+      setRecentSessions((advisoryData.sessions || []).slice(0, 10));
       // Build status map from live data
       const statusMap: Record<string, LiveAgentStatus> = {};
       for (const agent of (statusData.agents || [])) {
@@ -489,9 +491,9 @@ export default function DashboardPage() {
               View all →
             </Link>
           </div>
-          <div className="p-4">
+          <div style={{ maxHeight: "320px", overflowY: "auto" }}>
             {recentSessions.length > 0 ? (
-              <div className="space-y-2">
+              <div>
                 {recentSessions.map((session) => {
                   const topic = session.topic || "Untitled Session";
                   const topicPreview = topic.length > 80
@@ -500,22 +502,18 @@ export default function DashboardPage() {
                   const isActive = session.status === "active";
                   const statusColor = isActive ? "#4ade80" : session.status === "completed" ? "#60a5fa" : "#6b7280";
                   const statusLabel = isActive ? "Active" : session.status === "completed" ? "Completed" : session.status;
-                  const timeAgo = (() => {
-                    const diff = Date.now() - new Date(session.createdAt).getTime();
-                    const mins = Math.floor(diff / 60000);
-                    if (mins < 60) return `${mins}m ago`;
-                    const hrs = Math.floor(mins / 60);
-                    if (hrs < 24) return `${hrs}h ago`;
-                    const days = Math.floor(hrs / 24);
-                    return `${days}d ago`;
-                  })();
+                  const diff = Date.now() - new Date(session.createdAt).getTime();
+                  const mins = Math.floor(diff / 60000);
+                  const hrs = Math.floor(mins / 60);
+                  const days = Math.floor(hrs / 24);
+                  const timeAgo = mins < 60 ? `${mins}m ago` : hrs < 24 ? `${hrs}h ago` : `${days}d ago`;
 
                   return (
-                    <Link
+                    <button
                       key={session.id}
-                      href={`/advisory?session=${session.id}`}
-                      className="flex items-center gap-3 p-3 rounded-lg transition-all hover:scale-[1.01]"
-                      style={{ backgroundColor: "var(--card-elevated)", border: `1px solid ${isActive ? statusColor + "40" : "var(--border)"}` }}
+                      onClick={() => setSelectedAdvisorySessionId(session.id)}
+                      className="w-full text-left flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/5"
+                      style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", cursor: "pointer" }}
                     >
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
@@ -535,11 +533,11 @@ export default function DashboardPage() {
                         </div>
                       </div>
                       {isActive && (
-                        <span className="text-xs font-semibold px-2 py-1 rounded" style={{ backgroundColor: "#4ade8015", color: "#4ade80" }}>
+                        <span className="text-xs font-semibold px-2 py-1 rounded flex-shrink-0" style={{ backgroundColor: "#4ade8015", color: "#4ade80" }}>
                           Resume
                         </span>
                       )}
-                    </Link>
+                    </button>
                   );
                 })}
               </div>
@@ -1191,6 +1189,14 @@ export default function DashboardPage() {
             setSelectedTask(updated.status === "done" ? updated : null);
           }}
           projectsMap={tasksProjectsMap}
+        />
+      )}
+
+      {/* Advisory Session Detail Drawer */}
+      {selectedAdvisorySessionId && (
+        <AdvisorySessionDrawer
+          sessionId={selectedAdvisorySessionId}
+          onClose={() => setSelectedAdvisorySessionId(null)}
         />
       )}
     </div>
