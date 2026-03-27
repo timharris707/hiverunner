@@ -1007,7 +1007,7 @@ function TaskDetailDrawer({
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
                 <span style={{
                   fontSize: "0.75rem", fontWeight: 700,
-                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
+                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "gpt-5.4" ? "#22c55e" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
                 }}>
                   {routing.modelName}
                 </span>
@@ -1368,13 +1368,13 @@ function TaskCard({
             style={{ backgroundColor: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.25)", textDecoration: "none" }}
           >
             <span>⏳</span>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.5px" }}>QUEUED FOR BUILDER</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.5px" }}>QUEUED FOR OPENCLAW</span>
             <span style={{ fontSize: "9px", color: "rgba(192,132,252,0.7)", marginLeft: "auto" }}>→ Factory</span>
           </a>
         ) : isBuilding || task.buildState === "spawning" ? (
           <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
             <span className="animate-pulse">🏭</span>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>AGENT SPAWNING...</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>OPENCLAW SPAWNING...</span>
           </div>
         ) : (
           <a
@@ -1384,7 +1384,7 @@ function TaskCard({
             style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", textDecoration: "none" }}
           >
             <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>AGENT BUILDING</span>
+            <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>OPENCLAW AGENT ACTIVE</span>
             <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
           </a>
         )
@@ -1507,8 +1507,8 @@ function TaskCard({
             <span
               className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
               style={{
-                backgroundColor: (task as any).routedTier === "opus" ? "rgba(245,158,11,0.1)" : (task as any).routedTier === "haiku" ? "rgba(167,139,250,0.1)" : "rgba(96,165,250,0.1)",
-                color: (task as any).routedTier === "opus" ? "#f59e0b" : (task as any).routedTier === "haiku" ? "#a78bfa" : "#60a5fa",
+                backgroundColor: (task as any).routedTier === "opus" ? "rgba(245,158,11,0.1)" : (task as any).routedTier === "gpt-5.4" ? "rgba(34,197,94,0.1)" : (task as any).routedTier === "haiku" ? "rgba(167,139,250,0.1)" : "rgba(96,165,250,0.1)",
+                color: (task as any).routedTier === "opus" ? "#f59e0b" : (task as any).routedTier === "gpt-5.4" ? "#22c55e" : (task as any).routedTier === "haiku" ? "#a78bfa" : "#60a5fa",
                 fontSize: "0.6rem", fontWeight: 600,
               }}
               title={`Routed to ${(task as any).routedModel} (complexity: ${(task as any).complexityScore}/100)`}

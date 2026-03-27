@@ -18,6 +18,8 @@ const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
 const VISUAL_REVIEW_TAGS = new Set(["ui"]);
 const RECONCILE_INTERVAL_MS = 15_000;
+const MAX_ON_DECK_PER_PROJECT = 1;
+const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const PROJECT_DIRS: Record<string, string> = {
   "mission-control": "projects/mission-control-app",
   "advisory-board": "projects/mission-control-app",
@@ -32,6 +34,15 @@ const PROJECT_DIRS: Record<string, string> = {
 };
 
 let lastReconcileAt = 0;
+
+type BuildExecutorDecision = {
+  agentType: "openclaw";
+  command: "openclaw";
+  args: string[];
+  actualModelId: string;
+  actualModelName: string;
+  fallbackReason?: string;
+};
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -110,13 +121,14 @@ function getProjectMeta(task: any, projects = readProjects()) {
   return { project, projectName, executionKey, projectDir };
 }
 
-function buildPrompt(task: any, projectName: string) {
+function buildPrompt(task: any, projectName: string, executorLabel: string) {
   return [
     `## Task: ${task.title}`,
     "",
     `**Project:** ${projectName}`,
     `**Type:** ${task.type || "feature"}`,
     `**Priority:** ${task.priority}`,
+    `**Executor:** ${executorLabel}`,
     "",
     "### Description",
     task.description || task.title,
@@ -127,10 +139,43 @@ function buildPrompt(task: any, projectName: string) {
     "- Run tests if they exist",
     "- Commit with a clear message describing what was built",
     "- Push to the remote repository",
+    "- Keep the implementation focused on the scoped task; do not rewrite unrelated areas",
     "",
     "When completely finished, run this command to notify the system:",
     `openclaw system event --text \"Done: ${String(task.title || "Task").replace(/"/g, '\\"')}\" --mode now`,
   ].join("\n");
+}
+
+function buildOpenClawExecutor(routing: any, prompt: string, fallbackReason?: string): BuildExecutorDecision {
+  const tier = routing?.tier;
+  const actualModelId = tier === "opus"
+    ? "anthropic/claude-opus-4-6"
+    : tier === "haiku"
+      ? "anthropic/claude-haiku-3-5"
+      : "anthropic/claude-sonnet-4-6";
+  const actualModelName = tier === "opus" ? "Opus 4.6" : tier === "haiku" ? "Haiku 3.5" : "Sonnet 4.6";
+
+  return {
+    agentType: "openclaw",
+    command: "openclaw",
+    args: ["agent", "--local", "--message", prompt],
+    actualModelId,
+    actualModelName,
+    fallbackReason,
+  };
+}
+
+function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
+  // Primary path: spawn agent via OpenClaw
+  const tier = routing?.tier;
+  const executorLabel = tier === "opus"
+    ? "OpenClaw Agent · Opus 4.6"
+    : tier === "haiku"
+      ? "OpenClaw Agent · Haiku 3.5"
+      : "OpenClaw Agent · Sonnet 4.6";
+  const prompt = buildPrompt(task, projectName, executorLabel);
+
+  return buildOpenClawExecutor(routing, prompt);
 }
 
 function hasAnyTag(task: any, tags: Set<string>) {
@@ -193,10 +238,82 @@ function clearTransientBuildTracking(task: any) {
   delete task.buildStartedAt;
 }
 
+function comparePriority(a: any, b: any) {
+  const pa = PRIORITY_ORDER[a.priority] ?? 9;
+  const pb = PRIORITY_ORDER[b.priority] ?? 9;
+  if (pa !== pb) return pa - pb;
+  return new Date(a.created || 0).getTime() - new Date(b.created || 0).getTime();
+}
+
+/**
+ * Autonomous task advancement:
+ * 1. on-deck → in-progress when build capacity is available for that execution key
+ * 2. backlog → on-deck when the on-deck queue for a project is below threshold
+ *
+ * Returns task IDs that were promoted to in-progress (need build kicks).
+ */
+function advanceTasks(
+  tasks: any[],
+  projects: any[],
+  buildLog: { builds: any[] }
+): { promoted: string[]; advanced: string[]; changed: boolean } {
+  const promoted: string[] = [];
+  const advanced: string[] = [];
+  let changed = false;
+  const now = new Date().toISOString();
+
+  // Group tasks by project
+  const byProject = new Map<string, any[]>();
+  for (const task of tasks) {
+    const proj = task.project || "unscoped";
+    if (!byProject.has(proj)) byProject.set(proj, []);
+    byProject.get(proj)!.push(task);
+  }
+
+  for (const [, projectTasks] of byProject) {
+    const onDeck = projectTasks.filter((t: any) => t.status === "on-deck").sort(comparePriority);
+    const backlog = projectTasks.filter((t: any) => t.status === "backlog").sort(comparePriority);
+    const inProgress = projectTasks.filter((t: any) => t.status === "in-progress");
+
+    // Step 1: on-deck → in-progress if no active/pending build for this execution key
+    if (onDeck.length > 0) {
+      const candidate = onDeck[0];
+      const { executionKey } = getProjectMeta(candidate, projects);
+      const hasActiveBuild = findActiveEntryForExecutionKey(buildLog, executionKey);
+      const hasInProgressBuild = inProgress.some(
+        (t: any) => findPendingEntryForTask(buildLog, t.id)
+      );
+
+      if (!hasActiveBuild && !hasInProgressBuild) {
+        candidate.status = "in-progress";
+        candidate.updated = now;
+        promoted.push(candidate.id);
+        changed = true;
+      }
+    }
+
+    // Step 2: backlog → on-deck if on-deck count is below threshold
+    const currentOnDeckCount = projectTasks.filter((t: any) => t.status === "on-deck").length;
+    const slotsAvailable = MAX_ON_DECK_PER_PROJECT - currentOnDeckCount;
+
+    if (slotsAvailable > 0 && backlog.length > 0) {
+      const toAdvance = backlog.slice(0, slotsAvailable);
+      for (const task of toAdvance) {
+        task.status = "on-deck";
+        task.updated = now;
+        advanced.push(task.id);
+        changed = true;
+      }
+    }
+  }
+
+  return { promoted, advanced, changed };
+}
+
 export async function reconcileBuildQueue(options?: { source?: string; force?: boolean }) {
   const nowMs = Date.now();
   if (!options?.force && nowMs - lastReconcileAt < RECONCILE_INTERVAL_MS) {
-    return { skipped: true, recoveredTaskIds: [] as string[], hydratedTaskIds: [] as string[] };
+    return { skipped: true, recoveredTaskIds: [] as string[], hydratedTaskIds: [] as string[], advancedTaskIds: [] as string[], promotedTaskIds: [] as string[] };
   }
   lastReconcileAt = nowMs;
 
@@ -262,6 +379,11 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       }
     }
 
+    // Autonomous task advancement
+    const advancement = advanceTasks(tasks, projects, buildLog);
+    if (advancement.changed) changed = true;
+    for (const id of advancement.promoted) tasksToKick.add(id);
+
     if (changed) {
       writeTasks(tasks);
     }
@@ -269,6 +391,8 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
     return {
       recoveredTaskIds,
       hydratedTaskIds,
+      advancedTaskIds: advancement.advanced,
+      promotedTaskIds: advancement.promoted,
       taskIdsToKick: Array.from(tasksToKick),
     };
   });
@@ -281,6 +405,8 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
     skipped: false,
     recoveredTaskIds: sweep.recoveredTaskIds,
     hydratedTaskIds: sweep.hydratedTaskIds,
+    advancedTaskIds: sweep.advancedTaskIds,
+    promotedTaskIds: sweep.promotedTaskIds,
   };
 }
 
@@ -375,22 +501,29 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     queueOrStartBuild(nextTaskId, { source: `post-build:${buildId}` }).catch((err) => {
       console.error("Failed to auto-start queued task:", err);
     });
+    return;
   }
+
+  reconcileBuildQueue({ source: `post-build:${buildId}`, force: true }).catch((err) => {
+    console.error("Failed to auto-advance task queue:", err);
+  });
 }
 
 function spawnBuildProcess(task: any, buildEntry: any, projectName: string, projectDir: string) {
-  const routing = buildEntry.routing;
-  const modelFlag = routing?.tier !== "opus"
-    ? ["--model", routing?.tier === "sonnet" ? "sonnet" : routing?.tier === "haiku" ? "haiku" : "sonnet"]
-    : [];
+  const executor = selectBuildExecutor(buildEntry.routing, task, projectName);
+
+  sendSystemEvent(`🏭 Spawning agent for task: ${String(task.title || task.id).replace(/"/g, "'")} [${executor.actualModelName}]`);
 
   const child = execFile(
-    "claude",
-    ["--permission-mode", "bypassPermissions", ...modelFlag, "--print", buildPrompt(task, projectName)],
+    executor.command,
+    executor.args,
     { cwd: projectDir, maxBuffer: 10 * 1024 * 1024 },
     (error, stdout, stderr) => {
       const output = summarizeOutput(error, stdout, stderr);
-      finalizeBuild(buildEntry.id, task.id, !error, output).catch((err) => {
+      const withExecutorNote = executor.fallbackReason
+        ? `${executor.fallbackReason}\n\n${output}`
+        : output;
+      finalizeBuild(buildEntry.id, task.id, !error, withExecutorNote).catch((err) => {
         console.error("Error finalizing build:", err);
       });
     }
@@ -460,7 +593,11 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     }
 
     const routing = routeTask(task);
+    const executor = selectBuildExecutor(routing, task, projectName);
     const now = new Date().toISOString();
+    const routingReason = executor.fallbackReason
+      ? `${routing.reason}. ${executor.fallbackReason}`
+      : routing.reason;
 
     const buildEntry = {
       id: `build-${Date.now()}`,
@@ -472,16 +609,19 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
       queuedAt: active ? now : null,
       startedAt: now,
       completedAt: null,
-      agentType: "claude-code",
+      agentType: executor.agentType,
       workDir: projectDir,
       source: options?.source || "factory",
       routing: {
         tier: routing.tier,
-        modelId: routing.modelId,
-        modelName: routing.modelName,
+        modelId: executor.actualModelId,
+        modelName: executor.actualModelName,
+        preferredModelId: routing.modelId,
+        preferredModelName: routing.modelName,
         complexityScore: routing.complexityScore,
-        reason: routing.reason,
+        reason: routingReason,
         savingsPercent: routing.savingsPercent,
+        fallbackReason: executor.fallbackReason || null,
       },
     };
 
@@ -492,9 +632,9 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.buildTriggeredAt = now;
     task.activeBuildId = buildEntry.id;
     task.buildExecutionKey = executionKey;
-    task.routedModel = routing.modelName;
+    task.routedModel = executor.actualModelName;
     task.routedTier = routing.tier;
-    task.routingReason = routing.reason;
+    task.routingReason = routingReason;
     task.complexityScore = routing.complexityScore;
     task.savingsPercent = routing.savingsPercent;
     task.buildError = null;
