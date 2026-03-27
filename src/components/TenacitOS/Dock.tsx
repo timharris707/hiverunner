@@ -25,6 +25,7 @@ import {
   FileBarChart,
   Users,
   Factory,
+  Mic,
 } from "lucide-react";
 
 interface NavItem {
@@ -60,6 +61,8 @@ const navItems: (NavItem | null)[] = [
   { href: "/system", label: "System", icon: Monitor },
   { href: "/costs", label: "Costs", icon: DollarSign },
   { href: "/reliability", label: "Reliability", icon: Shield },
+  null, // separator
+  { href: "/voice", label: "Voice Henry", icon: Mic },
 ];
 
 const DOCK_WIDTH = 168;
