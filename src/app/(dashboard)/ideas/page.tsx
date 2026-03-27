@@ -15,9 +15,19 @@ import {
   Check,
   XCircle,
   Hammer,
+  Camera,
+  Image,
+  Loader2,
 } from "lucide-react";
 
 /* ── types ─────────────────────────────────────────────────────── */
+
+interface Screenshot {
+  filename: string;
+  timestamp: number;
+  url: string;
+  formattedTime: string;
+}
 
 interface Takeaway {
   id: string;
@@ -473,6 +483,188 @@ function TakeawayRow({
   );
 }
 
+/* ── screenshot gallery ────────────────────────────────────────── */
+
+function ScreenshotGallery({ reviewId, isYouTube }: { reviewId: string; isYouTube: boolean }) {
+  const [screenshots, setScreenshots] = useState<Screenshot[]>([]);
+  const [captured, setCaptured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [capturing, setCapturing] = useState(false);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!isYouTube) { setLoading(false); return; }
+    fetch(`/api/ideas/${reviewId}/screenshots`)
+      .then((r) => r.json())
+      .then((data) => {
+        setScreenshots(data.screenshots ?? []);
+        setCaptured(data.captured ?? false);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [reviewId, isYouTube]);
+
+  const handleCapture = async () => {
+    setCapturing(true);
+    try {
+      const res = await fetch(`/api/ideas/${reviewId}/screenshots`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ interval: 30 }),
+      });
+      const data = await res.json();
+      if (data.screenshots) {
+        setScreenshots(data.screenshots);
+        setCaptured(true);
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setCapturing(false);
+    }
+  };
+
+  if (!isYouTube) return null;
+  if (loading) return null;
+
+  return (
+    <div className="mt-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4
+          className="text-[11px] font-semibold uppercase tracking-wider m-0"
+          style={{ color: "var(--text-muted)" }}
+        >
+          <span className="inline-flex items-center gap-1.5">
+            <Image size={12} /> Screenshots {captured && `(${screenshots.length})`}
+          </span>
+        </h4>
+        {!captured && (
+          <button
+            onClick={handleCapture}
+            disabled={capturing}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
+            style={{
+              backgroundColor: "rgba(96,165,250,0.15)",
+              color: "#60a5fa",
+              opacity: capturing ? 0.6 : 1,
+              cursor: capturing ? "wait" : "pointer",
+            }}
+          >
+            {capturing ? (
+              <>
+                <Loader2 size={12} className="animate-spin" /> Capturing…
+              </>
+            ) : (
+              <>
+                <Camera size={12} /> Capture Screenshots
+              </>
+            )}
+          </button>
+        )}
+        {captured && screenshots.length > 0 && (
+          <button
+            onClick={handleCapture}
+            disabled={capturing}
+            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-md border-none cursor-pointer"
+            style={{ backgroundColor: "rgba(156,163,175,0.12)", color: "var(--text-muted)" }}
+          >
+            {capturing ? <Loader2 size={10} className="animate-spin" /> : <Camera size={10} />}
+            {capturing ? " Recapturing…" : " Recapture"}
+          </button>
+        )}
+      </div>
+
+      {capturing && !captured && (
+        <div
+          className="text-[12px] rounded-lg p-4 text-center"
+          style={{ backgroundColor: "rgba(96,165,250,0.06)", color: "var(--text-secondary)" }}
+        >
+          Downloading video and extracting frames… This may take a few minutes.
+        </div>
+      )}
+
+      {screenshots.length > 0 && (
+        <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
+          {screenshots.map((s, idx) => (
+            <button
+              key={s.filename}
+              onClick={() => setSelectedIdx(selectedIdx === idx ? null : idx)}
+              className="relative rounded-lg overflow-hidden border-none p-0 cursor-pointer group"
+              style={{
+                border: selectedIdx === idx ? "2px solid #60a5fa" : "1px solid var(--border)",
+                backgroundColor: "var(--bg)",
+              }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={s.url}
+                alt={`Frame at ${s.formattedTime}`}
+                className="w-full h-auto block"
+                loading="lazy"
+              />
+              <span
+                className="absolute bottom-1 right-1 text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.7)",
+                  color: "#fff",
+                }}
+              >
+                {s.formattedTime}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Expanded view */}
+      {selectedIdx !== null && screenshots[selectedIdx] && (
+        <div className="mt-3 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={screenshots[selectedIdx].url}
+            alt={`Frame at ${screenshots[selectedIdx].formattedTime}`}
+            className="w-full h-auto block"
+          />
+          <div
+            className="flex items-center justify-between px-3 py-2"
+            style={{ backgroundColor: "var(--surface)" }}
+          >
+            <span className="text-[12px] font-mono" style={{ color: "var(--text-secondary)" }}>
+              {screenshots[selectedIdx].formattedTime}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setSelectedIdx(Math.max(0, selectedIdx - 1))}
+                disabled={selectedIdx === 0}
+                className="text-[11px] px-2 py-1 rounded border-none cursor-pointer"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  color: "var(--text-secondary)",
+                  opacity: selectedIdx === 0 ? 0.3 : 1,
+                }}
+              >
+                Prev
+              </button>
+              <button
+                onClick={() => setSelectedIdx(Math.min(screenshots.length - 1, selectedIdx + 1))}
+                disabled={selectedIdx === screenshots.length - 1}
+                className="text-[11px] px-2 py-1 rounded border-none cursor-pointer"
+                style={{
+                  backgroundColor: "rgba(255,255,255,0.06)",
+                  color: "var(--text-secondary)",
+                  opacity: selectedIdx === screenshots.length - 1 ? 0.3 : 1,
+                }}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ── review card ───────────────────────────────────────────────── */
 
 function ReviewCard({
@@ -698,6 +890,9 @@ function ReviewCard({
                 </div>
               </div>
             )}
+
+            {/* Screenshots */}
+            <ScreenshotGallery reviewId={review.id} isYouTube={review.type === "youtube"} />
 
             {/* Takeaways list */}
             {review.takeaways.length > 0 && (
