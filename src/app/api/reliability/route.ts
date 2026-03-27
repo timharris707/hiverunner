@@ -1,12 +1,53 @@
 /**
  * GET /api/reliability
- * Returns real reliability data: cron failures, agent errors, cost guards
+ * Returns real reliability data: cron failures, agent errors, cost guards, and config
  */
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync, readdirSync } from "fs";
 import { join } from "path";
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
+
+interface ReliabilityConfig {
+  maxRetries: number;
+  backoffPattern: number[]; // seconds
+  dailyOrgBudget: number; // USD
+  perTaskTokenLimit: number;
+  hardStopThreshold: number; // percent
+  warningThreshold: number; // percent
+  criticalThreshold: number; // percent
+}
+
+function loadReliabilityConfig(): ReliabilityConfig {
+  const defaults: ReliabilityConfig = {
+    maxRetries: 3,
+    backoffPattern: [1, 5, 30],
+    dailyOrgBudget: 50,
+    perTaskTokenLimit: 100000,
+    hardStopThreshold: 115,
+    warningThreshold: 80,
+    criticalThreshold: 100,
+  };
+
+  const configPath = join(OPENCLAW_DIR, "openclaw.json");
+  if (!existsSync(configPath)) return defaults;
+
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf-8"));
+    const r = raw?.reliability || {};
+    return {
+      maxRetries: r.maxRetries ?? defaults.maxRetries,
+      backoffPattern: r.backoffPattern ?? defaults.backoffPattern,
+      dailyOrgBudget: r.dailyOrgBudget ?? defaults.dailyOrgBudget,
+      perTaskTokenLimit: r.perTaskTokenLimit ?? defaults.perTaskTokenLimit,
+      hardStopThreshold: r.hardStopThreshold ?? defaults.hardStopThreshold,
+      warningThreshold: r.warningThreshold ?? defaults.warningThreshold,
+      criticalThreshold: r.criticalThreshold ?? defaults.criticalThreshold,
+    };
+  } catch {
+    return defaults;
+  }
+}
 
 interface CronRunEntry {
   ts?: number;
@@ -117,11 +158,12 @@ export async function GET() {
   try {
     const cronData = loadCronData();
     const sessionStats = getSessionStats();
-    
+    const config = loadReliabilityConfig();
+
     const totalCronRuns = cronData.reduce((sum, job) => sum + job.recentRuns.length, 0);
     const totalCronErrors = cronData.reduce((sum, job) => sum + job.errorCount, 0);
     const hasActiveCronErrors = cronData.some(job => job.errorCount > 0);
-    
+
     return NextResponse.json({
       cronJobs: cronData,
       totalCronRuns,
@@ -129,7 +171,8 @@ export async function GET() {
       hasActiveCronErrors,
       sessionErrors: sessionStats.totalErrors,
       recentSessionErrors: sessionStats.recentErrorCount,
-      circuitBreakerState: hasActiveCronErrors || sessionStats.recentErrorCount > 2 ? "open" : "closed",
+      circuitBreakerState: hasActiveCronErrors || sessionStats.recentErrorCount > config.maxRetries ? "open" : "closed",
+      config,
     });
   } catch (error) {
     return NextResponse.json({ error: "Failed to load reliability data" }, { status: 500 });

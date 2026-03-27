@@ -51,6 +51,16 @@ interface DeadLetterItem {
 }
 
 export default function ReliabilityPage() {
+  interface ReliabilityConfig {
+    maxRetries: number;
+    backoffPattern: number[]; // seconds
+    dailyOrgBudget: number;
+    perTaskTokenLimit: number;
+    hardStopThreshold: number;
+    warningThreshold: number;
+    criticalThreshold: number;
+  }
+
   interface ReliabilityData {
     cronJobs: { id: string; name?: string; errorCount: number; recentRuns: { status: string; ts: number; error?: string }[] }[];
     totalCronRuns: number;
@@ -59,6 +69,7 @@ export default function ReliabilityPage() {
     sessionErrors: number;
     recentSessionErrors: number;
     circuitBreakerState: "closed" | "open" | "half-open";
+    config?: ReliabilityConfig;
   }
 
   const [loading, setLoading] = useState(true);
@@ -112,43 +123,53 @@ export default function ReliabilityPage() {
     }
   };
 
+  const cfg = reliabilityData?.config;
+  const maxRetries = cfg?.maxRetries ?? 3;
+  const backoffPattern = cfg?.backoffPattern ?? [1, 5, 30];
+  const backoffDesc = backoffPattern.map((s) => `${s}s`).join(" → ");
+
   // Dynamic circuit breakers based on real data
   const circuitBreakers: CircuitBreaker[] = [
     {
       name: "Task Executor",
-      state: reliabilityData?.recentSessionErrors && reliabilityData.recentSessionErrors > 2 ? "open" : "closed",
+      state: reliabilityData?.recentSessionErrors && reliabilityData.recentSessionErrors > maxRetries ? "open" : "closed",
       failures: reliabilityData?.sessionErrors || 0,
-      maxRetries: 3,
+      maxRetries,
       description: "Per-task retry policy with exponential backoff",
     },
     {
       name: "Cron Job Runner",
       state: reliabilityData?.hasActiveCronErrors ? "half-open" : "closed",
       failures: reliabilityData?.totalCronErrors || 0,
-      maxRetries: 3,
+      maxRetries,
       description: `Scheduled task execution · ${reliabilityData?.totalCronRuns || 0} total runs`,
     },
     {
       name: "Memory Writer",
       state: "closed",
       failures: 0,
-      maxRetries: 3,
+      maxRetries,
       description: "Workspace memory file writes",
     },
     {
       name: "External API Gateway",
       state: "closed",
       failures: 0,
-      maxRetries: 3,
+      maxRetries,
       description: "External API calls (weather, markets, etc.)",
     },
   ];
 
-  // Static cost guards
+  const dailyOrgBudget = cfg?.dailyOrgBudget ?? 50;
+  const perTaskTokenLimit = cfg?.perTaskTokenLimit ?? 100000;
+  const hardStopThreshold = cfg?.hardStopThreshold ?? 115;
+  const warningThreshold = cfg?.warningThreshold ?? 80;
+  const criticalThreshold = cfg?.criticalThreshold ?? 100;
+
   const costGuards: CostGuard[] = [
     {
       name: "Daily Org Budget",
-      limit: 50,
+      limit: dailyOrgBudget,
       current: costData?.today || 0,
       currency: "USD",
       status: "ok",
@@ -164,7 +185,7 @@ export default function ReliabilityPage() {
     },
     {
       name: "Per-Task Token Limit",
-      limit: 100000,
+      limit: perTaskTokenLimit,
       current: 0,
       currency: "tokens",
       status: "ok",
@@ -172,7 +193,7 @@ export default function ReliabilityPage() {
     },
     {
       name: "Hard Stop Threshold",
-      limit: 115,
+      limit: hardStopThreshold,
       current: costData
         ? Math.round((costData.thisMonth / costData.budget) * 100)
         : 0,
@@ -185,8 +206,8 @@ export default function ReliabilityPage() {
   // Derived guard statuses
   costGuards.forEach((g) => {
     const pct = (g.current / g.limit) * 100;
-    if (pct >= 100) g.status = "critical";
-    else if (pct >= 80) g.status = "warning";
+    if (pct >= criticalThreshold) g.status = "critical";
+    else if (pct >= warningThreshold) g.status = "warning";
     else g.status = "ok";
   });
 
@@ -289,10 +310,18 @@ export default function ReliabilityPage() {
         />
         <SummaryCard
           label="Agents Online"
-          value={`${agentHealth.filter((a) => a.status === "online").length}/${agentHealth.length || 1}`}
-          sublabel="Henry operational"
-          icon={<Heart className="w-5 h-5" style={{ color: "#4ade80" }} />}
-          color="#4ade80"
+          value={`${agentHealth.filter((a) => a.status === "online").length}/${agentHealth.length || 0}`}
+          sublabel={
+            agentHealth.length === 0
+              ? "No agents registered"
+              : agentHealth.every((a) => a.status === "online")
+              ? "All agents operational"
+              : agentHealth.some((a) => a.status === "online")
+              ? `${agentHealth.filter((a) => a.status === "online").map((a) => a.name).join(", ")} online`
+              : "No agents online"
+          }
+          icon={<Heart className="w-5 h-5" style={{ color: agentHealth.some((a) => a.status === "online") ? "#4ade80" : "#6b7280" }} />}
+          color={agentHealth.some((a) => a.status === "online") ? "#4ade80" : "#6b7280"}
         />
       </div>
 
@@ -316,7 +345,7 @@ export default function ReliabilityPage() {
             Circuit Breakers
           </h2>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Max 3 retries per task · Exponential backoff: 1s → 5s → 30s · Auto-escalate to Henry on failure
+            Max {maxRetries} retries per task · Exponential backoff: {backoffDesc} · Auto-escalate to Henry on failure
           </p>
         </div>
         <div className="divide-y" style={{ borderColor: "var(--border)" }}>
@@ -495,7 +524,7 @@ export default function ReliabilityPage() {
             Cost Guards
           </h2>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            80% → Henry warning · 100% → pause non-critical · 115% → HARD STOP all agents
+            {warningThreshold}% → Henry warning · {criticalThreshold}% → pause non-critical · {hardStopThreshold}% → HARD STOP all agents
           </p>
         </div>
         <div className="divide-y" style={{ borderColor: "var(--border)" }}>
