@@ -58,6 +58,16 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewStatus = updates.reviewStatus || "pending";
       tasks[idx].reviewRequestedAt = tasks[idx].reviewRequestedAt || now;
       delete tasks[idx].completedAt;
+
+      const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
+      if (existingVisualReview?.required) {
+        const captureCount = Array.isArray(existingVisualReview.captures) ? existingVisualReview.captures.length : 0;
+        tasks[idx].visualReview = {
+          ...existingVisualReview,
+          status: captureCount > 0 ? "ready" : "pending-capture",
+          lastUpdatedAt: now,
+        };
+      }
     }
 
     if (previousTask.status === "review" && tasks[idx].status === "done") {
@@ -65,6 +75,15 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewStatus = updates.reviewStatus || "approved";
       tasks[idx].reviewCompletedAt = now;
       tasks[idx].completedAt = tasks[idx].completedAt || now;
+
+      const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
+      if (existingVisualReview?.required) {
+        tasks[idx].visualReview = {
+          ...existingVisualReview,
+          status: updates.reviewStatus === "changes-requested" ? "changes-requested" : "approved",
+          lastUpdatedAt: now,
+        };
+      }
     }
 
     if (previousTask.status === "review" && tasks[idx].status === "in-progress") {
@@ -72,6 +91,15 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewStatus = updates.reviewStatus || "changes-requested";
       tasks[idx].reviewCompletedAt = now;
       delete tasks[idx].completedAt;
+
+      const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
+      if (existingVisualReview?.required) {
+        tasks[idx].visualReview = {
+          ...existingVisualReview,
+          status: "changes-requested",
+          lastUpdatedAt: now,
+        };
+      }
     }
 
     writeTasks(tasks);

@@ -16,6 +16,7 @@ mkdirSync(LOCKS_DIR, { recursive: true });
 const ACTIVE_BUILD_STATUSES = new Set(["spawning", "running"]);
 const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
+const VISUAL_REVIEW_TAGS = new Set(["ui"]);
 const RECONCILE_INTERVAL_MS = 15_000;
 const PROJECT_DIRS: Record<string, string> = {
   "mission-control": "projects/mission-control-app",
@@ -132,8 +133,16 @@ function buildPrompt(task: any, projectName: string) {
   ].join("\n");
 }
 
+function hasAnyTag(task: any, tags: Set<string>) {
+  return Array.isArray(task.tags) && task.tags.some((tag: string) => tags.has(String(tag).toLowerCase()));
+}
+
 function shouldRequireReview(task: any) {
-  return Array.isArray(task.tags) && task.tags.some((tag: string) => REVIEW_TAGS.has(tag));
+  return hasAnyTag(task, REVIEW_TAGS);
+}
+
+function shouldRequireVisualReview(task: any) {
+  return hasAnyTag(task, VISUAL_REVIEW_TAGS);
 }
 
 function findPendingEntryForTask(buildLog: { builds: any[] }, taskId: string) {
@@ -328,6 +337,18 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
         task.reviewRequired = true;
         task.reviewStatus = "pending";
         task.reviewRequestedAt = now;
+
+        if (shouldRequireVisualReview(task)) {
+          const existingVisualReview = task.visualReview || {};
+          const captureCount = Array.isArray(existingVisualReview.captures) ? existingVisualReview.captures.length : 0;
+          task.visualReview = {
+            ...existingVisualReview,
+            required: true,
+            status: captureCount > 0 ? "ready" : "pending-capture",
+            lastUpdatedAt: now,
+          };
+        }
+
         notifyText = `✅ Task ready for review: ${String(task.title || taskId).replace(/"/g, "'")}`;
       } else {
         task.status = "done";

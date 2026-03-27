@@ -58,6 +58,26 @@ export interface Task {
   reviewStatus?: string;
   reviewRequestedAt?: string;
   reviewCompletedAt?: string;
+  visualReview?: {
+    required?: boolean;
+    status?: string;
+    targetPath?: string;
+    targetUrl?: string;
+    captureStatus?: string;
+    lastCapturedAt?: string;
+    lastUpdatedAt?: string;
+    browser?: string;
+    screenshotEvidenceCount?: number;
+    captures?: Array<{
+      id: string;
+      path: string;
+      name?: string;
+      url?: string;
+      targetPath?: string;
+      capturedAt?: string;
+      browser?: string;
+    }>;
+  };
   created: string;
   updated: string;
   completedAt?: string;
@@ -137,6 +157,10 @@ function isImageType(type: string) {
 
 function isVideoType(type: string) {
   return type.startsWith("video/");
+}
+
+function hasUiTag(task: Task) {
+  return Array.isArray(task.tags) && task.tags.some((tag) => String(tag).toLowerCase() === "ui");
 }
 
 function AttachmentIcon({ type }: { type: string }) {
@@ -314,6 +338,10 @@ export function TaskDetailDrawer({
     tier: string; modelName: string; reason: string;
     complexityScore: number; savingsPercent: number; signals: string[];
   } | null>(null);
+  const [capturePath, setCapturePath] = useState(task.visualReview?.targetPath || "");
+  const [captureUrl, setCaptureUrl] = useState(task.visualReview?.targetUrl || "");
+  const [capturingVisual, setCapturingVisual] = useState(false);
+  const [visualCaptureError, setVisualCaptureError] = useState<string | null>(null);
 
   useEffect(() => {
     requestAnimationFrame(() => setOpen(true));
@@ -330,10 +358,17 @@ export function TaskDetailDrawer({
     setTitle(task.title);
     setDescription(task.description || "");
     setNotes(task.notes || "");
-  }, [task.id, task.title, task.description, task.notes]);
+    setCapturePath(task.visualReview?.targetPath || "");
+    setCaptureUrl(task.visualReview?.targetUrl || "");
+    setVisualCaptureError(null);
+  }, [task.id, task.title, task.description, task.notes, task.visualReview?.targetPath, task.visualReview?.targetUrl]);
 
   const proj = projectsMap[task.project || ""];
   const attachments = task.attachments || [];
+  const visualReview = task.visualReview;
+  const visualCaptures = visualReview?.captures || [];
+  const visualReviewRequired = Boolean(visualReview?.required || hasUiTag(task));
+  const screenshotEvidenceCount = visualCaptures.length || attachments.filter((attachment) => isImageType(attachment.type)).length;
 
   const patchTask = async (updates: Partial<Task>) => {
     try {
@@ -358,6 +393,35 @@ export function TaskDetailDrawer({
       console.error("Retry failed:", err);
     } finally {
       setRetryingBuild(false);
+    }
+  };
+
+  const handleVisualCapture = async () => {
+    try {
+      setCapturingVisual(true);
+      setVisualCaptureError(null);
+      const response = await fetch("/api/tasks/visual-qc", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: task.id,
+          targetPath: capturePath || undefined,
+          targetUrl: captureUrl || undefined,
+          fullPage: true,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || "Screenshot capture failed");
+      }
+      if (data.task) {
+        onTaskUpdated(data.task);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Screenshot capture failed";
+      setVisualCaptureError(message);
+    } finally {
+      setCapturingVisual(false);
     }
   };
 
@@ -822,6 +886,102 @@ export function TaskDetailDrawer({
             </div>
           )}
 
+          {/* Visual QC */}
+          {(visualReviewRequired || task.status === "review") && (
+            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>Visual QC</label>
+                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: screenshotEvidenceCount > 0 ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.12)", color: screenshotEvidenceCount > 0 ? "#4ade80" : "#fbbf24" }}>
+                  {screenshotEvidenceCount > 0 ? `${screenshotEvidenceCount} screenshot${screenshotEvidenceCount === 1 ? "" : "s"}` : "needs screenshot evidence"}
+                </span>
+              </div>
+
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                Honest first version: Mission Control stores screenshot evidence for human/agent review. It does <strong>not</strong> claim automated visual AI sign-off.
+              </p>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "0.5rem" }}>
+                <div>
+                  <label style={DRAWER_LABEL}>Target route / path</label>
+                  <input
+                    value={capturePath}
+                    onChange={(e) => setCapturePath(e.target.value)}
+                    placeholder="/tasks or /projects/mission-control"
+                    style={{ width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.8rem", outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+                <div>
+                  <label style={DRAWER_LABEL}>Target URL override</label>
+                  <input
+                    value={captureUrl}
+                    onChange={(e) => setCaptureUrl(e.target.value)}
+                    placeholder="https://mission-control-app-iota.vercel.app/tasks"
+                    style={{ width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.8rem", outline: "none", boxSizing: "border-box" }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                <button
+                  onClick={handleVisualCapture}
+                  disabled={capturingVisual || (!capturePath.trim() && !captureUrl.trim() && !visualReview?.targetUrl)}
+                  style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#a855f7", color: "white", fontWeight: 700, cursor: capturingVisual ? "not-allowed" : "pointer", opacity: capturingVisual ? 0.7 : 1 }}
+                >
+                  {capturingVisual ? "Capturing..." : screenshotEvidenceCount > 0 ? "Recapture screenshot" : "Capture screenshot"}
+                </button>
+                {!visualReview?.required && (
+                  <button
+                    onClick={() => patchTask({
+                      visualReview: {
+                        ...(task.visualReview || {}),
+                        required: true,
+                        status: screenshotEvidenceCount > 0 ? "ready" : "pending-capture",
+                        targetPath: capturePath || task.visualReview?.targetPath,
+                        targetUrl: captureUrl || task.visualReview?.targetUrl,
+                      },
+                      reviewRequired: true,
+                      reviewStatus: task.reviewStatus || "pending",
+                      status: task.status === "done" ? "review" : task.status,
+                    })}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(168,85,247,0.3)", backgroundColor: "rgba(168,85,247,0.12)", color: "#d8b4fe", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Mark visual review required
+                  </button>
+                )}
+              </div>
+
+              {visualCaptureError && (
+                <div style={{ fontSize: "0.72rem", color: "#fca5a5", backgroundColor: "rgba(127,29,29,0.18)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "0.5rem", padding: "0.6rem" }}>
+                  {visualCaptureError}
+                </div>
+              )}
+
+              {visualCaptures.length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {visualCaptures.slice().reverse().map((capture) => (
+                    <button
+                      key={capture.id}
+                      type="button"
+                      onClick={() => setLightboxSrc(`/api/tasks/attachments?path=${encodeURIComponent(capture.path)}`)}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", textAlign: "left", padding: "0.6rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(168,85,247,0.18)", backgroundColor: "rgba(24,24,27,0.6)", color: "var(--text-primary)", cursor: "pointer" }}
+                    >
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {capture.targetPath || capture.url || capture.name || "Visual capture"}
+                        </div>
+                        <div style={{ fontSize: "0.68rem", color: "var(--text-muted)", marginTop: "0.2rem" }}>
+                          {capture.capturedAt ? formatDateFull(capture.capturedAt) : "Captured"}
+                          {capture.browser ? ` • ${capture.browser}` : ""}
+                        </div>
+                      </div>
+                      <span style={{ fontSize: "0.68rem", color: "#d8b4fe" }}>Open</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Review loop */}
           {(task.status === "review" || task.reviewRequired) && (
             <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
@@ -833,6 +993,7 @@ export function TaskDetailDrawer({
               </div>
               <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
                 Manual review scaffold only — this is a handoff/status loop, not an automated code reviewer.
+                {visualReviewRequired && screenshotEvidenceCount === 0 ? " Screenshot evidence is still missing for this visual review." : ""}
               </p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                 {task.reviewRequestedAt && (
