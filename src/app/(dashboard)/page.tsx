@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
+import { TaskDetailDrawer, Task, ProjectInfo, PRIORITY_COLORS, formatDate } from "@/components/TaskDetailDrawer";
 import {
   CheckCircle,
   XCircle,
@@ -268,6 +269,9 @@ export default function DashboardPage() {
   const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
+  const [doneTasks, setDoneTasks] = useState<Task[]>([]);
+  const [tasksProjectsMap, setTasksProjectsMap] = useState<Record<string, ProjectInfo>>({});
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, LiveAgentStatus>>({});
 
@@ -301,10 +305,26 @@ export default function DashboardPage() {
     }).catch(() => setStatsLoading(false));
   };
 
+  const fetchTasksData = () => {
+    Promise.all([
+      fetch("/api/tasks").then(r => r.json()).catch(() => ({ tasks: [] })),
+      fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] })),
+    ]).then(([tasksData, projectsData]) => {
+      const allTasks: Task[] = tasksData.tasks || [];
+      setDoneTasks(allTasks.filter(t => t.status === "done").sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime()));
+      const map: Record<string, ProjectInfo> = {};
+      for (const p of (projectsData.projects || [])) {
+        map[p.id] = { id: p.id, name: p.name, emoji: p.emoji, color: p.color };
+      }
+      setTasksProjectsMap(map);
+    });
+  };
+
   useEffect(() => {
     fetchDashboardData();
+    fetchTasksData();
     // Auto-refresh every 30 seconds
-    const interval = setInterval(fetchDashboardData, 30_000);
+    const interval = setInterval(() => { fetchDashboardData(); fetchTasksData(); }, 30_000);
     return () => clearInterval(interval);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -1018,6 +1038,74 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      {/* Completed Tasks */}
+      <div
+        className="rounded-xl overflow-hidden mb-6"
+        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid var(--border)" }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="accent-line" />
+            <h2
+              className="text-base font-semibold"
+              style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+            >
+              <CheckCircle className="inline-block w-4 h-4 mr-2 mb-0.5" style={{ color: "#4ade80" }} />
+              Completed Tasks
+              {doneTasks.length > 0 && (
+                <span className="ml-2 text-xs font-normal px-2 py-0.5 rounded-full" style={{ backgroundColor: "rgba(74,222,128,0.12)", color: "#4ade80" }}>
+                  {doneTasks.length}
+                </span>
+              )}
+            </h2>
+          </div>
+          <Link href="/tasks" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
+            Task Board →
+          </Link>
+        </div>
+        <div style={{ maxHeight: "320px", overflowY: "auto" }}>
+          {doneTasks.length === 0 ? (
+            <p className="p-4 text-sm" style={{ color: "var(--text-muted)" }}>No completed tasks yet</p>
+          ) : (
+            <div>
+              {doneTasks.map((task) => {
+                const proj = tasksProjectsMap[task.project || ""];
+                return (
+                  <button
+                    key={task.id}
+                    onClick={() => setSelectedTask(task)}
+                    className="w-full text-left flex items-center gap-3 px-4 py-3 transition-colors hover:bg-white/5"
+                    style={{ background: "none", border: "none", borderBottom: "1px solid var(--border)", cursor: "pointer" }}
+                  >
+                    <CheckCircle className="w-4 h-4 flex-shrink-0" style={{ color: "#4ade80" }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate" style={{ color: "var(--text-primary)" }}>
+                        {task.title}
+                      </div>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {proj && (
+                          <span className="text-xs" style={{ color: proj.color }}>{proj.emoji} {proj.name}</span>
+                        )}
+                        <span className="text-xs font-bold" style={{ color: PRIORITY_COLORS[task.priority] }}>{task.priority}</span>
+                        {task.assignee && (
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{task.assignee}</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="text-xs flex-shrink-0" style={{ color: "var(--text-muted)" }}>
+                      {formatDate(task.completedAt || task.updated)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Bottom: Activity Feed + Quick Nav */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Activity Feed */}
@@ -1092,6 +1180,19 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* Task Detail Drawer */}
+      {selectedTask && (
+        <TaskDetailDrawer
+          task={selectedTask}
+          onClose={() => setSelectedTask(null)}
+          onTaskUpdated={(updated) => {
+            setDoneTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => t.status === "done"));
+            setSelectedTask(updated.status === "done" ? updated : null);
+          }}
+          projectsMap={tasksProjectsMap}
+        />
+      )}
     </div>
   );
 }
