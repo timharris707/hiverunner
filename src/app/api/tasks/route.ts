@@ -1,11 +1,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, writeTasks } from "@/lib/build-queue";
+import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    await reconcileBuildQueue({ source: "tasks-get" });
     const tasks = readTasks();
     return NextResponse.json({ tasks });
   } catch (error) {
@@ -49,14 +50,36 @@ export async function PATCH(req: NextRequest) {
     }
 
     const previousTask = { ...tasks[idx] };
-    tasks[idx] = { ...tasks[idx], ...updates, updated: new Date().toISOString() };
+    const now = new Date().toISOString();
+    tasks[idx] = { ...tasks[idx], ...updates, updated: now };
+
+    if (tasks[idx].status === "review" && previousTask.status !== "review") {
+      tasks[idx].reviewRequired = true;
+      tasks[idx].reviewStatus = updates.reviewStatus || "pending";
+      tasks[idx].reviewRequestedAt = tasks[idx].reviewRequestedAt || now;
+      delete tasks[idx].completedAt;
+    }
+
+    if (previousTask.status === "review" && tasks[idx].status === "done") {
+      tasks[idx].reviewRequired = true;
+      tasks[idx].reviewStatus = updates.reviewStatus || "approved";
+      tasks[idx].reviewCompletedAt = now;
+      tasks[idx].completedAt = tasks[idx].completedAt || now;
+    }
+
+    if (previousTask.status === "review" && tasks[idx].status === "in-progress") {
+      tasks[idx].reviewRequired = true;
+      tasks[idx].reviewStatus = updates.reviewStatus || "changes-requested";
+      tasks[idx].reviewCompletedAt = now;
+      delete tasks[idx].completedAt;
+    }
+
     writeTasks(tasks);
 
     const shouldTriggerBuild =
       tasks[idx].status === "in-progress" &&
       (
-        previousTask.status !== "in-progress" ||
-        !previousTask.buildTriggeredAt ||
+        (!previousTask.buildTriggeredAt && previousTask.status !== "in-progress") ||
         previousTask.buildState === "failed"
       );
 

@@ -16,6 +16,7 @@ mkdirSync(LOCKS_DIR, { recursive: true });
 const ACTIVE_BUILD_STATUSES = new Set(["spawning", "running"]);
 const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
+const RECONCILE_INTERVAL_MS = 15_000;
 const PROJECT_DIRS: Record<string, string> = {
   "mission-control": "projects/mission-control-app",
   "advisory-board": "projects/mission-control-app",
@@ -28,6 +29,8 @@ const PROJECT_DIRS: Record<string, string> = {
   "org": "",
   "karpathy-loop": "projects/karpathy-loop",
 };
+
+let lastReconcileAt = 0;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -157,6 +160,121 @@ function sendSystemEvent(text: string) {
   execFile("openclaw", ["system", "event", "--text", text, "--mode", "now"], () => {});
 }
 
+function hydrateTaskFromPendingEntry(task: any, entry: any, executionKey: string) {
+  const pendingState = entry.status === "queued" ? "queued" : entry.status === "spawning" ? "spawning" : "running";
+  task.buildState = pendingState;
+  task.activeBuildId = entry.id;
+  task.buildExecutionKey = executionKey;
+  task.buildTriggeredAt = task.buildTriggeredAt || entry.startedAt || entry.queuedAt || new Date().toISOString();
+  task.buildQueuedAt = entry.queuedAt || task.buildQueuedAt;
+  task.buildStartedAt = entry.runningAt || task.buildStartedAt;
+
+  if (entry.routing) {
+    task.routedModel = task.routedModel || entry.routing.modelName;
+    task.routedTier = task.routedTier || entry.routing.tier;
+    task.routingReason = task.routingReason || entry.routing.reason;
+    task.complexityScore = task.complexityScore ?? entry.routing.complexityScore;
+    task.savingsPercent = task.savingsPercent ?? entry.routing.savingsPercent;
+  }
+}
+
+function clearTransientBuildTracking(task: any) {
+  delete task.activeBuildId;
+  delete task.buildQueuedAt;
+  delete task.buildStartedAt;
+}
+
+export async function reconcileBuildQueue(options?: { source?: string; force?: boolean }) {
+  const nowMs = Date.now();
+  if (!options?.force && nowMs - lastReconcileAt < RECONCILE_INTERVAL_MS) {
+    return { skipped: true, recoveredTaskIds: [] as string[], hydratedTaskIds: [] as string[] };
+  }
+  lastReconcileAt = nowMs;
+
+  const sweep = await withFactoryLock(async () => {
+    const tasks = readTasks();
+    const projects = readProjects();
+    const buildLog = readBuildLog();
+    const tasksToKick = new Set<string>();
+    const recoveredTaskIds: string[] = [];
+    const hydratedTaskIds: string[] = [];
+    let changed = false;
+
+    for (const task of tasks) {
+      if (task.status !== "in-progress") continue;
+
+      const { executionKey } = getProjectMeta(task, projects);
+      const pending = findPendingEntryForTask(buildLog, task.id);
+      const active = findActiveEntryForExecutionKey(buildLog, executionKey);
+
+      if (pending) {
+        const beforeState = JSON.stringify({
+          buildState: task.buildState,
+          activeBuildId: task.activeBuildId,
+          buildExecutionKey: task.buildExecutionKey,
+          buildTriggeredAt: task.buildTriggeredAt,
+        });
+
+        hydrateTaskFromPendingEntry(task, pending, executionKey);
+
+        const afterState = JSON.stringify({
+          buildState: task.buildState,
+          activeBuildId: task.activeBuildId,
+          buildExecutionKey: task.buildExecutionKey,
+          buildTriggeredAt: task.buildTriggeredAt,
+        });
+
+        if (beforeState !== afterState) {
+          task.updated = new Date().toISOString();
+          hydratedTaskIds.push(task.id);
+          changed = true;
+        }
+
+        if (pending.status === "queued" && !active) {
+          tasksToKick.add(task.id);
+        }
+        continue;
+      }
+
+      const looksOrphaned = !task.activeBuildId && !task.buildTriggeredAt && !task.buildState;
+      const lostPendingMetadata = ["queued", "spawning", "running"].includes(task.buildState || "");
+
+      if (looksOrphaned || lostPendingMetadata) {
+        if (lostPendingMetadata) {
+          clearTransientBuildTracking(task);
+          delete task.buildState;
+          delete task.buildTriggeredAt;
+          delete task.buildCompletedAt;
+        }
+        task.updated = new Date().toISOString();
+        recoveredTaskIds.push(task.id);
+        tasksToKick.add(task.id);
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      writeTasks(tasks);
+    }
+
+    return {
+      recoveredTaskIds,
+      hydratedTaskIds,
+      taskIdsToKick: Array.from(tasksToKick),
+    };
+  });
+
+  for (const taskId of sweep.taskIdsToKick) {
+    await queueOrStartBuild(taskId, { source: options?.source || "reconcile" });
+  }
+
+  return {
+    skipped: false,
+    recoveredTaskIds: sweep.recoveredTaskIds,
+    hydratedTaskIds: sweep.hydratedTaskIds,
+  };
+}
+
 async function updateRunningState(buildId: string, taskId: string) {
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -199,7 +317,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     task.updated = now;
     task.buildOutput = output.slice(-1500);
     task.buildCompletedAt = now;
-    delete task.activeBuildId;
+    clearTransientBuildTracking(task);
 
     if (success) {
       task.buildState = "completed";
@@ -299,6 +417,7 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
         task.buildState = "spawning";
         task.buildTriggeredAt = task.buildTriggeredAt || now;
         task.activeBuildId = existing.id;
+        task.buildExecutionKey = executionKey;
         task.updated = now;
 
         writeBuildLog(buildLog);
@@ -313,7 +432,10 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
         };
       }
 
-      return { kind: "existing" as const, task, build: existing };
+      hydrateTaskFromPendingEntry(task, existing, executionKey);
+      task.updated = new Date().toISOString();
+      writeTasks(tasks);
+      return { kind: "existing" as const, task: { ...task }, build: existing };
     }
 
     const routing = routeTask(task);
@@ -354,6 +476,7 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.routingReason = routing.reason;
     task.complexityScore = routing.complexityScore;
     task.savingsPercent = routing.savingsPercent;
+    task.buildError = null;
     task.updated = now;
 
     writeBuildLog(buildLog);
@@ -373,4 +496,28 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
   }
 
   return decision;
+}
+
+export async function retryBuild(taskId: string, options?: { source?: string }) {
+  await withFactoryLock(async () => {
+    const tasks = readTasks();
+    const task = tasks.find((t: any) => t.id === taskId);
+    if (!task) return;
+
+    clearTransientBuildTracking(task);
+    delete task.buildState;
+    delete task.buildTriggeredAt;
+    delete task.buildQueuedAt;
+    delete task.buildStartedAt;
+    delete task.buildCompletedAt;
+    delete task.buildOutput;
+    task.buildError = null;
+    task.updated = new Date().toISOString();
+    if (task.status !== "in-progress") {
+      task.status = "in-progress";
+    }
+    writeTasks(tasks);
+  });
+
+  return queueOrStartBuild(taskId, { source: options?.source || "retry" });
 }

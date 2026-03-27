@@ -973,6 +973,134 @@ function TaskDetailDrawer({
             </div>
           )}
 
+          {/* Build health */}
+          {(task.buildState || task.buildError || task.routedModel) && (
+            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>Factory status</label>
+                <span style={{
+                  fontSize: "0.65rem",
+                  fontWeight: 700,
+                  padding: "0.15rem 0.5rem",
+                  borderRadius: "9999px",
+                  backgroundColor:
+                    task.buildState === "failed" ? "rgba(239,68,68,0.12)" :
+                    task.buildState === "completed" ? "rgba(74,222,128,0.12)" :
+                    task.buildState === "queued" ? "rgba(192,132,252,0.12)" :
+                    "rgba(251,191,36,0.12)",
+                  color:
+                    task.buildState === "failed" ? "#f87171" :
+                    task.buildState === "completed" ? "#4ade80" :
+                    task.buildState === "queued" ? "#c084fc" :
+                    "#fbbf24",
+                }}>
+                  {(task.buildState || "idle").replace(/-/g, " ")}
+                </span>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                {task.routedModel && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Model</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>{task.routedModel}</div>
+                  </div>
+                )}
+                {task.activeBuildId && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Active build</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)", fontFamily: "monospace" }}>{task.activeBuildId}</div>
+                  </div>
+                )}
+                {task.buildTriggeredAt && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Triggered</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.buildTriggeredAt)}</div>
+                  </div>
+                )}
+                {task.buildCompletedAt && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Last finished</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.buildCompletedAt)}</div>
+                  </div>
+                )}
+              </div>
+
+              {task.buildError && (
+                <div>
+                  <label style={DRAWER_LABEL}>Last failure</label>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "0.72rem", lineHeight: 1.5, color: "#fca5a5", backgroundColor: "rgba(127,29,29,0.2)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: "0.5rem", padding: "0.6rem", maxHeight: "180px", overflowY: "auto" }}>
+                    {task.buildError}
+                  </pre>
+                </div>
+              )}
+
+              <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                {task.buildState === "failed" && (
+                  <button
+                    onClick={handleRetryBuild}
+                    disabled={retryingBuild}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#f59e0b", color: "#111827", fontWeight: 700, cursor: retryingBuild ? "not-allowed" : "pointer", opacity: retryingBuild ? 0.7 : 1 }}
+                  >
+                    {retryingBuild ? "Retrying..." : "Retry build"}
+                  </button>
+                )}
+                {task.buildState === "completed" && task.status === "done" && (
+                  <button
+                    onClick={() => patchTask({ status: "review", reviewStatus: "pending", reviewRequired: true })}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(96,165,250,0.3)", backgroundColor: "rgba(96,165,250,0.12)", color: "#93c5fd", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Send to review
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Review loop */}
+          {(task.status === "review" || task.reviewRequired) && (
+            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
+                <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>QC / review</label>
+                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(96,165,250,0.12)", color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#93c5fd" }}>
+                  {task.reviewStatus || "pending"}
+                </span>
+              </div>
+              <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                Manual review scaffold only — this is a handoff/status loop, not an automated code reviewer.
+              </p>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                {task.reviewRequestedAt && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Requested</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.reviewRequestedAt)}</div>
+                  </div>
+                )}
+                {task.reviewCompletedAt && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Completed</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.reviewCompletedAt)}</div>
+                  </div>
+                )}
+              </div>
+              {task.status === "review" && (
+                <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => patchTask({ status: "done", reviewStatus: "approved" })}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#22c55e", color: "#0b1220", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => patchTask({ status: "in-progress", reviewStatus: "changes-requested" })}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(239,68,68,0.25)", backgroundColor: "rgba(239,68,68,0.12)", color: "#fca5a5", fontWeight: 700, cursor: "pointer" }}
+                  >
+                    Request changes
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Created by + Dates */}
           <div style={{ display: "flex", gap: "1.5rem", paddingTop: "0.5rem", borderTop: "1px solid var(--border)", flexWrap: "wrap" }}>
             {(task as any).created_by && (
@@ -1113,6 +1241,16 @@ function TaskCard({
             <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
           </a>
         )
+      )}
+
+      {/* Review indicator */}
+      {(task.status === "review" || task.reviewRequired) && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.2)" }}>
+          <span>🧪</span>
+          <span style={{ fontSize: "10px", fontWeight: 700, color: "#93c5fd", letterSpacing: "0.5px" }}>
+            {task.reviewStatus === "approved" ? "REVIEW APPROVED" : task.reviewStatus === "changes-requested" ? "CHANGES REQUESTED" : "REVIEW NEEDED"}
+          </span>
+        </div>
       )}
 
       {/* Title */}
@@ -1466,7 +1604,7 @@ export default function TasksPage() {
       </div>
 
       {/* Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
         {COLUMNS.map((col) => {
           const colTasks = tasksByStatus[col.id] || [];
           const Icon = col.icon;

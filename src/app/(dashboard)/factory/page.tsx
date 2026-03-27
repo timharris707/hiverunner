@@ -747,6 +747,24 @@ export default function SoftwareFactoryPage() {
           >
             From idea to shipped product
           </p>
+          <div
+            style={{
+              marginTop: 10,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 8,
+              padding: "6px 10px",
+              borderRadius: 9999,
+              backgroundColor: "rgba(251,191,36,0.12)",
+              border: "1px solid rgba(251,191,36,0.22)",
+              color: "#fde68a",
+              fontSize: 11,
+              fontFamily: "var(--font-mono)",
+            }}
+          >
+            <span>⚠️</span>
+            Factory Floor is currently a mocked overview. Live builder/review state now lives on the Tasks board.
+          </div>
         </div>
 
         {/* Stat Cards */}
