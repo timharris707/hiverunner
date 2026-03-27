@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
+import { queueOrStartBuild, readTasks, writeTasks } from "@/lib/build-queue";
 
 const REVIEWS_PATH = path.join(
   process.env.HOME || "/Users/timharris",
@@ -75,5 +76,46 @@ export async function POST(req: NextRequest) {
   };
 
   await writeReviews(data);
+
+  // When a YouTube video is added, automatically create a processing task
+  if (newReview.type === "youtube") {
+    const tasks = readTasks();
+    const processingTask = {
+      id: `TASK-${Date.now()}`,
+      title: `Process YouTube video: ${newReview.title}`,
+      description: [
+        `A new YouTube video was added to Ideas and needs to be processed.`,
+        ``,
+        `**Review ID:** ${newReview.id}`,
+        `**URL:** ${newReview.url}`,
+        `**Title:** ${newReview.title}`,
+        ``,
+        `### Steps`,
+        `1. Use the existing YouTube scraper (check the idea-intake project for scraper scripts) to fetch the transcript and metadata for this video URL`,
+        `2. Generate a comprehensive summary (2-3 paragraphs) describing the video content`,
+        `3. Write an assessment of its relevance and value to the project`,
+        `4. Extract 3-8 actionable takeaways with video timestamps, priority (high/medium/low), and effort (small/medium/large)`,
+        `5. Update the review entry in ~/.openclaw/workspace/projects/idea-intake/reviews.json:`,
+        `   - Set \`summary\` to the generated summary`,
+        `   - Set \`assessment\` to the generated assessment`,
+        `   - Set \`rating\` to a score from 1-5 based on relevance`,
+        `   - Set \`takeaways\` array with objects matching the existing takeaway schema (id, title, description, video_timestamp, video_url, video_context, priority, effort, status: "idea")`,
+        `   - Set \`title\` and \`channel\` if they can be extracted from the video metadata`,
+      ].join("\n"),
+      status: "in-progress",
+      priority: "P2",
+      project: "idea-intake",
+      type: "feature",
+      tags: ["youtube", "processing", "auto"],
+      reviewId: newReview.id,
+      created: new Date().toISOString(),
+      updated: new Date().toISOString(),
+    };
+
+    tasks.unshift(processingTask);
+    writeTasks(tasks);
+    await queueOrStartBuild(processingTask.id, { source: "ideas-post-youtube" });
+  }
+
   return NextResponse.json(newReview, { status: 201 });
 }
