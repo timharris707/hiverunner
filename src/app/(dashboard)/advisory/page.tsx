@@ -38,7 +38,13 @@ import {
   formatMarkdownFileExport,
   slugify,
   getStatusBadge,
+  MODELS,
 } from "@/components/advisory/constants";
+
+// Short display labels for models shown as badges
+const MODEL_SHORT: Record<string, string> = Object.fromEntries(
+  MODELS.map((m) => [m.id, m.label.replace(/ \(.*\)$/, "")])
+);
 
 // ─── Component imports ────���───────────────────────��──────────────────────────
 import EventBubble from "@/components/advisory/EventBubble";
@@ -1184,8 +1190,30 @@ export default function AdvisoryPage() {
                         </span>
                       )}
                       {activeSession.model && (
-                        <span style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
-                          {activeSession.model}
+                        <span title={activeSession.model} style={{
+                          fontSize: "9px", fontWeight: 700, color: "#818cf8",
+                          backgroundColor: "rgba(129,140,248,0.12)", border: "1px solid rgba(129,140,248,0.25)",
+                          padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em",
+                        }}>
+                          {MODEL_SHORT[activeSession.model] ?? activeSession.model}
+                        </span>
+                      )}
+                      {typeof sessionData?.rounds === "number" && (
+                        <span style={{
+                          fontSize: "9px", fontWeight: 700, color: "#fb923c",
+                          backgroundColor: "rgba(251,146,60,0.12)", border: "1px solid rgba(251,146,60,0.25)",
+                          padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em",
+                        }}>
+                          {sessionData.rounds as number}R
+                        </span>
+                      )}
+                      {sessionData?.responseLength && (
+                        <span style={{
+                          fontSize: "9px", fontWeight: 700, color: "#34d399",
+                          backgroundColor: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.25)",
+                          padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", textTransform: "uppercase",
+                        }}>
+                          {sessionData.responseLength as string}
                         </span>
                       )}
                     </div>

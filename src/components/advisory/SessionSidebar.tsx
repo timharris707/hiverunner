@@ -15,7 +15,11 @@ import {
 } from "lucide-react";
 import { AvatarStack } from "@/components/AgentAvatar";
 import type { AdvisorySession } from "@/types/advisory";
-import { AGENTS, getStatusBadge, formatDate } from "./constants";
+import { AGENTS, MODELS, getStatusBadge, formatDate } from "./constants";
+
+const MODEL_SHORT: Record<string, string> = Object.fromEntries(
+  MODELS.map((m) => [m.id, m.label.replace(/ \(.*\)$/, "")])
+);
 
 // ─── Session List Item ───────────────────────────────────────────────────────
 
@@ -133,6 +137,45 @@ function SessionListItem({
           </span>
         </div>
       </div>
+      {/* Settings badges — model, rounds, response length */}
+      {(() => {
+        const sd = session as unknown as Record<string, unknown>;
+        const model = session.model;
+        const rounds = typeof sd.rounds === "number" ? sd.rounds : null;
+        const responseLength = typeof sd.responseLength === "string" ? sd.responseLength : null;
+        if (!model && !rounds && !responseLength) return null;
+        return (
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "5px", flexWrap: "wrap" }}>
+            {model && (
+              <span title={model} style={{
+                fontSize: "8px", fontWeight: 700, color: "#818cf8",
+                backgroundColor: "rgba(129,140,248,0.1)", border: "1px solid rgba(129,140,248,0.2)",
+                padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)",
+              }}>
+                {MODEL_SHORT[model] ?? model}
+              </span>
+            )}
+            {rounds !== null && (
+              <span style={{
+                fontSize: "8px", fontWeight: 700, color: "#fb923c",
+                backgroundColor: "rgba(251,146,60,0.1)", border: "1px solid rgba(251,146,60,0.2)",
+                padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)",
+              }}>
+                {rounds}R
+              </span>
+            )}
+            {responseLength && (
+              <span style={{
+                fontSize: "8px", fontWeight: 700, color: "#34d399",
+                backgroundColor: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.2)",
+                padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)", textTransform: "uppercase",
+              }}>
+                {responseLength}
+              </span>
+            )}
+          </div>
+        );
+      })()}
     </button>
   );
 }
