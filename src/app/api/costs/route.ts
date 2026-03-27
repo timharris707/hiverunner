@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { NextRequest } from "next/server";
-import { readFileSync, existsSync, readdirSync } from "fs";
+import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 const DEFAULT_BUDGET = 100.0;
+const TASKS_JSON_PATH = join(process.cwd(), "data", "tasks.json");
 
 interface SessionRecord {
   key?: string;
@@ -57,6 +58,27 @@ function normalizeModel(model: string, provider?: string): string {
   if (m.includes("gpt-4")) return "gpt-4";
   if (m.includes("gpt-3")) return "gpt-3.5";
   return model;
+}
+
+function getRoutingStats(): Array<{ tier: string; count: number; avgSavings: number }> {
+  try {
+    if (!existsSync(TASKS_JSON_PATH)) return [];
+    const raw = readFileSync(TASKS_JSON_PATH, "utf-8");
+    const tasks: Array<{ routedTier?: string; routedModel?: string; savingsPercent?: number }> = JSON.parse(raw);
+    const byTier: Record<string, { count: number; totalSavings: number }> = {};
+    for (const task of tasks) {
+      if (!task.routedTier) continue;
+      const tier = task.routedTier;
+      if (!byTier[tier]) byTier[tier] = { count: 0, totalSavings: 0 };
+      byTier[tier].count++;
+      byTier[tier].totalSavings += task.savingsPercent || 0;
+    }
+    return Object.entries(byTier)
+      .map(([tier, v]) => ({ tier, count: v.count, avgSavings: v.count > 0 ? Math.round(v.totalSavings / v.count) : 0 }))
+      .sort((a, b) => b.count - a.count);
+  } catch {
+    return [];
+  }
 }
 
 export async function GET(request: NextRequest) {
@@ -167,6 +189,45 @@ export async function GET(request: NextRequest) {
     .sort((a, b) => b.cost - a.cost)
     .slice(0, 10);
 
+  // Burndown: budget remaining for each day of the current month
+  const year = new Date().getFullYear();
+  const month = new Date().getMonth();
+  const burndown: Array<{ day: number; remaining: number; projected: boolean }> = [];
+  let cumulativeCost = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateKey = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    const dateKeyShort = dateKey.slice(5); // MM-DD
+    const dayEntry = daily.find((e) => e.date === dateKeyShort);
+    const isProjected = d > daysElapsed;
+    if (!isProjected) {
+      cumulativeCost += dayEntry?.cost || 0;
+    } else {
+      cumulativeCost += avgDaily;
+    }
+    burndown.push({
+      day: d,
+      remaining: parseFloat(Math.max(0, DEFAULT_BUDGET - cumulativeCost).toFixed(4)),
+      projected: isProjected,
+    });
+  }
+
+  // Weekly: last 7 days (actual) + next 7 days (projected)
+  const weekly: Array<{ date: string; cost: number; projected: boolean }> = [];
+  for (let offset = -6; offset <= 7; offset++) {
+    const d = new Date(now + offset * 86400000);
+    const dateStr = d.toISOString().split("T")[0];
+    const dateShort = dateStr.slice(5);
+    const isProjected = offset > 0;
+    const dayEntry = daily.find((e) => e.date === dateShort);
+    weekly.push({
+      date: dateShort,
+      cost: isProjected ? parseFloat(avgDaily.toFixed(4)) : parseFloat((dayEntry?.cost || 0).toFixed(4)),
+      projected: isProjected,
+    });
+  }
+
+  const routingStats = getRoutingStats();
+
   return NextResponse.json({
     today: parseFloat(todayCost.toFixed(4)),
     yesterday: parseFloat(yesterdayCost.toFixed(4)),
@@ -179,6 +240,12 @@ export async function GET(request: NextRequest) {
     daily,
     hourly: [],
     topSessions: topSessionsSorted,
+    burndown,
+    weekly,
+    routingStats,
+    avgDaily: parseFloat(avgDaily.toFixed(4)),
+    daysElapsed,
+    daysInMonth,
   });
 }
 
