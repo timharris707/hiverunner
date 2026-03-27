@@ -68,7 +68,7 @@ export async function GET() {
         const recentTrades = db
           .prepare(
             `SELECT trade_id, ticker, side, price, cost, status, pnl, city, target_date, created_at
-             FROM trades ORDER BY created_at DESC LIMIT 5`
+             FROM trades ORDER BY created_at DESC LIMIT 20`
           )
           .all();
 
