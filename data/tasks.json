@@ -1,5 +1,148 @@
 [
   {
+    "id": "TASK-W001",
+    "title": "Weather: API retry logic with exponential backoff",
+    "description": "Kalshi API calls have no retry logic. Single timeout causes missed scan. Add configurable retry (3 attempts, backoff).",
+    "status": "backlog",
+    "priority": "P0",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
+    "project": "weather-trading",
+    "type": "bug",
+    "tags": [
+      "weather",
+      "api",
+      "reliability"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-W002",
+    "title": "Weather: Cron failure alerting via Telegram",
+    "description": "No notification when scheduled scan fails. Add alerts on cron failure.",
+    "status": "backlog",
+    "priority": "P0",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
+    "project": "weather-trading",
+    "type": "feature",
+    "tags": [
+      "weather",
+      "alerts",
+      "cron"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-W003",
+    "title": "Weather: Per-city exposure cap (max 2 contracts/city/date)",
+    "description": "Currently hold 3 Miami contracts for same date. Correlated loss risk.",
+    "status": "backlog",
+    "priority": "P0",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
+    "project": "weather-trading",
+    "type": "feature",
+    "tags": [
+      "weather",
+      "risk"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-W004",
+    "title": "Weather: Daily drawdown halt (-$150 = pause trading)",
+    "description": "No circuit breaker for bad days. Add daily drawdown limit.",
+    "status": "backlog",
+    "priority": "P0",
+    "assignee": "Nimbus \ud83c\udf24\ufe0f",
+    "project": "weather-trading",
+    "type": "feature",
+    "tags": [
+      "weather",
+      "risk",
+      "circuit-breaker"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-C001",
+    "title": "Crypto: Switch data source from OKX to Kraken (US compliance)",
+    "description": "OKX works for public data but Kraken is our target exchange. Switch HybridPaperExchange to Kraken.",
+    "status": "backlog",
+    "priority": "P0",
+    "assignee": "Cipher \u20bf",
+    "project": "crypto-trading",
+    "type": "feature",
+    "tags": [
+      "crypto",
+      "exchange",
+      "compliance"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-C002",
+    "title": "Crypto: Kelly criterion position sizing calibration",
+    "description": "Current sizing may be too aggressive. Calibrate against paper trading results.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Cipher \u20bf",
+    "project": "crypto-trading",
+    "type": "feature",
+    "tags": [
+      "crypto",
+      "sizing",
+      "risk"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-S001",
+    "title": "Stocks: Activate paper trading with live Polygon data",
+    "description": "Polygon API key is WORKING. Connect live data feed and start paper trading.",
+    "status": "on-deck",
+    "priority": "P0",
+    "assignee": "Atlas \ud83d\udcc8",
+    "project": "stock-trading",
+    "type": "feature",
+    "tags": [
+      "stocks",
+      "paper-trading",
+      "polygon"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
+    "id": "TASK-S002",
+    "title": "Stocks: Options chain data integration",
+    "description": "Wire up Polygon options endpoints for IV rank, Greeks, spread analysis.",
+    "status": "backlog",
+    "priority": "P1",
+    "assignee": "Atlas \ud83d\udcc8",
+    "project": "stock-trading",
+    "type": "feature",
+    "tags": [
+      "stocks",
+      "options",
+      "data"
+    ],
+    "created": "2026-03-26T18:00:00.000Z",
+    "updated": "2026-03-26T18:00:00.000Z",
+    "created_by": "henry"
+  },
+  {
     "id": "TASK-125",
     "title": "Fix: static overlays bleeding into AI-generated persona selections",
     "description": "Reality Checker (static overlay) appeared on Quill despite user only selecting AI-generated personas. Overlay assignment is mixing static and AI sources. Need to ensure clean separation: when user selects AI personas, static ones should be fully removed unless explicitly added. ALSO: AI-generated personas are not being saved to the session correctly. Agents show static overlays (Trend Researcher, Reality Checker) instead of the AI personas the user selected. The persona-to-agent mapping must persist from wizard \u2192 session \u2192 system prompt \u2192 display badge.",
@@ -1181,7 +1324,7 @@
     "id": "CRYPTO-001",
     "title": "Cipher \u20bf Crypto Bot \u2014 8 phases complete, Docker infra live, paper trading ready",
     "description": "Build the core CCXT data pipeline for crypto trading. TimescaleDB setup, historical data ingestion.",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P0",
     "assignee": "Cipher \u20bf",
     "project": "crypto-trading",
@@ -1309,7 +1452,7 @@
   {
     "id": "task-new-12",
     "title": "Nimbus \ud83c\udf24\ufe0f Weather Trading Bot \u2014 4 phases, 400 tests, scanner live with 34 opportunities",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P0",
     "assignee": "Nimbus \ud83c\udf24\ufe0f",
     "project": "weather-trading",
