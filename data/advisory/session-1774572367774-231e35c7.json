@@ -1,0 +1,44 @@
+{
+  "id": "session-1774572367774-231e35c7",
+  "topic": "We want to brainstorm unique ideas that a team of AI agents could help make a company half a billion dollars. Not the obvious stuff everyone talks about — outside-the-box ideas using technologies we have access to today. Each of you pitch your best idea, then debate, then vote on the strongest one.",
+  "mode": "roundtable",
+  "agents": [
+    "Henry",
+    "Scout",
+    "Quill",
+    "Counsel",
+    "Cipher"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-27T00:46:07.774Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": {
+    "Henry": "ai-arbitrage-architect",
+    "Scout": "ai-synthetic-market-maker",
+    "Quill": "ai-arbitrage-architect",
+    "Counsel": "ai-autonomous-ops-czar",
+    "Cipher": "ai-network-effects-hacker"
+  },
+  "rounds": 3,
+  "pacing": "manual",
+  "responseLength": "concise",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": true,
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-27T00:46:07.774Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.**\n\n**Topic:** We want to brainstorm unique ideas that a team of AI agents could help make a company half a billion dollars. Not the obvious stuff everyone talks about — outside-the-box ideas using technologies we have access to today. Each of you pitch your best idea, then debate, then vote on the strongest one.\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Henry, Scout, Quill, Counsel, Cipher\n\nStanding by for agent inputs..."
+    }
+  ],
+  "thinkingAgent": null
+}

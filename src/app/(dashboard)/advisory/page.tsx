@@ -399,6 +399,8 @@ export default function AdvisoryPage() {
       try {
         setConnectingToAI(true);
         setIsPaused(false);
+        // Small delay to ensure session file is fully written before firing first agent
+        await new Promise((r) => setTimeout(r, 500));
         const sd = session as unknown as Record<string, unknown>;
         if (sd.pacing === "manual") {
           // Manual pacing: fire one agent at a time, then auto-pause
