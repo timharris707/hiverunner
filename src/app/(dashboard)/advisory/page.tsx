@@ -1425,8 +1425,8 @@ export default function AdvisoryPage() {
                         onClick={() => {
                           const newAutoPlay = !autoPlay;
                           setAutoPlay(newAutoPlay);
-                          // If turning on auto-play while paused, immediately trigger next
-                          if (newAutoPlay && isPaused && !isGenerating) {
+                          // If turning on auto-play, immediately trigger next agent regardless of pause state
+                          if (newAutoPlay && !isGenerating && !advancingTurn) {
                             setTimeout(() => handleNextTurn(), 500);
                           }
                         }}
