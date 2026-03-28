@@ -19,6 +19,7 @@ const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "mon
 const REVIEWER_MODEL = "sonnet";
 const VISUAL_REVIEW_TAGS = new Set(["ui"]);
 const RECONCILE_INTERVAL_MS = 15_000;
+const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
 const MAX_ON_DECK_PER_PROJECT = 1;
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const PROJECT_DIRS: Record<string, string> = {
@@ -145,36 +146,25 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
   ].join("\n");
 }
 
-function buildClaudeExecutor(routing: any, prompt: string, fallbackReason?: string): BuildExecutorDecision {
+function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
   const tier = routing?.tier;
   const claudeModel = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
-  const actualModelId = tier === "opus"
-    ? "anthropic/claude-opus-4-6"
-    : tier === "haiku"
-      ? "anthropic/claude-haiku-3-5"
-      : "anthropic/claude-sonnet-4-6";
-  const actualModelName = tier === "opus" ? "Opus 4.6" : tier === "haiku" ? "Haiku 3.5" : "Sonnet 4.6";
+  const modelMap: Record<string, { id: string; name: string }> = {
+    opus: { id: "anthropic/claude-opus-4-6", name: "Opus 4.6" },
+    haiku: { id: "anthropic/claude-haiku-3-5", name: "Haiku 3.5" },
+    sonnet: { id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6" },
+  };
+  const model = modelMap[claudeModel];
+  const executorLabel = `Claude Code · ${model.name}`;
+  const prompt = buildPrompt(task, projectName, executorLabel);
 
   return {
     agentType: "claude-code",
     command: "claude",
     args: ["--permission-mode", "bypassPermissions", "--model", claudeModel, "--print", prompt],
-    actualModelId,
-    actualModelName,
-    fallbackReason,
+    actualModelId: model.id,
+    actualModelName: model.name,
   };
-}
-
-function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
-  const tier = routing?.tier;
-  const executorLabel = tier === "opus"
-    ? "Claude Code · Opus 4.6"
-    : tier === "haiku"
-      ? "Claude Code · Haiku 3.5"
-      : "Claude Code · Sonnet 4.6";
-  const prompt = buildPrompt(task, projectName, executorLabel);
-
-  return buildClaudeExecutor(routing, prompt);
 }
 
 function hasAnyTag(task: any, tags: Set<string>) {
@@ -376,6 +366,32 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
         tasksToKick.add(task.id);
         changed = true;
       }
+    }
+
+    // Stale build cleanup — mark builds that have been "running" too long as failed
+    const now = Date.now();
+    for (const build of buildLog.builds || []) {
+      if (build.status === "running" && build.startedAt) {
+        const elapsed = now - new Date(build.startedAt).getTime();
+        if (elapsed > STALE_BUILD_TIMEOUT_MS) {
+          console.log(`[factory] Stale build timeout: ${build.taskId} (${Math.round(elapsed / 60000)}min) — marking failed`);
+          build.status = "failed";
+          build.completedAt = new Date().toISOString();
+          build.output = `Build timed out after ${Math.round(elapsed / 60000)} minutes (stale process detected)`;
+          // Clear the task's build tracking so it can be re-queued
+          const task = tasks.find((t: any) => t.id === build.taskId);
+          if (task) {
+            clearTransientBuildTracking(task);
+            delete task.buildState;
+            recoveredTaskIds.push(task.id);
+            tasksToKick.add(task.id);
+          }
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      writeBuildLog(buildLog);
     }
 
     // Autonomous task advancement

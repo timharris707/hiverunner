@@ -1,17 +1,16 @@
 /**
- * Smart LLM Router — routes work to the most appropriate model lane.
+ * Smart LLM Router — auto-routes tasks to the optimal model.
  *
  * Policy:
- *   Opus 4.6   — high-stakes architecture, security, P0 critical reasoning
- *   GPT 5.4    — default coding workhorse for implementation / refactor / test-fix loops
- *   Sonnet 4.6 — fast product thinking, routine orchestration, non-coding execution
+ *   Opus 4.6   — complex reasoning, high-stakes architecture, security, P0 critical
+ *   Sonnet 4.6 — coding workhorse for implementation / refactor / test-fix / product thinking
  *   Haiku 3.5  — simple mechanical chores, docs, boilerplate
  *   Gemini     — research / search-heavy / large-context analysis
  */
 
 import { MODEL_PRICING, type ModelPricing } from "./pricing";
 
-export type RoutingTier = "opus" | "gpt-5.4" | "sonnet" | "haiku" | "gemini-flash" | "gemini-pro";
+export type RoutingTier = "opus" | "sonnet" | "haiku" | "gemini-flash" | "gemini-pro";
 
 export interface RoutingDecision {
   modelId: string;
@@ -89,7 +88,6 @@ const PROJECT_COMPLEXITY: Record<string, number> = {
 
 const TIER_MODEL_MAP: Record<RoutingTier, string> = {
   opus: "anthropic/claude-opus-4-6",
-  "gpt-5.4": "openai-codex/gpt-5.4",
   sonnet: "anthropic/claude-sonnet-4-6",
   haiku: "anthropic/claude-haiku-3-5",
   "gemini-flash": "google/gemini-2.5-flash",
@@ -226,9 +224,9 @@ export function routeTask(task: TaskInput): RoutingDecision {
     tier = "haiku";
     reason = "Low complexity mechanical task — cheapest fast lane is enough";
   } else if (codingTask) {
-    tier = "gpt-5.4";
-    reason = "Standard coding task — GPT 5.4 is the implementation workhorse for factory builds";
-    signals.push("Coding-oriented task → GPT 5.4 workhorse lane");
+    tier = "sonnet";
+    reason = "Standard coding task — Sonnet is the implementation workhorse";
+    signals.push("Coding-oriented task → Sonnet workhorse lane");
   } else if (productThinkingTask) {
     tier = "sonnet";
     reason = "Fast product/orchestration task — Sonnet balances speed with strong judgment";
