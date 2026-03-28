@@ -33,6 +33,33 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Quota-aware scheduling verdicts
+    if (result.kind === "quota-debounced") {
+      return NextResponse.json({
+        message: result.verdict.reason,
+        quotaAction: "debounced",
+        retryAfterMs: (result.verdict as any).retryAfterMs,
+        task: result.task,
+      }, { status: 429 });
+    }
+
+    if (result.kind === "quota-deferred") {
+      return NextResponse.json({
+        message: result.verdict.reason,
+        quotaAction: "deferred",
+        deferUntil: (result.verdict as any).deferUntil,
+        task: result.task,
+      });
+    }
+
+    if (result.kind === "quota-blocked") {
+      return NextResponse.json({
+        message: result.verdict.reason,
+        quotaAction: "blocked",
+        task: result.task,
+      }, { status: 429 });
+    }
+
     return NextResponse.json({
       message:
         result.kind === "queued"
