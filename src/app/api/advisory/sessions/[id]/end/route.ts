@@ -5,6 +5,25 @@ import { archiveSession } from "../archive/route";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
+const CUSTOM_AGENTS_FILE = path.join(DATA_DIR, "custom-agents.json");
+
+function loadCustomAgentDefs(): Record<string, { name: string; emoji: string; role: string }> {
+  try {
+    if (fs.existsSync(CUSTOM_AGENTS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CUSTOM_AGENTS_FILE, "utf-8"));
+      const defs: Record<string, { name: string; emoji: string; role: string }> = {};
+      for (const a of raw) {
+        defs[a.name] = {
+          name: a.name,
+          emoji: a.emoji || "🤖",
+          role: a.role || "Advisory Board Member",
+        };
+      }
+      return defs;
+    }
+  } catch {}
+  return {};
+}
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator" },
@@ -62,7 +81,20 @@ export async function POST(
   // Pick the synthesizer — moderator if set, then Henry, then first agent
   const moderatorId = session.moderator as string | undefined;
   const synthAgentId: string = moderatorId || ((agents as string[]).includes("Henry") ? "Henry" : ((agents as string[])[0] || "Henry"));
-  const synthAgent = AGENT_DEFS[synthAgentId];
+  // Look up synth agent from built-in defs, custom agents file, or session metadata
+  let synthAgent: { name: string; emoji: string; role: string } | undefined = AGENT_DEFS[synthAgentId];
+  if (!synthAgent) {
+    const customDefs = loadCustomAgentDefs();
+    synthAgent = customDefs[synthAgentId];
+  }
+  if (!synthAgent && session.customAgentMeta) {
+    const meta = (session.customAgentMeta as Record<string, { name: string; emoji: string; role: string }>)[synthAgentId];
+    if (meta) synthAgent = meta;
+  }
+  if (!synthAgent) {
+    // Fallback for completely unknown agents
+    synthAgent = { name: synthAgentId, emoji: "🤖", role: "Advisory Board Member" };
+  }
   const isModerator = !!moderatorId;
 
   // Build the full discussion history

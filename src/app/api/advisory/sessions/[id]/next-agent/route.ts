@@ -467,10 +467,57 @@ export async function POST(
       model: spawnedModel,
     }];
 
-    // Re-pause the session for manual pacing
-    updatedSession.paused = true;
-    updatedSession.thinkingAgent = null;
-    fs.writeFileSync(filePath, JSON.stringify(updatedSession, null, 2));
+    // ── Check if final round just completed (manual pacing auto-end) ──────────
+    const configuredRounds = updatedSession.rounds;
+    let shouldAutoEnd = false;
+    if (configuredRounds && configuredRounds !== "persistent") {
+      const roundLimit = Number(configuredRounds);
+      if (!isNaN(roundLimit) && roundLimit > 0) {
+        const allEvents = updatedSession.events || [];
+        const agentEvts = allEvents.filter(
+          (e: { speaker: string; type: string }) =>
+            e.speaker !== "Tim" && e.speaker !== "System" &&
+            e.type !== "start" && e.type !== "complete" && e.type !== "human-directive"
+        );
+        const agentList = (updatedSession.agents || []) as string[];
+        let completedRounds = 0;
+        const seenInRound = new Set<string>();
+        for (const e of agentEvts) {
+          seenInRound.add(e.speaker);
+          if (agentList.every((a: string) => seenInRound.has(a))) {
+            completedRounds++;
+            seenInRound.clear();
+          }
+        }
+        if (completedRounds >= roundLimit && completedRounds > 0 && agentEvts.length > 0) {
+          shouldAutoEnd = true;
+          console.log(`[next-agent] Final round completed (${completedRounds}/${roundLimit}) — auto-triggering end session`);
+        }
+      }
+    }
+
+    if (shouldAutoEnd) {
+      // Don't pause — trigger end-session synthesis instead
+      updatedSession.thinkingAgent = null;
+      updatedSession.paused = false;
+      fs.writeFileSync(filePath, JSON.stringify(updatedSession, null, 2));
+
+      try {
+        // Determine the base URL from the request or fall back to localhost
+        const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+        const endRes = await fetch(`${baseUrl}/api/advisory/sessions/${id}/end`, { method: "POST" });
+        if (!endRes.ok) {
+          console.error("[next-agent] Failed to trigger end-session after final round:", await endRes.text());
+        }
+      } catch (err) {
+        console.error("[next-agent] Error triggering end-session after final round:", err);
+      }
+    } else {
+      // Re-pause the session for manual pacing
+      updatedSession.paused = true;
+      updatedSession.thinkingAgent = null;
+      fs.writeFileSync(filePath, JSON.stringify(updatedSession, null, 2));
+    }
   };
 
   generateResponse().catch((err) => {
