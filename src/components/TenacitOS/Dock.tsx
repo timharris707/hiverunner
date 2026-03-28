@@ -26,6 +26,7 @@ import {
   Users,
   Factory,
   Mic,
+  Network,
 } from "lucide-react";
 
 interface NavItem {
@@ -44,6 +45,7 @@ const navItems: (NavItem | null)[] = [
   { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
   { href: "/office", label: "3D Office", icon: Building2 },
   { href: "/factory", label: "Factory Floor", icon: Factory },
+  { href: "/org", label: "Org Chart", icon: Network },
   null, // separator
   { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "5" },
   { href: "/calendar", label: "Calendar", icon: CalendarDays },
