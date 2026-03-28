@@ -291,7 +291,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -304,15 +304,14 @@ export async function POST(
     }
   }
 
-  // Resolve response length
-  const responseLength = (session.responseLength as string) || "balanced";
+  // Session-wide response length (per-agent override resolved after agentId is determined)
+  const sessionResponseLength = (session.responseLength as string) || "balanced";
   const LENGTH_MAX_TOKENS: Record<string, number> = {
     concise: 200,
     balanced: 1024,
     detailed: 2048,
     verbose: 4096,
   };
-  const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 2048;
 
   // Determine which agent goes next
   const events = session.events || [];
@@ -381,6 +380,10 @@ export async function POST(
       resolvedModel = `${prefix}${agentOverrideModel}`.replace(":thinking", "");
     }
   }
+
+  // Resolve per-agent response length (falls back to session-wide setting)
+  const responseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
+  const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 1024;
 
   // Set thinkingAgent so the UI can show who's about to respond
   try {

@@ -728,6 +728,7 @@ export async function POST(
       agentPersonalityTraits: sessionAgentTraits,
       agentCommunicationStyles: sessionAgentCommStyles,
       agentIntensityLevels: sessionAgentIntensity,
+      agentResponseLengths: sessionAgentResponseLengths,
     } = session;
 
     if (!agents || (agents as string[]).length === 0) {
@@ -750,7 +751,8 @@ export async function POST(
             sessionReferenceContext as string | undefined,
             sessionAgentTraits as Record<string, string[]> | undefined,
             sessionAgentCommStyles as Record<string, string> | undefined,
-            sessionAgentIntensity as Record<string, number> | undefined
+            sessionAgentIntensity as Record<string, number> | undefined,
+            sessionAgentResponseLengths as Record<string, string> | undefined
           );
         } else if (mode === "competitive") {
           await runCompetitive(
@@ -760,7 +762,8 @@ export async function POST(
             sessionReferenceContext as string | undefined,
             sessionAgentTraits as Record<string, string[]> | undefined,
             sessionAgentCommStyles as Record<string, string> | undefined,
-            sessionAgentIntensity as Record<string, number> | undefined
+            sessionAgentIntensity as Record<string, number> | undefined,
+            sessionAgentResponseLengths as Record<string, string> | undefined
           );
         } else if (mode === "review") {
           // New review loop mode: if session has reviewLoop config, auto-advance through all tasks
@@ -775,7 +778,9 @@ export async function POST(
               sessionReferenceContext as string | undefined,
               sessionAgentTraits as Record<string, string[]> | undefined,
               sessionAgentCommStyles as Record<string, string> | undefined,
-              sessionAgentIntensity as Record<string, number> | undefined
+              sessionAgentIntensity as Record<string, number> | undefined,
+              resolvedLength,
+              sessionAgentResponseLengths as Record<string, string> | undefined
             );
           }
         }
@@ -844,6 +849,50 @@ export async function POST(
   }
 }
 
+// ─── Moderator prompt helpers ─────────────────────────────────────────────────
+
+function buildModeratorSystemPrompt(
+  agentId: string,
+  topic: string,
+  agentOverlay: string | undefined,
+  responseLength: ResponseLength,
+  thinking: boolean,
+  referenceContext?: string,
+  personalityTraits?: string[],
+  communicationStyle?: string,
+  intensityLevel?: number
+): string {
+  const agent = AGENT_DEFS[agentId];
+  if (!agent) return `You are a moderator for a roundtable discussion about: ${topic}`;
+
+  const basePrompt = buildSystemPrompt(
+    agentId, "roundtable", topic, agentOverlay, responseLength, undefined, thinking, referenceContext,
+    personalityTraits, communicationStyle, intensityLevel
+  );
+
+  return `${basePrompt}
+
+---
+
+**MODERATOR ROLE — YOU ARE THE SESSION MODERATOR.**
+
+As moderator, you have special responsibilities beyond your advisory role:
+- **Open sessions** with clear agenda framing: state the key questions, what success looks like, and how you'll structure the discussion
+- **Interject between speakers** to keep discussion on track — redirect tangents, surface under-explored angles, and ensure all voices are heard
+- **Summarize progress** mid-session: "Let me summarize where we are..." or "Here's what we've established so far..."
+- **Challenge groupthink** when the board is converging too quickly without rigorous scrutiny
+- **Deliver the final synthesis** with concrete conclusions and action items
+
+Use distinct moderator framing in your responses:
+- "Let me redirect us..." when the discussion drifts
+- "Good point, but we're drifting..." to refocus
+- "Let me summarize where we are..." for progress checks
+- "Before we move on, I want to make sure we've addressed..." to ensure thoroughness
+- "I'm going to push back on the emerging consensus here..." to challenge groupthink
+
+You speak with authority but fairness. You don't dominate — you guide. Your job is to extract the best thinking from every participant and synthesize it into actionable conclusions for Tim.`;
+}
+
 // ─── ROUNDTABLE mode ──────────────────────────────────────────────────────────
 
 async function runRoundtable(
@@ -860,7 +909,8 @@ async function runRoundtable(
   referenceContext?: string,
   agentPersonalityTraits?: Record<string, string[]>,
   agentCommunicationStyles?: Record<string, string>,
-  agentIntensityLevels?: Record<string, number>
+  agentIntensityLevels?: Record<string, number>,
+  agentResponseLengths?: Record<string, string>
 ) {
   const isPersistent = rounds === "persistent";
 
@@ -881,8 +931,9 @@ async function runRoundtable(
 
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
+      const agentLength = (agentResponseLengths?.[agentId] as ResponseLength | undefined) || responseLength;
       const systemPrompt = buildSystemPrompt(
-        agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking, referenceContext,
+        agentId, session.mode as string, topic, agentOverlay, agentLength, undefined, thinking, referenceContext,
         agentPersonalityTraits?.[agentId],
         agentCommunicationStyles?.[agentId],
         agentIntensityLevels?.[agentId]
@@ -908,7 +959,7 @@ async function runRoundtable(
         ? `Topic for this roundtable: ${topic}\n\n${history === "No prior discussion yet." ? "You are the first to speak. Open the discussion with your perspective." : `Previous discussion:\n\n${history}\n\nNow it's your turn to contribute.`}`
         : `Topic: ${topic}\n\nPrevious discussion:\n\n${history}\n\nYou've already spoken once. Now it's round ${round} — build on what's been said, push back on anything you disagree with, or take the discussion in a new direction.${contrarianNote}`;
 
-      const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
+      const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[agentLength].maxTokens;
       let text = "";
       setThinkingAgent(filePath, agentId);
       try {
@@ -1027,7 +1078,8 @@ async function runCompetitive(
   referenceContext?: string,
   agentPersonalityTraits?: Record<string, string[]>,
   agentCommunicationStyles?: Record<string, string>,
-  agentIntensityLevels?: Record<string, number>
+  agentIntensityLevels?: Record<string, number>,
+  agentResponseLengths?: Record<string, string>
 ) {
   const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
 
@@ -1035,7 +1087,8 @@ async function runCompetitive(
   function buildCompetitiveSystemPrompt(
     agentId: string,
     phase: "pitch" | "critique" | "vote",
-    pitches: Record<string, string>
+    pitches: Record<string, string>,
+    agentLength: ResponseLength = responseLength
   ): string {
     const agent = AGENT_DEFS[agentId];
     if (!agent) return `You are an AI agent in a competitive ideation session about: ${topic}`;
@@ -1069,7 +1122,7 @@ You are competing against other agents to pitch the BEST idea on the topic below
 - Name your pitch with a catchy title.
 - You are trying to convince the other agents to vote for YOUR idea in Round 3.
 
-**Response length:** ${RESPONSE_LENGTH_CONFIG[responseLength].instruction}
+**Response length:** ${RESPONSE_LENGTH_CONFIG[agentLength].instruction}
 
 Think like a founder pitching to VCs who've seen 1000 pitches today. Stand out or go home.`;
     }
@@ -1097,7 +1150,7 @@ ${pitchSummary}
 - Suggest what would make a competing pitch stronger if you see potential in it
 - Be direct and unsparing. Politeness is fine but pulling punches is not.
 
-**Response length:** ${RESPONSE_LENGTH_CONFIG[responseLength].instruction}
+**Response length:** ${RESPONSE_LENGTH_CONFIG[agentLength].instruction}
 
 This is the crucible. The best ideas survive tough criticism. Do your job.`;
     }
@@ -1158,13 +1211,14 @@ ${pitchSummary}
     const checkSession = JSON.parse(checkRaw);
     if (checkSession.status !== "active") return;
 
-    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "pitch", {});
+    const agentLength = (agentResponseLengths?.[agentId] as ResponseLength | undefined) || responseLength;
+    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "pitch", {}, agentLength);
     const userPrompt = `Topic: ${topic}\n\nYou are first up (or responding after hearing others). Pitch your idea NOW.`;
 
     setThinkingAgent(filePath, agentId);
     let text = "";
     try {
-      text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens);
     } catch (err) {
       text = `⚠️ Failed to generate pitch: ${String(err)}`;
     }
@@ -1225,13 +1279,14 @@ ${pitchSummary}
 
     const currentEvents = checkSession.events || [];
     const history = buildHistoryString(currentEvents);
-    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "critique", pitches);
+    const agentLength = (agentResponseLengths?.[agentId] as ResponseLength | undefined) || responseLength;
+    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "critique", pitches, agentLength);
     const userPrompt = `Topic: ${topic}\n\nFull discussion so far:\n\n${history}\n\nNow critique all the pitches. Be rigorous and reference each competitor by name.`;
 
     setThinkingAgent(filePath, agentId);
     let text = "";
     try {
-      text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens);
     } catch (err) {
       text = `⚠️ Failed to generate critique: ${String(err)}`;
     }
@@ -1428,7 +1483,8 @@ async function runReview(
   agentPersonalityTraits?: Record<string, string[]>,
   agentCommunicationStyles?: Record<string, string>,
   agentIntensityLevels?: Record<string, number>,
-  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
+  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH,
+  agentResponseLengths?: Record<string, string>
 ) {
   const supervisor = agents.includes("Henry") ? "Henry" : agents[0];
   const nonSupervisors = agents.filter((a) => a !== supervisor);
@@ -1446,8 +1502,9 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
+    const supLength = (agentResponseLengths?.[supervisor] as ResponseLength | undefined) || responseLength;
     const supSystem = buildSystemPrompt(
-      supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext,
+      supervisor, "review", topic, supOverlay, supLength, "supervisor", thinking, referenceContext,
       agentPersonalityTraits?.[supervisor],
       agentCommunicationStyles?.[supervisor],
       agentIntensityLevels?.[supervisor]
@@ -1466,7 +1523,7 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     let supText = "";
     try {
-      supText = await callClaude(supSystem, supPrompt, model, thinking, Math.min(lengthMaxTokens, 1024));
+      supText = await callClaude(supSystem, supPrompt, model, thinking, Math.min(RESPONSE_LENGTH_CONFIG[supLength].maxTokens, 1024));
     } catch (err) {
       supText = `⚠️ ${String(err)}`;
     }
@@ -1498,8 +1555,9 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
+    const workerLength = (agentResponseLengths?.[worker] as ResponseLength | undefined) || responseLength;
     const workerSystem = buildSystemPrompt(
-      worker, "review", topic, workerOverlay, responseLength, "author", thinking, referenceContext,
+      worker, "review", topic, workerOverlay, workerLength, "author", thinking, referenceContext,
       agentPersonalityTraits?.[worker],
       agentCommunicationStyles?.[worker],
       agentIntensityLevels?.[worker]
@@ -1523,7 +1581,7 @@ ${reviewer} identified specific issues with your previous submission. Now produc
 
     let workerText = "";
     try {
-      workerText = await callClaude(workerSystem, workerPrompt, model, thinking, lengthMaxTokens);
+      workerText = await callClaude(workerSystem, workerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[workerLength].maxTokens);
     } catch (err) {
       workerText = `⚠️ ${String(err)}`;
     }
@@ -1560,8 +1618,9 @@ ${reviewer} identified specific issues with your previous submission. Now produc
     if (reviewSession.status !== "active") return;
 
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
+    const reviewerLength = (agentResponseLengths?.[reviewer] as ResponseLength | undefined) || responseLength;
     const reviewSystem = buildSystemPrompt(
-      reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking, referenceContext,
+      reviewer, "review", topic, reviewerOverlay, reviewerLength, "reviewer", thinking, referenceContext,
       agentPersonalityTraits?.[reviewer],
       agentCommunicationStyles?.[reviewer],
       agentIntensityLevels?.[reviewer]
@@ -1595,7 +1654,7 @@ ${verdictInstruction}`;
 
     let reviewText = "";
     try {
-      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking, lengthMaxTokens);
+      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[reviewerLength].maxTokens);
     } catch (err) {
       reviewText = `⚠️ ${String(err)}`;
     }
@@ -1635,8 +1694,9 @@ ${verdictInstruction}`;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
+    const finalSupLength = (agentResponseLengths?.[supervisor] as ResponseLength | undefined) || responseLength;
     const supSystem = buildSystemPrompt(
-      supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext,
+      supervisor, "review", topic, supOverlay, finalSupLength, "supervisor", thinking, referenceContext,
       agentPersonalityTraits?.[supervisor],
       agentCommunicationStyles?.[supervisor],
       agentIntensityLevels?.[supervisor]
@@ -1658,7 +1718,7 @@ Be decisive. No hedging.`;
 
     let decisionText = "";
     try {
-      decisionText = await callClaude(supSystem, supPrompt, model, thinking, lengthMaxTokens);
+      decisionText = await callClaude(supSystem, supPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[finalSupLength].maxTokens);
     } catch (err) {
       decisionText = `⚠️ ${String(err)}`;
     }
