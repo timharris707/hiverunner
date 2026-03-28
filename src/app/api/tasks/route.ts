@@ -115,6 +115,15 @@ export async function PATCH(req: NextRequest) {
       await queueOrStartBuild(id, { source: "tasks-patch" });
     }
 
+    // When a task leaves in-progress (done, review), advance the pipeline:
+    // promote the next on-deck task and spawn a new agent.
+    const taskFreedSlot =
+      previousTask.status === "in-progress" && tasks[idx].status !== "in-progress" ||
+      previousTask.status === "review" && tasks[idx].status === "done";
+    if (taskFreedSlot) {
+      await reconcileBuildQueue({ source: "tasks-patch-advance", force: true });
+    }
+
     return NextResponse.json({ task: readTasks().find((t: any) => t.id === id) || tasks[idx] });
   } catch (error) {
     console.error("Error updating task:", error);

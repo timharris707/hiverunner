@@ -507,10 +507,22 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       writeBuildLog(buildLog);
     }
 
-    // Autonomous task advancement
+    // Autonomous task advancement — on-deck → in-progress, backlog → on-deck
     const advancement = advanceTasks(tasks, projects, buildLog);
     if (advancement.changed) changed = true;
-    for (const id of advancement.promoted) tasksToKick.add(id);
+    for (const id of advancement.promoted) {
+      tasksToKick.add(id);
+      const promotedTask = tasks.find((t: any) => t.id === id);
+      if (promotedTask) {
+        console.log(`[factory] Auto-promoted on-deck → in-progress: ${promotedTask.title || id} (${promotedTask.project || "unscoped"})`);
+      }
+    }
+    for (const id of advancement.advanced) {
+      const advancedTask = tasks.find((t: any) => t.id === id);
+      if (advancedTask) {
+        console.log(`[factory] Auto-advanced backlog → on-deck: ${advancedTask.title || id} (${advancedTask.project || "unscoped"})`);
+      }
+    }
 
     // Drain deferred quota queue during off-peak windows
     const deferredEligible = drainDeferredQueue(tasks);
@@ -542,15 +554,28 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       writeTasks(tasks);
     }
 
+    // Collect promoted task labels for notifications (emitted outside lock)
+    const promotedLabels: string[] = [];
+    for (const id of advancement.promoted) {
+      const t = tasks.find((t: any) => t.id === id);
+      if (t) promotedLabels.push(String(t.title || id).replace(/"/g, "'"));
+    }
+
     return {
       recoveredTaskIds,
       hydratedTaskIds,
       advancedTaskIds: advancement.advanced,
       promotedTaskIds: advancement.promoted,
+      promotedLabels,
       deferredDrainedIds: deferredEligible,
       taskIdsToKick: Array.from(tasksToKick),
     };
   });
+
+  // Notify when on-deck tasks are auto-promoted to in-progress
+  for (const label of sweep.promotedLabels) {
+    sendSystemEvent(`🚀 On-deck auto-promoted → in-progress: ${label}`);
+  }
 
   for (const taskId of sweep.taskIdsToKick) {
     await queueOrStartBuild(taskId, { source: options?.source || "reconcile" });
