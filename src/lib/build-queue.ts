@@ -2,7 +2,10 @@
 import { execFile } from "child_process";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
+import { randomUUID } from "crypto";
+import os from "os";
 import { routeTask } from "@/lib/llm-router";
+import { evaluateTask, drainDeferredQueue, removeDeferredTask, type SchedulingVerdict } from "@/lib/quota-scheduler";
 
 const DATA_DIR = join(process.cwd(), "data");
 const TASKS_FILE = join(DATA_DIR, "tasks.json");
@@ -203,6 +206,73 @@ function sendSystemEvent(text: string) {
   execFile("openclaw", ["system", "event", "--text", text, "--mode", "now"], () => {});
 }
 
+const NOTIFICATIONS_FILE = join(DATA_DIR, "notifications.json");
+
+function getTelegramNotifyTarget(): string | null {
+  try {
+    const configPath = join(os.homedir(), ".openclaw", "openclaw.json");
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    const tg = config?.channels?.telegram;
+    if (!tg?.enabled) return null;
+    return tg.notifyTarget || tg.ownerChatId || null;
+  } catch {
+    return null;
+  }
+}
+
+function sendTelegramNotification(text: string) {
+  const target = getTelegramNotifyTarget();
+  if (target) {
+    execFile("openclaw", [
+      "message", "send",
+      "--channel", "telegram",
+      "--target", target,
+      "--message", text,
+    ], () => {});
+  }
+  // System events route through the gateway which also delivers to Telegram DMs
+  sendSystemEvent(text);
+}
+
+function createInAppNotification(title: string, message: string, type: "info" | "success" | "warning" | "error", link?: string) {
+  try {
+    let notifications: any[] = [];
+    try {
+      notifications = JSON.parse(readFileSync(NOTIFICATIONS_FILE, "utf-8"));
+    } catch {}
+    notifications.unshift({
+      id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      title,
+      message: message.slice(0, 200),
+      type,
+      read: false,
+      link: link || "/tasks",
+    });
+    if (notifications.length > 100) notifications.splice(100);
+    writeFileSync(NOTIFICATIONS_FILE, JSON.stringify(notifications, null, 2));
+  } catch (err) {
+    console.error("[build-queue] Failed to write in-app notification:", err);
+  }
+}
+
+function notifyTaskCompletion(task: any, outcome: "done" | "review" | "failed") {
+  const taskLabel = String(task.title || task.id).replace(/"/g, "'");
+  if (outcome === "done") {
+    const text = `✅ Task complete: ${taskLabel}`;
+    sendTelegramNotification(text);
+    createInAppNotification("Task Completed", taskLabel, "success");
+  } else if (outcome === "review") {
+    const text = `🔍 Task ready for review: ${taskLabel}`;
+    sendTelegramNotification(text);
+    createInAppNotification("Task Ready for Review", taskLabel, "info");
+  } else {
+    const text = `❌ Task failed: ${taskLabel}`;
+    sendTelegramNotification(text);
+    createInAppNotification("Task Failed", taskLabel, "error");
+  }
+}
+
 function hydrateTaskFromPendingEntry(task: any, entry: any, executionKey: string) {
   const pendingState = entry.status === "queued" ? "queued" : entry.status === "spawning" ? "spawning" : "running";
   task.buildState = pendingState;
@@ -302,7 +372,7 @@ function advanceTasks(
 export async function reconcileBuildQueue(options?: { source?: string; force?: boolean }) {
   const nowMs = Date.now();
   if (!options?.force && nowMs - lastReconcileAt < RECONCILE_INTERVAL_MS) {
-    return { skipped: true, recoveredTaskIds: [] as string[], hydratedTaskIds: [] as string[], advancedTaskIds: [] as string[], promotedTaskIds: [] as string[] };
+    return { skipped: true, recoveredTaskIds: [] as string[], hydratedTaskIds: [] as string[], advancedTaskIds: [] as string[], promotedTaskIds: [] as string[], deferredDrainedIds: [] as string[] };
   }
   lastReconcileAt = nowMs;
 
@@ -399,6 +469,32 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
     if (advancement.changed) changed = true;
     for (const id of advancement.promoted) tasksToKick.add(id);
 
+    // Drain deferred quota queue during off-peak windows
+    const deferredEligible = drainDeferredQueue(tasks);
+    for (const id of deferredEligible) {
+      const dTask = tasks.find((t: any) => t.id === id);
+      if (dTask) {
+        delete dTask.quotaDeferred;
+        delete dTask.quotaDeferReason;
+        delete dTask.quotaDeferUntil;
+        dTask.updated = new Date().toISOString();
+        tasksToKick.add(id);
+        changed = true;
+      }
+    }
+
+    // Clean up deferred flags for tasks no longer runnable
+    for (const task of tasks) {
+      if (task.quotaDeferred && ["done", "review"].includes(task.status)) {
+        removeDeferredTask(task.id);
+        delete task.quotaDeferred;
+        delete task.quotaDeferReason;
+        delete task.quotaDeferUntil;
+        task.updated = new Date().toISOString();
+        changed = true;
+      }
+    }
+
     if (changed) {
       writeTasks(tasks);
     }
@@ -408,6 +504,7 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       hydratedTaskIds,
       advancedTaskIds: advancement.advanced,
       promotedTaskIds: advancement.promoted,
+      deferredDrainedIds: deferredEligible,
       taskIdsToKick: Array.from(tasksToKick),
     };
   });
@@ -422,6 +519,7 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
     hydratedTaskIds: sweep.hydratedTaskIds,
     advancedTaskIds: sweep.advancedTaskIds,
     promotedTaskIds: sweep.promotedTaskIds,
+    deferredDrainedIds: sweep.deferredDrainedIds,
   };
 }
 
@@ -525,6 +623,10 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   });
 
   if (notifyText) sendSystemEvent(notifyText);
+  if (!success && notifyText) {
+    createInAppNotification("Build Failed", notifyText, "error");
+    sendTelegramNotification(notifyText);
+  }
 
   if (reviewSpawnData) {
     const { task, reviewEntry, projectName, projectDir, buildOutput } = reviewSpawnData;
@@ -600,6 +702,8 @@ function parseReviewVerdict(output: string): { verdict: "APPROVED" | "NEEDS_FIX"
 async function finalizeReview(reviewBuildId: string, taskId: string, success: boolean, output: string) {
   let requeue = false;
   let notifyText = "";
+  let notifyOutcome: "done" | "review" | "failed" | null = null;
+  let notifyTask: any = null;
   let originalExecutionKey = "";
 
   await withFactoryLock(async () => {
@@ -655,21 +759,29 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
           };
         }
         notifyText = `✅ Auto-review approved → ready for human review: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyOutcome = "review";
       } else {
         task.status = "done";
         task.reviewRequired = false;
         task.reviewStatus = "not-needed";
         task.completedAt = now;
         notifyText = `✅ Auto-review approved → task complete: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyOutcome = "done";
       }
     }
 
+    notifyTask = { ...task };
     task.updated = now;
     writeBuildLog(buildLog);
     writeTasks(tasks);
   });
 
-  if (notifyText) sendSystemEvent(notifyText);
+  // Telegram + in-app notification for task completion/review/failure
+  if (notifyOutcome && notifyTask) {
+    notifyTaskCompletion(notifyTask, notifyOutcome);
+  } else if (notifyText) {
+    sendSystemEvent(notifyText);
+  }
 
   if (requeue) {
     queueOrStartBuild(taskId, { source: `review-needs-fix:${reviewBuildId}` }).catch((err) => {
@@ -820,6 +932,51 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
       writeTasks(tasks);
       return { kind: "existing" as const, task: { ...task }, build: existing };
     }
+
+    // Quota-aware scheduling gate — evaluate before creating a new build
+    const quotaVerdict = evaluateTask(task, tasks);
+    if (quotaVerdict.action === "debounced") {
+      return {
+        kind: "quota-debounced" as const,
+        task: { ...task },
+        verdict: quotaVerdict,
+      };
+    }
+    if (quotaVerdict.action === "defer") {
+      task.quotaDeferred = true;
+      task.quotaDeferReason = quotaVerdict.reason;
+      task.quotaDeferUntil = (quotaVerdict as any).deferUntil || null;
+      task.updated = new Date().toISOString();
+      writeTasks(tasks);
+      return {
+        kind: "quota-deferred" as const,
+        task: { ...task },
+        verdict: quotaVerdict,
+      };
+    }
+    if (quotaVerdict.action === "block") {
+      task.quotaBlocked = true;
+      task.quotaBlockReason = quotaVerdict.reason;
+      task.updated = new Date().toISOString();
+      writeTasks(tasks);
+      return {
+        kind: "quota-blocked" as const,
+        task: { ...task },
+        verdict: quotaVerdict,
+      };
+    }
+    // "allow" and "budget-warn" proceed — clear any prior deferral flags
+    if (task.quotaDeferred) {
+      delete task.quotaDeferred;
+      delete task.quotaDeferReason;
+      delete task.quotaDeferUntil;
+    }
+    if (task.quotaBlocked) {
+      delete task.quotaBlocked;
+      delete task.quotaBlockReason;
+    }
+    task.quotaVerdict = quotaVerdict.action;
+    task.quotaReason = quotaVerdict.reason;
 
     const routing = routeTask(task);
     const executor = selectBuildExecutor(routing, task, projectName);
