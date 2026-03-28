@@ -236,8 +236,13 @@ function summarizeOutput(error: Error | null, stdout: string, stderr: string) {
   return raw.slice(-1500);
 }
 
+const SPAWN_ENV = {
+  ...process.env,
+  PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+};
+
 function sendSystemEvent(text: string) {
-  execFile("openclaw", ["system", "event", "--text", text, "--mode", "now"], () => {});
+  execFile("openclaw", ["system", "event", "--text", text, "--mode", "now"], { env: SPAWN_ENV }, () => {});
 }
 
 const NOTIFICATIONS_FILE = join(DATA_DIR, "notifications.json");
@@ -928,10 +933,15 @@ function spawnReviewProcess(task: any, reviewEntry: any, projectName: string, pr
 
   sendSystemEvent(`🔍 Auto-reviewer spawning for: ${String(task.title || task.id).replace(/"/g, "'")}`);
 
+  const reviewEnv = {
+    ...process.env,
+    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+  };
+
   const child = execFile(
     "claude",
     args,
-    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024 },
+    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env: reviewEnv },
     (error, stdout, stderr) => {
       const output = summarizeOutput(error, stdout, stderr);
       finalizeReview(reviewEntry.id, task.id, !error, output).catch((err) => {
@@ -971,10 +981,16 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
 
   sendSystemEvent(`🏭 Spawning agent for task: ${String(task.title || task.id).replace(/"/g, "'")} [${executor.actualModelName}]`);
 
+  // Ensure claude/codex binaries are findable — Next.js server may not have brew PATH
+  const env = {
+    ...process.env,
+    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+  };
+
   const child = execFile(
     executor.command,
     executor.args,
-    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024 },
+    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env },
     (error, stdout, stderr) => {
       const output = summarizeOutput(error, stdout, stderr);
       const withExecutorNote = executor.fallbackReason

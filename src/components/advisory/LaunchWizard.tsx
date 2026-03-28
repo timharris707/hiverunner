@@ -29,17 +29,23 @@ function CreateCustomAgentModal({
     setError("");
     setLoading(true);
     try {
-      const res = await fetch("/api/advisory/custom-agents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), emoji: emoji || "🤖", role: role.trim(), persona: persona.trim(), division }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to create agent");
+      const stored = localStorage.getItem("advisory-custom-agents");
+      const agents: CustomAgent[] = stored ? JSON.parse(stored) : [];
+      if (agents.some((a) => a.name.toLowerCase() === name.trim().toLowerCase())) {
+        throw new Error("An agent with this name already exists");
       }
-      const data = await res.json();
-      onCreated(data.agent);
+      const agent: CustomAgent = {
+        id: `custom-${crypto.randomUUID().slice(0, 8)}`,
+        name: name.trim(),
+        emoji: emoji || "🤖",
+        role: role.trim(),
+        persona: persona.trim(),
+        division: division || "Custom",
+        createdAt: new Date().toISOString(),
+      };
+      agents.push(agent);
+      localStorage.setItem("advisory-custom-agents", JSON.stringify(agents));
+      onCreated(agent);
     } catch (e) {
       setError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -1298,9 +1304,14 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.role}</div>
                       </div>
                       <button
-                        onClick={async (e) => {
+                        onClick={(e) => {
                           e.stopPropagation();
-                          await fetch(`/api/advisory/custom-agents?id=${agent.id}`, { method: "DELETE" });
+                          try {
+                            const stored = localStorage.getItem("advisory-custom-agents");
+                            const agents: CustomAgent[] = stored ? JSON.parse(stored) : [];
+                            const filtered = agents.filter((a) => a.id !== agent.id);
+                            localStorage.setItem("advisory-custom-agents", JSON.stringify(filtered));
+                          } catch {}
                           // Remove from selected if selected
                           setSelectedAgents((prev) => prev.filter((a) => a !== agent.name));
                           onCustomAgentsChange();

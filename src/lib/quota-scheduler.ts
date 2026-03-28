@@ -28,7 +28,7 @@ const OFF_PEAK_HOURS_UTC = new Set([6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
 const HIGH_PRIORITY = new Set(["P0", "P1"]);
 
 /** Default daily budget cap in USD. Soft limit — warns but doesn't block P0. */
-const DEFAULT_DAILY_BUDGET_USD = 150;
+const DEFAULT_DAILY_BUDGET_USD = 500; // Bumped during buildout phase — factory needs room to run
 
 /** Per-window (peak/off-peak) budget split: 70% peak, 30% off-peak */
 const PEAK_BUDGET_RATIO = 0.7;
@@ -38,7 +38,7 @@ const OFF_PEAK_BUDGET_RATIO = 0.3;
 const DEBOUNCE_WINDOW_MS = 30_000; // 30 seconds
 
 /** Max low-priority tasks that can run per off-peak window */
-const MAX_OFF_PEAK_BATCH_SIZE = 5;
+const MAX_OFF_PEAK_BATCH_SIZE = 100; // Effectively unlimited during buildout phase
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -359,8 +359,9 @@ export function evaluateTask(
     };
   }
 
-  // 4. Off-peak batching: defer low-priority work during peak hours
-  if (!isHigh && window === "peak") {
+  // 4. Off-peak batching: DISABLED — factory needs to run freely during buildout phase
+  // TODO: Re-enable once factory is stable and we need cost optimization
+  if (false && !isHigh && window === "peak") {
     const nextChange = nextWindowChangeUtc(now);
     // Add to deferred queue
     const alreadyDeferred = state.deferredQueue.some((d) => d.taskId === task.id);

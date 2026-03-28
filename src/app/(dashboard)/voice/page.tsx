@@ -407,7 +407,7 @@ export default function VoiceHenryPage() {
 
           {/* Model info */}
           <div className="mt-6 text-xs text-zinc-600 text-center">
-            Gemini 2.0 Flash Live · PCM16 @ 16kHz in / 24kHz out · WebSocket direct
+            Gemini 3.1 Flash Live · PCM16 @ 16kHz in / 24kHz out · WebSocket direct
           </div>
         </div>
 

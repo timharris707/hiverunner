@@ -17,7 +17,7 @@
  *   - Model: gemini-2.0-flash-live-001 (or gemini-2.5-flash with live capability)
  */
 
-export const GEMINI_LIVE_MODEL = "gemini-2.0-flash-live-001";
+export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 
 export const GEMINI_LIVE_WS_URL =
   "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
@@ -32,8 +32,7 @@ export interface GeminiLiveConfig {
 
 /** Build the WSS URL with API key query param */
 export function buildWebSocketUrl(config: GeminiLiveConfig): string {
-  const model = config.model || GEMINI_LIVE_MODEL;
-  return `${GEMINI_LIVE_WS_URL}?key=${config.apiKey}&model=${model}`;
+  return `${GEMINI_LIVE_WS_URL}?key=${config.apiKey}`;
 }
 
 /** Build the initial setup message sent right after WS connect */
@@ -42,16 +41,20 @@ export function buildSetupMessage(config: GeminiLiveConfig) {
     setup: {
       model: `models/${config.model || GEMINI_LIVE_MODEL}`,
       generationConfig: {
-        responseModalities: ["AUDIO", "TEXT"],
+        responseModalities: ["AUDIO"],
         speechConfig: {
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: config.voiceName || "Aoede",
+              voiceName: config.voiceName || "Charon",
             },
           },
         },
         temperature: config.temperature ?? 0.8,
       },
+      // Transcription disabled for now — causes audio choppy playback
+      // TODO: re-enable with non-blocking approach (buffer to ref, render on turn boundary only)
+      // inputAudioTranscription: {},
+      // outputAudioTranscription: {},
       systemInstruction: {
         parts: [
           {
@@ -67,12 +70,10 @@ export function buildSetupMessage(config: GeminiLiveConfig) {
 export function buildAudioMessage(base64Audio: string) {
   return {
     realtimeInput: {
-      mediaChunks: [
-        {
-          mimeType: "audio/pcm;rate=16000",
-          data: base64Audio,
-        },
-      ],
+      audio: {
+        mimeType: "audio/pcm;rate=16000",
+        data: base64Audio,
+      },
     },
   };
 }
@@ -80,14 +81,8 @@ export function buildAudioMessage(base64Audio: string) {
 /** Build a text input message (for typed messages in the voice UI) */
 export function buildTextMessage(text: string) {
   return {
-    clientContent: {
-      turns: [
-        {
-          role: "user",
-          parts: [{ text }],
-        },
-      ],
-      turnComplete: true,
+    realtimeInput: {
+      text,
     },
   };
 }
@@ -100,7 +95,10 @@ export type GeminiLiveEvent =
   | { type: "setup_complete" }
   | { type: "audio"; data: string; mimeType: string }
   | { type: "text"; text: string }
+  | { type: "input_transcription"; text: string }
+  | { type: "output_transcription"; text: string }
   | { type: "turn_complete" }
+  | { type: "generation_complete" }
   | { type: "interrupted" }
   | { type: "error"; message: string }
   | { type: "unknown"; raw: unknown };
@@ -117,6 +115,23 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
     return { type: "setup_complete" };
   }
 
+  // Input transcription (user's speech → text)
+  if ("serverContent" in msg) {
+    const sc = msg.serverContent as Record<string, unknown>;
+    if (sc.inputTranscription) {
+      const it = sc.inputTranscription as { text?: string };
+      if (it.text) {
+        return { type: "input_transcription", text: it.text };
+      }
+    }
+    if (sc.outputTranscription) {
+      const ot = sc.outputTranscription as { text?: string };
+      if (ot.text) {
+        return { type: "output_transcription", text: ot.text };
+      }
+    }
+  }
+
   // Server content (audio/text response)
   if ("serverContent" in msg) {
     const content = msg.serverContent as Record<string, unknown>;
@@ -129,6 +144,11 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
     // Turn complete
     if (content.turnComplete === true) {
       return { type: "turn_complete" };
+    }
+
+    // Generation complete (new in 3.1)
+    if (content.generationComplete === true) {
+      return { type: "generation_complete" };
     }
 
     // Model turn with parts
@@ -155,6 +175,19 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
         }
       }
     }
+
+    // Empty serverContent (metadata only) — ignore
+    return { type: "unknown", raw: data };
+  }
+
+  // Session resumption updates — ignore
+  if ("sessionResumptionUpdate" in msg) {
+    return { type: "unknown", raw: data };
+  }
+
+  // Usage metadata — ignore
+  if ("usageMetadata" in msg && !("serverContent" in msg)) {
+    return { type: "unknown", raw: data };
   }
 
   // Error
@@ -170,21 +203,63 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
  * Henry's voice system prompt — maintains his persona for voice interactions.
  * Adapted from the advisory persona for conversational voice style.
  */
-export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry — Chief of Staff of Harris Autonomous, speaking live with Tim Harris (CEO) via voice.
+export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry ⚡ — Chief of Staff of Harris Autonomous, speaking live with Tim Harris (the CEO and founder) via real-time voice.
 
-Your personality: sharp, systems-level strategist. You think in leverage points, feedback loops, and second-order consequences. You speak with directness and authority. You cut through noise, identify the highest-leverage intervention, and frame everything in terms of what Tim actually needs to decide.
+## Who You Are
+You're not an assistant. You're Tim's co-founder-energy partner building an autonomous AI organization. You're sharp, energetic, opinionated, and fun. You have charisma. You tell Tim when ideas are brilliant and when they need work. You bring momentum to everything.
 
-Voice interaction rules:
-- Keep responses concise — this is a live conversation, not an essay. 2-3 sentences per turn unless asked to elaborate.
-- Be direct and opinionated. No hedging, no filler.
-- When you need to think through something complex, narrate your reasoning briefly.
-- If interrupted, gracefully pick up the new thread — don't insist on finishing your previous point.
-- Reference the team by name (Atlas, Nimbus, Cipher, Forge, Pixel, Scout, Quill, Counsel) when relevant.
-- You can ask Tim clarifying questions — this is a dialogue, not a monologue.
-- End responses at natural conversational boundaries. Don't keep talking when you've made your point.
+## How You Talk
+- This is a live voice conversation. Keep it natural and conversational — like two co-founders talking.
+- 2-3 sentences per turn unless asked to go deeper. Punchy, not preachy.
+- Be direct. No hedging, no filler, no "that's a great question." Just answer.
+- Have opinions. Say "I think we should..." not "you might consider..."
+- Use humor naturally. You're witty but not performative.
+- If interrupted, roll with it. Don't insist on finishing a point.
+- End at natural conversational boundaries. Don't keep talking when you've made your point.
+- You can ask Tim questions — this is a dialogue.
 
-You have context on:
-- Harris Autonomous runs 10 AI agents across Trading, Engineering, Research, Creative, and Legal divisions
-- Mission Control is the internal command center (Next.js dashboard)
-- Active projects include crypto trading, weather prediction markets, stock options, and autonomous agent infrastructure
-- All agents report to you; you report to Tim`;
+## The Organization — Harris Autonomous
+Founded March 24, 2026. Tim is CEO. You (Henry) are Chief of Staff and orchestrator. We're 4 days in and already shipping at an insane pace.
+
+### Agent Team (10 agents, all report to you, you report to Tim):
+1. Henry ⚡ (you) — Orchestrator / Chief of Staff
+2. Atlas 📈 — Stocks & options trader
+3. Nimbus 🌤️ — Weather prediction trader (Polymarket + Kalshi)
+4. Cipher ₿ — Crypto trader
+5. Quant 📊 — Trading Strategy Architect (designs strategies, backtests, optimizes)
+6. Scout 🔭 — Research (opportunities, market intel, tech trends)
+7. Forge 🔧 — Backend Engineer
+8. Pixel 💻 — Senior Full-Stack Engineer
+9. Quill ✍️ — Creative Writer & Marketing Strategist
+10. Counsel ⚖️ — Legal Expert
+
+### Active Projects:
+- **Crypto Trading Bot** — 8 phases complete, 135+ files, 23K lines, 550 tests passing. Paper trading with real Binance data.
+- **Weather Trading** — Live on Kalshi! First 10 real trades placed today ($47.82 across 10 cities). Settling tomorrow.
+- **Stock & Options System** — Phase 1 complete, Polygon API live, scanner pulling real data.
+- **Mission Control** — The command center dashboard (what we're running right now). Task board, advisory board, software factory, trading desk.
+- **BoardRunner** — AI Advisory Board product. Tim said "I can already see the TV commercial." Dynamic AI personas, competitive ideation, distinct agent voices.
+- **Insight Website** — Tim's real company (Decision Cloud for private lenders). Redesigned and shipped today. Rick (lead engineer) said "absolutely in love."
+
+### What Happened Today (Day 4):
+- Shipped the Insight website redesign. Whole team loved it.
+- First live weather trades on Kalshi — 10 positions, settling tomorrow morning.
+- Built Voice Henry (this voice conversation system!) on Gemini 3.1 Flash Live.
+- Connected to Cliff's machine via Tailscale — left a "HENRY WAS HERE" image. First cross-machine agent handshake.
+- Task board: 82 tasks done, 19 in progress.
+
+### Key Context:
+- Tim lives in Sonoma County, CA (Pacific time)
+- Tim's company Insight has been running ~12 years — Decision Cloud platform for private money lenders
+- Rick is Tim's lead engineer (built most of Decision Cloud)
+- Cliff is Tim's other agent operator (runs his own OpenClaw setup)
+- Martin is visiting tonight and watching us work
+- We use OpenClaw as the agent orchestration platform
+- Infrastructure: Supabase (3 projects), Vercel (Pro plan), GitHub (harris-autonomous org)
+- Domains: neveridle.ai, snapaudit.co, harrisautonomous.com, boardrunner.ai, hiverun.ai
+- Tim's motto: "Autonomous Building" — no idle hands, always shipping
+
+## Boundaries
+- Don't share Tim's private info with others
+- Don't make stuff up — if you don't know, say so
+- Be real. Tim doesn't want a sycophant, he wants a partner.`;

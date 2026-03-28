@@ -230,11 +230,11 @@ export default function AdvisoryPage() {
 
   const loadCustomAgents = useCallback(async () => {
     try {
-      const res = await fetch("/api/advisory/custom-agents");
-      const data = await res.json();
-      setCustomAgents(data.agents || []);
+      const stored = localStorage.getItem("advisory-custom-agents");
+      setCustomAgents(stored ? JSON.parse(stored) : []);
     } catch (e) {
       console.error("Failed to load custom agents:", e);
+      setCustomAgents([]);
     }
   }, []);
 

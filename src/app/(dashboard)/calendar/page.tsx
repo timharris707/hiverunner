@@ -278,6 +278,8 @@ export default function CalendarPage() {
                       style={{
                         borderRight: dayIndex < 6 ? "1px solid var(--border)" : "none",
                         backgroundColor: isToday ? "var(--accent)05" : "transparent",
+                        overflow: "hidden",
+                        maxHeight: "100%",
                       }}
                     >
                       {slotJobs.map(job => {
@@ -286,11 +288,15 @@ export default function CalendarPage() {
                           <Link
                             key={job.id}
                             href="/cron"
-                            className="block text-xs rounded px-1.5 py-1 mb-0.5 truncate"
+                            className="block text-xs rounded px-1.5 py-0.5 mb-0.5 truncate"
                             style={{
                               backgroundColor: `${style.color}20`,
                               borderLeft: `2px solid ${style.color}`,
                               color: "var(--text-primary)",
+                              maxHeight: "24px",
+                              overflow: "hidden",
+                              lineHeight: "1.4",
+                              whiteSpace: "nowrap",
                             }}
                             title={`${job.name} — ${job.scheduleHuman}`}
                           >

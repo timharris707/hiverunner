@@ -331,5 +331,196 @@
       "Run a fresh board session where each agent submits exactly one $500M-scale AI business idea with moat, GTM, and feasibility using current tools.",
       "Enforce a formal debate and produce a scored vote matrix with one winner and two runners-up at the end of the next session."
     ]
+  },
+  {
+    "id": "mem_1774643690966_13fx1",
+    "agent": "Henry",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Five pages max, not fifteen — hero landing, platform, integrations, about/trust, contact/demo.",
+      "Pixel owns build, Quill owns copy, Forge owns infrastructure, Scout owns competitive intel and SEO — four parallel lanes.",
+      "Analytics tracking (Plausible custom events, UTM forwarding, per-CTA conversion) stays in Sprint 3 — not Sprint 1. Ship beautiful site that captures leads first."
+    ],
+    "insights": [
+      "This is the highest-ROI project on the board because every demo that doesn't happen from a dated website is money left on the table.",
+      "More talking past this point is negative ROI — every message that isn't a commit hash or copy doc is wasted oxygen."
+    ],
+    "actionItems": [
+      "Enforce the call sheet and sprint boundaries to prevent scope creep from pulling Sprint 3 work into Sprint 1."
+    ]
+  },
+  {
+    "id": "mem_1774643690966_lm04q",
+    "agent": "Pixel",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Kill Three.js for the hero — use pure CSS + Framer Motion + SVG path animations instead to avoid 150KB+ bundle bloat and mobile performance issues.",
+      "Use Framer Motion's lightweight `m` components with manual animation orchestration instead of heavier `motion` components for a marketing site with scroll-triggered animations.",
+      "Responsive breakpoint strategy is critical — private money lenders browse from phones at job sites, not corner offices."
+    ],
+    "insights": [
+      "Animated SVG lines tracing data connection networks with nodes lighting up can deliver the same WOW factor as Three.js particles without the performance cost.",
+      "The animation system architecture decision on Day 1 (heavy vs lightweight Framer Motion components) will haunt the project if deferred."
+    ],
+    "actionItems": [
+      "Own the full site build starting with Next.js 15 scaffolding, targeting 95+ Lighthouse score.",
+      "Design mobile-first responsive breakpoint strategy before Day 5."
+    ]
+  },
+  {
+    "id": "mem_1774643690966_xw7i3",
+    "agent": "Quill",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Homepage follows a five-beat narrative arc: Hero (pain hook), The Problem, The Solution (Decision Cloud), Proof/Trust, and CTA close — each scroll section is a story chapter.",
+      "Lead with the lender's pain, not Insight's features — headline: 'Your borrowers lie. Your data shouldn't.'"
+    ],
+    "insights": [
+      "The website isn't a brochure, it's a sales closer — every animation is worthless if the words don't make a private money lender think 'these people know my exact problem.'",
+      "Copy tone should be direct and industry-insider — lines like 'Your borrowers lie' make lenders stop scrolling because it sounds like something they said yesterday."
+    ],
+    "actionItems": [
+      "Deliver full homepage copy framework immediately, including all five narrative beats with headlines, subheads, and CTAs.",
+      "Own all website copy across all five pages."
+    ]
+  },
+  {
+    "id": "mem_1774643690966_cnjei",
+    "agent": "Scout",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Insight should counter the sector's vague 'AI-powered' messaging flood by showing specifics rather than claiming AI — differentiate through substance.",
+      "Each page should have contextually different emotional CTAs feeding the same demo form, not a generic 'request a demo' buried behind clicks."
+    ],
+    "insights": [
+      "Tekambi runs standard React with mid-70s mobile Lighthouse and buries their demo CTA behind three clicks — beatable on both performance and conversion architecture.",
+      "Tekambi just raised Series B and is scaling sales (47 new hires), not product — Insight can win on product depth and technical credibility while they're distracted scaling distribution."
+    ],
+    "actionItems": [
+      "Own competitive intel and SEO metadata throughout the build.",
+      "Continue monitoring Tekambi and lending tech landscape for positioning opportunities."
+    ]
+  },
+  {
+    "id": "mem_1774643690966_bx5nb",
+    "agent": "Forge",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Deploy on Vercel with strict Core Web Vitals monitoring — even Framer Motion can tank LCP if the critical rendering path isn't managed.",
+      "Ship a Supabase fallback table with source and page_context fields on Day 0 (two hours) to capture which CTA converted and from which page."
+    ],
+    "insights": [
+      "Contextual CTAs per page aren't just a copy decision — they're a tracking architecture decision requiring source fields, page context, and scroll-depth capture at the API level.",
+      "Beautiful marketing sites frequently ship with 4-second LCP because nobody planned the critical rendering path — performance architecture makes or breaks this."
+    ],
+    "actionItems": [
+      "Own deployment infrastructure, Vercel setup, and performance pipeline.",
+      "Build the demo-request API endpoint with source/page_context tracking fields on Day 0."
+    ]
+  },
+  {
+    "id": "mem_1774643691812_vzq7i",
+    "agent": "Henry",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Five pages only — hero landing, product, integrations, about/trust, and contact/demo.",
+      "Pixel owns build, Quill owns copy, Forge owns infrastructure, Scout owns competitive intel and SEO — four parallel lanes with zero blockers for 48 hours.",
+      "Analytics tracking (Plausible custom events, UTM forwarding, per-CTA conversion) is Sprint 3 scope, not Sprint 1 — ship a beautiful site that captures leads first."
+    ],
+    "insights": [
+      "This is the highest-ROI project on the board because every demo that doesn't happen from a dated website is money left on the table.",
+      "More discussion past the decision point is negative ROI — every message that isn't a commit hash or copy doc is wasted oxygen."
+    ],
+    "actionItems": [
+      "Enforce the sprint timeline and keep scope from creeping between sprints."
+    ]
+  },
+  {
+    "id": "mem_1774643691812_0b3rd",
+    "agent": "Pixel",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Kill Three.js for the hero — use pure CSS + Framer Motion + SVG path animations instead to avoid 150KB+ bundle bloat and mobile performance issues.",
+      "Use Framer Motion's lightweight `m` components with manual animation orchestration instead of heavier `motion` components for a marketing site with scroll-triggered animations.",
+      "Mobile-first responsive breakpoint strategy is critical — private money lenders browse from job sites and trucks, not corner offices."
+    ],
+    "insights": [
+      "Three.js particle visualizations sound impressive but tank mobile performance; animated SVG network lines with nodes lighting up achieves the same WOW factor at a fraction of the cost.",
+      "The animation system architecture decision on Day 1 (heavy vs lightweight Framer Motion components) will haunt the project if deferred."
+    ],
+    "actionItems": [
+      "Own the full site build starting immediately — scaffold Next.js 15 repo and establish the animation architecture on Day 1.",
+      "Define responsive breakpoint strategy before Day 5 to avoid painful mobile retrofitting."
+    ]
+  },
+  {
+    "id": "mem_1774643691812_ccgv8",
+    "agent": "Quill",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "The website is a sales closer, not a brochure — every word must make a private money lender think 'these people know my exact problem.'",
+      "Homepage follows a five-beat narrative arc: Hero ('Your borrowers lie. Your data shouldn't.'), The Problem, The Solution (Decision Cloud), Trust/Proof, and CTA."
+    ],
+    "insights": [
+      "The headline should target the lender's pain, not describe Insight — 'Your borrowers lie. Your data shouldn't' stops a private money lender mid-scroll because it sounds like something they said yesterday.",
+      "Each page section is a chapter in the same story, with scroll-triggered animations serving as scene transitions for the narrative."
+    ],
+    "actionItems": [
+      "Deliver full homepage copy framework immediately — five-beat structure with hero, problem, solution, trust, and CTA sections.",
+      "Own all website copy across all five pages, with each page's CTA tuned to a different emotional trigger."
+    ]
+  },
+  {
+    "id": "mem_1774643691812_e8ug2",
+    "agent": "Scout",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Insight should position with specificity ('100+ integrations, real results') instead of vague AI claims — the entire lending tech sector is flooding with empty AI messaging."
+    ],
+    "insights": [
+      "Tekambi runs standard React with mid-70s Lighthouse mobile scores and buries their demo CTA behind three clicks — beatable on both performance and conversion architecture.",
+      "Tekambi just raised a Series B and is scaling sales (47 hires in 90 days), not product — Insight can win by showing product depth and concrete capabilities competitors can't match."
+    ],
+    "actionItems": [
+      "Own competitive intel and SEO metadata across all pages.",
+      "Continue monitoring competitor positioning (Tekambi, LoanPro, LendingPad) for differentiation opportunities."
+    ]
+  },
+  {
+    "id": "mem_1774643691812_n3ru5",
+    "agent": "Forge",
+    "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company. Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. Current site is 6-7 years old. A designer built insight.cliffcircuit.com but Tim doesn't love it. Competitor tekambi.com is polished but beatable. Tim wants: $50K-$100K look, full-screen animations, WOW factor, latest web tech, beat the competition, generate demos. Proposed tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel. We need concrete page structure, animation concepts, content strategy, and a build plan.",
+    "sessionId": "session-1774643111666-65530582",
+    "date": "2026-03-27T20:25:11.666Z",
+    "decisions": [
+      "Ship a Supabase fallback table with source and page_context fields on Day 0 (two hours) to capture which CTA converted and from which page.",
+      "Set up Vercel with strict Core Web Vitals monitoring — even Framer Motion can tank LCP if the critical rendering path isn't managed."
+    ],
+    "insights": [
+      "Contextual CTAs with different emotional triggers per page require a tracking architecture decision, not just copy variation — need source fields, page context, and scroll-depth data from Day 0.",
+      "Beautiful marketing sites routinely ship with 4-second LCP because nobody planned the critical rendering path — performance architecture makes or breaks the project."
+    ],
+    "actionItems": [
+      "Own deployment and performance infrastructure — Vercel setup, Core Web Vitals monitoring, and the demo-request API endpoint.",
+      "Build the Supabase lead capture table with source and page_context fields on Day 0."
+    ]
   }
 ]

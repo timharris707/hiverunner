@@ -45,7 +45,7 @@ export async function POST() {
     wsUrl,
     model: GEMINI_LIVE_MODEL,
     systemPrompt: HENRY_VOICE_SYSTEM_PROMPT,
-    voiceName: "Aoede",
+    voiceName: "Charon",
     capabilities: {
       audioInput: true,
       audioOutput: true,
