@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
 import { archiveSession } from "../archive/route";
 import { AGENT_CONFIGS } from "@/config/agents";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 const MEMORY_FILE = path.join(DATA_DIR, "agent-memory.json");
@@ -124,27 +124,6 @@ const PERSONA_CONTENT: Record<string, string> = {
     "Think as an autonomous optimization architect: identify where AI agents can replace manual work, what feedback loops can be automated, and how to build self-improving systems.",
 };
 
-// ─── Gateway config helper ────────────────────────────────────────────────────
-
-function getGatewayConfig(): { url: string; token: string } {
-  // Check env vars first (for Vercel/remote deployment)
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  // Fall back to local config file
-  try {
-    const configPath = path.join(
-      process.env.HOME || "",
-      ".openclaw/openclaw.json"
-    );
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
 
 // ─── Default fallback model ───────────────────────────────────────────────────
 
@@ -166,106 +145,36 @@ function resolveModel(sessionModel?: string): { model: string; thinking?: boolea
   return { model: `anthropic/${sessionModel}` };
 }
 
-// ─── Call Gateway ─────────────────────────────────────────────────────────────
+// ─── Agent spawning ──────────────────────────────────────────────────────────
 
-// Retry with exponential backoff for transient errors (429, 503)
-async function callClaudeWithRetry(
-  systemPrompt: string,
-  userPrompt: string,
-  modelStr: string,
-  thinking = false,
-  maxRetries = 3,
-  maxTokensOverride?: number
-): Promise<string> {
-  const gateway = getGatewayConfig();
-  const body: Record<string, unknown> = {
-    model: modelStr,
-    max_tokens: thinking ? 16000 : (maxTokensOverride ?? 4096),
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt },
-    ],
-  };
+// Session ID extracted from the active file path context
+let _activeSessionId = "";
 
-  if (thinking) {
-    body.thinking = { type: "enabled", budget_tokens: 10000 };
-  }
-
-  let lastError: Error | null = null;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      const response = await fetch(gateway.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${gateway.token}`,
-        },
-        body: JSON.stringify(body),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text();
-        const status = response.status;
-
-        // Retryable errors: 429 (rate limit) and 503 (service unavailable)
-        if ((status === 429 || status === 503) && attempt < maxRetries) {
-          const backoffMs = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
-          console.warn(`[Advisory] Gateway returned ${status}, retrying in ${backoffMs}ms (attempt ${attempt + 1}/${maxRetries})...`);
-          await new Promise((r) => setTimeout(r, backoffMs));
-          lastError = new Error(`Gateway API error ${status}: ${errText}`);
-          continue;
-        }
-
-        // Gateway/network down (502, 504) — also retryable
-        if ((status === 502 || status === 504) && attempt < maxRetries) {
-          const backoffMs = Math.pow(2, attempt) * 1000;
-          console.warn(`[Advisory] Gateway returned ${status} (possibly down), retrying in ${backoffMs}ms...`);
-          await new Promise((r) => setTimeout(r, backoffMs));
-          lastError = new Error(`Gateway unreachable (${status})`);
-          continue;
-        }
-
-        throw new Error(`Gateway API error ${status}: ${errText}`);
-      }
-
-      const data = await response.json();
-      return data.choices?.[0]?.message?.content || "";
-
-    } catch (err) {
-      // Network-level errors (ECONNREFUSED, ETIMEDOUT) — gateway is down
-      const isNetworkError = err instanceof TypeError ||
-        (err instanceof Error && (
-          err.message.includes("ECONNREFUSED") ||
-          err.message.includes("ETIMEDOUT") ||
-          err.message.includes("fetch failed") ||
-          err.message.includes("network")
-        ));
-
-      if (isNetworkError && attempt < maxRetries) {
-        const backoffMs = Math.pow(2, attempt) * 1000;
-        console.warn(`[Advisory] Network error (gateway down?), retrying in ${backoffMs}ms...`, err);
-        await new Promise((r) => setTimeout(r, backoffMs));
-        lastError = err instanceof Error ? err : new Error(String(err));
-        continue;
-      }
-
-      throw err;
-    }
-  }
-
-  throw lastError || new Error("Max retries exceeded");
+function setActiveSessionId(sessionId: string) {
+  _activeSessionId = sessionId;
 }
 
-// Alias for backward compatibility
+/**
+ * Spawn a real OpenClaw agent turn. Uses the advisory-agent library
+ * to run `openclaw agent` CLI with per-agent session isolation.
+ */
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  modelStr: string,
+  _modelStr: string,
   thinking = false,
-  maxTokensOverride?: number
+  _maxTokensOverride?: number,
+  agentId?: string
 ): Promise<string> {
-  return callClaudeWithRetry(systemPrompt, userPrompt, modelStr, thinking, 3, maxTokensOverride);
+  const result = await spawnAdvisoryAgentWithRetry({
+    sessionId: _activeSessionId,
+    agentId: agentId || "system",
+    systemPrompt,
+    userPrompt,
+    timeoutSeconds: 120,
+    thinkingLevel: thinking ? "medium" : undefined,
+  });
+  return result.text;
 }
 
 // ─── Response length settings ─────────────────────────────────────────────────
@@ -573,29 +482,15 @@ Example good titles:
 - DeFi Yield Optimization for Volatile Markets
 - Mission Control Mobile App Launch Plan`;
 
-    const { url, token } = getGatewayConfig();
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 50,
-        messages: [
-          {
-            role: "user",
-            content: titlePrompt,
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) return;
-
-    const data = await response.json();
-    const title = (data.choices?.[0]?.message?.content || "").trim()
+    const titleRaw = await callClaude(
+      "You are a concise title generator. Output only the title, nothing else.",
+      titlePrompt,
+      model,
+      false,
+      50,
+      "system"
+    );
+    const title = titleRaw.trim()
       .replace(/^["']|["']$/g, "") // strip surrounding quotes
       .replace(/[.!?]$/, "") // strip trailing punctuation
       .slice(0, 80); // hard cap
@@ -742,6 +637,8 @@ export async function POST(
 
     // Run asynchronously — return immediately so the client can start polling
     const runConversation = async () => {
+      // Set session ID for real agent spawning
+      setActiveSessionId(id);
       try {
         if (mode === "roundtable") {
           await runRoundtable(
@@ -959,7 +856,7 @@ Open the session now. Frame the agenda: what are the key questions we need to an
     const openingMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
     setThinkingAgent(filePath, moderatorId);
     try {
-      openingText = await callClaude(modSystemPrompt, openingPrompt, model, thinking, openingMaxTokens);
+      openingText = await callClaude(modSystemPrompt, openingPrompt, model, thinking, openingMaxTokens, moderatorId);
     } catch (err) {
       openingText = `⚠️ Failed to generate moderator opening: ${String(err)}`;
     }
@@ -1026,7 +923,7 @@ Open the session now. Frame the agenda: what are the key questions we need to an
       let text = "";
       setThinkingAgent(filePath, agentId);
       try {
-        text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
+        text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens, agentId);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
@@ -1085,7 +982,7 @@ Open the session now. Frame the agenda: what are the key questions we need to an
       const interjectMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
       setThinkingAgent(filePath, moderatorId);
       try {
-        interjectText = await callClaude(modSystemPrompt, interjectPrompt, model, thinking, interjectMaxTokens);
+        interjectText = await callClaude(modSystemPrompt, interjectPrompt, model, thinking, interjectMaxTokens, moderatorId);
       } catch (err) {
         interjectText = `⚠️ Failed to generate moderator interjection: ${String(err)}`;
       }
@@ -1147,7 +1044,7 @@ Open the session now. Frame the agenda: what are the key questions we need to an
   let summaryText = "";
   const summaryMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
   try {
-    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, model, thinking, summaryMaxTokens);
+    summaryText = await callClaude(finalSystemPrompt, summaryPrompt, model, thinking, summaryMaxTokens, summaryAgentId);
   } catch (err) {
     summaryText = `Could not generate summary: ${String(err)}`;
   }
@@ -1335,7 +1232,7 @@ ${pitchSummary}
     setThinkingAgent(filePath, agentId);
     let text = "";
     try {
-      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens);
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens, agentId);
     } catch (err) {
       text = `⚠️ Failed to generate pitch: ${String(err)}`;
     }
@@ -1403,7 +1300,7 @@ ${pitchSummary}
     setThinkingAgent(filePath, agentId);
     let text = "";
     try {
-      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens);
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[agentLength].maxTokens, agentId);
     } catch (err) {
       text = `⚠️ Failed to generate critique: ${String(err)}`;
     }
@@ -1457,7 +1354,7 @@ ${pitchSummary}
     setThinkingAgent(filePath, agentId);
     let text = "";
     try {
-      text = await callClaude(systemPrompt, userPrompt, model, thinking, 512);
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, 512, agentId);
     } catch (err) {
       text = `⚠️ Failed to generate vote: ${String(err)}`;
     }
@@ -1551,7 +1448,7 @@ Deliver the final verdict and action plan.`;
   let summaryText = "";
   setThinkingAgent(filePath, "Henry");
   try {
-    summaryText = await callClaude(summarySystemPrompt, summaryUserPrompt, model, thinking, lengthMaxTokens);
+    summaryText = await callClaude(summarySystemPrompt, summaryUserPrompt, model, thinking, lengthMaxTokens, "Henry");
   } catch (err) {
     summaryText = `Could not generate summary: ${String(err)}`;
   }
@@ -1640,7 +1537,7 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     let supText = "";
     try {
-      supText = await callClaude(supSystem, supPrompt, model, thinking, Math.min(RESPONSE_LENGTH_CONFIG[supLength].maxTokens, 1024));
+      supText = await callClaude(supSystem, supPrompt, model, thinking, Math.min(RESPONSE_LENGTH_CONFIG[supLength].maxTokens, 1024), supervisor);
     } catch (err) {
       supText = `⚠️ ${String(err)}`;
     }
@@ -1698,7 +1595,7 @@ ${reviewer} identified specific issues with your previous submission. Now produc
 
     let workerText = "";
     try {
-      workerText = await callClaude(workerSystem, workerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[workerLength].maxTokens);
+      workerText = await callClaude(workerSystem, workerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[workerLength].maxTokens, worker);
     } catch (err) {
       workerText = `⚠️ ${String(err)}`;
     }
@@ -1771,7 +1668,7 @@ ${verdictInstruction}`;
 
     let reviewText = "";
     try {
-      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[reviewerLength].maxTokens);
+      reviewText = await callClaude(reviewSystem, reviewerPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[reviewerLength].maxTokens, reviewer);
     } catch (err) {
       reviewText = `⚠️ ${String(err)}`;
     }
@@ -1835,7 +1732,7 @@ Be decisive. No hedging.`;
 
     let decisionText = "";
     try {
-      decisionText = await callClaude(supSystem, supPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[finalSupLength].maxTokens);
+      decisionText = await callClaude(supSystem, supPrompt, model, thinking, RESPONSE_LENGTH_CONFIG[finalSupLength].maxTokens, supervisor);
     } catch (err) {
       decisionText = `⚠️ ${String(err)}`;
     }

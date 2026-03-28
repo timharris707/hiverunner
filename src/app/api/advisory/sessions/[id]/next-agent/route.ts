@@ -7,10 +7,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator", expertise: "Strategic oversight, orchestrating teams, identifying priorities, cutting through noise." },
@@ -42,20 +41,6 @@ const PERSONA_CONTENT: Record<string, string> = {
   "autonomous-optimization-architect": "Think autonomous optimization: AI agents replacing manual work, feedback loops, self-improving systems.",
 };
 
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
 
 function getAgentOverlay(
   personaOverlays: Record<string, string> | string[] | undefined,
@@ -293,25 +278,8 @@ export async function POST(
 
   const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
-  // Resolve model
-  const sessionModel = session.model;
-  let resolvedModel = INFERENCE_MODEL;
-  if (sessionModel) {
-    if (sessionModel.includes("/")) {
-      resolvedModel = sessionModel.replace(":thinking", "");
-    } else {
-      resolvedModel = `anthropic/${sessionModel}`.replace(":thinking", "");
-    }
-  }
-
   // Session-wide response length (per-agent override resolved after agentId is determined)
   const sessionResponseLength = (session.responseLength as string) || "balanced";
-  const LENGTH_MAX_TOKENS: Record<string, number> = {
-    concise: 200,
-    balanced: 1024,
-    detailed: 2048,
-    verbose: 4096,
-  };
 
   // Determine which agent goes next
   const events = session.events || [];
@@ -368,22 +336,8 @@ export async function POST(
   const { agentId } = determineNextAgent(agents as string[], events);
   const agent = AGENT_DEFS[agentId];
 
-  // Check for per-agent model override
-  const agentOverrideModel = agentModelOverrides?.[agentId];
-  if (agentOverrideModel) {
-    if (agentOverrideModel.includes("/")) {
-      resolvedModel = agentOverrideModel.replace(":thinking", "");
-    } else {
-      // Determine provider prefix based on model name
-      const prefix = agentOverrideModel.startsWith("gpt") ? "openai/"
-        : agentOverrideModel.startsWith("gemini") ? "google/" : "anthropic/";
-      resolvedModel = `${prefix}${agentOverrideModel}`.replace(":thinking", "");
-    }
-  }
-
   // Resolve per-agent response length (falls back to session-wide setting)
   const responseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
-  const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 1024;
 
   // Set thinkingAgent so the UI can show who's about to respond
   try {
@@ -456,29 +410,17 @@ export async function POST(
     }
 
     let text = "";
+    let spawnedModel = "openclaw-agent";
     try {
-      const gateway = getGatewayConfig();
-      const response = await fetch(gateway.url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${gateway.token}`,
-        },
-        body: JSON.stringify({
-          model: resolvedModel,
-          max_tokens: maxTokens,
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-        }),
+      const result = await spawnAdvisoryAgentWithRetry({
+        sessionId: id,
+        agentId,
+        systemPrompt,
+        userPrompt,
+        timeoutSeconds: 120,
       });
-      if (!response.ok) {
-        const err = await response.text();
-        throw new Error(`Gateway error ${response.status}: ${err}`);
-      }
-      const data = await response.json();
-      text = data.choices?.[0]?.message?.content || "";
+      text = result.text;
+      spawnedModel = result.model;
     } catch (err) {
       text = `⚠️ Failed to generate response: ${String(err)}`;
     }
@@ -502,7 +444,7 @@ export async function POST(
       emoji: agent?.emoji || "💬",
       role: session.moderator && agentId === session.moderator ? "moderator" : agentId === "Henry" ? "supervisor" : "worker",
       text,
-      model: resolvedModel,
+      model: spawnedModel,
     }];
 
     // Re-pause the session for manual pacing

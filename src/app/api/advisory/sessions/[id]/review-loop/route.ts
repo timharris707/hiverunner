@@ -14,11 +14,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
 import { AGENT_CONFIGS } from "@/config/agents";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 // ─── Agent definitions ──────────────────────────────────────────────────────
 
@@ -47,50 +46,17 @@ function buildAgentDefs(): Record<string, AgentDef> {
 
 const AGENT_DEFS = buildAgentDefs();
 
-// ─── Gateway helpers ─────────────────────────────────────────────────────────
+// ─── Agent spawning helper ───────────────────────────────────────────────────
 
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
-
-function resolveModel(sessionModel?: string): string {
-  if (!sessionModel) return INFERENCE_MODEL;
-  if (sessionModel.endsWith(":thinking")) return sessionModel.replace(":thinking", "");
-  if (sessionModel.includes("/")) return sessionModel;
-  if (sessionModel.startsWith("gpt-")) return `openai/${sessionModel}`;
-  return `anthropic/${sessionModel}`;
-}
-
-async function callGateway(systemPrompt: string, userPrompt: string, model: string, maxTokens = 2048): Promise<string> {
-  const gateway = getGatewayConfig();
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${gateway.token}` },
-    body: JSON.stringify({
-      model, max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
+async function callAgent(sessionId: string, agentId: string, systemPrompt: string, userPrompt: string): Promise<{ text: string; model: string }> {
+  const result = await spawnAdvisoryAgentWithRetry({
+    sessionId,
+    agentId: `reviewloop-${agentId}`,
+    systemPrompt,
+    userPrompt,
+    timeoutSeconds: 120,
   });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway error ${response.status}: ${err}`);
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
+  return { text: result.text, model: result.model };
 }
 
 // ─── Session file helpers ────────────────────────────────────────────────────
@@ -297,7 +263,6 @@ export async function POST(
   const body = await req.json();
   const { action } = body;
   const session = readSession(filePath);
-  const model = resolveModel(session.model);
   const topic = session.topic as string;
 
   // ── Start: Begin the loop ──
@@ -322,7 +287,7 @@ export async function POST(
     });
 
     // Fire and forget: run the first step
-    runLoopStep(filePath, topic, model).catch(console.error);
+    runLoopStep(filePath, id, topic).catch(console.error);
     return NextResponse.json({ ok: true, message: "Loop started" });
   }
 
@@ -343,7 +308,7 @@ export async function POST(
       writeSession(filePath, session);
     }
 
-    runLoopStep(filePath, topic, model).catch(console.error);
+    runLoopStep(filePath, id, topic).catch(console.error);
     return NextResponse.json({ ok: true, message: "Loop advancing" });
   }
 
@@ -443,7 +408,7 @@ export async function POST(
 
     // If auto-continue is on, kick off the next step
     if (loop.autoContinue) {
-      runLoopStep(filePath, topic, model).catch(console.error);
+      runLoopStep(filePath, id, topic).catch(console.error);
     }
 
     return NextResponse.json({ ok: true, paused: false });
@@ -525,7 +490,7 @@ export async function POST(
 
 // ─── Loop step execution ─────────────────────────────────────────────────────
 
-async function runLoopStep(filePath: string, topic: string, model: string) {
+async function runLoopStep(filePath: string, sessionId: string, topic: string) {
   let session = readSession(filePath);
   let currentLoop: ReviewLoop = session.reviewLoop;
 
@@ -539,7 +504,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
   if (!task) {
     // All tasks done
     await new Promise((r) => setTimeout(r, 500));
-    await runSupervisorCheck(filePath, currentLoop, topic, model);
+    await runSupervisorCheck(filePath, sessionId, currentLoop, topic);
 
     session = readSession(filePath);
     session.status = "completed";
@@ -557,7 +522,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     // Continue to next
     if (currentLoop.autoContinue && !currentLoop.paused) {
       await new Promise((r) => setTimeout(r, 300));
-      return runLoopStep(filePath, topic, model);
+      return runLoopStep(filePath, sessionId, topic);
     }
     return;
   }
@@ -569,7 +534,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     writeSession(filePath, session);
     if (currentLoop.autoContinue && !currentLoop.paused) {
       await new Promise((r) => setTimeout(r, 300));
-      return runLoopStep(filePath, topic, model);
+      return runLoopStep(filePath, sessionId, topic);
     }
     return;
   }
@@ -588,8 +553,11 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
 
   setThinkingAgent(filePath, currentLoop.workerAgent);
   let workerOutput = "";
+  let workerModel = "openclaw-agent";
   try {
-    workerOutput = await callGateway(workerSystem, workerUser, model, 3072);
+    const wResult = await callAgent(sessionId, currentLoop.workerAgent, workerSystem, workerUser);
+    workerOutput = wResult.text;
+    workerModel = wResult.model;
   } catch (err) {
     workerOutput = `⚠️ Failed to generate response: ${String(err)}`;
   }
@@ -613,7 +581,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     role: "worker",
     text: `**📄 Task #${task.id}${isRetry ? ` (Attempt ${task.attempts})` : ""}:** ${task.description}\n\n${workerOutput}`,
     taskId: task.id,
-    model,
+    model: workerModel,
   });
 
   await new Promise((r) => setTimeout(r, 500));
@@ -635,8 +603,11 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
 
   setThinkingAgent(filePath, currentLoop.reviewerAgent);
   let reviewText = "";
+  let reviewModel = "openclaw-agent";
   try {
-    reviewText = await callGateway(reviewerSystem, reviewerUser, model, 2048);
+    const rResult = await callAgent(sessionId, currentLoop.reviewerAgent, reviewerSystem, reviewerUser);
+    reviewText = rResult.text;
+    reviewModel = rResult.model;
   } catch (err) {
     reviewText = `⚠️ Failed to generate review: ${String(err)}`;
   }
@@ -674,7 +645,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     text: `**${isApproved ? "🟢 Approved" : "🔴 Rejected"} — Task #${task.id}:** ${task.description}\n\n${reviewText}`,
     verdict: isApproved ? "approve" : "reject",
     taskId: task.id,
-    model,
+    model: reviewModel,
   });
 
   // ── Step 3: Decide what happens next ──
@@ -682,7 +653,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
   // Supervisor check every N approved tasks
   if (isApproved && currentLoop.totalApproved > 0 && currentLoop.totalApproved % currentLoop.supervisorInterval === 0) {
     await new Promise((r) => setTimeout(r, 500));
-    await runSupervisorCheck(filePath, currentLoop, topic, model);
+    await runSupervisorCheck(filePath, sessionId, currentLoop, topic);
   }
 
   // Re-read for freshest state
@@ -694,7 +665,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     // Check if all tasks done
     if (currentLoop.currentTaskIndex >= currentLoop.tasks.length) {
       await new Promise((r) => setTimeout(r, 500));
-      await runSupervisorCheck(filePath, currentLoop, topic, model);
+      await runSupervisorCheck(filePath, sessionId, currentLoop, topic);
       session = readSession(filePath);
       session.status = "completed";
       session.completedAt = new Date().toISOString();
@@ -706,7 +677,7 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
     // Auto-continue to next task
     if (currentLoop.autoContinue && !currentLoop.paused) {
       await new Promise((r) => setTimeout(r, 500));
-      return runLoopStep(filePath, topic, model);
+      return runLoopStep(filePath, sessionId, topic);
     }
     // Otherwise, wait for human to click "Continue"
   } else {
@@ -720,13 +691,13 @@ async function runLoopStep(filePath: string, topic: string, model: string) {
       writeSession(filePath, session);
 
       await new Promise((r) => setTimeout(r, 500));
-      return runLoopStep(filePath, topic, model);
+      return runLoopStep(filePath, sessionId, topic);
     }
     // Otherwise, wait for human intervention (retry, override, or skip)
   }
 }
 
-async function runSupervisorCheck(filePath: string, loop: ReviewLoop, topic: string, model: string) {
+async function runSupervisorCheck(filePath: string, sessionId: string, loop: ReviewLoop, topic: string) {
   const session = readSession(filePath);
   const currentLoop: ReviewLoop = session.reviewLoop || loop;
 
@@ -734,8 +705,11 @@ async function runSupervisorCheck(filePath: string, loop: ReviewLoop, topic: str
 
   setThinkingAgent(filePath, currentLoop.supervisorAgent);
   let supervisorText = "";
+  let supModel = "openclaw-agent";
   try {
-    supervisorText = await callGateway(system, user, model, 1024);
+    const sResult = await callAgent(sessionId, currentLoop.supervisorAgent, system, user);
+    supervisorText = sResult.text;
+    supModel = sResult.model;
   } catch (err) {
     supervisorText = `⚠️ Supervisor check failed: ${String(err)}`;
   }
@@ -750,6 +724,6 @@ async function runSupervisorCheck(filePath: string, loop: ReviewLoop, topic: str
     emoji: supAgent?.emoji || "🟠",
     role: "supervisor",
     text: `**📋 Supervisor Status Update**\n\n${supervisorText}`,
-    model,
+    model: supModel,
   });
 }

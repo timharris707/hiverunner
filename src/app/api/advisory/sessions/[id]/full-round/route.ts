@@ -6,10 +6,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator", expertise: "Strategic oversight, orchestrating teams, identifying priorities, cutting through noise." },
@@ -41,20 +40,6 @@ const PERSONA_CONTENT: Record<string, string> = {
   "autonomous-optimization-architect": "Think autonomous optimization: AI agents replacing manual work, feedback loops, self-improving systems.",
 };
 
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
 
 function getAgentOverlay(
   personaOverlays: Record<string, string> | string[] | undefined,
@@ -161,30 +146,6 @@ function appendEvent(sessionPath: string, event: Record<string, unknown>) {
   fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
 }
 
-async function callGateway(systemPrompt: string, userPrompt: string, model: string, maxTokens = 2048): Promise<string> {
-  const gateway = getGatewayConfig();
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${gateway.token}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: maxTokens,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway error ${response.status}: ${err}`);
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
-}
 
 export async function POST(
   _req: NextRequest,
@@ -204,27 +165,10 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
-
-  // Resolve model
-  const sessionModel = session.model;
-  let resolvedModel = INFERENCE_MODEL;
-  if (sessionModel) {
-    if (sessionModel.includes("/")) {
-      resolvedModel = sessionModel.replace(":thinking", "");
-    } else {
-      resolvedModel = `anthropic/${sessionModel}`.replace(":thinking", "");
-    }
-  }
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
   // Session-wide response length (per-agent overrides applied inside the loop)
   const sessionResponseLength = (session.responseLength as string) || "balanced";
-  const LENGTH_MAX_TOKENS: Record<string, number> = {
-    concise: 200,
-    balanced: 2048,
-    detailed: 3072,
-    verbose: 4096,
-  };
 
   // Fire-and-forget: run one full round for all agents
   const runFullRound = async () => {
@@ -233,26 +177,12 @@ export async function POST(
       const currentSession = JSON.parse(currentRaw);
       if (currentSession.status !== "active") return;
 
-      // Resolve per-agent model override
-      let agentModel = resolvedModel;
-      const agentOverrideModel = agentModelOverrides?.[agentId];
-      if (agentOverrideModel) {
-        if (agentOverrideModel.includes("/")) {
-          agentModel = agentOverrideModel.replace(":thinking", "");
-        } else {
-          const prefix = agentOverrideModel.startsWith("gpt") ? "openai/"
-            : agentOverrideModel.startsWith("gemini") ? "google/" : "anthropic/";
-          agentModel = `${prefix}${agentOverrideModel}`.replace(":thinking", "");
-        }
-      }
-
       const events = currentSession.events || [];
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
 
       // Per-agent response length override, fallback to session-wide setting
       const agentResponseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
-      const agentMaxTokens = LENGTH_MAX_TOKENS[agentResponseLength] ?? 2048;
 
       const systemPrompt = buildSystemPrompt(
         agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, agentResponseLength,
@@ -263,8 +193,17 @@ export async function POST(
       const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nThis is a new full round. Build on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
 
       let text = "";
+      let spawnedModel = "openclaw-agent";
       try {
-        text = await callGateway(systemPrompt, userPrompt, agentModel, agentMaxTokens);
+        const result = await spawnAdvisoryAgentWithRetry({
+          sessionId: id,
+          agentId,
+          systemPrompt,
+          userPrompt,
+          timeoutSeconds: 120,
+        });
+        text = result.text;
+        spawnedModel = result.model;
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }
@@ -278,7 +217,7 @@ export async function POST(
         emoji: agent?.emoji || "💬",
         role: session.moderator && agentId === session.moderator ? "moderator" : agentId === "Henry" ? "supervisor" : "worker",
         text,
-        model: agentModel,
+        model: spawnedModel,
       });
 
       // Small delay between agents

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
@@ -48,6 +49,19 @@ export async function POST(
 
 // ─── Trigger a follow-up agent response to a human message ───────────────────
 
+const AGENT_EMOJIS: Record<string, string> = {
+  Henry: "⚡", Atlas: "📈", Nimbus: "🌤️", Cipher: "₿", Quant: "📊",
+  Forge: "🔧", Pixel: "💻", Scout: "🔭", Quill: "✍️", Counsel: "⚖️",
+};
+
+const AGENT_ROLES: Record<string, string> = {
+  Henry: "Chief of Staff / Orchestrator", Atlas: "Stocks & Options Trader",
+  Nimbus: "Weather Prediction Trader", Cipher: "Crypto Trader",
+  Quant: "Trading Strategy Architect", Forge: "Backend Engineer",
+  Pixel: "Senior Full-Stack Engineer", Scout: "Research & Intelligence",
+  Quill: "Creative Writer & Marketing Strategist", Counsel: "Legal Expert",
+};
+
 async function triggerFollowUp(
   sessionId: string,
   session: {
@@ -61,46 +75,15 @@ async function triggerFollowUp(
 ) {
   const { readFileSync } = await import("fs");
 
-  // Get gateway config — env vars first (Vercel), then local config
-  let gatewayUrl = process.env.GATEWAY_URL || "http://127.0.0.1:18789/v1/chat/completions";
-  let gatewayToken = process.env.GATEWAY_TOKEN || "";
-  if (!process.env.GATEWAY_URL) {
-    try {
-      const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-      const config = JSON.parse(readFileSync(configPath, "utf-8"));
-      const port = config?.gateway?.port || 18789;
-      gatewayToken = config?.gateway?.auth?.token || "";
-      gatewayUrl = `http://127.0.0.1:${port}/v1/chat/completions`;
-    } catch {
-      // use defaults
-    }
-  }
-
-  if (!gatewayToken) return;
-
   const filePath = path.join(DATA_DIR, `${sessionId}.json`);
-  const { agents, topic, mode, personaOverlays = [] } = session;
+  const { agents, topic, mode } = session;
 
   // Pick the most relevant agent to respond (Henry if available, else first non-Tim agent)
   const respondingAgentId = agents.includes("Henry") ? "Henry" : agents[0];
   if (!respondingAgentId) return;
 
-  // Build agent identity
-  const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
-    Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator", expertise: "Strategic oversight, orchestrating teams, identifying priorities." },
-    Atlas: { name: "Atlas", emoji: "📈", role: "Stocks & Options Trader", expertise: "Equity analysis, options strategies, portfolio risk management." },
-    Nimbus: { name: "Nimbus", emoji: "🌤️", role: "Weather Prediction Trader", expertise: "Weather data, prediction markets, seasonal patterns." },
-    Cipher: { name: "Cipher", emoji: "₿", role: "Crypto Trader", expertise: "Crypto markets, DeFi, momentum strategies." },
-    Quant: { name: "Quant", emoji: "📊", role: "Trading Strategy Architect", expertise: "Quantitative strategy, backtesting, optimization." },
-    Forge: { name: "Forge", emoji: "🔧", role: "Backend Engineer", expertise: "Infrastructure, APIs, databases, DevOps." },
-    Pixel: { name: "Pixel", emoji: "💻", role: "Senior Full-Stack Engineer", expertise: "Web apps, React/Next.js, UI/UX, rapid prototyping." },
-    Scout: { name: "Scout", emoji: "🔭", role: "Research & Intelligence", expertise: "Market research, competitive intelligence, trend analysis." },
-    Quill: { name: "Quill", emoji: "✍️", role: "Creative Writer & Marketing Strategist", expertise: "Marketing copy, content strategy, brand voice." },
-    Counsel: { name: "Counsel", emoji: "⚖️", role: "Legal Expert", expertise: "Legal research, contracts, regulatory compliance." },
-  };
-
-  const agent = AGENT_DEFS[respondingAgentId];
-  if (!agent) return;
+  const emoji = AGENT_EMOJIS[respondingAgentId] || "💬";
+  const role = AGENT_ROLES[respondingAgentId] || "Advisory Agent";
 
   // Read current session for history
   const currentRaw = readFileSync(filePath, "utf-8");
@@ -116,45 +99,33 @@ async function triggerFollowUp(
     ? `\n\nReference material provided for this session:\n${currentSession.referenceContext}\n`
     : "";
 
-  const systemPrompt = `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.
-Your expertise: ${agent.expertise}
+  const systemPrompt = `You are ${respondingAgentId} ${emoji}, the ${role} at Harris Autonomous.
 
 You are in a ${mode === "roundtable" ? "roundtable discussion" : "review session"} about: ${topic}${refBlock}
 
 Respond directly to the human's directive. Be helpful, specific, and use your expertise.`;
 
-  const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${agent.name} to Tim's directive.`;
+  const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${respondingAgentId} to Tim's directive.`;
 
   try {
-    const response = await fetch(gatewayUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${gatewayToken}`,
-      },
-      body: JSON.stringify({
-        model: "anthropic/claude-sonnet-4-6",
-        max_tokens: 4096,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-      }),
+    const result = await spawnAdvisoryAgentWithRetry({
+      sessionId,
+      agentId: respondingAgentId,
+      systemPrompt,
+      userPrompt,
+      timeoutSeconds: 120,
     });
 
-    if (!response.ok) return;
-    const data = await response.json();
-    const replyText = data.choices?.[0]?.message?.content || "";
-
-    if (replyText) {
+    if (result.text) {
       const replyEvent = {
         id: `evt_reply_${Date.now()}`,
         timestamp: new Date().toISOString(),
         type: respondingAgentId === "Henry" ? "supervisor" : "worker",
         speaker: respondingAgentId,
-        emoji: agent.emoji,
+        emoji,
         role: respondingAgentId === "Henry" ? "supervisor" : "worker",
-        text: replyText,
+        text: result.text,
+        model: result.model,
       };
 
       const latestRaw = readFileSync(filePath, "utf-8");
