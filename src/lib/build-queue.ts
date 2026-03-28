@@ -186,8 +186,12 @@ function findPendingEntryForTask(buildLog: { builds: any[] }, taskId: string) {
   return buildLog.builds.find((b: any) => b.taskId === taskId && PENDING_BUILD_STATUSES.has(b.status));
 }
 
+const MAX_CONCURRENT_BUILDS_PER_KEY = 3;
+
 function findActiveEntryForExecutionKey(buildLog: { builds: any[] }, executionKey: string) {
-  return buildLog.builds.find((b: any) => b.executionKey === executionKey && ACTIVE_BUILD_STATUSES.has(b.status));
+  const activeBuilds = buildLog.builds.filter((b: any) => b.executionKey === executionKey && ACTIVE_BUILD_STATUSES.has(b.status));
+  // Allow up to MAX_CONCURRENT_BUILDS_PER_KEY concurrent builds per execution key
+  return activeBuilds.length >= MAX_CONCURRENT_BUILDS_PER_KEY ? activeBuilds[0] : undefined;
 }
 
 function nextQueuedTaskId(buildLog: { builds: any[] }, executionKey: string) {
@@ -256,20 +260,59 @@ function createInAppNotification(title: string, message: string, type: "info" | 
   }
 }
 
+function extractBuildSummary(task: any): string {
+  const output = task.buildOutput || "";
+  if (!output) return "";
+
+  // Try to find a commit message as the best summary source
+  const commitMatch = output.match(/(?:^|\n)\s*(?:feat|fix|refactor|chore|docs|test|style|perf|ci|build)\([^)]*\):\s*(.+)/m);
+  if (commitMatch) {
+    return commitMatch[0].trim();
+  }
+
+  // Look for a "Co-Authored-By" line and grab the commit message above it
+  const coAuthorIdx = output.indexOf("Co-Authored-By:");
+  if (coAuthorIdx > 0) {
+    const beforeCoAuthor = output.slice(Math.max(0, coAuthorIdx - 300), coAuthorIdx).trim();
+    const lines = beforeCoAuthor.split("\n").filter((l: string) => l.trim());
+    if (lines.length > 0) {
+      return lines[lines.length - 1].trim().slice(0, 200);
+    }
+  }
+
+  // Fallback: last meaningful non-empty line from output (skip common noise)
+  const lines = output.split("\n").filter((l: string) => {
+    const trimmed = l.trim();
+    return trimmed && !trimmed.startsWith("$") && !trimmed.startsWith(">") && trimmed.length > 10;
+  });
+  if (lines.length > 0) {
+    return lines[lines.length - 1].trim().slice(0, 200);
+  }
+
+  return "";
+}
+
 function notifyTaskCompletion(task: any, outcome: "done" | "review" | "failed") {
   const taskLabel = String(task.title || task.id).replace(/"/g, "'");
+  const summary = extractBuildSummary(task);
+  const summaryLine = summary ? `\n📋 ${summary}` : "";
+  const model = task.routedModel ? ` [${task.routedModel}]` : "";
+  const project = task.project ? ` (${task.project})` : "";
+
   if (outcome === "done") {
-    const text = `✅ Task complete: ${taskLabel}`;
+    const text = `✅ Task complete: ${taskLabel}${project}${model}${summaryLine}`;
     sendTelegramNotification(text);
-    createInAppNotification("Task Completed", taskLabel, "success");
+    createInAppNotification("Task Completed", `${taskLabel}${summary ? ` — ${summary.slice(0, 100)}` : ""}`, "success");
   } else if (outcome === "review") {
-    const text = `🔍 Task ready for review: ${taskLabel}`;
+    const reviewReason = task.tags?.length ? ` [${task.tags.join(", ")}]` : "";
+    const text = `🔍 Ready for review: ${taskLabel}${project}${model}${reviewReason}${summaryLine}`;
     sendTelegramNotification(text);
-    createInAppNotification("Task Ready for Review", taskLabel, "info");
+    createInAppNotification("Task Ready for Review", `${taskLabel}${summary ? ` — ${summary.slice(0, 100)}` : ""}`, "info");
   } else {
-    const text = `❌ Task failed: ${taskLabel}`;
+    const errorSnippet = task.buildError ? `\n⚠️ ${String(task.buildError).slice(0, 200)}` : "";
+    const text = `❌ Task failed: ${taskLabel}${project}${model}${errorSnippet}`;
     sendTelegramNotification(text);
-    createInAppNotification("Task Failed", taskLabel, "error");
+    createInAppNotification("Task Failed", `${taskLabel}${task.buildError ? ` — ${String(task.buildError).slice(0, 100)}` : ""}`, "error");
   }
 }
 
