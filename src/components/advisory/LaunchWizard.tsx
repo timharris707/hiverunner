@@ -757,6 +757,17 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           agentIntensityLevels: Object.keys(agentIntensity).length > 0 ? agentIntensity : undefined,
           agentResponseLengths: Object.keys(agentResponseLengths).length > 0 ? agentResponseLengths : undefined,
           moderator: mode === "roundtable" && selectedAgents.length >= 2 ? moderator : undefined,
+          // Embed custom agent metadata so sessions are self-contained
+          customAgentMeta: (() => {
+            const meta: Record<string, { emoji: string; role: string; persona?: string }> = {};
+            for (const name of selectedAgents) {
+              const custom = customAgents.find((a) => a.name === name);
+              if (custom) {
+                meta[name] = { emoji: custom.emoji, role: custom.role, persona: custom.persona };
+              }
+            }
+            return Object.keys(meta).length > 0 ? meta : undefined;
+          })(),
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");

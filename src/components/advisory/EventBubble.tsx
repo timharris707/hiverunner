@@ -33,12 +33,19 @@ interface AIPersonaMeta {
   description: string;
 }
 
+interface CustomAgentMeta {
+  emoji: string;
+  role: string;
+  persona?: string;
+}
+
 interface EventBubbleProps {
   event: AdvisoryEvent;
   sessionOverlays?: Record<string, string> | string[];
   sessionTopic?: string;
   sessionMode?: string;
   aiPersonas?: AIPersonaMeta[];
+  customAgentMeta?: Record<string, CustomAgentMeta>;
   onRetry?: () => void;
   onFork?: () => void;
 }
@@ -49,6 +56,7 @@ export default function EventBubble({
   sessionTopic,
   sessionMode,
   aiPersonas,
+  customAgentMeta,
   onRetry,
   onFork,
 }: EventBubbleProps) {
@@ -77,7 +85,7 @@ export default function EventBubble({
   const badge = getRoleBadge(event.role, event.type, event.speaker);
   const isSystem = event.type === "start" || event.type === "complete";
   const agentConfig = isHuman ? null : getAgentByAnyId(event.speaker);
-  const agentRole = agentConfig?.role ?? getAgentRole(event.speaker);
+  const agentRole = agentConfig?.role ?? customAgentMeta?.[event.speaker]?.role ?? getAgentRole(event.speaker);
 
   const displayText = isHuman
     ? event.text.replace(/^\*\*\[Human Directive\]\*\*\s*/i, "").trim()

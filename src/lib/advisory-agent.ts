@@ -90,7 +90,7 @@ Respond as ${agentId} only. Stay fully in character.`;
     const child = execFile(
       "openclaw",
       args,
-      { maxBuffer: 10 * 1024 * 1024, timeout: (timeoutSeconds + 10) * 1000 },
+      { maxBuffer: 50 * 1024 * 1024, timeout: (timeoutSeconds + 10) * 1000 },
       (error, stdout, stderr) => {
         if (error) {
           // Try to extract useful info from stderr
@@ -99,8 +99,19 @@ Respond as ${agentId} only. Stay fully in character.`;
           return;
         }
 
+        // Try to extract JSON from stdout first, then stderr (openclaw sometimes mixes output streams)
+        let jsonSource = stdout?.trim() || "";
+        if (!jsonSource || !jsonSource.startsWith("{")) {
+          // Try to find JSON in stderr (after warnings)
+          const stderrStr = stderr || "";
+          const jsonStart = stderrStr.indexOf("\n{");
+          if (jsonStart >= 0) {
+            jsonSource = stderrStr.slice(jsonStart + 1).trim();
+          }
+        }
+
         try {
-          const result = JSON.parse(stdout);
+          const result = JSON.parse(jsonSource);
           const text = result?.payloads?.[0]?.text || "";
           const meta = result?.meta?.agentMeta || {};
 
@@ -111,8 +122,16 @@ Respond as ${agentId} only. Stay fully in character.`;
             openclawSessionId: meta.sessionId || openclawSessionId,
           });
         } catch (parseErr) {
-          // If JSON parsing fails, try to use raw stdout as text
-          if (stdout?.trim()) {
+          // If JSON parsing fails, try to extract text field from partial JSON
+          const textMatch = jsonSource.match(/"text":\s*"((?:[^"\\]|\\.)*)"/);
+          if (textMatch) {
+            resolve({
+              text: JSON.parse(`"${textMatch[1]}"`),
+              model: "unknown",
+              durationMs: 0,
+              openclawSessionId,
+            });
+          } else if (stdout?.trim()) {
             resolve({
               text: stdout.trim(),
               model: "unknown",

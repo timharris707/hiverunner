@@ -1460,6 +1460,7 @@ export default function AdvisoryPage() {
                                 aiPersonas={sessionData?.aiPersonas as Array<{ id: string; name: string; emoji: string; description: string }> | undefined}
                                 sessionTopic={activeSession?.topic}
                                 sessionMode={activeSession?.mode}
+                                customAgentMeta={sessionData?.customAgentMeta as Record<string, { emoji: string; role: string; persona?: string }> | undefined}
                                 onRetry={(event.type === "error" || event.error) ? handleRetrySession : undefined}
                                 onFork={event.type !== "start" && !event.error ? () => handleForkFromEvent(event.id) : undefined}
                               />

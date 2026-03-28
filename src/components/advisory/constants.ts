@@ -167,7 +167,20 @@ export const DIVISIONS = ["Leadership", "Trading", "Engineering", "Research", "C
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
 export function getAgentRole(agentId: string): string {
-  return AGENTS.find((a) => a.id === agentId)?.role ?? "Agent";
+  const builtIn = AGENTS.find((a) => a.id === agentId)?.role;
+  if (builtIn) return builtIn;
+  // Check custom agents in localStorage
+  if (typeof window !== "undefined") {
+    try {
+      const stored = localStorage.getItem("advisory-custom-agents");
+      if (stored) {
+        const customs = JSON.parse(stored) as Array<{ name: string; role: string }>;
+        const match = customs.find((a) => a.name === agentId);
+        if (match?.role) return match.role;
+      }
+    } catch {}
+  }
+  return "Agent";
 }
 
 export function getOverlayName(overlayId: string): string {

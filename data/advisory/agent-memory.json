@@ -522,5 +522,116 @@
       "Own deployment and performance infrastructure — Vercel setup, Core Web Vitals monitoring, and the demo-request API endpoint.",
       "Build the Supabase lead capture table with source and page_context fields on Day 0."
     ]
+  },
+  {
+    "id": "mem_1774726625878_93ocn",
+    "agent": "Kai",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "Kill the free tier — it attracts tire-kickers who clog support and never convert.",
+      "Keep 2 QA through Day 7 extraction, then immediately redeploy both to outbound sales.",
+      "Ship $49/$99/$249 pricing and stop debating it."
+    ],
+    "insights": [
+      "The single biggest risk is positioning: if prospects bucket BoardRunner as 'another AI chatbot,' it's dead on arrival.",
+      "Don't produce generic demo videos — record one real session with someone from Tim's 10-name list, because a fund manager watching another fund manager use it sells harder than any polished demo."
+    ],
+    "actionItems": [
+      "Book one recorded demo session with a real fund manager from Tim's list by Day 4."
+    ]
+  },
+  {
+    "id": "mem_1774726625878_ck3vs",
+    "agent": "Mara",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "Extract from Mission Control, don't rebuild — you'll burn 3 weeks on auth and billing plumbing that already works.",
+      "Cut QA from 3 to 1 agent and redeploy the other 2 to outbound sales automation."
+    ],
+    "insights": [
+      "The bottleneck is pipeline, not polish — the product already works.",
+      "Auth and metering aren't custom builds; they're Supabase RLS and Stripe usage-based billing, which are config files, not code.",
+      "A $249/mo product with no onboarding flow churns in 30 days, making MRR a vanity metric."
+    ],
+    "actionItems": [
+      "One QA agent smoke-tests the 6 templates against new tenant isolation on Day 5."
+    ]
+  },
+  {
+    "id": "mem_1774726625878_u8ea3",
+    "agent": "Soren",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "Raise pricing to $49/$99/$249 — anyone replacing a $5K/hour advisory session won't blink at $49 Starter.",
+      "Annual-only on Team tier to lock in commitments, smooth cash flow, and act as a churn firewall."
+    ],
+    "insights": [
+      "Bumping Starter from $29 to $49 alone closes 40% of the MRR gap.",
+      "At $249/mo Team, losing even 3 accounts/month means running to stand still — churn is the real margin killer."
+    ],
+    "actionItems": [
+      "Bake a 15-minute guided first-session into the product itself, zero human touch required."
+    ]
+  },
+  {
+    "id": "mem_1774726625878_4423c",
+    "agent": "Juno",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "Warm intros are the only channel that converts in 90 days — everything else is cope.",
+      "Tim must write down 10 real names of people he'd text about this today before anything else ships."
+    ],
+    "insights": [
+      "If Tim can't fill a list of 10 actual human beings, the $10K target is fantasy and no pricing optimization saves it.",
+      "Activation, not just onboarding, is the real retention problem — if users don't run a second board within 72 hours, they're gone."
+    ],
+    "actionItems": [
+      "Tim: write the 10-name list today.",
+      "Tim: call each person after their first session and ask what they'd change — that data is worth more than anything this board said."
+    ]
+  },
+  {
+    "id": "mem_1774726625878_frh01",
+    "agent": "Voss",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "3 QA agents on an 8-person team is operational malpractice — reallocate two to sales ops and customer onboarding.",
+      "Extract from Mission Control, ship in 5 days not 7, and spend the other 85 days selling."
+    ],
+    "insights": [
+      "Nobody scoped the actual extraction work — shared components, Mission Control dependencies, and decoupling complexity are unknown and could blow the 5-day timeline."
+    ],
+    "actionItems": [
+      "Assign one engineer to a 4-hour extraction audit today to scope shared components and dependencies."
+    ]
+  },
+  {
+    "id": "mem_1774726625878_9ed1m",
+    "agent": "Reese",
+    "topic": "We are evaluating the business plan and operational structure for launching BoardRunner.ai as a standalone SaaS product. BoardRunner is an AI advisory board platform — structured multi-agent deliberation, not chatbot. It is 90% built inside Mission Control and needs to be extracted, packaged, priced, and shipped. We have two planning docs: a 7-day launch plan and a Paperclip company plan with an 8-agent team. The board needs to stress-test pricing, go-to-market strategy, target customer, team structure, and technical approach. Key context: we already have the domain (boardrunner.ai), the product works, and we want to reach $10K MRR in 90 days.\n\nKey questions:\n1. Is $29/$79/$199 the right pricing? Should there be a free tier?\n2. Extract from Mission Control vs fresh build — which and why?\n3. Who are the first 10 paying customers? How do we actually reach them?\n4. Is Product Hunt the right launch channel, or direct outreach first?\n5. 3 QA agents out of 8 on the Paperclip team — right allocation?\n6. Can we realistically hit $10K MRR in 90 days? What has to be true?\n7. What is the single biggest risk that kills this?\n\nPricing: Free ($0, 2 sessions/mo), Starter ($29, 15 sessions), Pro ($79, 50 sessions), Team ($199, 150 sessions/5 seats). Tech: extract from existing Next.js app to standalone Vercel + Supabase. GTM: Product Hunt, HN, IndieHackers, direct outreach. Target: fund managers, startup founders, agency owners. Product features already shipped: roundtable, competitive ideation, review loop, dynamic personas, personality traits, moderator, session memory, action items, export, 6 templates.",
+    "sessionId": "session-1774725200433-c6150ab2",
+    "date": "2026-03-28T19:13:20.433Z",
+    "decisions": [
+      "Do both Product Hunt AND warm outreach — don't pick one. Launch Product Hunt Day 7 for the badge, direct outreach for actual customers.",
+      "Ship $49/$99/$249 per Soren's numbers and stop overthinking pricing."
+    ],
+    "insights": [
+      "'Top 5 Product of the Day' converts cold email open rates from 8% to 23% — the badge is a sales asset, not a customer acquisition channel.",
+      "The actual missing conversion asset is demo content: 3 demo videos showing real board sessions needed by Day 5, because no fund manager buys $249/mo from a cold email with just a landing page."
+    ],
+    "actionItems": [
+      "Run extraction audit AND 10-name list in parallel today — they're zero-dependency tasks.",
+      "Produce 3 demo videos of real board sessions by Day 5."
+    ]
   }
 ]

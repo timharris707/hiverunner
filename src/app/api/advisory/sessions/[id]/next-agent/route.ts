@@ -10,6 +10,26 @@ import path from "path";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
+const CUSTOM_AGENTS_FILE = path.join(DATA_DIR, "custom-agents.json");
+
+function loadCustomAgentDefs(): Record<string, { name: string; emoji: string; role: string; expertise: string }> {
+  try {
+    if (fs.existsSync(CUSTOM_AGENTS_FILE)) {
+      const raw = JSON.parse(fs.readFileSync(CUSTOM_AGENTS_FILE, "utf-8"));
+      const defs: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {};
+      for (const a of raw) {
+        defs[a.name] = {
+          name: a.name,
+          emoji: a.emoji || "🤖",
+          role: a.role || "Advisory Board Member",
+          expertise: a.persona || a.role || "General advisory expertise.",
+        };
+      }
+      return defs;
+    }
+  } catch {}
+  return {};
+}
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator", expertise: "Strategic oversight, orchestrating teams, identifying priorities, cutting through noise." },
@@ -113,7 +133,7 @@ function buildPersonalityBlock(
 }
 
 function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>, responseLength: string = "balanced", personalityTraits?: string[], communicationStyle?: string, intensityLevel?: number): string {
-  const agent = AGENT_DEFS[agentId];
+  const agent = AGENT_DEFS[agentId] || loadCustomAgentDefs()[agentId];
   if (!agent) return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   const overlayContent = agentOverlay ? resolveOverlayContent(agentOverlay, aiPersonas) : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
@@ -334,7 +354,7 @@ export async function POST(
   const isCompetitive = mode === "competitive" && competitive;
 
   const { agentId } = determineNextAgent(agents as string[], events);
-  const agent = AGENT_DEFS[agentId];
+  const agent = AGENT_DEFS[agentId] || loadCustomAgentDefs()[agentId];
 
   // Resolve per-agent response length (falls back to session-wide setting)
   const responseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
