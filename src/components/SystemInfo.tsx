@@ -1,6 +1,7 @@
 "use client";
 
 import { Server, Clock, Cpu, Brain, FolderOpen, HardDrive } from "lucide-react";
+import { useDemoMode } from "@/lib/demo-mode";
 
 interface SystemInfoProps {
   data: {
@@ -32,6 +33,7 @@ function formatBytes(bytes: number): string {
 }
 
 export function SystemInfo({ data }: SystemInfoProps) {
+  const { isDemoMode } = useDemoMode();
   if (!data) {
     return (
       <div 
@@ -62,7 +64,7 @@ export function SystemInfo({ data }: SystemInfoProps) {
       icon: Clock,
       label: "Uptime",
       value: data.system.uptimeFormatted,
-      sublabel: `${data.system.hostname}`,
+      sublabel: isDemoMode ? "••••••••" : `${data.system.hostname}`,
     },
     {
       icon: Cpu,
@@ -79,8 +81,8 @@ export function SystemInfo({ data }: SystemInfoProps) {
     {
       icon: FolderOpen,
       label: "Workspace",
-      value: data.system.workspacePath.split("/").pop() || "workspace",
-      sublabel: data.system.workspacePath,
+      value: isDemoMode ? "workspace" : (data.system.workspacePath.split("/").pop() || "workspace"),
+      sublabel: isDemoMode ? "/••••/••••/workspace" : data.system.workspacePath,
     },
     {
       icon: HardDrive,

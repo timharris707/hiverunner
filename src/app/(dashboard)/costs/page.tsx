@@ -10,6 +10,7 @@ import {
   BarChart2,
   Calendar,
 } from "lucide-react";
+import { useDemoMode, maskDollar } from "@/lib/demo-mode";
 import {
   LineChart,
   Line,
@@ -75,12 +76,14 @@ function FuelGauge({
   max,
   color,
   unit = "$",
+  masked = false,
 }: {
   label: string;
   value: number;
   max: number;
   color: string;
   unit?: string;
+  masked?: boolean;
 }) {
   const r = 54;
   const cx = 80;
@@ -160,14 +163,14 @@ function FuelGauge({
         <circle cx={cx} cy={cy} r={5} fill={gaugeColor} />
         {/* Value text */}
         <text x={cx} y={cy + 24} textAnchor="middle" fontSize={13} fontWeight="bold" fill="var(--text-primary)">
-          {unit}{value < 0.01 && value > 0 ? value.toFixed(4) : value.toFixed(2)}
+          {masked ? `${unit}X.XX` : `${unit}${value < 0.01 && value > 0 ? value.toFixed(4) : value.toFixed(2)}`}
         </text>
         <text x={cx} y={cy + 38} textAnchor="middle" fontSize={9} fill="var(--text-muted)">
-          {budgetPct.toFixed(1)}% of {unit}{max}
+          {masked ? `XX% of ${unit}XXX` : `${budgetPct.toFixed(1)}% of ${unit}${max}`}
         </text>
         {/* Min/max labels */}
         <text x={20} y={92} textAnchor="middle" fontSize={8} fill="var(--text-muted)">{unit}0</text>
-        <text x={140} y={92} textAnchor="middle" fontSize={8} fill="var(--text-muted)">{unit}{max}</text>
+        <text x={140} y={92} textAnchor="middle" fontSize={8} fill="var(--text-muted)">{masked ? `${unit}XXX` : `${unit}${max}`}</text>
       </svg>
       <div className="text-xs font-medium mt-1 text-center" style={{ color: "var(--text-secondary)" }}>
         {label}
@@ -214,6 +217,9 @@ const TIER_LABELS: Record<string, string> = {
 };
 
 export default function CostsPage() {
+  const { isDemoMode } = useDemoMode();
+  const d$ = (val: number | null | undefined) =>
+    isDemoMode ? maskDollar(val) : val == null ? "—" : `$${val.toFixed(2)}`;
   const [costData, setCostData] = useState<CostData | null>(null);
   const [loading, setLoading] = useState(true);
   const [timeframe, setTimeframe] = useState<"7d" | "30d" | "90d">("30d");
@@ -334,10 +340,10 @@ export default function CostsPage() {
               Today&apos;s Spend
             </div>
             <div className="text-5xl font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-2px" }}>
-              ${costData.today.toFixed(2)}
+              {d$(costData.today)}
             </div>
             <div className="text-sm mt-1" style={{ color: "var(--text-muted)" }}>
-              vs ${costData.yesterday.toFixed(2)} yesterday
+              vs {d$(costData.yesterday)} yesterday
               {todayChange !== 0 && (
                 <span className="ml-2 font-medium" style={{ color: todayChange > 0 ? "var(--error)" : "#4ade80" }}>
                   {todayChange > 0 ? "↑" : "↓"} {Math.abs(todayChange).toFixed(1)}%
@@ -348,7 +354,7 @@ export default function CostsPage() {
           <div className="flex-1 min-w-[220px]">
             <div className="flex items-center justify-between mb-1">
               <span className="text-sm" style={{ color: "var(--text-muted)" }}>
-                Monthly Budget — ${costData.thisMonth.toFixed(2)} / ${costData.budget}
+                Monthly Budget — {d$(costData.thisMonth)} / {isDemoMode ? "$XXX" : `$${costData.budget}`}
               </span>
               <span className="text-sm font-semibold" style={{ color: budgetColor }}>
                 {budgetPercent.toFixed(0)}%
@@ -362,10 +368,10 @@ export default function CostsPage() {
             </div>
             <div className="flex justify-between mt-1">
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                ${costData.projected.toFixed(2)} projected EOM
+                {d$(costData.projected)} projected EOM
               </span>
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                ${(costData.budget - costData.thisMonth).toFixed(2)} remaining
+                {d$(costData.budget - costData.thisMonth)} remaining
               </span>
             </div>
           </div>
@@ -377,26 +383,26 @@ export default function CostsPage() {
         {[
           {
             label: "Today",
-            value: `$${costData.today.toFixed(2)}`,
-            sub: `vs $${costData.yesterday.toFixed(2)} yesterday`,
+            value: d$(costData.today),
+            sub: `vs ${d$(costData.yesterday)} yesterday`,
             change: todayChange,
           },
           {
             label: "This Month",
-            value: `$${costData.thisMonth.toFixed(2)}`,
-            sub: `vs $${costData.lastMonth.toFixed(2)} last month`,
+            value: d$(costData.thisMonth),
+            sub: `vs ${d$(costData.lastMonth)} last month`,
             change: monthChange,
           },
           {
             label: "Projected EOM",
-            value: `$${costData.projected.toFixed(2)}`,
-            sub: `Avg $${costData.avgDaily?.toFixed(2) ?? "0.00"}/day`,
+            value: d$(costData.projected),
+            sub: `Avg ${d$(costData.avgDaily)}/day`,
             change: null,
           },
           {
             label: "Budget Used",
-            value: `${budgetPercent.toFixed(0)}%`,
-            sub: `$${costData.thisMonth.toFixed(2)} / $${costData.budget}`,
+            value: isDemoMode ? "XX%" : `${budgetPercent.toFixed(0)}%`,
+            sub: `${d$(costData.thisMonth)} / ${isDemoMode ? "$XXX" : `$${costData.budget}`}`,
             change: null,
           },
         ].map(({ label, value, sub, change }) => (
@@ -447,6 +453,7 @@ export default function CostsPage() {
                 value={m.cost}
                 max={costData.budget}
                 color={getModelColor(m.model)}
+                masked={isDemoMode}
               />
             ))}
             {/* "Others" gauge if more than 4 models */}
@@ -456,6 +463,7 @@ export default function CostsPage() {
                 value={costData.byModel.slice(4).reduce((s, m) => s + m.cost, 0)}
                 max={costData.budget}
                 color="#6B7280"
+                masked={isDemoMode}
               />
             )}
           </div>
@@ -479,8 +487,8 @@ export default function CostsPage() {
             <LineChart data={burndownActual}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="day" stroke="var(--text-muted)" style={{ fontSize: "11px" }} label={{ value: "Day of Month", position: "insideBottom", offset: -2, fontSize: 10, fill: "var(--text-muted)" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => `$${v}`} />
-              <Tooltip content={<BurndownTooltip />} />
+              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => isDemoMode ? "$—" : `$${v}`} />
+              <Tooltip content={isDemoMode ? () => null : <BurndownTooltip />} />
               <ReferenceLine y={0} stroke="var(--error)" strokeDasharray="4 2" />
               <Line
                 type="monotone"
@@ -521,8 +529,8 @@ export default function CostsPage() {
             <BarChart data={costData.weekly}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "10px" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => `$${v}`} />
-              <Tooltip content={<WeeklyTooltip />} />
+              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => isDemoMode ? "$—" : `$${v}`} />
+              <Tooltip content={isDemoMode ? () => null : <WeeklyTooltip />} />
               <Bar
                 dataKey="cost"
                 name="Daily Spend"
@@ -583,7 +591,7 @@ export default function CostsPage() {
                   ))}
                 </Pie>
                 <Tooltip
-                  formatter={(v: number) => [`$${v.toFixed(4)}`, "Cost"]}
+                  formatter={(v: number) => [isDemoMode ? "$X.XX" : `$${v.toFixed(4)}`, "Cost"]}
                   contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }}
                 />
                 <Legend
@@ -620,7 +628,7 @@ export default function CostsPage() {
                         {(m.tokens / 1000).toFixed(1)}K
                       </td>
                       <td className="py-2.5 px-3 text-right font-semibold" style={{ color: "var(--text-primary)" }}>
-                        ${m.cost.toFixed(4)}
+                        {isDemoMode ? "$X.XXXX" : `$${m.cost.toFixed(4)}`}
                       </td>
                       <td className="py-2.5 px-3 text-right">
                         <div className="flex items-center justify-end gap-2">
@@ -647,9 +655,9 @@ export default function CostsPage() {
             <LineChart data={costData.daily}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
               <XAxis dataKey="date" stroke="var(--text-muted)" style={{ fontSize: "11px" }} />
-              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => `$${v}`} />
+              <YAxis stroke="var(--text-muted)" style={{ fontSize: "11px" }} tickFormatter={(v) => isDemoMode ? "$—" : `$${v}`} />
               <Tooltip
-                formatter={(v: number) => [`$${v.toFixed(4)}`, "Cost"]}
+                formatter={(v: number) => [isDemoMode ? "$X.XX" : `$${v.toFixed(4)}`, "Cost"]}
                 contentStyle={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", borderRadius: "8px" }}
               />
               <Line type="monotone" dataKey="cost" stroke="var(--accent)" strokeWidth={2} dot={false} name="Cost ($)" />
@@ -718,7 +726,7 @@ export default function CostsPage() {
                       {(agent.outputTokens / 1000).toFixed(1)}K
                     </td>
                     <td className="py-3 px-4 text-right font-semibold" style={{ color: "var(--text-primary)" }}>
-                      ${agent.cost.toFixed(4)}
+                      {isDemoMode ? "$X.XXXX" : `$${agent.cost.toFixed(4)}`}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <div className="flex items-center justify-end gap-2">
@@ -808,7 +816,7 @@ export default function CostsPage() {
                   </span>
                 </div>
                 <div className="ml-auto text-right">
-                  <div className="text-xl font-bold" style={{ color: provider.color }}>${provider.monthlyCost}</div>
+                  <div className="text-xl font-bold" style={{ color: provider.color }}>{isDemoMode ? "$XX" : `$${provider.monthlyCost}`}</div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>this month</div>
                 </div>
               </div>
@@ -823,7 +831,7 @@ export default function CostsPage() {
               {provider.apiEquivalent !== null && provider.billing === "subscription" && (
                 <div className="mt-2 flex items-center gap-1.5 text-xs" style={{ color: "#4ade80" }}>
                   <span>💰</span>
-                  <span>API equivalent: ~${provider.apiEquivalent} · saving ~${Math.max(0, provider.apiEquivalent - provider.monthlyCost).toFixed(2)}/mo</span>
+                  <span>{isDemoMode ? "API equivalent: ~$XX · saving ~$XX/mo" : `API equivalent: ~$${provider.apiEquivalent} · saving ~$${Math.max(0, provider.apiEquivalent - provider.monthlyCost).toFixed(2)}/mo`}</span>
                 </div>
               )}
             </div>
@@ -833,10 +841,12 @@ export default function CostsPage() {
           <span className="text-2xl">💰</span>
           <div>
             <div className="font-semibold" style={{ color: "#4ade80" }}>
-              Estimated Monthly Savings: ~${Math.max(0, costData.thisMonth * 0.9 - 40).toFixed(2)}
+              Estimated Monthly Savings: {isDemoMode ? "~$XX.XX" : `~$${Math.max(0, costData.thisMonth * 0.9 - 40).toFixed(2)}`}
             </div>
             <div className="text-sm mt-0.5" style={{ color: "var(--text-secondary)" }}>
-              Subscriptions cost $40/mo flat. If billed at API rates for the same usage, estimated cost would be ~${(costData.thisMonth * 0.9 + 40).toFixed(2)}.
+              {isDemoMode
+                ? "Subscriptions cost $XX/mo flat. If billed at API rates, estimated cost would be ~$XX.XX."
+                : `Subscriptions cost $40/mo flat. If billed at API rates for the same usage, estimated cost would be ~$${(costData.thisMonth * 0.9 + 40).toFixed(2)}.`}
             </div>
           </div>
         </div>
@@ -864,7 +874,7 @@ export default function CostsPage() {
                     <td className="py-3 px-4 font-mono text-xs" style={{ color: "var(--text-secondary)" }}>{s.model}</td>
                     <td className="py-3 px-4 text-right" style={{ color: "var(--text-secondary)" }}>{s.date}</td>
                     <td className="py-3 px-4 text-right font-mono" style={{ color: "var(--text-secondary)" }}>{s.tokens.toLocaleString()}</td>
-                    <td className="py-3 px-4 text-right font-semibold" style={{ color: "var(--accent)" }}>${s.cost.toFixed(4)}</td>
+                    <td className="py-3 px-4 text-right font-semibold" style={{ color: "var(--accent)" }}>{isDemoMode ? "$X.XXXX" : `$${s.cost.toFixed(4)}`}</td>
                   </tr>
                 ))}
               </tbody>

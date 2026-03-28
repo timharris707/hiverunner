@@ -5,6 +5,7 @@ import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { QuickActionBar } from "@/components/QuickActionBar";
 import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
+import { DemoModeProvider } from "@/lib/demo-mode";
 
 export default function DashboardLayout({
   children,
@@ -21,27 +22,29 @@ export default function DashboardLayout({
   }, []);
 
   return (
-    <div className="tenacios-shell" style={{ minHeight: "100vh" }}>
-      <KeyboardShortcuts />
-      <Dock />
-      <TopBar />
-      
-      <main
-        style={{
-          marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
-          marginTop: "48px", // Height of top bar
-          marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
-          minHeight: "calc(100vh - 48px - 32px)",
-          padding: isMobile ? "16px" : "24px",
-          overflow: "hidden", // contain children that use negative margins
-        }}
-      >
-        <PageBreadcrumbs />
-        {children}
-      </main>
+    <DemoModeProvider>
+      <div className="tenacios-shell" style={{ minHeight: "100vh" }}>
+        <KeyboardShortcuts />
+        <Dock />
+        <TopBar />
 
-      <QuickActionBar />
-      {!isMobile && <StatusBar />}
-    </div>
+        <main
+          style={{
+            marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
+            marginTop: "48px", // Height of top bar
+            marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
+            minHeight: "calc(100vh - 48px - 32px)",
+            padding: isMobile ? "16px" : "24px",
+            overflow: "hidden", // contain children that use negative margins
+          }}
+        >
+          <PageBreadcrumbs />
+          {children}
+        </main>
+
+        <QuickActionBar />
+        {!isMobile && <StatusBar />}
+      </div>
+    </DemoModeProvider>
   );
 }

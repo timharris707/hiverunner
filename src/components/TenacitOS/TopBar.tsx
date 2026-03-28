@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Bell, User, Command, Search, Settings, LogOut, ChevronDown } from "lucide-react";
+import { Bell, User, Command, Search, Settings, LogOut, ChevronDown, Eye, EyeOff } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
+import { useDemoMode } from "@/lib/demo-mode";
 import Link from "next/link";
 
 export function TopBar() {
@@ -11,6 +12,7 @@ export function TopBar() {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
+  const { isDemoMode, toggleDemoMode } = useDemoMode();
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -108,8 +110,52 @@ export function TopBar() {
           </span>
         </div>
 
-        {/* Right: Notifications + User */}
+        {/* Right: Demo Toggle + Notifications + User */}
         <div className="flex items-center gap-3">
+          {/* Demo Mode Toggle */}
+          <div className="flex items-center gap-2">
+            {isDemoMode && (
+              <span
+                style={{
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  letterSpacing: "1.5px",
+                  color: "#f59e0b",
+                  fontFamily: "var(--font-heading)",
+                  textTransform: "uppercase" as const,
+                }}
+              >
+                DEMO MODE
+              </span>
+            )}
+            <button
+              onClick={toggleDemoMode}
+              title={isDemoMode ? "Exit demo mode" : "Enter demo mode — hide sensitive data"}
+              className="flex items-center justify-center transition-all"
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                backgroundColor: isDemoMode ? "#f59e0b20" : "transparent",
+                border: isDemoMode ? "1px solid #f59e0b40" : "1px solid transparent",
+                color: isDemoMode ? "#f59e0b" : "var(--text-muted)",
+                cursor: "pointer",
+              }}
+              onMouseEnter={(e) => {
+                if (!isDemoMode) {
+                  e.currentTarget.style.backgroundColor = "var(--surface-elevated)";
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isDemoMode) {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                }
+              }}
+            >
+              {isDemoMode ? <EyeOff style={{ width: "16px", height: "16px" }} /> : <Eye style={{ width: "16px", height: "16px" }} />}
+            </button>
+          </div>
+
           {/* Notifications Dropdown */}
           <NotificationDropdown />
 

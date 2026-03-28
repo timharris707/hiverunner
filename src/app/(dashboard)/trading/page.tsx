@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { useDemoMode, maskDollar, maskKey, maskConnectionSubtext } from "@/lib/demo-mode";
 
 const TRADERS = [
   {
@@ -262,6 +263,9 @@ function shortTime(dateStr: string | null | undefined): string {
 }
 
 export default function TradingPage() {
+  const { isDemoMode } = useDemoMode();
+  const $ = (val: number | null | undefined, prefix = "$") =>
+    isDemoMode ? maskDollar(val, prefix) : val == null ? "—" : `${prefix}${val.toFixed(2)}`;
   const [connStatus, setConnStatus] = useState<ConnectionStatus | null>(null);
   const [cryptoPrices, setCryptoPrices] = useState<CryptoPrices>({});
   const [priceLoading, setPriceLoading] = useState(true);
@@ -340,23 +344,29 @@ export default function TradingPage() {
     {
       label: "Coinbase API",
       configured: coinbaseConfigured,
-      subtext: coinbaseConfigured
-        ? `Connected (${connStatus?.coinbase?.keyId?.slice(-6) ?? "..."})`
-        : "Not connected",
+      subtext: isDemoMode
+        ? maskConnectionSubtext("", coinbaseConfigured)
+        : coinbaseConfigured
+          ? `Connected (${connStatus?.coinbase?.keyId?.slice(-6) ?? "..."})`
+          : "Not connected",
     },
     {
       label: "Kalshi API",
       configured: kalshiConfigured,
-      subtext: kalshiConfigured
-        ? `Connected (${connStatus?.kalshi?.keyId ?? "..."})`
-        : "Not configured",
+      subtext: isDemoMode
+        ? maskConnectionSubtext("", kalshiConfigured)
+        : kalshiConfigured
+          ? `Connected (${connStatus?.kalshi?.keyId ?? "..."})`
+          : "Not configured",
     },
     {
       label: "Polymarket",
       configured: polymarketConfigured,
-      subtext: polymarketConfigured
-        ? `Connected (${connStatus?.polymarket?.keyId ?? "..."})`
-        : "Not configured",
+      subtext: isDemoMode
+        ? maskConnectionSubtext("", polymarketConfigured)
+        : polymarketConfigured
+          ? `Connected (${connStatus?.polymarket?.keyId ?? "..."})`
+          : "Not configured",
     },
     {
       label: "Binance API",
@@ -477,7 +487,7 @@ export default function TradingPage() {
                   className="text-xl font-bold mt-2"
                   style={{ fontFamily: "var(--font-heading)", color: price ? "var(--text-primary)" : "var(--text-muted)" }}
                 >
-                  {priceLoading ? "\u2014" : priceError ? "N/A" : price ? formatPrice(price) : "\u2014"}
+                  {priceLoading ? "\u2014" : priceError ? "N/A" : price ? (isDemoMode ? "$XX,XXX" : formatPrice(price)) : "\u2014"}
                 </div>
                 {change !== undefined && !priceLoading && !priceError && (
                   <div
@@ -552,19 +562,19 @@ export default function TradingPage() {
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bankroll</div>
                   <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                    ${ls.bankroll?.toFixed(2) ?? "\u2014"}
+                    {$(ls.bankroll)}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Deployed</div>
                   <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
-                    ${ls.openExposure.toFixed(2)}
+                    {$(ls.openExposure)}
                   </div>
                 </div>
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cash</div>
                   <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                    {cashAvailable != null ? `$${cashAvailable.toFixed(2)}` : "\u2014"}
+                    {$(cashAvailable)}
                   </div>
                 </div>
                 <div>
@@ -579,7 +589,7 @@ export default function TradingPage() {
                     fontFamily: "var(--font-heading)",
                     color: ls.totalPnl >= 0 ? "#4ade80" : "#ef4444",
                   }}>
-                    {ls.totalPnl >= 0 ? "+" : ""}${ls.totalPnl.toFixed(2)}
+                    {$(ls.totalPnl)}
                   </div>
                 </div>
                 <div>
@@ -634,7 +644,7 @@ export default function TradingPage() {
             <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
               <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Bankroll</div>
               <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                {ls?.bankroll != null ? `$${ls.bankroll.toFixed(2)}` : "$\u2014"}
+                {$(ls?.bankroll)}
               </div>
             </div>
             <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
@@ -719,15 +729,15 @@ export default function TradingPage() {
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
-                            {(pos.price * 100).toFixed(0)}¢
+                            {isDemoMode ? "XX¢" : `${(pos.price * 100).toFixed(0)}¢`}
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{pos.quantity}</span>
+                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{isDemoMode ? "XX" : pos.quantity}</span>
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                            ${pos.cost.toFixed(2)}
+                            {$(pos.cost)}
                           </span>
                         </td>
                         <td className="px-3 py-2">
@@ -838,7 +848,7 @@ export default function TradingPage() {
                               className="text-xs font-bold"
                               style={{ color: isWin ? "#4ade80" : "#ef4444" }}
                             >
-                              {rp.pnl >= 0 ? "+" : ""}${rp.pnl.toFixed(2)}
+                              {$(rp.pnl)}
                             </span>
                           </td>
                           <td className="px-3 py-2">
@@ -895,12 +905,12 @@ export default function TradingPage() {
                         </div>
                         <div className="text-right">
                           <div className="text-xs font-bold" style={{ color: "var(--text-primary)" }}>
-                            ${city.total_deployed.toFixed(2)}
+                            {$(city.total_deployed)}
                           </div>
                           <div className="text-xs" style={{
                             color: city.realized_pnl > 0 ? "#4ade80" : city.realized_pnl < 0 ? "#ef4444" : "var(--text-muted)",
                           }}>
-                            {city.realized_pnl !== 0 ? `${city.realized_pnl >= 0 ? "+" : ""}$${city.realized_pnl.toFixed(2)}` : "$0.00"} P&L
+                            {isDemoMode ? maskDollar(city.realized_pnl) : (city.realized_pnl !== 0 ? `${city.realized_pnl >= 0 ? "+" : ""}$${city.realized_pnl.toFixed(2)}` : "$0.00")} P&L
                           </div>
                           {(city.won > 0 || city.lost > 0) && (
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -968,7 +978,7 @@ export default function TradingPage() {
               </div>
               <div className="text-center py-4">
                 <div className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: ls?.openExposure ? "#60a5fa" : "var(--text-muted)" }}>
-                  {ls ? `$${ls.openExposure.toFixed(2)}` : "$\u2014"}
+                  {$(ls?.openExposure)}
                 </div>
                 <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                   {ls?.openTrades ?? 0} open position{(ls?.openTrades ?? 0) !== 1 ? "s" : ""}
@@ -1028,7 +1038,7 @@ export default function TradingPage() {
                     ? ls.totalPnl >= 0 ? "#4ade80" : "#ef4444"
                     : "var(--text-muted)",
                 }}>
-                  {ls ? `${ls.totalPnl >= 0 ? "+" : ""}$${ls.totalPnl.toFixed(2)}` : "$\u2014"}
+                  {$(ls?.totalPnl)}
                 </div>
                 <div className="text-xs" style={{ color: "var(--text-muted)" }}>Paper trading mode</div>
                 <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#4ade8010", color: "#4ade80" }}>
@@ -1059,7 +1069,7 @@ export default function TradingPage() {
                       <span style={{ color: "var(--text-muted)" }}>{trade.target_date}</span>
                     </div>
                     <div className="flex items-center gap-3">
-                      <span style={{ color: "var(--text-secondary)" }}>${trade.cost.toFixed(2)}</span>
+                      <span style={{ color: "var(--text-secondary)" }}>{$(trade.cost)}</span>
                       <span className="font-medium px-1.5 py-0.5 rounded" style={{
                         backgroundColor: trade.status === "open" ? "#60a5fa15" : trade.status === "won" ? "#4ade8015" : "#ef444415",
                         color: trade.status === "open" ? "#60a5fa" : trade.status === "won" ? "#4ade80" : "#ef4444",
