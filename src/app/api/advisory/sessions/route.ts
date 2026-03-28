@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels, agentResponseLengths } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels, agentResponseLengths, moderator } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -98,14 +98,15 @@ export async function POST(req: NextRequest) {
       ...(agentResponseLengths && Object.keys(agentResponseLengths).length > 0 ? { agentResponseLengths } : {}),
       ...(reviewLoop ? { reviewLoop } : {}),
       ...(competitiveState ? { competitive: competitiveState } : {}),
+      ...(moderator ? { moderator } : {}),
       events: [
         {
           id: "evt_001",
           timestamp: now,
           type: "start",
-          speaker: reviewLoop?.supervisorAgent || "Henry",
+          speaker: reviewLoop?.supervisorAgent || moderator || "Henry",
           emoji: isCompetitive ? "⚔️" : "⚡",
-          role: "supervisor",
+          role: moderator ? "moderator" : "supervisor",
           text: startText,
         },
       ],

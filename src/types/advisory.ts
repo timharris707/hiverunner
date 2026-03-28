@@ -6,7 +6,7 @@ export interface AdvisoryEvent {
   type: string;
   speaker: string;
   emoji: string;
-  role: "worker" | "supervisor" | "reviewer";
+  role: "worker" | "supervisor" | "reviewer" | "moderator";
   text: string;
   verdict?: string;
   model?: string;
@@ -80,6 +80,7 @@ export interface AdvisorySession {
   agentCommunicationStyles?: Record<string, string>;
   agentIntensityLevels?: Record<string, number>;
   agentResponseLengths?: Record<string, string>;
+  moderator?: string;
 }
 
 export interface ReviewTaskState {

@@ -544,6 +544,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   // Track which per-agent personality sections are expanded
   const [expandedPersonality, setExpandedPersonality] = useState<Set<string>>(new Set());
   const MAX_OVERLAYS_PER_AGENT = 2;
+  // Moderator selection (roundtable only) — defaults to Henry if present
+  const [moderator, setModerator] = useState<string>("Henry");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -587,6 +589,16 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
       });
     }
   };
+
+  // Auto-select moderator: Henry if present, else first selected agent
+  useEffect(() => {
+    if (mode !== "roundtable") return;
+    if (selectedAgents.includes("Henry")) {
+      setModerator("Henry");
+    } else if (selectedAgents.length > 0 && !selectedAgents.includes(moderator)) {
+      setModerator(selectedAgents[0]);
+    }
+  }, [selectedAgents, mode, moderator]);
 
   const toggleAgentOverlay = (agentId: string, overlayId: string) => {
     setPersonaOverlays((prev) => {
@@ -1035,6 +1047,36 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                 ))}
               </div>
             </div>
+
+            {/* ─── Competitive Mode: Pitch Card ─── */}
+            {mode === "competitive" && (
+              <div style={{
+                marginBottom: "20px",
+                padding: "16px 18px",
+                borderRadius: "10px",
+                border: "1px solid rgba(251,191,36,0.35)",
+                backgroundColor: "rgba(251,191,36,0.04)",
+              }}>
+                <div style={{ fontSize: "13px", fontWeight: 700, color: "#fbbf24", marginBottom: "6px", fontFamily: "var(--font-heading)", letterSpacing: "-0.01em" }}>
+                  ⚔️ 5 AI advisors. 5 wild ideas. 1 winner.
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: "5px" }}>
+                  {[
+                    { round: "Round 1", icon: "🎯", label: "PITCH", desc: "Each agent pitches their boldest, most original idea" },
+                    { round: "Round 2", icon: "🔥", label: "CRITIQUE", desc: "Agents tear each other's pitches apart by name" },
+                    { round: "Round 3", icon: "🗳️", label: "VOTE", desc: "Agents vote for the best idea — not their own" },
+                    { round: "Final", icon: "🏆", label: "RESULTS", desc: "Ranked leaderboard with vote counts and reasoning" },
+                  ].map((r) => (
+                    <div key={r.round} style={{ display: "flex", alignItems: "baseline", gap: "8px" }}>
+                      <span style={{ fontSize: "9px", fontWeight: 700, color: "var(--text-muted)", fontFamily: "var(--font-mono)", minWidth: "50px" }}>{r.round}</span>
+                      <span style={{ fontSize: "9px" }}>{r.icon}</span>
+                      <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", fontFamily: "var(--font-mono)", minWidth: "58px" }}>{r.label}</span>
+                      <span style={{ fontSize: "11px", color: "var(--text-secondary)" }}>{r.desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* ─── Review Mode: Task List + Role Assignment ─── */}
             {mode === "review" && (

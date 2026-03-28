@@ -1171,6 +1171,22 @@ export default function AdvisoryPage() {
                       }}>
                         {activeSession.mode}
                       </span>
+                      {activeSession.mode === "competitive" && (() => {
+                        const phase = (sessionData?.competitive as { phase?: string } | undefined)?.phase;
+                        const phaseMap: Record<string, { label: string; color: string; bg: string; border: string }> = {
+                          pitch: { label: "⚔️ PITCH", color: "#a78bfa", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.3)" },
+                          critique: { label: "🔥 CRITIQUE", color: "#fb923c", bg: "rgba(251,146,60,0.12)", border: "rgba(251,146,60,0.3)" },
+                          vote: { label: "🗳️ VOTE", color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+                          complete: { label: "🏆 DONE", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
+                        };
+                        const p = phaseMap[phase || "pitch"];
+                        if (!p) return null;
+                        return (
+                          <span style={{ fontSize: "9px", fontWeight: 700, color: p.color, backgroundColor: p.bg, border: `1px solid ${p.border}`, padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>
+                            {p.label}
+                          </span>
+                        );
+                      })()}
                       {!!sessionData?.specialist && (
                         <span style={{ fontSize: "9px", fontWeight: 700, color: "#10b981", backgroundColor: "rgba(16,185,129,0.12)", border: "1px solid rgba(16,185,129,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <Focus size={9} /> DEEP DIVE
@@ -1297,8 +1313,49 @@ export default function AdvisoryPage() {
               {/* Events stream — full width center area */}
               <div style={{ display: "flex", flex: 1, overflow: "hidden", minWidth: 0 }}>
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", minWidth: 0 }}>
-                  {/* Persistent round indicator */}
-                  {activeSession?.status === "active" && events.length > 0 && (
+                  {/* Competitive phase progress bar */}
+                  {activeSession?.status === "active" && activeSession.mode === "competitive" && events.length > 0 && (() => {
+                    const phase = (sessionData?.competitive as { phase?: string } | undefined)?.phase || "pitch";
+                    const phases = [
+                      { id: "pitch", icon: "🎯", label: "Pitch", color: "#a78bfa" },
+                      { id: "critique", icon: "🔥", label: "Critique", color: "#fb923c" },
+                      { id: "vote", icon: "🗳️", label: "Vote", color: "#34d399" },
+                      { id: "complete", icon: "🏆", label: "Done", color: "#fbbf24" },
+                    ];
+                    const activeIdx = phases.findIndex((p) => p.id === phase);
+                    return (
+                      <div style={{ padding: "10px 24px", backgroundColor: "var(--surface)", borderBottom: "1px solid var(--border)", flexShrink: 0, display: "flex", alignItems: "center", gap: "0" }}>
+                        {phases.slice(0, 3).map((p, i) => {
+                          const isDone = activeIdx > i;
+                          const isCurrent = activeIdx === i;
+                          const isLast = i === 2;
+                          return (
+                            <div key={p.id} style={{ display: "flex", alignItems: "center", flex: isLast ? "0 0 auto" : 1 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "5px" }}>
+                                <span style={{ fontSize: "12px" }}>{p.icon}</span>
+                                <span style={{
+                                  fontSize: "10px", fontWeight: 700, letterSpacing: "0.05em",
+                                  color: isCurrent ? p.color : isDone ? "var(--text-secondary)" : "var(--text-muted)",
+                                  fontFamily: "var(--font-mono)",
+                                  textDecoration: isDone ? "line-through" : "none",
+                                  opacity: isDone ? 0.6 : 1,
+                                }}>
+                                  {p.label}
+                                  {isCurrent && <span style={{ color: p.color, marginLeft: "4px" }}>←</span>}
+                                </span>
+                              </div>
+                              {!isLast && (
+                                <div style={{ flex: 1, height: "2px", margin: "0 8px", borderRadius: "1px", backgroundColor: isDone ? "var(--text-muted)" : "var(--border)", opacity: isDone ? 0.4 : 1 }} />
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
+
+                  {/* Persistent round indicator (non-competitive) */}
+                  {activeSession?.status === "active" && activeSession.mode !== "competitive" && events.length > 0 && (
                     <div style={{
                       padding: "8px 24px",
                       backgroundColor: "var(--surface)",
@@ -1473,12 +1530,29 @@ export default function AdvisoryPage() {
                               </div>
                               {comp.votes.length > 0 && (
                                 <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border)" }}>
-                                  <div style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>VOTE BREAKDOWN</div>
-                                  {comp.votes.map((v, i) => (
-                                    <div key={i} style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "2px" }}>
-                                      <strong>{v.voter}</strong> → {v.votedFor}
-                                    </div>
-                                  ))}
+                                  <div style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>VOTE BREAKDOWN</div>
+                                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                    {comp.votes.map((v, i) => {
+                                      // Extract reasoning: strip the **VOTE: X** line and return the rest
+                                      const reasoning = v.reasoning
+                                        .replace(/^\*\*VOTE:\s*\w+\*\*\s*/i, "")
+                                        .replace(/^VOTE:\s*\w+\s*/i, "")
+                                        .trim()
+                                        .slice(0, 200);
+                                      return (
+                                        <div key={i} style={{ padding: "8px 10px", borderRadius: "6px", backgroundColor: "var(--surface)", border: "1px solid var(--border)" }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: reasoning ? "4px" : "0" }}>
+                                            <span style={{ fontSize: "11px", fontWeight: 700, color: "var(--text-primary)" }}>{v.voter}</span>
+                                            <span style={{ fontSize: "10px", color: "var(--text-muted)" }}>→</span>
+                                            <span style={{ fontSize: "11px", fontWeight: 700, color: "#fbbf24" }}>{v.votedFor}</span>
+                                          </div>
+                                          {reasoning && (
+                                            <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.5 }}>{reasoning}{v.reasoning.length > 200 ? "…" : ""}</div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 </div>
                               )}
                             </div>

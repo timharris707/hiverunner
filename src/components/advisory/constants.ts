@@ -202,6 +202,7 @@ export function getEventStyle(event: AdvisoryEvent): { bg: string; border: strin
   if (type === "complete") return { bg: "rgba(74, 222, 128, 0.08)", border: "rgba(74, 222, 128, 0.3)", badge: "#4ade80" };
   if (type === "approve" || event.verdict === "approve") return { bg: "rgba(74, 222, 128, 0.06)", border: "rgba(74, 222, 128, 0.25)", badge: "#4ade80" };
   if (type === "reject" || event.verdict === "reject") return { bg: "rgba(239, 68, 68, 0.06)", border: "rgba(239, 68, 68, 0.25)", badge: "#ef4444" };
+  if (role === "moderator") return { bg: "rgba(168, 85, 247, 0.08)", border: "rgba(168, 85, 247, 0.3)", badge: "#a855f7" };
   if (role === "supervisor") return { bg: "rgba(251, 146, 60, 0.06)", border: "rgba(251, 146, 60, 0.2)", badge: "#fb923c" };
   if (role === "reviewer") return { bg: "rgba(96, 165, 250, 0.06)", border: "rgba(96, 165, 250, 0.2)", badge: "#60a5fa" };
   return { bg: "rgba(100, 116, 139, 0.05)", border: "rgba(100, 116, 139, 0.15)", badge: "#94a3b8" };
@@ -221,6 +222,7 @@ export function getEventIcon(type: string, verdict?: string): string {
 export function getRoleBadge(role: string, type?: string, speaker?: string): { label: string; color: string } {
   if (speaker === "Tim") return { label: "HUMAN", color: "#fbbf24" };
   if (type === "start" || type === "complete") return { label: "SYSTEM", color: "#8b5cf6" };
+  if (role === "moderator") return { label: "MODERATOR", color: "#a855f7" };
   if (role === "supervisor") return { label: "SUPERVISOR", color: "#fb923c" };
   if (role === "reviewer") return { label: "REVIEWER", color: "#60a5fa" };
   return { label: "WORKER", color: "#94a3b8" };
