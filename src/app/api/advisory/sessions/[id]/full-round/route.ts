@@ -73,12 +73,64 @@ function resolveOverlayContent(overlayId: string, aiPersonas?: Array<{ id: strin
   return null;
 }
 
-function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>, responseLength: string = "balanced"): string {
+const TRAIT_DESCRIPTIONS: Record<string, string> = {
+  Skeptical: "Question every assumption aggressively. Demand hard evidence before accepting any claim. Flag weak logic, hand-waving, and wishful thinking without mercy.",
+  Encouraging: "Amplify good ideas and build your teammates up. Lead with genuine positivity, but always pair it with substance — cheerleading without insight is worthless.",
+  Difficult: "Be the toughest person in the room. Challenge everything, push back hard, and make people earn their conclusions. Don't let anything slide uncontested.",
+  Shy: "Hold back. Only speak when you have something genuinely critical to add. Be sparing with your words — your silence is as meaningful as your voice.",
+  Bold: "Take big swings and make strong claims. Don't hedge — plant your flag and defend it. Speak with the conviction of someone who has done the homework.",
+  Cautious: "Lead with risks before opportunities. Flag what could go wrong, what assumptions are unproven, what second-order effects haven't been considered. Be the voice of disciplined restraint.",
+  Provocative: "Stir the pot deliberately. Say the uncomfortable thing nobody else will. Challenge conventional wisdom with sharp contrarian takes designed to surface hidden tensions.",
+  Empathetic: "Center the human impact in every recommendation. Consider the downstream effects on people — team members, customers, stakeholders. Advocate for those whose voices aren't in the room.",
+  Analytical: "Lead with data and structured first-principles reasoning. Break every claim into its components. Show your work. Unpack assumptions. Numbers before narratives.",
+  Creative: "Think laterally and make unexpected connections. Propose unconventional solutions that others wouldn't consider. Prioritize originality over safety.",
+};
+
+const COMM_STYLE_DESCRIPTIONS: Record<string, string> = {
+  Verbose: "Give full analysis — multiple paragraphs, extensive supporting detail, thorough coverage of all angles. Leave nothing unsaid.",
+  Concise: "Absolute minimum. One key point, one concrete recommendation. Cut everything else. If it can be said in one sentence, say it in one sentence.",
+  Thoughtful: "Measured and deliberate. Pause to consider before asserting. Qualify claims where genuinely uncertain. Prioritize precision over speed.",
+  "Rapid-fire": "Short punchy sentences only. Fire rapid volleys. Build momentum through speed. No essays — maximum one paragraph per point.",
+};
+
+function buildPersonalityBlock(
+  traits: string[],
+  commStyle: string | undefined,
+  intensity: number | undefined
+): string {
+  if (!traits?.length && !commStyle && intensity == null) return "";
+  const lines: string[] = ["\n**Personality configuration for this session (overrides your default style):**"];
+  if (traits?.length > 0) {
+    lines.push(`\n**Active traits:** ${traits.join(", ")}`);
+    for (const t of traits) {
+      const desc = TRAIT_DESCRIPTIONS[t];
+      if (desc) lines.push(`- *${t}*: ${desc}`);
+    }
+  }
+  if (commStyle && COMM_STYLE_DESCRIPTIONS[commStyle]) {
+    lines.push(`\n**Communication style:** ${commStyle} — ${COMM_STYLE_DESCRIPTIONS[commStyle]}`);
+  }
+  if (intensity != null) {
+    const c = Math.max(1, Math.min(10, Math.round(intensity)));
+    const label = c <= 3 ? "Gentle" : c <= 6 ? "Moderate" : c <= 8 ? "Assertive" : "Aggressive";
+    lines.push(`\n**Intensity: ${c}/10 (${label})** — ${
+      c <= 3 ? "Be diplomatic and collegial. Choose words carefully. Preserve relationships."
+      : c <= 6 ? "Direct but professional. Standard advisory intensity."
+      : c <= 8 ? "Forceful and confident. Push hard. Don't soften your opinions."
+      : "Uncompromising and confrontational. Refuse to soften. Don't back down from friction."
+    }`);
+  }
+  lines.push("\nThese modifiers are in effect for the entire session. Let them shape your voice noticeably.");
+  return lines.join("\n");
+}
+
+function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>, responseLength: string = "balanced", personalityTraits?: string[], communicationStyle?: string, intensityLevel?: number): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   const overlayContent = agentOverlay ? resolveOverlayContent(agentOverlay, aiPersonas) : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
   const referenceBlock = referenceContext ? `\n\n**Reference material provided for this session:**\n${referenceContext}\n` : "";
+  const personalityBlock = buildPersonalityBlock(personalityTraits || [], communicationStyle, intensityLevel);
 
   const LENGTH_STYLES: Record<string, string> = {
     concise: "YOU ARE IN CONCISE MODE. THIS IS YOUR #1 PRIORITY — OVERRIDE ALL OTHER INSTRUCTIONS.\n\nRULES:\n- MAXIMUM 3-4 sentences total. Not paragraphs. SENTENCES.\n- NO headers. NO bullet lists. NO markdown formatting.\n- NO preamble. Just state your one sharp take and shut up.\n- If your response exceeds 80 words, you have FAILED.\n\nThis constraint is MORE important than being thorough. Brevity IS the value.",
@@ -88,7 +140,7 @@ function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOv
   };
   const lengthInstruction = LENGTH_STYLES[responseLength] || LENGTH_STYLES.balanced;
 
-  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\n**Response length: ${responseLength.toUpperCase()}**\n${lengthInstruction}\n\nYour communication style:\n- Speak authoritatively from your expertise\n- Build on what others said — reference participants by name\n- Be strongly opinionated — no hedging\n- Never use filler phrases — dive straight into your analysis\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
+  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}${personalityBlock}\nYou are participating in a persistent roundtable discussion.\n\n**Response length: ${responseLength.toUpperCase()}**\n${lengthInstruction}\n\nYour communication style:\n- Speak authoritatively from your expertise\n- Build on what others said — reference participants by name\n- Be strongly opinionated — no hedging\n- Never use filler phrases — dive straight into your analysis\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
 }
 
 function buildHistoryString(events: Array<{ speaker: string; text: string; type: string }>): string {
@@ -152,7 +204,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths } = session;
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -202,7 +254,12 @@ export async function POST(
       const agentResponseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
       const agentMaxTokens = LENGTH_MAX_TOKENS[agentResponseLength] ?? 2048;
 
-      const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, agentResponseLength);
+      const systemPrompt = buildSystemPrompt(
+        agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, agentResponseLength,
+        (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+        (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+        (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+      );
       const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nThis is a new full round. Build on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
 
       let text = "";
