@@ -25,6 +25,7 @@ const LABEL_MAP: Record<string, string> = {
   terminal: "Terminal",
   office: "3D Office",
   factory: "Factory Floor",
+  pipeline: "Pipeline",
   activity: "Activity",
   analytics: "Analytics",
   about: "About",

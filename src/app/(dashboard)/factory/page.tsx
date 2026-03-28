@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { getAgentByAnyId } from "@/config/agents";
 
@@ -516,6 +517,22 @@ export default function SoftwareFactoryPage() {
         <div className="mb-5">
           <h1 className="m-0 flex items-center gap-2" style={{ fontSize: 26, fontWeight: 800, color: "#fff", fontFamily: "var(--font-heading, var(--font-body))", letterSpacing: "-0.02em" }}>{"\u{1F3ED}"} Software Factory</h1>
           <p className="m-0 mt-1" style={{ fontSize: 13, color: "rgba(199,210,254,0.7)", fontFamily: "var(--font-mono)" }}>Live build status from the factory floor — polling every 5s</p>
+          <Link
+            href="/factory/pipeline"
+            className="inline-flex items-center gap-1.5 mt-2 rounded-lg transition-colors hover:opacity-90"
+            style={{
+              padding: "6px 12px",
+              fontSize: 11,
+              fontWeight: 600,
+              fontFamily: "var(--font-mono)",
+              backgroundColor: "rgba(139,92,246,0.15)",
+              border: "1px solid rgba(139,92,246,0.35)",
+              color: "#a78bfa",
+              textDecoration: "none",
+            }}
+          >
+            {"\u{1F680}"} Software Factory Pipeline
+          </Link>
           <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.22)", color: "#bbf7d0", fontSize: 11, fontFamily: "var(--font-mono)" }}>
             <span>{"\u{1F7E2}"}</span>
             {loading ? "Syncing factory state..." : `Factory synced \u2022 ${builds.length} builds \u2022 ${tasks.length} tasks \u2022 ${projects.length} projects`}
