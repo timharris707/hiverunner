@@ -6,6 +6,7 @@ import { randomUUID } from "crypto";
 import os from "os";
 import { routeTask } from "@/lib/llm-router";
 import { evaluateTask, drainDeferredQueue, removeDeferredTask, type SchedulingVerdict } from "@/lib/quota-scheduler";
+import { appendTaskToLog, importExternalTasks } from "@/lib/tasks-log";
 
 const DATA_DIR = join(process.cwd(), "data");
 const TASKS_FILE = join(DATA_DIR, "tasks.json");
@@ -39,6 +40,8 @@ const PROJECT_DIRS: Record<string, string> = {
 };
 
 let lastReconcileAt = 0;
+let lastLogSyncAt = 0;
+const LOG_SYNC_INTERVAL_MS = 60_000; // sync from tasks-log.md at most once per minute
 
 type BuildExecutorDecision = {
   agentType: "claude-code" | "codex";
@@ -149,15 +152,41 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
   ].join("\n");
 }
 
+// Maps routing tiers to executable Claude models.
+// Gemini tiers are ideal for research/large-context work but execute via Claude
+// with an enriched prompt, since the build runner uses the `claude` CLI.
+const CLAUDE_MODEL_MAP: Record<string, { id: string; name: string }> = {
+  opus: { id: "anthropic/claude-opus-4-6", name: "Opus 4.6" },
+  haiku: { id: "anthropic/claude-haiku-3-5", name: "Haiku 3.5" },
+  sonnet: { id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6" },
+};
+
+const GEMINI_FALLBACK_MAP: Record<string, { claudeModel: string; reason: string }> = {
+  "gemini-flash": {
+    claudeModel: "sonnet",
+    reason: "Router preferred Gemini Flash for search/aggregation — falling back to Sonnet (Claude executor only)",
+  },
+  "gemini-pro": {
+    claudeModel: "opus",
+    reason: "Router preferred Gemini Pro for large-context analysis — falling back to Opus (Claude executor only)",
+  },
+};
+
 function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
-  const tier = routing?.tier;
-  const claudeModel = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
-  const modelMap: Record<string, { id: string; name: string }> = {
-    opus: { id: "anthropic/claude-opus-4-6", name: "Opus 4.6" },
-    haiku: { id: "anthropic/claude-haiku-3-5", name: "Haiku 3.5" },
-    sonnet: { id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6" },
-  };
-  const model = modelMap[claudeModel];
+  const tier: string = routing?.tier || "sonnet";
+
+  let claudeModel: string;
+  let fallbackReason: string | undefined;
+
+  const geminiFallback = GEMINI_FALLBACK_MAP[tier];
+  if (geminiFallback) {
+    claudeModel = geminiFallback.claudeModel;
+    fallbackReason = geminiFallback.reason;
+  } else {
+    claudeModel = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
+  }
+
+  const model = CLAUDE_MODEL_MAP[claudeModel];
   const executorLabel = `Claude Code · ${model.name}`;
   const prompt = buildPrompt(task, projectName, executorLabel);
 
@@ -167,6 +196,7 @@ function selectBuildExecutor(routing: any, task: any, projectName: string): Buil
     args: ["--permission-mode", "bypassPermissions", "--model", claudeModel, "--print", prompt],
     actualModelId: model.id,
     actualModelName: model.name,
+    fallbackReason,
   };
 }
 
@@ -303,6 +333,7 @@ function notifyTaskCompletion(task: any, outcome: "done" | "review" | "failed") 
     const text = `✅ Task complete: ${taskLabel}${project}${model}${summaryLine}`;
     sendTelegramNotification(text);
     createInAppNotification("Task Completed", `${taskLabel}${summary ? ` — ${summary.slice(0, 100)}` : ""}`, "success");
+    appendTaskToLog(task, "done");
   } else if (outcome === "review") {
     const reviewReason = task.tags?.length ? ` [${task.tags.join(", ")}]` : "";
     const text = `🔍 Ready for review: ${taskLabel}${project}${model}${reviewReason}${summaryLine}`;
@@ -313,6 +344,7 @@ function notifyTaskCompletion(task: any, outcome: "done" | "review" | "failed") 
     const text = `❌ Task failed: ${taskLabel}${project}${model}${errorSnippet}`;
     sendTelegramNotification(text);
     createInAppNotification("Task Failed", `${taskLabel}${task.buildError ? ` — ${String(task.buildError).slice(0, 100)}` : ""}`, "error");
+    appendTaskToLog(task, "failed");
   }
 }
 
@@ -554,6 +586,21 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       writeTasks(tasks);
     }
 
+    // Inbound sync: import external tasks from tasks-log.md (throttled to once per minute)
+    let importedCount = 0;
+    const nowMs = Date.now();
+    if (nowMs - lastLogSyncAt >= LOG_SYNC_INTERVAL_MS) {
+      lastLogSyncAt = nowMs;
+      const freshTasks = readTasks(); // re-read to get latest state for dedup
+      const externalTasks = importExternalTasks(freshTasks);
+      if (externalTasks.length > 0) {
+        const merged = [...externalTasks, ...freshTasks];
+        writeTasks(merged);
+        importedCount = externalTasks.length;
+        console.log(`[factory] Imported ${importedCount} external tasks from tasks-log.md`);
+      }
+    }
+
     // Collect promoted task labels for notifications (emitted outside lock)
     const promotedLabels: string[] = [];
     for (const id of advancement.promoted) {
@@ -569,6 +616,7 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       promotedLabels,
       deferredDrainedIds: deferredEligible,
       taskIdsToKick: Array.from(tasksToKick),
+      importedFromLog: importedCount,
     };
   });
 

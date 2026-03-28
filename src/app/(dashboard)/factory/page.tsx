@@ -442,6 +442,97 @@ function KanbanColumn({ column, products }: { column: { id: PipelineStatus; labe
   );
 }
 
+/* ── Routing Overview: shows model distribution from recent builds ── */
+
+const TIER_COLORS: Record<string, string> = {
+  opus: "#f59e0b",
+  sonnet: "#60a5fa",
+  haiku: "#a78bfa",
+  "gemini-pro": "#34d399",
+  "gemini-flash": "#6ee7b7",
+};
+
+const TIER_LABELS: Record<string, string> = {
+  opus: "Opus",
+  sonnet: "Sonnet",
+  haiku: "Haiku",
+  "gemini-pro": "Gemini Pro",
+  "gemini-flash": "Gemini Flash",
+};
+
+function RoutingOverview({ builds }: { builds: BuildEntry[] }) {
+  const stats = useMemo(() => {
+    const recent = builds.filter((b) => b.routing?.tier);
+    const tierCounts: Record<string, number> = {};
+    let totalSavings = 0;
+    let savingsCount = 0;
+
+    for (const b of recent) {
+      const tier = b.routing!.tier!;
+      tierCounts[tier] = (tierCounts[tier] || 0) + 1;
+      if (b.routing!.savingsPercent && b.routing!.savingsPercent > 0) {
+        totalSavings += b.routing!.savingsPercent;
+        savingsCount++;
+      }
+    }
+
+    const total = recent.length;
+    const avgSavings = savingsCount > 0 ? Math.round(totalSavings / savingsCount) : 0;
+    const tiers = Object.entries(tierCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([tier, count]) => ({
+        tier,
+        count,
+        pct: total > 0 ? Math.round((count / total) * 100) : 0,
+        color: TIER_COLORS[tier] || "#64748b",
+        label: TIER_LABELS[tier] || tier,
+      }));
+
+    return { total, avgSavings, tiers };
+  }, [builds]);
+
+  if (stats.total === 0) return null;
+
+  return (
+    <div className="mx-6 mt-4 rounded-xl" style={{ padding: "14px 18px", backgroundColor: "rgba(30,27,75,0.5)", border: "1px solid rgba(99,102,241,0.18)" }}>
+      <div className="flex items-center justify-between mb-2.5">
+        <div className="flex items-center gap-2">
+          <span style={{ fontSize: 14 }}>{"\u{1F9E0}"}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#e0e7ff", fontFamily: "var(--font-mono)", letterSpacing: "0.02em" }}>Smart Router</span>
+          <span style={{ fontSize: 10, color: "rgba(199,210,254,0.5)", fontFamily: "var(--font-mono)" }}>{stats.total} routed builds</span>
+        </div>
+        {stats.avgSavings > 0 && (
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 9999, backgroundColor: "rgba(74,222,128,0.12)", color: "#4ade80", border: "1px solid rgba(74,222,128,0.25)", fontFamily: "var(--font-mono)" }}>
+            ~{stats.avgSavings}% avg savings vs Opus-only
+          </span>
+        )}
+      </div>
+
+      {/* Tier distribution bar */}
+      <div className="flex rounded-full overflow-hidden" style={{ height: 8, backgroundColor: "rgba(99,102,241,0.1)" }}>
+        {stats.tiers.map((t) => (
+          <div
+            key={t.tier}
+            style={{ width: `${t.pct}%`, backgroundColor: t.color, minWidth: t.pct > 0 ? 4 : 0, transition: "width 0.3s ease" }}
+            title={`${t.label}: ${t.count} builds (${t.pct}%)`}
+          />
+        ))}
+      </div>
+
+      {/* Tier legend */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+        {stats.tiers.map((t) => (
+          <div key={t.tier} className="flex items-center gap-1.5" style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "rgba(199,210,254,0.7)" }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, backgroundColor: t.color, display: "inline-block" }} />
+            <span style={{ fontWeight: 600, color: t.color }}>{t.label}</span>
+            <span>{t.count} ({t.pct}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 const COLUMNS: { id: PipelineStatus; label: string; emoji: string; accent: string }[] = [
   { id: "backlog", label: "Backlog", emoji: "\u{1F4CB}", accent: "#6366f1" },
   { id: "building", label: "Building", emoji: "\u{1F528}", accent: "#f59e0b" },
@@ -598,6 +689,7 @@ export default function SoftwareFactoryPage() {
         </div>
       </div>
 
+      <RoutingOverview builds={builds} />
       <ConveyorBelt builds={builds} />
       <WorkshopFloor sprites={sprites} />
 
