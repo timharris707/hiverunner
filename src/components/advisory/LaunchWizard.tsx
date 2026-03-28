@@ -490,6 +490,15 @@ function OverlayCatalogModal({
   );
 }
 
+// ─── Personality trait definitions ────────────────────────────────────────────
+
+const PERSONALITY_TRAITS = [
+  "Skeptical", "Encouraging", "Difficult", "Shy", "Bold",
+  "Cautious", "Provocative", "Empathetic", "Analytical", "Creative",
+] as const;
+
+const COMM_STYLES = ["Verbose", "Concise", "Thoughtful", "Rapid-fire"] as const;
+
 // ─── Launch Wizard ────────────────────────────────────────────────────────────
 
 interface LaunchWizardProps {
@@ -527,6 +536,12 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [overlayCatalogAgent, setOverlayCatalogAgent] = useState<string | null>(null);
   // Per-agent model overrides: { agentId: modelId } — empty means use session default
   const [agentModelOverrides, setAgentModelOverrides] = useState<Record<string, string>>({});
+  // Per-agent personality: traits, communication style, intensity
+  const [agentTraits, setAgentTraits] = useState<Record<string, string[]>>({});
+  const [agentCommStyles, setAgentCommStyles] = useState<Record<string, string>>({});
+  const [agentIntensity, setAgentIntensity] = useState<Record<string, number>>({});
+  // Track which per-agent personality sections are expanded
+  const [expandedPersonality, setExpandedPersonality] = useState<Set<string>>(new Set());
   const MAX_OVERLAYS_PER_AGENT = 2;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -718,6 +733,9 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           referenceContext: referenceContext.trim() || undefined,
           reviewLoop: reviewLoopPayload,
           agentModelOverrides: Object.keys(agentModelOverrides).length > 0 ? agentModelOverrides : undefined,
+          agentPersonalityTraits: Object.keys(agentTraits).length > 0 ? agentTraits : undefined,
+          agentCommunicationStyles: Object.keys(agentCommStyles).length > 0 ? agentCommStyles : undefined,
+          agentIntensityLevels: Object.keys(agentIntensity).length > 0 ? agentIntensity : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
@@ -1967,6 +1985,163 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                           Add Expertise
                         </button>
                       )}
+
+                      {/* Personality traits section */}
+                      <div style={{ marginTop: "10px", borderTop: "1px solid rgba(148,163,184,0.12)", paddingTop: "10px" }}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedPersonality((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(agentId)) next.delete(agentId); else next.add(agentId);
+                              return next;
+                            });
+                          }}
+                          style={{
+                            background: "none", border: "none", cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: "6px",
+                            fontSize: "10px", fontWeight: 600, color: "var(--text-muted)", padding: 0,
+                          }}
+                        >
+                          {expandedPersonality.has(agentId) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                          Personality
+                          {(agentTraits[agentId]?.length || agentCommStyles[agentId] || agentIntensity[agentId] != null) && (
+                            <span style={{ fontSize: "7px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", padding: "1px 5px", borderRadius: "3px" }}>
+                              CONFIGURED
+                            </span>
+                          )}
+                        </button>
+
+                        {expandedPersonality.has(agentId) && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            onMouseDown={(e) => e.stopPropagation()}
+                            style={{ marginTop: "10px", display: "flex", flexDirection: "column", gap: "12px" }}
+                          >
+                            {/* Trait pills */}
+                            <div>
+                              <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+                                TRAITS (multi-select)
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                                {PERSONALITY_TRAITS.map((trait) => {
+                                  const isOn = (agentTraits[agentId] || []).includes(trait);
+                                  return (
+                                    <button
+                                      key={trait}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAgentTraits((prev) => {
+                                          const curr = prev[agentId] || [];
+                                          const next = isOn ? curr.filter((t) => t !== trait) : [...curr, trait];
+                                          if (next.length === 0) { const copy = { ...prev }; delete copy[agentId]; return copy; }
+                                          return { ...prev, [agentId]: next };
+                                        });
+                                      }}
+                                      style={{
+                                        padding: "3px 9px",
+                                        borderRadius: "12px",
+                                        border: `1px solid ${isOn ? "rgba(251,191,36,0.6)" : "var(--border)"}`,
+                                        backgroundColor: isOn ? "rgba(251,191,36,0.12)" : "var(--surface)",
+                                        color: isOn ? "#fbbf24" : "var(--text-muted)",
+                                        cursor: "pointer",
+                                        fontSize: "10px",
+                                        fontWeight: isOn ? 700 : 500,
+                                        transition: "all 120ms ease",
+                                      }}
+                                    >
+                                      {trait}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Communication style */}
+                            <div>
+                              <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>
+                                COMMUNICATION STYLE
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                                {COMM_STYLES.map((style) => {
+                                  const isOn = agentCommStyles[agentId] === style;
+                                  return (
+                                    <button
+                                      key={style}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAgentCommStyles((prev) => {
+                                          if (isOn) { const copy = { ...prev }; delete copy[agentId]; return copy; }
+                                          return { ...prev, [agentId]: style };
+                                        });
+                                      }}
+                                      style={{
+                                        padding: "3px 9px",
+                                        borderRadius: "12px",
+                                        border: `1px solid ${isOn ? "rgba(52,211,153,0.6)" : "var(--border)"}`,
+                                        backgroundColor: isOn ? "rgba(52,211,153,0.12)" : "var(--surface)",
+                                        color: isOn ? "#34d399" : "var(--text-muted)",
+                                        cursor: "pointer",
+                                        fontSize: "10px",
+                                        fontWeight: isOn ? 700 : 500,
+                                        transition: "all 120ms ease",
+                                      }}
+                                    >
+                                      {style}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+
+                            {/* Intensity slider */}
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                  INTENSITY
+                                </div>
+                                <div style={{ fontSize: "10px", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                  {agentIntensity[agentId] != null
+                                    ? `${agentIntensity[agentId]}/10 · ${agentIntensity[agentId] <= 3 ? "Gentle" : agentIntensity[agentId] <= 6 ? "Moderate" : agentIntensity[agentId] <= 8 ? "Assertive" : "Aggressive"}`
+                                    : "default"}
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                                <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>Gentle</span>
+                                <input
+                                  type="range"
+                                  min={1}
+                                  max={10}
+                                  step={1}
+                                  value={agentIntensity[agentId] ?? 5}
+                                  onChange={(e) => {
+                                    const val = Number(e.target.value);
+                                    setAgentIntensity((prev) => ({ ...prev, [agentId]: val }));
+                                  }}
+                                  onClick={(e) => e.stopPropagation()}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                  style={{ flex: 1, accentColor: "#f59e0b", cursor: "pointer" }}
+                                />
+                                <span style={{ fontSize: "9px", color: "var(--text-muted)" }}>Aggressive</span>
+                                {agentIntensity[agentId] != null && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAgentIntensity((prev) => { const copy = { ...prev }; delete copy[agentId]; return copy; });
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: "10px", padding: "0 2px" }}
+                                    title="Reset to default"
+                                  >✕</button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   );
                 })}

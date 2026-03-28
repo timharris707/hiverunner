@@ -61,6 +61,9 @@ export interface AdvisorySession {
   referenceContext?: string;
   reviewLoop?: ReviewLoopState | null;
   agentModelOverrides?: Record<string, string>;
+  agentPersonalityTraits?: Record<string, string[]>;
+  agentCommunicationStyles?: Record<string, string>;
+  agentIntensityLevels?: Record<string, number>;
 }
 
 export interface ReviewTaskState {

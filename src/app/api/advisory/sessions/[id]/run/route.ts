@@ -295,6 +295,70 @@ const DEFAULT_RESPONSE_LENGTH: ResponseLength = "balanced";
 
 // ─── Build agent system prompt ────────────────────────────────────────────────
 
+// ─── Personality trait injection ──────────────────────────────────────────────
+
+const TRAIT_DESCRIPTIONS: Record<string, string> = {
+  Skeptical: "Question every assumption aggressively. Demand hard evidence before accepting any claim. Flag weak logic, hand-waving, and wishful thinking without mercy.",
+  Encouraging: "Amplify good ideas and build your teammates up. Lead with genuine positivity, but always pair it with substance — cheerleading without insight is worthless.",
+  Difficult: "Be the toughest person in the room. Challenge everything, push back hard, and make people earn their conclusions. Don't let anything slide uncontested.",
+  Shy: "Hold back. Only speak when you have something genuinely critical to add. Be sparing with your words — your silence is as meaningful as your voice.",
+  Bold: "Take big swings and make strong claims. Don't hedge — plant your flag and defend it. Speak with the conviction of someone who has done the homework.",
+  Cautious: "Lead with risks before opportunities. Flag what could go wrong, what assumptions are unproven, what second-order effects haven't been considered. Be the voice of disciplined restraint.",
+  Provocative: "Stir the pot deliberately. Say the uncomfortable thing nobody else will. Challenge conventional wisdom with sharp contrarian takes designed to surface hidden tensions.",
+  Empathetic: "Center the human impact in every recommendation. Consider the downstream effects on people — team members, customers, stakeholders. Advocate for those whose voices aren't in the room.",
+  Analytical: "Lead with data and structured first-principles reasoning. Break every claim into its components. Show your work. Unpack assumptions. Numbers before narratives.",
+  Creative: "Think laterally and make unexpected connections. Propose unconventional solutions that others wouldn't consider. Prioritize originality over safety.",
+};
+
+const COMM_STYLE_DESCRIPTIONS: Record<string, string> = {
+  Verbose: "Give full analysis — multiple paragraphs, extensive supporting detail, thorough coverage of all angles. Leave nothing unsaid.",
+  Concise: "Absolute minimum. One key point, one concrete recommendation. Cut everything else. If it can be said in one sentence, say it in one sentence.",
+  Thoughtful: "Measured and deliberate. Pause to consider before asserting. Qualify claims where genuinely uncertain. Prioritize precision over speed.",
+  "Rapid-fire": "Short punchy sentences only. Fire rapid volleys. Build momentum through speed. No essays — maximum one paragraph per point.",
+};
+
+function buildPersonalityBlock(
+  traits: string[],
+  commStyle: string | undefined,
+  intensity: number | undefined
+): string {
+  if (!traits?.length && !commStyle && intensity == null) return "";
+
+  const lines: string[] = ["\n**Personality configuration for this session (overrides your default style):**"];
+
+  if (traits?.length > 0) {
+    lines.push(`\n**Active traits:** ${traits.join(", ")}`);
+    for (const t of traits) {
+      const desc = TRAIT_DESCRIPTIONS[t];
+      if (desc) lines.push(`- *${t}*: ${desc}`);
+    }
+  }
+
+  if (commStyle && COMM_STYLE_DESCRIPTIONS[commStyle]) {
+    lines.push(`\n**Communication style:** ${commStyle} — ${COMM_STYLE_DESCRIPTIONS[commStyle]}`);
+  }
+
+  if (intensity != null) {
+    const clampedIntensity = Math.max(1, Math.min(10, Math.round(intensity)));
+    const intensityLabel =
+      clampedIntensity <= 3 ? "Gentle" :
+      clampedIntensity <= 6 ? "Moderate" :
+      clampedIntensity <= 8 ? "Assertive" : "Aggressive";
+    lines.push(`\n**Intensity: ${clampedIntensity}/10 (${intensityLabel})** — ${
+      clampedIntensity <= 3
+        ? "Be diplomatic and collegial. Choose words carefully. Preserve relationships."
+        : clampedIntensity <= 6
+        ? "Direct but professional. Standard advisory intensity."
+        : clampedIntensity <= 8
+        ? "Forceful and confident. Push hard. Don't soften your opinions."
+        : "Uncompromising and confrontational. Refuse to soften. Don't back down from friction."
+    }`);
+  }
+
+  lines.push("\nThese modifiers are in effect for the entire session. Let them shape your voice noticeably.");
+  return lines.join("\n");
+}
+
 /**
  * Build a system prompt for an agent, injecting their unique persona and optional overlay.
  * @param agentId - Agent identifier (advisory display name, e.g. "Henry", "Atlas")
@@ -302,6 +366,9 @@ const DEFAULT_RESPONSE_LENGTH: ResponseLength = "balanced";
  * @param topic - Session topic
  * @param agentOverlay - Optional overlay ID assigned to this specific agent (or undefined)
  * @param responseLength - Response length setting
+ * @param personalityTraits - Per-agent personality trait pills
+ * @param communicationStyle - Per-agent communication style
+ * @param intensityLevel - Per-agent intensity (1–10)
  */
 function buildSystemPrompt(
   agentId: string,
@@ -311,7 +378,10 @@ function buildSystemPrompt(
   responseLength?: ResponseLength,
   reviewRole?: "author" | "reviewer" | "supervisor",
   extendedThinking?: boolean,
-  referenceContext?: string
+  referenceContext?: string,
+  personalityTraits?: string[],
+  communicationStyle?: string,
+  intensityLevel?: number
 ): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) {
@@ -333,6 +403,7 @@ function buildSystemPrompt(
   const lengthInstruction = lengthConfig.instruction;
 
   const isReview = mode === "review";
+  const personalityBlock = buildPersonalityBlock(personalityTraits || [], communicationStyle, intensityLevel);
 
   // ── Review mode: fundamentally different prompts per role ──────────────────
   if (isReview && reviewRole) {
@@ -346,7 +417,7 @@ function buildSystemPrompt(
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization.
 
 **Topic:** ${topic}
-${overlayLine}${memoryBlock}${referenceBlock}
+${overlayLine}${memoryBlock}${referenceBlock}${personalityBlock}
 **Response length:** ${lengthInstruction}${thinkingLine}`;
 
     if (reviewRole === "author") {
@@ -415,7 +486,7 @@ Speak in YOUR AUTHENTIC VOICE. Respond as ${agent.name} would when running the m
 You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous, an autonomous AI organization. You are participating in a roundtable discussion on the following topic:
 
 **Topic:** ${topic}
-${overlayLine}${memoryBlock}${referenceBlock}
+${overlayLine}${memoryBlock}${referenceBlock}${personalityBlock}
 **Response length:** ${lengthInstruction}
 
 **Core advisory directives:**
@@ -654,6 +725,9 @@ export async function POST(
       responseLength,
       extendedThinking: sessionExtendedThinking,
       referenceContext: sessionReferenceContext,
+      agentPersonalityTraits: sessionAgentTraits,
+      agentCommunicationStyles: sessionAgentCommStyles,
+      agentIntensityLevels: sessionAgentIntensity,
     } = session;
 
     if (!agents || (agents as string[]).length === 0) {
@@ -673,7 +747,10 @@ export async function POST(
             filePath, session, topic as string, agents as string[],
             personaOverlays as Record<string, string> | string[] | undefined,
             rounds as number | string, pacing as string, resolvedModel, thinking, resolvedLength,
-            sessionReferenceContext as string | undefined
+            sessionReferenceContext as string | undefined,
+            sessionAgentTraits as Record<string, string[]> | undefined,
+            sessionAgentCommStyles as Record<string, string> | undefined,
+            sessionAgentIntensity as Record<string, number> | undefined
           );
         } else if (mode === "review") {
           // New review loop mode: if session has reviewLoop config, auto-advance through all tasks
@@ -685,7 +762,10 @@ export async function POST(
               reviewStyle as string,
               personaOverlays as Record<string, string> | string[] | undefined,
               pacing as string, resolvedModel, thinking,
-              sessionReferenceContext as string | undefined
+              sessionReferenceContext as string | undefined,
+              sessionAgentTraits as Record<string, string[]> | undefined,
+              sessionAgentCommStyles as Record<string, string> | undefined,
+              sessionAgentIntensity as Record<string, number> | undefined
             );
           }
         }
@@ -767,7 +847,10 @@ async function runRoundtable(
   model: string = INFERENCE_MODEL,
   thinking = false,
   responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH,
-  referenceContext?: string
+  referenceContext?: string,
+  agentPersonalityTraits?: Record<string, string[]>,
+  agentCommunicationStyles?: Record<string, string>,
+  agentIntensityLevels?: Record<string, number>
 ) {
   const isPersistent = rounds === "persistent";
 
@@ -788,7 +871,12 @@ async function runRoundtable(
 
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking, referenceContext);
+      const systemPrompt = buildSystemPrompt(
+        agentId, session.mode as string, topic, agentOverlay, responseLength, undefined, thinking, referenceContext,
+        agentPersonalityTraits?.[agentId],
+        agentCommunicationStyles?.[agentId],
+        agentIntensityLevels?.[agentId]
+      );
 
       const isFirstTurn = events.filter((e: { speaker: string }) => e.speaker === agentId).length === 0;
 
@@ -870,7 +958,12 @@ async function runRoundtable(
 
   const finalHistory = buildHistoryString(finalSession.events || []);
   const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
-  const finalSystemPrompt = buildSystemPrompt(summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking, referenceContext);
+  const finalSystemPrompt = buildSystemPrompt(
+    summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking, referenceContext,
+    agentPersonalityTraits?.[summaryAgentId],
+    agentCommunicationStyles?.[summaryAgentId],
+    agentIntensityLevels?.[summaryAgentId]
+  );
   const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
@@ -922,6 +1015,9 @@ async function runReview(
   model: string = INFERENCE_MODEL,
   thinking = false,
   referenceContext?: string,
+  agentPersonalityTraits?: Record<string, string[]>,
+  agentCommunicationStyles?: Record<string, string>,
+  agentIntensityLevels?: Record<string, number>,
   responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH
 ) {
   const supervisor = agents.includes("Henry") ? "Henry" : agents[0];
@@ -940,7 +1036,12 @@ async function runReview(
     if (currentSession.status !== "active") return;
 
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext);
+    const supSystem = buildSystemPrompt(
+      supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext,
+      agentPersonalityTraits?.[supervisor],
+      agentCommunicationStyles?.[supervisor],
+      agentIntensityLevels?.[supervisor]
+    );
     const supPrompt = `You are commissioning a review session on the following topic/task:
 
 **Topic:** ${topic}
@@ -987,7 +1088,12 @@ Be crisp and exacting. This brief sets the standard for the entire review.`;
 
     const workerHistory = buildHistoryString(currentSession.events || []);
     const workerOverlay = getAgentOverlay(personaOverlays, worker);
-    const workerSystem = buildSystemPrompt(worker, "review", topic, workerOverlay, responseLength, "author", thinking, referenceContext);
+    const workerSystem = buildSystemPrompt(
+      worker, "review", topic, workerOverlay, responseLength, "author", thinking, referenceContext,
+      agentPersonalityTraits?.[worker],
+      agentCommunicationStyles?.[worker],
+      agentIntensityLevels?.[worker]
+    );
     const workerPrompt =
       iteration === 1
         ? `**Your task:** ${topic}
@@ -1044,7 +1150,12 @@ ${reviewer} identified specific issues with your previous submission. Now produc
     if (reviewSession.status !== "active") return;
 
     const reviewerOverlay = getAgentOverlay(personaOverlays, reviewer);
-    const reviewSystem = buildSystemPrompt(reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking, referenceContext);
+    const reviewSystem = buildSystemPrompt(
+      reviewer, "review", topic, reviewerOverlay, responseLength, "reviewer", thinking, referenceContext,
+      agentPersonalityTraits?.[reviewer],
+      agentCommunicationStyles?.[reviewer],
+      agentIntensityLevels?.[reviewer]
+    );
 
     const verdictInstruction =
       reviewStyle === "strict"
@@ -1114,7 +1225,12 @@ ${verdictInstruction}`;
 
     const finalHistory = buildHistoryString(finalSession.events || []);
     const supOverlay = getAgentOverlay(personaOverlays, supervisor);
-    const supSystem = buildSystemPrompt(supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext);
+    const supSystem = buildSystemPrompt(
+      supervisor, "review", topic, supOverlay, responseLength, "supervisor", thinking, referenceContext,
+      agentPersonalityTraits?.[supervisor],
+      agentCommunicationStyles?.[supervisor],
+      agentIntensityLevels?.[supervisor]
+    );
     const supPrompt = `**Review session complete.**
 
 **Topic:** ${topic}
