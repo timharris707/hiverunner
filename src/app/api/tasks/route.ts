@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
 import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks } from "@/lib/build-queue";
+import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
 
@@ -103,6 +104,16 @@ export async function PATCH(req: NextRequest) {
     }
 
     writeTasks(tasks);
+
+    // Sync to tasks-log.md for manual status transitions (agent-driven completions
+    // are handled by notifyTaskCompletion in build-queue.ts)
+    if (
+      tasks[idx].status === "done" &&
+      previousTask.status !== "done" &&
+      !tasks[idx].buildState  // skip if the build pipeline will handle it
+    ) {
+      appendTaskToLog(tasks[idx], "done");
+    }
 
     const shouldTriggerBuild =
       tasks[idx].status === "in-progress" &&

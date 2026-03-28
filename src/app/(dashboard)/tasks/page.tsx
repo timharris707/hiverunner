@@ -70,6 +70,7 @@ interface Task {
   created: string;
   updated: string;
   completedAt?: string;
+  source?: string;
 }
 
 interface ProjectInfo {
@@ -345,6 +346,7 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
 
   return (
     <div
+      data-modal-open="true"
       style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: "1rem" }}
     >
       <div
@@ -1409,6 +1411,13 @@ function TaskCard({
         </div>
       )}
 
+      {task.source === "tasks-log" && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(20,184,166,0.10)", border: "1px solid rgba(20,184,166,0.2)" }}>
+          <span style={{ fontSize: "10px" }}>📋</span>
+          <span style={{ fontSize: "10px", fontWeight: 700, color: "#5eead4", letterSpacing: "0.5px" }}>FROM TASKS LOG</span>
+        </div>
+      )}
+
       {/* Title */}
       <div
         className="text-sm font-medium mb-1 leading-snug"
@@ -1582,7 +1591,11 @@ export default function TasksPage() {
         setProjectsMap(map);
       })
       .catch(console.error);
-    const interval = setInterval(fetchTasks, 30_000);
+    const interval = setInterval(() => {
+      // Don't refresh while user is creating/editing a task
+      if (document.querySelector('[data-modal-open="true"]')) return;
+      fetchTasks();
+    }, 30_000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1708,6 +1721,11 @@ export default function TasksPage() {
             </h1>
             <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
               {tasks.length} total tasks · {tasksByStatus["in-progress"]?.length || 0} in progress
+              {tasks.filter((t) => t.source === "tasks-log").length > 0 && (
+                <span style={{ color: "#5eead4", marginLeft: "0.5rem" }}>
+                  · {tasks.filter((t) => t.source === "tasks-log").length} from log
+                </span>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
