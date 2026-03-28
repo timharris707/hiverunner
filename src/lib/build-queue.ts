@@ -22,6 +22,7 @@ const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
 const REVIEWER_MODEL = "sonnet";
 const VISUAL_REVIEW_TAGS = new Set(["ui"]);
+const MAX_REVIEW_FAILURES_BEFORE_ESCALATION = 2;
 const RECONCILE_INTERVAL_MS = 15_000;
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
 const MAX_ON_DECK_PER_PROJECT = 1;
@@ -768,16 +769,21 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
 }
 
 function reviewPrompt(task: any, projectName: string, buildOutput: string) {
+  const failureCount = task.reviewFailureCount || 0;
+  const previousNotes = task.codeReviewNotes ? `\n### Previous Review Notes (failure #${failureCount})\n${task.codeReviewNotes}\n` : "";
+  const isUiTask = hasAnyTag(task, VISUAL_REVIEW_TAGS);
+
   return [
     `## Auto Code Review: ${task.title}`,
     "",
     `**Project:** ${projectName}`,
     `**Task Type:** ${task.type || "feature"}`,
     `**Priority:** ${task.priority}`,
+    failureCount > 0 ? `**Review Attempt:** ${failureCount + 1} (previously failed ${failureCount} time${failureCount > 1 ? "s" : ""})` : "",
     "",
     "### Task Description",
     task.description || task.title,
-    "",
+    previousNotes,
     "### What the builder just did",
     "A build agent completed this task. The last 1500 chars of its output:",
     "```",
@@ -785,25 +791,33 @@ function reviewPrompt(task: any, projectName: string, buildOutput: string) {
     "```",
     "",
     "### Your Review Steps",
-    "Run each of these:",
+    "Run each of these — be thorough, nothing marked Done unless actually done:",
+    "",
     "1. `git log --oneline -3` — verify commits were made with a reasonable message",
-    "2. `git diff HEAD~1` — read through every change and check for obvious bugs, incomplete code, or missing requirements",
-    "3. `npm test 2>&1 | tail -50` — run tests if a test script exists; ignore exit code 1 if test script is missing",
-    "4. Mentally check: does the diff address the task description? Any syntax errors? Any broken imports?",
+    "2. `git diff HEAD~1` — read through every change. Check for:",
+    "   - Broken imports or missing dependencies",
+    "   - Syntax errors, unclosed brackets, template literal issues",
+    "   - Incomplete implementations (TODO, placeholder, hardcoded stubs)",
+    "   - Does the diff actually address the task description?",
+    "3. `npm run build 2>&1 | tail -80` — the build MUST pass. If it fails, that's an automatic NEEDS_FIX",
+    "4. `npm test 2>&1 | tail -50` — run tests if they exist. New test failures = NEEDS_FIX",
+    isUiTask ? "5. For this UI task: check that any new pages/components are properly exported and routed. Look for missing CSS classes, broken JSX, or unhandled client/server component boundaries." : "",
+    failureCount > 0 ? `6. IMPORTANT: This task failed review ${failureCount} time(s) before. Verify the previous issues noted above are ACTUALLY FIXED, not just acknowledged.` : "",
     "",
     "### Verdict",
     "Output EXACTLY one of the following blocks at the very end of your response — nothing after it:",
     "",
-    "If the work looks correct and complete:",
+    "If the work looks correct, complete, and the build passes:",
     "VERDICT: APPROVED",
     "",
-    "If there are specific bugs or missing requirements:",
+    "If there are specific bugs, build failures, or missing requirements:",
     "VERDICT: NEEDS_FIX",
     "NOTES:",
     "- [specific issue 1]",
     "- [specific issue 2]",
     "",
     "Only flag real defects. Do NOT flag style nits, prefer-X-over-Y suggestions, or theoretical improvements.",
+    "But DO fail the review if: build doesn't compile, tests break, imports are missing, or the task description wasn't addressed.",
   ].join("\n");
 }
 
@@ -853,16 +867,42 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
       if (notes) task.codeReviewNotes = notes;
 
       if (verdict === "NEEDS_FIX") {
+        const failureCount = (task.reviewFailureCount || 0) + 1;
+        task.reviewFailureCount = failureCount;
         task.status = "in-progress";
         task.buildState = "failed";
-        task.buildError = `Auto-reviewer requested changes:\n${notes}`;
+        task.buildError = `Auto-reviewer requested changes (attempt ${failureCount}):\n${notes}`;
+        task.lastReviewVerdict = "NEEDS_FIX";
+        task.lastReviewerAgent = "QA Reviewer (Sonnet)";
+        task.lastReviewNotes = notes;
+        task.lastReviewAt = now;
         delete task.completedAt;
         requeue = true;
-        notifyText = `🔄 Auto-review NEEDS FIX: ${String(task.title || taskId).replace(/"/g, "'")}`;
+
+        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          // Escalate to Henry — this task has failed review too many times
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `Failed auto-review ${failureCount} times. Latest issues: ${notes.slice(0, 300)}`;
+          notifyText = `🚨 ESCALATION: Task failed review ${failureCount}x — needs Henry's attention: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🚨 QA ESCALATION: "${String(task.title || taskId).replace(/"/g, "'")}" has failed auto-review ${failureCount} times.\n\nLatest issues:\n${notes.slice(0, 500)}\n\nThis task needs manual intervention.`);
+          createInAppNotification(
+            "⚠️ QA Escalation",
+            `"${String(task.title || taskId).replace(/"/g, "'")}" failed review ${failureCount}x — needs manual attention`,
+            "warning",
+            "/tasks"
+          );
+        } else {
+          notifyText = `🔄 Auto-review NEEDS FIX (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
+        }
       }
     }
 
     if (task.codeReviewState === "approved") {
+      task.lastReviewVerdict = "APPROVED";
+      task.lastReviewerAgent = "QA Reviewer (Sonnet)";
+      task.lastReviewAt = now;
+
       if (shouldRequireReview(task)) {
         task.status = "review";
         task.reviewRequired = true;

@@ -60,6 +60,15 @@ interface Task {
   reviewStatus?: string;
   reviewRequestedAt?: string;
   reviewCompletedAt?: string;
+  reviewFailureCount?: number;
+  lastReviewVerdict?: string;
+  lastReviewerAgent?: string;
+  lastReviewNotes?: string;
+  lastReviewAt?: string;
+  escalatedToHenry?: boolean;
+  escalatedAt?: string;
+  escalationReason?: string;
+  codeReviewState?: string;
   visualReview?: {
     required?: boolean;
     status?: string;
@@ -1205,23 +1214,109 @@ function TaskDetailDrawer({
           )}
 
           {/* Review loop */}
-          {(task.status === "review" || task.reviewRequired) && (
-            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+          {(task.status === "review" || task.reviewRequired || task.lastReviewVerdict || task.codeReviewState) && (
+            <div style={{
+              padding: "0.85rem", borderRadius: "0.5rem",
+              backgroundColor: task.escalatedToHenry ? "rgba(239,68,68,0.08)" : "rgba(96,165,250,0.06)",
+              border: `1px solid ${task.escalatedToHenry ? "rgba(239,68,68,0.25)" : "rgba(96,165,250,0.18)"}`,
+              display: "flex", flexDirection: "column", gap: "0.6rem",
+            }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
-                <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>QC / review</label>
-                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(96,165,250,0.12)", color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#93c5fd" }}>
-                  {task.reviewStatus || "pending"}
-                </span>
+                <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>QC Pipeline</label>
+                <div style={{ display: "flex", gap: "0.375rem", alignItems: "center", flexWrap: "wrap" }}>
+                  {task.codeReviewState && (
+                    <span style={{
+                      fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px",
+                      backgroundColor: task.codeReviewState === "approved" ? "rgba(74,222,128,0.12)" : task.codeReviewState === "needs-fix" ? "rgba(239,68,68,0.12)" : task.codeReviewState === "running" ? "rgba(251,191,36,0.12)" : "rgba(96,165,250,0.12)",
+                      color: task.codeReviewState === "approved" ? "#4ade80" : task.codeReviewState === "needs-fix" ? "#f87171" : task.codeReviewState === "running" ? "#fbbf24" : "#93c5fd",
+                    }}>
+                      auto: {task.codeReviewState}
+                    </span>
+                  )}
+                  <span style={{
+                    fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px",
+                    backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(96,165,250,0.12)",
+                    color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#93c5fd",
+                  }}>
+                    {task.reviewStatus || "pending"}
+                  </span>
+                </div>
               </div>
-              <p style={{ margin: 0, fontSize: "0.78rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
-                Manual review scaffold only — this is a handoff/status loop, not an automated code reviewer.
-                {visualReviewRequired && screenshotEvidenceCount === 0 ? " Screenshot evidence is still missing for this visual review." : ""}
-              </p>
+
+              {/* Escalation banner */}
+              {task.escalatedToHenry && (
+                <div style={{ padding: "0.6rem", borderRadius: "0.375rem", backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", marginBottom: "0.25rem" }}>
+                    <span>🚨</span>
+                    <span style={{ fontSize: "0.78rem", fontWeight: 700, color: "#f87171" }}>Escalated to Henry</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: "0.72rem", color: "#fca5a5", lineHeight: 1.5 }}>
+                    Failed auto-review {task.reviewFailureCount || 0}× — needs manual intervention.
+                    {task.escalatedAt ? ` Escalated ${formatDateFull(task.escalatedAt)}` : ""}
+                  </p>
+                </div>
+              )}
+
+              {/* Reviewer info */}
+              {task.lastReviewerAgent && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
+                  <div>
+                    <label style={DRAWER_LABEL}>Reviewer</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>{task.lastReviewerAgent}</div>
+                  </div>
+                  <div>
+                    <label style={DRAWER_LABEL}>Verdict</label>
+                    <div style={{
+                      fontSize: "0.78rem", fontWeight: 700,
+                      color: task.lastReviewVerdict === "APPROVED" ? "#4ade80" : task.lastReviewVerdict === "NEEDS_FIX" ? "#f87171" : "var(--text-secondary)",
+                    }}>
+                      {task.lastReviewVerdict === "APPROVED" ? "✅ Passed" : task.lastReviewVerdict === "NEEDS_FIX" ? "❌ Failed" : task.lastReviewVerdict || "—"}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Failure count */}
+              {(task.reviewFailureCount || 0) > 0 && (
+                <div>
+                  <label style={DRAWER_LABEL}>Review Failures</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                    <div style={{ display: "flex", gap: "0.25rem" }}>
+                      {Array.from({ length: Math.min(task.reviewFailureCount || 0, 5) }).map((_, i) => (
+                        <div key={i} style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#ef4444" }} />
+                      ))}
+                      {Array.from({ length: Math.max(0, 2 - (task.reviewFailureCount || 0)) }).map((_, i) => (
+                        <div key={`e-${i}`} style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "var(--border)" }} />
+                      ))}
+                    </div>
+                    <span style={{ fontSize: "0.72rem", color: (task.reviewFailureCount || 0) >= 2 ? "#f87171" : "#fbbf24" }}>
+                      {task.reviewFailureCount}× failed{(task.reviewFailureCount || 0) >= 2 ? " — escalated" : ""}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {/* Last review notes */}
+              {task.lastReviewNotes && (
+                <div>
+                  <label style={DRAWER_LABEL}>Latest Review Notes</label>
+                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "0.72rem", lineHeight: 1.5, color: "#fca5a5", backgroundColor: "rgba(127,29,29,0.15)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "0.5rem", padding: "0.6rem", maxHeight: "150px", overflowY: "auto" }}>
+                    {task.lastReviewNotes}
+                  </pre>
+                </div>
+              )}
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                 {task.reviewRequestedAt && (
                   <div>
                     <label style={DRAWER_LABEL}>Requested</label>
                     <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.reviewRequestedAt)}</div>
+                  </div>
+                )}
+                {task.lastReviewAt && (
+                  <div>
+                    <label style={DRAWER_LABEL}>Last Reviewed</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-secondary)" }}>{formatDateFull(task.lastReviewAt)}</div>
                   </div>
                 )}
                 {task.reviewCompletedAt && (
@@ -1237,13 +1332,13 @@ function TaskDetailDrawer({
                     onClick={() => patchTask({ status: "done", reviewStatus: "approved" })}
                     style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#22c55e", color: "#0b1220", fontWeight: 700, cursor: "pointer" }}
                   >
-                    Approve
+                    ✅ Approve
                   </button>
                   <button
                     onClick={() => patchTask({ status: "in-progress", reviewStatus: "changes-requested" })}
                     style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(239,68,68,0.25)", backgroundColor: "rgba(239,68,68,0.12)", color: "#fca5a5", fontWeight: 700, cursor: "pointer" }}
                   >
-                    Request changes
+                    ❌ Request changes
                   </button>
                 </div>
               )}
@@ -1393,11 +1488,62 @@ function TaskCard({
       )}
 
       {/* Review indicator */}
-      {(task.status === "review" || task.reviewRequired) && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.2)" }}>
-          <span>🧪</span>
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#93c5fd", letterSpacing: "0.5px" }}>
-            {task.reviewStatus === "approved" ? "REVIEW APPROVED" : task.reviewStatus === "changes-requested" ? "CHANGES REQUESTED" : "REVIEW NEEDED"}
+      {(task.status === "review" || task.reviewRequired || task.codeReviewState === "pending" || task.codeReviewState === "running") && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{
+          backgroundColor: task.codeReviewState === "pending" || task.codeReviewState === "running"
+            ? "rgba(251,191,36,0.12)"
+            : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
+              ? "rgba(74,222,128,0.12)"
+              : task.lastReviewVerdict === "NEEDS_FIX"
+                ? "rgba(239,68,68,0.12)"
+                : "rgba(96,165,250,0.12)",
+          border: `1px solid ${
+            task.codeReviewState === "pending" || task.codeReviewState === "running"
+              ? "rgba(251,191,36,0.2)"
+              : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
+                ? "rgba(74,222,128,0.2)"
+                : task.lastReviewVerdict === "NEEDS_FIX"
+                  ? "rgba(239,68,68,0.2)"
+                  : "rgba(96,165,250,0.2)"
+          }`,
+        }}>
+          <span>{
+            task.codeReviewState === "pending" || task.codeReviewState === "running" ? "⏳" :
+            task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED" ? "✅" :
+            task.lastReviewVerdict === "NEEDS_FIX" ? "❌" : "🧪"
+          }</span>
+          <span style={{
+            fontSize: "10px", fontWeight: 700, letterSpacing: "0.5px",
+            color: task.codeReviewState === "pending" || task.codeReviewState === "running"
+              ? "#fbbf24"
+              : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
+                ? "#4ade80"
+                : task.lastReviewVerdict === "NEEDS_FIX"
+                  ? "#f87171"
+                  : "#93c5fd",
+          }}>
+            {task.codeReviewState === "pending" ? "QA REVIEW QUEUED" :
+             task.codeReviewState === "running" ? "QA REVIEWING..." :
+             task.reviewStatus === "approved" ? "REVIEW APPROVED" :
+             task.reviewStatus === "changes-requested" ? "CHANGES REQUESTED" :
+             task.lastReviewVerdict === "NEEDS_FIX" ? `REVIEW FAILED${task.reviewFailureCount ? ` (${task.reviewFailureCount}×)` : ""}` :
+             task.lastReviewVerdict === "APPROVED" ? "QA PASSED" :
+             "REVIEW NEEDED"}
+          </span>
+          {task.lastReviewerAgent && (
+            <span style={{ fontSize: "9px", color: "var(--text-muted)", marginLeft: "auto" }}>
+              {task.lastReviewerAgent}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Escalation indicator */}
+      {task.escalatedToHenry && (
+        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)" }}>
+          <span>🚨</span>
+          <span style={{ fontSize: "10px", fontWeight: 700, color: "#f87171", letterSpacing: "0.5px" }}>
+            ESCALATED TO HENRY — NEEDS ATTENTION
           </span>
         </div>
       )}
@@ -1720,7 +1866,12 @@ export default function TasksPage() {
               Task Board
             </h1>
             <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-              {tasks.length} total tasks · {tasksByStatus["in-progress"]?.length || 0} in progress
+              {tasks.length} total · {tasksByStatus["in-progress"]?.length || 0} building · {tasksByStatus["review"]?.length || 0} in review
+              {tasks.filter((t) => t.escalatedToHenry).length > 0 && (
+                <span style={{ color: "#f87171", marginLeft: "0.5rem", fontWeight: 700 }}>
+                  · 🚨 {tasks.filter((t) => t.escalatedToHenry).length} escalated
+                </span>
+              )}
               {tasks.filter((t) => t.source === "tasks-log").length > 0 && (
                 <span style={{ color: "#5eead4", marginLeft: "0.5rem" }}>
                   · {tasks.filter((t) => t.source === "tasks-log").length} from log
