@@ -1,61 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
-
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
-
-async function callGateway(
-  systemPrompt: string,
-  userPrompt: string,
-  model: string = INFERENCE_MODEL
-): Promise<string> {
-  const gateway = getGatewayConfig();
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${gateway.token}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway API error ${response.status}: ${err}`);
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
-}
-
-function resolveModel(sessionModel?: string): string {
-  if (!sessionModel) return INFERENCE_MODEL;
-  if (sessionModel.includes("/")) return sessionModel.replace(":thinking", "");
-  if (sessionModel.startsWith("gpt-")) return `openai/${sessionModel}`;
-  return `anthropic/${sessionModel}`;
-}
 
 // ─── POST: Extract detailed action items from session ────────────────────────
 
@@ -82,7 +30,6 @@ export async function POST(
     return NextResponse.json({ error: "No conversation content to analyze" }, { status: 400 });
   }
 
-  const model = resolveModel(session.model);
   const agents = (session.agents || []).join(", ");
 
   const systemPrompt = `You are an expert project manager extracting actionable tasks from advisory board sessions at Harris Autonomous.
@@ -121,7 +68,14 @@ Rules:
   const userPrompt = `Session topic: ${session.topic}\nParticipants: ${agents}\nMode: ${session.mode}\n\nFull conversation:\n\n${conversationText}`;
 
   try {
-    const raw = await callGateway(systemPrompt, userPrompt, model);
+    const spawnResult = await spawnAdvisoryAgentWithRetry({
+      sessionId: id,
+      agentId: "Henry-actions",
+      systemPrompt,
+      userPrompt,
+      timeoutSeconds: 120,
+    });
+    const raw = spawnResult.text;
 
     let jsonStr = raw.trim();
     if (jsonStr.startsWith("```")) {

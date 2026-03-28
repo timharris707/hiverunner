@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
 import { archiveSession } from "../archive/route";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string }> = {
   Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator" },
@@ -19,50 +18,6 @@ const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string }> 
   Quill: { name: "Quill", emoji: "✍️", role: "Creative Writer & Marketing" },
   Counsel: { name: "Counsel", emoji: "⚖️", role: "Legal Expert Agent" },
 };
-
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
-
-async function callGateway(
-  systemPrompt: string,
-  userPrompt: string,
-  model: string = INFERENCE_MODEL
-): Promise<string> {
-  const gateway = getGatewayConfig();
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${gateway.token}`,
-    },
-    body: JSON.stringify({
-      model,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-    }),
-  });
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway API error ${response.status}: ${err}`);
-  }
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
-}
 
 function appendEvent(sessionPath: string, event: Record<string, unknown>) {
   const raw = fs.readFileSync(sessionPath, "utf-8");
@@ -103,17 +58,6 @@ export async function POST(
   fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
 
   const { topic, agents = [], personaOverlays = {} } = session;
-
-  // Resolve model from session config
-  const sessionModel = session.model;
-  let resolvedModel = INFERENCE_MODEL;
-  if (sessionModel) {
-    if (sessionModel.includes("/")) {
-      resolvedModel = sessionModel.replace(":thinking", "");
-    } else {
-      resolvedModel = `anthropic/${sessionModel}`.replace(":thinking", "");
-    }
-  }
 
   // Pick the synthesizer — moderator if set, then Henry, then first agent
   const moderatorId = session.moderator as string | undefined;
@@ -164,8 +108,17 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
   // Fire-and-forget the synthesis
   const doEnd = async () => {
     let synthText = "";
+    let spawnedModel = "openclaw-agent";
     try {
-      synthText = await callGateway(systemPrompt, userPrompt, resolvedModel);
+      const result = await spawnAdvisoryAgentWithRetry({
+        sessionId: id,
+        agentId: `${synthAgentId}-synthesis`,
+        systemPrompt,
+        userPrompt,
+        timeoutSeconds: 180,
+      });
+      synthText = result.text;
+      spawnedModel = result.model;
     } catch (err) {
       synthText = `⚠️ Could not generate synthesis: ${String(err)}\n\nSession has been marked as completed.`;
     }
@@ -179,7 +132,7 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
       role: isModerator ? "moderator" : synthAgentId === "Henry" ? "supervisor" : "worker",
       text: `**${isModerator ? "🎙️ Moderator's Final Synthesis" : "⚡ Final Synthesis"}**\n\n${synthText}`,
       verdict: "approve",
-      model: resolvedModel,
+      model: spawnedModel,
     });
 
     // Mark session completed

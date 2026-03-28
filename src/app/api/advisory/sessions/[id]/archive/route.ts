@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { readFileSync } from "fs";
+import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 const MEMORY_FILE = path.join(DATA_DIR, "agent-memory.json");
 const WORKSPACE_DIR = "/Users/timharris/.openclaw/workspace";
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
 
 // ─── Agent memory types ──────────────────────────────────────────────────────
 
@@ -36,21 +35,6 @@ function writeAgentMemory(entries: AgentMemoryEntry[]) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
-
 function slugify(text: string): string {
   return text
     .toLowerCase()
@@ -73,39 +57,6 @@ function ensureDir(dirPath: string) {
   if (!fs.existsSync(dirPath)) {
     fs.mkdirSync(dirPath, { recursive: true });
   }
-}
-
-// ─── Gateway summarization ────────────────────────────────────────────────────
-
-async function callGateway(prompt: string): Promise<string> {
-  const gateway = getGatewayConfig();
-  if (!gateway.token) throw new Error("No gateway token configured");
-
-  const response = await fetch(gateway.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${gateway.token}`,
-    },
-    body: JSON.stringify({
-      model: INFERENCE_MODEL,
-      max_tokens: 1024,
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const err = await response.text();
-    throw new Error(`Gateway API error ${response.status}: ${err}`);
-  }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "";
 }
 
 // ─── Build transcript markdown ────────────────────────────────────────────────
@@ -223,12 +174,11 @@ export async function archiveSession(sessionId: string): Promise<{ success: bool
       ? `Outcome: ${session.outcome}`
       : "Outcome: session completed";
 
-    // Generate summary via Gateway
+    // Generate summary via OpenClaw agent spawn
     let summaryBlock = "";
     try {
-      const summaryPrompt = `You are summarizing an AI agent's contributions to an advisory board session.
-
-Agent: ${agentId}
+      const summarySystemPrompt = `You are summarizing an AI agent's contributions to an advisory board session. Be specific and concrete. Reference actual content from their contributions. Keep each bullet to 1-2 sentences.`;
+      const summaryUserPrompt = `Agent: ${agentId}
 Session Topic: ${topic}
 Date: ${dateLabel}
 
@@ -242,14 +192,19 @@ Generate a concise memory note for this agent. Format it exactly like this (fill
   - [bullet 2 — specific point or recommendation they made]
   - [bullet 3 if applicable]
 - Decisions: [key outcomes or decisions from the session, 1 sentence]
-- Action items: [any specific action items this agent was assigned, or "None identified"]
+- Action items: [any specific action items this agent was assigned, or "None identified"]`;
 
-Be specific and concrete. Reference actual content from their contributions. Keep each bullet to 1-2 sentences.`;
-
-      summaryBlock = await callGateway(summaryPrompt);
+      const summaryResult = await spawnAdvisoryAgentWithRetry({
+        sessionId: sessionId,
+        agentId: `${agentId}-archive-summary`,
+        systemPrompt: summarySystemPrompt,
+        userPrompt: summaryUserPrompt,
+        timeoutSeconds: 60,
+      });
+      summaryBlock = summaryResult.text;
     } catch (err) {
       summaryBlock = `- Key points made:\n  - ${agentId} contributed to the advisory session\n- Decisions: ${outcomeStr}\n- Action items: None identified`;
-      console.error(`Gateway summary failed for ${agentId}:`, err);
+      console.error(`Agent spawn summary failed for ${agentId}:`, err);
     }
 
     const agentMemDir = path.join(WORKSPACE_DIR, "memory", "agents", agentId);
@@ -269,9 +224,8 @@ Be specific and concrete. Reference actual content from their contributions. Kee
       .map((e) => `${e.speaker}: ${(e.text as string).slice(0, 500)}`)
       .join("\n\n");
 
-    const memoryPrompt = `You are extracting structured memory from an advisory board session for future recall.
-
-Session Topic: ${topic}
+    const memorySystemPrompt = `You are extracting structured memory from an advisory board session for future recall. Return ONLY the JSON array, no markdown fencing, no explanation.`;
+    const memoryUserPrompt = `Session Topic: ${topic}
 Date: ${dateLabel}
 Session ID: ${session.id || "unknown"}
 Participants: ${agents.join(", ")}
@@ -285,11 +239,16 @@ For EACH participating agent, extract their key contributions as structured JSON
 - "insights": array of 1-3 unique insights or analyses they provided (strings)
 - "actionItems": array of 0-2 action items they were assigned or proposed (strings)
 
-Keep each string to 1-2 sentences. Be specific and concrete. Only include agents who made substantive contributions.
+Keep each string to 1-2 sentences. Be specific and concrete. Only include agents who made substantive contributions.`;
 
-Return ONLY the JSON array, no markdown fencing, no explanation.`;
-
-    const memoryJson = await callGateway(memoryPrompt);
+    const memoryResult = await spawnAdvisoryAgentWithRetry({
+      sessionId: sessionId,
+      agentId: "Henry-archive-memory",
+      systemPrompt: memorySystemPrompt,
+      userPrompt: memoryUserPrompt,
+      timeoutSeconds: 90,
+    });
+    const memoryJson = memoryResult.text;
     // Parse the LLM response — strip markdown fencing if present
     const cleaned = memoryJson.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
     const parsed = JSON.parse(cleaned) as Array<{
