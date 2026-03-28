@@ -95,7 +95,14 @@ interface AgentSprite {
   status: "running" | "queued" | "spawning";
   model: string;
   animDelay: number;
+  isStale: boolean;
+  staleMins: number;
 }
+
+// A "Cliff" is an agent that spawns sub-agents and then goes idle — treating
+// "agents spawned" as "work done." We flag any build that has been running for
+// more than 20 minutes without completing as stale so Tim can see it immediately.
+const CLIFF_THRESHOLD_MS = 20 * 60 * 1000; // 20 minutes
 
 const PRIORITY_BADGES: Record<Priority, { icon: string; color: string }> = {
   high: { icon: "\u{1F534}", color: "#ef4444" },
@@ -217,16 +224,24 @@ function getActiveAgentSprites(builds: BuildEntry[]): AgentSprite[] {
     .filter((b) => b.status === "running" || b.status === "spawning" || b.status === "queued")
     .slice(0, 8);
 
-  return active.map((build, index) => ({
-    id: build.id,
-    agentId: build.agentType === "reviewer" ? "quill" : "forge",
-    agentName: build.routing?.modelName || "Agent",
-    productName: build.project || "Unscoped",
-    taskTitle: build.taskTitle,
-    status: build.status as "running" | "queued" | "spawning",
-    model: build.routing?.modelName || "Unknown",
-    animDelay: index * 0.35,
-  }));
+  const now = Date.now();
+  return active.map((build, index) => {
+    const runningMs = build.runningAt ? now - new Date(build.runningAt).getTime() : 0;
+    const isStale = build.status === "running" && runningMs > CLIFF_THRESHOLD_MS;
+    const staleMins = Math.floor(runningMs / 60000);
+    return {
+      id: build.id,
+      agentId: build.agentType === "reviewer" ? "quill" : "forge",
+      agentName: build.routing?.modelName || "Agent",
+      productName: build.project || "Unscoped",
+      taskTitle: build.taskTitle,
+      status: build.status as "running" | "queued" | "spawning",
+      model: build.routing?.modelName || "Unknown",
+      animDelay: index * 0.35,
+      isStale,
+      staleMins,
+    };
+  });
 }
 
 /* ── Conveyor Belt: real completed builds ── */
@@ -282,7 +297,9 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
     queued: { color: "#f59e0b", label: "queued...", pulse: false },
     spawning: { color: "#3b82f6", label: "spawning...", pulse: true },
   };
-  const cfg = statusConfig[sprite.status];
+  const cfg = sprite.isStale
+    ? { color: "#f97316", label: `stale ${sprite.staleMins}m`, pulse: true }
+    : statusConfig[sprite.status];
 
   return (
     <div className="group relative flex flex-col items-center" style={{ minWidth: 84 }}>
@@ -296,20 +313,39 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
       <div className="mt-1.5" style={{ fontSize: 11, fontWeight: 700, color: "#e2e8f0", fontFamily: "var(--font-heading, var(--font-body))", textAlign: "center", whiteSpace: "nowrap" }}>{sprite.agentName}</div>
       <div style={{ fontSize: 9, color: "rgba(148,163,184,0.7)", fontFamily: "var(--font-mono)", textAlign: "center", marginTop: 1, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sprite.productName}</div>
       <div style={{ fontSize: 8, fontWeight: 600, color: "rgba(167,139,250,0.9)", fontFamily: "var(--font-mono)", textAlign: "center", whiteSpace: "nowrap", marginTop: 3, padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.2)", letterSpacing: "0.5px", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }}>{sprite.model}</div>
+      {sprite.isStale && (
+        <div style={{ marginTop: 4, fontSize: 8, fontWeight: 700, color: "#f97316", fontFamily: "var(--font-mono)", padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(249,115,22,0.12)", border: "1px solid rgba(249,115,22,0.35)", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
+          ⚠ CLIFF
+        </div>
+      )}
       <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-50" style={{ padding: "6px 10px", backgroundColor: "rgba(15,23,42,0.95)", border: "1px solid rgba(99,102,241,0.3)", borderRadius: 8, fontSize: 11, color: "#e2e8f0", fontFamily: "var(--font-mono)", whiteSpace: "nowrap", boxShadow: "0 4px 12px rgba(0,0,0,0.4)" }}>
-        {sprite.agentName} — {sprite.taskTitle}
+        {sprite.isStale ? `⚠ Stale ${sprite.staleMins}m — ${sprite.agentName} may have gone idle` : `${sprite.agentName} — ${sprite.taskTitle}`}
       </div>
     </div>
   );
 }
 
 function WorkshopFloor({ sprites }: { sprites: AgentSprite[] }) {
+  const staleSprites = sprites.filter((s) => s.isStale);
+
   return (
     <div className="mx-6 mb-4 rounded-xl overflow-hidden" style={{ background: "linear-gradient(180deg, rgba(30,27,75,0.5) 0%, rgba(15,23,42,0.6) 100%)", border: "1px solid rgba(99,102,241,0.15)", padding: "14px 20px 16px" }}>
       <div className="flex items-center gap-2 mb-3" style={{ fontSize: 11, color: "rgba(199,210,254,0.5)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.08em" }}>
         <span style={{ fontSize: 13 }}>{"\u{1F916}"}</span>
         Workshop Floor — Active Agents
       </div>
+      {staleSprites.length > 0 && (
+        <div className="mb-3 rounded-lg flex items-start gap-2" style={{ padding: "8px 12px", backgroundColor: "rgba(249,115,22,0.1)", border: "1px solid rgba(249,115,22,0.35)", color: "#fed7aa", fontSize: 11, fontFamily: "var(--font-mono)", lineHeight: 1.5 }}>
+          <span style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>
+          <span>
+            <strong style={{ color: "#f97316" }}>Cliff Alert:</strong>{" "}
+            {staleSprites.length === 1
+              ? `1 build has been running for ${staleSprites[0].staleMins}m without completing.`
+              : `${staleSprites.length} builds have been running for 20+ minutes without completing.`}{" "}
+            Agent may have spawned sub-agents and gone idle. Check on it.
+          </span>
+        </div>
+      )}
       <div className="flex items-start gap-6 overflow-x-auto pb-1">
         {sprites.length > 0 ? sprites.map((sprite) => <AgentSpriteComponent key={sprite.id} sprite={sprite} />) : (
           <div style={{ fontSize: 12, color: "rgba(199,210,254,0.65)", fontFamily: "var(--font-mono)" }}>No active builds right now — queue something up and the floor will light back up.</div>
@@ -450,11 +486,13 @@ export default function SoftwareFactoryPage() {
 
   // Live stats from build log
   const buildStats = useMemo(() => {
+    const now = Date.now();
     const active = builds.filter((b) => b.status === "running").length;
     const queued = builds.filter((b) => b.status === "queued" || b.status === "spawning").length;
     const completedToday = builds.filter((b) => b.status === "completed" && isToday(b.completedAt)).length;
     const failedToday = builds.filter((b) => b.status === "failed" && isToday(b.completedAt || b.startedAt)).length;
-    return { active, queued, completedToday, failedToday };
+    const stale = builds.filter((b) => b.status === "running" && b.runningAt && now - new Date(b.runningAt).getTime() > CLIFF_THRESHOLD_MS).length;
+    return { active, queued, completedToday, failedToday, stale };
   }, [builds]);
 
   const STATS = [
@@ -462,6 +500,7 @@ export default function SoftwareFactoryPage() {
     { label: "Queued", value: buildStats.queued, icon: "\u{1F7E1}", color: "#f59e0b" },
     { label: "Completed Today", value: buildStats.completedToday, icon: "\u2705", color: "#06b6d4" },
     { label: "Failed Today", value: buildStats.failedToday, icon: "\u274C", color: "#ef4444" },
+    { label: "Stale / Cliff", value: buildStats.stale, icon: "\u26A0\uFE0F", color: buildStats.stale > 0 ? "#f97316" : "#64748b" },
   ];
 
   return (
