@@ -362,6 +362,10 @@ export async function POST(
     }
   }
 
+  // ── Competitive mode: determine phase-aware next agent ─────────────────────
+  const competitive = session.competitive as { phase: string; pitches: Record<string, string>; votes: Array<{ voter: string; votedFor: string; reasoning: string }>; winner: string | null; voteTally: Record<string, number> } | undefined;
+  const isCompetitive = mode === "competitive" && competitive;
+
   const { agentId } = determineNextAgent(agents as string[], events);
   const agent = AGENT_DEFS[agentId];
 
@@ -395,13 +399,58 @@ export async function POST(
     const currentEvents = currentSession.events || [];
     const history = buildHistoryString(currentEvents);
     const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-    const systemPrompt = buildSystemPrompt(
-      agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
-      (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
-      (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
-      (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
-    );
-    const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nBuild on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
+
+    // ── Competitive mode prompt building ──────────────────────────────────────
+    let systemPrompt: string;
+    let userPrompt: string;
+
+    if (isCompetitive && competitive) {
+      const compState = currentSession.competitive || competitive;
+      const phase = compState.phase || "pitch";
+      const pitches = compState.pitches || {};
+
+      if (phase === "pitch") {
+        systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
+          (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+          (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+          (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+        );
+        systemPrompt += `\n\n**MODE: COMPETITIVE IDEATION — PITCH**\nPitch ONE bold, specific, original idea. Name it. Include execution plan. You want to WIN.`;
+        userPrompt = `Topic: ${topic}\n\n${history === "No prior discussion yet." ? "Pitch your idea NOW." : `Discussion so far:\n\n${history}\n\nNow pitch YOUR idea.`}`;
+      } else if (phase === "critique") {
+        const pitchSummary = Object.entries(pitches).map(([name, pitch]) => `═══ ${name.toUpperCase()}'S PITCH ═══\n${pitch}`).join("\n\n---\n\n");
+        systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
+          (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+          (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+          (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+        );
+        systemPrompt += `\n\n**MODE: COMPETITIVE IDEATION — CRITIQUE**\nCritique all pitches. Reference each by name. Find flaws.\n\n**Pitches:**\n${pitchSummary}`;
+        userPrompt = `Topic: ${topic}\n\nDiscussion:\n\n${history}\n\nCritique all pitches now.`;
+      } else if (phase === "vote") {
+        systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
+          (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+          (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+          (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+        );
+        systemPrompt += `\n\n**MODE: COMPETITIVE IDEATION — VOTE**\nVote for ONE idea (not your own). Format: **VOTE: [Agent Name]** then reasoning.`;
+        userPrompt = `Topic: ${topic}\n\nDiscussion:\n\n${history}\n\nCast your vote now.`;
+      } else {
+        systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
+          (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+          (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+          (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+        );
+        userPrompt = `Topic: ${topic}\n\nDiscussion:\n\n${history}\n\nContribute.`;
+      }
+    } else {
+      systemPrompt = buildSystemPrompt(
+        agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, responseLength,
+        (agentPersonalityTraits as Record<string, string[]> | undefined)?.[agentId],
+        (agentCommunicationStyles as Record<string, string> | undefined)?.[agentId],
+        (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
+      );
+      userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nBuild on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
+    }
 
     let text = "";
     try {

@@ -1421,6 +1421,69 @@ export default function AdvisoryPage() {
                         {connectingToAI && !isGenerating && activeSession?.status === "active" && !endingSession && (
                           <TypingIndicator agentId={null} overrideLabel="Connecting to AI..." />
                         )}
+                        {activeSession?.status === "completed" && sessionData?.competitive && (sessionData.competitive as { phase: string; votes: unknown[]; winner: string | null; voteTally: Record<string, number> }).winner && (() => {
+                          const comp = sessionData.competitive as { phase: string; votes: Array<{ voter: string; votedFor: string; reasoning: string }>; winner: string; voteTally: Record<string, number> };
+                          const sortedTally = Object.entries(comp.voteTally).sort(([, a], [, b]) => b - a);
+                          return (
+                            <div style={{ margin: "16px 0", padding: "20px", borderRadius: "12px", border: "1px solid rgba(251,191,36,0.4)", backgroundColor: "rgba(251,191,36,0.06)" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
+                                <span style={{ fontSize: "22px" }}>🏆</span>
+                                <div>
+                                  <div style={{ fontSize: "14px", fontWeight: 700, color: "var(--text-primary)", fontFamily: "var(--font-heading)" }}>Competition Results</div>
+                                  <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>Agents voted on the best idea</div>
+                                </div>
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                                {sortedTally.map(([name, count]) => {
+                                  const isWinner = name === comp.winner;
+                                  return (
+                                    <div key={name} style={{
+                                      display: "flex", alignItems: "center", gap: "10px", padding: "10px 14px",
+                                      borderRadius: "8px",
+                                      border: isWinner ? "1px solid rgba(251,191,36,0.5)" : "1px solid var(--border)",
+                                      backgroundColor: isWinner ? "rgba(251,191,36,0.1)" : "var(--surface-elevated)",
+                                    }}>
+                                      <span style={{ fontSize: "14px", fontWeight: 700, color: isWinner ? "#fbbf24" : "var(--text-primary)", minWidth: "80px", fontFamily: "var(--font-heading)" }}>
+                                        {name}
+                                      </span>
+                                      <div style={{ flex: 1, height: "6px", borderRadius: "3px", backgroundColor: "var(--surface)", overflow: "hidden" }}>
+                                        <div style={{
+                                          width: `${sortedTally.length > 0 ? (count / Math.max(...sortedTally.map(([, v]) => v), 1)) * 100 : 0}%`,
+                                          height: "100%", borderRadius: "3px",
+                                          backgroundColor: isWinner ? "#fbbf24" : "var(--text-muted)",
+                                          transition: "width 0.5s ease",
+                                        }} />
+                                      </div>
+                                      <span style={{ fontSize: "13px", fontWeight: 700, color: isWinner ? "#fbbf24" : "var(--text-secondary)", minWidth: "50px", textAlign: "right" }}>
+                                        {count} vote{count !== 1 ? "s" : ""}
+                                      </span>
+                                      {isWinner && (
+                                        <span style={{
+                                          fontSize: "9px", fontWeight: 700, letterSpacing: "0.08em",
+                                          color: "#fbbf24", backgroundColor: "rgba(251,191,36,0.15)",
+                                          border: "1px solid rgba(251,191,36,0.3)", padding: "2px 8px",
+                                          borderRadius: "4px", fontFamily: "var(--font-mono)",
+                                        }}>
+                                          WINNER
+                                        </span>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                              {comp.votes.length > 0 && (
+                                <div style={{ marginTop: "12px", paddingTop: "12px", borderTop: "1px solid var(--border)" }}>
+                                  <div style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "6px", fontFamily: "var(--font-mono)" }}>VOTE BREAKDOWN</div>
+                                  {comp.votes.map((v, i) => (
+                                    <div key={i} style={{ fontSize: "11px", color: "var(--text-secondary)", marginBottom: "2px" }}>
+                                      <strong>{v.voter}</strong> → {v.votedFor}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                         {activeSession?.status === "completed" && (
                           <>
                             <SessionInsightsPanel

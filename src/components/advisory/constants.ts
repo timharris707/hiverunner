@@ -141,6 +141,16 @@ export const SESSION_TEMPLATES: SessionTemplate[] = [
     rounds: 3,
   },
   {
+    id: "competitive-ideation",
+    label: "Competitive Ideation",
+    desc: "Agents pitch competing ideas, debate, and vote on a winner",
+    icon: Rocket,
+    mode: "competitive",
+    agents: ["Henry", "Scout", "Pixel", "Quill"],
+    responseLength: "balanced",
+    rounds: 3,
+  },
+  {
     id: "custom",
     label: "Custom",
     desc: "Blank slate — configure everything yourself",
@@ -395,7 +405,7 @@ export function formatMarkdownFileExport(session: AdvisorySession, events: Advis
     }
   }
 
-  const modeLabel = mode === "review" ? "Review Loop" : "Roundtable";
+  const modeLabel = mode === "review" ? "Review Loop" : mode === "competitive" ? "Competitive Ideation" : "Roundtable";
   const lines: string[] = [
     `# ${topic}`,
     ``,

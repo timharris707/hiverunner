@@ -752,6 +752,16 @@ export async function POST(
             sessionAgentCommStyles as Record<string, string> | undefined,
             sessionAgentIntensity as Record<string, number> | undefined
           );
+        } else if (mode === "competitive") {
+          await runCompetitive(
+            filePath, session, topic as string, agents as string[],
+            personaOverlays as Record<string, string> | string[] | undefined,
+            pacing as string, resolvedModel, thinking, resolvedLength,
+            sessionReferenceContext as string | undefined,
+            sessionAgentTraits as Record<string, string[]> | undefined,
+            sessionAgentCommStyles as Record<string, string> | undefined,
+            sessionAgentIntensity as Record<string, number> | undefined
+          );
         } else if (mode === "review") {
           // New review loop mode: if session has reviewLoop config, auto-advance through all tasks
           if (session.reviewLoop) {
@@ -997,6 +1007,406 @@ async function runRoundtable(
   fs.writeFileSync(filePath, JSON.stringify(completedSession, null, 2));
 
   // Auto-archive on completion
+  archiveSession(completedSession.id || path.basename(filePath, ".json")).catch((e) =>
+    console.error("Auto-archive failed:", e)
+  );
+}
+
+// ─── COMPETITIVE IDEATION mode ──────────────────────────────────────────────
+
+async function runCompetitive(
+  filePath: string,
+  session: Record<string, unknown>,
+  topic: string,
+  agents: string[],
+  personaOverlays: Record<string, string> | string[] | undefined,
+  pacing: string = "instant",
+  model: string = INFERENCE_MODEL,
+  thinking = false,
+  responseLength: ResponseLength = DEFAULT_RESPONSE_LENGTH,
+  referenceContext?: string,
+  agentPersonalityTraits?: Record<string, string[]>,
+  agentCommunicationStyles?: Record<string, string>,
+  agentIntensityLevels?: Record<string, number>
+) {
+  const lengthMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
+
+  // Helper: build competitive system prompt per phase
+  function buildCompetitiveSystemPrompt(
+    agentId: string,
+    phase: "pitch" | "critique" | "vote",
+    pitches: Record<string, string>
+  ): string {
+    const agent = AGENT_DEFS[agentId];
+    if (!agent) return `You are an AI agent in a competitive ideation session about: ${topic}`;
+
+    const agentOverlay = getAgentOverlay(personaOverlays, agentId);
+    const overlayContent = agentOverlay ? PERSONA_CONTENT[agentOverlay] : null;
+    const overlayLine = overlayContent ? `\nSpecialized lens: ${overlayContent}\n` : "";
+    const memoryEntries = getAgentMemory(agentId, 3);
+    const memoryBlock = formatMemoryForPrompt(memoryEntries);
+    const referenceBlock = referenceContext ? `\n**Reference material:**\n${referenceContext}\n` : "";
+    const personalityBlock = buildPersonalityBlock(
+      agentPersonalityTraits?.[agentId] || [],
+      agentCommunicationStyles?.[agentId],
+      agentIntensityLevels?.[agentId]
+    );
+
+    const baseIdentity = `${agent.persona}\n\n---\n\nYou are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n${overlayLine}${memoryBlock}${referenceBlock}${personalityBlock}`;
+
+    if (phase === "pitch") {
+      return `${baseIdentity}
+
+**MODE: COMPETITIVE IDEATION — ROUND 1: PITCH**
+
+You are competing against other agents to pitch the BEST idea on the topic below. This is a competition — not a collaboration. You want to WIN.
+
+**Rules:**
+- Pitch ONE bold, specific, original idea. Not a list of ideas. ONE killer concept.
+- Be provocative. Safe ideas lose. The bolder and more differentiated your pitch, the better.
+- Ground it in your unique expertise as ${agent.role} — why are YOU the right person for this idea?
+- Include a concrete execution plan: what gets built, by whom, by when.
+- Name your pitch with a catchy title.
+- You are trying to convince the other agents to vote for YOUR idea in Round 3.
+
+**Response length:** ${RESPONSE_LENGTH_CONFIG[responseLength].instruction}
+
+Think like a founder pitching to VCs who've seen 1000 pitches today. Stand out or go home.`;
+    }
+
+    if (phase === "critique") {
+      const pitchSummary = Object.entries(pitches)
+        .map(([name, pitch]) => `═══ ${name.toUpperCase()}'S PITCH ═══\n${pitch}`)
+        .join("\n\n---\n\n");
+
+      return `${baseIdentity}
+
+**MODE: COMPETITIVE IDEATION — ROUND 2: CRITIQUE**
+
+You've heard all the pitches. Now tear them apart. Your job is to find weaknesses, challenge assumptions, and stress-test every idea — INCLUDING YOUR OWN if it deserves it.
+
+**The pitches:**
+
+${pitchSummary}
+
+**Rules:**
+- You MUST reference each competitor BY NAME (e.g., "Atlas's pitch assumes..." or "The weakness in Scout's proposal is...")
+- Attack the idea, not the person. Be intellectually rigorous, not petty.
+- Identify fatal flaws, missing risks, unrealistic assumptions, execution gaps
+- You may defend your own pitch against anticipated criticism — but be honest about its weaknesses too
+- Suggest what would make a competing pitch stronger if you see potential in it
+- Be direct and unsparing. Politeness is fine but pulling punches is not.
+
+**Response length:** ${RESPONSE_LENGTH_CONFIG[responseLength].instruction}
+
+This is the crucible. The best ideas survive tough criticism. Do your job.`;
+    }
+
+    // Vote phase
+    const pitchSummary = Object.entries(pitches)
+      .map(([name, pitch]) => `═══ ${name.toUpperCase()}'S PITCH ═══\n${pitch}`)
+      .join("\n\n---\n\n");
+
+    return `${baseIdentity}
+
+**MODE: COMPETITIVE IDEATION — ROUND 3: VOTE**
+
+The pitches have been made. The critiques have been heard. Now VOTE.
+
+**The pitches:**
+
+${pitchSummary}
+
+**Rules:**
+- You MUST vote for exactly ONE idea. You CANNOT vote for your own pitch.
+- Format your vote EXACTLY like this on the first line: **VOTE: [Agent Name]**
+- Then explain your reasoning in 2-3 sentences. Why this idea? What convinced you?
+- Consider: originality, feasibility, impact, how well the idea survived critique
+- Be honest. Vote for the idea that's genuinely best for the company, not for your friend.
+
+**Response length:** Concise. Vote + 2-3 sentences of reasoning. That's it.`;
+  }
+
+  // ─── ROUND 1: PITCH ───────────────────────────────────────────────────────
+
+  // Update phase
+  const updatePhase = (phase: string) => {
+    const raw = fs.readFileSync(filePath, "utf-8");
+    const s = JSON.parse(raw);
+    if (!s.competitive) s.competitive = { phase, pitches: {}, votes: [], winner: null, voteTally: {} };
+    s.competitive.phase = phase;
+    fs.writeFileSync(filePath, JSON.stringify(s, null, 2));
+  };
+
+  updatePhase("pitch");
+
+  // Add round marker
+  appendEvent(filePath, {
+    id: `evt_round1_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: "start",
+    speaker: "System",
+    emoji: "🎯",
+    role: "supervisor",
+    text: "**⚔️ Round 1 — PITCH**\nEach agent pitches their boldest idea. One idea. Make it count.",
+  });
+
+  const pitches: Record<string, string> = {};
+
+  for (const agentId of agents) {
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.status !== "active") return;
+
+    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "pitch", {});
+    const userPrompt = `Topic: ${topic}\n\nYou are first up (or responding after hearing others). Pitch your idea NOW.`;
+
+    setThinkingAgent(filePath, agentId);
+    let text = "";
+    try {
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
+    } catch (err) {
+      text = `⚠️ Failed to generate pitch: ${String(err)}`;
+    }
+    setThinkingAgent(filePath, null);
+
+    pitches[agentId] = text;
+
+    const agent = AGENT_DEFS[agentId];
+    appendEvent(filePath, {
+      id: `evt_pitch_${agentId}_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      type: "worker",
+      speaker: agentId,
+      emoji: agent?.emoji || "💬",
+      role: "worker",
+      text,
+      model,
+    });
+
+    // Store pitch in session state
+    const pitchRaw = fs.readFileSync(filePath, "utf-8");
+    const pitchSession = JSON.parse(pitchRaw);
+    if (!pitchSession.competitive) pitchSession.competitive = { phase: "pitch", pitches: {}, votes: [], winner: null, voteTally: {} };
+    pitchSession.competitive.pitches[agentId] = text;
+    fs.writeFileSync(filePath, JSON.stringify(pitchSession, null, 2));
+
+    await new Promise((r) => setTimeout(r, 500));
+    const continueSession = await applyPacing(filePath, pacing);
+    if (!continueSession) return;
+  }
+
+  // Auto-title after pitches
+  const afterPitches = fs.readFileSync(filePath, "utf-8");
+  const afterPitchSession = JSON.parse(afterPitches);
+  const pitchEvents = (afterPitchSession.events || []).filter(
+    (e: { type: string }) => e.type === "worker"
+  );
+  generateSessionTitle(filePath, topic, pitchEvents, model).catch(console.warn);
+
+  // ─── ROUND 2: CRITIQUE ────────────────────────────────────────────────────
+
+  updatePhase("critique");
+
+  appendEvent(filePath, {
+    id: `evt_round2_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: "start",
+    speaker: "System",
+    emoji: "🔥",
+    role: "supervisor",
+    text: "**🔥 Round 2 — CRITIQUE**\nGloves off. Find the flaws. Reference each pitch by name.",
+  });
+
+  for (const agentId of agents) {
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.status !== "active") return;
+
+    const currentEvents = checkSession.events || [];
+    const history = buildHistoryString(currentEvents);
+    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "critique", pitches);
+    const userPrompt = `Topic: ${topic}\n\nFull discussion so far:\n\n${history}\n\nNow critique all the pitches. Be rigorous and reference each competitor by name.`;
+
+    setThinkingAgent(filePath, agentId);
+    let text = "";
+    try {
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, lengthMaxTokens);
+    } catch (err) {
+      text = `⚠️ Failed to generate critique: ${String(err)}`;
+    }
+    setThinkingAgent(filePath, null);
+
+    const agent = AGENT_DEFS[agentId];
+    appendEvent(filePath, {
+      id: `evt_critique_${agentId}_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      type: "reviewer",
+      speaker: agentId,
+      emoji: agent?.emoji || "💬",
+      role: "reviewer",
+      text,
+      model,
+    });
+
+    await new Promise((r) => setTimeout(r, 500));
+    const continueSession = await applyPacing(filePath, pacing);
+    if (!continueSession) return;
+  }
+
+  // ─── ROUND 3: VOTE ────────────────────────────────────────────────────────
+
+  updatePhase("vote");
+
+  appendEvent(filePath, {
+    id: `evt_round3_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: "start",
+    speaker: "System",
+    emoji: "🗳️",
+    role: "supervisor",
+    text: "**🗳️ Round 3 — VOTE**\nEach agent votes for the best idea (not their own). Format: **VOTE: [Name]**",
+  });
+
+  const votes: Array<{ voter: string; votedFor: string; reasoning: string }> = [];
+  const voteTally: Record<string, number> = {};
+  for (const a of agents) voteTally[a] = 0;
+
+  for (const agentId of agents) {
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.status !== "active") return;
+
+    const currentEvents = checkSession.events || [];
+    const history = buildHistoryString(currentEvents);
+    const systemPrompt = buildCompetitiveSystemPrompt(agentId, "vote", pitches);
+    const userPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${history}\n\nCast your vote now. Remember: **VOTE: [Agent Name]** on the first line, then your reasoning.`;
+
+    setThinkingAgent(filePath, agentId);
+    let text = "";
+    try {
+      text = await callClaude(systemPrompt, userPrompt, model, thinking, 512);
+    } catch (err) {
+      text = `⚠️ Failed to generate vote: ${String(err)}`;
+    }
+    setThinkingAgent(filePath, null);
+
+    // Parse the vote
+    const voteMatch = text.match(/\*\*VOTE:\s*(\w+)\*\*/i) || text.match(/VOTE:\s*(\w+)/i);
+    const votedFor = voteMatch ? voteMatch[1] : "Unknown";
+    if (votedFor !== "Unknown" && voteTally[votedFor] !== undefined) {
+      voteTally[votedFor]++;
+    }
+    votes.push({ voter: agentId, votedFor, reasoning: text });
+
+    const agent = AGENT_DEFS[agentId];
+    appendEvent(filePath, {
+      id: `evt_vote_${agentId}_${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      type: "worker",
+      speaker: agentId,
+      emoji: agent?.emoji || "🗳️",
+      role: "worker",
+      text,
+      verdict: "approve",
+      model,
+    });
+
+    await new Promise((r) => setTimeout(r, 300));
+  }
+
+  // ─── FINAL: TALLY & DECLARE WINNER ──────────────────────────────────────
+
+  updatePhase("complete");
+
+  // Determine winner
+  const maxVotes = Math.max(...Object.values(voteTally));
+  const winners = Object.entries(voteTally).filter(([, v]) => v === maxVotes).map(([k]) => k);
+  const winner = winners[0] || agents[0];
+
+  // Store final competitive state
+  const finalStateRaw = fs.readFileSync(filePath, "utf-8");
+  const finalStateSession = JSON.parse(finalStateRaw);
+  finalStateSession.competitive = {
+    phase: "complete",
+    pitches,
+    votes,
+    winner,
+    voteTally,
+  };
+  fs.writeFileSync(filePath, JSON.stringify(finalStateSession, null, 2));
+
+  // Build vote results summary
+  const tallyLines = Object.entries(voteTally)
+    .sort(([, a], [, b]) => b - a)
+    .map(([name, count]) => {
+      const isWinner = name === winner;
+      return `${isWinner ? "🏆" : "　"} **${name}** — ${count} vote${count !== 1 ? "s" : ""}${isWinner ? " ← WINNER" : ""}`;
+    });
+
+  const voteDetails = votes
+    .map((v) => `- **${v.voter}** voted for **${v.votedFor}**`)
+    .join("\n");
+
+  // Generate action items from the winning pitch
+  const winnerAgent = AGENT_DEFS[winner];
+  const summarySystemPrompt = `You are Henry ⚡, Chief of Staff at Harris Autonomous. A competitive ideation session just concluded.
+
+The winning idea was pitched by ${winner} (${winnerAgent?.role || "Agent"}). Your job is to:
+1. Declare the winner and summarize why they won
+2. Synthesize the best elements from ALL pitches (not just the winner)
+3. Extract 3-5 concrete action items with owners and timelines
+4. Note any risks or open questions that came up during critique
+
+Be direct and actionable. This becomes the marching orders.`;
+
+  const summaryUserPrompt = `Topic: ${topic}
+
+**Vote Results:**
+${tallyLines.join("\n")}
+
+**Vote Details:**
+${voteDetails}
+
+**Winning Pitch (${winner}):**
+${pitches[winner] || "N/A"}
+
+**All Pitches:**
+${Object.entries(pitches).map(([name, pitch]) => `[${name}]: ${pitch.slice(0, 500)}`).join("\n\n")}
+
+Deliver the final verdict and action plan.`;
+
+  let summaryText = "";
+  setThinkingAgent(filePath, "Henry");
+  try {
+    summaryText = await callClaude(summarySystemPrompt, summaryUserPrompt, model, thinking, lengthMaxTokens);
+  } catch (err) {
+    summaryText = `Could not generate summary: ${String(err)}`;
+  }
+  setThinkingAgent(filePath, null);
+
+  // Append results event
+  appendEvent(filePath, {
+    id: `evt_results_${Date.now()}`,
+    timestamp: new Date().toISOString(),
+    type: "complete",
+    speaker: "Henry",
+    emoji: "🏆",
+    role: "supervisor",
+    text: `**🏆 Competition Results**\n\n${tallyLines.join("\n")}\n\n---\n\n${summaryText}`,
+    verdict: "approve",
+    model,
+  });
+
+  // Mark session complete
+  const completedRaw = fs.readFileSync(filePath, "utf-8");
+  const completedSession = JSON.parse(completedRaw);
+  completedSession.status = "completed";
+  completedSession.completedAt = new Date().toISOString();
+  completedSession.outcome = "competitive-complete";
+  completedSession.competitive = { phase: "complete", pitches, votes, winner, voteTally };
+  fs.writeFileSync(filePath, JSON.stringify(completedSession, null, 2));
+
   archiveSession(completedSession.id || path.basename(filePath, ".json")).catch((e) =>
     console.error("Auto-archive failed:", e)
   );
