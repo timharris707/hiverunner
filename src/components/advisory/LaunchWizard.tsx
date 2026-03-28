@@ -750,6 +750,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           agentCommunicationStyles: Object.keys(agentCommStyles).length > 0 ? agentCommStyles : undefined,
           agentIntensityLevels: Object.keys(agentIntensity).length > 0 ? agentIntensity : undefined,
           agentResponseLengths: Object.keys(agentResponseLengths).length > 0 ? agentResponseLengths : undefined,
+          moderator: mode === "roundtable" && selectedAgents.length >= 2 ? moderator : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
@@ -1662,6 +1663,47 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                     >
                       <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)", marginBottom: "2px" }}>{opt.label}</div>
                       <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.3 }}>{opt.desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            )}
+
+            {/* Moderator — roundtable only, when 2+ agents selected */}
+            {mode === "roundtable" && selectedAgents.length >= 2 && (
+            <div style={{ marginBottom: "24px" }}>
+              <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
+                MODERATOR
+              </label>
+              <div style={{ fontSize: "10px", color: "var(--text-muted)", marginBottom: "8px", lineHeight: 1.4 }}>
+                Opens session with agenda framing, interjects to keep discussion on track, and delivers final synthesis.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(100px, 1fr))", gap: "6px" }}>
+                {selectedAgents.map((agentId) => {
+                  const agent = AGENTS.find((a) => a.id === agentId);
+                  const sel = moderator === agentId;
+                  const isHenry = agentId === "Henry";
+                  return (
+                    <button
+                      key={agentId}
+                      onClick={() => setModerator(agentId)}
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "8px",
+                        border: `1px solid ${sel ? "#a855f7" : "var(--border)"}`,
+                        backgroundColor: sel ? "rgba(168,85,247,0.12)" : "var(--surface-elevated)",
+                        cursor: "pointer",
+                        textAlign: "center",
+                        transition: "all 150ms ease",
+                      }}
+                    >
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "#a855f7" : "var(--text-primary)" }}>
+                        {agent?.emoji || "🤖"} {agentId}
+                      </div>
+                      {isHenry && (
+                        <div style={{ fontSize: "8px", color: "#a855f7", marginTop: "2px", fontWeight: 600 }}>DEFAULT</div>
+                      )}
                     </button>
                   );
                 })}

@@ -276,7 +276,7 @@ export async function POST(
         type: "worker",
         speaker: agentId,
         emoji: agent?.emoji || "💬",
-        role: agentId === "Henry" ? "supervisor" : "worker",
+        role: session.moderator && agentId === session.moderator ? "moderator" : agentId === "Henry" ? "supervisor" : "worker",
         text,
         model: agentModel,
       });

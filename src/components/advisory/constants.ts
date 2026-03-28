@@ -448,12 +448,12 @@ export function formatMarkdownFileExport(session: AdvisorySession, events: Advis
     lines.push(``);
   }
 
-  // Overall assessment — look for Henry's last "complete" type event
-  const synthesisEvent = events.find((e) => e.type === "complete" && e.speaker === "Henry");
+  // Overall assessment — look for moderator or Henry's "complete" type event
+  const synthesisEvent = events.find((e) => e.type === "complete" && (e.role === "moderator" || e.speaker === "Henry"));
   if (synthesisEvent && synthesisEvent.text) {
     lines.push(`---`, ``);
     lines.push(`## Overall Assessment`);
-    lines.push(`*Henry's synthesis*`);
+    lines.push(`*${synthesisEvent.role === "moderator" ? `${synthesisEvent.speaker}'s moderator synthesis` : "Henry's synthesis"}*`);
     lines.push(``);
     lines.push(synthesisEvent.text.trim());
     lines.push(``);

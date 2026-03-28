@@ -115,9 +115,11 @@ export async function POST(
     }
   }
 
-  // Pick the synthesizer — Henry if present, otherwise first agent
-  const synthAgentId: string = (agents as string[]).includes("Henry") ? "Henry" : ((agents as string[])[0] || "Henry");
+  // Pick the synthesizer — moderator if set, then Henry, then first agent
+  const moderatorId = session.moderator as string | undefined;
+  const synthAgentId: string = moderatorId || ((agents as string[]).includes("Henry") ? "Henry" : ((agents as string[])[0] || "Henry"));
   const synthAgent = AGENT_DEFS[synthAgentId];
+  const isModerator = !!moderatorId;
 
   // Build the full discussion history
   const history = buildHistoryString(session.events || []);
@@ -127,9 +129,11 @@ export async function POST(
   const overlayNames = Object.values(overlayObj).filter(Boolean);
   const overlayContext = overlayNames.length > 0 ? `\n\nSession context lenses: ${overlayNames.join(", ")}` : "";
 
+  const moderatorPreamble = isModerator ? `\n\nAs the session **moderator**, you have guided this entire discussion. Your synthesis carries the authority of someone who has heard every perspective and shaped the conversation's direction. Deliver your closing statement with the confidence of a moderator who has been steering this from the beginning.\n` : "";
+
   const systemPrompt = `You are ${synthAgent?.name ?? synthAgentId} ${synthAgent?.emoji ?? "⚡"}, the ${synthAgent?.role ?? "Chief of Staff"} at Harris Autonomous.
 
-You are delivering the final synthesis for an advisory board session that Tim has chosen to end. This is your closing statement.
+You are delivering the final synthesis for an advisory board session that Tim has chosen to end. This is your closing statement.${moderatorPreamble}
 
 You MUST use EXACTLY this structure with these markdown headers. Do not skip any section:
 
@@ -172,8 +176,8 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
       type: "complete",
       speaker: synthAgentId,
       emoji: synthAgent?.emoji ?? "⚡",
-      role: synthAgentId === "Henry" ? "supervisor" : "worker",
-      text: `**⚡ Final Synthesis**\n\n${synthText}`,
+      role: isModerator ? "moderator" : synthAgentId === "Henry" ? "supervisor" : "worker",
+      text: `**${isModerator ? "🎙️ Moderator's Final Synthesis" : "⚡ Final Synthesis"}**\n\n${synthText}`,
       verdict: "approve",
       model: resolvedModel,
     });

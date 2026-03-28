@@ -913,6 +913,7 @@ async function runRoundtable(
   agentResponseLengths?: Record<string, string>
 ) {
   const isPersistent = rounds === "persistent";
+  const moderatorId = session.moderator as string | undefined;
 
   // For persistent sessions: run exactly one round, then stay active
   const numRounds = isPersistent
@@ -921,8 +922,70 @@ async function runRoundtable(
     ? rounds
     : parseInt(String(rounds), 10) || 3;
 
+  // ── Moderator opening: agenda framing before round 1 ────────────────────────
+  if (moderatorId && AGENT_DEFS[moderatorId]) {
+    const checkRaw = fs.readFileSync(filePath, "utf-8");
+    const checkSession = JSON.parse(checkRaw);
+    if (checkSession.status !== "active") return;
+
+    const modAgent = AGENT_DEFS[moderatorId];
+    const modOverlay = getAgentOverlay(personaOverlays, moderatorId);
+    const modSystemPrompt = buildModeratorSystemPrompt(
+      moderatorId, topic, modOverlay, responseLength, thinking, referenceContext,
+      agentPersonalityTraits?.[moderatorId],
+      agentCommunicationStyles?.[moderatorId],
+      agentIntensityLevels?.[moderatorId]
+    );
+
+    const participantList = agents
+      .filter((a) => a !== moderatorId)
+      .map((a) => {
+        const def = AGENT_DEFS[a];
+        return def ? `${def.name} ${def.emoji} (${def.role})` : a;
+      })
+      .join(", ");
+
+    const openingPrompt = `You are moderating a roundtable session for Tim Harris, CEO of Harris Autonomous.
+
+**Topic:** ${topic}
+
+**Participants:** ${participantList}
+
+**Rounds planned:** ${isPersistent ? "persistent (open-ended)" : numRounds}
+
+Open the session now. Frame the agenda: what are the key questions we need to answer? What does success look like for this discussion? Briefly set expectations for the participants and kick things off. Be concise but authoritative — this is your opening statement as moderator.`;
+
+    let openingText = "";
+    const openingMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
+    setThinkingAgent(filePath, moderatorId);
+    try {
+      openingText = await callClaude(modSystemPrompt, openingPrompt, model, thinking, openingMaxTokens);
+    } catch (err) {
+      openingText = `⚠️ Failed to generate moderator opening: ${String(err)}`;
+    }
+    setThinkingAgent(filePath, null);
+
+    appendEvent(filePath, {
+      id: `evt_mod_open_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+      timestamp: new Date().toISOString(),
+      type: "worker",
+      speaker: moderatorId,
+      emoji: modAgent.emoji,
+      role: "moderator" as const,
+      text: openingText,
+      model,
+    });
+
+    await new Promise((r) => setTimeout(r, 500));
+    const continueAfterOpening = await applyPacing(filePath, pacing);
+    if (!continueAfterOpening) return;
+  }
+
   for (let round = 1; round <= numRounds; round++) {
-    for (const agentId of agents) {
+    // Filter out moderator from regular turn order — they speak separately
+    const roundAgents = moderatorId ? agents.filter((a) => a !== moderatorId) : agents;
+
+    for (const agentId of roundAgents) {
       const currentRaw = fs.readFileSync(filePath, "utf-8");
       const currentSession = JSON.parse(currentRaw);
       const events = currentSession.events || [];
@@ -977,7 +1040,7 @@ async function runRoundtable(
         type: "worker",
         speaker: agentId,
         emoji: agent?.emoji || "💬",
-        role: agentId === "Henry" ? "supervisor" : "worker",
+        role: agentId === moderatorId ? ("moderator" as const) : agentId === "Henry" ? "supervisor" : "worker",
         text,
         model,
       };
@@ -994,10 +1057,54 @@ async function runRoundtable(
       const afterFirstRound = fs.readFileSync(filePath, "utf-8");
       const afterFirstSession = JSON.parse(afterFirstRound);
       const firstRoundEvents = (afterFirstSession.events || []).filter(
-        (e: { type: string; text: string; speaker: string }) =>
-          e.type === "worker" || e.type === "supervisor"
+        (e: { type: string; text: string; speaker: string; role?: string }) =>
+          e.type === "worker" || e.type === "supervisor" || e.role === "moderator"
       );
       generateSessionTitle(filePath, topic, firstRoundEvents, model).catch(console.warn);
+    }
+
+    // ── Moderator interjection between rounds ─────────────────────────────────
+    if (moderatorId && AGENT_DEFS[moderatorId] && round < numRounds) {
+      const interjectRaw = fs.readFileSync(filePath, "utf-8");
+      const interjectSession = JSON.parse(interjectRaw);
+      if (interjectSession.status !== "active") return;
+
+      const interjectHistory = buildHistoryString(interjectSession.events || []);
+      const modAgent = AGENT_DEFS[moderatorId];
+      const modOverlay = getAgentOverlay(personaOverlays, moderatorId);
+      const modSystemPrompt = buildModeratorSystemPrompt(
+        moderatorId, topic, modOverlay, responseLength, thinking, referenceContext,
+        agentPersonalityTraits?.[moderatorId],
+        agentCommunicationStyles?.[moderatorId],
+        agentIntensityLevels?.[moderatorId]
+      );
+
+      const interjectPrompt = `Topic: ${topic}\n\nDiscussion so far:\n\n${interjectHistory}\n\nRound ${round} of ${numRounds} is complete. As moderator, interject now to guide the next round:\n- Summarize the key points and areas of agreement/disagreement so far\n- Redirect if the discussion has drifted from the core topic\n- Surface any angles or perspectives that haven't been adequately explored\n- Set the agenda for the next round — what should participants focus on?\n\nKeep it tight. This is a transition, not a speech.`;
+
+      let interjectText = "";
+      const interjectMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
+      setThinkingAgent(filePath, moderatorId);
+      try {
+        interjectText = await callClaude(modSystemPrompt, interjectPrompt, model, thinking, interjectMaxTokens);
+      } catch (err) {
+        interjectText = `⚠️ Failed to generate moderator interjection: ${String(err)}`;
+      }
+      setThinkingAgent(filePath, null);
+
+      appendEvent(filePath, {
+        id: `evt_mod_interject_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: new Date().toISOString(),
+        type: "worker",
+        speaker: moderatorId,
+        emoji: modAgent.emoji,
+        role: "moderator" as const,
+        text: interjectText,
+        model,
+      });
+
+      await new Promise((r) => setTimeout(r, 500));
+      const continueAfterInterject = await applyPacing(filePath, pacing);
+      if (!continueAfterInterject) return;
     }
   }
 
@@ -1011,21 +1118,31 @@ async function runRoundtable(
     return;
   }
 
-  // Non-persistent: wrap up with a summary
-  const summaryAgentId = agents.includes("Henry") ? "Henry" : agents[0];
+  // Non-persistent: wrap up with a summary — moderator delivers if present
+  const summaryAgentId = moderatorId || (agents.includes("Henry") ? "Henry" : agents[0]);
   const finalRaw = fs.readFileSync(filePath, "utf-8");
   const finalSession = JSON.parse(finalRaw);
   if (finalSession.status !== "active") return;
 
   const finalHistory = buildHistoryString(finalSession.events || []);
   const summaryAgentOverlay = getAgentOverlay(personaOverlays, summaryAgentId);
-  const finalSystemPrompt = buildSystemPrompt(
-    summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking, referenceContext,
-    agentPersonalityTraits?.[summaryAgentId],
-    agentCommunicationStyles?.[summaryAgentId],
-    agentIntensityLevels?.[summaryAgentId]
-  );
-  const summaryPrompt = `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
+
+  const finalSystemPrompt = moderatorId
+    ? buildModeratorSystemPrompt(
+        summaryAgentId, topic, summaryAgentOverlay, responseLength, thinking, referenceContext,
+        agentPersonalityTraits?.[summaryAgentId],
+        agentCommunicationStyles?.[summaryAgentId],
+        agentIntensityLevels?.[summaryAgentId]
+      )
+    : buildSystemPrompt(
+        summaryAgentId, "roundtable", topic, summaryAgentOverlay, responseLength, undefined, thinking, referenceContext,
+        agentPersonalityTraits?.[summaryAgentId],
+        agentCommunicationStyles?.[summaryAgentId],
+        agentIntensityLevels?.[summaryAgentId]
+      );
+  const summaryPrompt = moderatorId
+    ? `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable is now complete. As moderator, deliver your final synthesis and closing statement. Summarize the key conclusions, assign action items to specific participants with timelines, flag any unresolved questions, and tell Tim what he should do next. Be direct and decisive — this is your authoritative wrap-up.`
+    : `Topic: ${topic}\n\nFull discussion:\n\n${finalHistory}\n\nThe roundtable discussion is now complete. As ${summaryAgentId === "Henry" ? "Chief of Staff" : AGENT_DEFS[summaryAgentId]?.role || "session host"}, synthesize the key conclusions, decisions, and recommended next steps from this roundtable. Be direct and actionable.`;
 
   let summaryText = "";
   const summaryMaxTokens = RESPONSE_LENGTH_CONFIG[responseLength].maxTokens;
@@ -1042,8 +1159,8 @@ async function runRoundtable(
     type: "complete",
     speaker: summaryAgentId,
     emoji: summaryAgent?.emoji || "🎉",
-    role: summaryAgentId === "Henry" ? "supervisor" : "worker",
-    text: `**Session Summary**\n\n${summaryText}`,
+    role: moderatorId ? ("moderator" as const) : summaryAgentId === "Henry" ? "supervisor" : "worker",
+    text: `**${moderatorId ? "Moderator's Final Synthesis" : "Session Summary"}**\n\n${summaryText}`,
     verdict: "approve",
     model,
   };
