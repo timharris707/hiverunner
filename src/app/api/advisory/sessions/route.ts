@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   try {
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels, agentResponseLengths } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -54,6 +54,21 @@ export async function POST(req: NextRequest) {
 
     const id = `session-${Date.now()}-${randomUUID().slice(0, 8)}`;
     const now = new Date().toISOString();
+
+    const isCompetitive = mode === "competitive";
+    const competitiveState = isCompetitive ? {
+      phase: "pitch" as const,
+      pitches: {} as Record<string, string>,
+      votes: [] as Array<{ voter: string; votedFor: string; reasoning: string }>,
+      winner: null,
+      voteTally: {} as Record<string, number>,
+    } : undefined;
+
+    const startText = mode === "review" && reviewLoop
+      ? `🚀 **Review Loop started.**\n\n**Topic:** ${topic}\n\n**Tasks:** ${reviewLoop.tasks?.length || 0} items\n**Worker:** ${reviewLoop.workerAgent} | **Reviewer:** ${reviewLoop.reviewerAgent} | **Supervisor:** ${reviewLoop.supervisorAgent}\n**Model:** ${model || "claude-opus-4-6"}\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects.`
+      : isCompetitive
+      ? `⚔️ **Competitive Ideation started.**\n\n**Topic:** ${topic}\n\n**Mode:** Competitive Ideation | **Model:** ${model || "claude-opus-4-6"}\n\n**Competitors:** ${(agents || []).join(", ") || "TBD"}\n\n**Round 1 — PITCH:** Each agent pitches their boldest idea.\n**Round 2 — CRITIQUE:** Agents tear apart each other's pitches by name.\n**Round 3 — VOTE:** Each agent votes for the best idea (not their own) with reasoning.\n\nLet the competition begin...`
+      : `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`;
 
     const session = {
       id,
@@ -80,18 +95,18 @@ export async function POST(req: NextRequest) {
       ...(agentPersonalityTraits && Object.keys(agentPersonalityTraits).length > 0 ? { agentPersonalityTraits } : {}),
       ...(agentCommunicationStyles && Object.keys(agentCommunicationStyles).length > 0 ? { agentCommunicationStyles } : {}),
       ...(agentIntensityLevels && Object.keys(agentIntensityLevels).length > 0 ? { agentIntensityLevels } : {}),
+      ...(agentResponseLengths && Object.keys(agentResponseLengths).length > 0 ? { agentResponseLengths } : {}),
       ...(reviewLoop ? { reviewLoop } : {}),
+      ...(competitiveState ? { competitive: competitiveState } : {}),
       events: [
         {
           id: "evt_001",
           timestamp: now,
           type: "start",
           speaker: reviewLoop?.supervisorAgent || "Henry",
-          emoji: "⚡",
+          emoji: isCompetitive ? "⚔️" : "⚡",
           role: "supervisor",
-          text: mode === "review" && reviewLoop
-            ? `🚀 **Review Loop started.**\n\n**Topic:** ${topic}\n\n**Tasks:** ${reviewLoop.tasks?.length || 0} items\n**Worker:** ${reviewLoop.workerAgent} | **Reviewer:** ${reviewLoop.reviewerAgent} | **Supervisor:** ${reviewLoop.supervisorAgent}\n**Model:** ${model || "claude-opus-4-6"}\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects.`
-            : `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`,
+          text: startText,
         },
       ],
     };

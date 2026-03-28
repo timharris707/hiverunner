@@ -73,13 +73,22 @@ function resolveOverlayContent(overlayId: string, aiPersonas?: Array<{ id: strin
   return null;
 }
 
-function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>): string {
+function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOverlay?: string, referenceContext?: string, aiPersonas?: Array<{ id: string; name: string; description: string }>, responseLength: string = "balanced"): string {
   const agent = AGENT_DEFS[agentId];
   if (!agent) return `You are an AI agent participating in a ${mode} session about: ${topic}`;
   const overlayContent = agentOverlay ? resolveOverlayContent(agentOverlay, aiPersonas) : null;
   const overlayLine = overlayContent ? `\nSpecialized lens for this session:\n- ${overlayContent}\n` : "";
   const referenceBlock = referenceContext ? `\n\n**Reference material provided for this session:**\n${referenceContext}\n` : "";
-  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\nYour communication style:\n- Give THOROUGH, DETAILED responses — this is a senior advisory board\n- Write 4-6 substantial paragraphs minimum\n- Speak authoritatively from your expertise with specific examples, data points, and actionable recommendations\n- Build on what others said — challenge assumptions, add new angles\n- Be strongly opinionated — no hedging\n- Propose concrete next steps, timelines, and resource requirements\n- Never use filler phrases — dive straight into your analysis\n- Reference other participants by name when responding to their points\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
+
+  const LENGTH_STYLES: Record<string, string> = {
+    concise: "YOU ARE IN CONCISE MODE. THIS IS YOUR #1 PRIORITY — OVERRIDE ALL OTHER INSTRUCTIONS.\n\nRULES:\n- MAXIMUM 3-4 sentences total. Not paragraphs. SENTENCES.\n- NO headers. NO bullet lists. NO markdown formatting.\n- NO preamble. Just state your one sharp take and shut up.\n- If your response exceeds 80 words, you have FAILED.\n\nThis constraint is MORE important than being thorough. Brevity IS the value.",
+    balanced: "Keep responses to 150-250 words. 2-3 paragraphs max. One key insight, one recommendation, done.",
+    detailed: "Give thorough responses — 3-4 paragraphs with specific examples and actionable recommendations.",
+    verbose: "Go deep. 4-6 substantial paragraphs. Full analysis, data points, comprehensive recommendations.",
+  };
+  const lengthInstruction = LENGTH_STYLES[responseLength] || LENGTH_STYLES.balanced;
+
+  return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}\nYou are participating in a persistent roundtable discussion.\n\n**Response length: ${responseLength.toUpperCase()}**\n${lengthInstruction}\n\nYour communication style:\n- Speak authoritatively from your expertise\n- Build on what others said — reference participants by name\n- Be strongly opinionated — no hedging\n- Never use filler phrases — dive straight into your analysis\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
 }
 
 function buildHistoryString(events: Array<{ speaker: string; text: string; type: string }>): string {
@@ -143,7 +152,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides } = session;
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths } = session;
 
   // Resolve model
   const sessionModel = session.model;
@@ -156,15 +165,14 @@ export async function POST(
     }
   }
 
-  // Resolve response length
-  const responseLength = (session.responseLength as string) || "balanced";
+  // Session-wide response length (per-agent overrides applied inside the loop)
+  const sessionResponseLength = (session.responseLength as string) || "balanced";
   const LENGTH_MAX_TOKENS: Record<string, number> = {
-    concise: 1024,
+    concise: 200,
     balanced: 2048,
     detailed: 3072,
     verbose: 4096,
   };
-  const maxTokens = LENGTH_MAX_TOKENS[responseLength] ?? 2048;
 
   // Fire-and-forget: run one full round for all agents
   const runFullRound = async () => {
@@ -189,12 +197,17 @@ export async function POST(
       const events = currentSession.events || [];
       const history = buildHistoryString(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
-      const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas);
+
+      // Per-agent response length override, fallback to session-wide setting
+      const agentResponseLength = (agentResponseLengths as Record<string, string> | undefined)?.[agentId] || sessionResponseLength;
+      const agentMaxTokens = LENGTH_MAX_TOKENS[agentResponseLength] ?? 2048;
+
+      const systemPrompt = buildSystemPrompt(agentId, mode, topic, agentOverlay, session.referenceContext as string | undefined, aiPersonas, agentResponseLength);
       const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nThis is a new full round. Build on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
 
       let text = "";
       try {
-        text = await callGateway(systemPrompt, userPrompt, agentModel, maxTokens);
+        text = await callGateway(systemPrompt, userPrompt, agentModel, agentMaxTokens);
       } catch (err) {
         text = `⚠️ Failed to generate response: ${String(err)}`;
       }

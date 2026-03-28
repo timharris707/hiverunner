@@ -523,7 +523,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   }, []);
   const [topic, setTopic] = useState("");
   const [referenceContext, setReferenceContext] = useState("");
-  const [mode, setMode] = useState<"review" | "roundtable">("roundtable");
+  const [mode, setMode] = useState<"review" | "roundtable" | "competitive">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
   const [model, setModel] = useState("claude-sonnet-4-6");
@@ -540,6 +540,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [agentTraits, setAgentTraits] = useState<Record<string, string[]>>({});
   const [agentCommStyles, setAgentCommStyles] = useState<Record<string, string>>({});
   const [agentIntensity, setAgentIntensity] = useState<Record<string, number>>({});
+  const [agentResponseLengths, setAgentResponseLengths] = useState<Record<string, string>>({});
   // Track which per-agent personality sections are expanded
   const [expandedPersonality, setExpandedPersonality] = useState<Set<string>>(new Set());
   const MAX_OVERLAYS_PER_AGENT = 2;
@@ -736,6 +737,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
           agentPersonalityTraits: Object.keys(agentTraits).length > 0 ? agentTraits : undefined,
           agentCommunicationStyles: Object.keys(agentCommStyles).length > 0 ? agentCommStyles : undefined,
           agentIntensityLevels: Object.keys(agentIntensity).length > 0 ? agentIntensity : undefined,
+          agentResponseLengths: Object.keys(agentResponseLengths).length > 0 ? agentResponseLengths : undefined,
         }),
       });
       if (!res.ok) throw new Error("Failed to create session");
@@ -999,15 +1001,16 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               <label style={{ display: "block", fontSize: "11px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", marginBottom: "8px", fontFamily: "var(--font-mono)" }}>
                 SESSION MODE
               </label>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "8px" }}>
                 {[
                   { id: "roundtable", label: "Roundtable", desc: "Open collaborative discussion", icon: "🔄" },
+                  { id: "competitive", label: "Competitive", desc: "Agents pitch, debate & vote on best idea", icon: "⚔️" },
                   { id: "review", label: "Review Loop", desc: "Structured task pipeline with worker/reviewer", icon: "🔄" },
                 ].map((m) => (
                   <button
                     key={m.id}
                     onClick={() => {
-                      setMode(m.id as "review" | "roundtable");
+                      setMode(m.id as "review" | "roundtable" | "competitive");
                       // Set sensible default pacing per mode
                       setPacing(m.id === "roundtable" ? "manual" : "instant");
                       // Auto-fill topic for review mode if empty
@@ -2006,7 +2009,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         >
                           {expandedPersonality.has(agentId) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                           Personality
-                          {(agentTraits[agentId]?.length || agentCommStyles[agentId] || agentIntensity[agentId] != null) && (
+                          {(agentTraits[agentId]?.length || agentCommStyles[agentId] || agentIntensity[agentId] != null || agentResponseLengths[agentId]) && (
                             <span style={{ fontSize: "7px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", padding: "1px 5px", borderRadius: "3px" }}>
                               CONFIGURED
                             </span>
@@ -2139,6 +2142,69 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                                 )}
                               </div>
                             </div>
+
+                            {/* Per-agent response length */}
+                            <div>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                                <div style={{ fontSize: "9px", fontWeight: 700, letterSpacing: "0.06em", color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>
+                                  RESPONSE LENGTH
+                                </div>
+                                {agentResponseLengths[agentId] && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setAgentResponseLengths((prev) => { const copy = { ...prev }; delete copy[agentId]; return copy; });
+                                    }}
+                                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", fontSize: "10px", padding: "0 2px" }}
+                                    title="Use session default"
+                                  >✕ reset</button>
+                                )}
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
+                                {([
+                                  { id: "concise", label: "Concise", desc: "2–3 sentences" },
+                                  { id: "balanced", label: "Balanced", desc: "~200 words" },
+                                  { id: "detailed", label: "Detailed", desc: "~400 words" },
+                                  { id: "verbose", label: "Verbose", desc: "deep dive" },
+                                ] as const).map((opt) => {
+                                  const isOn = agentResponseLengths[agentId] === opt.id;
+                                  return (
+                                    <button
+                                      key={opt.id}
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setAgentResponseLengths((prev) => {
+                                          if (isOn) { const copy = { ...prev }; delete copy[agentId]; return copy; }
+                                          return { ...prev, [agentId]: opt.id };
+                                        });
+                                      }}
+                                      title={opt.desc}
+                                      style={{
+                                        padding: "3px 9px",
+                                        borderRadius: "12px",
+                                        border: `1px solid ${isOn ? "rgba(99,179,237,0.6)" : "var(--border)"}`,
+                                        backgroundColor: isOn ? "rgba(99,179,237,0.12)" : "var(--surface)",
+                                        color: isOn ? "#63b3ed" : "var(--text-muted)",
+                                        cursor: "pointer",
+                                        fontSize: "10px",
+                                        fontWeight: isOn ? 700 : 500,
+                                        transition: "all 120ms ease",
+                                      }}
+                                    >
+                                      {opt.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                              {!agentResponseLengths[agentId] && (
+                                <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "4px", fontFamily: "var(--font-mono)" }}>
+                                  using session default
+                                </div>
+                              )}
+                            </div>
+
                           </div>
                         )}
                       </div>

@@ -39,11 +39,25 @@ export interface SessionInsights {
   extractedAt: string;
 }
 
+export interface VoteRecord {
+  voter: string;
+  votedFor: string;
+  reasoning: string;
+}
+
+export interface CompetitiveState {
+  phase: "pitch" | "critique" | "vote" | "complete";
+  pitches: Record<string, string>;
+  votes: VoteRecord[];
+  winner: string | null;
+  voteTally: Record<string, number>;
+}
+
 export interface AdvisorySession {
   id: string;
   topic: string;
   title?: string;
-  mode: "review" | "roundtable";
+  mode: "review" | "roundtable" | "competitive";
   agents: string[];
   status: "active" | "completed" | "abandoned";
   createdAt: string;
@@ -60,10 +74,12 @@ export interface AdvisorySession {
   insights?: SessionInsights | null;
   referenceContext?: string;
   reviewLoop?: ReviewLoopState | null;
+  competitive?: CompetitiveState | null;
   agentModelOverrides?: Record<string, string>;
   agentPersonalityTraits?: Record<string, string[]>;
   agentCommunicationStyles?: Record<string, string>;
   agentIntensityLevels?: Record<string, number>;
+  agentResponseLengths?: Record<string, string>;
 }
 
 export interface ReviewTaskState {
@@ -106,7 +122,7 @@ export interface SessionTemplate {
   label: string;
   desc: string;
   icon: React.ComponentType<{ size?: number; style?: React.CSSProperties }>;
-  mode: "review" | "roundtable";
+  mode: "review" | "roundtable" | "competitive";
   agents: string[];
   responseLength: "concise" | "balanced" | "detailed" | "verbose";
   rounds: number;
