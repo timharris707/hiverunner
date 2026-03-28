@@ -111,7 +111,8 @@ const PRIORITY_BADGES: Record<Priority, { icon: string; color: string }> = {
   low: { icon: "\u{1F7E2}", color: "#22c55e" },
 };
 
-const OWNER_MODEL_MAP: Record<string, string> = {
+// Fallback used before live model data loads
+const OWNER_MODEL_FALLBACK: Record<string, string> = {
   pixel: "GPT 5.4",
   forge: "Opus 4.6",
   henry: "Opus 4.6",
@@ -122,6 +123,18 @@ const OWNER_MODEL_MAP: Record<string, string> = {
   nimbus: "Sonnet 4.6",
   quant: "Opus 4.6",
 };
+
+interface AgentModelEntry {
+  modelName: string;
+  modelId: string;
+  source: "openclaw-config" | "task-history" | "build-log";
+  updatedAt: string;
+}
+
+interface AgentModelsData {
+  defaultModel: { modelId: string; modelName: string };
+  agents: Record<string, AgentModelEntry>;
+}
 
 const PROJECT_TAGS: Record<string, string[]> = {
   "mission-control": ["Next.js", "Tasks", "Factory"],
@@ -187,7 +200,7 @@ function computePipelineStatus(project: ProjectApiItem, projectTasks: Task[]): P
   return "deployed";
 }
 
-function mapProducts(projects: ProjectApiItem[], tasks: Task[]): Product[] {
+function mapProducts(projects: ProjectApiItem[], tasks: Task[], agentModels: AgentModelsData | null): Product[] {
   return projects.map((project) => {
     const projectTasks = tasks.filter((task) => task.project === project.id);
     const activeTasks = projectTasks.filter((task) => ["on-deck", "in-progress", "review"].includes(task.status));
@@ -196,6 +209,13 @@ function mapProducts(projects: ProjectApiItem[], tasks: Task[]): Product[] {
     const latestModelTask = [...projectTasks]
       .filter((task) => task.routedModel)
       .sort((a, b) => new Date(b.buildTriggeredAt || b.updated || 0).getTime() - new Date(a.buildTriggeredAt || a.updated || 0).getTime())[0];
+
+    const ownerKey = (project.owner || "henry").toLowerCase();
+    const liveModel =
+      agentModels?.agents?.[ownerKey]?.modelName ||
+      OWNER_MODEL_FALLBACK[ownerKey] ||
+      agentModels?.defaultModel?.modelName ||
+      "Opus 4.6";
 
     return {
       id: project.id,
@@ -215,7 +235,7 @@ function mapProducts(projects: ProjectApiItem[], tasks: Task[]): Product[] {
       completedTaskCount: projectTasks.filter((task) => task.status === "done").length,
       reviewTaskCount: projectTasks.filter((task) => task.status === "review").length,
       backlogTaskCount: projectTasks.filter((task) => task.status === "backlog").length,
-      currentModel: latestModelTask?.routedModel || OWNER_MODEL_MAP[project.owner || ""] || "Sonnet 4.6",
+      currentModel: latestModelTask?.routedModel || liveModel,
     };
   });
 }
@@ -434,6 +454,24 @@ export default function SoftwareFactoryPage() {
   const [projects, setProjects] = useState<ProjectApiItem[]>([]);
   const [builds, setBuilds] = useState<BuildEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [agentModels, setAgentModels] = useState<AgentModelsData | null>(null);
+
+  // Fetch live agent model data from OpenClaw (every 30s)
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const res = await fetch("/api/factory/agents/models");
+        const data = await res.json();
+        if (!cancelled) setAgentModels(data as AgentModelsData);
+      } catch {
+        // keep previous data on error
+      }
+    };
+    load();
+    const interval = window.setInterval(load, 30000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, []);
 
   // Fetch tasks + projects (slower refresh)
   useEffect(() => {
@@ -477,7 +515,7 @@ export default function SoftwareFactoryPage() {
     return () => window.clearInterval(interval);
   }, [loadBuilds]);
 
-  const products = useMemo(() => mapProducts(projects, tasks), [projects, tasks]);
+  const products = useMemo(() => mapProducts(projects, tasks, agentModels), [projects, tasks, agentModels]);
   const sprites = useMemo(() => getActiveAgentSprites(builds), [builds]);
   const statsByStatus = useMemo(() => {
     const buckets: Record<PipelineStatus, Product[]> = { backlog: [], building: [], deployed: [], shipped: [] };
@@ -533,9 +571,17 @@ export default function SoftwareFactoryPage() {
           >
             {"\u{1F680}"} Software Factory Pipeline
           </Link>
-          <div style={{ marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.22)", color: "#bbf7d0", fontSize: 11, fontFamily: "var(--font-mono)" }}>
-            <span>{"\u{1F7E2}"}</span>
-            {loading ? "Syncing factory state..." : `Factory synced \u2022 ${builds.length} builds \u2022 ${tasks.length} tasks \u2022 ${projects.length} projects`}
+          <div className="flex flex-wrap items-center gap-2 mt-2.5">
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.22)", color: "#bbf7d0", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+              <span>{"\u{1F7E2}"}</span>
+              {loading ? "Syncing factory state..." : `Factory synced \u2022 ${builds.length} builds \u2022 ${tasks.length} tasks \u2022 ${projects.length} projects`}
+            </div>
+            {agentModels?.defaultModel && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.25)", color: "#c4b5fd", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+                <span>{"⚡"}</span>
+                {`OpenClaw default: ${agentModels.defaultModel.modelName}`}
+              </div>
+            )}
           </div>
         </div>
 
