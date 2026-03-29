@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
+import { withSessionLock } from "@/lib/session-lock";
+import { buildHistoryString } from "@/lib/advisory-history";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
@@ -34,8 +36,12 @@ export async function POST(
       text: `**[Human Directive]** ${text}`,
     };
 
-    session.events = [...(session.events || []), event];
-    fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
+    await withSessionLock(id, async () => {
+      const freshRaw = fs.readFileSync(filePath, "utf-8");
+      const freshSession = JSON.parse(freshRaw);
+      freshSession.events = [...(freshSession.events || []), event];
+      fs.writeFileSync(filePath, JSON.stringify(freshSession, null, 2));
+    });
 
     // Trigger a follow-up response from the next agent (fire-and-forget)
     // We call the run endpoint with a special flag via a background task
@@ -73,8 +79,6 @@ async function triggerFollowUp(
   },
   humanMessage: string
 ) {
-  const { readFileSync } = await import("fs");
-
   const filePath = path.join(DATA_DIR, `${sessionId}.json`);
   const { agents, topic, mode } = session;
 
@@ -86,14 +90,11 @@ async function triggerFollowUp(
   const role = AGENT_ROLES[respondingAgentId] || "Advisory Agent";
 
   // Read current session for history
-  const currentRaw = readFileSync(filePath, "utf-8");
+  const currentRaw = fs.readFileSync(filePath, "utf-8");
   const currentSession = JSON.parse(currentRaw);
   if (currentSession.status !== "active") return;
 
-  const historyLines = (currentSession.events || [])
-    .filter((e: { type: string }) => e.type !== "start")
-    .map((e: { speaker: string; text: string }) => `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`)
-    .join("\n\n");
+  const historyLines = buildHistoryString(currentSession.events || []);
 
   const refBlock = currentSession.referenceContext
     ? `\n\nReference material provided for this session:\n${currentSession.referenceContext}\n`
@@ -105,7 +106,7 @@ You are in a ${mode === "roundtable" ? "roundtable discussion" : "review session
 
 Respond directly to the human's directive. Be helpful, specific, and use your expertise.`;
 
-  const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${respondingAgentId} to Tim's directive.`;
+  const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${respondingAgentId} to Tim's directive. Be direct and specific.`;
 
   try {
     const result = await spawnAdvisoryAgentWithRetry({
@@ -128,10 +129,12 @@ Respond directly to the human's directive. Be helpful, specific, and use your ex
         model: result.model,
       };
 
-      const latestRaw = readFileSync(filePath, "utf-8");
-      const latestSession = JSON.parse(latestRaw);
-      latestSession.events = [...(latestSession.events || []), replyEvent];
-      fs.writeFileSync(filePath, JSON.stringify(latestSession, null, 2));
+      await withSessionLock(sessionId, async () => {
+        const latestRaw = fs.readFileSync(filePath, "utf-8");
+        const latestSession = JSON.parse(latestRaw);
+        latestSession.events = [...(latestSession.events || []), replyEvent];
+        fs.writeFileSync(filePath, JSON.stringify(latestSession, null, 2));
+      });
     }
   } catch (err) {
     console.error("Follow-up agent response error:", err);

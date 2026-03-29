@@ -7,6 +7,8 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
+import { withSessionLock } from "@/lib/session-lock";
+import { buildHistoryString as buildHistoryStringShared } from "@/lib/advisory-history";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
@@ -128,22 +130,13 @@ function buildSystemPrompt(agentId: string, mode: string, topic: string, agentOv
   return `You are ${agent.name} ${agent.emoji}, the ${agent.role} at Harris Autonomous.\n\nYour expertise: ${agent.expertise}${overlayLine}${referenceBlock}${personalityBlock}\nYou are participating in a persistent roundtable discussion.\n\n**Response length: ${responseLength.toUpperCase()}**\n${lengthInstruction}\n\nYour communication style:\n- Speak authoritatively from your expertise\n- Build on what others said — reference participants by name\n- Be strongly opinionated — no hedging\n- Never use filler phrases — dive straight into your analysis\n\nThis is a high-stakes advisory session. Tim is counting on this board for real decisions.`;
 }
 
-function buildHistoryString(events: Array<{ speaker: string; text: string; type: string }>): string {
-  const relevant = events.filter((e) => e.type !== "start" && e.type !== "complete" && e.text);
-  if (relevant.length === 0) return "No prior discussion yet.";
-  return relevant.map((e) => {
-    if (e.type === "human-directive" || e.speaker === "Tim") {
-      return `**Tim (CEO):** ${e.text.replace(/\*\*/g, "")}\n(Tim is the human founder — treat him as the most senior person in the room.)`;
-    }
-    return `**${e.speaker}:** ${e.text.replace(/\*\*/g, "")}`;
-  }).join("\n\n");
-}
-
-function appendEvent(sessionPath: string, event: Record<string, unknown>) {
-  const raw = fs.readFileSync(sessionPath, "utf-8");
-  const session = JSON.parse(raw);
-  session.events = [...(session.events || []), event];
-  fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+function appendEvent(sessionId: string, sessionPath: string, event: Record<string, unknown>) {
+  return withSessionLock(sessionId, async () => {
+    const raw = fs.readFileSync(sessionPath, "utf-8");
+    const session = JSON.parse(raw);
+    session.events = [...(session.events || []), event];
+    fs.writeFileSync(sessionPath, JSON.stringify(session, null, 2));
+  });
 }
 
 
@@ -167,6 +160,21 @@ export async function POST(
 
   const { topic, mode, agents = [], personaOverlays, aiPersonas, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
+  // H-5: Enforce round limit — count completed full rounds and check against configured max
+  const configuredRounds = session.rounds || Infinity;
+  const agentCount = (agents as string[]).length;
+  const workerEvents = (session.events || []).filter(
+    (e: { type: string }) => e.type === "worker" || e.type === "supervisor"
+  );
+  // Each full round = one response per agent. Approximate completed rounds:
+  const completedRounds = agentCount > 0 ? Math.floor(workerEvents.length / agentCount) : 0;
+  if (completedRounds >= configuredRounds) {
+    return NextResponse.json(
+      { error: `Round limit reached (${configuredRounds}). Session has completed all configured rounds.` },
+      { status: 400 }
+    );
+  }
+
   // Session-wide response length (per-agent overrides applied inside the loop)
   const sessionResponseLength = (session.responseLength as string) || "balanced";
 
@@ -178,7 +186,7 @@ export async function POST(
       if (currentSession.status !== "active") return;
 
       const events = currentSession.events || [];
-      const history = buildHistoryString(events);
+      const history = buildHistoryStringShared(events);
       const agentOverlay = getAgentOverlay(personaOverlays, agentId);
 
       // Per-agent response length override, fallback to session-wide setting
@@ -209,7 +217,7 @@ export async function POST(
       }
 
       const agent = AGENT_DEFS[agentId];
-      appendEvent(filePath, {
+      await appendEvent(id, filePath, {
         id: `evt_fullround_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         timestamp: new Date().toISOString(),
         type: "worker",

@@ -54,8 +54,12 @@ export function spawnAdvisoryAgent(
     thinkingLevel,
   } = options;
 
-  // Unique OpenClaw session per advisory-agent pair
-  const openclawSessionId = `advisory-${sessionId}-${agentId}`;
+  // H-7 fix: Use ephemeral sessions per turn to avoid context accumulation.
+  // Previously used persistent sessions (`advisory-{sessionId}-{agentId}`) which
+  // accumulated all prior messages, creating duplicate/conflicting context with
+  // the history injected in the prompt. Now each turn gets a unique session.
+  const turnId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const openclawSessionId = `advisory-${sessionId}-${agentId}-${turnId}`;
 
   // Compose a combined message with role override + task
   const combinedMessage = `=== ADVISORY BOARD: ROLE OVERRIDE ===
