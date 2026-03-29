@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
-import { readAgentMemory, listAgentsWithMemory } from "@/lib/agent-pipeline";
+import { readAgentMemory, listAgentsWithMemory, readAgentMarkdownMemory } from "@/lib/agent-pipeline";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +17,8 @@ export async function GET(request: Request) {
 
     if (agentId) {
       const memory = readAgentMemory(agentId);
-      return NextResponse.json(memory);
+      const markdownMemory = readAgentMarkdownMemory(agentId);
+      return NextResponse.json({ ...memory, markdownMemory });
     }
 
     const allMemory = listAgentsWithMemory();

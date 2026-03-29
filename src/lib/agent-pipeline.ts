@@ -21,9 +21,30 @@ import type {
 
 const DATA_DIR = join(process.cwd(), "data");
 const AGENT_MEMORY_DIR = join(DATA_DIR, "agent-memory");
+const AGENT_MEMORY_MD_DIR = join(process.cwd(), "memory", "agents");
 
-// Ensure agent memory directory exists
+// Ensure agent memory directories exist
 mkdirSync(AGENT_MEMORY_DIR, { recursive: true });
+
+/** Map from canonical agentId to markdown filename (using display name) */
+const AGENT_MD_FILENAME: Record<string, string> = {
+  henry: "henry",
+  t1: "atlas",
+  t2: "nimbus",
+  t3: "cipher",
+  quant: "quant",
+  backend: "forge",
+  fullstack: "pixel",
+  scout: "scout",
+  quill: "quill",
+  counsel: "counsel",
+  vigil: "vigil",
+};
+
+function getAgentMdPath(agentId: string): string {
+  const filename = AGENT_MD_FILENAME[agentId] || agentId;
+  return join(AGENT_MEMORY_MD_DIR, `${filename}.md`);
+}
 
 // ─── Agent Memory ───────────────────────────────────────────────────────────
 
@@ -71,6 +92,20 @@ export function recordAgentMemory(
   }
 
   writeAgentMemory(memory);
+
+  // Also append to the markdown memory file for human-readable history
+  try {
+    appendAgentMarkdownMemory(agentId, {
+      taskTitle: entry.taskTitle,
+      project: entry.project,
+      summary: entry.summary,
+      lessons: entry.lessons,
+      knownIssues: entry.knownIssues,
+    });
+  } catch {
+    // Non-critical — JSON memory already saved, markdown append is best-effort
+  }
+
   return newEntry;
 }
 
@@ -110,6 +145,123 @@ export function getAgentMemoryContext(agentId: string, project?: string): string
   }
 
   return lines.join("\n");
+}
+
+// ─── Markdown Agent Memory ───────────────────────────────────────────────────
+
+/**
+ * Read the agent's markdown memory file (memory/agents/{name}.md).
+ * Returns the full markdown content, or empty string if the file doesn't exist.
+ */
+export function readAgentMarkdownMemory(agentId: string): string {
+  const filePath = getAgentMdPath(agentId);
+  try {
+    return readFileSync(filePath, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Extract only the "Standing Knowledge" section from the markdown memory file.
+ * Used for prompt injection — keeps context concise without including the full task log.
+ */
+export function getAgentMarkdownKnowledge(agentId: string): string {
+  const content = readAgentMarkdownMemory(agentId);
+  if (!content) return "";
+
+  const startMarker = "## Standing Knowledge";
+  const endMarker = "## Task Log";
+
+  const startIdx = content.indexOf(startMarker);
+  if (startIdx === -1) return "";
+
+  const endIdx = content.indexOf(endMarker);
+  const knowledge = endIdx !== -1
+    ? content.slice(startIdx, endIdx).trim()
+    : content.slice(startIdx).trim();
+
+  return knowledge;
+}
+
+/**
+ * Extract the last N task log entries from the markdown memory file.
+ * Returns formatted markdown lines for recent task history.
+ */
+export function getAgentMarkdownRecentTasks(agentId: string, maxEntries = 3): string {
+  const content = readAgentMarkdownMemory(agentId);
+  if (!content) return "";
+
+  const taskLogMarker = "## Task Log";
+  const taskLogIdx = content.indexOf(taskLogMarker);
+  if (taskLogIdx === -1) return "";
+
+  const taskLogContent = content.slice(taskLogIdx + taskLogMarker.length).trim();
+  if (!taskLogContent || taskLogContent.startsWith("<!--")) return "";
+
+  // Split by "---" dividers to get individual entries
+  const entries = taskLogContent
+    .split(/\n---\n/)
+    .map((e) => e.trim())
+    .filter((e) => e && !e.startsWith("<!--") && e.startsWith("###"));
+
+  if (entries.length === 0) return "";
+
+  const recent = entries.slice(0, maxEntries);
+  return `### Recent Task History (from memory file)\n\n${recent.join("\n\n---\n\n")}`;
+}
+
+/**
+ * Append a completed task entry to the agent's markdown memory file.
+ * Inserts after "## Task Log" so newest entries appear at the top of the log.
+ */
+export function appendAgentMarkdownMemory(
+  agentId: string,
+  entry: {
+    taskTitle: string;
+    project: string;
+    summary: string;
+    lessons: string[];
+    knownIssues: string[];
+  },
+): void {
+  const filePath = getAgentMdPath(agentId);
+  if (!existsSync(filePath)) return;
+
+  const existing = readFileSync(filePath, "utf-8");
+  const date = new Date().toISOString().split("T")[0];
+
+  const lines: string[] = [
+    "",
+    `### ${date} — ${entry.taskTitle}`,
+    `**Project:** ${entry.project}`,
+    `**Summary:** ${entry.summary.slice(0, 400).replace(/\n/g, " ")}`,
+  ];
+
+  if (entry.lessons.length > 0) {
+    lines.push("**Lessons:**");
+    entry.lessons.forEach((l) => lines.push(`- ${l}`));
+  }
+
+  if (entry.knownIssues.length > 0) {
+    lines.push("**Known Issues:**");
+    entry.knownIssues.forEach((i) => lines.push(`- ${i}`));
+  }
+
+  lines.push("");
+  lines.push("---");
+
+  // Insert new entry directly after the "## Task Log" header line
+  const taskLogMarker = "## Task Log";
+  const markerIdx = existing.indexOf(taskLogMarker);
+  if (markerIdx !== -1) {
+    const afterMarker = existing.indexOf("\n", markerIdx) + 1;
+    const newContent = existing.slice(0, afterMarker) + lines.join("\n") + "\n" + existing.slice(afterMarker);
+    writeFileSync(filePath, newContent);
+  } else {
+    // No Task Log section — append at end
+    writeFileSync(filePath, existing.trimEnd() + "\n\n## Task Log\n" + lines.join("\n") + "\n");
+  }
 }
 
 /** List all agents that have memory files */
@@ -325,6 +477,8 @@ export function buildAgentIdentityBlock(agentId: string, project?: string): stri
   if (!agent) return "";
 
   const memoryContext = getAgentMemoryContext(agentId, project);
+  const markdownKnowledge = getAgentMarkdownKnowledge(agentId);
+  const recentTaskHistory = getAgentMarkdownRecentTasks(agentId, 3);
 
   const lines = [
     "### Agent Identity",
@@ -340,6 +494,16 @@ export function buildAgentIdentityBlock(agentId: string, project?: string): stri
     "- After completing work, note any lessons learned, known issues, or caveats at the end of your output.",
     "",
   ];
+
+  if (markdownKnowledge) {
+    lines.push(markdownKnowledge);
+    lines.push("");
+  }
+
+  if (recentTaskHistory) {
+    lines.push(recentTaskHistory);
+    lines.push("");
+  }
 
   if (memoryContext) {
     lines.push(memoryContext);
