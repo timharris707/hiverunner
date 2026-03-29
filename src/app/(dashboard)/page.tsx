@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
 import { ActivityFeed } from "@/components/ActivityFeed";
+import { PaperclipActivityFeed } from "@/components/PaperclipActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
 import { TaskDetailDrawer, Task, ProjectInfo, PRIORITY_COLORS, formatDate } from "@/components/TaskDetailDrawer";
 import { AdvisorySessionDrawer } from "@/components/AdvisorySessionDrawer";
@@ -1104,11 +1105,11 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bottom: Activity Feed + Quick Nav */}
+      {/* Bottom: Activity Feed + Paperclip Activity + Quick Nav */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         {/* Activity Feed */}
         <div
-          className="lg:col-span-2 rounded-xl overflow-hidden"
+          className="rounded-xl overflow-hidden"
           style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
         >
           <div
@@ -1130,6 +1131,33 @@ export default function DashboardPage() {
           </div>
           <div className="p-0">
             <ActivityFeed limit={5} />
+          </div>
+        </div>
+
+        {/* Paperclip Activity Feed */}
+        <div
+          className="rounded-xl overflow-hidden"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div className="accent-line" style={{ backgroundColor: "#A78BFA" }} />
+              <h2
+                className="text-base font-semibold"
+                style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
+              >
+                Paperclip
+              </h2>
+            </div>
+            <Link href="/paperclip" className="text-sm font-medium" style={{ color: "#A78BFA" }}>
+              View all →
+            </Link>
+          </div>
+          <div className="p-0">
+            <PaperclipActivityFeed />
           </div>
         </div>
 
