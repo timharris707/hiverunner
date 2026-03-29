@@ -21,7 +21,7 @@ const ACTIVE_BUILD_STATUSES = new Set(["spawning", "running"]);
 const PENDING_BUILD_STATUSES = new Set(["queued", "spawning", "running"]);
 const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "money"]);
 const REVIEWER_MODEL = "sonnet";
-const VISUAL_REVIEW_TAGS = new Set(["ui"]);
+const VISUAL_REVIEW_TAGS = new Set(["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "task-board"]);
 const MAX_REVIEW_FAILURES_BEFORE_ESCALATION = 2;
 const RECONCILE_INTERVAL_MS = 15_000;
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
@@ -211,6 +211,267 @@ function shouldRequireReview(task: any) {
 
 function shouldRequireVisualReview(task: any) {
   return hasAnyTag(task, VISUAL_REVIEW_TAGS);
+}
+
+/** Capture a screenshot and store it in the task's visualReview.captures array */
+async function captureAndStoreScreenshot(taskId: string, task: any, phase: "before" | "after"): Promise<any[]> {
+  try {
+    const { captureScreenshot, validateCapture } = await import("@/lib/visual-qa");
+
+    const targetUrl =
+      task.visualReview?.targetUrl ||
+      (task.visualReview?.targetPath
+        ? `http://localhost:3001${task.visualReview.targetPath}`
+        : "http://localhost:3001/tasks");
+
+    const capture = await captureScreenshot(targetUrl, taskId);
+    const isValid = validateCapture(capture.filePath);
+
+    const now = new Date().toISOString();
+    const tasks = readTasks();
+    const freshTask = tasks.find((t: any) => t.id === taskId);
+    if (!freshTask) return [];
+
+    const existingReview = freshTask.visualReview || {};
+    const captures = Array.isArray(existingReview.captures) ? existingReview.captures : [];
+
+    const captureEntry = {
+      id: `cap-${Date.now()}`,
+      relativePath: capture.relativePath,
+      filePath: capture.filePath,
+      url: capture.url,
+      capturedAt: capture.timestamp,
+      viewport: capture.viewport,
+      valid: isValid,
+      phase,
+    };
+
+    const updatedCaptures = [...captures, captureEntry];
+    freshTask.visualReview = {
+      ...existingReview,
+      required: true,
+      status: phase === "after" ? "captured" : existingReview.status || "pending-capture",
+      lastCapturedAt: now,
+      lastUpdatedAt: now,
+      captures: updatedCaptures,
+    };
+    freshTask.updated = now;
+    writeTasks(tasks);
+
+    console.log(`[factory] Visual QA ${phase}-screenshot captured for ${taskId}: ${capture.relativePath} (valid=${isValid})`);
+    return updatedCaptures;
+  } catch (err) {
+    console.error(`[factory] Visual QA ${phase}-capture error for ${taskId}:`, err);
+    return [];
+  }
+}
+
+/** Fire-and-forget visual QA capture after a successful build on a UI task (legacy compat) */
+async function triggerVisualQA(taskId: string, task: any) {
+  await captureAndStoreScreenshot(taskId, task, "after");
+}
+
+/** Spawn a visual QA review agent that analyzes screenshots + code diff for UI correctness */
+function spawnVisualQAProcess(
+  task: any,
+  visualQAEntry: any,
+  projectName: string,
+  projectDir: string,
+  buildOutput: string,
+  captures: any[],
+) {
+  // Build the visual QA prompt dynamically
+  import("@/lib/visual-qa").then(({ visualQAReviewPrompt }) => {
+    const prompt = visualQAReviewPrompt(task, projectName, buildOutput, captures);
+    const args = ["--permission-mode", "bypassPermissions", "--model", REVIEWER_MODEL, "--print", prompt];
+
+    sendSystemEvent(`👁️ Visual QA reviewer spawning for: ${String(task.title || task.id).replace(/"/g, "'")}`);
+
+    const reviewEnv = {
+      ...process.env,
+      PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+    };
+
+    const child = execFile(
+      "claude",
+      args,
+      { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env: reviewEnv },
+      (error, stdout, stderr) => {
+        const output = summarizeOutput(error, stdout, stderr);
+        finalizeVisualQA(visualQAEntry.id, task.id, !error, output).catch((err) => {
+          console.error("Error finalizing visual QA:", err);
+        });
+      },
+    );
+
+    child.on("spawn", () => {
+      withFactoryLock(async () => {
+        const buildLog = readBuildLog();
+        const entry = buildLog.builds.find((b: any) => b.id === visualQAEntry.id);
+        if (entry && entry.status === "spawning") {
+          entry.status = "running";
+          entry.runningAt = new Date().toISOString();
+          writeBuildLog(buildLog);
+        }
+        const tasks = readTasks();
+        const t = tasks.find((t: any) => t.id === task.id);
+        if (t) {
+          t.visualReview = { ...(t.visualReview || {}), status: "reviewing" };
+          t.updated = new Date().toISOString();
+          writeTasks(tasks);
+        }
+      }).catch(() => {});
+    });
+
+    child.on("error", (err) => {
+      finalizeVisualQA(visualQAEntry.id, task.id, false, err.message).catch((finalizeErr) => {
+        console.error("Error finalizing failed visual QA spawn:", finalizeErr);
+      });
+    });
+  }).catch((err) => {
+    console.error("[factory] Failed to load visual-qa module for review:", err);
+    // If we can't load the module, skip visual QA and proceed to code review
+    finalizeVisualQA(visualQAEntry.id, task.id, false, "Failed to load visual QA module").catch(() => {});
+  });
+}
+
+/** Handle visual QA review completion — approved → spawn code review, needs_fix → send back to builder */
+async function finalizeVisualQA(visualQABuildId: string, taskId: string, success: boolean, output: string) {
+  let codeReviewSpawnData: {
+    task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string;
+  } | null = null;
+  let requeue = false;
+  let notifyText = "";
+
+  await withFactoryLock(async () => {
+    const buildLog = readBuildLog();
+    const tasks = readTasks();
+    const projects = readProjects();
+    const visualQAEntry = buildLog.builds.find((b: any) => b.id === visualQABuildId);
+    const task = tasks.find((t: any) => t.id === taskId);
+
+    if (!visualQAEntry || !task) return;
+
+    const now = new Date().toISOString();
+    visualQAEntry.completedAt = now;
+    visualQAEntry.output = output.slice(-1500);
+
+    if (!success) {
+      // Visual QA process itself failed — don't block the pipeline, proceed to code review
+      visualQAEntry.status = "failed";
+      console.warn(`[factory] Visual QA process failed for ${taskId}, proceeding to code review`);
+    } else {
+      visualQAEntry.status = "completed";
+      const { verdict, notes } = parseReviewVerdict(output);
+
+      if (verdict === "NEEDS_FIX") {
+        // Visual QA found issues — send back to builder
+        task.visualReview = {
+          ...(task.visualReview || {}),
+          status: "changes-requested",
+          lastUpdatedAt: now,
+          lastVerdict: "NEEDS_FIX",
+          lastNotes: notes,
+        };
+        task.status = "in-progress";
+        task.buildState = "failed";
+        task.buildError = `Visual QA failed:\n${notes}`;
+        task.lastReviewVerdict = "NEEDS_FIX";
+        task.lastReviewerAgent = "Visual QA (Sonnet)";
+        task.lastReviewNotes = notes;
+        task.lastReviewAt = now;
+        const failureCount = (task.reviewFailureCount || 0) + 1;
+        task.reviewFailureCount = failureCount;
+        delete task.completedAt;
+        requeue = true;
+
+        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `Visual QA failed ${failureCount} times. Latest issues: ${notes.slice(0, 300)}`;
+          notifyText = `🚨 VISUAL QA ESCALATION: Task failed visual review ${failureCount}x: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🚨 VISUAL QA ESCALATION: "${String(task.title || taskId).replace(/"/g, "'")}" has failed visual QA ${failureCount} times.\n\nIssues:\n${notes.slice(0, 500)}`);
+          createInAppNotification(
+            "⚠️ Visual QA Escalation",
+            `"${String(task.title || taskId).replace(/"/g, "'")}" failed visual QA ${failureCount}x`,
+            "warning",
+            "/tasks",
+          );
+        } else {
+          notifyText = `🔄 Visual QA NEEDS FIX (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
+        }
+
+        task.updated = now;
+        writeBuildLog(buildLog);
+        writeTasks(tasks);
+        return;
+      }
+
+      // APPROVED — update visual review status
+      task.visualReview = {
+        ...(task.visualReview || {}),
+        status: "approved",
+        lastUpdatedAt: now,
+        lastVerdict: "APPROVED",
+      };
+    }
+
+    // Visual QA passed (or process failed, so we skip) — proceed to code review
+    const buildOutput = task.buildOutput || "";
+    const { projectName, projectDir } = getProjectMeta(task, projects);
+
+    const reviewEntry = {
+      id: `review-${Date.now()}`,
+      taskId: task.id,
+      taskTitle: task.title,
+      project: task.project,
+      executionKey: `${visualQAEntry.originalExecutionKey || visualQAEntry.executionKey}:review`,
+      originalExecutionKey: visualQAEntry.originalExecutionKey || visualQAEntry.executionKey,
+      status: "spawning",
+      queuedAt: null,
+      startedAt: now,
+      completedAt: null,
+      agentType: "reviewer",
+      workDir: visualQAEntry.workDir,
+      source: "auto-review-post-visual-qa",
+      routing: {
+        tier: "sonnet",
+        modelId: "anthropic/claude-sonnet-4-6",
+        modelName: "Sonnet 4.6",
+        reason: "Auto code review after visual QA pass",
+      },
+    };
+    buildLog.builds.unshift(reviewEntry);
+    task.codeReviewState = "pending";
+    task.updated = now;
+
+    codeReviewSpawnData = {
+      task: { ...task },
+      reviewEntry,
+      projectName,
+      projectDir,
+      buildOutput,
+    };
+
+    notifyText = `👁️ Visual QA passed → code review spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
+
+    writeBuildLog(buildLog);
+    writeTasks(tasks);
+  });
+
+  if (notifyText) sendSystemEvent(notifyText);
+
+  if (requeue) {
+    queueOrStartBuild(taskId, { source: `visual-qa-needs-fix:${visualQABuildId}` }).catch((err) => {
+      console.error("Failed to re-queue task after visual QA failure:", err);
+    });
+    return;
+  }
+
+  if (codeReviewSpawnData) {
+    const { task, reviewEntry, projectName, projectDir, buildOutput } = codeReviewSpawnData;
+    spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
+  }
 }
 
 function findPendingEntryForTask(buildLog: { builds: any[] }, taskId: string) {
@@ -671,6 +932,10 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   let nextTaskId: string | null = null;
   let notifyText = "";
   let reviewSpawnData: { task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string } | null = null;
+  let visualQASpawnData: {
+    task: any; visualQAEntry: any; projectName: string; projectDir: string;
+    buildOutput: string; executionKey: string;
+  } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -694,44 +959,94 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     if (success) {
       task.buildState = "completed";
       task.buildError = null;
-      task.codeReviewState = "pending";
-      task.codeReviewStartedAt = now;
       delete task.codeReviewNotes;
       // task.status stays "in-progress" — reviewer will apply the final transition
 
       const { projectName, projectDir } = getProjectMeta(task, projects);
-      const reviewEntry = {
-        id: `review-${Date.now()}`,
-        taskId: task.id,
-        taskTitle: task.title,
-        project: task.project,
-        executionKey: `${entry.executionKey}:review`,
-        originalExecutionKey: entry.executionKey,
-        status: "spawning",
-        queuedAt: null,
-        startedAt: now,
-        completedAt: null,
-        agentType: "reviewer",
-        workDir: entry.workDir,
-        source: "auto-review",
-        routing: {
-          tier: "sonnet",
-          modelId: "anthropic/claude-sonnet-4-6",
-          modelName: "Sonnet 4.6",
-          reason: "Auto code review after successful build",
-        },
-      };
-      buildLog.builds.unshift(reviewEntry);
+      const isUITask = shouldRequireVisualReview(task);
 
-      reviewSpawnData = {
-        task: { ...task },
-        reviewEntry,
-        projectName,
-        projectDir,
-        buildOutput: output.slice(-1500),
-      };
+      if (isUITask) {
+        // UI tasks go through visual QA pipeline first: capture → visual QA review → code review
+        task.visualReview = {
+          ...(task.visualReview || {}),
+          required: true,
+          status: "pending-capture",
+          lastUpdatedAt: now,
+        };
+        task.codeReviewState = "pending-visual-qa";
+        task.codeReviewStartedAt = now;
 
-      notifyText = `🔍 Build complete, auto-reviewer spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        const visualQAEntry = {
+          id: `visual-qa-${Date.now()}`,
+          taskId: task.id,
+          taskTitle: task.title,
+          project: task.project,
+          executionKey: `${entry.executionKey}:visual-qa`,
+          originalExecutionKey: entry.executionKey,
+          status: "spawning",
+          queuedAt: null,
+          startedAt: now,
+          completedAt: null,
+          agentType: "reviewer",
+          workDir: entry.workDir,
+          source: "auto-visual-qa",
+          routing: {
+            tier: "sonnet",
+            modelId: "anthropic/claude-sonnet-4-6",
+            modelName: "Sonnet 4.6",
+            reason: "Visual QA review after successful UI build",
+          },
+        };
+        buildLog.builds.unshift(visualQAEntry);
+
+        visualQASpawnData = {
+          task: { ...task },
+          visualQAEntry,
+          projectName,
+          projectDir,
+          buildOutput: output.slice(-1500),
+          executionKey: entry.executionKey,
+        };
+
+        notifyText = `👁️ Build complete, visual QA pipeline starting: ${String(task.title || taskId).replace(/"/g, "'")}`;
+      } else {
+        // Non-UI tasks go directly to code review (existing behavior)
+        task.codeReviewState = "pending";
+        task.codeReviewStartedAt = now;
+
+        const reviewEntry = {
+          id: `review-${Date.now()}`,
+          taskId: task.id,
+          taskTitle: task.title,
+          project: task.project,
+          executionKey: `${entry.executionKey}:review`,
+          originalExecutionKey: entry.executionKey,
+          status: "spawning",
+          queuedAt: null,
+          startedAt: now,
+          completedAt: null,
+          agentType: "reviewer",
+          workDir: entry.workDir,
+          source: "auto-review",
+          routing: {
+            tier: "sonnet",
+            modelId: "anthropic/claude-sonnet-4-6",
+            modelName: "Sonnet 4.6",
+            reason: "Auto code review after successful build",
+          },
+        };
+        buildLog.builds.unshift(reviewEntry);
+
+        reviewSpawnData = {
+          task: { ...task },
+          reviewEntry,
+          projectName,
+          projectDir,
+          buildOutput: output.slice(-1500),
+        };
+
+        notifyText = `🔍 Build complete, auto-reviewer spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
+      }
     } else {
       task.status = "in-progress";
       task.buildState = "failed";
@@ -750,6 +1065,16 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     sendTelegramNotification(notifyText);
   }
 
+  // UI tasks: capture screenshot then spawn visual QA review
+  if (visualQASpawnData) {
+    const { task, visualQAEntry, projectName, projectDir, buildOutput } = visualQASpawnData;
+    // Capture "after" screenshot, then spawn visual QA reviewer
+    const captures = await captureAndStoreScreenshot(task.id, task, "after");
+    spawnVisualQAProcess(task, visualQAEntry, projectName, projectDir, buildOutput, captures);
+    return;
+  }
+
+  // Non-UI tasks: go directly to code review
   if (reviewSpawnData) {
     const { task, reviewEntry, projectName, projectDir, buildOutput } = reviewSpawnData;
     spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
@@ -1020,6 +1345,13 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
   const executor = selectBuildExecutor(buildEntry.routing, task, projectName);
 
   sendSystemEvent(`🏭 Spawning agent for task: ${String(task.title || task.id).replace(/"/g, "'")} [${executor.actualModelName}]`);
+
+  // Capture "before" screenshot for UI tasks (fire-and-forget, non-blocking)
+  if (shouldRequireVisualReview(task)) {
+    captureAndStoreScreenshot(task.id, task, "before").catch((err) => {
+      console.error(`[factory] Before-screenshot capture failed for ${task.id}:`, err);
+    });
+  }
 
   // Ensure claude/codex binaries are findable — Next.js server may not have brew PATH
   const env = {
