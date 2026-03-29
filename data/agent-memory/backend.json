@@ -1,0 +1,38 @@
+{
+  "agentId": "backend",
+  "agentName": "Forge 🔧",
+  "role": "Backend Engineer",
+  "entries": [
+    {
+      "taskId": "TASK-PIPELINE-3",
+      "taskTitle": "Blocker signaling — agents can flag \"I'm stuck\" instead of false \"done\"",
+      "project": "mission-control",
+      "summary": "ed to `panely/sprint-1`\n\n### Caveats\n- The pipeline (Telegram DM, in-app notification, system event) was already wired up for blocker detection in `build-queue.ts` — this commit only closes the type/UI gaps.\n- The `detectBlocker` function matches the first blocker pattern found in output. If an agent writes `BLOCKED:` near other trigger phrases (e.g. \"cannot verify in Safari\"), the Safari pattern may fire first since it's earlier in the array. This is acceptable — both signal a genuine blocker.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774815604399-7wpb",
+      "timestamp": "2026-03-29T20:20:04.399Z"
+    },
+    {
+      "taskId": "TASK-PIPELINE-1",
+      "taskTitle": "Agent memory system — persistent memory files per named agent",
+      "project": "mission-control",
+      "summary": "ory` field with full markdown content.\n\n### Validation\n- `npm run build` passes cleanly (`✓ Compiled successfully in 2.5s`)\n- Pushed to `panely/sprint-1`\n\n### Caveats\n- The markdown files are write-append only (no deduplication or pruning) — the Task Log will grow unbounded over time. A trim/prune mechanism would be a logical follow-on.\n- `memory/` directory is tracked in git, so agent task log entries will appear as diffs. That's intentional (human-auditable history), but worth being aware of.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774802254346-5oib",
+      "timestamp": "2026-03-29T16:37:34.346Z"
+    },
+    {
+      "taskId": "TASK-WEATHER-2",
+      "taskTitle": "Watcher health monitor — auto-restart + alert if weather trading watcher goes down",
+      "project": "weather-trading",
+      "summary": "_API_KEY` must be stored in macOS Keychain as a generic password with service name `OPEN_METEO_API_KEY` for the launch wrapper to find it. If it's only in `.env`, that also works as fallback.\n- Circuit breaker state is in-memory only — resets on process restart. This is intentional: if the process restarts, the 429 pressure should have cleared.\n- The 15 pre-existing test failures in `test_kalshi_auth`, `test_smart_routing`, `test_paper_engine`, and `test_v2_stress` are unrelated to this change.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774801853897-d5b6",
+      "timestamp": "2026-03-29T16:30:53.897Z"
+    }
+  ],
+  "lastUpdated": "2026-03-29T20:20:04.399Z"
+}

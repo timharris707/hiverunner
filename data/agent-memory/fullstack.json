@@ -1,0 +1,28 @@
+{
+  "agentId": "fullstack",
+  "agentName": "Pixel 💻",
+  "role": "Senior Full-Stack Engineer",
+  "entries": [
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "eats:**\n- The live engine (`live_engine.py`) currently reads defaults from hardcoded constants, not from `data/risk_config.json`. For runtime parameter adjustments to take full effect, the engine would need to be updated to check `risk_config.json` on each scan cycle. The dashboard and API are ready for that integration.\n- `BLOCKED: Cannot test in browser` — I can't open the dashboard to visually verify. A human should confirm at `http://127.0.0.1:8050/risk-controls` when the server is running.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774815705238-5qtp",
+      "timestamp": "2026-03-29T20:21:45.238Z"
+    },
+    {
+      "taskId": "TASK-INSIGHT-1",
+      "taskTitle": "CRITICAL: Insight website blank in Safari — fix and VERIFY before DNS cutover tomorrow",
+      "project": "insight",
+      "summary": "This is acceptable — visibility is the P0, animations are secondary.\n- Elements **below the fold** that haven't entered the viewport when the guard runs at 2s will also have their opacity reset, meaning scroll-reveal animations may not play in Safari. All content will still be visible and functional.\n\n**BLOCKED: Cannot provide screenshot proof from Safari** — I cannot open a browser to verify. A human or QA agent must confirm at `insight-website-gray.vercel.app` once Vercel finishes deploying.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774802958236-9tmz",
+      "timestamp": "2026-03-29T16:49:18.236Z"
+    }
+  ],
+  "lastUpdated": "2026-03-29T20:21:45.238Z"
+}

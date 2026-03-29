@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { chromium, type Browser } from "playwright";
+import { chromium, webkit, type Browser } from "playwright";
 import { mkdirSync, existsSync } from "fs";
 import { join } from "path";
 
@@ -58,6 +58,73 @@ export async function captureScreenshot(
   } finally {
     if (browser) await browser.close();
   }
+}
+
+/**
+ * Capture a full-page screenshot using WebKit (Safari engine).
+ * Use this to verify Safari compatibility — catches bugs that Chromium misses.
+ */
+export async function captureScreenshotSafari(
+  url: string,
+  taskId: string,
+): Promise<CaptureResult> {
+  const dir = ensureDir(taskId);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `safari-${timestamp}.png`;
+  const filePath = join(dir, filename);
+  const relativePath = `screenshots/${taskId}/${filename}`;
+
+  let browser: Browser | null = null;
+  try {
+    browser = await webkit.launch({ headless: true });
+    const context = await browser.newContext({
+      viewport: { width: 1920, height: 1080 },
+      colorScheme: "dark",
+    });
+
+    const page = await context.newPage();
+    await page.goto(url, { waitUntil: "networkidle", timeout: 30_000 });
+
+    await page.screenshot({ path: filePath, fullPage: true });
+
+    return {
+      filePath,
+      relativePath,
+      timestamp: new Date().toISOString(),
+      url,
+      viewport: { width: 1920, height: 1080 },
+      phase: "after",
+    };
+  } finally {
+    if (browser) await browser.close();
+  }
+}
+
+/**
+ * Capture screenshots in BOTH Chromium and WebKit (Safari) for cross-browser QA.
+ * Returns array of captures from both browsers.
+ */
+export async function captureScreenshotAllBrowsers(
+  url: string,
+  taskId: string,
+): Promise<CaptureResult[]> {
+  const results: CaptureResult[] = [];
+
+  try {
+    const chromiumResult = await captureScreenshot(url, taskId);
+    results.push({ ...chromiumResult, phase: "after" });
+  } catch (err) {
+    console.error("[visual-qa] Chromium capture failed:", err);
+  }
+
+  try {
+    const safariResult = await captureScreenshotSafari(url, taskId);
+    results.push(safariResult);
+  } catch (err) {
+    console.error("[visual-qa] WebKit/Safari capture failed:", err);
+  }
+
+  return results;
 }
 
 /**

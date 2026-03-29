@@ -46,6 +46,12 @@
 
 ## Task Log
 
+### 2026-03-29 — Blocker signaling — agents can flag "I'm stuck" instead of false "done"
+**Project:** mission-control
+**Summary:** ed to `panely/sprint-1`  ### Caveats - The pipeline (Telegram DM, in-app notification, system event) was already wired up for blocker detection in `build-queue.ts` — this commit only closes the type/UI gaps. - The `detectBlocker` function matches the first blocker pattern found in output. If an agent writes `BLOCKED:` near other trigger phrases (e.g. "cannot verify in Safari"), the Safari pattern 
+
+---
+
 <!-- Forge appends new entries here after completing tasks. Format:
 
 ### YYYY-MM-DD — Task Title

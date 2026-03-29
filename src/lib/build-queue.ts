@@ -15,6 +15,7 @@ import {
   recordAgentMemory,
   buildQAHandoffPrompt,
 } from "@/lib/agent-pipeline";
+import { getAgentByAnyId } from "@/config/agents";
 
 const DATA_DIR = join(process.cwd(), "data");
 const TASKS_FILE = join(DATA_DIR, "tasks.json");
@@ -142,6 +143,8 @@ function getProjectMeta(task: any, projects = readProjects()) {
 function buildPrompt(task: any, projectName: string, executorLabel: string) {
   // Resolve named agent for this task
   const assignment = resolveAgentForTask(task);
+  const agent = getAgentByAnyId(assignment.agentId);
+  const agentDisplay = agent ? `${agent.name} · ${agent.role}` : assignment.agentId;
   const agentIdentity = buildAgentIdentityBlock(assignment.agentId, task.project);
 
   return [
@@ -151,7 +154,7 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
     `**Type:** ${task.type || "feature"}`,
     `**Priority:** ${task.priority}`,
     `**Executor:** ${executorLabel}`,
-    `**Assigned Agent:** ${assignment.agentId} (${assignment.reason})`,
+    `**Assigned Agent:** ${agentDisplay}`,
     "",
     agentIdentity ? `${agentIdentity}\n` : "",
     "### Description",
@@ -289,10 +292,11 @@ function shouldRequireVisualReview(task: any) {
   return hasAnyTag(task, VISUAL_REVIEW_TAGS);
 }
 
-/** Capture a screenshot and store it in the task's visualReview.captures array */
-async function captureAndStoreScreenshot(taskId: string, task: any, phase: "before" | "after"): Promise<any[]> {
+/** Capture a screenshot and store it in the task's visualReview.captures array.
+ * If allBrowsers=true, captures in both Chromium and WebKit (Safari) for cross-browser QA. */
+async function captureAndStoreScreenshot(taskId: string, task: any, phase: "before" | "after", allBrowsers = false): Promise<any[]> {
   try {
-    const { captureScreenshot, validateCapture } = await import("@/lib/visual-qa");
+    const { captureScreenshot, captureScreenshotAllBrowsers, validateCapture } = await import("@/lib/visual-qa");
 
     const targetUrl =
       task.visualReview?.targetUrl ||
@@ -300,8 +304,9 @@ async function captureAndStoreScreenshot(taskId: string, task: any, phase: "befo
         ? `http://localhost:3001${task.visualReview.targetPath}`
         : "http://localhost:3001/tasks");
 
-    const capture = await captureScreenshot(targetUrl, taskId);
-    const isValid = validateCapture(capture.filePath);
+    const rawCaptures = allBrowsers
+      ? await captureScreenshotAllBrowsers(targetUrl, taskId)
+      : [await captureScreenshot(targetUrl, taskId)];
 
     const now = new Date().toISOString();
     const tasks = readTasks();
@@ -309,20 +314,20 @@ async function captureAndStoreScreenshot(taskId: string, task: any, phase: "befo
     if (!freshTask) return [];
 
     const existingReview = freshTask.visualReview || {};
-    const captures = Array.isArray(existingReview.captures) ? existingReview.captures : [];
+    const existingCaptures = Array.isArray(existingReview.captures) ? existingReview.captures : [];
 
-    const captureEntry = {
-      id: `cap-${Date.now()}`,
+    const newEntries = rawCaptures.map((capture, i) => ({
+      id: `cap-${Date.now()}-${i}`,
       relativePath: capture.relativePath,
       filePath: capture.filePath,
       url: capture.url,
       capturedAt: capture.timestamp,
       viewport: capture.viewport,
-      valid: isValid,
+      valid: validateCapture(capture.filePath),
       phase,
-    };
+    }));
 
-    const updatedCaptures = [...captures, captureEntry];
+    const updatedCaptures = [...existingCaptures, ...newEntries];
     freshTask.visualReview = {
       ...existingReview,
       required: true,
@@ -334,7 +339,7 @@ async function captureAndStoreScreenshot(taskId: string, task: any, phase: "befo
     freshTask.updated = now;
     writeTasks(tasks);
 
-    console.log(`[factory] Visual QA ${phase}-screenshot captured for ${taskId}: ${capture.relativePath} (valid=${isValid})`);
+    console.log(`[factory] Visual QA ${phase}-screenshot(s) captured for ${taskId}: ${newEntries.map(e => e.relativePath).join(", ")} (allBrowsers=${allBrowsers})`);
     return updatedCaptures;
   } catch (err) {
     console.error(`[factory] Visual QA ${phase}-capture error for ${taskId}:`, err);
@@ -1284,7 +1289,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   } | null = null;
   let vigilQASpawnData: {
     task: any; qaEntry: any; projectName: string; projectDir: string;
-    buildOutput: string; builderAgentId: string;
+    buildOutput: string; builderAgentId: string; captureScreenshots: boolean;
   } | null = null;
   let memoryData: { agentId: string; taskId: string; taskTitle: string; project: string; output: string } | null = null;
   let blockerDetected = false;
@@ -1367,14 +1372,16 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
         output,
       };
 
-      if (isUITask && assignment.needsQAHandoff) {
-        // UI tasks built by non-Vigil agents → hand off to Vigil for QA
-        task.visualReview = {
-          ...(task.visualReview || {}),
-          required: true,
-          status: "pending-capture",
-          lastUpdatedAt: now,
-        };
+      if (assignment.needsQAHandoff) {
+        // Tasks built by builder agents (Pixel/Forge) → hand off to Vigil for QA
+        if (isUITask) {
+          task.visualReview = {
+            ...(task.visualReview || {}),
+            required: true,
+            status: "pending-capture",
+            lastUpdatedAt: now,
+          };
+        }
         task.codeReviewState = "pending-vigil-qa";
         task.codeReviewStartedAt = now;
         task.qaHandoff = {
@@ -1415,6 +1422,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
           projectDir,
           buildOutput: output.slice(-1500),
           builderAgentId: assignment.agentId,
+          captureScreenshots: isUITask,
         };
 
         notifyText = `🛡️ Build complete → Vigil QA handoff: ${String(task.title || taskId).replace(/"/g, "'")} (built by ${assignment.agentId})`;
@@ -1546,10 +1554,11 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     sendTelegramNotification(notifyText);
   }
 
-  // Vigil QA handoff for UI tasks built by non-Vigil agents
+  // Vigil QA handoff for tasks built by builder agents (Pixel/Forge)
   if (vigilQASpawnData) {
-    const { task, qaEntry, projectName, projectDir, buildOutput, builderAgentId } = vigilQASpawnData;
-    const captures = await captureAndStoreScreenshot(task.id, task, "after");
+    const { task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captureScreenshots } = vigilQASpawnData;
+    // For UI tasks: capture both Chromium + WebKit (Safari) screenshots for cross-browser QA
+    const captures = captureScreenshots ? await captureAndStoreScreenshot(task.id, task, "after", true) : [];
     spawnVigilQAProcess(task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captures);
     return;
   }
