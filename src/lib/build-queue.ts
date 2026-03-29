@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { execFile } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
@@ -45,11 +45,12 @@ let lastLogSyncAt = 0;
 const LOG_SYNC_INTERVAL_MS = 60_000; // sync from tasks-log.md at most once per minute
 
 type BuildExecutorDecision = {
-  agentType: "claude-code" | "codex";
-  command: "claude" | "codex";
+  agentType: "claude-code" | "codex" | "gemini";
+  command: "claude" | "codex" | "gemini";
   args: string[];
   actualModelId: string;
   actualModelName: string;
+  executor: "claude" | "codex" | "gemini";
   fallbackReason?: string;
 };
 
@@ -153,51 +154,111 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
   ].join("\n");
 }
 
-// Maps routing tiers to executable Claude models.
-// Gemini tiers are ideal for research/large-context work but execute via Claude
-// with an enriched prompt, since the build runner uses the `claude` CLI.
 const CLAUDE_MODEL_MAP: Record<string, { id: string; name: string }> = {
   opus: { id: "anthropic/claude-opus-4-6", name: "Opus 4.6" },
   haiku: { id: "anthropic/claude-haiku-3-5", name: "Haiku 3.5" },
   sonnet: { id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6" },
 };
 
-const GEMINI_FALLBACK_MAP: Record<string, { claudeModel: string; reason: string }> = {
-  "gemini-flash": {
-    claudeModel: "sonnet",
-    reason: "Router preferred Gemini Flash for search/aggregation — falling back to Sonnet (Claude executor only)",
-  },
-  "gemini-pro": {
-    claudeModel: "opus",
-    reason: "Router preferred Gemini Pro for large-context analysis — falling back to Opus (Claude executor only)",
-  },
+const GEMINI_MODEL_MAP: Record<string, { id: string; name: string; modelFlag?: string }> = {
+  "gemini-flash": { id: "google/gemini-2.5-flash", name: "Gemini 2.5 Flash" },
+  "gemini-pro": { id: "google/gemini-2.5-pro", name: "Gemini 2.5 Pro", modelFlag: "gemini-2.5-pro" },
 };
+
+const CLI_AVAILABLE_CACHE = new Map<string, boolean>();
+
+function isCliAvailable(cmd: string): boolean {
+  if (CLI_AVAILABLE_CACHE.has(cmd)) return CLI_AVAILABLE_CACHE.get(cmd)!;
+  try {
+    execFileSync("which", [cmd], {
+      env: { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}` },
+      stdio: "pipe",
+    });
+    CLI_AVAILABLE_CACHE.set(cmd, true);
+    return true;
+  } catch {
+    CLI_AVAILABLE_CACHE.set(cmd, false);
+    return false;
+  }
+}
 
 function selectBuildExecutor(routing: any, task: any, projectName: string): BuildExecutorDecision {
   const tier: string = routing?.tier || "sonnet";
 
-  let claudeModel: string;
-  let fallbackReason: string | undefined;
-
-  const geminiFallback = GEMINI_FALLBACK_MAP[tier];
-  if (geminiFallback) {
-    claudeModel = geminiFallback.claudeModel;
-    fallbackReason = geminiFallback.reason;
-  } else {
-    claudeModel = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
+  // Gemini tiers → Gemini CLI (research / large-context tasks)
+  if (tier === "gemini-flash" || tier === "gemini-pro") {
+    const geminiMeta = GEMINI_MODEL_MAP[tier];
+    if (isCliAvailable("gemini")) {
+      const executorLabel = `Gemini CLI · ${geminiMeta.name}`;
+      const prompt = buildPrompt(task, projectName, executorLabel);
+      const args = geminiMeta.modelFlag
+        ? ["--model", geminiMeta.modelFlag, prompt]
+        : [prompt];
+      return {
+        agentType: "gemini",
+        command: "gemini",
+        args,
+        actualModelId: geminiMeta.id,
+        actualModelName: geminiMeta.name,
+        executor: "gemini",
+      };
+    }
+    // Graceful fallback to Claude when gemini CLI is not installed
+    const fallbackModelKey = tier === "gemini-pro" ? "opus" : "sonnet";
+    const fallbackModel = CLAUDE_MODEL_MAP[fallbackModelKey];
+    const executorLabel = `Claude Code · ${fallbackModel.name}`;
+    const prompt = buildPrompt(task, projectName, executorLabel);
+    return {
+      agentType: "claude-code",
+      command: "claude",
+      args: ["--permission-mode", "bypassPermissions", "--model", fallbackModelKey, "--print", prompt],
+      actualModelId: fallbackModel.id,
+      actualModelName: fallbackModel.name,
+      executor: "claude",
+      fallbackReason: `Router preferred ${geminiMeta.name} — falling back to ${fallbackModel.name} (gemini CLI not found on PATH)`,
+    };
   }
 
-  const model = CLAUDE_MODEL_MAP[claudeModel];
+  // GPT tier → Codex CLI (exec --full-auto)
+  if (tier === "gpt" || tier === "gpt-5.4") {
+    if (isCliAvailable("codex")) {
+      const prompt = buildPrompt(task, projectName, "Codex · GPT-5.4");
+      return {
+        agentType: "codex",
+        command: "codex",
+        args: ["exec", "--full-auto", prompt],
+        actualModelId: "openai/gpt-5.4",
+        actualModelName: "GPT-5.4",
+        executor: "codex",
+      };
+    }
+    // Graceful fallback to Claude Sonnet when codex CLI is not installed
+    const fallbackModel = CLAUDE_MODEL_MAP["sonnet"];
+    const executorLabel = `Claude Code · ${fallbackModel.name}`;
+    const prompt = buildPrompt(task, projectName, executorLabel);
+    return {
+      agentType: "claude-code",
+      command: "claude",
+      args: ["--permission-mode", "bypassPermissions", "--model", "sonnet", "--print", prompt],
+      actualModelId: fallbackModel.id,
+      actualModelName: fallbackModel.name,
+      executor: "claude",
+      fallbackReason: "Router preferred GPT — falling back to Sonnet (codex CLI not found on PATH)",
+    };
+  }
+
+  // Claude tiers (opus / sonnet / haiku)
+  const claudeModelKey = tier === "opus" ? "opus" : tier === "haiku" ? "haiku" : "sonnet";
+  const model = CLAUDE_MODEL_MAP[claudeModelKey];
   const executorLabel = `Claude Code · ${model.name}`;
   const prompt = buildPrompt(task, projectName, executorLabel);
-
   return {
     agentType: "claude-code",
     command: "claude",
-    args: ["--permission-mode", "bypassPermissions", "--model", claudeModel, "--print", prompt],
+    args: ["--permission-mode", "bypassPermissions", "--model", claudeModelKey, "--print", prompt],
     actualModelId: model.id,
     actualModelName: model.name,
-    fallbackReason,
+    executor: "claude",
   };
 }
 
@@ -1511,6 +1572,7 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
         complexityScore: routing.complexityScore,
         reason: routingReason,
         savingsPercent: routing.savingsPercent,
+        executor: executor.executor,
         fallbackReason: executor.fallbackReason || null,
       },
     };
