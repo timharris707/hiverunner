@@ -7,6 +7,14 @@ import os from "os";
 import { routeTask } from "@/lib/llm-router";
 import { evaluateTask, drainDeferredQueue, removeDeferredTask, type SchedulingVerdict } from "@/lib/quota-scheduler";
 import { appendTaskToLog, importExternalTasks } from "@/lib/tasks-log";
+import {
+  resolveAgentForTask,
+  buildAgentIdentityBlock,
+  detectBlocker,
+  extractMemoryFromOutput,
+  recordAgentMemory,
+  buildQAHandoffPrompt,
+} from "@/lib/agent-pipeline";
 
 const DATA_DIR = join(process.cwd(), "data");
 const TASKS_FILE = join(DATA_DIR, "tasks.json");
@@ -132,6 +140,10 @@ function getProjectMeta(task: any, projects = readProjects()) {
 }
 
 function buildPrompt(task: any, projectName: string, executorLabel: string) {
+  // Resolve named agent for this task
+  const assignment = resolveAgentForTask(task);
+  const agentIdentity = buildAgentIdentityBlock(assignment.agentId, task.project);
+
   return [
     `## Task: ${task.title}`,
     "",
@@ -139,7 +151,9 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
     `**Type:** ${task.type || "feature"}`,
     `**Priority:** ${task.priority}`,
     `**Executor:** ${executorLabel}`,
+    `**Assigned Agent:** ${assignment.agentId} (${assignment.reason})`,
     "",
+    agentIdentity ? `${agentIdentity}\n` : "",
     "### Description",
     task.description || task.title,
     "",
@@ -151,6 +165,7 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
     "- Push to the remote repository",
     "- Keep the implementation focused on the scoped task; do not rewrite unrelated areas",
     "- When finished, end with a concise summary of what changed, validation run, and any remaining caveats",
+    "- If you CANNOT complete or verify the task, write `BLOCKED: <reason>` — do NOT mark as done",
   ].join("\n");
 }
 
@@ -529,6 +544,276 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
     return;
   }
 
+  if (codeReviewSpawnData) {
+    const { task, reviewEntry, projectName, projectDir, buildOutput } = codeReviewSpawnData;
+    spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
+  }
+}
+
+/** Spawn the Vigil QA agent for builder → QA handoff */
+function spawnVigilQAProcess(
+  task: any,
+  qaEntry: any,
+  projectName: string,
+  projectDir: string,
+  buildOutput: string,
+  builderAgentId: string,
+  captures: any[],
+) {
+  const prompt = buildQAHandoffPrompt(task, projectName, builderAgentId, buildOutput, captures);
+  const args = ["--permission-mode", "bypassPermissions", "--model", REVIEWER_MODEL, "--print", prompt];
+
+  sendSystemEvent(`🛡️ Vigil QA spawning for: ${String(task.title || task.id).replace(/"/g, "'")} (builder: ${builderAgentId})`);
+
+  const qaEnv = {
+    ...process.env,
+    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+  };
+
+  const child = execFile(
+    "claude",
+    args,
+    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env: qaEnv },
+    (error, stdout, stderr) => {
+      const output = summarizeOutput(error, stdout, stderr);
+      finalizeVigilQA(qaEntry.id, task.id, !error, output, builderAgentId).catch((err) => {
+        console.error("Error finalizing Vigil QA:", err);
+      });
+    },
+  );
+
+  child.on("spawn", () => {
+    withFactoryLock(async () => {
+      const buildLog = readBuildLog();
+      const entry = buildLog.builds.find((b: any) => b.id === qaEntry.id);
+      if (entry && entry.status === "spawning") {
+        entry.status = "running";
+        entry.runningAt = new Date().toISOString();
+        writeBuildLog(buildLog);
+      }
+      const tasks = readTasks();
+      const t = tasks.find((t: any) => t.id === task.id);
+      if (t) {
+        t.codeReviewState = "vigil-reviewing";
+        t.updated = new Date().toISOString();
+        writeTasks(tasks);
+      }
+    }).catch(() => {});
+  });
+
+  child.on("error", (err) => {
+    finalizeVigilQA(qaEntry.id, task.id, false, err.message, builderAgentId).catch((finalizeErr) => {
+      console.error("Error finalizing failed Vigil QA spawn:", finalizeErr);
+    });
+  });
+}
+
+/** Handle Vigil QA completion — approved → code review, rejected → back to builder, blocked → surface */
+async function finalizeVigilQA(
+  vigilBuildId: string,
+  taskId: string,
+  success: boolean,
+  output: string,
+  builderAgentId: string,
+) {
+  let codeReviewSpawnData: {
+    task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string;
+  } | null = null;
+  let requeue = false;
+  let notifyText = "";
+
+  await withFactoryLock(async () => {
+    const buildLog = readBuildLog();
+    const tasks = readTasks();
+    const projects = readProjects();
+    const vigilEntry = buildLog.builds.find((b: any) => b.id === vigilBuildId);
+    const task = tasks.find((t: any) => t.id === taskId);
+
+    if (!vigilEntry || !task) return;
+
+    const now = new Date().toISOString();
+    vigilEntry.completedAt = now;
+    vigilEntry.output = output.slice(-1500);
+
+    if (!success) {
+      // Vigil process itself failed — proceed to code review
+      vigilEntry.status = "failed";
+      console.warn(`[factory] Vigil QA process failed for ${taskId}, proceeding to code review`);
+    } else {
+      vigilEntry.status = "completed";
+      const { verdict, notes } = parseReviewVerdict(output);
+
+      // Check for BLOCKED verdict from Vigil
+      if (/VERDICT:\s*BLOCKED/i.test(output)) {
+        const blockerMatch = output.match(/BLOCKED:\s*(.+?)(?:\n|$)/i);
+        const blockerReason = blockerMatch ? blockerMatch[1].trim() : "Vigil cannot verify this task";
+
+        task.status = "blocked";
+        task.buildState = "blocked";
+        task.blocker = {
+          reason: blockerReason,
+          category: "cannot-verify" as const,
+          raisedAt: now,
+          raisedBy: "vigil",
+          notifiedHenry: true,
+          resolved: false,
+        };
+        task.qaHandoff = {
+          ...(task.qaHandoff || {}),
+          verdict: "blocked",
+          completedAt: now,
+        };
+
+        notifyText = `🚫 Vigil BLOCKED: ${String(task.title || taskId).replace(/"/g, "'")} — ${blockerReason.slice(0, 200)}`;
+        sendTelegramNotification(
+          `🚫 VIGIL BLOCKED: "${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason.slice(0, 300)}\n\nVigil cannot verify. Needs Henry's triage.`
+        );
+        createInAppNotification(
+          "🚫 Vigil QA Blocked",
+          `Vigil blocked on "${String(task.title || taskId).replace(/"/g, "'")}" — cannot verify`,
+          "warning",
+          "/tasks",
+        );
+
+        task.updated = now;
+        writeBuildLog(buildLog);
+        writeTasks(tasks);
+        return;
+      }
+
+      if (verdict === "NEEDS_FIX") {
+        // Vigil rejected — send back to builder agent
+        task.visualReview = {
+          ...(task.visualReview || {}),
+          status: "changes-requested",
+          lastUpdatedAt: now,
+          lastVerdict: "NEEDS_FIX",
+          lastNotes: notes,
+        };
+        task.status = "in-progress";
+        task.buildState = "failed";
+        task.buildError = `Vigil QA rejected (sent back to ${builderAgentId}):\n${notes}`;
+        task.lastReviewVerdict = "NEEDS_FIX";
+        task.lastReviewerAgent = "Vigil (QA)";
+        task.lastReviewNotes = notes;
+        task.lastReviewAt = now;
+        task.qaHandoff = {
+          ...(task.qaHandoff || {}),
+          verdict: "rejected",
+          rejectionNotes: notes,
+          completedAt: now,
+        };
+        const failureCount = (task.reviewFailureCount || 0) + 1;
+        task.reviewFailureCount = failureCount;
+        delete task.completedAt;
+        requeue = true;
+
+        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `Vigil QA rejected ${failureCount} times. Latest: ${notes.slice(0, 300)}`;
+          notifyText = `🚨 VIGIL ESCALATION: Task rejected ${failureCount}x: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🚨 VIGIL ESCALATION: "${String(task.title || taskId).replace(/"/g, "'")}" rejected ${failureCount}x by Vigil.\n\nIssues:\n${notes.slice(0, 500)}`);
+          createInAppNotification(
+            "⚠️ Vigil QA Escalation",
+            `"${String(task.title || taskId).replace(/"/g, "'")}" rejected ${failureCount}x by Vigil`,
+            "warning",
+            "/tasks",
+          );
+        } else {
+          notifyText = `🔄 Vigil QA REJECTED → back to ${builderAgentId} (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
+        }
+
+        task.updated = now;
+        writeBuildLog(buildLog);
+        writeTasks(tasks);
+        return;
+      }
+
+      // APPROVED — Vigil says it's good, update QA handoff
+      task.visualReview = {
+        ...(task.visualReview || {}),
+        status: "approved",
+        lastUpdatedAt: now,
+        lastVerdict: "APPROVED",
+      };
+      task.qaHandoff = {
+        ...(task.qaHandoff || {}),
+        verdict: "approved",
+        completedAt: now,
+      };
+    }
+
+    // Vigil approved (or process failed → skip to code review)
+    const buildOutput = task.buildOutput || "";
+    const { projectName, projectDir } = getProjectMeta(task, projects);
+
+    task.codeReviewState = "pending";
+    task.codeReviewStartedAt = now;
+
+    const reviewEntry = {
+      id: `review-${Date.now()}`,
+      taskId: task.id,
+      taskTitle: task.title,
+      project: task.project,
+      executionKey: `${vigilEntry.originalExecutionKey || vigilEntry.executionKey}:review`,
+      originalExecutionKey: vigilEntry.originalExecutionKey || vigilEntry.executionKey,
+      status: "spawning",
+      queuedAt: null,
+      startedAt: now,
+      completedAt: null,
+      agentType: "reviewer",
+      workDir: vigilEntry.workDir,
+      source: "auto-review-post-vigil-qa",
+      routing: {
+        tier: "sonnet",
+        modelId: "anthropic/claude-sonnet-4-6",
+        modelName: "Sonnet 4.6",
+        reason: "Code review after Vigil QA approval",
+      },
+    };
+    buildLog.builds.unshift(reviewEntry);
+
+    codeReviewSpawnData = {
+      task: { ...task },
+      reviewEntry,
+      projectName,
+      projectDir,
+      buildOutput,
+    };
+
+    notifyText = `✅ Vigil QA approved → code review: ${String(task.title || taskId).replace(/"/g, "'")}`;
+
+    task.updated = now;
+    writeBuildLog(buildLog);
+    writeTasks(tasks);
+  });
+
+  if (notifyText) sendSystemEvent(notifyText);
+
+  // Record Vigil's memory
+  try {
+    const { summary, lessons, knownIssues } = extractMemoryFromOutput(output);
+    recordAgentMemory("vigil", {
+      taskId,
+      taskTitle: `QA review: ${taskId}`,
+      project: "qa",
+      summary: `QA reviewed task from ${builderAgentId}. ${summary}`,
+      lessons,
+      knownIssues,
+    });
+  } catch (err) {
+    console.error("[factory] Failed to record Vigil memory:", err);
+  }
+
+  if (requeue) {
+    queueOrStartBuild(taskId, { source: `vigil-rejected:${vigilBuildId}` }).catch((err) => {
+      console.error("Failed to re-queue task after Vigil rejection:", err);
+    });
+    return;
+  }
+
+  // Spawn code review after Vigil approval
   if (codeReviewSpawnData) {
     const { task, reviewEntry, projectName, projectDir, buildOutput } = codeReviewSpawnData;
     spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
@@ -997,6 +1282,12 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     task: any; visualQAEntry: any; projectName: string; projectDir: string;
     buildOutput: string; executionKey: string;
   } | null = null;
+  let vigilQASpawnData: {
+    task: any; qaEntry: any; projectName: string; projectDir: string;
+    buildOutput: string; builderAgentId: string;
+  } | null = null;
+  let memoryData: { agentId: string; taskId: string; taskTitle: string; project: string; output: string } | null = null;
+  let blockerDetected = false;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -1012,21 +1303,122 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     entry.completedAt = now;
     entry.output = output.slice(-1500);
 
+    // Resolve which named agent handled this task
+    const assignment = resolveAgentForTask(task);
+    task.assignedAgent = assignment.agentId;
+    task.assignedAgentReason = assignment.reason;
+
     task.updated = now;
     task.buildOutput = output.slice(-1500);
     task.buildCompletedAt = now;
     clearTransientBuildTracking(task);
 
+    // Blocker detection — check output for blocker signals regardless of success/failure
+    const blocker = detectBlocker(output, assignment.agentId);
+    if (blocker) {
+      blockerDetected = true;
+      task.status = "blocked";
+      task.buildState = "blocked";
+      task.blocker = blocker;
+      task.buildError = `BLOCKED by ${assignment.agentId}: ${blocker.reason}`;
+      notifyText = `🚫 BLOCKED: ${String(task.title || taskId).replace(/"/g, "'")} — ${blocker.reason.slice(0, 200)}`;
+
+      // Notify Henry
+      blocker.notifiedHenry = true;
+      sendTelegramNotification(
+        `🚫 AGENT BLOCKED: "${String(task.title || taskId).replace(/"/g, "'")}" — ${assignment.agentId} reports: ${blocker.reason.slice(0, 300)}\n\nCategory: ${blocker.category}\nNeeds triage.`
+      );
+      createInAppNotification(
+        "🚫 Agent Blocked",
+        `${assignment.agentId} blocked on "${String(task.title || taskId).replace(/"/g, "'")}" — ${blocker.category}`,
+        "warning",
+        "/tasks",
+      );
+
+      writeBuildLog(buildLog);
+      writeTasks(tasks);
+
+      // Still record agent memory for blocked tasks
+      memoryData = {
+        agentId: assignment.agentId,
+        taskId: task.id,
+        taskTitle: task.title,
+        project: task.project || "unscoped",
+        output,
+      };
+      return;
+    }
+
     if (success) {
       task.buildState = "completed";
       task.buildError = null;
       delete task.codeReviewNotes;
-      // task.status stays "in-progress" — reviewer will apply the final transition
+      // task.status stays "in-progress" — reviewer/Vigil will apply the final transition
 
       const { projectName, projectDir } = getProjectMeta(task, projects);
       const isUITask = shouldRequireVisualReview(task);
 
-      if (isUITask) {
+      // Record agent memory for completed builds
+      memoryData = {
+        agentId: assignment.agentId,
+        taskId: task.id,
+        taskTitle: task.title,
+        project: task.project || "unscoped",
+        output,
+      };
+
+      if (isUITask && assignment.needsQAHandoff) {
+        // UI tasks built by non-Vigil agents → hand off to Vigil for QA
+        task.visualReview = {
+          ...(task.visualReview || {}),
+          required: true,
+          status: "pending-capture",
+          lastUpdatedAt: now,
+        };
+        task.codeReviewState = "pending-vigil-qa";
+        task.codeReviewStartedAt = now;
+        task.qaHandoff = {
+          taskId: task.id,
+          builderAgent: assignment.agentId,
+          qaAgent: "vigil",
+          builderSummary: output.slice(-500),
+          handoffAt: now,
+        };
+
+        const qaEntry = {
+          id: `vigil-qa-${Date.now()}`,
+          taskId: task.id,
+          taskTitle: task.title,
+          project: task.project,
+          executionKey: `${entry.executionKey}:vigil-qa`,
+          originalExecutionKey: entry.executionKey,
+          status: "spawning",
+          queuedAt: null,
+          startedAt: now,
+          completedAt: null,
+          agentType: "vigil-qa",
+          workDir: entry.workDir,
+          source: "auto-vigil-qa",
+          routing: {
+            tier: "sonnet",
+            modelId: "anthropic/claude-sonnet-4-6",
+            modelName: "Sonnet 4.6",
+            reason: `QA handoff from ${assignment.agentId} → Vigil`,
+          },
+        };
+        buildLog.builds.unshift(qaEntry);
+
+        vigilQASpawnData = {
+          task: { ...task },
+          qaEntry,
+          projectName,
+          projectDir,
+          buildOutput: output.slice(-1500),
+          builderAgentId: assignment.agentId,
+        };
+
+        notifyText = `🛡️ Build complete → Vigil QA handoff: ${String(task.title || taskId).replace(/"/g, "'")} (built by ${assignment.agentId})`;
+      } else if (isUITask) {
         // UI tasks go through visual QA pipeline first: capture → visual QA review → code review
         task.visualReview = {
           ...(task.visualReview || {}),
@@ -1114,16 +1506,52 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
       task.buildError = output.slice(-1500);
       notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
       nextTaskId = nextQueuedTaskId(buildLog, entry.executionKey);
+
+      // Record agent memory even for failures
+      memoryData = {
+        agentId: assignment.agentId,
+        taskId: task.id,
+        taskTitle: task.title,
+        project: task.project || "unscoped",
+        output,
+      };
     }
 
     writeBuildLog(buildLog);
     writeTasks(tasks);
   });
 
+  // Record agent memory outside the lock (non-critical path)
+  if (memoryData) {
+    try {
+      const { summary, lessons, knownIssues } = extractMemoryFromOutput(memoryData.output);
+      recordAgentMemory(memoryData.agentId, {
+        taskId: memoryData.taskId,
+        taskTitle: memoryData.taskTitle,
+        project: memoryData.project,
+        summary,
+        lessons,
+        knownIssues,
+      });
+    } catch (err) {
+      console.error("[factory] Failed to record agent memory:", err);
+    }
+  }
+
   if (notifyText) sendSystemEvent(notifyText);
+  if (blockerDetected) return; // Blocked tasks don't advance the pipeline
+
   if (!success && notifyText) {
     createInAppNotification("Build Failed", notifyText, "error");
     sendTelegramNotification(notifyText);
+  }
+
+  // Vigil QA handoff for UI tasks built by non-Vigil agents
+  if (vigilQASpawnData) {
+    const { task, qaEntry, projectName, projectDir, buildOutput, builderAgentId } = vigilQASpawnData;
+    const captures = await captureAndStoreScreenshot(task.id, task, "after");
+    spawnVigilQAProcess(task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captures);
+    return;
   }
 
   // UI tasks: capture screenshot then spawn visual QA review
@@ -1590,6 +2018,13 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.complexityScore = routing.complexityScore;
     task.savingsPercent = routing.savingsPercent;
     task.buildError = null;
+
+    // Named agent assignment
+    const agentAssignment = resolveAgentForTask(task);
+    task.assignedAgent = agentAssignment.agentId;
+    task.assignedAgentReason = agentAssignment.reason;
+    task.needsQAHandoff = agentAssignment.needsQAHandoff;
+
     task.updated = now;
 
     writeBuildLog(buildLog);
