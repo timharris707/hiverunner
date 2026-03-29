@@ -51,10 +51,9 @@ export function buildSetupMessage(config: GeminiLiveConfig) {
         },
         temperature: config.temperature ?? 0.8,
       },
-      // Transcription disabled for now — causes audio choppy playback
-      // TODO: re-enable with non-blocking approach (buffer to ref, render on turn boundary only)
-      // inputAudioTranscription: {},
-      // outputAudioTranscription: {},
+      // Transcription enabled — buffered in refs, flushed on turn_complete to avoid re-render chop
+      inputAudioTranscription: {},
+      outputAudioTranscription: {},
       systemInstruction: {
         parts: [
           {
@@ -115,65 +114,46 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
     return { type: "setup_complete" };
   }
 
-  // Input transcription (user's speech → text)
+  // All serverContent handling in a single block — prevents early-return dropping
+  // audio/turn signals when transcription arrives in the same message.
   if ("serverContent" in msg) {
     const sc = msg.serverContent as Record<string, unknown>;
-    if (sc.inputTranscription) {
-      const it = sc.inputTranscription as { text?: string };
-      if (it.text) {
-        return { type: "input_transcription", text: it.text };
-      }
-    }
-    if (sc.outputTranscription) {
-      const ot = sc.outputTranscription as { text?: string };
-      if (ot.text) {
-        return { type: "output_transcription", text: ot.text };
-      }
-    }
-  }
 
-  // Server content (audio/text response)
-  if ("serverContent" in msg) {
-    const content = msg.serverContent as Record<string, unknown>;
-
-    // Interruption signal
-    if (content.interrupted === true) {
+    // Control signals first (highest priority)
+    if (sc.interrupted === true) {
       return { type: "interrupted" };
     }
-
-    // Turn complete
-    if (content.turnComplete === true) {
+    if (sc.turnComplete === true) {
       return { type: "turn_complete" };
     }
-
-    // Generation complete (new in 3.1)
-    if (content.generationComplete === true) {
+    if (sc.generationComplete === true) {
       return { type: "generation_complete" };
     }
 
-    // Model turn with parts
-    const modelTurn = content.modelTurn as
+    // Audio/text model turn (higher priority than transcription — real-time playback)
+    const modelTurn = sc.modelTurn as
       | { parts?: Array<Record<string, unknown>> }
       | undefined;
     if (modelTurn?.parts) {
       for (const part of modelTurn.parts) {
-        // Audio part
         if (part.inlineData) {
-          const inlineData = part.inlineData as {
-            mimeType: string;
-            data: string;
-          };
-          return {
-            type: "audio",
-            data: inlineData.data,
-            mimeType: inlineData.mimeType,
-          };
+          const inlineData = part.inlineData as { mimeType: string; data: string };
+          return { type: "audio", data: inlineData.data, mimeType: inlineData.mimeType };
         }
-        // Text part
         if (typeof part.text === "string") {
           return { type: "text", text: part.text };
         }
       }
+    }
+
+    // Transcription (lower priority — accumulate in ref, flush on turn boundary)
+    if (sc.inputTranscription) {
+      const it = sc.inputTranscription as { text?: string };
+      if (it.text) return { type: "input_transcription", text: it.text };
+    }
+    if (sc.outputTranscription) {
+      const ot = sc.outputTranscription as { text?: string };
+      if (ot.text) return { type: "output_transcription", text: ot.text };
     }
 
     // Empty serverContent (metadata only) — ignore

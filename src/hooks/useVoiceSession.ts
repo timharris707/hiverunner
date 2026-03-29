@@ -251,7 +251,6 @@ export function useVoiceSession() {
               }
             };
             micSource.connect(captureNode);
-            captureNode.connect(captureCtx.destination);
             break;
 
           case "audio": {
@@ -303,9 +302,10 @@ export function useVoiceSession() {
             break;
 
           case "interrupted":
-            // Clear the playback ring buffer immediately
+            // Clear the playback ring buffer and in-flight transcript accumulation
             playbackNode.port.postMessage("clear");
             currentTextRef.current = "";
+            currentOutputTranscript.current = "";
             setState("listening");
             break;
 
