@@ -67,44 +67,62 @@ interface CronJobData {
   recentRuns: { status: string; ts: number; error?: string }[];
 }
 
+interface JobsConfig {
+  id: string;
+  name?: string;
+  enabled?: boolean;
+  state?: { consecutiveErrors?: number };
+}
+
 function loadCronData(): CronJobData[] {
   const runsDir = join(OPENCLAW_DIR, "cron", "runs");
   const cronDir = join(OPENCLAW_DIR, "cron");
-  
+
   const results: CronJobData[] = [];
-  
+
   if (!existsSync(runsDir)) return results;
-  
-  // Load cron job config to get names
-  const cronConfigPath = join(cronDir, "crons.json");
-  let cronConfig: Record<string, { name?: string; status?: string }> = {};
-  if (existsSync(cronConfigPath)) {
+
+  // Load cron job config from jobs.json (OpenClaw uses this format)
+  const jobsConfigPath = join(cronDir, "jobs.json");
+  const knownJobs = new Map<string, { name?: string; enabled: boolean; consecutiveErrors: number }>();
+  if (existsSync(jobsConfigPath)) {
     try {
-      cronConfig = JSON.parse(readFileSync(cronConfigPath, "utf-8"));
+      const raw = JSON.parse(readFileSync(jobsConfigPath, "utf-8"));
+      const jobsList: JobsConfig[] = Array.isArray(raw) ? raw : (raw?.jobs ?? []);
+      for (const job of jobsList) {
+        knownJobs.set(job.id, {
+          name: job.name,
+          enabled: job.enabled !== false,
+          consecutiveErrors: job.state?.consecutiveErrors ?? 0,
+        });
+      }
     } catch {}
   }
-  
+
   const files = readdirSync(runsDir).filter(f => f.endsWith(".jsonl"));
-  
+
   for (const file of files) {
     const jobId = file.replace(".jsonl", "");
+
+    // Skip orphaned run files (jobs no longer in config)
+    if (knownJobs.size > 0 && !knownJobs.has(jobId)) continue;
+
+    const jobMeta = knownJobs.get(jobId);
     const filePath = join(runsDir, file);
-    
+
     try {
       const raw = readFileSync(filePath, "utf-8");
       const lines = raw.trim().split("\n").filter(Boolean);
-      
+
       const runs: { status: string; ts: number; error?: string }[] = [];
-      let errorCount = 0;
-      
+
       for (const line of lines) {
         try {
           const entry: CronRunEntry = JSON.parse(line);
           if (entry.action !== "finished") continue;
-          
+
           const status = entry.status === "ok" ? "success" : (entry.status || "unknown");
-          if (status !== "success") errorCount++;
-          
+
           runs.push({
             status,
             ts: entry.ts || entry.runAtMs || 0,
@@ -112,20 +130,23 @@ function loadCronData(): CronJobData[] {
           });
         } catch {}
       }
-      
+
       // Most recent first
       runs.sort((a, b) => b.ts - a.ts);
-      
+
+      // Use consecutive errors from job state (reflects current reality, not stale history)
+      const errorCount = jobMeta?.consecutiveErrors ?? runs.filter(r => r.status !== "success").length;
+
       results.push({
         id: jobId,
-        name: cronConfig[jobId]?.name,
-        status: cronConfig[jobId]?.status,
+        name: jobMeta?.name,
+        status: jobMeta?.enabled ? "active" : "disabled",
         errorCount,
         recentRuns: runs.slice(0, 10),
       });
     } catch {}
   }
-  
+
   return results;
 }
 
@@ -162,7 +183,8 @@ export async function GET() {
 
     const totalCronRuns = cronData.reduce((sum, job) => sum + job.recentRuns.length, 0);
     const totalCronErrors = cronData.reduce((sum, job) => sum + job.errorCount, 0);
-    const hasActiveCronErrors = cronData.some(job => job.errorCount > 0);
+    // Only flag active errors for enabled jobs — disabled jobs may have stale error history
+    const hasActiveCronErrors = cronData.some(job => job.status !== "disabled" && job.errorCount > 0);
 
     return NextResponse.json({
       cronJobs: cronData,

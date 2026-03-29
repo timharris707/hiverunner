@@ -217,9 +217,16 @@ export function routeTask(task: TaskInput): RoutingDecision {
       ? "Research-heavy task with deeper analysis needs — routed to Gemini Pro"
       : "Research/search-heavy task — routed to Gemini Flash for fast aggregation";
     signals.push(`${researchHits} research keyword(s) → ${tier === "gemini-pro" ? "Gemini Pro" : "Gemini Flash"}`);
+  } else if (score >= 90) {
+    tier = "opus";
+    reason = "Very high complexity or high-stakes work — requires strongest reasoning lane";
+  } else if (score >= 80 && codingTask) {
+    tier = "sonnet";
+    reason = "High complexity coding — Sonnet handles implementation well, saving Opus for architecture";
+    signals.push("Complexity 80-89 coding task → Sonnet (Opus conservation)");
   } else if (score >= 80) {
     tier = "opus";
-    reason = "High complexity or high-stakes work — requires strongest reasoning lane";
+    reason = "High complexity non-coding work — requires strongest reasoning lane";
   } else if (score < 35) {
     tier = "haiku";
     reason = "Low complexity mechanical task — cheapest fast lane is enough";

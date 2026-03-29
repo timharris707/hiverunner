@@ -2955,7 +2955,7 @@
       "launch"
     ],
     "created": "2026-03-26T07:42:00.000Z",
-    "updated": "2026-03-28T14:02:45.908Z",
+    "updated": "2026-03-29T05:39:52.541Z",
     "created_by": "henry",
     "routedModel": "Sonnet 4.6",
     "routedTier": "sonnet",
@@ -2969,7 +2969,10 @@
     "buildOutput": null,
     "buildCompletedAt": null,
     "quotaVerdict": "allow",
-    "quotaReason": "P2 task approved — off-peak budget 1% utilized"
+    "quotaReason": "P2 task approved — off-peak budget 1% utilized",
+    "quotaDeferred": true,
+    "quotaDeferReason": "Higher-priority tasks are pending — P2 task deferred until queue is idle",
+    "quotaDeferUntil": "idle"
   },
   {
     "id": "TASK-063",
@@ -3685,7 +3688,7 @@
     "id": "TASK-CLEANUP-3",
     "title": "Fix 34 orphan tasks with bad/missing project tags",
     "description": "Tasks tagged with none, \"4\", \"MEMORY.md\", \"ORG.md\", \"org-structure\" need proper project assignment. Map to real projects or create general catch-all. Also add descriptions to 15 tasks missing them. Clear SnapAudit BUILD FAILED state.",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P1",
     "project": "mission-control",
     "type": "maintenance",
@@ -3695,12 +3698,11 @@
     ],
     "assignee": "Vigil",
     "created": "2026-03-29T04:44:06.000Z",
-    "updated": "2026-03-29T05:32:31.469Z",
+    "updated": "2026-03-29T05:36:54.891Z",
     "quotaVerdict": "allow",
     "quotaReason": "P1 task approved — peak budget 0% utilized",
-    "buildState": "running",
+    "buildState": "spawning",
     "buildTriggeredAt": "2026-03-29T05:32:30.256Z",
-    "activeBuildId": "build-1774762350256",
     "buildExecutionKey": "harris-autonomous/mission-control",
     "routedModel": "Sonnet 4.6",
     "routedTier": "sonnet",
@@ -3708,12 +3710,11 @@
     "complexityScore": 60,
     "savingsPercent": 80,
     "buildError": null,
-    "buildStartedAt": "2026-03-29T05:32:30.267Z",
     "visualReview": {
       "required": true,
-      "status": "pending-capture",
-      "lastCapturedAt": "2026-03-29T05:32:31.469Z",
-      "lastUpdatedAt": "2026-03-29T05:32:31.469Z",
+      "status": "approved",
+      "lastCapturedAt": "2026-03-29T05:35:31.758Z",
+      "lastUpdatedAt": "2026-03-29T05:36:09.037Z",
       "captures": [
         {
           "id": "cap-1774762351469",
@@ -3727,9 +3728,35 @@
           },
           "valid": true,
           "phase": "before"
+        },
+        {
+          "id": "cap-1774762531758",
+          "relativePath": "screenshots/TASK-CLEANUP-3/2026-03-29T05-35-30-746Z.png",
+          "filePath": "/Users/timharris/.openclaw/workspace/projects/mission-control-app/public/screenshots/TASK-CLEANUP-3/2026-03-29T05-35-30-746Z.png",
+          "url": "http://localhost:3001/tasks",
+          "capturedAt": "2026-03-29T05:35:31.741Z",
+          "viewport": {
+            "width": 1920,
+            "height": 1080
+          },
+          "valid": true,
+          "phase": "after"
         }
-      ]
-    }
+      ],
+      "lastVerdict": "APPROVED"
+    },
+    "buildOutput": "Done. Here's what changed:\n\n**39 orphan tasks fixed** (`data/tasks.json`):\n- `org-structure` → `org` (1 task)\n- `'4'` → `infrastructure` (1 task — Provider auth setup)\n- `MEMORY.md` → `insight` / `karpathy-loop` (2 tasks)\n- `ORG.md` → `org` (1 task — Quill/Counsel agents)\n- `''` → `mission-control` (28 tasks), `advisory-board` (8 tasks), `infrastructure` (2 tasks)\n\n**15 descriptions added** — all `task-new-1` through `task-new-15` now have contextual descriptions matching their titles/work.\n\n**TASK-062 cleared** — SnapAudit marketing campaign had `buildState: \"failed\"` with `spawn claude ENOENT` error; wiped `buildState`, `buildError`, `buildOutput`, and timestamps.\n\n**Build:** `✓ Compiled successfully in 2.6s` — no issues.\n\n**Pushed:** `panely/sprint-1` → `71460b3`\n",
+    "buildCompletedAt": "2026-03-29T05:35:30.741Z",
+    "codeReviewState": "approved",
+    "codeReviewStartedAt": "2026-03-29T05:35:30.741Z",
+    "activeBuildId": "visual-qa-1774762530741",
+    "codeReviewCompletedAt": "2026-03-29T05:36:54.891Z",
+    "lastReviewVerdict": "APPROVED",
+    "lastReviewerAgent": "QA Reviewer (Sonnet)",
+    "lastReviewAt": "2026-03-29T05:36:54.891Z",
+    "reviewRequired": false,
+    "reviewStatus": "not-needed",
+    "completedAt": "2026-03-29T05:36:54.891Z"
   },
   {
     "id": "TASK-CLEANUP-4",
@@ -3745,7 +3772,20 @@
     ],
     "assignee": "Vigil",
     "created": "2026-03-29T04:44:06.000Z",
-    "updated": "2026-03-29T04:44:06.000Z"
+    "updated": "2026-03-29T05:35:31.083Z",
+    "quotaVerdict": "allow",
+    "quotaReason": "P1 task approved — peak budget 1% utilized",
+    "buildState": "running",
+    "buildTriggeredAt": "2026-03-29T05:35:31.069Z",
+    "activeBuildId": "build-1774762531069",
+    "buildExecutionKey": "harris-autonomous/mission-control",
+    "routedModel": "Sonnet 4.6",
+    "routedTier": "sonnet",
+    "routingReason": "Standard coding task — Sonnet is the implementation workhorse",
+    "complexityScore": 50,
+    "savingsPercent": 80,
+    "buildError": null,
+    "buildStartedAt": "2026-03-29T05:35:31.082Z"
   },
   {
     "id": "TASK-CLEANUP-5",
@@ -3768,7 +3808,7 @@
     "id": "TASK-CLEANUP-6",
     "title": "Paperclip status integration — company dashboard widget in Projects page",
     "description": "Build /api/paperclip/status route polling localhost:3100. Show on Projects page: Weather Edge + Panely agent status (active/idle/paused counts), recent issue activity, sprint progress. Click to expand issue list without leaving MC.",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P1",
     "project": "mission-control",
     "type": "maintenance",
@@ -3779,7 +3819,29 @@
     ],
     "assignee": "Forge",
     "created": "2026-03-29T04:44:06.000Z",
-    "updated": "2026-03-29T04:44:06.000Z"
+    "updated": "2026-03-29T05:41:35.237Z",
+    "quotaVerdict": "allow",
+    "quotaReason": "P1 task approved — peak budget 1% utilized",
+    "buildState": "completed",
+    "buildTriggeredAt": "2026-03-29T05:35:31.073Z",
+    "buildExecutionKey": "harris-autonomous/mission-control",
+    "routedModel": "Sonnet 4.6",
+    "routedTier": "sonnet",
+    "routingReason": "Standard coding task — Sonnet is the implementation workhorse",
+    "complexityScore": 60,
+    "savingsPercent": 80,
+    "buildError": null,
+    "buildOutput": "Done. Here's what was built:\n\n**`/api/paperclip/status`** — proxy route that calls localhost:3100 in parallel for:\n- `GET /api/companies/:companyId/agents` → agent counts (active/idle/paused)\n- `GET /api/companies/:companyId/issues?status=in_progress,todo,blocked` → issue counts + recent 15\n- `GET /api/companies/:companyId/dashboard` → passthrough\n- 5s timeout per request, returns `{configured: false}` gracefully when `PAPERCLIP_COMPANY_ID` is absent\n\n**`PaperclipStatusWidget`** — collapsed by default, shows a one-line status bar with agent buckets + issue counts. Expands in-page to reveal a sprint progress bar (amber=active / blue=queued / red=blocked) and a scrollable issue list (status dot, priority marker, identifier, title, status badge, time-ago). Auto-refreshes every 30s.\n\n**Projects page** — widget mounted above the header.\n\n**Caveats:**\n- `PAPERCLIP_API_KEY`, `PAPERCLIP_COMPANY_ID`, and optionally `PAPERCLIP_API_URL` must be added to `.env.local` (see `.env.example` for guidance — use `paperclipai agent local-cli` to get the values)\n- The issue links in the expanded list open `localhost:3100` (the full Paperclip UI) since deep-linking into specific issues would require knowing the company prefix\n",
+    "buildCompletedAt": "2026-03-29T05:40:43.374Z",
+    "codeReviewState": "approved",
+    "codeReviewStartedAt": "2026-03-29T05:40:43.374Z",
+    "codeReviewCompletedAt": "2026-03-29T05:41:35.237Z",
+    "lastReviewVerdict": "APPROVED",
+    "lastReviewerAgent": "QA Reviewer (Sonnet)",
+    "lastReviewAt": "2026-03-29T05:41:35.237Z",
+    "reviewRequired": false,
+    "reviewStatus": "not-needed",
+    "completedAt": "2026-03-29T05:41:35.237Z"
   },
   {
     "id": "TASK-CLEANUP-7",
@@ -3862,7 +3924,7 @@
     "id": "TASK-CLEANUP-9",
     "title": "Multi-executor build runner — GPT Codex + Gemini CLI alongside Claude",
     "description": "Add alternative build executors to the factory pipeline so we can route tasks to GPT and Gemini natively instead of always falling back to Claude.\n\n## What To Build\n\n### 1. Codex executor (for GPT-routed tasks)\n- When router returns gpt-5.4 tier, use `codex exec --full-auto` instead of `claude`\n- Codex needs a git repo (already have one) and PTY mode\n- Map: gpt-5.4 → codex exec --full-auto \"<prompt>\"\n- Requires codex CLI on PATH (already installed)\n\n### 2. Gemini executor (for research/large-context tasks)  \n- When router returns gemini-flash or gemini-pro, use `gemini` CLI\n- Map: gemini-flash → gemini \"<prompt>\", gemini-pro → gemini --model gemini-2.5-pro \"<prompt>\"\n- Requires gemini CLI on PATH (already installed)\n- Research tasks don't need file writes — output goes to task notes/comments\n\n### 3. Executor selection in build-queue.ts\n- Replace GEMINI_FALLBACK_MAP with actual executor routing\n- selectBuildExecutor() picks the right CLI based on tier\n- Each executor has its own spawn logic (claude uses --print, codex uses exec --full-auto, gemini uses direct prompt)\n- Fall back to Claude Sonnet if the target CLI isn't available on PATH\n\n### 4. Build log tracking\n- Log which executor actually ran (claude/codex/gemini) in build metadata\n- Track token savings per executor type\n\n## Key Files\n- src/lib/build-queue.ts — selectBuildExecutor() function\n- src/lib/llm-router.ts — already routes to tiers, just needs real executors\n\n## Success Criteria\n- GPT-routed tasks actually run on Codex, not Claude\n- Gemini-routed tasks actually run on Gemini CLI, not Claude\n- Anthropic quota usage drops measurably\n- Graceful fallback if a CLI is missing",
-    "status": "in-progress",
+    "status": "done",
     "priority": "P1",
     "project": "mission-control",
     "type": "feature",
@@ -3874,7 +3936,29 @@
     ],
     "assignee": "Forge",
     "created": "2026-03-29T05:01:00.000Z",
-    "updated": "2026-03-29T05:01:00.000Z"
+    "updated": "2026-03-29T05:39:12.660Z",
+    "quotaVerdict": "allow",
+    "quotaReason": "P1 task approved — peak budget 1% utilized",
+    "buildState": "completed",
+    "buildTriggeredAt": "2026-03-29T05:35:31.076Z",
+    "buildExecutionKey": "harris-autonomous/mission-control",
+    "routedModel": "Sonnet 4.6",
+    "routedTier": "sonnet",
+    "routingReason": "High complexity coding — Sonnet handles implementation well, saving Opus for architecture",
+    "complexityScore": 88,
+    "savingsPercent": 80,
+    "buildError": null,
+    "buildOutput": "Done. Here's what changed:\n\n**`src/lib/build-queue.ts`** — `dec0820`\n\n- **`isCliAvailable(cmd)`** — synchronous `which` check with a process-level cache so it's only paid once per server lifetime\n- **`GEMINI_MODEL_MAP`** — replaces `GEMINI_FALLBACK_MAP`; carries real model IDs and the `--model` flag for gemini-pro\n- **`selectBuildExecutor()`** — three execution paths:\n  - `gemini-flash` / `gemini-pro` → `gemini [--model gemini-2.5-pro] \"<prompt>\"` if the CLI is on PATH; falls back to Sonnet/Opus respectively\n  - `gpt` / `gpt-5.4` → `codex exec --full-auto \"<prompt>\"` if available; falls back to Sonnet\n  - `opus` / `sonnet` / `haiku` → `claude --print` as before\n- **`executor` field** added to every build-log routing entry (`\"claude\" | \"codex\" | \"gemini\"`) for downstream token-savings tracking\n\n**Caveats:**\n- The router has no GPT tier yet — Codex path is wired but unreachable until `llm-router.ts` adds `\"gpt\"` to `RoutingTier`\n- `isCliAvailable` cache is per-server-process; a hot-reload clears it (acceptable)\n- Gemini CLI flag syntax (`--model`) assumed to match the `gemini` npm CLI — verify against your installed version if it diverges\n",
+    "buildCompletedAt": "2026-03-29T05:38:43.556Z",
+    "codeReviewState": "approved",
+    "codeReviewStartedAt": "2026-03-29T05:38:43.556Z",
+    "codeReviewCompletedAt": "2026-03-29T05:39:12.660Z",
+    "lastReviewVerdict": "APPROVED",
+    "lastReviewerAgent": "QA Reviewer (Sonnet)",
+    "lastReviewAt": "2026-03-29T05:39:12.660Z",
+    "reviewRequired": false,
+    "reviewStatus": "not-needed",
+    "completedAt": "2026-03-29T05:39:12.660Z"
   },
   {
     "id": "TASK-CLEANUP-10",
@@ -3892,12 +3976,11 @@
     ],
     "assignee": "Nimbus",
     "created": "2026-03-29T05:09:00.000Z",
-    "updated": "2026-03-29T05:32:31.468Z",
+    "updated": "2026-03-29T05:41:17.646Z",
     "quotaVerdict": "allow",
     "quotaReason": "P1 task approved — peak budget 1% utilized",
-    "buildState": "running",
+    "buildState": "spawning",
     "buildTriggeredAt": "2026-03-29T05:32:30.261Z",
-    "activeBuildId": "build-1774762350261",
     "buildExecutionKey": "harris-autonomous/weather-trading",
     "routedModel": "Sonnet 4.6",
     "routedTier": "sonnet",
@@ -3905,12 +3988,11 @@
     "complexityScore": 85,
     "savingsPercent": 80,
     "buildError": null,
-    "buildStartedAt": "2026-03-29T05:32:30.320Z",
     "visualReview": {
       "required": true,
-      "status": "pending-capture",
-      "lastCapturedAt": "2026-03-29T05:32:31.468Z",
-      "lastUpdatedAt": "2026-03-29T05:32:31.468Z",
+      "status": "approved",
+      "lastCapturedAt": "2026-03-29T05:39:53.201Z",
+      "lastUpdatedAt": "2026-03-29T05:41:17.637Z",
       "captures": [
         {
           "id": "cap-1774762351468",
@@ -3924,9 +4006,28 @@
           },
           "valid": true,
           "phase": "before"
+        },
+        {
+          "id": "cap-1774762793202",
+          "relativePath": "screenshots/TASK-CLEANUP-10/2026-03-29T05-39-52-178Z.png",
+          "filePath": "/Users/timharris/.openclaw/workspace/projects/mission-control-app/public/screenshots/TASK-CLEANUP-10/2026-03-29T05-39-52-178Z.png",
+          "url": "http://localhost:3001/tasks",
+          "capturedAt": "2026-03-29T05:39:53.171Z",
+          "viewport": {
+            "width": 1920,
+            "height": 1080
+          },
+          "valid": true,
+          "phase": "after"
         }
-      ]
-    }
+      ],
+      "lastVerdict": "APPROVED"
+    },
+    "buildOutput": "Done. Here's what shipped:\n\n**`positions/route.ts`** — now queries both `live_trading.db` and `paper_trading.db`. Each row has `trade_type: \"live\" | \"paper\"`. Live trades (3 open, 14 settled) appear first. Returns separate `liveCityBreakdown` and `paperCityBreakdown` alongside the merged set.\n\n**`weather-stats/route.ts`** — adds `kalshiStats` field from live_trading.db (currently: 3 open, 10 won, 4 lost, 77% win rate). `liveStats` (paper) is unchanged for backwards compat.\n\n**`page.tsx`** — default view shows only live Kalshi trades:\n- Stats cards (Bankroll, Win Rate, Open Positions, Total Trades) reflect real Kalshi performance\n- \"Show Paper Trades\" toggle appears only when live trades exist; reveals paper history at 60% opacity with LIVE/PAPER badges on both open and settled tables\n- Banner says \"including paper\" when toggled on\n- Header badge → \"Live on Kalshi\", Nimbus status → \"Live on Kalshi\", P&L panel → \"Kalshi P&L\"\n- Forecast/n_models cells handle null gracefully (live trades don't have these)\n\n**Validation:** `npm run build` — compiled successfully, no errors.\n\n**Caveat:** Live bankroll shows `null` because the Kalshi account balance isn't stored in the local DB (it's fetched from the Kalshi API at runtime). All other live stats are derived from `live_trading.db` directly.\n",
+    "buildCompletedAt": "2026-03-29T05:39:52.175Z",
+    "codeReviewState": "running",
+    "codeReviewStartedAt": "2026-03-29T05:39:52.175Z",
+    "activeBuildId": "visual-qa-1774762792175"
   },
   {
     "id": "TASK-TOURNAMENT-1",

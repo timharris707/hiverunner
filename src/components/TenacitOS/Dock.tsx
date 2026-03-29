@@ -28,6 +28,7 @@ import {
   Mic,
   Network,
   Megaphone,
+  Blocks,
 } from "lucide-react";
 
 interface NavItem {
@@ -65,6 +66,7 @@ const navItems: (NavItem | null)[] = [
   { href: "/costs", label: "Costs", icon: DollarSign },
   { href: "/reliability", label: "Reliability", icon: Shield },
   null, // separator
+  { href: "/paperclip", label: "Paperclip", icon: Blocks },
   { href: "/marketing", label: "Marketing", icon: Megaphone },
   { href: "/voice", label: "Voice Henry", icon: Mic },
 ];
