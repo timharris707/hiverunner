@@ -7,6 +7,7 @@ const WEATHER_TRADING_DIR =
   "/Users/timharris/.openclaw/workspace/projects/weather-trading";
 
 const PAPER_TRADING_DB = join(WEATHER_TRADING_DIR, "data", "paper_trading.db");
+const LIVE_TRADING_DB = join(WEATHER_TRADING_DIR, "data", "live_trading.db");
 const DASHBOARD_SUMMARY = join(WEATHER_TRADING_DIR, "data", "dashboard", "summary.json");
 const DAILY_PNL_JSON = join(WEATHER_TRADING_DIR, "data", "dashboard", "daily_pnl.json");
 
@@ -40,11 +41,10 @@ export async function GET() {
       }
     }
 
-    // Read live stats from SQLite if available
+    // Read paper trading stats from SQLite
     let liveStats = null;
     if (hasDb) {
       try {
-        // Use better-sqlite3 which is already a project dependency
         const Database = require("better-sqlite3");
         const db = new Database(PAPER_TRADING_DB, { readonly: true });
 
@@ -73,7 +73,6 @@ export async function GET() {
           )
           .all();
 
-        // Also fetch recently resolved trades separately for clear reporting
         const resolvedTrades = db
           .prepare(
             `SELECT trade_id, ticker, side, quantity, price, cost, edge, status, pnl, payout, actual_outcome, actual_temp, city, target_date, threshold, forecast_mean, settlement_scheduled_at, resolved_at, created_at
@@ -102,12 +101,77 @@ export async function GET() {
       }
     }
 
+    // Read live (Kalshi) trading stats
+    let kalshiStats = null;
+    if (existsSync(LIVE_TRADING_DB)) {
+      try {
+        const Database = require("better-sqlite3");
+        const liveDb = new Database(LIVE_TRADING_DB, { readonly: true });
+
+        const liveTradeStats = liveDb
+          .prepare(
+            `SELECT
+              COUNT(*) as total_trades,
+              SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open_trades,
+              SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
+              SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
+              SUM(pnl) as total_pnl,
+              SUM(CASE WHEN status IN ('pending','filled','resting') THEN cost ELSE 0 END) as open_exposure
+            FROM live_trades
+            WHERE status != 'failed'`
+          )
+          .get() as Record<string, number>;
+
+        const recentLiveTrades = liveDb
+          .prepare(
+            `SELECT trade_id, contract_id as ticker, side, quantity,
+                    COALESCE(fill_price, price) as price, cost, edge,
+                    CASE
+                      WHEN status IN ('pending','filled','resting') THEN 'open'
+                      WHEN status='settled_won' THEN 'won'
+                      WHEN status='settled_lost' THEN 'lost'
+                      ELSE status
+                    END as status,
+                    pnl, pnl as payout, actual_outcome, actual_temp,
+                    city, target_date, threshold, forecast_mean,
+                    NULL as settlement_scheduled_at, settled_at as resolved_at, created_at
+             FROM live_trades
+             WHERE status != 'failed'
+             ORDER BY created_at DESC
+             LIMIT 40`
+          )
+          .all();
+
+        liveDb.close();
+
+        const liveResolved = (liveTradeStats.won || 0) + (liveTradeStats.lost || 0);
+        kalshiStats = {
+          totalTrades: liveTradeStats.total_trades || 0,
+          openTrades: liveTradeStats.open_trades || 0,
+          awaitingSettlement: 0,
+          won: liveTradeStats.won || 0,
+          lost: liveTradeStats.lost || 0,
+          winRate: liveResolved > 0 ? ((liveTradeStats.won || 0) / liveResolved) * 100 : 0,
+          totalPnl: liveTradeStats.total_pnl || 0,
+          openExposure: liveTradeStats.open_exposure || 0,
+          bankroll: null, // account balance is in Kalshi API, not local DB
+          recentTrades: recentLiveTrades,
+          resolvedTrades: recentLiveTrades.filter(
+            (t: Record<string, unknown>) => t.status === "won" || t.status === "lost"
+          ),
+        };
+      } catch {
+        // live DB read failed
+      }
+    }
+
     return NextResponse.json({
       available: true,
       summary: summary?.headline_metrics ?? null,
       backtestPeriod: summary?.backtest_period ?? null,
       backtestStatus: summary?.status ?? null,
       liveStats,
+      kalshiStats,
       dailyPnl,
     });
   } catch (error) {

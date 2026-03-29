@@ -133,6 +133,19 @@ interface RecentTrade {
   created_at: string;
 }
 
+interface TradeStats {
+  totalTrades: number;
+  openTrades: number;
+  won: number;
+  lost: number;
+  winRate: number;
+  totalPnl: number;
+  openExposure: number;
+  bankroll: number | null;
+  recentTrades: RecentTrade[];
+  resolvedTrades: RecentTrade[];
+}
+
 interface WeatherStats {
   available: boolean;
   summary?: {
@@ -146,18 +159,8 @@ interface WeatherStats {
   } | null;
   backtestPeriod?: { start: string; end: string; days: number } | null;
   backtestStatus?: string | null;
-  liveStats?: {
-    totalTrades: number;
-    openTrades: number;
-    won: number;
-    lost: number;
-    winRate: number;
-    totalPnl: number;
-    openExposure: number;
-    bankroll: number | null;
-    recentTrades: RecentTrade[];
-    resolvedTrades: RecentTrade[];
-  } | null;
+  liveStats?: TradeStats | null;
+  kalshiStats?: TradeStats | null;
 }
 
 interface Position {
@@ -173,11 +176,12 @@ interface Position {
   target_date: string;
   threshold?: number;
   forecast_mean: number;
-  forecast_std: number;
-  n_models: number;
+  forecast_std: number | null;
+  n_models: number | null;
   status: string;
   settlement_scheduled_at: string | null;
   created_at: string;
+  trade_type: "live" | "paper";
 }
 
 interface ResolvedPosition {
@@ -193,8 +197,8 @@ interface ResolvedPosition {
   target_date: string;
   threshold: number | null;
   forecast_mean: number;
-  forecast_std: number;
-  n_models: number;
+  forecast_std: number | null;
+  n_models: number | null;
   status: string;
   pnl: number;
   payout: number;
@@ -203,6 +207,7 @@ interface ResolvedPosition {
   settlement_scheduled_at: string | null;
   resolved_at: string | null;
   created_at: string;
+  trade_type: "live" | "paper";
 }
 
 interface CityBreakdown {
@@ -213,6 +218,14 @@ interface CityBreakdown {
   open_count: number;
   won: number;
   lost: number;
+}
+
+interface PositionsData {
+  positions: Position[];
+  resolvedPositions: ResolvedPosition[];
+  cityBreakdown: CityBreakdown[];
+  liveCityBreakdown: CityBreakdown[];
+  paperCityBreakdown: CityBreakdown[];
 }
 
 function capitalize(s: string): string {
@@ -272,10 +285,9 @@ export default function TradingPage() {
   const [priceError, setPriceError] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null);
-  const [positions, setPositions] = useState<Position[]>([]);
-  const [resolvedPositions, setResolvedPositions] = useState<ResolvedPosition[]>([]);
-  const [cityBreakdown, setCityBreakdown] = useState<CityBreakdown[]>([]);
+  const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
   const [weatherLastRefresh, setWeatherLastRefresh] = useState<Date | null>(null);
+  const [showPaperTrades, setShowPaperTrades] = useState(false);
   const weatherIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchWeatherData = useCallback(async () => {
@@ -287,9 +299,13 @@ export default function TradingPage() {
       const statsData = await statsRes.json();
       const posData = await posRes.json();
       setWeatherStats(statsData);
-      setPositions(posData.positions || []);
-      setResolvedPositions(posData.resolvedPositions || []);
-      setCityBreakdown(posData.cityBreakdown || []);
+      setPositionsData({
+        positions: posData.positions || [],
+        resolvedPositions: posData.resolvedPositions || [],
+        cityBreakdown: posData.cityBreakdown || [],
+        liveCityBreakdown: posData.liveCityBreakdown || [],
+        paperCityBreakdown: posData.paperCityBreakdown || [],
+      });
       setWeatherLastRefresh(new Date());
     } catch {
       // silent fail
@@ -375,10 +391,22 @@ export default function TradingPage() {
     },
   ];
 
-  const ls = weatherStats?.liveStats;
+  // When showing live-only: use Kalshi stats; when showing all: use paper stats (includes all history)
+  const ls = showPaperTrades ? weatherStats?.liveStats : weatherStats?.kalshiStats;
+  const hasLiveTrades = (weatherStats?.kalshiStats?.totalTrades ?? 0) > 0;
+
   const cashAvailable = ls?.bankroll != null && ls?.openExposure != null
     ? ls.bankroll - ls.openExposure
     : null;
+
+  // Filtered positions based on toggle
+  const allPositions = positionsData?.positions ?? [];
+  const allResolved = positionsData?.resolvedPositions ?? [];
+  const positions = showPaperTrades ? allPositions : allPositions.filter((p) => p.trade_type === "live");
+  const resolvedPositions = showPaperTrades ? allResolved : allResolved.filter((p) => p.trade_type === "live");
+  const cityBreakdown = showPaperTrades
+    ? (positionsData?.cityBreakdown ?? [])
+    : (positionsData?.liveCityBreakdown ?? []);
 
   return (
     <div className="p-4 md:p-8">
@@ -539,11 +567,24 @@ export default function TradingPage() {
             >
               <RefreshCw className="w-3 h-3" />
             </button>
+            {hasLiveTrades && (
+              <button
+                onClick={() => setShowPaperTrades((v) => !v)}
+                className="text-xs px-2 py-1 rounded"
+                style={{
+                  backgroundColor: showPaperTrades ? "#a78bfa20" : "var(--card-elevated)",
+                  border: `1px solid ${showPaperTrades ? "#a78bfa40" : "var(--border)"}`,
+                  color: showPaperTrades ? "#a78bfa" : "var(--text-secondary)",
+                }}
+              >
+                {showPaperTrades ? "Hide Paper Trades" : "Show Paper Trades"}
+              </button>
+            )}
             <span className="text-xs px-2 py-1 rounded" style={{
-              backgroundColor: ls ? "#4ade8020" : "#60a5fa20",
-              color: ls ? "#4ade80" : "#60a5fa",
+              backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#60a5fa20" : "#60a5fa20",
+              color: hasLiveTrades ? "#4ade80" : ls ? "#60a5fa" : "#60a5fa",
             }}>
-              {ls ? "Paper Trading" : "Research Phase"}
+              {hasLiveTrades ? "Live on Kalshi" : ls ? "Paper Trading" : "Research Phase"}
             </span>
           </div>
         </div>
@@ -619,10 +660,10 @@ export default function TradingPage() {
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-xs px-2 py-0.5 rounded font-medium" style={{
-                  backgroundColor: ls ? "#4ade8020" : "#6b728020",
-                  color: ls ? "#4ade80" : "#9ca3af",
+                  backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#60a5fa20" : "#6b728020",
+                  color: hasLiveTrades ? "#4ade80" : ls ? "#60a5fa" : "#9ca3af",
                 }}>
-                  {ls ? "Paper Trading" : "Not Deployed"}
+                  {hasLiveTrades ? "Live on Kalshi" : ls ? "Paper Trading" : "Not Deployed"}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-muted)" }}>
                   Credentials configured
@@ -639,7 +680,16 @@ export default function TradingPage() {
             </Link>
           </div>
 
-          {/* Live Paper Trading Stats */}
+          {/* Stats filter label */}
+          {showPaperTrades && hasLiveTrades && (
+            <div className="flex items-center gap-2 mb-3 px-1">
+              <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+                Showing all trades — including paper
+              </span>
+            </div>
+          )}
+
+          {/* Stats cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
             <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
               <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Bankroll</div>
@@ -673,14 +723,14 @@ export default function TradingPage() {
               <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#60a5fa08", borderBottom: "1px solid #60a5fa20" }}>
                 <Target className="w-4 h-4" style={{ color: "#60a5fa" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                  Open Positions ({positions.length})
+                  Open Positions ({positions.length}){showPaperTrades && hasLiveTrades && " — including paper"}
                 </span>
               </div>
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["City", "Bet", "Target Date", "Settles", "Side", "Price", "Qty", "Cost", "Edge", "Forecast", "Models"].map((h) => (
+                      {[...(showPaperTrades ? [""] : []), "City", "Bet", "Target Date", "Settles", "Side", "Price", "Qty", "Cost", "Edge", "Forecast", "Models"].map((h) => (
                         <th
                           key={h}
                           className="text-xs font-bold uppercase tracking-wider px-3 py-2.5 text-left"
@@ -695,9 +745,25 @@ export default function TradingPage() {
                     {positions.map((pos) => (
                       <tr
                         key={pos.trade_id}
-                        style={{ borderBottom: "1px solid var(--border)" }}
+                        style={{
+                          borderBottom: "1px solid var(--border)",
+                          opacity: pos.trade_type === "paper" ? 0.6 : 1,
+                        }}
                         className="hover:opacity-80"
                       >
+                        {showPaperTrades && (
+                          <td className="px-3 py-2">
+                            {pos.trade_type === "paper" ? (
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+                                PAPER
+                              </span>
+                            ) : (
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#4ade8015", color: "#4ade80", border: "1px solid #4ade8030" }}>
+                                LIVE
+                              </span>
+                            )}
+                          </td>
+                        )}
                         <td className="px-3 py-2">
                           <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                             {capitalize(pos.city)}
@@ -753,11 +819,15 @@ export default function TradingPage() {
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                            {pos.forecast_mean.toFixed(1)}° ± {pos.forecast_std.toFixed(1)}
+                            {pos.forecast_mean != null
+                              ? pos.forecast_std != null
+                                ? `${pos.forecast_mean.toFixed(1)}° ± ${pos.forecast_std.toFixed(1)}`
+                                : `${pos.forecast_mean.toFixed(1)}°`
+                              : "—"}
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{pos.n_models}</span>
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{pos.n_models ?? "—"}</span>
                         </td>
                       </tr>
                     ))}
@@ -780,7 +850,7 @@ export default function TradingPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {["", "City", "Bet", "Side", "Outcome", "Actual Temp", "P&L", "Resolved"].map((h) => (
+                      {["", ...(showPaperTrades ? [""] : []), "City", "Bet", "Side", "Outcome", "Actual Temp", "P&L", "Resolved"].map((h) => (
                         <th
                           key={h}
                           className="text-xs font-bold uppercase tracking-wider px-3 py-2.5 text-left"
@@ -800,12 +870,26 @@ export default function TradingPage() {
                           style={{
                             borderBottom: "1px solid var(--border)",
                             backgroundColor: isWin ? "#4ade8008" : "#ef444408",
+                            opacity: rp.trade_type === "paper" ? 0.6 : 1,
                           }}
                           className="hover:opacity-80"
                         >
                           <td className="px-3 py-2 text-center">
                             <span className="text-sm">{isWin ? "\u2705" : "\u274C"}</span>
                           </td>
+                          {showPaperTrades && (
+                            <td className="px-3 py-2">
+                              {rp.trade_type === "paper" ? (
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+                                  PAPER
+                                </span>
+                              ) : (
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#4ade8015", color: "#4ade80", border: "1px solid #4ade8030" }}>
+                                  LIVE
+                                </span>
+                              )}
+                            </td>
+                          )}
                           <td className="px-3 py-2">
                             <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                               {capitalize(rp.city)}
@@ -1029,7 +1113,7 @@ export default function TradingPage() {
             >
               <div className="flex items-center gap-2 mb-3">
                 <DollarSign className="w-4 h-4" style={{ color: "#4ade80" }} />
-                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Paper P&L</span>
+                <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{showPaperTrades ? "Paper" : "Kalshi"} P&L</span>
               </div>
               <div className="text-center py-4">
                 <div className="text-2xl font-bold mb-1" style={{
@@ -1040,7 +1124,9 @@ export default function TradingPage() {
                 }}>
                   {$(ls?.totalPnl)}
                 </div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Paper trading mode</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                  {showPaperTrades ? "Paper trading P&L" : "Real money on Kalshi"}
+                </div>
                 <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#4ade8010", color: "#4ade80" }}>
                   {ls ? "Live stats from DB" : "Live when deployed"}
                 </div>
