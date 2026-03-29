@@ -18,8 +18,19 @@ import {
   CheckCircle2,
   Inbox,
   ListOrdered,
+  MessageSquare,
+  Send,
 } from "lucide-react";
 import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
+
+export interface TaskComment {
+  id: string;
+  author: string;
+  authorEmoji: string;
+  text: string;
+  timestamp: string;
+  type: "note" | "review" | "rejection" | "resolution";
+}
 
 export interface Attachment {
   id: string;
@@ -43,6 +54,7 @@ export interface Task {
   source_url?: string;
   github_issue?: string;
   notes?: string;
+  comments?: TaskComment[];
   buildState?: "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
   buildError?: string | null;
   buildTriggeredAt?: string;
@@ -308,6 +320,234 @@ function AttachmentDropZone({
   );
 }
 
+const COMMENT_TYPE_STYLES: Record<string, { bg: string; border: string; color: string; label: string }> = {
+  note: { bg: "rgba(107,114,128,0.1)", border: "rgba(107,114,128,0.25)", color: "#9ca3af", label: "Note" },
+  review: { bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)", color: "#60a5fa", label: "Review" },
+  rejection: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#f87171", label: "Rejection" },
+  resolution: { bg: "rgba(74,222,128,0.1)", border: "rgba(74,222,128,0.25)", color: "#4ade80", label: "Resolution" },
+};
+
+function CommentThread({
+  taskId,
+  comments: initialComments,
+  onCommentAdded,
+}: {
+  taskId: string;
+  comments: TaskComment[];
+  onCommentAdded: (comments: TaskComment[]) => void;
+}) {
+  const [comments, setComments] = useState<TaskComment[]>(initialComments);
+  const [newText, setNewText] = useState("");
+  const [commentType, setCommentType] = useState<TaskComment["type"]>("note");
+  const [selectedAuthor, setSelectedAuthor] = useState(AGENT_CONFIGS[0]?.name || "");
+  const [submitting, setSubmitting] = useState(false);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setComments(initialComments);
+  }, [initialComments]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [comments.length]);
+
+  const handleSubmit = async () => {
+    if (!newText.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const agent = getAgentByAnyId(selectedAuthor);
+      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: agent?.name || selectedAuthor,
+          authorEmoji: agent?.emoji || "🤖",
+          text: newText.trim(),
+          type: commentType,
+        }),
+      });
+      const data = await res.json();
+      if (data.comments) {
+        setComments(data.comments);
+        onCommentAdded(data.comments);
+      }
+      setNewText("");
+    } catch (err) {
+      console.error("Failed to post comment:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const agent = getAgentByAnyId(selectedAuthor);
+
+  return (
+    <div>
+      <label style={{ ...DRAWER_LABEL_STYLE, display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        <MessageSquare className="w-3.5 h-3.5" /> Comments ({comments.length})
+      </label>
+
+      {/* Thread */}
+      <div
+        style={{
+          maxHeight: "320px",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.5rem",
+          marginBottom: "0.75rem",
+        }}
+      >
+        {comments.length === 0 && (
+          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", padding: "0.75rem", textAlign: "center" }}>
+            No comments yet. Add the first one below.
+          </div>
+        )}
+        {comments.map((c) => {
+          const style = COMMENT_TYPE_STYLES[c.type] || COMMENT_TYPE_STYLES.note;
+          return (
+            <div
+              key={c.id}
+              style={{
+                padding: "0.625rem 0.75rem",
+                borderRadius: "0.5rem",
+                backgroundColor: style.bg,
+                border: `1px solid ${style.border}`,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.375rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                  <span style={{ fontSize: "0.85rem" }}>{c.authorEmoji}</span>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-primary)" }}>{c.author}</span>
+                  <span
+                    style={{
+                      fontSize: "0.6rem",
+                      fontWeight: 700,
+                      padding: "0.1rem 0.375rem",
+                      borderRadius: "9999px",
+                      backgroundColor: style.bg,
+                      color: style.color,
+                      border: `1px solid ${style.border}`,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {style.label}
+                  </span>
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                  {formatDateFull(c.timestamp)}
+                </span>
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                {c.text}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={threadEndRef} />
+      </div>
+
+      {/* Add comment */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <select
+            value={selectedAuthor}
+            onChange={(e) => setSelectedAuthor(e.target.value)}
+            style={{
+              flex: "0 0 auto",
+              padding: "0.375rem 0.5rem",
+              borderRadius: "0.375rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontSize: "0.75rem",
+              outline: "none",
+            }}
+          >
+            <option value="tim">👤 Tim</option>
+            {AGENT_CONFIGS.map((a) => (
+              <option key={a.id} value={a.name}>{a.emoji} {a.name}</option>
+            ))}
+          </select>
+          <select
+            value={commentType}
+            onChange={(e) => setCommentType(e.target.value as TaskComment["type"])}
+            style={{
+              flex: "0 0 auto",
+              padding: "0.375rem 0.5rem",
+              borderRadius: "0.375rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: COMMENT_TYPE_STYLES[commentType]?.color || "var(--text-primary)",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              outline: "none",
+            }}
+          >
+            <option value="note">Note</option>
+            <option value="review">Review</option>
+            <option value="rejection">Rejection</option>
+            <option value="resolution">Resolution</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: "0.375rem" }}>
+          <textarea
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            placeholder={`Add a ${commentType} as ${agent?.emoji || "👤"} ${agent?.name || selectedAuthor}...`}
+            rows={2}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: "0.5rem 0.625rem",
+              borderRadius: "0.5rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontSize: "0.8rem",
+              outline: "none",
+              resize: "vertical",
+              boxSizing: "border-box",
+              fontFamily: "inherit",
+              lineHeight: 1.6,
+            }}
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!newText.trim() || submitting}
+            style={{
+              alignSelf: "flex-end",
+              padding: "0.5rem",
+              borderRadius: "0.5rem",
+              backgroundColor: newText.trim() ? "var(--accent)" : "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: newText.trim() ? "#000" : "var(--text-muted)",
+              cursor: newText.trim() && !submitting ? "pointer" : "not-allowed",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title="Post comment (Cmd+Enter)"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const DRAWER_LABEL_STYLE: React.CSSProperties = {
+  display: "block", fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)",
+  marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.08em",
+};
+
 const DRAWER_LABEL: React.CSSProperties = {
   display: "block", fontSize: "0.65rem", fontWeight: 700, color: "var(--text-muted)",
   marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.08em",
@@ -331,7 +571,6 @@ export function TaskDetailDrawer({
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
-  const [notes, setNotes] = useState(task.notes || "");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [retryingBuild, setRetryingBuild] = useState(false);
@@ -360,11 +599,10 @@ export function TaskDetailDrawer({
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description || "");
-    setNotes(task.notes || "");
     setCapturePath(task.visualReview?.targetPath || "");
     setCaptureUrl(task.visualReview?.targetUrl || "");
     setVisualCaptureError(null);
-  }, [task.id, task.title, task.description, task.notes, task.visualReview?.targetPath, task.visualReview?.targetUrl]);
+  }, [task.id, task.title, task.description, task.visualReview?.targetPath, task.visualReview?.targetUrl]);
 
   const proj = projectsMap[task.project || ""];
   const attachments = task.attachments || [];
@@ -681,23 +919,12 @@ export function TaskDetailDrawer({
             </div>
           )}
 
-          {/* Notes — editable */}
-          <div>
-            <label style={DRAWER_LABEL}>Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => { if (notes !== (task.notes || "")) patchTask({ notes: notes || undefined }); }}
-              placeholder="Add notes..."
-              rows={3}
-              style={{
-                width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem",
-                backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)",
-                color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
-                resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6,
-              }}
-            />
-          </div>
+          {/* Comment Thread */}
+          <CommentThread
+            taskId={task.id}
+            comments={task.comments || []}
+            onCommentAdded={(comments) => onTaskUpdated({ ...task, comments })}
+          />
 
           {/* Attachments */}
           {attachments.length > 0 && (
