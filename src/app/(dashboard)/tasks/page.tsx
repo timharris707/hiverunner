@@ -1418,17 +1418,18 @@ function TaskCard({
         if (mp && (Math.abs(e.clientX - mp.x) > 5 || Math.abs(e.clientY - mp.y) > 5)) return;
         onClick(task);
       }}
-      className="p-3 rounded-lg mb-2 last:mb-0 transition-all hover:scale-[1.01] cursor-pointer"
+      className="group p-4 rounded-xl mb-2.5 last:mb-0 transition-all duration-150 hover:translate-y-[-1px] cursor-pointer"
       style={{
         backgroundColor: "var(--card)",
         border: "1px solid var(--border)",
         borderLeft: `3px solid ${projectColor}`,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
       }}
     >
       {/* Priority + Project */}
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center justify-between mb-3">
         <span
-          className="text-xs font-bold px-1.5 py-0.5 rounded"
+          className="text-xs font-bold px-2 py-0.5 rounded-md"
           style={{
             backgroundColor: `${PRIORITY_COLORS[task.priority]}20`,
             color: PRIORITY_COLORS[task.priority],
@@ -1438,11 +1439,11 @@ function TaskCard({
         </span>
         {task.project && (
           <span
-            className="text-xs px-1.5 py-0.5 rounded truncate max-w-[140px]"
+            className="text-xs px-2 py-0.5 rounded-md truncate max-w-[140px]"
             style={{
-              backgroundColor: `${projectColor}15`,
-              color: projectColor,
-              border: `1px solid ${projectColor}30`,
+              backgroundColor: `${projectColor}12`,
+              color: `${projectColor}bb`,
+              border: `1px solid ${projectColor}22`,
             }}
           >
             {projectLabel}
@@ -1450,217 +1451,170 @@ function TaskCard({
         )}
       </div>
 
-      {/* Build indicator — server-truthful queue/build/failure state */}
-      {(isBuilding || (task.status === "in-progress" && ["queued", "spawning", "running", "failed"].includes(task.buildState || ""))) && (
-        task.buildState === "failed" ? (
-          <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.2)" }}>
-            <span>⚠️</span>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#f87171", letterSpacing: "0.5px" }}>BUILD FAILED</span>
-          </div>
-        ) : task.buildState === "queued" ? (
-          <a
-            href="/factory"
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
-            style={{ backgroundColor: "rgba(192,132,252,0.12)", border: "1px solid rgba(192,132,252,0.25)", textDecoration: "none" }}
-          >
-            <span>⏳</span>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.5px" }}>QUEUED FOR OPENCLAW</span>
-            <span style={{ fontSize: "9px", color: "rgba(192,132,252,0.7)", marginLeft: "auto" }}>→ Factory</span>
-          </a>
-        ) : isBuilding || task.buildState === "spawning" ? (
-          <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.15)" }}>
-            <span className="animate-pulse">🏭</span>
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.5px" }}>OPENCLAW SPAWNING...</span>
-          </div>
-        ) : (
-          <a
-            href="/factory"
-            onClick={(e) => e.stopPropagation()}
-            className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md cursor-pointer transition-all hover:scale-[1.02]"
-            style={{ backgroundColor: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)", textDecoration: "none" }}
-          >
-            <span style={{ display: "inline-block", width: "8px", height: "8px", borderRadius: "50%", backgroundColor: "#22c55e", boxShadow: "0 0 6px #22c55e, 0 0 12px #22c55e44", animation: "pulse 2s ease-in-out infinite" }} />
-            <span style={{ fontSize: "10px", fontWeight: 700, color: "#22c55e", letterSpacing: "0.5px" }}>OPENCLAW AGENT ACTIVE</span>
-            <span style={{ fontSize: "9px", color: "rgba(34,197,94,0.6)", marginLeft: "auto" }}>→ Factory</span>
-          </a>
-        )
-      )}
+      {/* Status chips row — compact inline badges */}
+      {(() => {
+        const chips: React.ReactNode[] = [];
 
-      {/* Review indicator */}
-      {(task.status === "review" || task.reviewRequired || task.codeReviewState === "pending" || task.codeReviewState === "running") && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{
-          backgroundColor: task.codeReviewState === "pending" || task.codeReviewState === "running"
-            ? "rgba(251,191,36,0.12)"
-            : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
-              ? "rgba(74,222,128,0.12)"
-              : task.lastReviewVerdict === "NEEDS_FIX"
-                ? "rgba(239,68,68,0.12)"
-                : "rgba(96,165,250,0.12)",
-          border: `1px solid ${
-            task.codeReviewState === "pending" || task.codeReviewState === "running"
-              ? "rgba(251,191,36,0.2)"
-              : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
-                ? "rgba(74,222,128,0.2)"
-                : task.lastReviewVerdict === "NEEDS_FIX"
-                  ? "rgba(239,68,68,0.2)"
-                  : "rgba(96,165,250,0.2)"
-          }`,
-        }}>
-          <span>{
-            task.codeReviewState === "pending" || task.codeReviewState === "running" ? "⏳" :
-            task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED" ? "✅" :
-            task.lastReviewVerdict === "NEEDS_FIX" ? "❌" : "🧪"
-          }</span>
-          <span style={{
-            fontSize: "10px", fontWeight: 700, letterSpacing: "0.5px",
-            color: task.codeReviewState === "pending" || task.codeReviewState === "running"
-              ? "#fbbf24"
-              : task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED"
-                ? "#4ade80"
-                : task.lastReviewVerdict === "NEEDS_FIX"
-                  ? "#f87171"
-                  : "#93c5fd",
-          }}>
-            {task.codeReviewState === "pending" ? "QA REVIEW QUEUED" :
-             task.codeReviewState === "running" ? "QA REVIEWING..." :
-             task.reviewStatus === "approved" ? "REVIEW APPROVED" :
-             task.reviewStatus === "changes-requested" ? "CHANGES REQUESTED" :
-             task.lastReviewVerdict === "NEEDS_FIX" ? `REVIEW FAILED${task.reviewFailureCount ? ` (${task.reviewFailureCount}×)` : ""}` :
-             task.lastReviewVerdict === "APPROVED" ? "QA PASSED" :
-             "REVIEW NEEDED"}
-          </span>
-          {task.lastReviewerAgent && (
-            <span style={{ fontSize: "9px", color: "var(--text-muted)", marginLeft: "auto" }}>
-              {task.lastReviewerAgent}
+        // Build state
+        if (isBuilding || (task.status === "in-progress" && ["queued", "spawning", "running", "failed"].includes(task.buildState || ""))) {
+          if (task.buildState === "failed") {
+            chips.push(
+              <span key="build" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.18)", fontSize: "10px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
+                Build failed
+              </span>
+            );
+          } else if (task.buildState === "queued") {
+            chips.push(
+              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(192,132,252,0.10)", border: "1px solid rgba(192,132,252,0.20)", fontSize: "10px", fontWeight: 600, color: "#c084fc", letterSpacing: "0.3px", textDecoration: "none" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#c084fc", display: "inline-block", flexShrink: 0 }} />
+                Queued
+              </a>
+            );
+          } else if (isBuilding || task.buildState === "spawning") {
+            chips.push(
+              <span key="build" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.20)", fontSize: "10px", fontWeight: 600, color: "#fbbf24", letterSpacing: "0.3px" }}>
+                <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#fbbf24", display: "inline-block", flexShrink: 0 }} />
+                Spawning…
+              </span>
+            );
+          } else {
+            chips.push(
+              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.18)", fontSize: "10px", fontWeight: 600, color: "#4ade80", letterSpacing: "0.3px", textDecoration: "none" }}>
+                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#4ade80", boxShadow: "0 0 5px #4ade8066", animation: "pulse 2s ease-in-out infinite", display: "inline-block", flexShrink: 0 }} />
+                Agent active
+              </a>
+            );
+          }
+        }
+
+        // Review state
+        if (task.status === "review" || task.reviewRequired || task.codeReviewState === "pending" || task.codeReviewState === "running") {
+          const isPending = task.codeReviewState === "pending" || task.codeReviewState === "running";
+          const isApproved = task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED";
+          const isFailed = task.lastReviewVerdict === "NEEDS_FIX";
+          const dotColor = isPending ? "#fbbf24" : isApproved ? "#4ade80" : isFailed ? "#f87171" : "#93c5fd";
+          const bgColor = isPending ? "rgba(251,191,36,0.10)" : isApproved ? "rgba(74,222,128,0.08)" : isFailed ? "rgba(239,68,68,0.10)" : "rgba(96,165,250,0.08)";
+          const borderColor = isPending ? "rgba(251,191,36,0.18)" : isApproved ? "rgba(74,222,128,0.16)" : isFailed ? "rgba(239,68,68,0.18)" : "rgba(96,165,250,0.16)";
+          const label = task.codeReviewState === "pending" ? "QA queued" :
+                        task.codeReviewState === "running" ? "QA reviewing" :
+                        task.reviewStatus === "approved" ? "Approved" :
+                        task.reviewStatus === "changes-requested" ? "Changes needed" :
+                        task.lastReviewVerdict === "NEEDS_FIX" ? `Failed${task.reviewFailureCount ? ` ×${task.reviewFailureCount}` : ""}` :
+                        task.lastReviewVerdict === "APPROVED" ? "QA passed" : "Review needed";
+          chips.push(
+            <span key="review" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}`, fontSize: "10px", fontWeight: 600, color: dotColor, letterSpacing: "0.3px" }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: dotColor, display: "inline-block", flexShrink: 0 }} />
+              {label}
             </span>
-          )}
-        </div>
-      )}
+          );
+        }
 
-      {/* Escalation indicator */}
-      {task.escalatedToHenry && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.15)", border: "1px solid rgba(239,68,68,0.3)" }}>
-          <span>🚨</span>
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#f87171", letterSpacing: "0.5px" }}>
-            ESCALATED TO HENRY — NEEDS ATTENTION
-          </span>
-        </div>
-      )}
+        // Escalation
+        if (task.escalatedToHenry) {
+          chips.push(
+            <span key="escalation" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", fontSize: "10px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
+              Escalated
+            </span>
+          );
+        }
 
-      {(task.visualReview?.required || hasUiTag(task)) && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(168,85,247,0.12)", border: "1px solid rgba(168,85,247,0.2)" }}>
-          <span>👀</span>
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#d8b4fe", letterSpacing: "0.5px" }}>
-            {(task.visualReview?.captures?.length || 0) > 0 ? `VISUAL QC • ${task.visualReview?.captures?.length} CAPTURE${(task.visualReview?.captures?.length || 0) === 1 ? "" : "S"}` : "VISUAL QC • NEEDS SCREENSHOT"}
-          </span>
-        </div>
-      )}
+        // Visual QC
+        if (task.visualReview?.required || hasUiTag(task)) {
+          const captureCount = task.visualReview?.captures?.length || 0;
+          chips.push(
+            <span key="visual" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(168,85,247,0.10)", border: "1px solid rgba(168,85,247,0.18)", fontSize: "10px", fontWeight: 600, color: "#d8b4fe", letterSpacing: "0.3px" }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#d8b4fe", display: "inline-block", flexShrink: 0 }} />
+              {captureCount > 0 ? `Visual QC · ${captureCount}` : "Visual QC"}
+            </span>
+          );
+        }
 
-      {task.source === "tasks-log" && (
-        <div className="flex items-center gap-1.5 mb-2 px-2 py-1 rounded-md" style={{ backgroundColor: "rgba(20,184,166,0.10)", border: "1px solid rgba(20,184,166,0.2)" }}>
-          <span style={{ fontSize: "10px" }}>📋</span>
-          <span style={{ fontSize: "10px", fontWeight: 700, color: "#5eead4", letterSpacing: "0.5px" }}>FROM TASKS LOG</span>
-        </div>
-      )}
+        // From tasks log
+        if (task.source === "tasks-log") {
+          chips.push(
+            <span key="source" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.16)", fontSize: "10px", fontWeight: 600, color: "#5eead4", letterSpacing: "0.3px" }}>
+              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#5eead4", display: "inline-block", flexShrink: 0 }} />
+              Tasks log
+            </span>
+          );
+        }
+
+        return chips.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5 mb-3">{chips}</div>
+        ) : null;
+      })()}
 
       {/* Title */}
       <div
-        className="text-sm font-medium mb-1 leading-snug"
+        className="text-sm font-semibold mb-1.5 leading-snug"
         style={{ color: "var(--text-primary)" }}
       >
         {task.title}
       </div>
 
       {task.description && (
-        <div className="text-xs mb-2 line-clamp-2" style={{ color: "var(--text-muted)" }}>
+        <div className="text-xs mb-3 line-clamp-2 leading-relaxed" style={{ color: "var(--text-secondary)", opacity: 0.75 }}>
           {task.description}
         </div>
       )}
 
       {/* Image thumbnail strip */}
       {attachmentCount > 0 && task.attachments!.some((a) => isImageType(a.type)) && (
-        <div className="flex gap-1 mb-2 overflow-hidden" style={{ maxHeight: "40px" }}>
+        <div className="flex gap-1.5 mb-3 overflow-hidden" style={{ maxHeight: "44px" }}>
           {task.attachments!.filter((a) => isImageType(a.type)).slice(0, 3).map((att) => (
             <img
               key={att.id}
               src={`/api/tasks/attachments?path=${encodeURIComponent(att.path)}`}
               alt=""
-              style={{ width: 40, height: 40, borderRadius: 4, objectFit: "cover", border: "1px solid var(--border)" }}
+              style={{ width: 44, height: 44, borderRadius: 6, objectFit: "cover", border: "1px solid var(--border)" }}
             />
           ))}
           {task.attachments!.filter((a) => isImageType(a.type)).length > 3 && (
-            <div style={{ width: 40, height: 40, borderRadius: 4, backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", color: "var(--text-muted)" }}>
+            <div style={{ width: 44, height: 44, borderRadius: 6, backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "0.65rem", color: "var(--text-muted)" }}>
               +{task.attachments!.filter((a) => isImageType(a.type)).length - 3}
             </div>
           )}
         </div>
       )}
 
-      {/* Links */}
-      {(task.source_url || task.github_issue) && (
-        <div className="flex items-center gap-2 mb-2 flex-wrap">
-          {task.source_url && (
-            <a
-              href={task.source_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
+      {/* Tags — subtle pills, before footer */}
+      {task.tags && task.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-3">
+          {task.tags.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="text-xs px-2 py-0.5 rounded-full"
               style={{
-                color: "#60a5fa",
-                backgroundColor: "rgba(96,165,250,0.08)",
-                border: "1px solid rgba(96,165,250,0.2)",
-                textDecoration: "none",
+                backgroundColor: "rgba(255,255,255,0.04)",
+                color: "var(--text-muted)",
+                border: "1px solid rgba(255,255,255,0.07)",
               }}
-              onClick={(e) => e.stopPropagation()}
             >
-              🔗 Source
-            </a>
-          )}
-          {task.github_issue && (
-            <a
-              href={`https://github.com/${task.github_issue}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded transition-colors"
-              style={{
-                color: "#a78bfa",
-                backgroundColor: "rgba(167,139,250,0.08)",
-                border: "1px solid rgba(167,139,250,0.2)",
-                textDecoration: "none",
-              }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              GitHub
-            </a>
+              #{tag}
+            </span>
+          ))}
+          {(task.tags.length > 4) && (
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ color: "var(--text-muted)", opacity: 0.5 }}>
+              +{task.tags.length - 4}
+            </span>
           )}
         </div>
       )}
 
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-2">
-        <div className="flex items-center gap-1.5">
+      {/* Footer — single row: agent + model left, links + date right */}
+      <div className="flex items-center justify-between pt-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+        <div className="flex items-center gap-2 min-w-0">
           {task.assignee && (
-            <span
-              className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: "var(--card-elevated)", color: "var(--text-secondary)" }}
-            >
-              <span>{ASSIGNEE_EMOJIS[task.assignee] || "🤖"}</span>
-              {task.assignee}
-            </span>
-          )}
-          {attachmentCount > 0 && (
-            <span
-              className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: "var(--card-elevated)", color: "var(--text-muted)" }}
-            >
-              <Paperclip className="w-3 h-3" />
-              {attachmentCount}
+            <span className="flex items-center gap-1 text-xs min-w-0" style={{ color: "var(--text-secondary)" }}>
+              <span className="flex-shrink-0">{ASSIGNEE_EMOJIS[task.assignee] || "🤖"}</span>
+              <span className="truncate" style={{ color: "var(--text-muted)", maxWidth: 80 }}>{task.assignee}</span>
             </span>
           )}
           {(task as any).routedModel && (
             <span
-              className="text-xs flex items-center gap-1 px-1.5 py-0.5 rounded"
+              className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-md"
               style={{
                 backgroundColor: (task as any).routedTier === "opus" ? "rgba(245,158,11,0.1)" : (task as any).routedTier === "gpt-5.4" ? "rgba(34,197,94,0.1)" : (task as any).routedTier === "haiku" ? "rgba(167,139,250,0.1)" : "rgba(96,165,250,0.1)",
                 color: (task as any).routedTier === "opus" ? "#f59e0b" : (task as any).routedTier === "gpt-5.4" ? "#22c55e" : (task as any).routedTier === "haiku" ? "#a78bfa" : "#60a5fa",
@@ -1668,29 +1622,49 @@ function TaskCard({
               }}
               title={`Routed to ${(task as any).routedModel} (complexity: ${(task as any).complexityScore}/100)`}
             >
-              {"🧠"} {(task as any).routedModel}
+              {(task as any).routedModel}
+            </span>
+          )}
+          {attachmentCount > 0 && (
+            <span className="flex-shrink-0 flex items-center gap-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
+              <Paperclip className="w-3 h-3" />
+              {attachmentCount}
             </span>
           )}
         </div>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-          {formatDate(task.updated)}
-        </span>
-      </div>
 
-      {/* Tags */}
-      {task.tags && task.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {task.tags.slice(0, 3).map((tag) => (
-            <span
-              key={tag}
-              className="text-xs px-1.5 py-0.5 rounded"
-              style={{ backgroundColor: "var(--surface-elevated)", color: "var(--text-muted)" }}
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {task.source_url && (
+            <a
+              href={task.source_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
+              style={{ color: "#60a5fa", textDecoration: "none" }}
+              onClick={(e) => e.stopPropagation()}
+              title="Source"
             >
-              #{tag}
-            </span>
-          ))}
+              🔗
+            </a>
+          )}
+          {task.github_issue && (
+            <a
+              href={`https://github.com/${task.github_issue}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
+              style={{ color: "#a78bfa", textDecoration: "none" }}
+              onClick={(e) => e.stopPropagation()}
+              title="GitHub"
+            >
+              GH
+            </a>
+          )}
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {formatDate(task.updated)}
+          </span>
         </div>
-      )}
+      </div>
     </div>
   );
 }
