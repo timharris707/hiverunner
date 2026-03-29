@@ -20,6 +20,11 @@ import {
   Wrench,
   Bug,
   Sparkles,
+  ChevronDown,
+  ChevronRight,
+  Archive,
+  ArchiveRestore,
+  Search,
 } from "lucide-react";
 
 interface Attachment {
@@ -1418,7 +1423,7 @@ function TaskCard({
         if (mp && (Math.abs(e.clientX - mp.x) > 5 || Math.abs(e.clientY - mp.y) > 5)) return;
         onClick(task);
       }}
-      className="group p-4 rounded-xl mb-2.5 last:mb-0 transition-all duration-150 hover:translate-y-[-1px] cursor-pointer"
+      className="group p-2.5 rounded-lg mb-1.5 last:mb-0 transition-all duration-150 hover:translate-y-[-1px] cursor-pointer"
       style={{
         backgroundColor: "var(--card)",
         border: "1px solid var(--border)",
@@ -1427,23 +1432,25 @@ function TaskCard({
       }}
     >
       {/* Priority + Project */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-1.5">
         <span
-          className="text-xs font-bold px-2 py-0.5 rounded-md"
+          className="font-bold px-1.5 py-px rounded"
           style={{
             backgroundColor: `${PRIORITY_COLORS[task.priority]}20`,
             color: PRIORITY_COLORS[task.priority],
+            fontSize: "0.65rem",
           }}
         >
           {task.priority}
         </span>
         {task.project && (
           <span
-            className="text-xs px-2 py-0.5 rounded-md truncate max-w-[140px]"
+            className="px-1.5 py-px rounded truncate max-w-[140px]"
             style={{
               backgroundColor: `${projectColor}12`,
               color: `${projectColor}bb`,
               border: `1px solid ${projectColor}22`,
+              fontSize: "0.65rem",
             }}
           >
             {projectLabel}
@@ -1459,29 +1466,29 @@ function TaskCard({
         if (isBuilding || (task.status === "in-progress" && ["queued", "spawning", "running", "failed"].includes(task.buildState || ""))) {
           if (task.buildState === "failed") {
             chips.push(
-              <span key="build" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.18)", fontSize: "10px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
+              <span key="build" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.18)", fontSize: "9px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
+                <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
                 Build failed
               </span>
             );
           } else if (task.buildState === "queued") {
             chips.push(
-              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(192,132,252,0.10)", border: "1px solid rgba(192,132,252,0.20)", fontSize: "10px", fontWeight: 600, color: "#c084fc", letterSpacing: "0.3px", textDecoration: "none" }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#c084fc", display: "inline-block", flexShrink: 0 }} />
+              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 px-1.5 py-px rounded transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(192,132,252,0.10)", border: "1px solid rgba(192,132,252,0.20)", fontSize: "9px", fontWeight: 600, color: "#c084fc", letterSpacing: "0.3px", textDecoration: "none" }}>
+                <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#c084fc", display: "inline-block", flexShrink: 0 }} />
                 Queued
               </a>
             );
           } else if (isBuilding || task.buildState === "spawning") {
             chips.push(
-              <span key="build" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.20)", fontSize: "10px", fontWeight: 600, color: "#fbbf24", letterSpacing: "0.3px" }}>
-                <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#fbbf24", display: "inline-block", flexShrink: 0 }} />
+              <span key="build" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(251,191,36,0.10)", border: "1px solid rgba(251,191,36,0.20)", fontSize: "9px", fontWeight: 600, color: "#fbbf24", letterSpacing: "0.3px" }}>
+                <span className="animate-pulse" style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#fbbf24", display: "inline-block", flexShrink: 0 }} />
                 Spawning…
               </span>
             );
           } else {
             chips.push(
-              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.18)", fontSize: "10px", fontWeight: 600, color: "#4ade80", letterSpacing: "0.3px", textDecoration: "none" }}>
-                <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#4ade80", boxShadow: "0 0 5px #4ade8066", animation: "pulse 2s ease-in-out infinite", display: "inline-block", flexShrink: 0 }} />
+              <a key="build" href="/factory" onClick={(e) => e.stopPropagation()} className="inline-flex items-center gap-0.5 px-1.5 py-px rounded transition-opacity hover:opacity-80" style={{ backgroundColor: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.18)", fontSize: "9px", fontWeight: 600, color: "#4ade80", letterSpacing: "0.3px", textDecoration: "none" }}>
+                <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#4ade80", boxShadow: "0 0 5px #4ade8066", animation: "pulse 2s ease-in-out infinite", display: "inline-block", flexShrink: 0 }} />
                 Agent active
               </a>
             );
@@ -1503,8 +1510,8 @@ function TaskCard({
                         task.lastReviewVerdict === "NEEDS_FIX" ? `Failed${task.reviewFailureCount ? ` ×${task.reviewFailureCount}` : ""}` :
                         task.lastReviewVerdict === "APPROVED" ? "QA passed" : "Review needed";
           chips.push(
-            <span key="review" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}`, fontSize: "10px", fontWeight: 600, color: dotColor, letterSpacing: "0.3px" }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: dotColor, display: "inline-block", flexShrink: 0 }} />
+            <span key="review" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}`, fontSize: "9px", fontWeight: 600, color: dotColor, letterSpacing: "0.3px" }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: dotColor, display: "inline-block", flexShrink: 0 }} />
               {label}
             </span>
           );
@@ -1513,8 +1520,8 @@ function TaskCard({
         // Escalation
         if (task.escalatedToHenry) {
           chips.push(
-            <span key="escalation" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", fontSize: "10px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
+            <span key="escalation" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(239,68,68,0.12)", border: "1px solid rgba(239,68,68,0.25)", fontSize: "9px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />
               Escalated
             </span>
           );
@@ -1524,8 +1531,8 @@ function TaskCard({
         if (task.visualReview?.required || hasUiTag(task)) {
           const captureCount = task.visualReview?.captures?.length || 0;
           chips.push(
-            <span key="visual" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(168,85,247,0.10)", border: "1px solid rgba(168,85,247,0.18)", fontSize: "10px", fontWeight: 600, color: "#d8b4fe", letterSpacing: "0.3px" }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#d8b4fe", display: "inline-block", flexShrink: 0 }} />
+            <span key="visual" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(168,85,247,0.10)", border: "1px solid rgba(168,85,247,0.18)", fontSize: "9px", fontWeight: 600, color: "#d8b4fe", letterSpacing: "0.3px" }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#d8b4fe", display: "inline-block", flexShrink: 0 }} />
               {captureCount > 0 ? `Visual QC · ${captureCount}` : "Visual QC"}
             </span>
           );
@@ -1534,35 +1541,35 @@ function TaskCard({
         // From tasks log
         if (task.source === "tasks-log") {
           chips.push(
-            <span key="source" className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md" style={{ backgroundColor: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.16)", fontSize: "10px", fontWeight: 600, color: "#5eead4", letterSpacing: "0.3px" }}>
-              <span style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#5eead4", display: "inline-block", flexShrink: 0 }} />
+            <span key="source" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(20,184,166,0.08)", border: "1px solid rgba(20,184,166,0.16)", fontSize: "9px", fontWeight: 600, color: "#5eead4", letterSpacing: "0.3px" }}>
+              <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#5eead4", display: "inline-block", flexShrink: 0 }} />
               Tasks log
             </span>
           );
         }
 
         return chips.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5 mb-3">{chips}</div>
+          <div className="flex flex-wrap gap-1 mb-1.5">{chips}</div>
         ) : null;
       })()}
 
       {/* Title */}
       <div
-        className="text-sm font-semibold mb-1.5 leading-snug"
-        style={{ color: "var(--text-primary)" }}
+        className="font-semibold mb-1 leading-snug"
+        style={{ color: "var(--text-primary)", fontSize: "0.8rem" }}
       >
         {task.title}
       </div>
 
       {task.description && (
-        <div className="text-xs mb-3 line-clamp-2 leading-relaxed" style={{ color: "var(--text-secondary)", opacity: 0.75 }}>
+        <div className="mb-1.5 line-clamp-2 leading-snug" style={{ color: "var(--text-secondary)", opacity: 0.75, fontSize: "0.68rem" }}>
           {task.description}
         </div>
       )}
 
       {/* Image thumbnail strip */}
       {attachmentCount > 0 && task.attachments!.some((a) => isImageType(a.type)) && (
-        <div className="flex gap-1.5 mb-3 overflow-hidden" style={{ maxHeight: "44px" }}>
+        <div className="flex gap-1 mb-1.5 overflow-hidden" style={{ maxHeight: "36px" }}>
           {task.attachments!.filter((a) => isImageType(a.type)).slice(0, 3).map((att) => (
             <img
               key={att.id}
@@ -1581,15 +1588,16 @@ function TaskCard({
 
       {/* Tags — subtle pills, before footer */}
       {task.tags && task.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-3">
+        <div className="flex flex-wrap gap-1 mb-1.5">
           {task.tags.slice(0, 4).map((tag) => (
             <span
               key={tag}
-              className="text-xs px-2 py-0.5 rounded-full"
+              className="px-1.5 py-0 rounded-full"
               style={{
                 backgroundColor: "rgba(255,255,255,0.04)",
                 color: "var(--text-muted)",
                 border: "1px solid rgba(255,255,255,0.07)",
+                fontSize: "0.6rem",
               }}
             >
               #{tag}
@@ -1604,7 +1612,7 @@ function TaskCard({
       )}
 
       {/* Footer — single row: agent + model left, links + date right */}
-      <div className="flex items-center justify-between pt-2.5" style={{ borderTop: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2 min-w-0">
           {task.assignee && (
             <span className="flex items-center gap-1 text-xs min-w-0" style={{ color: "var(--text-secondary)" }}>
@@ -1679,6 +1687,11 @@ export default function TasksPage() {
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<Task["status"] | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [doneCollapsed, setDoneCollapsed] = useState(true);
+  const [showArchive, setShowArchive] = useState(false);
+  const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
+  const [archiving, setArchiving] = useState(false);
+  const [archiveSearch, setArchiveSearch] = useState("");
 
   // Listen for Cmd+T global shortcut to open new task modal
   useEffect(() => {
@@ -1696,6 +1709,46 @@ export default function TasksPage() {
       console.error("Error fetching tasks:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchArchivedTasks = async () => {
+    try {
+      const res = await fetch("/api/tasks/archive");
+      const data = await res.json();
+      setArchivedTasks(data.tasks || []);
+    } catch (error) {
+      console.error("Error fetching archive:", error);
+    }
+  };
+
+  const handleArchive = async (all: boolean) => {
+    setArchiving(true);
+    try {
+      const body = all ? { all: true } : { olderThanHours: 48 };
+      await fetch("/api/tasks/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      await fetchTasks();
+    } catch (error) {
+      console.error("Error archiving tasks:", error);
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const handleRestoreFromArchive = async (id: string) => {
+    try {
+      await fetch("/api/tasks/archive", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      await Promise.all([fetchTasks(), fetchArchivedTasks()]);
+    } catch (error) {
+      console.error("Error restoring task:", error);
     }
   };
 
@@ -1903,11 +1956,13 @@ export default function TasksPage() {
       </div>
 
       {/* Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
         {COLUMNS.map((col) => {
           const colTasks = tasksByStatus[col.id] || [];
           const Icon = col.icon;
           const isOver = dragOverColumn === col.id;
+          const isDone = col.id === "done";
+          const isCollapsed = isDone && doneCollapsed;
           return (
             <div
               key={col.id}
@@ -1918,24 +1973,37 @@ export default function TasksPage() {
             >
               {/* Column Header */}
               <div
-                className="flex items-center justify-between px-3 py-2.5 rounded-t-xl"
+                className="flex items-center justify-between px-3 py-2.5"
                 style={{
                   backgroundColor: "var(--card)",
                   borderTop: `3px solid ${col.color}`,
                   borderLeft: "1px solid var(--border)",
                   borderRight: "1px solid var(--border)",
+                  borderBottom: isCollapsed ? "1px solid var(--border)" : "none",
+                  borderRadius: isCollapsed ? "0.75rem" : "0.75rem 0.75rem 0 0",
                 }}
               >
                 <div className="flex items-center gap-2">
-                  <Icon className="w-4 h-4" style={{ color: col.color }} />
+                  {isDone ? (
+                    <button
+                      onClick={() => setDoneCollapsed(!doneCollapsed)}
+                      style={{ background: "none", border: "none", cursor: "pointer", color: col.color, padding: 0, display: "flex", alignItems: "center" }}
+                      title={doneCollapsed ? "Expand Done column" : "Collapse Done column"}
+                    >
+                      {doneCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </button>
+                  ) : (
+                    <Icon className="w-4 h-4" style={{ color: col.color }} />
+                  )}
                   <span
                     className="text-sm font-semibold"
-                    style={{ color: "var(--text-primary)" }}
+                    style={{ color: "var(--text-primary)", cursor: isDone ? "pointer" : "default" }}
+                    onClick={isDone ? () => setDoneCollapsed(!doneCollapsed) : undefined}
                   >
                     {col.label}
                   </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <span
                     className="text-xs font-bold px-2 py-0.5 rounded-full"
                     style={{
@@ -1945,6 +2013,28 @@ export default function TasksPage() {
                   >
                     {colTasks.length}
                   </span>
+                  {isDone && (
+                    <>
+                      <button
+                        onClick={() => handleArchive(false)}
+                        disabled={archiving || colTasks.filter(t => {
+                          const d = t.completedAt || t.updated;
+                          return d && Date.now() - new Date(d).getTime() > 48 * 60 * 60 * 1000;
+                        }).length === 0}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.125rem", borderRadius: "0.25rem", opacity: archiving ? 0.5 : 1 }}
+                        title="Archive tasks completed >48h ago"
+                      >
+                        <Archive className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => { setShowArchive(true); fetchArchivedTasks(); }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.125rem", borderRadius: "0.25rem" }}
+                        title="View archive"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5" />
+                      </button>
+                    </>
+                  )}
                   <button
                     onClick={() => { setNewTaskStatus(col.id); setShowNewTask(true); }}
                     style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.125rem", borderRadius: "0.25rem" }}
@@ -1956,35 +2046,59 @@ export default function TasksPage() {
               </div>
 
               {/* Column Body */}
-              <div
-                className="flex-1 p-3 rounded-b-xl min-h-[200px] transition-colors"
-                style={{
-                  backgroundColor: isOver ? `${col.color}10` : "var(--card-elevated)",
-                  border: isOver ? `1px dashed ${col.color}80` : "1px solid var(--border)",
-                  borderTop: "none",
-                }}
-              >
-                {colTasks.length === 0 ? (
-                  <div
-                    className="text-center py-8 text-xs"
-                    style={{ color: isOver ? col.color : "var(--text-muted)", opacity: isOver ? 1 : 0.6 }}
-                  >
-                    {isOver ? "Drop here" : "No tasks"}
-                  </div>
-                ) : (
-                  colTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onDragStart={handleDragStart}
-                      onStatusChange={handleStatusChange}
-                      onClick={setSelectedTask}
-                      projectsMap={projectsMap}
-                      isBuilding={buildingTaskId === task.id}
-                    />
-                  ))
-                )}
-              </div>
+              {!isCollapsed && (
+                <div
+                  className="flex-1 p-2 rounded-b-xl min-h-[200px] transition-colors"
+                  style={{
+                    backgroundColor: isOver ? `${col.color}10` : "var(--card-elevated)",
+                    border: isOver ? `1px dashed ${col.color}80` : "1px solid var(--border)",
+                    borderTop: "none",
+                  }}
+                >
+                  {isDone && colTasks.length > 0 && (
+                    <div className="flex gap-1.5 mb-2">
+                      <button
+                        onClick={() => handleArchive(false)}
+                        disabled={archiving}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
+                      >
+                        <Archive className="w-3 h-3" />
+                        Archive Old (&gt;48h)
+                      </button>
+                      <button
+                        onClick={() => handleArchive(true)}
+                        disabled={archiving}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
+                      >
+                        <Archive className="w-3 h-3" />
+                        Archive All
+                      </button>
+                    </div>
+                  )}
+                  {colTasks.length === 0 ? (
+                    <div
+                      className="text-center py-8 text-xs"
+                      style={{ color: isOver ? col.color : "var(--text-muted)", opacity: isOver ? 1 : 0.6 }}
+                    >
+                      {isOver ? "Drop here" : "No tasks"}
+                    </div>
+                  ) : (
+                    colTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onDragStart={handleDragStart}
+                        onStatusChange={handleStatusChange}
+                        onClick={setSelectedTask}
+                        projectsMap={projectsMap}
+                        isBuilding={buildingTaskId === task.id}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
             </div>
           );
         })}
@@ -2008,6 +2122,87 @@ export default function TasksPage() {
           onTaskUpdated={handleTaskUpdated}
           projectsMap={projectsMap}
         />
+      )}
+
+      {/* Archive Drawer */}
+      {showArchive && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ position: "absolute", inset: 0, backgroundColor: "rgba(0,0,0,0.5)" }} onClick={() => setShowArchive(false)} />
+          <div style={{ position: "relative", width: "min(480px, 100vw)", height: "100%", backgroundColor: "var(--background)", borderLeft: "1px solid var(--border)", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+            {/* Header */}
+            <div style={{ padding: "1rem 1.25rem", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+                <Archive className="w-5 h-5" style={{ color: "#4ade80" }} />
+                <span style={{ fontWeight: 700, fontSize: "1rem", color: "var(--text-primary)" }}>Task Archive</span>
+                <span style={{ fontSize: "0.7rem", fontWeight: 700, padding: "0.125rem 0.5rem", borderRadius: "9999px", backgroundColor: "#4ade8020", color: "#4ade80" }}>
+                  {archivedTasks.length}
+                </span>
+              </div>
+              <button onClick={() => setShowArchive(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)" }}>
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            {/* Search */}
+            <div style={{ padding: "0.75rem 1.25rem", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
+              <div style={{ position: "relative" }}>
+                <Search className="w-4 h-4" style={{ position: "absolute", left: "0.625rem", top: "50%", transform: "translateY(-50%)", color: "var(--text-muted)" }} />
+                <input
+                  type="text"
+                  placeholder="Search archived tasks…"
+                  value={archiveSearch}
+                  onChange={(e) => setArchiveSearch(e.target.value)}
+                  style={{ width: "100%", paddingLeft: "2rem", paddingRight: "0.75rem", paddingTop: "0.5rem", paddingBottom: "0.5rem", backgroundColor: "var(--card)", border: "1px solid var(--border)", borderRadius: "0.5rem", fontSize: "0.8rem", color: "var(--text-primary)", outline: "none", boxSizing: "border-box" }}
+                />
+              </div>
+            </div>
+            {/* List */}
+            <div style={{ flex: 1, overflowY: "auto", padding: "0.75rem 1.25rem" }}>
+              {archivedTasks.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "3rem 1rem", color: "var(--text-muted)", fontSize: "0.875rem" }}>
+                  No archived tasks yet.
+                </div>
+              ) : (
+                archivedTasks
+                  .filter((t) => {
+                    if (!archiveSearch.trim()) return true;
+                    const q = archiveSearch.toLowerCase();
+                    return (
+                      t.title?.toLowerCase().includes(q) ||
+                      t.description?.toLowerCase().includes(q) ||
+                      t.project?.toLowerCase().includes(q) ||
+                      (t.tags as string[] | undefined)?.some((tag) => tag.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((task) => {
+                    const proj = projectsMap[task.project || ""];
+                    return (
+                      <div key={task.id} style={{ padding: "0.75rem", marginBottom: "0.5rem", borderRadius: "0.5rem", backgroundColor: "var(--card)", border: "1px solid var(--border)", borderLeft: `3px solid ${proj?.color || "#6b7280"}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "0.5rem" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <p style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--text-primary)", marginBottom: "0.25rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {task.title}
+                            </p>
+                            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+                              {proj && <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>{proj.emoji} {proj.name}</span>}
+                              <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.375rem", borderRadius: "0.25rem", backgroundColor: `${PRIORITY_COLORS[task.priority] || "#6b7280"}20`, color: PRIORITY_COLORS[task.priority] || "#6b7280" }}>
+                                {task.priority}
+                              </span>
+                              {(task as any).archivedAt && (
+                                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>archived {formatDate((task as any).archivedAt)}</span>
+                              )}
+                            </div>
+                          </div>
+                          <button onClick={() => handleRestoreFromArchive(task.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--text-muted)", padding: "0.25rem", flexShrink: 0 }} title="Restore to Done">
+                            <ArchiveRestore className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
