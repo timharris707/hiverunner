@@ -4,6 +4,16 @@
   "role": "Backend Engineer",
   "entries": [
     {
+      "taskId": "TASK-PIPELINE-4",
+      "taskTitle": "QA handoff chain — builder completes → auto-routes to Vigil for verification",
+      "project": "mission-control",
+      "summary": ": NEEDS_FIX` → requeued to builder | `VERDICT: BLOCKED` → Henry triage\n\n**Caveats:**\n- Vigil runs WebKit headlessly via Playwright — requires WebKit Playwright browser to be installed (`npx playwright install webkit`). If missing, Safari capture fails gracefully and returns empty (Vigil still runs with Chromium-only captures).\n- Non-UI builder tasks (e.g., a pure API endpoint) go through Vigil without screenshots. Vigil verifies via `git diff` + build + test only — appropriate for backend work.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774815756930-5138",
+      "timestamp": "2026-03-29T20:22:36.930Z"
+    },
+    {
       "taskId": "TASK-PIPELINE-3",
       "taskTitle": "Blocker signaling — agents can flag \"I'm stuck\" instead of false \"done\"",
       "project": "mission-control",
@@ -34,5 +44,5 @@
       "timestamp": "2026-03-29T16:30:53.897Z"
     }
   ],
-  "lastUpdated": "2026-03-29T20:20:04.399Z"
+  "lastUpdated": "2026-03-29T20:22:36.930Z"
 }

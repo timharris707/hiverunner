@@ -19,6 +19,7 @@ import {
   Inbox,
   ListOrdered,
 } from "lucide-react";
+import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
 
 export interface Attachment {
   id: string;
@@ -106,20 +107,22 @@ export const PRIORITY_COLORS: Record<string, string> = {
   P3: "#6b7280",
 };
 
-export const ASSIGNEE_EMOJIS: Record<string, string> = {
-  Henry: "⚡",
-  "Atlas 📈": "📈",
-  "Nimbus 🌤️": "🌤️",
-  "Cipher ₿": "₿",
-  "Quant 📊": "📊",
-  "Forge 🔧": "🔧",
-  "Pixel 💻": "💻",
-  Scout: "🔭",
-  Quill: "✍️",
-  Counsel: "⚖️",
-};
+/** Resolve the emoji for any assignee string — handles both "Forge", "Forge 🔧", "backend", etc. */
+export function getAssigneeEmoji(assignee: string): string {
+  return getAgentByAnyId(assignee)?.emoji ?? "🤖";
+}
 
-export const ALL_ASSIGNEES = Object.keys(ASSIGNEE_EMOJIS);
+/** Resolve the display name for any assignee string */
+export function getAssigneeName(assignee: string): string {
+  return getAgentByAnyId(assignee)?.name ?? assignee;
+}
+
+/** Legacy lookup for backwards compatibility */
+export const ASSIGNEE_EMOJIS: Record<string, string> = Object.fromEntries(
+  AGENT_CONFIGS.map((a) => [a.name, a.emoji])
+);
+
+export const ALL_ASSIGNEES = AGENT_CONFIGS.map((a) => a.name);
 export const ALL_PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 export const ALL_TYPES: { id: Task["type"]; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: "feature", label: "Feature", icon: Sparkles },

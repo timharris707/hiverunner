@@ -46,6 +46,12 @@
 
 ## Task Log
 
+### 2026-03-29 — QA handoff chain — builder completes → auto-routes to Vigil for verification
+**Project:** mission-control
+**Summary:** : NEEDS_FIX` → requeued to builder | `VERDICT: BLOCKED` → Henry triage  **Caveats:** - Vigil runs WebKit headlessly via Playwright — requires WebKit Playwright browser to be installed (`npx playwright install webkit`). If missing, Safari capture fails gracefully and returns empty (Vigil still runs with Chromium-only captures). - Non-UI builder tasks (e.g., a pure API endpoint) go through Vigil wit
+
+---
+
 ### 2026-03-29 — Blocker signaling — agents can flag "I'm stuck" instead of false "done"
 **Project:** mission-control
 **Summary:** ed to `panely/sprint-1`  ### Caveats - The pipeline (Telegram DM, in-app notification, system event) was already wired up for blocker detection in `build-queue.ts` — this commit only closes the type/UI gaps. - The `detectBlocker` function matches the first blocker pattern found in output. If an agent writes `BLOCKED:` near other trigger phrases (e.g. "cannot verify in Safari"), the Safari pattern 

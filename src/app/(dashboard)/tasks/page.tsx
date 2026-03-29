@@ -26,6 +26,7 @@ import {
   ArchiveRestore,
   Search,
 } from "lucide-react";
+import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
 
 interface Attachment {
   id: string;
@@ -111,20 +112,21 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 // PROJECT_COLORS is now loaded dynamically from projects.json
 
-const ASSIGNEE_EMOJIS: Record<string, string> = {
-  Henry: "⚡",
-  "Atlas 📈": "📈",
-  "Nimbus 🌤️": "🌤️",
-  "Cipher ₿": "₿",
-  "Quant 📊": "📊",
-  "Forge 🔧": "🔧",
-  "Pixel 💻": "💻",
-  Scout: "🔭",
-  Quill: "✍️",
-  Counsel: "⚖️",
-};
+/** Resolve emoji for any assignee string — "Forge", "Forge 🔧", "backend" all map correctly */
+function getAssigneeEmoji(assignee: string): string {
+  return getAgentByAnyId(assignee)?.emoji ?? "🤖";
+}
 
-const ALL_ASSIGNEES = Object.keys(ASSIGNEE_EMOJIS);
+/** Resolve display name for any assignee string */
+function getAssigneeName(assignee: string): string {
+  return getAgentByAnyId(assignee)?.name ?? assignee;
+}
+
+const ASSIGNEE_EMOJIS: Record<string, string> = Object.fromEntries(
+  AGENT_CONFIGS.map((a) => [a.name, a.emoji])
+);
+
+const ALL_ASSIGNEES = AGENT_CONFIGS.map((a) => a.name);
 const ALL_PRIORITIES = ["P0", "P1", "P2", "P3"] as const;
 const ALL_TYPES: { id: Task["type"]; label: string; icon: React.ComponentType<any> }[] = [
   { id: "feature", label: "Feature", icon: Sparkles },
@@ -1625,8 +1627,8 @@ function TaskCard({
         <div className="flex items-center gap-2 min-w-0">
           {task.assignee && (
             <span className="flex items-center gap-1 text-xs min-w-0" style={{ color: "var(--text-secondary)" }}>
-              <span className="flex-shrink-0">{ASSIGNEE_EMOJIS[task.assignee] || "🤖"}</span>
-              <span className="truncate" style={{ color: "var(--text-muted)", maxWidth: 80 }}>{task.assignee}</span>
+              <span className="flex-shrink-0">{getAssigneeEmoji(task.assignee)}</span>
+              <span className="truncate" style={{ color: "var(--text-muted)", maxWidth: 80 }}>{getAssigneeName(task.assignee)}</span>
             </span>
           )}
           {(task as any).routedModel && (

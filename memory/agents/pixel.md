@@ -49,6 +49,12 @@
 
 ## Task Log
 
+### 2026-03-29 — Trading Desk — risk controls dashboard with live parameter adjustments
+**Project:** weather-trading
+**Summary:** eats:** - The live engine (`live_engine.py`) currently reads defaults from hardcoded constants, not from `data/risk_config.json`. For runtime parameter adjustments to take full effect, the engine would need to be updated to check `risk_config.json` on each scan cycle. The dashboard and API are ready for that integration. - `BLOCKED: Cannot test in browser` — I can't open the dashboard to visually 
+
+---
+
 <!-- Pixel appends new entries here after completing tasks. Format:
 
 ### YYYY-MM-DD — Task Title
