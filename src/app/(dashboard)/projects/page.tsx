@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { FolderOpen, LayoutGrid, List, ExternalLink, Calendar } from "lucide-react";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { PaperclipStatusWidget } from "@/components/PaperclipStatusWidget";
 
 interface Project {
   id: string;
@@ -250,6 +251,9 @@ export default function ProjectsPage() {
 
   return (
     <div className="p-4 md:p-8">
+      {/* Paperclip status widget */}
+      <PaperclipStatusWidget />
+
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
