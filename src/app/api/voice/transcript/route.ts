@@ -8,6 +8,7 @@
 import { NextResponse } from "next/server";
 import { writeFile, mkdir } from "fs/promises";
 import path from "path";
+import { execSync } from "child_process";
 
 export async function POST(req: Request) {
   try {
@@ -45,6 +46,18 @@ export async function POST(req: Request) {
 
     const filePath = path.join(voiceDir, filename);
     await writeFile(filePath, md, "utf-8");
+
+    // Notify Henry's main session so he can read the transcript immediately
+    try {
+      const relativePath = `memory/voice/${filename}`;
+      execSync(
+        `openclaw system event --text "Voice session transcript saved: ${relativePath}" --mode now`,
+        { timeout: 10000 }
+      );
+    } catch {
+      // Non-fatal — transcript is saved; openclaw CLI may not be in PATH in all environments
+      console.warn("Failed to fire openclaw system event for voice transcript");
+    }
 
     return NextResponse.json({
       saved: true,
