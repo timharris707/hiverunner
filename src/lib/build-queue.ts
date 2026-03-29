@@ -1137,18 +1137,31 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       if (build.status === "running" && build.startedAt) {
         const elapsed = now - new Date(build.startedAt).getTime();
         if (elapsed > STALE_BUILD_TIMEOUT_MS) {
-          console.log(`[factory] Stale build timeout: ${build.taskId} (${Math.round(elapsed / 60000)}min) — marking failed`);
+          const hangMinutes = Math.round(elapsed / 60000);
+          console.log(`[factory] Stale build timeout: ${build.taskId} (${hangMinutes}min) — marking failed`);
           build.status = "failed";
           build.completedAt = new Date().toISOString();
-          build.output = `Build timed out after ${Math.round(elapsed / 60000)} minutes (stale process detected)`;
+          build.output = `Build timed out after ${hangMinutes} minutes (stale process detected)`;
           // Clear the task's build tracking so it can be re-queued
           const task = tasks.find((t: any) => t.id === build.taskId);
+          const hangLabel = task ? String(task.title || build.taskId).replace(/"/g, "'") : build.taskId;
+          const hangAgent = task?.assignee || task?.routedModel || "unknown agent";
           if (task) {
             clearTransientBuildTracking(task);
             delete task.buildState;
             recoveredTaskIds.push(task.id);
             tasksToKick.add(task.id);
           }
+          // Notify Henry — agent has been running too long without completing
+          sendTelegramNotification(
+            `⏱️ POSSIBLE HANG: "${hangLabel}" has been running ${hangMinutes} minutes with no completion.\n\nAgent: ${hangAgent}\nMarking failed and re-queuing. May need triage.`
+          );
+          createInAppNotification(
+            "⏱️ Agent Hang Detected",
+            `"${hangLabel}" running ${hangMinutes}min — possible hang, marked failed`,
+            "warning",
+            "/tasks"
+          );
           changed = true;
         }
       }
