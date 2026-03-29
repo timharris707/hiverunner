@@ -9,14 +9,14 @@ type Priority = "high" | "medium" | "low";
 type PipelineStatus = "backlog" | "building" | "deployed" | "shipped";
 
 type TaskStatus = "backlog" | "on-deck" | "in-progress" | "review" | "done";
-type BuildState = "queued" | "spawning" | "running" | "completed" | "failed";
+type BuildState = "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
 
 interface BuildEntry {
   id: string;
   taskId: string;
   taskTitle: string;
   project?: string;
-  status: "queued" | "spawning" | "running" | "completed" | "failed";
+  status: "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
   agentType?: string;
   routing?: {
     tier?: string;

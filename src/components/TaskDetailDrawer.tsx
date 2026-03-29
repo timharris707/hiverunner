@@ -42,7 +42,7 @@ export interface Task {
   source_url?: string;
   github_issue?: string;
   notes?: string;
-  buildState?: "queued" | "spawning" | "running" | "completed" | "failed";
+  buildState?: "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
   buildError?: string | null;
   buildTriggeredAt?: string;
   buildQueuedAt?: string;
@@ -817,11 +817,13 @@ export function TaskDetailDrawer({
                     task.buildState === "failed" ? "rgba(239,68,68,0.12)" :
                     task.buildState === "completed" ? "rgba(74,222,128,0.12)" :
                     task.buildState === "queued" ? "rgba(192,132,252,0.12)" :
+                    task.buildState === "blocked" ? "rgba(251,146,60,0.12)" :
                     "rgba(251,191,36,0.12)",
                   color:
                     task.buildState === "failed" ? "#f87171" :
                     task.buildState === "completed" ? "#4ade80" :
                     task.buildState === "queued" ? "#c084fc" :
+                    task.buildState === "blocked" ? "#fb923c" :
                     "#fbbf24",
                 }}>
                   {(task.buildState || "idle").replace(/-/g, " ")}

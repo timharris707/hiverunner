@@ -49,7 +49,7 @@ interface Task {
   source_url?: string;
   github_issue?: string;
   notes?: string;
-  buildState?: "queued" | "spawning" | "running" | "completed" | "failed";
+  buildState?: "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
   buildError?: string | null;
   buildTriggeredAt?: string;
   buildQueuedAt?: string;
@@ -1054,11 +1054,13 @@ function TaskDetailDrawer({
                     task.buildState === "failed" ? "rgba(239,68,68,0.12)" :
                     task.buildState === "completed" ? "rgba(74,222,128,0.12)" :
                     task.buildState === "queued" ? "rgba(192,132,252,0.12)" :
+                    task.buildState === "blocked" ? "rgba(251,146,60,0.12)" :
                     "rgba(251,191,36,0.12)",
                   color:
                     task.buildState === "failed" ? "#f87171" :
                     task.buildState === "completed" ? "#4ade80" :
                     task.buildState === "queued" ? "#c084fc" :
+                    task.buildState === "blocked" ? "#fb923c" :
                     "#fbbf24",
                 }}>
                   {(task.buildState || "idle").replace(/-/g, " ")}
@@ -1463,8 +1465,15 @@ function TaskCard({
         const chips: React.ReactNode[] = [];
 
         // Build state
-        if (isBuilding || (task.status === "in-progress" && ["queued", "spawning", "running", "failed"].includes(task.buildState || ""))) {
-          if (task.buildState === "failed") {
+        if (isBuilding || task.status === "blocked" || (task.status === "in-progress" && ["queued", "spawning", "running", "failed", "blocked"].includes(task.buildState || ""))) {
+          if (task.buildState === "blocked") {
+            chips.push(
+              <span key="build" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(251,146,60,0.10)", border: "1px solid rgba(251,146,60,0.20)", fontSize: "9px", fontWeight: 600, color: "#fb923c", letterSpacing: "0.3px" }}>
+                <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#fb923c", display: "inline-block", flexShrink: 0 }} />
+                Blocked
+              </span>
+            );
+          } else if (task.buildState === "failed") {
             chips.push(
               <span key="build" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: "rgba(239,68,68,0.10)", border: "1px solid rgba(239,68,68,0.18)", fontSize: "9px", fontWeight: 600, color: "#f87171", letterSpacing: "0.3px" }}>
                 <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: "#f87171", display: "inline-block", flexShrink: 0 }} />

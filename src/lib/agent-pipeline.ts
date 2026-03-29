@@ -332,6 +332,9 @@ function getProjectOwner(projectId: string): string | undefined {
 /** UI task tags that trigger QA handoff to Vigil */
 const UI_TAGS = new Set(["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "dashboard"]);
 
+/** Builder agents whose work always routes through Vigil QA (not just UI tasks) */
+const BUILDER_AGENTS = new Set(["fullstack", "backend"]);
+
 /**
  * Resolve which named agent should handle a task.
  * Priority: explicit assignee > tag match > project owner > Henry (fallback)
@@ -347,7 +350,7 @@ export function resolveAgentForTask(task: any): AgentAssignment {
       return {
         agentId: agent.id,
         reason: `Explicitly assigned to ${agent.name}`,
-        needsQAHandoff: isUITask && agent.id !== "vigil",
+        needsQAHandoff: (isUITask || BUILDER_AGENTS.has(agent.id)) && agent.id !== "vigil",
       };
     }
   }
@@ -361,7 +364,7 @@ export function resolveAgentForTask(task: any): AgentAssignment {
         return {
           agentId: agent.id,
           reason: `Routed by tag "${tag}" → ${agent.name}`,
-          needsQAHandoff: isUITask && agent.id !== "vigil",
+          needsQAHandoff: (isUITask || BUILDER_AGENTS.has(agent.id)) && agent.id !== "vigil",
         };
       }
     }
@@ -376,7 +379,7 @@ export function resolveAgentForTask(task: any): AgentAssignment {
         return {
           agentId: agent.id,
           reason: `Project "${task.project}" owner → ${agent.name}`,
-          needsQAHandoff: isUITask && agent.id !== "vigil",
+          needsQAHandoff: (isUITask || BUILDER_AGENTS.has(agent.id)) && agent.id !== "vigil",
         };
       }
     }
@@ -413,8 +416,24 @@ export function detectBlocker(output: string, agentId: string): TaskBlocker | nu
   for (const { pattern, category, label } of BLOCKER_PATTERNS) {
     const match = output.match(pattern);
     if (match) {
-      // Extract surrounding context for the reason
       const matchIndex = match.index || 0;
+
+      // For explicit BLOCKED: signals, extract the text after the colon as the reason
+      if (/^BLOCKED:/i.test(match[0])) {
+        const afterColon = output.slice(matchIndex + match[0].length);
+        const reasonLine = afterColon.match(/^\s*(.+?)(?:\n|$)/);
+        const reason = reasonLine ? reasonLine[1].trim() : label;
+        return {
+          reason,
+          category,
+          raisedAt: new Date().toISOString(),
+          raisedBy: agentId,
+          notifiedHenry: false,
+          resolved: false,
+        };
+      }
+
+      // For pattern-matched blockers, extract surrounding context
       const start = Math.max(0, matchIndex - 50);
       const end = Math.min(output.length, matchIndex + match[0].length + 100);
       const context = output.slice(start, end).trim();
@@ -525,6 +544,8 @@ export function buildQAHandoffPrompt(
 ): string {
   const builderAgent = getAgentByAnyId(builderAgentId);
   const builderName = builderAgent?.name || builderAgentId;
+  const tags: string[] = Array.isArray(task.tags) ? task.tags.map((t: string) => String(t).toLowerCase()) : [];
+  const isUITask = tags.some((t) => ["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "dashboard"].includes(t));
 
   const screenshotPaths = captures
     .filter((c: any) => c.relativePath || c.filePath)
@@ -533,6 +554,28 @@ export function buildQAHandoffPrompt(
       return `- [${c.phase || "after"}] ${path} (captured ${c.capturedAt || "unknown"})`;
     })
     .join("\n");
+
+  const qaSteps = [
+    "### Your QA Steps",
+    "You are Vigil, the QA agent. You OWN the Definition of Done for this task.",
+    "",
+  ];
+
+  let stepNum = 1;
+  if (isUITask && screenshotPaths) {
+    qaSteps.push(`${stepNum++}. **Read the screenshots** — verify the UI matches the task description`);
+  }
+  qaSteps.push(`${stepNum++}. **Run \`git log --oneline -3\`** — verify commits were made with reasonable messages`);
+  qaSteps.push(`${stepNum++}. **Run \`git diff HEAD~1\`** — read through every change carefully`);
+  qaSteps.push(`${stepNum++}. **Run \`npm run build 2>&1 | tail -80\`** — build MUST pass`);
+  qaSteps.push(`${stepNum++}. **Run \`npm test 2>&1 | tail -50\`** — note any test failures`);
+  if (isUITask) {
+    qaSteps.push(`${stepNum++}. **Cross-browser check** — check for Safari/WebKit compatibility issues`);
+    qaSteps.push(`${stepNum++}. **Edge cases** — empty states, error states, mobile viewports, dark mode`);
+  } else {
+    qaSteps.push(`${stepNum++}. **Correctness check** — does the implementation actually satisfy the task requirements?`);
+    qaSteps.push(`${stepNum++}. **Reliability** — are error paths handled? Any obvious failure modes?`);
+  }
 
   return [
     `## QA Verification: ${task.title}`,
@@ -555,16 +598,7 @@ export function buildQAHandoffPrompt(
     "```",
     "",
     screenshotPaths ? `### Screenshots\n${screenshotPaths}\n` : "",
-    "### Your QA Steps",
-    "You are Vigil, the QA agent. You OWN the Definition of Done for this task.",
-    "",
-    "1. **Read the screenshots** if available — verify the UI matches the task description",
-    "2. **Run `git log --oneline -3`** — verify commits were made with reasonable messages",
-    "3. **Run `git diff HEAD~1`** — read through every change carefully",
-    "4. **Run `npm run build 2>&1 | tail -80`** — build MUST pass",
-    "5. **Run `npm test 2>&1 | tail -50`** — tests must pass",
-    "6. **Cross-browser check** — if this is a UI task, check for Safari/WebKit issues",
-    "7. **Edge cases** — empty states, error states, mobile viewports, dark mode",
+    ...qaSteps,
     "",
     "### Verdict",
     "You must output EXACTLY one of these blocks at the very end:",
