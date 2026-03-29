@@ -57,6 +57,13 @@ export async function GET() {
       };
     });
 
+    // Sort by most recent activity first (lastActivity desc), then by created desc
+    enriched.sort((a: any, b: any) => {
+      const aTime = a.lastActivity || a.created || "";
+      const bTime = b.lastActivity || b.created || "";
+      return bTime.localeCompare(aTime);
+    });
+
     return NextResponse.json({ projects: enriched });
   } catch (error) {
     console.error("Error reading projects:", error);
