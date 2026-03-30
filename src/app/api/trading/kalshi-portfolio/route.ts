@@ -97,12 +97,14 @@ export async function GET() {
           `SELECT
             SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
             SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
-            SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as realized_pnl
+            SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as realized_pnl,
+            SUM(CASE WHEN status IN ('settled_won','settled_lost') AND settled_at > datetime('now', '-24 hours') THEN pnl ELSE 0 END) as pnl_24h
            FROM live_trades WHERE status != 'failed'`
         ).get() as Record<string, number>;
         won = totals?.won ?? 0;
         lost = totals?.lost ?? 0;
         realizedPnl = totals?.realized_pnl ?? 0;
+        var pnl24h = totals?.pnl_24h ?? 0;
         db.close();
       } catch { /* ignore */ }
     }
@@ -135,6 +137,7 @@ export async function GET() {
       pnl: portfolio - initialDeposit,
       pnlPercent: ((portfolio - initialDeposit) / initialDeposit) * 100,
       realizedPnl,
+      pnl24h: typeof pnl24h !== "undefined" ? pnl24h : 0,
       unrealizedPnl: (portfolio - initialDeposit) - realizedPnl,
       won,
       lost,
