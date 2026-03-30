@@ -1781,8 +1781,12 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
       task.buildState = "failed";
       task.buildError = output.slice(-1500);
       notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
-      nextTaskId = nextQueuedTaskId(buildLog, entry.executionKey);
       completedAgentId = entry.assignedAgent || assignment.agentId || null;
+      // Advance the AGENT's queue (not just the execution key) so the next queued task for
+      // the same agent starts immediately, even if it's in a different project.
+      nextTaskId = completedAgentId
+        ? nextQueuedTaskIdForAgent(buildLog, completedAgentId)
+        : nextQueuedTaskId(buildLog, entry.executionKey);
 
       // Record agent memory even for failures
       memoryData = {
@@ -1854,11 +1858,12 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     return;
   }
 
+  // Directly kick the next queued task for the completed agent, then always reconcile
+  // so other agents' queued tasks and housekeeping (stale builds, heartbeats) are handled.
   if (nextTaskId) {
     queueOrStartBuild(nextTaskId, { source: `post-build:${buildId}` }).catch((err) => {
       console.error("Failed to auto-start queued task:", err);
     });
-    return;
   }
 
   reconcileBuildQueue({ source: `post-build:${buildId}`, force: true }).catch((err) => {
