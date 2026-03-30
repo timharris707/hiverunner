@@ -339,7 +339,7 @@ function CommentThread({
   const [comments, setComments] = useState<TaskComment[]>(initialComments);
   const [newText, setNewText] = useState("");
   const [commentType, setCommentType] = useState<TaskComment["type"]>("note");
-  const [selectedAuthor, setSelectedAuthor] = useState(AGENT_CONFIGS[0]?.name || "");
+  const [selectedAuthor, setSelectedAuthor] = useState("tim");
   const [submitting, setSubmitting] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
 
@@ -356,12 +356,14 @@ function CommentThread({
     setSubmitting(true);
     try {
       const agent = getAgentByAnyId(selectedAuthor);
+      const authorName = selectedAuthor === "tim" ? "Tim" : (agent?.name || selectedAuthor);
+      const authorEmoji = selectedAuthor === "tim" ? "👤" : (agent?.emoji || "🤖");
       const res = await fetch(`/api/tasks/${taskId}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          author: agent?.name || selectedAuthor,
-          authorEmoji: agent?.emoji || "🤖",
+          author: authorName,
+          authorEmoji,
           text: newText.trim(),
           type: commentType,
         }),
@@ -380,6 +382,8 @@ function CommentThread({
   };
 
   const agent = getAgentByAnyId(selectedAuthor);
+  const displayEmoji = selectedAuthor === "tim" ? "👤" : (agent?.emoji || "🤖");
+  const displayName = selectedAuthor === "tim" ? "Tim" : (agent?.name || selectedAuthor);
 
   return (
     <div>
@@ -495,7 +499,7 @@ function CommentThread({
           <textarea
             value={newText}
             onChange={(e) => setNewText(e.target.value)}
-            placeholder={`Add a ${commentType} as ${agent?.emoji || "👤"} ${agent?.name || selectedAuthor}...`}
+            placeholder={`Add a ${commentType} as ${displayEmoji} ${displayName}...`}
             rows={2}
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
