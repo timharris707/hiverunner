@@ -1790,17 +1790,11 @@ function TaskCard({
 
       {/* Title */}
       <div
-        className="font-semibold mb-1 leading-snug"
+        className="font-semibold mb-1 leading-snug line-clamp-2"
         style={{ color: "var(--text-primary)", fontSize: "0.8rem" }}
       >
         {task.title}
       </div>
-
-      {task.description && (
-        <div className="mb-1.5 line-clamp-2 leading-snug" style={{ color: "var(--text-secondary)", opacity: 0.75, fontSize: "0.68rem" }}>
-          {task.description}
-        </div>
-      )}
 
       {/* Image thumbnail strip */}
       {attachmentCount > 0 && task.attachments!.some((a) => isImageType(a.type)) && (
@@ -1821,51 +1815,13 @@ function TaskCard({
         </div>
       )}
 
-      {/* Tags — subtle pills, before footer */}
-      {task.tags && task.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mb-1.5">
-          {task.tags.slice(0, 4).map((tag) => (
-            <span
-              key={tag}
-              className="px-1.5 py-0 rounded-full"
-              style={{
-                backgroundColor: "rgba(255,255,255,0.04)",
-                color: "var(--text-muted)",
-                border: "1px solid rgba(255,255,255,0.07)",
-                fontSize: "0.6rem",
-              }}
-            >
-              #{tag}
-            </span>
-          ))}
-          {(task.tags.length > 4) && (
-            <span className="text-xs px-2 py-0.5 rounded-full" style={{ color: "var(--text-muted)", opacity: 0.5 }}>
-              +{task.tags.length - 4}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* Footer — single row: agent + model left, links + date right */}
+      {/* Footer — agent left, links + date right */}
       <div className="flex items-center justify-between pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2 min-w-0">
           {task.assignee && (
-            <span className="flex items-center gap-1 text-xs min-w-0" style={{ color: "var(--text-secondary)" }}>
+            <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
               <span className="flex-shrink-0">{getAssigneeEmoji(task.assignee)}</span>
-              <span className="truncate" style={{ color: "var(--text-muted)", maxWidth: 80 }}>{getAssigneeName(task.assignee)}</span>
-            </span>
-          )}
-          {(task as any).routedModel && (
-            <span
-              className="flex-shrink-0 text-xs px-1.5 py-0.5 rounded-md"
-              style={{
-                backgroundColor: (task as any).routedTier === "opus" ? "rgba(245,158,11,0.1)" : (task as any).routedTier === "gpt-5.4" ? "rgba(34,197,94,0.1)" : (task as any).routedTier === "haiku" ? "rgba(167,139,250,0.1)" : "rgba(96,165,250,0.1)",
-                color: (task as any).routedTier === "opus" ? "#f59e0b" : (task as any).routedTier === "gpt-5.4" ? "#22c55e" : (task as any).routedTier === "haiku" ? "#a78bfa" : "#60a5fa",
-                fontSize: "0.6rem", fontWeight: 600,
-              }}
-              title={`Routed to ${(task as any).routedModel} (complexity: ${(task as any).complexityScore}/100)`}
-            >
-              {(task as any).routedModel}
+              <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>{getAssigneeName(task.assignee)}</span>
             </span>
           )}
           {attachmentCount > 0 && (
