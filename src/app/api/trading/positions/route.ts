@@ -84,15 +84,30 @@ export async function GET() {
         .prepare(
           `SELECT trade_id, contract_id as ticker, side, quantity,
                   COALESCE(fill_price, price) as price, cost, edge, composite_score,
-                  city, target_date, NULL as settlement_scheduled_at,
+                  city, target_date,
                   forecast_mean, NULL as forecast_std, NULL as n_models,
                   'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
-                  strategy_version, our_probability
+                  strategy_version, our_probability, threshold
            FROM live_trades
            WHERE status IN ('pending', 'filled', 'resting')
            ORDER BY created_at DESC`
         )
-        .all();
+        .all()
+        .map((row: Record<string, unknown>) => {
+          // Compute settlement_scheduled_at from target_date
+          // Kalshi weather settles next day: thresholds at 14:00 UTC, brackets at 19:00 UTC
+          let settlement_scheduled_at: string | null = null;
+          if (row.target_date) {
+            const td = new Date(row.target_date + "T00:00:00Z");
+            const ticker = String(row.ticker || "");
+            const isBracket = /-B\d/.test(ticker);
+            const nextDay = new Date(td);
+            nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+            nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
+            settlement_scheduled_at = nextDay.toISOString();
+          }
+          return { ...row, settlement_scheduled_at };
+        });
 
       liveCityBreakdown = liveDb
         .prepare(
@@ -118,14 +133,27 @@ export async function GET() {
                   NULL as forecast_std, NULL as n_models,
                   CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
                   pnl, pnl as payout, actual_outcome, actual_temp,
-                  NULL as settlement_scheduled_at, settled_at as resolved_at, created_at,
+                  settled_at as resolved_at, created_at,
                   'live' as trade_type, strategy_version, our_probability
            FROM live_trades
            WHERE status IN ('settled_won', 'settled_lost')
            ORDER BY settled_at DESC
            LIMIT 30`
         )
-        .all();
+        .all()
+        .map((row: Record<string, unknown>) => {
+          let settlement_scheduled_at: string | null = null;
+          if (row.target_date) {
+            const td = new Date(row.target_date + "T00:00:00Z");
+            const ticker = String(row.ticker || "");
+            const isBracket = /-B\d/.test(ticker);
+            const nextDay = new Date(td);
+            nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+            nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
+            settlement_scheduled_at = nextDay.toISOString();
+          }
+          return { ...row, settlement_scheduled_at };
+        });
 
       liveDb.close();
     }
