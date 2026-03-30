@@ -169,6 +169,12 @@ export default function TradingFloorPage() {
   const $ = (val: number | null | undefined, prefix = "$") =>
     isDemoMode ? maskDollar(val, prefix) : val == null ? "—" : `${prefix}${val.toFixed(2)}`;
 
+  const [kalshiPortfolio, setKalshiPortfolio] = useState<{
+    cash: number; positions: number; portfolio: number; initialDeposit: number;
+    pnl: number; pnlPercent: number; won: number; lost: number; realizedPnl: number;
+    costBasis: number; positionsCount: number;
+    versionBreakdown: { strategy_version: string; total: number; open: number; won: number; lost: number; pnl: number }[];
+  } | null>(null);
   const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null);
   const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
@@ -180,9 +186,10 @@ export default function TradingFloorPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsRes, posRes] = await Promise.all([
+      const [statsRes, posRes, portfolioRes] = await Promise.all([
         fetch("/api/trading/weather-stats"),
         fetch("/api/trading/positions"),
+        fetch("/api/trading/kalshi-portfolio"),
       ]);
       const statsData = await statsRes.json();
       const posData = await posRes.json();
@@ -194,6 +201,10 @@ export default function TradingFloorPage() {
         liveCityBreakdown: posData.liveCityBreakdown || [],
         paperCityBreakdown: posData.paperCityBreakdown || [],
       });
+      if (portfolioRes.ok) {
+        const pData = await portfolioRes.json();
+        if (!pData.error) setKalshiPortfolio(pData);
+      }
       setLastRefresh(new Date());
     } catch { /* silent */ }
   }, []);
@@ -213,7 +224,8 @@ export default function TradingFloorPage() {
   };
 
   const ks = weatherStats?.kalshiStats;
-  const deposit = ks?.initialDeposit ?? 1000;
+  const kp = kalshiPortfolio;
+  const deposit = kp?.initialDeposit ?? 1000;
   const allPositions = positionsData?.positions ?? [];
   const allResolved = positionsData?.resolvedPositions ?? [];
 
@@ -331,20 +343,21 @@ export default function TradingFloorPage() {
         className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6"
       >
         {[
-          { label: "Cash", value: ks ? $(ks.bankroll != null ? ks.bankroll - ks.openExposure : null) : "—", color: "var(--text-primary)" },
-          { label: "Positions", value: ks ? $(ks.openExposure) : "—", color: "#60a5fa" },
-          { label: "Portfolio", value: ks?.bankroll != null ? $(ks.bankroll) : "—", color: "var(--text-primary)", bold: true },
-          { label: "Deposited", value: $(-deposit, "-$").replace("-", ""), color: "var(--text-muted)" },
+          { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
+          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open` : undefined },
+          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true },
+          { label: "Deposited", value: $(deposit), color: "var(--text-muted)" },
           {
-            label: "P&L (Realized)",
-            value: ks ? $(ks.totalPnl) : "—",
-            color: (ks?.totalPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444",
+            label: "P&L (Total)",
+            value: kp ? $(kp.pnl) : "—",
+            color: (kp?.pnl ?? 0) >= 0 ? "#4ade80" : "#ef4444",
+            sub: kp ? `${kp.pnlPercent.toFixed(1)}%` : undefined,
           },
           {
             label: "Record",
-            value: ks ? `${ks.won}W – ${ks.lost}L` : "—",
+            value: kp ? `${kp.won}W – ${kp.lost}L` : "—",
             color: "var(--text-primary)",
-            sub: ks && (ks.won + ks.lost) > 0 ? `${ks.winRate.toFixed(0)}% win rate` : undefined,
+            sub: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}% win rate` : undefined,
           },
         ].map((item) => (
           <div
@@ -369,14 +382,14 @@ export default function TradingFloorPage() {
       </div>
 
       {/* ── Version Breakdown ─────────────────────────────── */}
-      {ks?.versionBreakdown && ks.versionBreakdown.length > 0 && (
+      {kp?.versionBreakdown && kp.versionBreakdown.length > 0 && (
         <div className="mb-6 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
           <div className="px-4 py-3 flex items-center gap-2" style={{ backgroundColor: "var(--card)", borderBottom: "1px solid var(--border)" }}>
             <Filter className="w-4 h-4" style={{ color: "#a78bfa" }} />
             <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Strategy Version Breakdown</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
-            {ks.versionBreakdown.map((v) => {
+            {kp.versionBreakdown.map((v) => {
               const resolved = v.won + v.lost;
               const wr = resolved > 0 ? ((v.won / resolved) * 100).toFixed(0) : "—";
               const isBad = (v.strategy_version || "").includes("0.9");
