@@ -29,14 +29,14 @@ export async function GET() {
         .prepare(
           `SELECT trade_id, ticker, side, quantity, price, cost, edge, composite_score,
                   city, target_date, settlement_scheduled_at, forecast_mean, forecast_std, n_models,
-                  status, created_at, 'paper' as trade_type,
+                  status, created_at, 'paper' as trade_type, strategy_version, our_probability,
                   CASE
                     WHEN settlement_scheduled_at IS NOT NULL AND settlement_scheduled_at <= datetime('now') THEN 'awaiting_settlement'
                     ELSE 'open'
                   END as lifecycle_status
            FROM trades
            WHERE status = 'open'
-           ORDER BY target_date ASC, city ASC`
+           ORDER BY created_at DESC`
         )
         .all();
 
@@ -60,7 +60,8 @@ export async function GET() {
           `SELECT trade_id, ticker, side, quantity, price, cost, edge, composite_score,
                   city, target_date, threshold, forecast_mean, forecast_std, n_models,
                   status, pnl, payout, actual_outcome, actual_temp,
-                  settlement_scheduled_at, resolved_at, created_at, 'paper' as trade_type
+                  settlement_scheduled_at, resolved_at, created_at, 'paper' as trade_type,
+                  strategy_version, our_probability
            FROM trades
            WHERE status IN ('won', 'lost')
            ORDER BY resolved_at DESC
@@ -85,10 +86,11 @@ export async function GET() {
                   COALESCE(fill_price, price) as price, cost, edge, composite_score,
                   city, target_date, NULL as settlement_scheduled_at,
                   forecast_mean, NULL as forecast_std, NULL as n_models,
-                  'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status
+                  'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
+                  strategy_version, our_probability
            FROM live_trades
            WHERE status IN ('pending', 'filled', 'resting')
-           ORDER BY target_date ASC, city ASC`
+           ORDER BY created_at DESC`
         )
         .all();
 
@@ -117,7 +119,7 @@ export async function GET() {
                   CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
                   pnl, pnl as payout, actual_outcome, actual_temp,
                   NULL as settlement_scheduled_at, settled_at as resolved_at, created_at,
-                  'live' as trade_type
+                  'live' as trade_type, strategy_version, our_probability
            FROM live_trades
            WHERE status IN ('settled_won', 'settled_lost')
            ORDER BY settled_at DESC

@@ -182,6 +182,8 @@ interface Position {
   settlement_scheduled_at: string | null;
   created_at: string;
   trade_type: "live" | "paper";
+  strategy_version: string | null;
+  our_probability: number | null;
 }
 
 interface ResolvedPosition {
@@ -198,6 +200,8 @@ interface ResolvedPosition {
   threshold: number | null;
   forecast_mean: number;
   forecast_std: number | null;
+  strategy_version: string | null;
+  our_probability: number | null;
   n_models: number | null;
   status: string;
   pnl: number;
@@ -275,6 +279,38 @@ function shortTime(dateStr: string | null | undefined): string {
   return d.toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
+function friendlyDatetime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "\u2014";
+  const d = new Date(dateStr.includes("T") ? dateStr : dateStr + "Z");
+  if (isNaN(d.getTime())) return "\u2014";
+  return d.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function timeRemaining(dateStr: string | null | undefined): string {
+  if (!dateStr) return "\u2014";
+  const d = new Date(dateStr.includes("T") ? dateStr : dateStr + "Z");
+  if (isNaN(d.getTime())) return "\u2014";
+  const now = Date.now();
+  const diff = d.getTime() - now;
+  if (diff <= 0) return "settling...";
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  const remMins = mins % 60;
+  if (hrs < 24) return remMins > 0 ? `${hrs}h ${remMins}m` : `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  const remHrs = hrs % 24;
+  return remHrs > 0 ? `${days}d ${remHrs}h` : `${days} day${days > 1 ? "s" : ""}`;
+}
+
+type SortKey = "placed" | "settles" | "remaining" | "city" | "bet" | "side" | "price" | "qty" | "cost" | "edge" | "win" | "winProb" | "forecast" | "models" | "version";
+type SortDir = "asc" | "desc";
+
 export default function TradingPage() {
   const { isDemoMode } = useDemoMode();
   const $ = (val: number | null | undefined, prefix = "$") =>
@@ -288,7 +324,18 @@ export default function TradingPage() {
   const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
   const [weatherLastRefresh, setWeatherLastRefresh] = useState<Date | null>(null);
   const [showPaperTrades, setShowPaperTrades] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>("placed");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
   const weatherIntervalRef = useRef<NodeJS.Timeout | null>(null);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("desc");
+    }
+  };
 
   const fetchWeatherData = useCallback(async () => {
     try {
@@ -407,6 +454,35 @@ export default function TradingPage() {
   const cityBreakdown = showPaperTrades
     ? (positionsData?.cityBreakdown ?? [])
     : (positionsData?.liveCityBreakdown ?? []);
+
+  // Sort positions
+  const sortedPositions = [...positions].sort((a, b) => {
+    const dir = sortDir === "asc" ? 1 : -1;
+    const getValue = (pos: Position): number | string => {
+      switch (sortKey) {
+        case "placed": return pos.created_at || "";
+        case "settles": return pos.settlement_scheduled_at || pos.target_date || "";
+        case "remaining": return pos.settlement_scheduled_at || pos.target_date || "";
+        case "city": return pos.city;
+        case "bet": return parseBetDescription(pos.ticker, pos.side, pos.threshold);
+        case "side": return pos.side;
+        case "price": return pos.price;
+        case "qty": return pos.quantity;
+        case "cost": return pos.cost;
+        case "edge": return pos.edge;
+        case "win": return (pos.quantity * 1) - pos.cost;
+        case "winProb": return pos.our_probability ?? 0;
+        case "forecast": return pos.forecast_mean ?? 0;
+        case "models": return pos.n_models ?? 0;
+        case "version": return pos.strategy_version || "";
+        default: return "";
+      }
+    };
+    const va = getValue(a);
+    const vb = getValue(b);
+    if (typeof va === "string" && typeof vb === "string") return va.localeCompare(vb) * dir;
+    return ((va as number) - (vb as number)) * dir;
+  });
 
   return (
     <div className="p-4 md:p-8">
@@ -718,7 +794,25 @@ export default function TradingPage() {
           </div>
 
           {/* Open Positions Table */}
-          {positions.length > 0 && (
+          {positions.length > 0 && (() => {
+            const colDefs: { label: string; key: SortKey | "" }[] = [
+              ...(showPaperTrades ? [{ label: "", key: "" as SortKey | "" }] : []),
+              { label: "Placed", key: "placed" },
+              { label: "City", key: "city" },
+              { label: "Bet", key: "bet" },
+              { label: "Settles", key: "settles" },
+              { label: "Remaining", key: "remaining" },
+              { label: "Side", key: "side" },
+              { label: "Price", key: "price" },
+              { label: "Qty", key: "qty" },
+              { label: "Cost", key: "cost" },
+              { label: "Win", key: "win" },
+              { label: "Win Prob", key: "winProb" },
+              { label: "Edge", key: "edge" },
+              { label: "Forecast", key: "forecast" },
+              { label: "Version", key: "version" },
+            ];
+            return (
             <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #60a5fa20" }}>
               <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#60a5fa08", borderBottom: "1px solid #60a5fa20" }}>
                 <Target className="w-4 h-4" style={{ color: "#60a5fa" }} />
@@ -730,19 +824,32 @@ export default function TradingPage() {
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                      {[...(showPaperTrades ? [""] : []), "City", "Bet", "Target Date", "Settles", "Side", "Price", "Qty", "Cost", "Edge", "Forecast", "Models"].map((h) => (
+                      {colDefs.map((col, i) => (
                         <th
-                          key={h}
+                          key={col.label || `empty-${i}`}
                           className="text-xs font-bold uppercase tracking-wider px-3 py-2.5 text-left"
-                          style={{ color: "var(--text-muted)", backgroundColor: "var(--card-elevated)" }}
+                          style={{
+                            color: sortKey === col.key ? "#60a5fa" : "var(--text-muted)",
+                            backgroundColor: "var(--card-elevated)",
+                            cursor: col.key ? "pointer" : "default",
+                            userSelect: "none",
+                            whiteSpace: "nowrap",
+                          }}
+                          onClick={() => col.key && toggleSort(col.key as SortKey)}
                         >
-                          {h}
+                          {col.label}
+                          {col.key && sortKey === col.key && (
+                            <span style={{ marginLeft: 4 }}>{sortDir === "asc" ? "\u25B2" : "\u25BC"}</span>
+                          )}
                         </th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {positions.map((pos) => (
+                    {sortedPositions.map((pos) => {
+                      const potentialWin = (pos.quantity * 1) - pos.cost;
+                      const isZeroEdge = Math.abs(pos.edge * 100) < 0.05;
+                      return (
                       <tr
                         key={pos.trade_id}
                         style={{
@@ -765,6 +872,11 @@ export default function TradingPage() {
                           </td>
                         )}
                         <td className="px-3 py-2">
+                          <span className="text-xs" style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                            {friendlyDatetime(pos.created_at)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
                           <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                             {capitalize(pos.city)}
                           </span>
@@ -775,11 +887,25 @@ export default function TradingPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{pos.target_date}</span>
+                          <span className="text-xs" style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
+                            {friendlyDatetime(pos.settlement_scheduled_at)}
+                          </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {shortTime(pos.settlement_scheduled_at)}
+                          <span className="text-xs font-medium" style={{
+                            color: (() => {
+                              const settleStr = pos.settlement_scheduled_at;
+                              if (!settleStr) return "var(--text-muted)";
+                              const d = new Date(settleStr.includes("T") ? settleStr : settleStr + "Z");
+                              const diff = d.getTime() - Date.now();
+                              if (diff <= 0) return "#f59e0b";
+                              if (diff < 3600000) return "#ef4444";
+                              if (diff < 86400000) return "#f59e0b";
+                              return "var(--text-secondary)";
+                            })(),
+                            whiteSpace: "nowrap",
+                          }}>
+                            {timeRemaining(pos.settlement_scheduled_at)}
                           </span>
                         </td>
                         <td className="px-3 py-2">
@@ -795,7 +921,7 @@ export default function TradingPage() {
                         </td>
                         <td className="px-3 py-2">
                           <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
-                            {isDemoMode ? "XX¢" : `${(pos.price * 100).toFixed(0)}¢`}
+                            {isDemoMode ? "XX\u00A2" : `${(pos.price * 100).toFixed(0)}\u00A2`}
                           </span>
                         </td>
                         <td className="px-3 py-2">
@@ -807,11 +933,23 @@ export default function TradingPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
+                          <span className="text-xs font-semibold" style={{ color: "#4ade80" }}>
+                            {isDemoMode ? "$X.XX" : `$${potentialWin.toFixed(2)}`}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
+                            {pos.our_probability != null
+                              ? `${(pos.our_probability * 100).toFixed(1)}%`
+                              : "\u2014"}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
                           <span
                             className="text-xs font-bold px-1.5 py-0.5 rounded"
                             style={{
-                              backgroundColor: `${edgeColor(pos.edge)}15`,
-                              color: edgeColor(pos.edge),
+                              backgroundColor: isZeroEdge ? "#ef444418" : `${edgeColor(pos.edge)}15`,
+                              color: isZeroEdge ? "#ef4444" : edgeColor(pos.edge),
                             }}
                           >
                             {(pos.edge * 100).toFixed(1)}%
@@ -821,21 +959,25 @@ export default function TradingPage() {
                           <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
                             {pos.forecast_mean != null
                               ? pos.forecast_std != null
-                                ? `${pos.forecast_mean.toFixed(1)}° ± ${pos.forecast_std.toFixed(1)}`
-                                : `${pos.forecast_mean.toFixed(1)}°`
-                              : "—"}
+                                ? `${pos.forecast_mean.toFixed(1)}\u00B0 \u00B1 ${pos.forecast_std.toFixed(1)}`
+                                : `${pos.forecast_mean.toFixed(1)}\u00B0`
+                              : "\u2014"}
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{pos.n_models ?? "—"}</span>
+                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            {pos.strategy_version || "\u2014"}
+                          </span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Settled Trades */}
           {resolvedPositions.length > 0 && (

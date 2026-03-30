@@ -142,6 +142,16 @@ export async function GET() {
           )
           .all();
 
+        // Compute Kalshi bankroll from initial deposit + settled P&L
+        const kalshiBankroll = liveDb
+          .prepare(
+            `SELECT SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as settled_pnl
+             FROM live_trades WHERE status != 'failed'`
+          )
+          .get() as { settled_pnl: number } | undefined;
+        const initialDeposit = 500;
+        const computedBankroll = initialDeposit + (kalshiBankroll?.settled_pnl || 0);
+
         liveDb.close();
 
         const liveResolved = (liveTradeStats.won || 0) + (liveTradeStats.lost || 0);
@@ -154,7 +164,7 @@ export async function GET() {
           winRate: liveResolved > 0 ? ((liveTradeStats.won || 0) / liveResolved) * 100 : 0,
           totalPnl: liveTradeStats.total_pnl || 0,
           openExposure: liveTradeStats.open_exposure || 0,
-          bankroll: null, // account balance is in Kalshi API, not local DB
+          bankroll: computedBankroll,
           recentTrades: recentLiveTrades,
           resolvedTrades: recentLiveTrades.filter(
             (t: Record<string, unknown>) => t.status === "won" || t.status === "lost"
