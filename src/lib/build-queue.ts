@@ -287,6 +287,14 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
     "### Description",
     task.description || task.title,
     "",
+    ...(Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0
+      ? [
+          "### Acceptance Criteria",
+          "Your implementation MUST satisfy ALL of the following before marking done:",
+          ...task.acceptance_criteria.map((c: string) => `- ${c}`),
+          "",
+        ]
+      : []),
     "### Requirements",
     "- Make the necessary code changes to complete this task",
     "- Run the build (npm run build) and make sure it passes",
@@ -412,7 +420,10 @@ function hasAnyTag(task: any, tags: Set<string>) {
 }
 
 function shouldRequireReview(task: any) {
-  return hasAnyTag(task, REVIEW_TAGS);
+  // ALL tasks require review. Nothing ships without Gater's sign-off.
+  // Previously this was tag-gated (only ui/trading-live/external/marketing/money)
+  // but that let architecture/testing/pipeline tasks skip QA entirely.
+  return true;
 }
 
 function shouldRequireVisualReview(task: any) {
@@ -1910,6 +1921,15 @@ function reviewPrompt(task: any, projectName: string, buildOutput: string) {
     "",
     "### Task Description",
     task.description || task.title,
+    "",
+    ...(Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0
+      ? [
+          "### Acceptance Criteria",
+          "These verify-that statements MUST all be satisfied for the task to pass review:",
+          ...task.acceptance_criteria.map((c: string) => `- ${c}`),
+          "",
+        ]
+      : []),
     previousNotes,
     "### What the builder just did",
     "A build agent completed this task. The last 1500 chars of its output:",
@@ -1928,6 +1948,7 @@ function reviewPrompt(task: any, projectName: string, buildOutput: string) {
     "   - Does the diff actually address the task description?",
     "3. `npm run build 2>&1 | tail -80` — the build MUST pass. If it fails, that's an automatic NEEDS_FIX",
     "4. `npm test 2>&1 | tail -50` — run tests if they exist. New test failures = NEEDS_FIX",
+    Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0 ? "5. **Acceptance criteria** — verify each criterion listed above is actually satisfied. Any unmet criterion = NEEDS_FIX." : "",
     isUiTask ? "5. For this UI task: check that any new pages/components are properly exported and routed. Look for missing CSS classes, broken JSX, or unhandled client/server component boundaries." : "",
     failureCount > 0 ? `6. IMPORTANT: This task failed review ${failureCount} time(s) before. Verify the previous issues noted above are ACTUALLY FIXED, not just acknowledged.` : "",
     "",

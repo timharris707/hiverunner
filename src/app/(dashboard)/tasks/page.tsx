@@ -1115,6 +1115,20 @@ function TaskDetailDrawer({
             />
           </div>
 
+          {/* Acceptance Criteria */}
+          {task.acceptance_criteria && task.acceptance_criteria.length > 0 && (
+            <div>
+              <label style={DRAWER_LABEL}>Acceptance Criteria</label>
+              <ul style={{ margin: 0, paddingLeft: "1.25rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
+                {task.acceptance_criteria.map((criterion, i) => (
+                  <li key={i} style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.5 }}>
+                    {criterion}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Tags */}
           {task.tags && task.tags.length > 0 && (
             <div>
