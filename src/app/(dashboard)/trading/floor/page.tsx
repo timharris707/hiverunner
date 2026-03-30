@@ -639,6 +639,14 @@ export default function TradingFloorPage() {
           const isWon = isSettled && g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0);
           const isLost = isSettled && g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
           const settledPnl = g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0);
+          // For countdown: use latest open trade's settlement (resolved trades have past dates that mislead)
+          const displaySettlement = isOpen
+            ? (g.trades
+                .filter((t) => isOpenStatus(t.status) && t.settlement_scheduled_at)
+                .map((t) => t.settlement_scheduled_at!)
+                .sort()
+                .pop() || g.settlementAt)
+            : g.settlementAt;
           // Compute fees from trade-level fees first, fallback to summing fills
           const tradeFees = g.trades.reduce((s, t) => s + (Number(t.fees) || 0), 0);
           const fillFees = g.trades.reduce((s, t) => 
@@ -884,15 +892,15 @@ export default function TradingFloorPage() {
                       <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
                       <span className="text-xs" style={{
                         color: (() => {
-                          if (!g.settlementAt) return "var(--text-muted)";
-                          const diff = new Date(g.settlementAt).getTime() - Date.now();
+                          if (!displaySettlement) return "var(--text-muted)";
+                          const diff = new Date(displaySettlement).getTime() - Date.now();
                           if (diff <= 0) return "#f59e0b";
                           if (diff < 3600000) return "#ef4444";
                           if (diff < 86400000) return "#f59e0b";
                           return "var(--text-muted)";
                         })(),
                       }}>
-                        {timeRemaining(g.settlementAt)}
+                        {timeRemaining(displaySettlement)}
                       </span>
                     </div>
                   )}
