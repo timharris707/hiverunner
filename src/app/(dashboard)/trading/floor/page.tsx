@@ -623,7 +623,7 @@ export default function TradingFloorPage() {
                     <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
                       {g.side === "yes" ? "Yes" : "No"}
                     </span>
-                    <span style={{ color: "var(--text-muted)", fontSize: 20, lineHeight: "14px" }}>•</span>
+                    <span style={{ color: "var(--text-primary)", fontSize: 15, lineHeight: "14px" }}>•</span>
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {g.marketLabel}
                     </span>
