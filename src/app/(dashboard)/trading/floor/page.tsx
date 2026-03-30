@@ -806,25 +806,58 @@ export default function TradingFloorPage() {
                   ) : (
                     <>
                       <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
-                      {g.nowPrice != null ? (() => {
-                        const nowPct = g.nowPrice * 100;
-                        const diff = nowPct - boughtPct;
-                        const isUp = diff > 0;
-                        const ourProb = g.trades[0]?.our_probability;
-                        const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
-                        return (
-                          <>
-                            <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
-                              {nowPct.toFixed(0)}% chance {isUp ? "▲" : "▼"}
-                            </div>
-                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}
-                            </div>
-                          </>
-                        );
-                      })() : (
-                        <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>
-                      )}
+                      {(() => {
+                        // Check if current temp already determines the outcome
+                        const currentObs = currentTemps[g.city.toLowerCase()];
+                        const currentTemp = currentObs?.tempF;
+                        const ticker = g.ticker || "";
+                        const isHighBet = /HIGH/i.test(ticker);
+                        const threshMatch = ticker.match(/-T([\d.]+)$/);
+                        const threshold = threshMatch ? parseFloat(threshMatch[1]) : null;
+                        const isYes = g.side === "yes";
+
+                        // Determine if we've already won based on current temp
+                        let alreadyWon = false;
+                        if (currentTemp != null && threshold != null) {
+                          if (isHighBet && isYes && currentTemp >= threshold) alreadyWon = true;
+                          if (isHighBet && !isYes && currentTemp >= threshold) alreadyWon = false; // NO bet loses if temp hit threshold
+                          // For NO bets on high: if temp already exceeded, we lost
+                          // But we can't determine NO wins until end of day
+                        }
+
+                        if (alreadyWon) {
+                          return (
+                            <>
+                              <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
+                                99% ✓
+                              </div>
+                              <div className="text-xs" style={{ color: "#4ade80" }}>
+                                Threshold hit
+                              </div>
+                            </>
+                          );
+                        }
+
+                        // Fall back to market price
+                        if (g.nowPrice != null) {
+                          const nowPct = g.nowPrice * 100;
+                          const diff = nowPct - boughtPct;
+                          const isUp = diff > 0;
+                          const ourProb = g.trades[0]?.our_probability;
+                          const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
+                          return (
+                            <>
+                              <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
+                                {nowPct.toFixed(0)}% chance {isUp ? "▲" : "▼"}
+                              </div>
+                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                {currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}
+                              </div>
+                            </>
+                          );
+                        }
+                        return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                      })()}
                     </>
                   )}
                 </div>
