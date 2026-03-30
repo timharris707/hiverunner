@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTasks } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
 const PROJECTS_FILE = join(process.cwd(), "data", "projects.json");
-const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
 
 function readJSON(path: string) {
   try {
@@ -22,7 +22,7 @@ export async function GET(
   try {
     const { id } = await params;
     const projects = readJSON(PROJECTS_FILE);
-    const tasks = readJSON(TASKS_FILE);
+    const tasks = readTasks();
 
     const project = projects.find((p: any) => p.id === id);
     if (!project) {

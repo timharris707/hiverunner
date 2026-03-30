@@ -16,6 +16,7 @@ import {
   buildQAHandoffPrompt,
 } from "@/lib/agent-pipeline";
 import { getAgentByAnyId } from "@/config/agents";
+import { dbReadTasks, dbWriteTasks, dbJournalTransition } from "@/lib/tasks-db";
 
 const DATA_DIR = join(process.cwd(), "data");
 const TASKS_FILE = join(DATA_DIR, "tasks.json");
@@ -91,11 +92,11 @@ export function readJSON<T>(path: string, fallback: T): T {
 }
 
 export function readTasks(): any[] {
-  return readJSON(TASKS_FILE, [] as any[]);
+  return dbReadTasks();
 }
 
 export function writeTasks(tasks: any[]) {
-  writeFileSync(TASKS_FILE, JSON.stringify(tasks, null, 2));
+  dbWriteTasks(tasks);
 }
 
 export function readProjects(): any[] {
@@ -163,6 +164,10 @@ export function transitionTask(
   }
 
   task.status = newStatus;
+  // Journal the transition before writeTasks() persists it.
+  // If the server crashes after this line but before writeTasks() completes,
+  // tasks-db _replayCheck() will detect the mismatch and re-apply on restart.
+  dbJournalTransition(task.id, from, newStatus, actor, opts?.reason);
   return true;
 }
 

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { readTasks } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
 const PROJECTS_FILE = join(process.cwd(), "data", "projects.json");
-const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
 
 function readJSON(path: string) {
   try {
@@ -18,7 +18,7 @@ function readJSON(path: string) {
 export async function GET() {
   try {
     const projects = readJSON(PROJECTS_FILE);
-    const tasks = readJSON(TASKS_FILE);
+    const tasks = readTasks();
 
     const INACTIVE_DAYS = 7;
     const now = new Date();

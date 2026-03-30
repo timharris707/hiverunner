@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { readTasks } from '@/lib/build-queue';
 
 const WORKSPACE = process.env.OPENCLAW_WORKSPACE || '/Users/timharris/.openclaw/workspace';
 const MEMORY_DIR = path.join(WORKSPACE, 'memory');
@@ -151,8 +152,7 @@ export async function GET(request: Request) {
   
   // 5. Search tasks
   try {
-    const tasksPath = path.join(process.cwd(), 'data', 'tasks.json');
-    const tasks = JSON.parse(fs.readFileSync(tasksPath, 'utf-8'));
+    const tasks = readTasks();
     const lowerQuery = query.toLowerCase();
     for (const task of tasks) {
       if (
