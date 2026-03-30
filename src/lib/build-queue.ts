@@ -152,6 +152,16 @@ export function transitionTask(
     }
   }
 
+  // Guard: tasks cannot enter in_progress without at least one acceptance criterion
+  if (newStatus === "in-progress" && from !== "in-progress") {
+    if (!opts?.force && (!Array.isArray(task.acceptance_criteria) || task.acceptance_criteria.length === 0)) {
+      console.error(
+        `[state-machine] BLOCKED ${from} → in-progress (task ${task.id}, actor: ${actor}) — no acceptance_criteria defined`
+      );
+      return false;
+    }
+  }
+
   task.status = newStatus;
   return true;
 }

@@ -19,6 +19,17 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const task = await req.json();
+
+    // Guard: tasks cannot enter in_progress without at least one acceptance criterion
+    if (task.status === "in-progress") {
+      if (!Array.isArray(task.acceptance_criteria) || task.acceptance_criteria.length === 0) {
+        return NextResponse.json(
+          { error: "acceptance_criteria required: tasks cannot enter in_progress without at least one criterion" },
+          { status: 400 }
+        );
+      }
+    }
+
     const tasks = readTasks();
     const newTask = {
       id: `TASK-${Date.now()}`,
@@ -66,6 +77,17 @@ export async function PATCH(req: NextRequest) {
       if (!allowed.includes(updates.status)) {
         return NextResponse.json(
           { error: `Invalid status transition: ${previousTask.status} → ${updates.status}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Guard: tasks cannot enter in_progress without at least one acceptance criterion
+    if (updates.status === "in-progress" && previousTask.status !== "in-progress") {
+      const mergedCriteria = updates.acceptance_criteria ?? previousTask.acceptance_criteria;
+      if (!Array.isArray(mergedCriteria) || mergedCriteria.length === 0) {
+        return NextResponse.json(
+          { error: "acceptance_criteria required: tasks cannot enter in_progress without at least one criterion" },
           { status: 400 }
         );
       }

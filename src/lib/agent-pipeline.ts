@@ -577,6 +577,16 @@ export function buildQAHandoffPrompt(
     "### Task Description",
     task.description || task.title,
     "",
+    ...(Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0
+      ? [
+          "### Acceptance Criteria",
+          "These are the verify-that statements this task MUST satisfy to be approved:",
+          ...task.acceptance_criteria.map((c: string) => `- ${c}`),
+          "",
+          "You MUST verify each criterion above. Do not approve if any are unmet.",
+          "",
+        ]
+      : []),
     "### What the builder did",
     `${builderName} completed this task. Their output (last 1500 chars):`,
     "```",

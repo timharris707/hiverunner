@@ -51,6 +51,7 @@ interface Task {
   id: string;
   title: string;
   description?: string;
+  acceptance_criteria?: string[];
   status: "backlog" | "on-deck" | "in-progress" | "review" | "done";
   priority: "P0" | "P1" | "P2" | "P3";
   assignee?: string;
@@ -356,17 +357,23 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
   const [type, setType] = useState<Task["type"]>(undefined);
   const [tagsInput, setTagsInput] = useState("");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [criteriaText, setCriteriaText] = useState("");
   const [saving, setSaving] = useState(false);
+
+  const parsedCriteria = criteriaText.split("\n").map((s) => s.trim()).filter(Boolean);
+  const criteriaRequired = status === "in-progress";
+  const canSubmit = title.trim() && (!criteriaRequired || parsedCriteria.length > 0);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+    if (!canSubmit) return;
     setSaving(true);
     const tags = tagsInput.trim()
       ? tagsInput.split(",").map((t) => t.trim().replace(/^#/, "")).filter(Boolean)
       : undefined;
+    const acceptance_criteria = parsedCriteria.length > 0 ? parsedCriteria : undefined;
     await onSave(
-      { title: title.trim(), description: description.trim() || undefined, status, priority, assignee: assignee || undefined, project: project || undefined, type: type || undefined, tags },
+      { title: title.trim(), description: description.trim() || undefined, acceptance_criteria, status, priority, assignee: assignee || undefined, project: project || undefined, type: type || undefined, tags },
       pendingFiles.length > 0 ? pendingFiles : undefined,
     );
     setSaving(false);
@@ -427,6 +434,22 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
               rows={3}
               style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)", fontSize: "0.875rem", outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }}
             />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "0.75rem", fontWeight: 600, color: criteriaRequired && parsedCriteria.length === 0 ? "#ef4444" : "var(--text-muted)", marginBottom: "0.375rem", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Acceptance Criteria {criteriaRequired ? "*" : ""}
+            </label>
+            <textarea
+              value={criteriaText}
+              onChange={(e) => setCriteriaText(e.target.value)}
+              placeholder={"verify that ...\nverify that ...\n(one criterion per line)"}
+              rows={3}
+              style={{ width: "100%", padding: "0.625rem 0.875rem", borderRadius: "0.5rem", backgroundColor: "var(--card-elevated)", border: `1px solid ${criteriaRequired && parsedCriteria.length === 0 ? "#ef4444" : "var(--border)"}`, color: "var(--text-primary)", fontSize: "0.875rem", outline: "none", resize: "vertical", boxSizing: "border-box", fontFamily: "inherit" }}
+            />
+            {criteriaRequired && parsedCriteria.length === 0 && (
+              <p style={{ fontSize: "0.7rem", color: "#ef4444", marginTop: "0.25rem" }}>Required when status is In Progress — one criterion per line.</p>
+            )}
           </div>
 
           {/* Attachments */}
@@ -532,12 +555,12 @@ function NewTaskModal({ onClose, onSave, defaultStatus = "backlog", projectsMap 
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || saving}
+              disabled={!canSubmit || saving}
               style={{
                 flex: 2, padding: "0.625rem", borderRadius: "0.5rem",
-                backgroundColor: title.trim() ? "var(--accent)" : "var(--card-elevated)",
-                border: "none", color: title.trim() ? "#000" : "var(--text-muted)",
-                cursor: title.trim() ? "pointer" : "not-allowed", fontSize: "0.875rem", fontWeight: 700,
+                backgroundColor: canSubmit ? "var(--accent)" : "var(--card-elevated)",
+                border: "none", color: canSubmit ? "#000" : "var(--text-muted)",
+                cursor: canSubmit ? "pointer" : "not-allowed", fontSize: "0.875rem", fontWeight: 700,
                 opacity: saving ? 0.7 : 1,
               }}
             >
