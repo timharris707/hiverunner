@@ -184,6 +184,7 @@ export default function TradingFloorPage() {
   const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [versionBreakdownOpen, setVersionBreakdownOpen] = useState(false);
   const [versionFilter, setVersionFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all"); // all | open | settled
@@ -426,65 +427,92 @@ export default function TradingFloorPage() {
         </div>
       </div>
 
-      {/* ── Version Breakdown ─────────────────────────────── */}
+      {/* ── Version Breakdown (collapsible, newest first) ── */}
       {kp?.versionBreakdown && kp.versionBreakdown.length > 0 && (
         <div className="mb-6 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          <div className="px-4 py-3 flex items-center gap-2" style={{ backgroundColor: "var(--card)", borderBottom: "1px solid var(--border)" }}>
-            <Filter className="w-4 h-4" style={{ color: "#a78bfa" }} />
-            <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Strategy Version Breakdown</span>
-          </div>
-          <div className="space-y-0">
-            {kp.versionBreakdown.map((v) => {
-              const resolved = v.won + v.lost;
-              const wr = resolved > 0 ? ((v.won / resolved) * 100).toFixed(0) : "—";
-              const isBad = (v.strategy_version || "").includes("0.9");
-              return (
-                <div
-                  key={v.strategy_version}
-                  className="px-4 py-3.5 flex items-center gap-6"
-                  style={{
-                    backgroundColor: isBad ? "#ef444408" : "#4ade8008",
-                    borderBottom: "1px solid var(--border)",
-                  }}
-                >
-                  <div style={{ minWidth: 100 }}>
-                    <span
-                      className="text-xs font-bold px-2 py-0.5 rounded"
-                      style={{
-                        backgroundColor: isBad ? "#ef444420" : "#4ade8020",
-                        color: isBad ? "#ef4444" : "#4ade80",
-                      }}
-                    >
-                      {v.strategy_version || "unknown"}
-                    </span>
-                    <div className="text-xs mt-1.5" style={{ color: "var(--text-muted)" }}>
-                      {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
-                    </div>
-                  </div>
-                  <div className="flex-1 grid grid-cols-3 gap-4 text-right">
-                    <div>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Realized</div>
-                      <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                        {$(v.realized_pnl)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Unrealized</div>
-                      <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                        {$(v.unrealized_pnl)}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total</div>
-                      <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                        {$(v.total_pnl)}
-                      </div>
-                    </div>
-                  </div>
+          <button
+            onClick={() => setVersionBreakdownOpen((v) => !v)}
+            className="w-full px-4 py-3 flex items-center justify-between text-left"
+            style={{ backgroundColor: "var(--card)", borderBottom: versionBreakdownOpen ? "1px solid var(--border)" : undefined }}
+          >
+            <div className="flex items-center gap-2">
+              <Filter className="w-4 h-4" style={{ color: "#a78bfa" }} />
+              <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Strategy Version Breakdown</span>
+              <span className="text-xs" style={{ color: "var(--text-muted)" }}>({kp.versionBreakdown.length} versions)</span>
+            </div>
+            <div style={{ color: "var(--text-muted)" }}>
+              {versionBreakdownOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </div>
+          </button>
+          {versionBreakdownOpen && (
+            <div>
+              {/* Column headers */}
+              <div className="px-4 py-2 flex items-center gap-4" style={{ backgroundColor: "var(--card-elevated)", borderBottom: "1px solid var(--border)" }}>
+                <div style={{ minWidth: 180 }}>
+                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version</span>
                 </div>
-              );
-            })}
-          </div>
+                <div className="flex-1 grid grid-cols-4 gap-4 text-right">
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Deployed</div>
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Realized</div>
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Unrealized</div>
+                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Total</div>
+                </div>
+              </div>
+              {/* Rows — newest version first */}
+              {[...kp.versionBreakdown].sort((a, b) => (b.strategy_version || "").localeCompare(a.strategy_version || "")).map((v) => {
+                const resolved = v.won + v.lost;
+                const wr = resolved > 0 ? ((v.won / resolved) * 100).toFixed(0) : "—";
+                const isBad = (v.strategy_version || "").includes("0.9");
+                return (
+                  <div
+                    key={v.strategy_version}
+                    className="px-4 py-3 flex items-center gap-4"
+                    style={{
+                      backgroundColor: isBad ? "#ef444406" : "#4ade8006",
+                      borderBottom: "1px solid var(--border)",
+                    }}
+                  >
+                    <div style={{ minWidth: 180 }}>
+                      <span
+                        className="text-xs font-bold px-2 py-0.5 rounded"
+                        style={{
+                          backgroundColor: isBad ? "#ef444420" : "#4ade8020",
+                          color: isBad ? "#ef4444" : "#4ade80",
+                        }}
+                      >
+                        {v.strategy_version || "unknown"}
+                      </span>
+                      <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                        {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
+                      </div>
+                    </div>
+                    <div className="flex-1 grid grid-cols-4 gap-4 text-right">
+                      <div>
+                        <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                          {$(v.total_cost)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                          {$(v.realized_pnl)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                          {$(v.unrealized_pnl)}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                          {$(v.total_pnl)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
