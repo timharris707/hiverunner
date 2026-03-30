@@ -163,6 +163,17 @@ export function transitionTask(
     }
   }
 
+  // Guard: tasks cannot transition review → done without Gater being assigned as reviewer
+  // (review is the mandatory gate; Gater assignment proves the QA step was not bypassed)
+  if (newStatus === "done" && from === "review" && !opts?.force) {
+    if (!task.reviewAssignedTo) {
+      console.error(
+        `[state-machine] BLOCKED review → done (task ${task.id}, actor: ${actor}) — reviewAssignedTo not set (Gater approval required)`
+      );
+      return false;
+    }
+  }
+
   task.status = newStatus;
   // Journal the transition before writeTasks() persists it.
   // If the server crashes after this line but before writeTasks() completes,

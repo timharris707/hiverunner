@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment, VALID_TASK_TRANSITIONS } from "@/lib/build-queue";
+import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment, VALID_TASK_TRANSITIONS, transitionTask } from "@/lib/build-queue";
 import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
@@ -93,7 +93,33 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    tasks[idx] = { ...tasks[idx], ...updates, updated: now };
+    // Guard: review → done requires Gater to be assigned as reviewer (cannot skip QA gate)
+    if (updates.status === "done" && previousTask.status === "review") {
+      const mergedReviewAssigned = updates.reviewAssignedTo ?? previousTask.reviewAssignedTo;
+      if (!mergedReviewAssigned) {
+        return NextResponse.json(
+          { error: "review → done requires Gater to be assigned as reviewer (reviewAssignedTo must be set)" },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Apply non-status field updates first
+    const { status: newStatus, ...nonStatusUpdates } = updates;
+    tasks[idx] = { ...tasks[idx], ...nonStatusUpdates, updated: now };
+
+    // Apply status transition via transitionTask() — enforces all guards and journals the change
+    // for crash-safe recovery. Pre-checks above already validated, so failure here means a guard
+    // (e.g. reviewAssignedTo missing) fired at the transitionTask level.
+    if (newStatus && newStatus !== previousTask.status) {
+      const transitioned = transitionTask(tasks[idx], newStatus, "api");
+      if (!transitioned) {
+        return NextResponse.json(
+          { error: `Transition ${previousTask.status} → ${newStatus} rejected by state machine guard` },
+          { status: 400 }
+        );
+      }
+    }
 
     if (tasks[idx].status === "review" && previousTask.status !== "review") {
       tasks[idx].reviewRequired = true;
