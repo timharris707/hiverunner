@@ -454,8 +454,8 @@ export default function TradingFloorPage() {
               ? ((filteredWon.length / (filteredWon.length + filteredLost.length)) * 100).toFixed(0) 
               : "—";
             return [
-              { label: "Filtered Trades", value: `${filtered.length}`, color: "var(--text-primary)", bold: true,
-                sub: `${filteredOpen.length} open · ${filteredSettled.length} settled` },
+              { label: "Positions", value: `${groups.length}`, color: "var(--text-primary)", bold: true,
+                sub: `${filtered.length} orders · ${filteredOpen.length} open` },
               { label: "Cost Deployed", value: $(fCost), color: "#60a5fa" },
               { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "—",
                 color: fSettledPnl >= 0 ? "#4ade80" : "#ef4444",
