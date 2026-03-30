@@ -1487,8 +1487,34 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       }
     }
 
-    // Stale build cleanup — mark builds stuck in "running" or "spawning" too long as failed
+    // Orphaned build cleanup — immediately reclaim capacity from builds whose task
+    // no longer exists or has already reached a terminal/review state.
+    // This MUST run before advanceTasks so freed slots are visible for promotion.
+    const TERMINAL_TASK_STATUSES = new Set(["done", "review"]);
     const now = Date.now();
+    for (const build of buildLog.builds || []) {
+      if (!ACTIVE_BUILD_STATUSES.has(build.status)) continue;
+      const task = tasks.find((t: any) => t.id === build.taskId);
+      if (!task) {
+        // Task deleted or never existed — orphaned build
+        console.log(`[factory] Orphaned build cleanup: ${build.id} for missing task ${build.taskId} — marking failed`);
+        build.status = "failed";
+        build.completedAt = new Date().toISOString();
+        build.output = "Build orphaned — task no longer exists in task store";
+        changed = true;
+      } else if (TERMINAL_TASK_STATUSES.has(task.status)) {
+        // Task already done/review but build still shows active — stale reference
+        console.log(`[factory] Stale build cleanup: ${build.id} for ${task.status} task ${build.taskId} — marking failed`);
+        build.status = "failed";
+        build.completedAt = new Date().toISOString();
+        build.output = `Build cleaned up — task already in ${task.status} status`;
+        clearTransientBuildTracking(task);
+        delete task.buildState;
+        changed = true;
+      }
+    }
+
+    // Stale build cleanup — mark builds stuck in "running" or "spawning" too long as failed
     for (const build of buildLog.builds || []) {
       if (ACTIVE_BUILD_STATUSES.has(build.status) && build.startedAt) {
         const elapsed = now - new Date(build.startedAt).getTime();
