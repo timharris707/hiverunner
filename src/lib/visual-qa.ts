@@ -143,6 +143,87 @@ export function validateCapture(filePath: string): boolean {
 }
 
 /**
+ * Build the visual QA checklist that Gater must complete for every UI task.
+ * If Gater cannot complete this checklist (e.g. no dev server), the task MUST be BLOCKED.
+ */
+export function buildVisualQAChecklist(): string {
+  return [
+    "### 📋 Visual QA Checklist (MANDATORY for UI tasks)",
+    "",
+    "You MUST complete ALL of the following visual verification steps for this UI task.",
+    "If you cannot capture or view screenshots (e.g. dev server not running, Playwright unavailable),",
+    "you MUST issue `VERDICT: BLOCKED` — do NOT approve without visual verification.",
+    "",
+    "#### Screenshot Capture",
+    "- [ ] Capture Chromium screenshot: `npx playwright screenshot --browser=chromium http://localhost:3000 /tmp/gater-chromium.png`",
+    "- [ ] Capture WebKit (Safari) screenshot: `npx playwright screenshot --browser=webkit http://localhost:3000 /tmp/gater-webkit.png`",
+    "- [ ] Read both screenshots and confirm they rendered (not blank/error pages)",
+    "",
+    "#### API Data vs UI Display Comparison",
+    "- [ ] Identify the API endpoint(s) that feed this page (check the component source for fetch/API calls)",
+    "- [ ] Curl or read the API response data (e.g. `curl -s http://localhost:3000/api/tasks | head -100`)",
+    "- [ ] Compare: does the UI display match the API data? Correct counts, correct labels, correct values?",
+    "- [ ] Check for phantom elements — items rendered in UI that do NOT exist in API data",
+    "- [ ] Check for missing elements — items in API data that are NOT rendered in UI",
+    "",
+    "#### Visual Correctness",
+    "- [ ] Cards/items appear in the correct columns/sections (not misplaced)",
+    "- [ ] Counts and badges match the actual number of items displayed",
+    "- [ ] Labels, tooltips, and status indicators render correctly",
+    "- [ ] No overlapping elements, broken layouts, or clipped text",
+    "- [ ] Dark mode renders properly (text readable, correct backgrounds)",
+    "- [ ] Cross-browser: no layout differences between Chromium and WebKit screenshots",
+    "",
+    "**If ANY checklist item fails → VERDICT: NEEDS_FIX with specific items that failed.**",
+    "**If you CANNOT capture screenshots → VERDICT: BLOCKED with reason.**",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Check whether Gater's QA output contains evidence of visual verification.
+ * Returns true if the output indicates screenshots were captured and reviewed.
+ */
+export function hasVisualVerificationEvidence(output: string): boolean {
+  const lowerOutput = output.toLowerCase();
+
+  // Look for evidence of screenshot capture or viewing
+  const captureEvidence = [
+    "screenshot",
+    "chromium",
+    "webkit",
+    "/tmp/gater-chromium",
+    "/tmp/gater-webkit",
+    "playwright screenshot",
+    "captured screenshot",
+    "visual verification",
+    "visual qa checklist",
+  ];
+
+  const hasCaptureEvidence = captureEvidence.some((term) => lowerOutput.includes(term));
+
+  // Look for evidence of API-to-UI comparison
+  const comparisonEvidence = [
+    "api data",
+    "api response",
+    "matches the",
+    "phantom element",
+    "missing element",
+    "correct count",
+    "counts match",
+    "columns show",
+    "cards appear",
+    "rendered correctly",
+    "ui display",
+    "display match",
+  ];
+
+  const hasComparisonEvidence = comparisonEvidence.some((term) => lowerOutput.includes(term));
+
+  return hasCaptureEvidence && hasComparisonEvidence;
+}
+
+/**
  * Build the review prompt for the Visual QA agent.
  * The agent checks the screenshot + code diff for visual regressions and layout issues.
  */

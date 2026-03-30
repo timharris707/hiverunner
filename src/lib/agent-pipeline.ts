@@ -12,6 +12,7 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
 import { getAgentByAnyId, AGENT_MD_FILENAMES, TAG_AGENT_MAP, BUILDER_AGENT_IDS, type AgentConfig } from "@/config/agents";
+import { buildVisualQAChecklist } from "@/lib/visual-qa";
 import type {
   AgentMemoryFile,
   AgentMemoryEntry,
@@ -620,13 +621,12 @@ export function buildGaterReviewPrompt(
   qaSteps.push(`   - Incomplete implementations (TODO, placeholder, hardcoded stubs)`);
   qaSteps.push(`   - Does the diff actually address the task description?`);
   if (isUITask && screenshotPaths) {
-    qaSteps.push(`${stepNum++}. **Read the screenshots** — verify the UI matches the task description.`);
+    qaSteps.push(`${stepNum++}. **Read the pre-captured screenshots** — verify the UI matches the task description.`);
   }
   if (isUITask) {
-    qaSteps.push(`${stepNum++}. **Run Playwright screenshots** — capture Chromium + WebKit (Safari) for cross-browser QA:`);
-    qaSteps.push(`   \`npx playwright screenshot --browser=chromium http://localhost:3000 /tmp/gater-chromium.png\``);
-    qaSteps.push(`   \`npx playwright screenshot --browser=webkit http://localhost:3000 /tmp/gater-webkit.png\``);
-    qaSteps.push(`   Then read both screenshots and compare for layout/rendering issues.`);
+    qaSteps.push(`${stepNum++}. **MANDATORY: Complete the Visual QA Checklist below** — every UI task REQUIRES Playwright screenshot verification.`);
+    qaSteps.push(`   If you cannot capture screenshots or verify the UI visually, you MUST issue VERDICT: BLOCKED.`);
+    qaSteps.push(`   Do NOT approve a UI task without completing visual verification.`);
   }
   if (Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0) {
     qaSteps.push(`${stepNum++}. **Acceptance criteria** — verify EACH criterion below is actually satisfied. Any unmet = REJECT.`);
@@ -662,11 +662,19 @@ export function buildGaterReviewPrompt(
     "```",
     "",
     screenshotPaths ? `### Screenshots\n${screenshotPaths}\n` : "",
+    ...(isUITask ? [buildVisualQAChecklist(), ""] : []),
     ...qaSteps,
     "",
     "### Verdict",
     "Output EXACTLY one of these blocks at the very end of your response — nothing after it:",
     "",
+    ...(isUITask
+      ? [
+          "⚠️ UI TASK GATE: You MUST have completed the Visual QA Checklist above before issuing a verdict.",
+          "If you could not capture and review screenshots, you MUST use VERDICT: BLOCKED.",
+          "",
+        ]
+      : []),
     "If the work is correct, complete, builds clean, and all acceptance criteria met:",
     "VERDICT: APPROVED",
     "",

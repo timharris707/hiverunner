@@ -2559,6 +2559,42 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
         sendTelegramNotification(`🚧 Gater BLOCKED: "${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason}`);
         createInAppNotification("🚧 Gater Blocked", `"${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason}`, "warning", "/tasks");
       } else if (verdict === "APPROVED") {
+        // VISUAL VERIFICATION GATE: UI tasks must have screenshot evidence to be approved
+        const isUITask = shouldRequireVisualReview(task);
+        if (isUITask) {
+          let hasVisualEvidence = false;
+          try {
+            const { hasVisualVerificationEvidence } = await import("@/lib/visual-qa");
+            hasVisualEvidence = hasVisualVerificationEvidence(output);
+          } catch { /* if import fails, no evidence */ }
+
+          if (!hasVisualEvidence) {
+            // Override APPROVED → BLOCKED: Gater approved without visual verification
+            transitionTask(task, "blocked", "gater-qa");
+            finalizeTerminalBuildState(task, "blocked", now);
+            task.reviewStatus = "blocked";
+            task.blocker = {
+              reason: "UI task approved without visual verification — screenshots required",
+              category: "cannot-verify" as const,
+              raisedAt: now,
+              raisedBy: "gater",
+              notifiedHenry: true,
+              resolved: false,
+            };
+            task.lastReviewVerdict = "BLOCKED";
+            task.lastReviewerAgent = "Gater";
+            task.lastReviewAt = now;
+            addPipelineComment(task, "🚧 BLOCKED: UI task approved without Playwright screenshot verification — visual QA is mandatory", "Gater", "🚧");
+            notifyText = `🚧 Gater BLOCKED (no visual verification): ${String(task.title || taskId).replace(/"/g, "'")}`;
+            sendTelegramNotification(`🚧 Gater visual QA gate: "${String(task.title || taskId).replace(/"/g, "'")}" — approved without screenshots, overridden to BLOCKED`);
+            createInAppNotification("🚧 Visual QA Missing", `"${String(task.title || taskId).replace(/"/g, "'")}" needs Playwright screenshot verification`, "warning", "/tasks");
+
+            writeBuildLog(buildLog);
+            writeTasks(tasks);
+            return;
+          }
+        }
+
         transitionTask(task, "done", "gater-qa", { force: true, reason: "Gater approved" });
         finalizeTerminalBuildState(task, "completed", now);
         task.reviewStatus = "approved";
@@ -2567,7 +2603,7 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
         task.lastReviewVerdict = "APPROVED";
         task.lastReviewerAgent = "Gater";
         task.lastReviewAt = now;
-        addPipelineComment(task, "✅ Gater QA APPROVED — task complete", "Gater", "🚧");
+        addPipelineComment(task, "✅ Gater QA APPROVED — task complete (visual verification confirmed)", "Gater", "🚧");
         notifyText = `✅ Gater APPROVED: ${String(task.title || taskId).replace(/"/g, "'")}`;
         notifyOutcome = "done";
       } else {
