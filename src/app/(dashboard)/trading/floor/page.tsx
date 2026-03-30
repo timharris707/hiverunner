@@ -48,6 +48,7 @@ interface Position {
   resolved_at?: string | null;
   now_price?: number | null;
   fees?: number;
+  fills?: { fill_id: string; order_id: string; ticker: string; side: string; action: string; quantity: number; yes_price: number; no_price: number; fee: number; is_taker: number; filled_at: string }[];
 }
 
 interface PositionsData {
@@ -872,11 +873,11 @@ export default function TradingFloorPage() {
                     </div>
                   </div>
 
-                  {/* Order line items */}
+                  {/* Fill-level line items */}
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                        {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Edge", "Placed"].map((h) => (
+                        {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Type", "Filled"].map((h) => (
                           <th
                             key={h}
                             className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
@@ -888,58 +889,79 @@ export default function TradingFloorPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {g.trades.map((t) => (
+                      {(() => {
+                        // Collect all fills from all trades in this group
+                        const allFills = g.trades.flatMap((t) => t.fills || []);
+                        // If no fills data, fall back to trade-level rows
+                        const rows = allFills.length > 0 ? allFills : g.trades.map((t) => ({
+                          fill_id: t.trade_id,
+                          side: t.side,
+                          action: "buy",
+                          quantity: t.quantity,
+                          yes_price: t.side === "yes" ? t.price : 1 - t.price,
+                          no_price: t.side === "no" ? t.price : 1 - t.price,
+                          fee: t.fees ?? 0,
+                          is_taker: 0,
+                          filled_at: t.created_at,
+                        }));
+                        return rows.map((f, fi) => {
+                          const side = String(f.side || g.side);
+                          const price = side === "yes" ? Number(f.yes_price) : Number(f.no_price);
+                          const qty = Number(f.quantity);
+                          const cost = qty * price;
+                          const fee = Number(f.fee || 0);
+                          return (
                         <tr
-                          key={t.trade_id}
+                          key={String(f.fill_id) + fi}
                           style={{ borderBottom: "1px solid var(--border)" }}
                         >
                           <td className="px-4 py-2.5">
                             <span
                               className="text-xs font-bold"
-                              style={{ color: t.side === "yes" ? "#4ade80" : "#ef4444" }}
+                              style={{ color: side === "yes" ? "#4ade80" : "#ef4444" }}
                             >
-                              Bought {t.side.charAt(0).toUpperCase() + t.side.slice(1)}
+                              Bought {side.charAt(0).toUpperCase() + side.slice(1)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
-                              {(t.price * 100).toFixed(1)}¢
+                              {(price * 100).toFixed(1)}¢
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                              {t.quantity}
+                              {qty}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                              {$(t.cost)}
+                              ${cost.toFixed(2)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{ color: (t.fees ?? 0) > 0 ? "#f59e0b" : "var(--text-muted)" }}>
-                              {(t.fees ?? 0) > 0 ? `$${(t.fees ?? 0).toFixed(2)}` : "$0.00"}
+                            <span className="text-xs" style={{ color: fee > 0 ? "#f59e0b" : "var(--text-muted)" }}>
+                              ${fee.toFixed(2)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                              {$(t.cost + (t.fees ?? 0))}
+                              ${(cost + fee).toFixed(2)}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{
-                              color: Math.abs(t.edge * 100) < 0.5 ? "#ef4444" : t.edge > 0.2 ? "#4ade80" : "#f59e0b",
-                            }}>
-                              {(t.edge * 100).toFixed(1)}%
+                            <span className="text-xs" style={{ color: f.is_taker ? "#f59e0b" : "var(--text-muted)" }}>
+                              {f.is_taker ? "Taker" : "Maker"}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
                             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {friendlyDatetime(t.created_at)}
+                              {friendlyDatetime(String(f.filled_at || ""))}
                             </span>
                           </td>
                         </tr>
-                      ))}
+                          );
+                        });
+                      })()}
                     </tbody>
                   </table>
                 </div>

@@ -43,8 +43,6 @@ export async function GET() {
        ORDER BY settled_at DESC`
     ).all() as Record<string, unknown>[];
 
-    db.close();
-
     // Compute settlement times
     // City code to name mapping for parsing from tickers
     const TICKER_CITY_MAP: Record<string, string> = {
@@ -67,11 +65,47 @@ export async function GET() {
       return "";
     };
 
+    // Load fills from DB
+    const fillsByOrder: Record<string, Record<string, unknown>[]> = {};
+    try {
+      const allFills = db.prepare(
+        `SELECT fill_id, order_id, ticker, side, action, quantity, yes_price, no_price, fee, is_taker, filled_at
+         FROM fills ORDER BY filled_at`
+      ).all() as Record<string, unknown>[];
+      for (const f of allFills) {
+        const oid = String(f.order_id || "");
+        if (!fillsByOrder[oid]) fillsByOrder[oid] = [];
+        fillsByOrder[oid].push(f);
+      }
+    } catch { /* fills table may not exist */ }
+
+    // Also index fills by ticker for matching
+    const fillsByTicker: Record<string, Record<string, unknown>[]> = {};
+    for (const fills of Object.values(fillsByOrder)) {
+      for (const f of fills) {
+        const ticker = String(f.ticker || "");
+        if (!fillsByTicker[ticker]) fillsByTicker[ticker] = [];
+        fillsByTicker[ticker].push(f);
+      }
+    }
+
+    db.close();
+
     const enrichWithSettlement = (trade: Record<string, unknown>) => {
       // Fill in missing city from ticker
       if (!trade.city || trade.city === "") {
         trade.city = parseCityFromTicker(String(trade.ticker || ""));
       }
+
+      // Attach fills for this trade (match by order_id first, fallback to ticker)
+      const orderId = String(trade.trade_id || "").replace("bf-", "");
+      const tradeOrderId = String(trade.trade_id || "");
+      let tradeFills = fillsByOrder[orderId] || fillsByOrder[tradeOrderId] || [];
+      if (tradeFills.length === 0) {
+        // Try matching by ticker
+        tradeFills = fillsByTicker[String(trade.ticker || "")] || [];
+      }
+      trade.fills = tradeFills;
       let settlement_scheduled_at: string | null = null;
       if (trade.target_date) {
         const td = new Date(trade.target_date + "T00:00:00Z");
