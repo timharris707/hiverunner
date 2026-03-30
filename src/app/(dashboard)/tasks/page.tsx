@@ -25,8 +25,19 @@ import {
   Archive,
   ArchiveRestore,
   Search,
+  MessageSquare,
+  Send,
 } from "lucide-react";
 import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
+
+interface TaskComment {
+  id: string;
+  author: string;
+  authorEmoji: string;
+  text: string;
+  timestamp: string;
+  type: "note" | "review" | "rejection" | "resolution";
+}
 
 interface Attachment {
   id: string;
@@ -50,6 +61,7 @@ interface Task {
   source_url?: string;
   github_issue?: string;
   notes?: string;
+  comments?: TaskComment[];
   buildState?: "queued" | "spawning" | "running" | "completed" | "failed" | "blocked";
   buildError?: string | null;
   buildTriggeredAt?: string;
@@ -549,6 +561,233 @@ const DRAWER_SELECT: React.CSSProperties = {
   color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
 };
 
+const COMMENT_TYPE_STYLES: Record<string, { bg: string; border: string; color: string; label: string }> = {
+  note: { bg: "rgba(107,114,128,0.1)", border: "rgba(107,114,128,0.25)", color: "#9ca3af", label: "Note" },
+  review: { bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)", color: "#60a5fa", label: "Review" },
+  rejection: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#f87171", label: "Rejection" },
+  resolution: { bg: "rgba(74,222,128,0.1)", border: "rgba(74,222,128,0.25)", color: "#4ade80", label: "Resolution" },
+};
+
+function CommentThread({
+  taskId,
+  comments: initialComments,
+  onCommentAdded,
+}: {
+  taskId: string;
+  comments: TaskComment[];
+  onCommentAdded: (comments: TaskComment[]) => void;
+}) {
+  const [comments, setComments] = useState<TaskComment[]>(initialComments);
+  const [newText, setNewText] = useState("");
+  const [commentType, setCommentType] = useState<TaskComment["type"]>("note");
+  const [selectedAuthor, setSelectedAuthor] = useState("tim");
+  const [submitting, setSubmitting] = useState(false);
+  const threadEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    setComments(initialComments);
+  }, [initialComments]);
+
+  useEffect(() => {
+    threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [comments.length]);
+
+  const handleSubmit = async () => {
+    if (!newText.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const agent = getAgentByAnyId(selectedAuthor);
+      const authorName = selectedAuthor === "tim" ? "Tim" : (agent?.name || selectedAuthor);
+      const authorEmoji = selectedAuthor === "tim" ? "👤" : (agent?.emoji || "🤖");
+      const res = await fetch(`/api/tasks/${taskId}/comments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          author: authorName,
+          authorEmoji,
+          text: newText.trim(),
+          type: commentType,
+        }),
+      });
+      const data = await res.json();
+      if (data.comments) {
+        setComments(data.comments);
+        onCommentAdded(data.comments);
+      }
+      setNewText("");
+    } catch (err) {
+      console.error("Failed to post comment:", err);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const agent = getAgentByAnyId(selectedAuthor);
+  const displayEmoji = selectedAuthor === "tim" ? "👤" : (agent?.emoji || "🤖");
+  const displayName = selectedAuthor === "tim" ? "Tim" : (agent?.name || selectedAuthor);
+
+  return (
+    <div>
+      <label style={{ ...DRAWER_LABEL, display: "flex", alignItems: "center", gap: "0.375rem" }}>
+        <MessageSquare className="w-3.5 h-3.5" /> Comments ({comments.length})
+      </label>
+
+      {/* Thread */}
+      <div
+        style={{
+          maxHeight: "320px",
+          overflowY: "auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: "0.5rem",
+          marginBottom: "0.75rem",
+        }}
+      >
+        {comments.length === 0 && (
+          <div style={{ fontSize: "0.78rem", color: "var(--text-muted)", padding: "0.75rem", textAlign: "center" }}>
+            No comments yet. Add the first one below.
+          </div>
+        )}
+        {comments.map((c) => {
+          const style = COMMENT_TYPE_STYLES[c.type] || COMMENT_TYPE_STYLES.note;
+          return (
+            <div
+              key={c.id}
+              style={{
+                padding: "0.625rem 0.75rem",
+                borderRadius: "0.5rem",
+                backgroundColor: style.bg,
+                border: `1px solid ${style.border}`,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.375rem" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "0.375rem" }}>
+                  <span style={{ fontSize: "0.85rem" }}>{c.authorEmoji}</span>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 700, color: "var(--text-primary)" }}>{c.author}</span>
+                  <span
+                    style={{
+                      fontSize: "0.6rem",
+                      fontWeight: 700,
+                      padding: "0.1rem 0.375rem",
+                      borderRadius: "9999px",
+                      backgroundColor: style.bg,
+                      color: style.color,
+                      border: `1px solid ${style.border}`,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                    }}
+                  >
+                    {style.label}
+                  </span>
+                </div>
+                <span style={{ fontSize: "0.65rem", color: "var(--text-muted)" }}>
+                  {formatDateFull(c.timestamp)}
+                </span>
+              </div>
+              <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+                {c.text}
+              </div>
+            </div>
+          );
+        })}
+        <div ref={threadEndRef} />
+      </div>
+
+      {/* Add comment */}
+      <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+        <div style={{ display: "flex", gap: "0.5rem" }}>
+          <select
+            value={selectedAuthor}
+            onChange={(e) => setSelectedAuthor(e.target.value)}
+            style={{
+              flex: "0 0 auto",
+              padding: "0.375rem 0.5rem",
+              borderRadius: "0.375rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontSize: "0.75rem",
+              outline: "none",
+            }}
+          >
+            <option value="tim">👤 Tim</option>
+            {AGENT_CONFIGS.map((a) => (
+              <option key={a.id} value={a.name}>{a.emoji} {a.name}</option>
+            ))}
+          </select>
+          <select
+            value={commentType}
+            onChange={(e) => setCommentType(e.target.value as TaskComment["type"])}
+            style={{
+              flex: "0 0 auto",
+              padding: "0.375rem 0.5rem",
+              borderRadius: "0.375rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: COMMENT_TYPE_STYLES[commentType]?.color || "var(--text-primary)",
+              fontSize: "0.75rem",
+              fontWeight: 700,
+              outline: "none",
+            }}
+          >
+            <option value="note">Note</option>
+            <option value="review">Review</option>
+            <option value="rejection">Rejection</option>
+            <option value="resolution">Resolution</option>
+          </select>
+        </div>
+        <div style={{ display: "flex", gap: "0.375rem" }}>
+          <textarea
+            value={newText}
+            onChange={(e) => setNewText(e.target.value)}
+            placeholder={`Add a ${commentType} as ${displayEmoji} ${displayName}...`}
+            rows={2}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            style={{
+              flex: 1,
+              padding: "0.5rem 0.625rem",
+              borderRadius: "0.5rem",
+              backgroundColor: "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: "var(--text-primary)",
+              fontSize: "0.8rem",
+              outline: "none",
+              resize: "vertical",
+              boxSizing: "border-box",
+              fontFamily: "inherit",
+              lineHeight: 1.6,
+            }}
+          />
+          <button
+            onClick={handleSubmit}
+            disabled={!newText.trim() || submitting}
+            style={{
+              alignSelf: "flex-end",
+              padding: "0.5rem",
+              borderRadius: "0.5rem",
+              backgroundColor: newText.trim() ? "var(--accent)" : "var(--card-elevated)",
+              border: "1px solid var(--border)",
+              color: newText.trim() ? "#000" : "var(--text-muted)",
+              cursor: newText.trim() && !submitting ? "pointer" : "not-allowed",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+            title="Post comment (Cmd+Enter)"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Task Detail Drawer — slide-in from right with full inline editing
 function TaskDetailDrawer({
   task,
@@ -563,7 +802,6 @@ function TaskDetailDrawer({
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description || "");
-  const [notes, setNotes] = useState(task.notes || "");
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [uploading, setUploading] = useState(false);
   const [retryingBuild, setRetryingBuild] = useState(false);
@@ -595,11 +833,10 @@ function TaskDetailDrawer({
   useEffect(() => {
     setTitle(task.title);
     setDescription(task.description || "");
-    setNotes(task.notes || "");
     setCapturePath(task.visualReview?.targetPath || "");
     setCaptureUrl(task.visualReview?.targetUrl || "");
     setVisualCaptureError(null);
-  }, [task.id, task.title, task.description, task.notes, task.visualReview?.targetPath, task.visualReview?.targetUrl]);
+  }, [task.id, task.title, task.description, task.visualReview?.targetPath, task.visualReview?.targetUrl]);
 
   const proj = projectsMap[task.project || ""];
   const attachments = task.attachments || [];
@@ -917,23 +1154,12 @@ function TaskDetailDrawer({
             </div>
           )}
 
-          {/* Notes — editable */}
-          <div>
-            <label style={DRAWER_LABEL}>Notes</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              onBlur={() => { if (notes !== (task.notes || "")) patchTask({ notes: notes || undefined }); }}
-              placeholder="Add notes..."
-              rows={3}
-              style={{
-                width: "100%", padding: "0.5rem 0.625rem", borderRadius: "0.5rem",
-                backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)",
-                color: "var(--text-primary)", fontSize: "0.8rem", outline: "none",
-                resize: "vertical", boxSizing: "border-box", fontFamily: "inherit", lineHeight: 1.6,
-              }}
-            />
-          </div>
+          {/* Comments — threaded */}
+          <CommentThread
+            taskId={task.id}
+            comments={task.comments || []}
+            onCommentAdded={(comments) => onTaskUpdated({ ...task, comments })}
+          />
 
           {/* Attachments */}
           {attachments.length > 0 && (
@@ -1699,6 +1925,7 @@ export default function TasksPage() {
   const [dragOverColumn, setDragOverColumn] = useState<Task["status"] | null>(null);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [doneCollapsed, setDoneCollapsed] = useState(true);
+  const [doneFilter, setDoneFilter] = useState<"today" | "all">("today");
   const [showArchive, setShowArchive] = useState(false);
   const [archivedTasks, setArchivedTasks] = useState<Task[]>([]);
   const [archiving, setArchiving] = useState(false);
@@ -2022,7 +2249,13 @@ export default function TasksPage() {
                       color: col.color,
                     }}
                   >
-                    {colTasks.length}
+                    {isDone && doneFilter === "today"
+                      ? colTasks.filter((t) => {
+                          const d = t.completedAt || t.updated;
+                          if (!d) return false;
+                          return new Date(d).toDateString() === new Date().toDateString();
+                        }).length
+                      : colTasks.length}
                   </span>
                   {isDone && (
                     <>
@@ -2067,25 +2300,55 @@ export default function TasksPage() {
                   }}
                 >
                   {isDone && colTasks.length > 0 && (
-                    <div className="flex gap-1.5 mb-2">
-                      <button
-                        onClick={() => handleArchive(false)}
-                        disabled={archiving}
-                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
-                        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
-                      >
-                        <Archive className="w-3 h-3" />
-                        Archive Old (&gt;48h)
-                      </button>
-                      <button
-                        onClick={() => handleArchive(true)}
-                        disabled={archiving}
-                        className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
-                        style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
-                      >
-                        <Archive className="w-3 h-3" />
-                        Archive All
-                      </button>
+                    <div className="flex flex-col gap-1.5 mb-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => setDoneFilter("today")}
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all"
+                          style={{
+                            backgroundColor: doneFilter === "today" ? `${col.color}20` : "var(--card)",
+                            border: `1px solid ${doneFilter === "today" ? col.color + "60" : "var(--border)"}`,
+                            color: doneFilter === "today" ? col.color : "var(--text-muted)",
+                            fontWeight: doneFilter === "today" ? 600 : 400,
+                            cursor: "pointer",
+                          }}
+                        >
+                          Today
+                        </button>
+                        <button
+                          onClick={() => setDoneFilter("all")}
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all"
+                          style={{
+                            backgroundColor: doneFilter === "all" ? `${col.color}20` : "var(--card)",
+                            border: `1px solid ${doneFilter === "all" ? col.color + "60" : "var(--border)"}`,
+                            color: doneFilter === "all" ? col.color : "var(--text-muted)",
+                            fontWeight: doneFilter === "all" ? 600 : 400,
+                            cursor: "pointer",
+                          }}
+                        >
+                          All
+                        </button>
+                      </div>
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleArchive(false)}
+                          disabled={archiving}
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
+                        >
+                          <Archive className="w-3 h-3" />
+                          Archive Old
+                        </button>
+                        <button
+                          onClick={() => handleArchive(true)}
+                          disabled={archiving}
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded-lg transition-all hover:opacity-80"
+                          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)", cursor: archiving ? "not-allowed" : "pointer", opacity: archiving ? 0.5 : 1 }}
+                        >
+                          <Archive className="w-3 h-3" />
+                          Archive All
+                        </button>
+                      </div>
                     </div>
                   )}
                   {colTasks.length === 0 ? (
@@ -2096,17 +2359,35 @@ export default function TasksPage() {
                       {isOver ? "Drop here" : "No tasks"}
                     </div>
                   ) : (
-                    colTasks.map((task) => (
-                      <TaskCard
-                        key={task.id}
-                        task={task}
-                        onDragStart={handleDragStart}
-                        onStatusChange={handleStatusChange}
-                        onClick={setSelectedTask}
-                        projectsMap={projectsMap}
-                        isBuilding={buildingTaskId === task.id}
-                      />
-                    ))
+                    (() => {
+                      const displayTasks = isDone && doneFilter === "today"
+                        ? colTasks.filter((t) => {
+                            const d = t.completedAt || t.updated;
+                            if (!d) return false;
+                            const taskDate = new Date(d).toDateString();
+                            const today = new Date().toDateString();
+                            return taskDate === today;
+                          })
+                        : colTasks;
+                      if (displayTasks.length === 0 && isDone && doneFilter === "today") {
+                        return (
+                          <div className="text-center py-8 text-xs" style={{ color: "var(--text-muted)", opacity: 0.6 }}>
+                            No tasks completed today yet
+                          </div>
+                        );
+                      }
+                      return displayTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          onDragStart={handleDragStart}
+                          onStatusChange={handleStatusChange}
+                          onClick={setSelectedTask}
+                          projectsMap={projectsMap}
+                          isBuilding={buildingTaskId === task.id}
+                        />
+                      ));
+                    })()
                   )}
                 </div>
               )}
