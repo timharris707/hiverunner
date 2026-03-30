@@ -507,6 +507,27 @@ code, pre, .font-mono {
   animation: pulse-dot 2s ease-in-out infinite;
 }
 
+/* ============================================
+   Task card breathing glow — active build & review
+   ============================================ */
+@keyframes card-glow-build {
+  0%, 100% { box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+  50%       { box-shadow: 0 0 22px 4px rgba(74,222,128,0.32), 0 1px 3px rgba(0,0,0,0.3); }
+}
+
+@keyframes card-glow-review {
+  0%, 100% { box-shadow: 0 1px 2px rgba(0,0,0,0.25); }
+  50%       { box-shadow: 0 0 22px 4px rgba(167,139,250,0.38), 0 1px 3px rgba(0,0,0,0.3); }
+}
+
+.card-glow-build {
+  animation: card-glow-build 2.5s ease-in-out infinite;
+}
+
+.card-glow-review {
+  animation: card-glow-review 2.5s ease-in-out infinite;
+}
+
 /* Unsaved indicator */
 .unsaved-indicator {
   display: flex;

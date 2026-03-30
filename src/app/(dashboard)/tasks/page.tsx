@@ -1641,6 +1641,10 @@ function TaskCard({
   const dragRef = useRef(false);
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
+  const isActiveBuild = isBuilding || task.buildState === "running" || task.buildState === "spawning";
+  const isActiveReview = !isActiveBuild && task.codeReviewState === "running";
+  const glowClass = isActiveBuild ? "card-glow-build" : isActiveReview ? "card-glow-review" : "";
+
   return (
     <div
       draggable
@@ -1653,12 +1657,15 @@ function TaskCard({
         if (mp && (Math.abs(e.clientX - mp.x) > 5 || Math.abs(e.clientY - mp.y) > 5)) return;
         onClick(task);
       }}
-      className="group p-2.5 rounded-lg mb-1.5 last:mb-0 transition-all duration-150 hover:translate-y-[-1px] cursor-pointer"
+      className={`group p-2.5 rounded-lg mb-1.5 last:mb-0 transition-all duration-150 hover:translate-y-[-1px] cursor-pointer${glowClass ? ` ${glowClass}` : ""}`}
       style={{
         backgroundColor: "var(--card)",
-        border: "1px solid var(--border)",
+        border: isActiveBuild
+          ? "1px solid rgba(74,222,128,0.35)"
+          : isActiveReview
+          ? "1px solid rgba(167,139,250,0.35)"
+          : "1px solid var(--border)",
         borderLeft: `3px solid ${projectColor}`,
-        boxShadow: "0 1px 2px rgba(0,0,0,0.25)",
       }}
     >
       {/* Priority + Project */}
