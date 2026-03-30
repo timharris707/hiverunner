@@ -528,6 +528,22 @@ code, pre, .font-mono {
   animation: card-glow-review 2.5s ease-in-out infinite;
 }
 
+/* Activity feed scrollbar — thin, unobtrusive */
+.activity-feed-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.activity-feed-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.activity-feed-scroll::-webkit-scrollbar-thumb {
+  background: rgba(74, 222, 128, 0.2);
+  border-radius: 3px;
+}
+.activity-feed-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(74, 222, 128, 0.2) transparent;
+}
+
 /* Unsaved indicator */
 .unsaved-indicator {
   display: flex;

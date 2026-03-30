@@ -1647,6 +1647,176 @@ function TaskDetailDrawer({
   );
 }
 
+// ─── Live Build Activity Stream ─────────────────────────────────────────
+interface ActivityEvent {
+  id: string;
+  taskId: string;
+  action: "READ" | "WRITE" | "RUN" | "THINK" | "SEARCH" | "REVIEW" | "DONE";
+  description: string;
+  status: "running" | "completed" | "failed";
+  timestamp: string;
+  agent?: string;
+}
+
+const ACTION_ICONS: Record<string, { icon: string; color: string }> = {
+  READ: { icon: "📄", color: "#60a5fa" },
+  WRITE: { icon: "✏️", color: "#4ade80" },
+  RUN: { icon: "▶", color: "#fbbf24" },
+  THINK: { icon: "💭", color: "#c084fc" },
+  SEARCH: { icon: "🔍", color: "#38bdf8" },
+  REVIEW: { icon: "🔎", color: "#a78bfa" },
+  DONE: { icon: "✅", color: "#4ade80" },
+};
+
+function useActivityStream(taskId: string, active: boolean) {
+  const [events, setEvents] = useState<ActivityEvent[]>([]);
+  const sourceRef = useRef<EventSource | null>(null);
+
+  useEffect(() => {
+    if (!active || !taskId) {
+      // Close any existing connection and clear events
+      if (sourceRef.current) {
+        sourceRef.current.close();
+        sourceRef.current = null;
+      }
+      setEvents([]);
+      return;
+    }
+
+    const es = new EventSource(`/api/tasks/activity/stream?taskId=${encodeURIComponent(taskId)}`);
+    sourceRef.current = es;
+
+    es.onmessage = (msg) => {
+      try {
+        const event: ActivityEvent = JSON.parse(msg.data);
+        setEvents((prev) => {
+          const next = [...prev, event];
+          // Keep last 50 events in UI
+          return next.length > 50 ? next.slice(-50) : next;
+        });
+      } catch {
+        // Ignore malformed messages
+      }
+    };
+
+    es.onerror = () => {
+      // EventSource auto-reconnects; just let it
+    };
+
+    return () => {
+      es.close();
+      sourceRef.current = null;
+    };
+  }, [taskId, active]);
+
+  return events;
+}
+
+function BuildActivityFeed({ events }: { events: ActivityEvent[] }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [events.length]);
+
+  if (events.length === 0) {
+    return (
+      <div
+        className="mt-1.5 rounded-md overflow-hidden"
+        style={{ backgroundColor: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.10)", padding: "6px 8px" }}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#4ade80", display: "inline-block" }} />
+          <span style={{ fontSize: "0.65rem", color: "#4ade80", fontWeight: 500 }}>Agent working…</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Show last 8 events in the card feed
+  const visible = events.slice(-8);
+  const lastEvent = events[events.length - 1];
+  const isRunning = lastEvent?.action !== "DONE";
+
+  return (
+    <div
+      className="mt-1.5 rounded-md overflow-hidden"
+      style={{ backgroundColor: "rgba(74,222,128,0.04)", border: "1px solid rgba(74,222,128,0.10)" }}
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-2 py-1" style={{ borderBottom: "1px solid rgba(74,222,128,0.08)" }}>
+        <div className="flex items-center gap-1.5">
+          {isRunning && (
+            <span className="animate-pulse" style={{ width: 5, height: 5, borderRadius: "50%", backgroundColor: "#4ade80", display: "inline-block" }} />
+          )}
+          <span style={{ fontSize: "0.6rem", color: "#4ade80", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase" }}>
+            Live Activity
+          </span>
+        </div>
+        <span style={{ fontSize: "0.55rem", color: "var(--text-muted)" }}>
+          {events.length} action{events.length !== 1 ? "s" : ""}
+        </span>
+      </div>
+
+      {/* Event list */}
+      <div
+        ref={scrollRef}
+        style={{ maxHeight: "120px", overflowY: "auto", padding: "3px 0" }}
+        className="activity-feed-scroll"
+      >
+        {visible.map((evt) => {
+          const meta = ACTION_ICONS[evt.action] || { icon: "•", color: "#9ca3af" };
+          const isCurrent = evt.status === "running";
+          return (
+            <div
+              key={evt.id}
+              className="flex items-start gap-1.5 px-2 py-0.5"
+              style={{ opacity: isCurrent ? 1 : 0.7 }}
+            >
+              {/* Status indicator */}
+              {evt.status === "completed" ? (
+                <span style={{ fontSize: "0.6rem", color: "#4ade80", flexShrink: 0, marginTop: "1px" }}>✓</span>
+              ) : evt.status === "failed" ? (
+                <span style={{ fontSize: "0.6rem", color: "#f87171", flexShrink: 0, marginTop: "1px" }}>✗</span>
+              ) : (
+                <span className="animate-spin" style={{ fontSize: "0.55rem", color: meta.color, flexShrink: 0, marginTop: "1px", display: "inline-block" }}>◌</span>
+              )}
+
+              {/* Action badge */}
+              <span
+                className="inline-flex items-center px-1 rounded"
+                style={{
+                  fontSize: "0.55rem",
+                  fontWeight: 700,
+                  color: meta.color,
+                  backgroundColor: `${meta.color}15`,
+                  letterSpacing: "0.3px",
+                  flexShrink: 0,
+                  lineHeight: "14px",
+                }}
+              >
+                {evt.action}
+              </span>
+
+              {/* Description */}
+              <span
+                className="truncate"
+                style={{ fontSize: "0.6rem", color: isCurrent ? "var(--text-primary)" : "var(--text-muted)", lineHeight: "14px" }}
+                title={evt.description}
+              >
+                {evt.description}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function TaskCard({
   task,
   onDragStart,
@@ -1672,6 +1842,7 @@ function TaskCard({
   const isActiveBuild = isBuilding || task.buildState === "running" || task.buildState === "spawning";
   const isActiveReview = !isActiveBuild && task.codeReviewState === "running";
   const glowClass = isActiveBuild ? "card-glow-build" : isActiveReview ? "card-glow-review" : "";
+  const activityEvents = useActivityStream(task.id, isActiveBuild);
 
   return (
     <div
@@ -1832,6 +2003,9 @@ function TaskCard({
       >
         {task.title}
       </div>
+
+      {/* Live build activity stream */}
+      {isActiveBuild && <BuildActivityFeed events={activityEvents} />}
 
       {/* Image thumbnail strip */}
       {attachmentCount > 0 && task.attachments!.some((a) => isImageType(a.type)) && (
