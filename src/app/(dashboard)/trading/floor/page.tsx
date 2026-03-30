@@ -193,6 +193,7 @@ export default function TradingFloorPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
+  const [sortAsc, setSortAsc] = useState<Record<string, boolean>>({ placed: false, settles: true, city: true });
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
 
@@ -318,27 +319,28 @@ export default function TradingFloorPage() {
     return g;
   });
 
-  // Sort based on selected mode
+  // Sort based on selected mode + direction
+  const asc = sortAsc[sortMode];
   groups.sort((a, b) => {
     const aOpen = a.trades.some((t) => isOpenStatus(t.status));
     const bOpen = b.trades.some((t) => isOpenStatus(t.status));
+    // Always keep open before settled
+    if (aOpen !== bOpen) return aOpen ? -1 : 1;
 
+    let cmp = 0;
     switch (sortMode) {
       case "placed":
-        // Open first, then newest first
-        if (aOpen !== bOpen) return aOpen ? -1 : 1;
-        return (b.placedAt || "").localeCompare(a.placedAt || "");
+        cmp = (a.placedAt || "").localeCompare(b.placedAt || "");
+        break;
       case "settles":
-        // Purely by settlement time — soonest first (settled trades last)
-        if (aOpen !== bOpen) return aOpen ? -1 : 1;
-        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
+        cmp = (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
+        break;
       case "city":
-      default:
-        if (aOpen !== bOpen) return aOpen ? -1 : 1;
-        const cityCompare = a.city.localeCompare(b.city);
-        if (cityCompare !== 0) return cityCompare;
-        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
+        cmp = a.city.localeCompare(b.city);
+        if (cmp === 0) cmp = (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
+        break;
     }
+    return asc ? cmp : -cmp;
   });
 
   // Stats for filtered set
@@ -530,10 +532,17 @@ export default function TradingFloorPage() {
         <div className="flex items-center gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
           {(["placed", "settles", "city"] as const).map((mode) => {
             const isActive = sortMode === mode;
+            const asc = sortAsc[mode];
             return (
               <button
                 key={mode}
-                onClick={() => setSortMode(mode)}
+                onClick={() => {
+                  if (sortMode === mode) {
+                    setSortAsc((prev) => ({ ...prev, [mode]: !prev[mode] }));
+                  } else {
+                    setSortMode(mode);
+                  }
+                }}
                 className="text-xs px-4 py-2 font-semibold"
                 style={{
                   backgroundColor: isActive ? "#60a5fa" : "var(--card)",
@@ -542,7 +551,8 @@ export default function TradingFloorPage() {
                   transition: "all 0.15s",
                 }}
               >
-                {mode === "placed" ? "↓ Newest" : mode === "settles" ? "⏰ Settles" : "🏙 City"}
+                {mode === "placed" ? "Placed" : mode === "settles" ? "Settles" : "City"}
+                {isActive && <span style={{ marginLeft: 4 }}>{asc ? "▲" : "▼"}</span>}
               </button>
             );
           })}
