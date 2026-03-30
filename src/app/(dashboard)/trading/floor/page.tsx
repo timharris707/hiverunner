@@ -649,7 +649,7 @@ export default function TradingFloorPage() {
                 </div>
 
                 {/* Forecast */}
-                <div>
+                <div className="text-center">
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                   <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
                     {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°F` : "—"}
@@ -657,7 +657,7 @@ export default function TradingFloorPage() {
                 </div>
 
                 {/* Cost */}
-                <div>
+                <div className="text-center">
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                     {$(g.totalCost)}
@@ -668,7 +668,7 @@ export default function TradingFloorPage() {
                 </div>
 
                 {/* Bought */}
-                <div>
+                <div className="text-center">
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                     {boughtPct.toFixed(0)}% chance
@@ -679,7 +679,7 @@ export default function TradingFloorPage() {
                 </div>
 
                 {/* Now */}
-                <div>
+                <div className="text-center">
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
