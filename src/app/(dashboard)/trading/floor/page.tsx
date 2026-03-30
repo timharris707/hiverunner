@@ -455,7 +455,7 @@ export default function TradingFloorPage() {
               : "—";
             return [
               { label: "Positions", value: `${groups.length}`, color: "var(--text-primary)", bold: true,
-                sub: `${filtered.length} orders · ${filteredOpen.length} open` },
+                sub: `${filtered.length} orders` },
               { label: "Cash Deployed", value: $(fCost), color: "#60a5fa" },
               { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "$0.00",
                 color: filteredSettled.length > 0 ? (fSettledPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)",
@@ -527,10 +527,10 @@ export default function TradingFloorPage() {
               </div>
               <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
-                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
-                  {filteredOpen.length > 0 && kp ? $(kp.unrealizedPnl) : "$0.00"}
+                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
+                  TBD
                 </div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredOpen.length} open positions</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{groups.length} positions · Settles tonight</div>
               </div>
               <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
@@ -554,10 +554,10 @@ export default function TradingFloorPage() {
             </div>
             <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
-              <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
-                {kp ? $(kp.unrealizedPnl) : "—"}
+              <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
+                TBD
               </div>
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open positions (current market)</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Settles tonight — illiquid market prices unreliable</div>
             </div>
             <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
