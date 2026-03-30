@@ -192,6 +192,7 @@ export default function TradingFloorPage() {
 
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, number>>>({});
+  const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -204,6 +205,7 @@ export default function TradingFloorPage() {
       if (forecastRes.ok) {
         const fData = await forecastRes.json();
         if (fData.forecasts) setLiveForecasts(fData.forecasts);
+        if (fData.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
       }
       const statsData = await statsRes.json();
       const posData = await posRes.json();
@@ -666,7 +668,13 @@ export default function TradingFloorPage() {
                           {temp != null ? `${temp}°F` : "—"}
                         </div>
                         <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                          {liveFc != null ? "live" : temp != null ? "at entry" : "—"}
+                          {liveFc != null && forecastFetchedAt ? (() => {
+                            const d = new Date(forecastFetchedAt);
+                            const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                            if (mins < 1) return "just now";
+                            if (mins < 60) return `${mins}m ago`;
+                            return `${Math.floor(mins / 60)}h ago`;
+                          })() : temp != null ? "at entry" : "—"}
                         </div>
                       </>
                     );
