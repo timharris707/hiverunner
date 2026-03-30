@@ -348,21 +348,23 @@ export default function TradingFloorPage() {
   const sortedGroups = [...groups].sort((a, b) => {
     const aOpen = a.trades.some((t) => isOpenStatus(t.status));
     const bOpen = b.trades.some((t) => isOpenStatus(t.status));
-    // Always keep open before settled
-    if (aOpen !== bOpen) return aOpen ? -1 : 1;
 
     let cmp = 0;
     switch (sortMode) {
       case "placed":
+        // Open before settled, then by placed time
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
         cmp = (a.placedAt || "").localeCompare(b.placedAt || "");
         break;
       case "settles": {
+        // Pure settlement time sort — no open/settled separation
         const aTime = a.settlementAt ? new Date(a.settlementAt).getTime() : 9999999999999;
         const bTime = b.settlementAt ? new Date(b.settlementAt).getTime() : 9999999999999;
         cmp = aTime - bTime;
         break;
       }
       case "city":
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
         cmp = a.city.localeCompare(b.city);
         if (cmp === 0) cmp = (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
         break;
