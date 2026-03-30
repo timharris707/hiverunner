@@ -604,8 +604,14 @@ export default function TradingFloorPage() {
               {/* Main row — Kalshi-style clean layout */}
               <button
                 onClick={() => toggleGroup(key)}
-                className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-90 transition-opacity"
-                style={{ backgroundColor: isSettled ? (isWon ? "#4ade8008" : "#ef444408") : "transparent" }}
+                className="w-full px-4 py-3.5 text-left hover:opacity-90 transition-opacity"
+                style={{
+                  backgroundColor: isSettled ? (isWon ? "#4ade8008" : "#ef444408") : "transparent",
+                  display: "grid",
+                  gridTemplateColumns: "48px 1fr 70px 80px 100px 110px 100px 28px",
+                  gap: 12,
+                  alignItems: "center",
+                }}
               >
                 {/* City badge */}
                 <div
@@ -642,16 +648,16 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Forecast — on the left side, part of the story */}
-                <div className="text-center" style={{ minWidth: 60 }}>
+                {/* Forecast */}
+                <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                   <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
                     {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°F` : "—"}
                   </div>
                 </div>
 
-                {/* Cost — total spent + contracts breakdown */}
-                <div className="text-center" style={{ minWidth: 75 }}>
+                {/* Cost */}
+                <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                     {$(g.totalCost)}
@@ -661,8 +667,8 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Bought — % chance when purchased */}
-                <div className="text-center" style={{ minWidth: 80 }}>
+                {/* Bought */}
+                <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                     {boughtPct.toFixed(0)}% chance
@@ -672,8 +678,8 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Chance (Now) — current market probability */}
-                <div className="text-center" style={{ minWidth: 80 }}>
+                {/* Now */}
+                <div>
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
@@ -715,8 +721,8 @@ export default function TradingFloorPage() {
                   )}
                 </div>
 
-                {/* Payout if Win (total return, not profit) + Settlement */}
-                <div className="text-right" style={{ minWidth: 85 }}>
+                {/* Payout if Win + Settlement */}
+                <div className="text-right">
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
