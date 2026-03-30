@@ -332,10 +332,13 @@ export default function TradingFloorPage() {
   const groups = Array.from(groupMap.values()).map((g) => {
     g.avgPrice = g.totalQuantity > 0 ? g.totalCost / g.totalQuantity : 0;
     g.payoutIfWin = g.totalQuantity - g.totalCost;
-    // For sorting/display: use the open trade's settlement (not resolved trade's past date)
-    const openTrade = g.trades.find((t) => isOpenStatus(t.status) && t.settlement_scheduled_at);
-    if (openTrade?.settlement_scheduled_at) {
-      g.settlementAt = openTrade.settlement_scheduled_at;
+    // For sorting/display: use earliest open trade's settlement
+    const openSettleTimes = g.trades
+      .filter((t) => isOpenStatus(t.status) && t.settlement_scheduled_at)
+      .map((t) => t.settlement_scheduled_at!)
+      .sort();
+    if (openSettleTimes.length > 0) {
+      g.settlementAt = openSettleTimes[0]; // earliest = soonest to settle
     }
     return g;
   });
