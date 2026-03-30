@@ -666,7 +666,7 @@ export default function TradingFloorPage() {
                     const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
                     return (
                       <>
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Fc {label}</div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                         <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
                           {temp != null ? `${temp}°F` : "—"}
                         </div>
