@@ -16,10 +16,9 @@ import {
   buildQAHandoffPrompt,
 } from "@/lib/agent-pipeline";
 import { getAgentByAnyId } from "@/config/agents";
-import { dbReadTasks, dbWriteTasks, dbJournalTransition } from "@/lib/tasks-db";
+import { dbReadTasks, dbWriteTasks, dbJournalTransition, dbCheckpoint } from "@/lib/tasks-db";
 
 const DATA_DIR = join(process.cwd(), "data");
-const TASKS_FILE = join(DATA_DIR, "tasks.json");
 const PROJECTS_FILE = join(DATA_DIR, "projects.json");
 const BUILD_LOG_FILE = join(DATA_DIR, "build-log.json");
 const LOCKS_DIR = join(DATA_DIR, "locks");
@@ -35,6 +34,7 @@ const VISUAL_REVIEW_TAGS = new Set(["ui", "frontend", "component", "page", "visu
 const MAX_REVIEW_FAILURES_BEFORE_ESCALATION = 2;
 const MAX_REVIEW_FAILURES_HARD_CAP = 3; // Stop rebuilding entirely after this many failures
 const RECONCILE_INTERVAL_MS = 15_000;
+const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour — periodic WAL snapshot
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
 const IN_PROGRESS_HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — in-progress with no active build triggers escalation
 const REVIEW_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — review without resolution triggers alert
@@ -66,6 +66,7 @@ const PROJECT_DIRS: Record<string, string> = {
 };
 
 let lastReconcileAt = 0;
+let lastCheckpointAt = 0;
 let lastLogSyncAt = 0;
 const LOG_SYNC_INTERVAL_MS = 60_000; // sync from tasks-log.md at most once per minute
 
@@ -1509,6 +1510,18 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
 
   for (const taskId of sweep.taskIdsToKick) {
     await queueOrStartBuild(taskId, { source: options?.source || "reconcile" });
+  }
+
+  // Periodic WAL checkpoint — at most once per hour, checkpoint the WAL to the
+  // main DB file and record a snapshot entry. Keeps the WAL file small and
+  // gives an explicit on-disk snapshot for backup/restore purposes.
+  if (nowMs - lastCheckpointAt >= CHECKPOINT_INTERVAL_MS) {
+    lastCheckpointAt = nowMs;
+    try {
+      dbCheckpoint("auto: reconcile");
+    } catch (err) {
+      console.warn("[reconcile] WAL checkpoint failed (non-fatal):", err);
+    }
   }
 
   return {
