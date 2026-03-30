@@ -342,7 +342,7 @@ export default function TradingFloorPage() {
 
   // Sort based on selected mode + direction
   const asc = sortAsc[sortMode];
-  groups.sort((a, b) => {
+  const sortedGroups = [...groups].sort((a, b) => {
     const aOpen = a.trades.some((t) => isOpenStatus(t.status));
     const bOpen = b.trades.some((t) => isOpenStatus(t.status));
     // Always keep open before settled
@@ -697,13 +697,13 @@ export default function TradingFloorPage() {
 
       {/* ── Positions (Kalshi-style grouped) ──────────────── */}
       <div className="space-y-2">
-        {groups.length === 0 && (
+        {sortedGroups.length === 0 && (
           <div className="text-center py-12 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <p className="text-sm" style={{ color: "var(--text-muted)" }}>No trades match filters</p>
           </div>
         )}
 
-        {groups.map((g) => {
+        {sortedGroups.map((g) => {
           const key = `${g.city}|${g.marketLabel}|${g.side}`;
           const isExpanded = expandedGroups.has(key);
           const isOpen = g.trades.some((t) => isOpenStatus(t.status));
