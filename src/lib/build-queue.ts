@@ -352,7 +352,9 @@ async function captureAndStoreScreenshot(taskId: string, task: any, phase: "befo
       task.visualReview?.targetUrl ||
       (task.visualReview?.targetPath
         ? `http://localhost:3001${task.visualReview.targetPath}`
-        : "http://localhost:3001/tasks");
+        : task.project === "weather-trading"
+          ? "http://localhost:8050/trades"
+          : "http://localhost:3001/tasks");
 
     const rawCaptures = allBrowsers
       ? await captureScreenshotAllBrowsers(targetUrl, taskId)
