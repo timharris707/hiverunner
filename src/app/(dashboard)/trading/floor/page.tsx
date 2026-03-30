@@ -599,11 +599,6 @@ export default function TradingFloorPage() {
         )}
         <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
           {filtered.length} trades · {filteredOpen.length} open · {filteredWon.length}W/{filteredLost.length}L
-          {filteredSettled.length > 0 && (
-            <span style={{ color: filteredPnl >= 0 ? "#4ade80" : "#ef4444", fontWeight: 600, marginLeft: 8 }}>
-              {$(filteredPnl)} P&L on {$(filteredCost)} wagered
-            </span>
-          )}
         </span>
       </div>
 
