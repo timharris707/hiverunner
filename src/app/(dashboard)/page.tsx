@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
-import { ActivityFeed } from "@/components/ActivityFeed";
+import { NarrativeFeed } from "@/components/NarrativeFeed";
 import { PaperclipActivityFeed } from "@/components/PaperclipActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
 import { TaskDetailDrawer, Task, ProjectInfo, PRIORITY_COLORS, formatDate } from "@/components/TaskDetailDrawer";
@@ -1006,9 +1006,9 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Bottom: Activity Feed + Paperclip Activity + Quick Nav */}
+      {/* Bottom: Narrative Feed + Paperclip Activity + Quick Nav */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-        {/* Activity Feed */}
+        {/* Narrative Feed — plain-English "what's happening" */}
         <div
           className="rounded-xl overflow-hidden"
           style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
@@ -1023,15 +1023,15 @@ export default function DashboardPage() {
                 className="text-base font-semibold"
                 style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
               >
-                Recent Activity
+                What&apos;s Happening
               </h2>
             </div>
             <Link href="/activity" className="text-sm font-medium" style={{ color: "var(--accent)" }}>
-              View all →
+              Raw logs →
             </Link>
           </div>
-          <div className="p-0">
-            <ActivityFeed limit={5} />
+          <div className="p-1">
+            <NarrativeFeed limit={8} />
           </div>
         </div>
 
