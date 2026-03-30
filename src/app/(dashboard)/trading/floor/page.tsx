@@ -551,7 +551,7 @@ export default function TradingFloorPage() {
               <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.realizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
                 {kp ? $(kp.realizedPnl) : "—"}
               </div>
-              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Settled trades</div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{kp ? `${kp.won + kp.lost} settled trades (${kp.won}W – ${kp.lost}L)` : "Settled trades"}</div>
             </div>
             <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
               <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
@@ -683,7 +683,7 @@ export default function TradingFloorPage() {
           })}
         </div>
         <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
-          {groups.length} positions · {filtered.length} orders · {filteredOpen.length} open · {filteredWon.length}W/{filteredLost.length}L
+          {groups.length} positions · {filteredOpen.length} open · {filteredSettled.length} settled · {filteredWon.length}W/{filteredLost.length}L
         </span>
       </div>
 
