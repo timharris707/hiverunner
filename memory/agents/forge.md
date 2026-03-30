@@ -46,6 +46,54 @@
 
 ## Task Log
 
+### 2026-03-30 — Task lifecycle state machine — enforce valid transitions in code
+**Project:** mission-control
+**Summary:** prevent re-alerting on every reconcile cycle. It is never reset (by design) — once alerted, it won't fire again even if the task stays in review indefinitely. If recurring alerts are needed, add a `reviewAlertSentAt` timestamp and compare against a re-alert interval. - The heartbeat check uses `task.buildStartedAt || task.updated || task.created` as the reference timestamp, which means a task manu
+
+---
+
+### 2026-03-30 — Pipeline fix — one active build per agent, queue the rest
+**Project:** mission-control
+**Summary:** and will complete normally. - The `nextQueuedTaskIdForAgent` helper is defined but not directly called in the current flow — agent queue advancement goes through `reconcileBuildQueue` which checks both constraints. It's available for future use if direct agent-queue lookups are needed. - The `completedAgentId` variable captured in `finalizeBuild` is also set but not directly used in the current fl
+
+---
+
+### 2026-03-30 — Bug: pipeline reconciler resurrects done tasks — puts them back in-progress
+**Project:** mission-control
+**Summary:** | Stale build cleanup | Cleans build tracking on done tasks but never adds to `tasksToKick` | | `advanceTasks` | Filters done tasks out of project groupings entirely |  **Validation:** `npm run build` — compiled successfully. Pushed to `panely/sprint-1` @ `6e28020`.  **Caveat:** If a task is moved to `done` while a build is mid-flight, the build process will still run to completion — it just won't
+
+---
+
+### 2026-03-30 — Trading Desk — live-only view with real Kalshi P&L (no paper trades)
+**Project:** weather-trading
+**Summary:** oyed_cost - initial_deposit` — deployed_cost uses entry price for open positions, not current mark-to-market. The `total_unrealized_pnl` sub-line shows the MTM delta when Kalshi provides `unrealized_pnl` in the positions response - `data/bankroll.json` does not exist; server defaults to `initial_deposit = $500.0` — create this file if the actual deposit differs - Settlement flows through `reconcil
+
+---
+
+### 2026-03-30 — Trading Desk — live-only view with real Kalshi P&L (no paper trades)
+**Project:** weather-trading
+**Summary:** | ✅ | Card 4 shows "Total P&L [KALSHI]" with unrealized sub-line |  **Known caveats (from prior session memory):** - `total_pnl` uses entry cost for open positions, not current mark-to-market. `total_unrealized_pnl` shows the delta when Kalshi provides it - Settlement win/loss flows through `reconcile_settlements.py` → local DB, not real-time per-trade Kalshi API — this is the intended architectur
+
+---
+
+### 2026-03-30 — Dynamic agent registry — eliminate ALL hardcoded agent lists across Mission Control
+**Project:** mission-control
+**Summary:** lowercase from display names, but macOS filesystem is case-insensitive so this is transparent. - `cronCount` on the org chart is hardcoded to 0 for all agents (was previously hardcoded per-agent). If live cron counts are needed, they should come from the API status endpoint, not static config. - The `comms` field on the agents page is derived (`"Telegram (primary)"` for Henry, `"Internal"` for all
+
+---
+
+### 2026-03-30 — Trading Desk — live-only view with real Kalshi P&L (no paper trades)
+**Project:** weather-trading
+**Summary:** `main @ fdf421f`  ## Known Caveats - `total_pnl` uses entry cost for open positions (not current mark-to-market). The `total_unrealized_pnl` sub-line shows the delta when Kalshi provides `unrealized_pnl` in the positions response - Settlement win/loss tracking flows through the reconciler (`reconcile_settlements.py`) → local DB, not real-time Kalshi API per trade. This is the intended architecture
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** `main` on their respective repos. No code changes required.  **Validation:** - `server.py` lines 692–695 and 1183–1187: confirmed `status IN ('pending', 'filled', 'resting')` - `build-queue.ts` lines 355–357: confirmed `"http://localhost:3001/trading"` for `weather-trading` project  **Caveat:** The `tasks.json` `visualReview.status` is still `changes-requested` from the pre-fix review cycle — Vigi
+
+---
+
 ### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
 **Project:** weather-trading
 **Summary:** explicit `targetUrl`/`targetPath` overrides set to `/tasks` in `tasks.json` — the fallback is sufficient.  **Validation:** `python3 -m py_compile src/dashboard/server.py` clean. Pushed to `main @ 7d6d1d3`.  **Caveat:** The previous run of this task incorrectly claimed Bug 1 was "already fixed" — it only checked line 1186 (`/api/risk-controls`) and missed line 694 (`/api/risk-status`), which was th
@@ -185,6 +233,22 @@
 **Lessons:**
 - The "fire-and-forget" description in task was slightly misleading — blocked/QA/completion paths were all wired. Only hang detection was missing a notification.
 - The `task` lookup in the stale loop can return `undefined` (build.taskId may reference a deleted task) — always guard the label extraction.
+
+---
+
+### 2026-03-30 — API contract tests — schema validation on every endpoint
+**Project:** mission-control
+**Summary:** Added `e2e/contract.spec.ts` — 60+ Playwright API tests using Zod v4 schemas. Covers 16 endpoint groups: health, tasks CRUD, full state machine (all valid + all invalid transitions), comments, projects, agents, notifications CRUD, factory pipelines, and build trigger validation. Installed Zod v4 as devDependency (`npm install --include=dev` needed since npm skips devDeps in default install).
+
+**Lessons:**
+- Zod v4 API differs from v3: `z.string().datetime()` → `z.iso.datetime()`, `z.string().uuid()` → `z.uuid()`, `z.record(z.unknown())` → `z.record(z.string(), z.unknown())`
+- `npm install --save-dev` adds to package.json but doesn't install if `npm install` was previously run without `--include=dev`. Run `npm install --include=dev` to force.
+- The Next.js build was already broken (`@tailwindcss/postcss` missing) before this task — pre-existing issue, not related to contract tests.
+- TypeScript `moduleResolution: bundler` means `import { z } from "zod"` works from e2e/ files without extra tsconfig changes.
+- `cleanupTask(request, id)` walks tasks through on-deck→in-progress→review→done — avoids leaving [CONTRACT] test data in non-done states after each test run.
+
+**Known Issues:**
+- None — TypeScript clean, no contract.spec.ts errors.
 
 ---
 
