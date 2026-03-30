@@ -807,21 +807,28 @@ export default function TradingFloorPage() {
                       </div>
                     </>
                   )}
-                  <div className="flex items-center gap-1 justify-end mt-0.5">
-                    <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
-                    <span className="text-xs" style={{
-                      color: (() => {
-                        if (!g.settlementAt) return "var(--text-muted)";
-                        const diff = new Date(g.settlementAt).getTime() - Date.now();
-                        if (diff <= 0) return "#f59e0b";
-                        if (diff < 3600000) return "#ef4444";
-                        if (diff < 86400000) return "#f59e0b";
-                        return "var(--text-muted)";
-                      })(),
-                    }}>
-                      {timeRemaining(g.settlementAt)}
-                    </span>
-                  </div>
+                  {isOpen && (
+                    <div className="flex items-center gap-1 justify-end mt-0.5">
+                      <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
+                      <span className="text-xs" style={{
+                        color: (() => {
+                          if (!g.settlementAt) return "var(--text-muted)";
+                          const diff = new Date(g.settlementAt).getTime() - Date.now();
+                          if (diff <= 0) return "#f59e0b";
+                          if (diff < 3600000) return "#ef4444";
+                          if (diff < 86400000) return "#f59e0b";
+                          return "var(--text-muted)";
+                        })(),
+                      }}>
+                        {timeRemaining(g.settlementAt)}
+                      </span>
+                    </div>
+                  )}
+                  {isSettled && (
+                    <div className="text-xs mt-0.5 text-right" style={{ color: "var(--text-muted)" }}>
+                      Settled
+                    </div>
+                  )}
                 </div>
 
                 {/* Expand arrow */}
