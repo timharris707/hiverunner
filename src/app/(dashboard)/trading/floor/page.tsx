@@ -447,12 +447,12 @@ export default function TradingFloorPage() {
           {versionBreakdownOpen && (
             <div>
               {/* Column headers */}
-              <div className="px-4 py-2" style={{ backgroundColor: "var(--card-elevated)", borderBottom: "1px solid var(--border)", display: "grid", gridTemplateColumns: "220px 1fr 1fr 1fr 1fr", gap: 16 }}>
+              <div className="px-4 py-2" style={{ backgroundColor: "var(--card-elevated)", borderBottom: "1px solid var(--border)", display: "grid", gridTemplateColumns: "1fr auto auto auto auto", gap: 32 }}>
                 <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version</span>
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Deployed</span>
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Realized</span>
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Unrealized</span>
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Total</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", minWidth: 90 }}>Deployed</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", minWidth: 90 }}>Realized</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", minWidth: 90 }}>Unrealized</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)", minWidth: 90 }}>Total</span>
               </div>
               {/* Rows — newest version first */}
               {[...kp.versionBreakdown].sort((a, b) => (b.strategy_version || "").localeCompare(a.strategy_version || "")).map((v) => {
@@ -467,8 +467,8 @@ export default function TradingFloorPage() {
                       backgroundColor: isBad ? "#ef444406" : "#4ade8006",
                       borderBottom: "1px solid var(--border)",
                       display: "grid",
-                      gridTemplateColumns: "220px 1fr 1fr 1fr 1fr",
-                      gap: 16,
+                      gridTemplateColumns: "1fr auto auto auto auto",
+                      gap: 32,
                       alignItems: "center",
                     }}
                   >
@@ -486,16 +486,16 @@ export default function TradingFloorPage() {
                         {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
                       </div>
                     </div>
-                    <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                    <div className="text-sm font-bold" style={{ color: "var(--text-primary)", minWidth: 90 }}>
                       {$(v.total_cost)}
                     </div>
-                    <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                    <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444", minWidth: 90 }}>
                       {$(v.realized_pnl)}
                     </div>
-                    <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                    <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444", minWidth: 90 }}>
                       {$(v.unrealized_pnl)}
                     </div>
-                    <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                    <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444", minWidth: 90 }}>
                       {$(v.total_pnl)}
                     </div>
                   </div>
