@@ -619,10 +619,11 @@ export default function TradingFloorPage() {
 
                 {/* Market info — bet is hero, city/date is subtitle */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
                     <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
                       {g.side === "yes" ? "Yes" : "No"}
                     </span>
+                    <span style={{ color: "var(--text-muted)", fontSize: 14 }}>·</span>
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {g.marketLabel}
                     </span>
