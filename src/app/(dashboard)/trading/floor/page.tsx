@@ -447,16 +447,12 @@ export default function TradingFloorPage() {
           {versionBreakdownOpen && (
             <div>
               {/* Column headers */}
-              <div className="px-4 py-2 flex items-center gap-4" style={{ backgroundColor: "var(--card-elevated)", borderBottom: "1px solid var(--border)" }}>
-                <div style={{ minWidth: 180 }}>
-                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version</span>
-                </div>
-                <div className="flex-1 grid grid-cols-4 gap-4">
-                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Deployed</div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Realized</div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Unrealized</div>
-                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Total</div>
-                </div>
+              <div className="px-4 py-2" style={{ backgroundColor: "var(--card-elevated)", borderBottom: "1px solid var(--border)", display: "grid", gridTemplateColumns: "220px 1fr 1fr 1fr 1fr", gap: 16 }}>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Deployed</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Realized</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Unrealized</span>
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Total</span>
               </div>
               {/* Rows — newest version first */}
               {[...kp.versionBreakdown].sort((a, b) => (b.strategy_version || "").localeCompare(a.strategy_version || "")).map((v) => {
@@ -466,13 +462,17 @@ export default function TradingFloorPage() {
                 return (
                   <div
                     key={v.strategy_version}
-                    className="px-4 py-3 flex items-center gap-4"
+                    className="px-4 py-3"
                     style={{
                       backgroundColor: isBad ? "#ef444406" : "#4ade8006",
                       borderBottom: "1px solid var(--border)",
+                      display: "grid",
+                      gridTemplateColumns: "220px 1fr 1fr 1fr 1fr",
+                      gap: 16,
+                      alignItems: "center",
                     }}
                   >
-                    <div style={{ minWidth: 180 }}>
+                    <div>
                       <span
                         className="text-xs font-bold px-2 py-0.5 rounded"
                         style={{
@@ -486,27 +486,17 @@ export default function TradingFloorPage() {
                         {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
                       </div>
                     </div>
-                    <div className="flex-1 grid grid-cols-4 gap-4">
-                      <div className="text-left">
-                        <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                          {$(v.total_cost)}
-                        </div>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                          {$(v.realized_pnl)}
-                        </div>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                          {$(v.unrealized_pnl)}
-                        </div>
-                      </div>
-                      <div className="text-left">
-                        <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                          {$(v.total_pnl)}
-                        </div>
-                      </div>
+                    <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                      {$(v.total_cost)}
+                    </div>
+                    <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                      {$(v.realized_pnl)}
+                    </div>
+                    <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                      {$(v.unrealized_pnl)}
+                    </div>
+                    <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                      {$(v.total_pnl)}
                     </div>
                   </div>
                 );
