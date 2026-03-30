@@ -688,14 +688,18 @@ export default function TradingFloorPage() {
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {g.marketLabel} in {capitalize(g.city)} {(() => {
                         const today = new Date();
-                        const target = new Date(g.targetDate + "T00:00:00");
                         const todayStr = today.toISOString().slice(0, 10);
+                        const yesterday = new Date(today);
+                        yesterday.setDate(yesterday.getDate() - 1);
+                        const yesterdayStr = yesterday.toISOString().slice(0, 10);
                         const tomorrow = new Date(today);
                         tomorrow.setDate(tomorrow.getDate() + 1);
                         const tomorrowStr = tomorrow.toISOString().slice(0, 10);
                         if (g.targetDate === todayStr) return "Today";
                         if (g.targetDate === tomorrowStr) return "Tomorrow";
-                        return `on ${target.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+                        if (g.targetDate === yesterdayStr) return "Yesterday";
+                        const target = new Date(g.targetDate + "T00:00:00");
+                        return `on ${target.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
                       })()}
                     </span>
                   </div>
