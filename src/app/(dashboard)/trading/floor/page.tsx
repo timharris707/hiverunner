@@ -433,7 +433,7 @@ export default function TradingFloorPage() {
       >
         {[
           { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true,
-            sub: kp ? `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} today` : undefined,
+            sub: kp ? `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} (24h)` : undefined,
             subColor: kp ? (kp.pnl24h >= 0 ? "#4ade80" : "#ef4444") : undefined,
           },
           { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
