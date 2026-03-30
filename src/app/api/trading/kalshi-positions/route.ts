@@ -120,7 +120,15 @@ export async function GET() {
     };
 
     const positions = openTrades.map(enrichWithSettlement);
-    const resolved = settledTrades.map(enrichWithSettlement);
+    const resolved = settledTrades.map((t) => {
+      const enriched = enrichWithSettlement(t);
+      // Compute fees from fills for settled trades
+      const fillFees = (enriched.fills as Record<string, unknown>[])?.reduce(
+        (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
+      ) ?? 0;
+      enriched.fees = fillFees;
+      return enriched;
+    });
 
     // Fetch fees per position from Kalshi portfolio positions
     const feesMap: Record<string, number> = {};
@@ -190,7 +198,12 @@ export async function GET() {
         }
       }
 
-      const fees = feesMap[ticker] ?? 0;
+      // Compute fees: prefer Kalshi positions API, fall back to fills table
+      const apiFees = feesMap[ticker];
+      const fillFees = (p.fills as Record<string, unknown>[])?.reduce(
+        (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
+      ) ?? 0;
+      const fees = apiFees ?? (fillFees > 0 ? fillFees : 0);
       return { ...p, now_price: nowPrice, fees };
     });
 
