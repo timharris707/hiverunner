@@ -30,6 +30,7 @@ import {
   Megaphone,
   Blocks,
 } from "lucide-react";
+import { useMissionControlRealtime } from "@/components/live/RealtimeProvider";
 
 interface NavItem {
   href: string;
@@ -147,12 +148,12 @@ function NavRow({ item, active, badge }: { item: NavItem; active: boolean; badge
   );
 }
 
-const IDEAS_SEEN_KEY = "ideasSeenIds";
-
 export function Dock() {
   const pathname = usePathname();
+  const realtime = useMissionControlRealtime();
   const [isMobile, setIsMobile] = useState(false);
-  const [newIdeasCount, setNewIdeasCount] = useState(0);
+  const [unprocessedIdeasCount, setUnprocessedIdeasCount] = useState(0);
+  const liveIdeasCount = realtime?.snapshot?.ideas.unprocessedCount;
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -169,43 +170,55 @@ export function Dock() {
     [pathname]
   );
 
-  const fetchNewIdeasCount = useCallback(async () => {
+  const fetchUnprocessedIdeasCount = useCallback(async () => {
     try {
       const res = await fetch("/api/ideas/processed-ids");
       if (!res.ok) return;
-      const { processedIds } = await res.json() as { processedIds: string[] };
-      const seenRaw = localStorage.getItem(IDEAS_SEEN_KEY);
-      const seenIds: string[] = seenRaw ? JSON.parse(seenRaw) : [];
-      const count = processedIds.filter((id) => !seenIds.includes(id)).length;
-      setNewIdeasCount(count);
+      const { unprocessedCount } = await res.json() as { unprocessedCount?: number };
+      setUnprocessedIdeasCount(Math.max(0, unprocessedCount ?? 0));
     } catch {
       // silently fail
     }
   }, []);
 
-  // Poll for new ideas every 60s
   useEffect(() => {
-    fetchNewIdeasCount();
-    const interval = setInterval(fetchNewIdeasCount, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchNewIdeasCount]);
-
-  // Mark all as seen when visiting /ideas
-  useEffect(() => {
-    if (pathname === "/ideas" || pathname.startsWith("/ideas/")) {
-      (async () => {
-        try {
-          const res = await fetch("/api/ideas/processed-ids");
-          if (!res.ok) return;
-          const { processedIds } = await res.json() as { processedIds: string[] };
-          localStorage.setItem(IDEAS_SEEN_KEY, JSON.stringify(processedIds));
-          setNewIdeasCount(0);
-        } catch {
-          // silently fail
-        }
-      })();
+    if (typeof liveIdeasCount === "number") {
+      setUnprocessedIdeasCount(Math.max(0, liveIdeasCount));
     }
-  }, [pathname]);
+  }, [liveIdeasCount]);
+
+  useEffect(() => {
+    if (typeof liveIdeasCount === "number") {
+      return;
+    }
+    const initialFetch = window.setTimeout(() => {
+      void fetchUnprocessedIdeasCount();
+    }, 0);
+    const interval = setInterval(fetchUnprocessedIdeasCount, 60_000);
+    return () => {
+      window.clearTimeout(initialFetch);
+      clearInterval(interval);
+    };
+  }, [fetchUnprocessedIdeasCount, liveIdeasCount]);
+
+  useEffect(() => {
+    if (typeof liveIdeasCount === "number") {
+      return;
+    }
+    const refresh = window.setTimeout(() => {
+      void fetchUnprocessedIdeasCount();
+    }, 0);
+    return () => window.clearTimeout(refresh);
+  }, [pathname, fetchUnprocessedIdeasCount, liveIdeasCount]);
+
+  useEffect(() => {
+    const handleIdeasUpdated = () => {
+      fetchUnprocessedIdeasCount();
+    };
+
+    window.addEventListener("ideas:updated", handleIdeasUpdated);
+    return () => window.removeEventListener("ideas:updated", handleIdeasUpdated);
+  }, [fetchUnprocessedIdeasCount]);
 
   // Mobile: bottom tab bar with key pages
   if (isMobile) {
@@ -302,7 +315,7 @@ export function Dock() {
               key={item.href}
               item={item}
               active={checkActive(item)}
-              badge={item.href === "/ideas" ? newIdeasCount : undefined}
+              badge={item.href === "/ideas" ? unprocessedIdeasCount : undefined}
             />
           );
         })}

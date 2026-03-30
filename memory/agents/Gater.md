@@ -36,6 +36,78 @@
 
 ## Task Log
 
+### 2026-03-30 — Gater QA review: TASK-1774891642333
+**Project:** mission-control
+**Summary:** Gater reviewed task. enshot `/trading`, not `/tasks`.  **Acceptance criteria:** - Reconciler detects in-progress tasks with no active build ✅ — both catch-all and zombie paths cover this - No manual trigger required after restart ✅ — `SERVER_BOOT_MS` fires on first 15s reconcile cycle automatically - Tasks do not sit idle with no builder ✅ — both paths feed `tasksToKick` → `queueOrStartBuild`  **B
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774891642333
+**Project:** mission-control
+**Summary:** Gater reviewed task. mbie loop (stale build-log entry with `startedAt < SERVER_BOOT_MS`) and catch-all loop (no build-log entry at all). Both paths clear state and add to `tasksToKick`. 2. **No manual trigger required after server restart** — both loops execute on every 15s reconcile cycle automatically. 3. **Tasks do not sit idle** — `tasksToKick` feeds directly into `queueOrStartBuild`, identica
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774891642333
+**Project:** mission-control
+**Summary:** Gater reviewed task. idle | `clearTransientBuildTracking` + `tasksToKick.add(task.id)` queues re-spawn in same cycle |  **Exclusion logic is sound:** - `hasScheduledRetry` — skips tasks already queued for retry - `isAwaitingReview` — skips tasks in completed/review states (would incorrectly reset them) - `isBlocked` — respects deliberate blocks  No broken imports, no TODOs, no stubs. The `!tasksTo
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774891642333
+**Project:** mission-control
+**Summary:** Gater reviewed task. ** ✓ — catch-all loop covers missing build-log entries; zombie cleanup covers stale "running" entries 2. **No manual trigger required after server restart** ✓ — both paths run automatically on every 15s reconcile cycle 3. **Tasks do not sit idle in in-progress with no builder** ✓ — zombie detection handles build-log entries whose process is dead; catch-all handles missing entr
+
+---
+
+### 2026-03-30 — Bug: Pipeline stops spawning builders after server restart — requires manual trigger
+**Project:** mission-control
+**Summary:** *Caveats:** - The 20-minute stale build timeout still runs as a secondary safety net for builds that hang during normal operation (not restart-related) - `SERVER_BOOT_MS` is set at module-load time — if Next.js hot-reloads the module without a full process restart, it resets, which is actually the desired behavior (new module load = old child processes are gone) - Builds with no `startedAt` or `qu
+
+---
+
+### 2026-03-30 — Bug: Pipeline stops spawning builders after server restart — requires manual trigger
+**Project:** mission-control
+**Summary:** ild-log entry and no scheduled retry, then re-spawns builders for them.  All three acceptance criteria are met: - **Reconciler detects in-progress tasks with no active build** — lines 1490-1510 (catch-all) + lines 1513-1537 (zombie cleanup) - **No manual trigger required after restart** — both paths run automatically on the 15s reconcile cycle - **Tasks do not sit idle** — cleared build state trig
+
+---
+
+### 2026-03-30 — Bug: Pipeline stops spawning builders after server restart — requires manual trigger
+**Project:** mission-control
+**Summary:** `panely/sprint-1` → `87e9c8df`.  **Caveats:** - The catch-all fires on every reconcile cycle (15s), so a task stuck due to `queueOrStartBuild` failing (e.g., execution key cap full) will be re-attempted each cycle until capacity opens — this is intentional self-healing behavior, not a spam risk, since `queueOrStartBuild` handles concurrency gates - The weather-trading screenshot URL was also corre
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774849547934
+**Project:** mission-control
+**Summary:** Gater reviewed task. ✓ Read-only estimation function — minor display inaccuracy pre-cleanup is non-blocking |  **Root causes addressed:** 1. Orphaned builds in build-log.json blocking capacity → ✓ Cleaned before promotion sweep 2. `advanceTasks` not detecting freed slots → ✓ Fixed via direct count + `promotedPerKey` 3. Agent ID mismatch causing stale "active" entries → ✓ Addressed by task-status-b
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774887958635
+**Project:** mission-control
+**Summary:** Gater reviewed task. VisualQAChecklist()` in `visual-qa.ts`, imported and injected | | No Sprint 3 until this ships | ✓ — shipped in `afd34be5` |  ### One Minor Inconsistency (non-blocking) `VISUAL_REVIEW_TAGS` in `build-queue.ts` omits `"dashboard"` while `agent-pipeline.ts` includes it. A task tagged only `"dashboard"` gets the checklist injected but bypasses the `APPROVED→BLOCKED` override. Tas
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774849547934
+**Project:** mission-control
+**Summary:** Gater reviewed task. with task ID and reason | | `MAX_CONCURRENT_BUILDS_PER_KEY` respected | ✓ `effectiveActive >= MAX_CONCURRENT_BUILDS_PER_KEY` (3) is the gate | | `findActiveEntryForExecutionKey` consistency | ✓ Also uses `ACTIVE_BUILD_STATUSES` — both code paths consistent | | No regressions | ✓ Single-file change, surgical fix, no interface changes |  The three root causes are precisely ident
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774882957211
+**Project:** weather-trading
+**Summary:** Gater reviewed task. ter 3 cycles | ✓ — dedup logic is fully wired to live Kalshi API; static verification confirms all call sites correct |  ### No Issues Found - API failure paths are non-fatal (fall through to local DB) — correct for trading safety - `_existing_contract_ids` is updated immediately after a placed trade, not just after the full batch — prevents same-run duplicates correctly - Bra
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774882549517
+**Project:** mission-control
+**Summary:** Gater reviewed task. | Persists on refresh | ✓ — sort derived entirely from persisted task fields, no ephemeral state |  **Visual QA:** - **Chromium:** 6-column board renders correctly. Blocked column visible (orange X header, 2 tasks). Review mirror cards show "Current: In Progress" badge. P0 tasks lead In Progress and Review columns. ✓ - **WebKit:** Responsive 2-col layout renders cleanly, no la
+
+---
+
 ### 2026-03-30 — Gater QA review: TASK-1774854942232
 **Project:** mission-control
 **Summary:** Gater reviewed task. ` → `slice(-3)` (line 1889) | ✓ Last 3 lines enforced | | `seenEventIdsRef` dedup (lines 1825/1844-1853) | ✓ No duplicate SSE lines on reconnect | | `isActiveBuild` gate (line 2173) | ✓ Feed collapses when idle | | `isRunning` fix — `lastEvent?.status === "running" \|\| lastEvent?.action !== "DONE"` | ✓ Correct | | Build | ✓ Clean | | Tests | N/A (no test script) | | Chromium 

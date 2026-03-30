@@ -46,6 +46,129 @@
 
 ## Task Log
 
+### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** it up | | Quant reviews and approves | **Requires human sign-off** — cannot be completed by an agent |  This task is **already complete** (commit `112b81a`). The uncommitted `server.py`/`trades.html` diffs are from a separate dashboard task, not this one.  **Remaining caveats:** - Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE s
+
+---
+
+### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** e version string, all new trades get it) | | Quant reviews and approves scheme | **Requires human sign-off** |  ### Remaining Caveats - Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''` - The uncommitted `server.py`/`trades.html` diffs are **separate dashboard improvements**, not part of this task - "Quant re
+
+---
+
+### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** on, stamped on every trade at placement time, surfaced in all API endpoints, and displayed in the Trading Desk UI. The only remaining acceptance criterion is "Quant reviews and approves the versioning scheme" which requires human sign-off.  **Caveats:** - Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''` - Th
+
+---
+
+### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** om a separate task.  **Validation:** 9 tests pass, 6 skipped (pre-existing `pytest-asyncio` gap).  **Caveats:** - Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''` - "Quant reviews and approves the versioning scheme" acceptance criterion requires human sign-off - The uncommitted `trades.html` changes (improve
+
+---
+
+### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** ) and all subsequent trades get the new version stamp.  **Validation:** 9 API tests pass, 4 skipped. Pre-existing failures (pytest-asyncio missing, test_storage) are unrelated.  **Caveats:** - Existing live trades will have `strategy_version = ''` (empty string). These can be backfilled with a one-liner SQL if needed: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''` - 
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** ytest plugin is missing. - `git commit`: failed with `.git/index.lock: Operation not permitted`, so I could not commit or push.  Known issues / caveats: - The risk-controls line called out in the ticket was already correct in this checkout; the local work was a consistency pass on adjacent dashboard endpoints. - To finish the screenshot-target bug and satisfy `npm run build`, this task needs to be
+**Known Issues:**
+- The risk-controls line called out in the ticket was already correct in this checkout; the local work was a consistency pass on adjacent dashboard endpoints.
+- To finish the screenshot-target bug and satisfy `npm run build`, this task needs to be run in the `mission-control-app` workspace with git write access and its Node toolchain available.
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** e.ts#L496](/Users/timharris/.openclaw/workspace/projects/mission-control-app/src/lib/build-queue.ts#L496) from `http://localhost:8050/trades` to `http://localhost:3001/trading`.  Caveats / lessons learned: - This ticket is still mixed across `weather-trading` and `mission-control-app`. - The blocking issue is environmental, not ambiguity in the bug: the exact unresolved line is identified. - Until
+**Lessons:**
+- This ticket is still mixed across `weather-trading` and `mission-control-app`.
+- The blocking issue is environmental, not ambiguity in the bug: the exact unresolved line is identified.
+- Until `mission-control-app` is writable/buildable, I cannot complete the requested fix, commit, or push.
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** ot possible from this environment  Caveats / lessons learned: - The QA ticket is still mixing `weather-trading` and `mission-control-app`. - Both specific bugs called out are already fixed in the checked codepaths; the only actionable work I could do here was add regression coverage in `weather-trading`. - If you want this fully closed against the original checklist, it needs to be executed in the
+**Lessons:**
+- The QA ticket is still mixing `weather-trading` and `mission-control-app`.
+- Both specific bugs called out are already fixed in the checked codepaths; the only actionable work I could do here was add regression coverage in `weather-trading`.
+- If you want this fully closed against the original checklist, it needs to be executed in the `mission-control-app` workspace with git write access and the correct build command for that repo.
+
+---
+
+### 2026-03-30 — Bug: Pipeline stops spawning builders after server restart — requires manual trigger
+**Project:** mission-control
+**Summary:** an.  **Caveats:** - The 20-minute stale build timeout still runs as a secondary safety net for builds that hang during normal operation (not restart-related) - `SERVER_BOOT_MS` is set at module-load time — if Next.js hot-reloads the module without a full process restart, it resets, which is actually the desired behavior (new module load = old child processes are gone) - Builds with no `startedAt` 
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** rket` import missing).  Caveats / lessons learned: - The task description mixed two repos: `weather-trading` for the FastAPI dashboard and `mission-control-app` for visual QA capture. - There are no code changes, so no commit or push was possible. - If you want this fully closed, the next action is to run this task in the `mission-control-app` workspace and patch [build-queue.ts](/Users/timharris/
+**Lessons:**
+- The task description mixed two repos: `weather-trading` for the FastAPI dashboard and `mission-control-app` for visual QA capture.
+- There are no code changes, so no commit or push was possible.
+- If you want this fully closed, the next action is to run this task in the `mission-control-app` workspace and patch [build-queue.ts](/Users/timharris/.openclaw/workspace/projects/mission-control-app/src/lib/build-queue.ts#L490) to target `/trading`.
+
+---
+
+### 2026-03-30 — Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens
+**Project:** mission-control
+**Summary:** ing for the 20-minute stale timeout.  **Validation:** `npm run build` passes clean. Pushed to `panely/sprint-1` → `828183ac`.  **Caveats:** - The 20-minute stale build timeout still runs as a secondary safety net for builds that are genuinely hanging (task exists but build is stuck) - If a task is deleted while its build is actively running, the build process will continue to completion but its bu
+
+---
+
+### 2026-03-30 — QA must include visual verification — Playwright screenshot comparison on every UI task
+**Project:** mission-control
+**Summary:** mit `afd34be5` |  ### Build: `npm run build` passes clean.  ### Caveats - Evidence detection (`hasVisualVerificationEvidence`) uses keyword matching — if Gater's output rephrases significantly, it may still pass or get incorrectly blocked - Only tasks tagged with `VISUAL_REVIEW_TAGS` (`ui`, `frontend`, `component`, `page`, `visual`, `design`, `css`, `layout`, `task-board`) trigger the visual gate 
+
+---
+
+### 2026-03-30 — Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens
+**Project:** mission-control
+**Summary:** full or `transitionTask` blocked), so the reason tasks sit in on-deck is visible in logs.  **Validation:** `npm run build` clean. Tests have pre-existing Babel config issues (unrelated).  **Caveats:** - Tasks without `acceptance_criteria` will still be blocked by `transitionTask` — this is correct state machine behavior, but now it's logged so it's visible. - The per-agent concurrency gate remains
+
+---
+
+### 2026-03-30 — QA must include visual verification — Playwright screenshot comparison on every UI task
+**Project:** mission-control
+**Summary:** pm run build` clean. Pushed to `panely/sprint-1` → `afd34be5`.  **Caveats:** - The evidence detection (`hasVisualVerificationEvidence`) uses keyword matching — if Gater's output mentions screenshots and API comparison in a different phrasing, it will still pass; if it completely omits these terms, it gets blocked - Pre-existing Jest test failures (babel parser issues) are unrelated to this change 
+
+---
+
+### 2026-03-30 — Bug: Watcher placing duplicate orders on same contract within minutes
+**Project:** weather-trading
+**Summary:** typical 5-10 candidates per scan, that's ~20 extra calls — well within Kalshi rate limits but worth noting. - Verification against live Kalshi state requires 3 scan cycles with real market data. The `_has_kalshi_position_or_order` check should be observed in run logs showing "Trade rejected (Kalshi dedup)" for any contract that already has a position or resting order. - The DC 68-69° bracket bet (
+
+---
+
+### 2026-03-30 — Fix weather trading P&L data integrity — DB must match Kalshi reality
+**Project:** weather-trading
+**Summary:** QA confirms | Pending — Gater should run `python scripts/verify_settlements_kalshi.py` and check `data/last_reconciliation.json` balance_delta ≤ $1 (weather-only) |  ## Caveats - The 167 test failures are pre-existing and unrelated to this work - Reconciliation requires live Kalshi API credentials (`.env`) - Trades without an `order_id` (e.g., failed trade `d72d521e`) can't be matched — flagged bu
+
+---
+
+### 2026-03-30 — Fix weather trading P&L data integrity — DB must match Kalshi reality
+**Project:** weather-trading
+**Summary:** --|-------| | Settled P&L | +$3,635 | -$100.53 | | Balance delta | -$3,708 | +$94 (expected, non-weather) | | Record | 40W/12L (fake) | 8W/50L (real) | | Missing orders | 0 | 0 | | Paper trades | 0 | 0 | | Phantom trades | 1 (resting) | 1 (resting) |  The $94 balance gap is from 15 non-weather orders (UFC, NFL, etc.) that are deliberately excluded from the weather-only DB. Settlement reconciliatio
+
+---
+
+### 2026-03-30 — Fix weather trading P&L data integrity — DB must match Kalshi reality
+**Project:** weather-trading
+**Summary:** local trade matched against Kalshi fills by order_id - Paper trade detection: cross-checks against `paper_trading.db` - P&L per trade: verified using actual Kalshi fill data (count, price, settlement)  **Caveats:** - Reconciliation requires live Kalshi API credentials (`.env`) - Trades without `order_id` (e.g., failed trades) can't be matched — flagged but not corrected - Non-weather fills (UFC, N
+
+---
+
 ### 2026-03-30 — Fix weather trading P&L data integrity — DB must match Kalshi reality
 **Project:** weather-trading
 **Summary:** . Gater (QA) should then compare `data/last_reconciliation.json` balance_delta to verify it's within $1.  ### Caveats - The reconciliation script requires Kalshi API credentials (`.env` with `KALSHI_API_KEY`) - Trades without an `order_id` (e.g., the failed trade `d72d521e`) can't be matched to Kalshi fills — they're flagged but not corrected - Non-weather fills (UFC, NFL) are excluded from reconc

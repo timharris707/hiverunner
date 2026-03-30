@@ -1,5 +1,373 @@
 [
   {
+    "id": "pipeline-1774892106738-0okz7f",
+    "name": "[CONTRACT] source=idea-intake",
+    "description": "Source type test",
+    "source": "idea-intake",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:35:06.738Z",
+    "updatedAt": "2026-03-30T17:35:06.738Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:35:06.738Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892106732-l6zci9",
+    "name": "[CONTRACT] source=reddit",
+    "description": "Source type test",
+    "source": "reddit",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:35:06.732Z",
+    "updatedAt": "2026-03-30T17:35:06.732Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:35:06.732Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892106721-t8rj2e",
+    "name": "[CONTRACT] source=manual",
+    "description": "Source type test",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:35:06.721Z",
+    "updatedAt": "2026-03-30T17:35:06.721Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:35:06.721Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892106708-gjr8d0",
+    "name": "[CONTRACT] Test pipeline",
+    "description": "Created by contract test suite — safe to delete",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:35:06.708Z",
+    "updatedAt": "2026-03-30T17:35:06.708Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Created by contract test suite — safe to delete",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:35:06.708Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892074392-ss7gkk",
+    "name": "[CONTRACT] source=idea-intake",
+    "description": "Source type test",
+    "source": "idea-intake",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:34:34.391Z",
+    "updatedAt": "2026-03-30T17:34:34.391Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:34:34.391Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892074384-ajn4n9",
+    "name": "[CONTRACT] source=reddit",
+    "description": "Source type test",
+    "source": "reddit",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:34:34.384Z",
+    "updatedAt": "2026-03-30T17:34:34.384Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:34:34.384Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892074378-2e1r6l",
+    "name": "[CONTRACT] source=manual",
+    "description": "Source type test",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:34:34.378Z",
+    "updatedAt": "2026-03-30T17:34:34.378Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:34:34.378Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774892074365-u1svye",
+    "name": "[CONTRACT] Test pipeline",
+    "description": "Created by contract test suite — safe to delete",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T17:34:34.365Z",
+    "updatedAt": "2026-03-30T17:34:34.365Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Created by contract test suite — safe to delete",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T17:34:34.365Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889489757-n87x86",
+    "name": "[CONTRACT] source=idea-intake",
+    "description": "Source type test",
+    "source": "idea-intake",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:29.757Z",
+    "updatedAt": "2026-03-30T16:51:29.757Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:29.757Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889489750-yv1u48",
+    "name": "[CONTRACT] source=reddit",
+    "description": "Source type test",
+    "source": "reddit",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:29.750Z",
+    "updatedAt": "2026-03-30T16:51:29.750Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:29.750Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889489743-tjjug6",
+    "name": "[CONTRACT] source=manual",
+    "description": "Source type test",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:29.743Z",
+    "updatedAt": "2026-03-30T16:51:29.743Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:29.743Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889489731-zacr2i",
+    "name": "[CONTRACT] Test pipeline",
+    "description": "Created by contract test suite — safe to delete",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:29.731Z",
+    "updatedAt": "2026-03-30T16:51:29.731Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Created by contract test suite — safe to delete",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:29.731Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889460788-jde9ro",
+    "name": "[CONTRACT] source=idea-intake",
+    "description": "Source type test",
+    "source": "idea-intake",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:00.788Z",
+    "updatedAt": "2026-03-30T16:51:00.788Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:00.788Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889460782-f67z02",
+    "name": "[CONTRACT] source=reddit",
+    "description": "Source type test",
+    "source": "reddit",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:00.782Z",
+    "updatedAt": "2026-03-30T16:51:00.782Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:00.782Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889460776-6v3qo5",
+    "name": "[CONTRACT] source=manual",
+    "description": "Source type test",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:00.775Z",
+    "updatedAt": "2026-03-30T16:51:00.775Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Source type test",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:00.775Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
+    "id": "pipeline-1774889460764-imtx6w",
+    "name": "[CONTRACT] Test pipeline",
+    "description": "Created by contract test suite — safe to delete",
+    "source": "manual",
+    "stage": "idea",
+    "status": "active",
+    "createdAt": "2026-03-30T16:51:00.764Z",
+    "updatedAt": "2026-03-30T16:51:00.764Z",
+    "assignedAgent": "scout",
+    "idea": {
+      "problem": "Created by contract test suite — safe to delete",
+      "targetAudience": "TBD"
+    },
+    "stageHistory": [
+      {
+        "from": "created",
+        "to": "idea",
+        "timestamp": "2026-03-30T16:51:00.764Z",
+        "agent": "system"
+      }
+    ]
+  },
+  {
     "id": "pipeline-1774848231665-0e3hpl",
     "name": "[CONTRACT] source=idea-intake",
     "description": "Source type test",

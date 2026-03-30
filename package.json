@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0",
+    "dev": "NODE_ENV=development node server.js",
     "build": "next build --experimental-build-mode compile",
-    "start": "next start -H 0.0.0.0",
+    "start": "NODE_ENV=production node server.js",
     "lint": "eslint",
     "mc": "npx tsx scripts/mc.ts",
     "test:e2e": "playwright test",
@@ -33,7 +33,8 @@
     "react-markdown": "^10.1.0",
     "recharts": "^2.15.4",
     "remark-gfm": "^4.0.1",
-    "three": "^0.183.0"
+    "three": "^0.183.0",
+    "ws": "^8.18.2"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

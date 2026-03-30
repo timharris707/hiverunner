@@ -944,6 +944,7 @@ export default function IdeasPage() {
       const res = await fetch("/api/ideas");
       const data = await res.json();
       setReviews(data.reviews ?? []);
+      window.dispatchEvent(new Event("ideas:updated"));
     } catch {
       /* silent */
     } finally {

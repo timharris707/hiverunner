@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { readReviews, writeReviews } from "../route";
+import { readReviews, writeReviews } from "@/lib/ideas-store";
 
 export async function PUT(
   req: NextRequest,

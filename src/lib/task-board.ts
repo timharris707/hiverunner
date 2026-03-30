@@ -1,10 +1,21 @@
 export type TaskBoardStatus = "backlog" | "on-deck" | "in-progress" | "review" | "done" | "blocked";
-export type TaskBoardColumnStatus = Exclude<TaskBoardStatus, "blocked">;
+export type TaskBoardColumnStatus = TaskBoardStatus;
 
 export type TaskBoardTask = {
   id: string;
   status: TaskBoardStatus;
+  priority?: "P0" | "P1" | "P2" | "P3" | string;
+  buildState?: string;
+  buildTriggeredAt?: string;
+  buildQueuedAt?: string;
+  buildStartedAt?: string;
+  buildCompletedAt?: string;
+  activeBuildId?: string;
+  comments?: Array<{ timestamp?: string; author?: string }>;
+  assignedAgent?: string;
+  reviewAssignedTo?: string;
   updated?: string;
+  completedAt?: string;
   reviewStatus?: string;
   reviewRequired?: boolean;
   reviewRequestedAt?: string;
@@ -14,10 +25,15 @@ export type TaskBoardTask = {
   lastReviewAt?: string;
 };
 
-const REVIEW_TERMINAL_STATUSES = new Set(["approved", "rejected", "changes-requested", "blocked"]);
-const REVIEW_ACTIVE_STATUSES = new Set(["gater-reviewing"]);
-const REVIEW_ACTIVE_CODE_STATES = new Set(["pending", "running"]);
-const REVIEW_MIRROR_WINDOW_MS = 24 * 60 * 60 * 1000;
+const ACTIVE_BUILD_STATES = new Set(["running"]);
+const ACTIVE_REVIEW_STATES = new Set(["gater-reviewing"]);
+const ACTIVE_REVIEW_CODE_STATES = new Set(["running"]);
+const PRIORITY_ORDER: Record<string, number> = {
+  P0: 0,
+  P1: 1,
+  P2: 2,
+  P3: 3,
+};
 
 function parseTimestamp(value?: string): number | null {
   if (!value) return null;
@@ -25,45 +41,96 @@ function parseTimestamp(value?: string): number | null {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
-export function getReviewActivityTimestamp(task: TaskBoardTask): number | null {
+function getLatestTimestamp(values: Array<string | undefined>): number | null {
+  let latest: number | null = null;
+  for (const value of values) {
+    const parsed = parseTimestamp(value);
+    if (parsed !== null && (latest === null || parsed > latest)) {
+      latest = parsed;
+    }
+  }
+  return latest;
+}
+
+function getLatestCommentTimestamp(task: TaskBoardTask): number | null {
+  if (!Array.isArray(task.comments) || task.comments.length === 0) return null;
+  let latest: number | null = null;
+  for (const comment of task.comments) {
+    const parsed = parseTimestamp(comment.timestamp);
+    if (parsed !== null && (latest === null || parsed > latest)) {
+      latest = parsed;
+    }
+  }
+  return latest;
+}
+
+export function getTaskPriorityRank(task: TaskBoardTask): number {
+  return PRIORITY_ORDER[task.priority || ""] ?? PRIORITY_ORDER.P2;
+}
+
+export function hasActiveTaskWork(task: TaskBoardTask): boolean {
   return (
-    parseTimestamp(task.lastReviewAt) ??
-    parseTimestamp(task.reviewCompletedAt) ??
-    parseTimestamp(task.reviewRequestedAt) ??
-    parseTimestamp(task.updated)
+    ACTIVE_BUILD_STATES.has(task.buildState || "") ||
+    ACTIVE_REVIEW_STATES.has(task.reviewStatus || "") ||
+    ACTIVE_REVIEW_CODE_STATES.has(task.codeReviewState || "")
   );
 }
 
-export function hasTerminalReviewVerdict(task: TaskBoardTask): boolean {
+export function getTaskActivityTimestamp(task: TaskBoardTask): number | null {
   return (
-    REVIEW_TERMINAL_STATUSES.has(task.reviewStatus || "") ||
-    task.lastReviewVerdict === "APPROVED" ||
-    task.lastReviewVerdict === "NEEDS_FIX"
+    getLatestTimestamp([
+      task.buildStartedAt,
+      task.buildQueuedAt,
+      task.buildTriggeredAt,
+      task.lastReviewAt,
+      task.reviewRequestedAt,
+      task.reviewCompletedAt,
+    ]) ??
+    getLatestCommentTimestamp(task) ??
+    null
   );
 }
 
-export function shouldMirrorTaskIntoReviewColumn(task: TaskBoardTask, now = Date.now()): boolean {
-  if (task.status === "review") return false;
+export function hasAgentActivity(task: TaskBoardTask): boolean {
+  return (
+    hasActiveTaskWork(task) ||
+    Boolean(task.activeBuildId) ||
+    Boolean(task.assignedAgent) ||
+    Boolean(task.reviewAssignedTo) ||
+    getTaskActivityTimestamp(task) !== null
+  );
+}
 
-  if (
-    REVIEW_ACTIVE_STATUSES.has(task.reviewStatus || "") ||
-    REVIEW_ACTIVE_CODE_STATES.has(task.codeReviewState || "")
-  ) {
-    return true;
+function compareDescTimestamps(a: number | null, b: number | null): number {
+  return (b ?? 0) - (a ?? 0);
+}
+
+export function compareTaskBoardItems(a: TaskBoardTask, b: TaskBoardTask, status: TaskBoardColumnStatus): number {
+  if (status === "done") {
+    return compareDescTimestamps(
+      parseTimestamp(a.completedAt) ?? parseTimestamp(a.buildCompletedAt) ?? parseTimestamp(a.reviewCompletedAt) ?? parseTimestamp(a.updated),
+      parseTimestamp(b.completedAt) ?? parseTimestamp(b.buildCompletedAt) ?? parseTimestamp(b.reviewCompletedAt) ?? parseTimestamp(b.updated),
+    );
   }
 
-  if (!hasTerminalReviewVerdict(task)) return false;
+  const priorityCompare = getTaskPriorityRank(a) - getTaskPriorityRank(b);
+  if (priorityCompare !== 0) return priorityCompare;
 
-  const reviewAt = getReviewActivityTimestamp(task);
-  if (reviewAt === null) return false;
+  const activeCompare = Number(hasActiveTaskWork(b)) - Number(hasActiveTaskWork(a));
+  if (activeCompare !== 0) return activeCompare;
 
-  return now - reviewAt <= REVIEW_MIRROR_WINDOW_MS;
+  const agentActivityCompare = Number(hasAgentActivity(b)) - Number(hasAgentActivity(a));
+  if (agentActivityCompare !== 0) return agentActivityCompare;
+
+  const activityCompare = compareDescTimestamps(getTaskActivityTimestamp(a), getTaskActivityTimestamp(b));
+  if (activityCompare !== 0) return activityCompare;
+
+  return compareDescTimestamps(parseTimestamp(a.updated), parseTimestamp(b.updated));
 }
 
 export function buildTasksByStatus<T extends TaskBoardTask>(
   tasks: T[],
   statuses: readonly TaskBoardColumnStatus[],
-  now = Date.now(),
 ): Record<TaskBoardColumnStatus, T[]> {
   const buckets = Object.fromEntries(statuses.map((status) => [status, [] as T[]])) as Record<TaskBoardColumnStatus, T[]>;
 
@@ -73,13 +140,9 @@ export function buildTasksByStatus<T extends TaskBoardTask>(
     }
   }
 
-  for (const task of tasks) {
-    if (shouldMirrorTaskIntoReviewColumn(task, now)) {
-      buckets.review.push(task);
-    }
+  for (const status of statuses) {
+    buckets[status].sort((a, b) => compareTaskBoardItems(a, b, status));
   }
-
-  buckets.review.sort((a, b) => (getReviewActivityTimestamp(b) || 0) - (getReviewActivityTimestamp(a) || 0));
 
   return buckets;
 }

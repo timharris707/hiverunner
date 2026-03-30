@@ -1,13 +1,7 @@
 import { NextResponse } from "next/server";
-import { getQuotaSummary } from "@/lib/quota-scheduler";
 import { getDashboardStats } from "@/lib/dashboard-stats";
 
 export const dynamic = "force-dynamic";
-
-interface AgentCostBreakdown {
-  agent: string;
-  cost: number;
-}
 
 const EMPTY_METRICS = {
   activeAgents: {
@@ -46,17 +40,7 @@ const EMPTY_METRICS = {
 
 export async function GET() {
   try {
-    const baseStats = getDashboardStats();
-    const quotaSummary = getQuotaSummary();
-    const costByAgentToday: AgentCostBreakdown[] = quotaSummary.byAgent.map((entry) => ({
-      agent: entry.agent,
-      cost: parseFloat(entry.cost.toFixed(4)),
-    }));
-
-    return NextResponse.json({
-      ...baseStats,
-      costByAgentToday,
-    });
+    return NextResponse.json(getDashboardStats());
   } catch (error) {
     console.error("[dashboard/stats] Error:", error);
     return NextResponse.json(

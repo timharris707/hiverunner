@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
 import { queueOrStartBuild, readTasks, writeTasks } from "@/lib/build-queue";
-import { readReviews, writeReviews } from "../../../../route";
+import { readReviews, writeReviews } from "@/lib/ideas-store";
 
 const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
 

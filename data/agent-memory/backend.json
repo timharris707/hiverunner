@@ -4,6 +4,201 @@
   "role": "Backend Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774891981930",
+      "taskTitle": "Strategy versioning — every trade must record which strategy version placed it",
+      "project": "weather-trading",
+      "summary": "it up |\n| Quant reviews and approves | **Requires human sign-off** — cannot be completed by an agent |\n\nThis task is **already complete** (commit `112b81a`). The uncommitted `server.py`/`trades.html` diffs are from a separate dashboard task, not this one.\n\n**Remaining caveats:**\n- Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''`\n- \"Quant reviews and approves the versioning scheme\" requires human sign-off",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774894691092-u25w",
+      "timestamp": "2026-03-30T18:18:11.092Z"
+    },
+    {
+      "taskId": "TASK-1774891981930",
+      "taskTitle": "Strategy versioning — every trade must record which strategy version placed it",
+      "project": "weather-trading",
+      "summary": "e version string, all new trades get it) |\n| Quant reviews and approves scheme | **Requires human sign-off** |\n\n### Remaining Caveats\n- Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''`\n- The uncommitted `server.py`/`trades.html` diffs are **separate dashboard improvements**, not part of this task\n- \"Quant reviews and approves the versioning scheme\" requires human sign-off — cannot be completed by an agent",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774894406551-lc1i",
+      "timestamp": "2026-03-30T18:13:26.551Z"
+    },
+    {
+      "taskId": "TASK-1774891981930",
+      "taskTitle": "Strategy versioning — every trade must record which strategy version placed it",
+      "project": "weather-trading",
+      "summary": "on, stamped on every trade at placement time, surfaced in all API endpoints, and displayed in the Trading Desk UI. The only remaining acceptance criterion is \"Quant reviews and approves the versioning scheme\" which requires human sign-off.\n\n**Caveats:**\n- Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''`\n- The uncommitted `server.py`/`trades.html` changes are unrelated dashboard work, not part of this task",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774894088989-vigb",
+      "timestamp": "2026-03-30T18:08:08.989Z"
+    },
+    {
+      "taskId": "TASK-1774891981930",
+      "taskTitle": "Strategy versioning — every trade must record which strategy version placed it",
+      "project": "weather-trading",
+      "summary": "om a separate task.\n\n**Validation:** 9 tests pass, 6 skipped (pre-existing `pytest-asyncio` gap).\n\n**Caveats:**\n- Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''`\n- \"Quant reviews and approves the versioning scheme\" acceptance criterion requires human sign-off\n- The uncommitted `trades.html` changes (improved sorting, settlement countdown, Kalshi balance sourcing) are separate work — not part of this task",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892791738-nkux",
+      "timestamp": "2026-03-30T17:46:31.738Z"
+    },
+    {
+      "taskId": "TASK-1774891981930",
+      "taskTitle": "Strategy versioning — every trade must record which strategy version placed it",
+      "project": "weather-trading",
+      "summary": ") and all subsequent trades get the new version stamp.\n\n**Validation:** 9 API tests pass, 4 skipped. Pre-existing failures (pytest-asyncio missing, test_storage) are unrelated.\n\n**Caveats:**\n- Existing live trades will have `strategy_version = ''` (empty string). These can be backfilled with a one-liner SQL if needed: `UPDATE live_trades SET strategy_version = '1.0' WHERE strategy_version = ''`\n- The \"Quant reviews and approves the versioning scheme\" acceptance criterion requires human sign-off",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892298381-j3a1",
+      "timestamp": "2026-03-30T17:38:18.381Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "ytest plugin is missing.\n- `git commit`: failed with `.git/index.lock: Operation not permitted`, so I could not commit or push.\n\nKnown issues / caveats:\n- The risk-controls line called out in the ticket was already correct in this checkout; the local work was a consistency pass on adjacent dashboard endpoints.\n- To finish the screenshot-target bug and satisfy `npm run build`, this task needs to be run in the `mission-control-app` workspace with git write access and its Node toolchain available.",
+      "lessons": [],
+      "knownIssues": [
+        "The risk-controls line called out in the ticket was already correct in this checkout; the local work was a consistency pass on adjacent dashboard endpoints.",
+        "To finish the screenshot-target bug and satisfy `npm run build`, this task needs to be run in the `mission-control-app` workspace with git write access and its Node toolchain available."
+      ],
+      "id": "mem-1774892074206-c6um",
+      "timestamp": "2026-03-30T17:34:34.206Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "e.ts#L496](/Users/timharris/.openclaw/workspace/projects/mission-control-app/src/lib/build-queue.ts#L496) from `http://localhost:8050/trades` to `http://localhost:3001/trading`.\n\nCaveats / lessons learned:\n- This ticket is still mixed across `weather-trading` and `mission-control-app`.\n- The blocking issue is environmental, not ambiguity in the bug: the exact unresolved line is identified.\n- Until `mission-control-app` is writable/buildable, I cannot complete the requested fix, commit, or push.",
+      "lessons": [
+        "This ticket is still mixed across `weather-trading` and `mission-control-app`.",
+        "The blocking issue is environmental, not ambiguity in the bug: the exact unresolved line is identified.",
+        "Until `mission-control-app` is writable/buildable, I cannot complete the requested fix, commit, or push."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774892045366-z6yv",
+      "timestamp": "2026-03-30T17:34:05.366Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "ot possible from this environment\n\nCaveats / lessons learned:\n- The QA ticket is still mixing `weather-trading` and `mission-control-app`.\n- Both specific bugs called out are already fixed in the checked codepaths; the only actionable work I could do here was add regression coverage in `weather-trading`.\n- If you want this fully closed against the original checklist, it needs to be executed in the `mission-control-app` workspace with git write access and the correct build command for that repo.",
+      "lessons": [
+        "The QA ticket is still mixing `weather-trading` and `mission-control-app`.",
+        "Both specific bugs called out are already fixed in the checked codepaths; the only actionable work I could do here was add regression coverage in `weather-trading`.",
+        "If you want this fully closed against the original checklist, it needs to be executed in the `mission-control-app` workspace with git write access and the correct build command for that repo."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774891874914-1bdx",
+      "timestamp": "2026-03-30T17:31:14.914Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Bug: Pipeline stops spawning builders after server restart — requires manual trigger",
+      "project": "mission-control",
+      "summary": "an.\n\n**Caveats:**\n- The 20-minute stale build timeout still runs as a secondary safety net for builds that hang during normal operation (not restart-related)\n- `SERVER_BOOT_MS` is set at module-load time — if Next.js hot-reloads the module without a full process restart, it resets, which is actually the desired behavior (new module load = old child processes are gone)\n- Builds with no `startedAt` or `queuedAt` timestamp are skipped by this check and handled by the existing orphan detection path",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774891789611-fol0",
+      "timestamp": "2026-03-30T17:29:49.611Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "rket` import missing).\n\nCaveats / lessons learned:\n- The task description mixed two repos: `weather-trading` for the FastAPI dashboard and `mission-control-app` for visual QA capture.\n- There are no code changes, so no commit or push was possible.\n- If you want this fully closed, the next action is to run this task in the `mission-control-app` workspace and patch [build-queue.ts](/Users/timharris/.openclaw/workspace/projects/mission-control-app/src/lib/build-queue.ts#L490) to target `/trading`.",
+      "lessons": [
+        "The task description mixed two repos: `weather-trading` for the FastAPI dashboard and `mission-control-app` for visual QA capture.",
+        "There are no code changes, so no commit or push was possible.",
+        "If you want this fully closed, the next action is to run this task in the `mission-control-app` workspace and patch [build-queue.ts](/Users/timharris/.openclaw/workspace/projects/mission-control-app/src/lib/build-queue.ts#L490) to target `/trading`."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774891730918-vm8j",
+      "timestamp": "2026-03-30T17:28:50.918Z"
+    },
+    {
+      "taskId": "TASK-1774849547934",
+      "taskTitle": "Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens",
+      "project": "mission-control",
+      "summary": "ing for the 20-minute stale timeout.\n\n**Validation:** `npm run build` passes clean. Pushed to `panely/sprint-1` → `828183ac`.\n\n**Caveats:**\n- The 20-minute stale build timeout still runs as a secondary safety net for builds that are genuinely hanging (task exists but build is stuck)\n- If a task is deleted while its build is actively running, the build process will continue to completion but its build-log entry gets cleaned up on next reconcile sweep — the process output is effectively discarded",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774889198233-706c",
+      "timestamp": "2026-03-30T16:46:38.233Z"
+    },
+    {
+      "taskId": "TASK-1774887958635",
+      "taskTitle": "QA must include visual verification — Playwright screenshot comparison on every UI task",
+      "project": "mission-control",
+      "summary": "mit `afd34be5` |\n\n### Build: `npm run build` passes clean.\n\n### Caveats\n- Evidence detection (`hasVisualVerificationEvidence`) uses keyword matching — if Gater's output rephrases significantly, it may still pass or get incorrectly blocked\n- Only tasks tagged with `VISUAL_REVIEW_TAGS` (`ui`, `frontend`, `component`, `page`, `visual`, `design`, `css`, `layout`, `task-board`) trigger the visual gate — non-UI tasks are unaffected\n- Pre-existing Jest test failures (babel parser issues) are unrelated",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888470541-r4ed",
+      "timestamp": "2026-03-30T16:34:30.541Z"
+    },
+    {
+      "taskId": "TASK-1774849547934",
+      "taskTitle": "Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens",
+      "project": "mission-control",
+      "summary": "full or `transitionTask` blocked), so the reason tasks sit in on-deck is visible in logs.\n\n**Validation:** `npm run build` clean. Tests have pre-existing Babel config issues (unrelated).\n\n**Caveats:**\n- Tasks without `acceptance_criteria` will still be blocked by `transitionTask` — this is correct state machine behavior, but now it's logged so it's visible.\n- The per-agent concurrency gate remains disabled per Sprint 2 decision; the execution key cap (3 per repo) is the only concurrency guard.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888380127-0ud1",
+      "timestamp": "2026-03-30T16:33:00.127Z"
+    },
+    {
+      "taskId": "TASK-1774887958635",
+      "taskTitle": "QA must include visual verification — Playwright screenshot comparison on every UI task",
+      "project": "mission-control",
+      "summary": "pm run build` clean. Pushed to `panely/sprint-1` → `afd34be5`.\n\n**Caveats:**\n- The evidence detection (`hasVisualVerificationEvidence`) uses keyword matching — if Gater's output mentions screenshots and API comparison in a different phrasing, it will still pass; if it completely omits these terms, it gets blocked\n- Pre-existing Jest test failures (babel parser issues) are unrelated to this change\n- The runtime gate only fires for tasks matching `VISUAL_REVIEW_TAGS` — non-UI tasks are unaffected",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888257104-hfhf",
+      "timestamp": "2026-03-30T16:30:57.104Z"
+    },
+    {
+      "taskId": "TASK-1774882957211",
+      "taskTitle": "Bug: Watcher placing duplicate orders on same contract within minutes",
+      "project": "weather-trading",
+      "summary": "typical 5-10 candidates per scan, that's ~20 extra calls — well within Kalshi rate limits but worth noting.\n- Verification against live Kalshi state requires 3 scan cycles with real market data. The `_has_kalshi_position_or_order` check should be observed in run logs showing \"Trade rejected (Kalshi dedup)\" for any contract that already has a position or resting order.\n- The DC 68-69° bracket bet (70c) mentioned in the ticket would now be blocked at 3 layers: scanner, executor, and cron_runner.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883406203-ww11",
+      "timestamp": "2026-03-30T15:10:06.203Z"
+    },
+    {
+      "taskId": "TASK-1774880783785",
+      "taskTitle": "Fix weather trading P&L data integrity — DB must match Kalshi reality",
+      "project": "weather-trading",
+      "summary": "QA confirms | Pending — Gater should run `python scripts/verify_settlements_kalshi.py` and check `data/last_reconciliation.json` balance_delta ≤ $1 (weather-only) |\n\n## Caveats\n- The 167 test failures are pre-existing and unrelated to this work\n- Reconciliation requires live Kalshi API credentials (`.env`)\n- Trades without an `order_id` (e.g., failed trade `d72d521e`) can't be matched — flagged but not corrected\n- Crontab must be installed via `crontab config/crontab.production` to take effect",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883246938-9wmv",
+      "timestamp": "2026-03-30T15:07:26.938Z"
+    },
+    {
+      "taskId": "TASK-1774880783785",
+      "taskTitle": "Fix weather trading P&L data integrity — DB must match Kalshi reality",
+      "project": "weather-trading",
+      "summary": "--|-------|\n| Settled P&L | +$3,635 | -$100.53 |\n| Balance delta | -$3,708 | +$94 (expected, non-weather) |\n| Record | 40W/12L (fake) | 8W/50L (real) |\n| Missing orders | 0 | 0 |\n| Paper trades | 0 | 0 |\n| Phantom trades | 1 (resting) | 1 (resting) |\n\nThe $94 balance gap is from 15 non-weather orders (UFC, NFL, etc.) that are deliberately excluded from the weather-only DB. Settlement reconciliation now uses Kalshi's actual market results as ground truth, preventing future Open-Meteo mismatches.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883008158-l9mv",
+      "timestamp": "2026-03-30T15:03:28.158Z"
+    },
+    {
+      "taskId": "TASK-1774880783785",
+      "taskTitle": "Fix weather trading P&L data integrity — DB must match Kalshi reality",
+      "project": "weather-trading",
+      "summary": "local trade matched against Kalshi fills by order_id\n- Paper trade detection: cross-checks against `paper_trading.db`\n- P&L per trade: verified using actual Kalshi fill data (count, price, settlement)\n\n**Caveats:**\n- Reconciliation requires live Kalshi API credentials (`.env`)\n- Trades without `order_id` (e.g., failed trades) can't be matched — flagged but not corrected\n- Non-weather fills (UFC, NFL) excluded by design\n- Crontab change requires `crontab config/crontab.production` to take effect",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774882850384-xieg",
+      "timestamp": "2026-03-30T15:00:50.384Z"
+    },
+    {
       "taskId": "TASK-1774880783785",
       "taskTitle": "Fix weather trading P&L data integrity — DB must match Kalshi reality",
       "project": "weather-trading",
@@ -332,117 +527,7 @@
       "knownIssues": [],
       "id": "mem-1774832633288-6dhh",
       "timestamp": "2026-03-30T01:03:53.288Z"
-    },
-    {
-      "taskId": "TASK-1774830665670",
-      "taskTitle": "Pipeline automation — auto-assign Gater on review, smart agent routing, auto-promote on-deck",
-      "project": "mission-control",
-      "summary": "s how the task board renders assignees. If an agent name has no space-separated emoji suffix, the full name is used.\n- The `resolveAgentForTask()` call in `finalizeBuild` still re-resolves the agent on build completion. This is intentional — it confirms the assignment and captures any tag changes made during the build.\n- Comments use type `\"note\"` — the existing comment API supports `\"note\" | \"review\" | \"rejection\" | \"resolution\"`. Pipeline comments are informational so `\"note\"` is appropriate.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774831260178-r50p",
-      "timestamp": "2026-03-30T00:41:00.178Z"
-    },
-    {
-      "taskId": "TASK-1774829425355",
-      "taskTitle": "Fix weather trading DB tracking gap — 55 untracked Kalshi trades + reconciler bugs",
-      "project": "weather-trading",
-      "summary": "cover the 55 untracked trades\nRun the backfill script:\n```bash\npython scripts/backfill_trades.py              # dry-run first\npython scripts/backfill_trades.py --commit     # then insert\n```\n\n### Caveats\n- The reconciler is already re-enabled (from a prior session's commit `1e7fc78`). After running the backfill, it should pass cleanly on the next cron run.\n- The `test_v2_stress` file has stale limit values (same pattern we fixed in `test_live_risk_controls`). Not in scope but worth a follow-up.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774830235103-zhb3",
-      "timestamp": "2026-03-30T00:23:55.103Z"
-    },
-    {
-      "taskId": "TASK-1774829432698",
-      "taskTitle": "Fix weather trading DB tracking gap — 55 untracked Kalshi trades + reconciler bugs",
-      "project": "weather-trading",
-      "summary": "ge`, `composite_score` (marked null) since that model context wasn't preserved. Settlement reconciliation still works — P&L is computed from price vs outcome.\n- The reconciler will now activate the **kill switch** if positions don't match after backfill. Run the backfill script BEFORE the next model_watcher cycle to avoid a false halt.\n- Ticker parsing in the backfill script covers `KXHIGH*`, `KXHIGHT*`, `KXLOW*`, `KXLOWT*` patterns. Non-standard tickers will have empty city/target_date fields.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774829871975-l50b",
-      "timestamp": "2026-03-30T00:17:51.975Z"
-    },
-    {
-      "taskId": "TASK-PIPELINE-5",
-      "taskTitle": "Henry orchestration notifications — blocked tasks, QA failures, completions alert Henry",
-      "project": "mission-control",
-      "summary": "cked | Same, with \"Needs Henry's triage\" text |\n| QA escalation (2nd+ rejection) | `sendTelegramNotification` + `createInAppNotification` + `escalatedToHenry=true` |\n| Task completion | `notifyTaskCompletion()` → Telegram + in-app |\n| **Agent hang >20min** | **Added this session** |\n\n## Caveat\nThe `task` lookup in the stale loop can return `undefined` if a task was deleted after its build entry was created — the hang label falls back to the raw `build.taskId` string in that case, which is safe.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774822155308-z42a",
-      "timestamp": "2026-03-29T22:09:15.308Z"
-    },
-    {
-      "taskId": "TASK-TRADING-6",
-      "taskTitle": "Kalshi WebSocket integration — real-time orderbook + fill notifications",
-      "project": "weather-trading",
-      "summary": "**`scripts/model_watcher.py`** — Starts WS on boot, logs connection status in heartbeats\n- **`src/automation/cron_runner.py`** — Subscribes to orderbook for candidate tickers before trading\n\n### Caveats (from prior session):\n- Channel names are based on Kalshi v2 API docs — if wire format differs, handlers need tuning after first live connection\n- Unknown message types are logged and skipped (defensive)\n- Slippage threshold is 3 cents, configurable via `SlippageTracker(alert_threshold_cents=N)`",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774817736499-3y8d",
-      "timestamp": "2026-03-29T20:55:36.499Z"
-    },
-    {
-      "taskId": "TASK-TRADING-6",
-      "taskTitle": "Kalshi WebSocket integration — real-time orderbook + fill notifications",
-      "project": "weather-trading",
-      "summary": "mat, channel names) are based on their v2 API docs. If the actual wire format differs slightly (e.g., different field names in orderbook deltas), the handlers will need tuning after first live connection. The handlers are defensive — unknown message types are logged and skipped.\n- `websockets>=13.0` was already installed in the venv (15.0.1). The `pyproject.toml` pins `>=13.0` for broad compatibility.\n- Slippage threshold is 3 cents — configurable via `SlippageTracker(alert_threshold_cents=N)`.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774816989913-gulz",
-      "timestamp": "2026-03-29T20:43:09.913Z"
-    },
-    {
-      "taskId": "TASK-PIPELINE-2",
-      "taskTitle": "Named agent task routing — assign to specific agent identity, not disposable sub-agents",
-      "project": "mission-control",
-      "summary": "n both files — previously static copies that diverged from the source of truth\n- Task cards now show correct agent emoji for short-name assignees (fixes the \"🤖\" regression for tasks with `assignee: \"Forge\"` etc.)\n\n**Build:** ✓ `Compiled successfully in 3.2s`  \n**Pushed:** `panely/sprint-1` → `73ddbba`\n\n**Caveat:** The `buildPrompt` changes were already present in HEAD (`f93012c`) — the factory-side prompt was fully agent-aware before this session. This commit closes the UI half of the feature.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774815875472-pxt3",
-      "timestamp": "2026-03-29T20:24:35.472Z"
-    },
-    {
-      "taskId": "TASK-PIPELINE-4",
-      "taskTitle": "QA handoff chain — builder completes → auto-routes to Vigil for verification",
-      "project": "mission-control",
-      "summary": ": NEEDS_FIX` → requeued to builder | `VERDICT: BLOCKED` → Henry triage\n\n**Caveats:**\n- Vigil runs WebKit headlessly via Playwright — requires WebKit Playwright browser to be installed (`npx playwright install webkit`). If missing, Safari capture fails gracefully and returns empty (Vigil still runs with Chromium-only captures).\n- Non-UI builder tasks (e.g., a pure API endpoint) go through Vigil without screenshots. Vigil verifies via `git diff` + build + test only — appropriate for backend work.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774815756930-5138",
-      "timestamp": "2026-03-29T20:22:36.930Z"
-    },
-    {
-      "taskId": "TASK-PIPELINE-3",
-      "taskTitle": "Blocker signaling — agents can flag \"I'm stuck\" instead of false \"done\"",
-      "project": "mission-control",
-      "summary": "ed to `panely/sprint-1`\n\n### Caveats\n- The pipeline (Telegram DM, in-app notification, system event) was already wired up for blocker detection in `build-queue.ts` — this commit only closes the type/UI gaps.\n- The `detectBlocker` function matches the first blocker pattern found in output. If an agent writes `BLOCKED:` near other trigger phrases (e.g. \"cannot verify in Safari\"), the Safari pattern may fire first since it's earlier in the array. This is acceptable — both signal a genuine blocker.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774815604399-7wpb",
-      "timestamp": "2026-03-29T20:20:04.399Z"
-    },
-    {
-      "taskId": "TASK-PIPELINE-1",
-      "taskTitle": "Agent memory system — persistent memory files per named agent",
-      "project": "mission-control",
-      "summary": "ory` field with full markdown content.\n\n### Validation\n- `npm run build` passes cleanly (`✓ Compiled successfully in 2.5s`)\n- Pushed to `panely/sprint-1`\n\n### Caveats\n- The markdown files are write-append only (no deduplication or pruning) — the Task Log will grow unbounded over time. A trim/prune mechanism would be a logical follow-on.\n- `memory/` directory is tracked in git, so agent task log entries will appear as diffs. That's intentional (human-auditable history), but worth being aware of.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774802254346-5oib",
-      "timestamp": "2026-03-29T16:37:34.346Z"
-    },
-    {
-      "taskId": "TASK-WEATHER-2",
-      "taskTitle": "Watcher health monitor — auto-restart + alert if weather trading watcher goes down",
-      "project": "weather-trading",
-      "summary": "_API_KEY` must be stored in macOS Keychain as a generic password with service name `OPEN_METEO_API_KEY` for the launch wrapper to find it. If it's only in `.env`, that also works as fallback.\n- Circuit breaker state is in-memory only — resets on process restart. This is intentional: if the process restarts, the 429 pressure should have cleared.\n- The 15 pre-existing test failures in `test_kalshi_auth`, `test_smart_routing`, `test_paper_engine`, and `test_v2_stress` are unrelated to this change.",
-      "lessons": [],
-      "knownIssues": [],
-      "id": "mem-1774801853897-d5b6",
-      "timestamp": "2026-03-29T16:30:53.897Z"
     }
   ],
-  "lastUpdated": "2026-03-30T14:35:04.067Z"
+  "lastUpdated": "2026-03-30T18:18:11.092Z"
 }

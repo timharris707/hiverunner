@@ -41,6 +41,155 @@
 
 ## Task Log
 
+### 2026-03-30 — QA review: TASK-1774891981930
+**Project:** qa
+**Summary:** QA reviewed task from backend. ut should be confirmed in the deployment requirements.  ---  VERDICT: APPROVED  **Caveats:** 1. Quant sign-off (AC5) is a human gate — routing to Tim/quant for approval. 2. Run the backfill SQL on production DB before the next settlement cycle. 3. Confirm PyYAML is in `requirements.txt` / deployment env — fallback works but silent degradation is worth closing. 4. The
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891981930
+**Project:** qa
+**Summary:** QA reviewed task from backend. runtime behavior, but the defaults are inconsistent. - **Version cache is process-scoped**: `_cached_version` is a module-level singleton. A version change mid-run requires engine restart. This is correct and intentional behavior for stamping consistency within a run. - **Existing trades have `strategy_version = ''`**: Forge's backfill SQL is correct — `UPDATE live_t
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. VERDICT: NEEDS_FIX NOTES: - **[BLOCKING] Uncommitted code (4th occurrence)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are modified but unstaged. Three new test files are untracked. A commit covering all five files must be created before this task can be approved. The `git index.lock` issue that blocked previous attempts must be resolved fir
+**Lessons:**
+- **[BLOCKING] Uncommitted code (4th occurrence)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are modified but unstaged. Three new test files are untracked. A commit covering all five files must be created before this task can be approved. The `git index.lock` issue that blocked previous attempts must be resolved first (`rm -f .git/index.lock` if the lock is stale). All 7 acceptance criteria are met in the code — this is purely a versioning gate.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. y to ship, but unversioned working-tree changes cannot be considered "done."  ---  VERDICT: NEEDS_FIX NOTES: - **Blocking — uncommitted code (third occurrence)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are modified but not staged or committed. Three new test files are untracked. The git permissions issue must be resolved and a commit creat
+**Lessons:**
+- **Blocking — uncommitted code (third occurrence)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are modified but not staged or committed. Three new test files are untracked. The git permissions issue must be resolved and a commit created before this task can be approved. All acceptance criteria are met in the code itself — this is purely a delivery/versioning gate.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. er CSS applies to ALL table headers globally, so non-sortable headers (open positions table, etc.) appear clickable but do nothing. Pre-existing issue, not introduced here.  ---  VERDICT: NEEDS_FIX NOTES: - **Uncommitted code (blocking)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are unstaged and uncommitted. The `git index.lock` error must 
+**Lessons:**
+- **Uncommitted code (blocking)**: `src/dashboard/server.py` and `src/dashboard/static/trades.html` are unstaged and uncommitted. The `git index.lock` error must be resolved and changes committed before this can ship. All implementation logic is correct — this is purely a commit hygiene block.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891981930
+**Project:** qa
+**Summary:** QA reviewed task from backend. ing scheme") is a human gate. This QA pass can approve the technical implementation only. 3. **Column named "Strategy" not "Models"** — The task description referenced "Models column" but no such column existed previously. The new column is correctly named "Strategy." Acceptable. 4. **`get_active_version()` returns "1.0"** — v1.0 has `status: active`, v2.0 is `status
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. tatus: FIXED ✓**  ### Test Results - `tests/test_api/`: 9 passed, 4 skipped (skips = FastAPI not installed in test env, expected) - No failures  ### Notes - `test_dashboard_server_resting.py` is untracked/uncommitted — this is a more comprehensive multi-endpoint test. Not blocking, but should be committed in the next pass. - `server.py` and `live_engine.py` have addi
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. Bug 2 unresolved**: The screenshot URL targeting `/tasks` instead of the Trading Desk is NOT fixed. This is confirmed to be in `mission-control-app` — a separate task must be filed against that repo. This task cannot be closed as fully complete while Bug 2 has no resolution or tracking. - **Note for Forge**: The fix itself is correct — the constant approach cleanly r
+**Lessons:**
+- **BLOCKING — Uncommitted code**: All changes to `src/dashboard/server.py`, `tests/test_api/test_api.py`, and the new `tests/test_api/test_dashboard_server_resting.py` are unstaged and uncommitted. The `.git/index.lock` failure must be resolved and changes committed before this ships.
+- **Bug 2 unresolved**: The screenshot URL targeting `/tasks` instead of the Trading Desk is NOT fixed. This is confirmed to be in `mission-control-app` — a separate task must be filed against that repo. This task cannot be closed as fully complete while Bug 2 has no resolution or tracking.
+- **Note for Forge**: The fix itself is correct — the constant approach cleanly resolves the undercounting across all five affected endpoints. Commit the three changed/new files and this is approvable for Bug 1.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774891642333
+**Project:** qa
+**Summary:** QA reviewed task from backend. | Handling | |---|---| | Build with no `startedAt` or `queuedAt` | Skipped (`buildStarted === 0`) — handled by existing orphan detection path | | Task not in-progress (e.g., done, review) | Build marked failed, task not re-queued — correct | | Task not found in task store | Build marked failed, no kick — correct | | Hot-reload (not full restart) | `SERVER_BOOT_MS` re
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. from this machine, and the task explicitly required fixing both bugs. The fix is a one-line change.  ---  VERDICT: NEEDS_FIX NOTES: - Bug 2 (`mission-control-app/src/lib/build-queue.ts:497`) is unresolved. Change `"http://localhost:3001/tasks"` → `"http://localhost:3001/trading"` and commit to `mission-control-app`. - Forge must not hide behind workspace root restric
+**Lessons:**
+- Bug 2 (`mission-control-app/src/lib/build-queue.ts:497`) is unresolved. Change `"http://localhost:3001/tasks"` → `"http://localhost:3001/trading"` and commit to `mission-control-app`.
+- Forge must not hide behind workspace root restrictions when the file is accessible. The task required fixing both bugs; only one was addressed (and that one was already correct).
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683217
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. Memory saved. QA record indexed.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774849547934
+**Project:** qa
+**Summary:** QA reviewed task from backend. ld with a missing task gets marked failed would be a good future addition. - `TERMINAL_TASK_STATUSES` includes `"review"` — if a task in review ever legitimately needs a re-build triggered (e.g., Gater requested changes), the cleanup logic will mark the build failed. This appears intentional (review tasks shouldn't have active builds), but worth monitoring. - The per
+
+---
+
+### 2026-03-30 — QA review: TASK-1774887958635
+**Project:** qa
+**Summary:** QA reviewed task from backend. hot" and "api data" incidentally could pass the runtime gate without genuine verification. This is acceptable given the prompt-level checklist is the primary enforcement mechanism. - The `VISUAL_REVIEW_TAGS` set is defined in `build-queue.ts` (not `visual-qa.ts`) — minor cohesion issue but not a defect. - No formal test suite covers this gate. A unit test for `hasVis
+
+---
+
+### 2026-03-30 — QA review: TASK-1774849547934
+**Project:** qa
+**Summary:** QA reviewed task from backend. e modified `task-board-review-lane.test.ts` appears to be unrelated to the queue logic.  ### Caveats - The 20-minute stale timeout now applies to "spawning" builds too. A genuinely slow spawn (unlikely but possible in degraded infra) could be marked failed prematurely. Worth monitoring logs for false timeouts. - Per-agent concurrency gate remains disabled (commented 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774887958635
+**Project:** qa
+**Summary:** QA reviewed task from backend. and is not blocking.  ### Caveats  - The `hasVisualVerificationEvidence()` function uses keyword matching. A sufficiently verbose Gater output that mentions "screenshot" and "api data" in passing (without actually capturing) could bypass the runtime gate. This is inherent to LLM-based output scanning — Forge flagged this appropriately. - The runtime gate is the backs
+
+---
+
+### 2026-03-30 — QA review: TASK-1774887667490
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. pty column as expected) - `cache: "no-store"` is a fetch API option, not a Next.js `cache()` call — works in client components correctly  ### Caveats  - Changes are **uncommitted** (working tree only). Pixel was blocked from committing due to environment constraints — the build is now verified clean, so whoever merges should commit these changes. - The `"blocked"` 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774882957211
+**Project:** qa
+**Summary:** QA reviewed task from backend. hi API at order time ✅   - **Stale DB between cycles**: Kalshi check bypasses local DB entirely ✅ - **Bracket filter**: DC 68-69° bracket would now be rejected at all 3 checkpoints ✅  ---  VERDICT: APPROVED  **Caveat:** AC#4 ("verified by checking Kalshi order history after 3 scan cycles") requires operational confirmation in production logs. The `"Trade rejected (Ka
+
+---
+
+### 2026-03-30 — QA review: TASK-1774880783785
+**Project:** qa
+**Summary:** QA reviewed task from backend. more capital was added), (b) switch to cash-only comparison (`kalshi_balance` vs `initial + settled_pnl - deployed`), or (c) formally revise the AC to "weather-only balance within $1" and add a `weather_balance_match` field alongside the existing `balance_match`. - **[BLOCKING]** `reconcile_kalshi_db.py` cron entry exists in `config/crontab.production` but is NOT in 
+**Lessons:**
+- **[BLOCKING]** `balance_match: false` ($94.39 delta) — AC #1 requires within $1. Fix options: (a) update `bankroll.json:initial_deposit` to actual total capital deposited (currently $500, but account is at $826.30 with -$100.53 settled PnL — this doesn't add up unless more capital was added), (b) switch to cash-only comparison (`kalshi_balance` vs `initial + settled_pnl - deployed`), or (c) formally revise the AC to "weather-only balance within $1" and add a `weather_balance_match` field alongside the existing `balance_match`.
+- **[BLOCKING]** `reconcile_kalshi_db.py` cron entry exists in `config/crontab.production` but is NOT in the installed crontab. Run `crontab config/crontab.production` to apply it, then verify with `crontab -l | grep reconcile_kalshi`.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774880783785
+**Project:** qa
+**Summary:** QA reviewed task from backend. t "weather-only balance". - **[BLOCKING]** Daily reconciliation check was NOT added to cron. `reconcile_kalshi_db.py` is a standalone script, not wired into `cron_run.py` or `CronRunner`. The morning run or a dedicated cron entry must call it. - **[MINOR]** 1 phantom resting trade (`KXHIGHLAX-26MAR31-T67`) in DB with no Kalshi fill — acceptable if it's a live resting
+**Lessons:**
+- **[BLOCKING]** Balance delta is $94.39 — fails the explicit "within $1" AC. Reconciliation report itself shows `❌ MISMATCH`. Forge must either account for non-weather order offset in the balance calculation, or the AC must be formally revised to reflect "weather-only balance".
+- **[BLOCKING]** Daily reconciliation check was NOT added to cron. `reconcile_kalshi_db.py` is a standalone script, not wired into `cron_run.py` or `CronRunner`. The morning run or a dedicated cron entry must call it.
+- **[MINOR]** 1 phantom resting trade (`KXHIGHLAX-26MAR31-T67`) in DB with no Kalshi fill — acceptable if it's a live resting order, but the reconciler should distinguish "resting/pending orders" from true phantoms rather than flagging them as mismatches.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774880783785
+**Project:** qa
+**Summary:** QA reviewed task from backend. ls out: cash decreases by deployed, portfolio_value increases by deployed). Or align with the existing dashboard formula from `server.py:1618`: `total_pnl = balance + deployed − initial`, rearranged to `balance = initial + total_pnl − deployed`, then compare cash vs cash. - **Test suite not reproducible** — Forge claims "108/108 pass" but all async tests fail locally
+**Lessons:**
+- **`scripts/reconcile_kalshi_db.py:575`** — Balance formula `initial + settled_pnl + deployed` overcounts by `deployed` amount. With $50 in open positions, the reconciler will report a $50–$100 balance mismatch on every run, making AC #1 perpetually fail. Fix: use `initial + settled_pnl` as the calculated total (deployed cancels out: cash decreases by deployed, portfolio_value increases by deployed). Or align with the existing dashboard formula from `server.py:1618`: `total_pnl = balance + deployed − initial`, rearranged to `balance = initial + total_pnl − deployed`, then compare cash vs cash.
+- **Test suite not reproducible** — Forge claims "108/108 pass" but all async tests fail locally due to missing `pytest-asyncio`. The fix is correct by code inspection, but test coverage cannot be verified in this environment.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774882549517
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. erived entirely from persisted task fields (no ephemeral state) |  ### Cross-Browser Check - Sort logic is pure JS — no CSS impact. - Only CSS change: `xl:grid-cols-6` (was 5 columns, now 6 with blocked re-added). Standard CSS grid, no WebKit quirks. - `TaskComment.timestamp: string` is structurally compatible with `TaskBoardTask.comments?: Array<{ timestamp?: stri
+
+---
+
 ### 2026-03-30 — QA review: TASK-1774854942238
 **Project:** qa
 **Summary:** QA reviewed task from fullstack. 1 (API contract) — WebKit | ✅ PASSED | | | E2E test 2 (UI + tooltips) — Chromium | ✅ PASSED | Cards render labels; tooltip click shows correct content | | E2E test 2 (UI + tooltips) — WebKit | ✅ PASSED | | | Visual regression baseline — Chromium | ✅ 26K | Genuine capture | | Visual regression baseline — WebKit | ✅ 31K | Genuine capture | | No regressions | ✅ | Dead

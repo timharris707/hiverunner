@@ -28,6 +28,7 @@ export interface DashboardStats {
   totalSessions: number;
   tasksToday: number;
   costToday: number;
+  costByAgentToday: Array<{ agent: string; cost: number }>;
   activeAgents: number;
   metrics: {
     activeAgents: DashboardMetricDefinition;
@@ -116,6 +117,10 @@ export function getDashboardStats(now = Date.now()): DashboardStats {
     totalSessions,
     tasksToday: countTaskLogEntriesForDate(today),
     costToday: parseFloat(quotaSummary.totalSpendUsd.toFixed(4)),
+    costByAgentToday: quotaSummary.byAgent.map((entry) => ({
+      agent: entry.agent,
+      cost: parseFloat(entry.cost.toFixed(4)),
+    })),
     activeAgents,
     metrics: {
       activeAgents: {

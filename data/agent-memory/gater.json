@@ -4,6 +4,126 @@
   "role": "Quality Control Lead",
   "entries": [
     {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Gater QA review: TASK-1774891642333",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. enshot `/trading`, not `/tasks`.\n\n**Acceptance criteria:**\n- Reconciler detects in-progress tasks with no active build ✅ — both catch-all and zombie paths cover this\n- No manual trigger required after restart ✅ — `SERVER_BOOT_MS` fires on first 15s reconcile cycle automatically\n- Tasks do not sit idle with no builder ✅ — both paths feed `tasksToKick` → `queueOrStartBuild`\n\n**Build:** clean. **Tests:** no test script (pre-existing). No broken imports, no stubs, no regressions.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892387723-gn1l",
+      "timestamp": "2026-03-30T17:39:47.723Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Gater QA review: TASK-1774891642333",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. mbie loop (stale build-log entry with `startedAt < SERVER_BOOT_MS`) and catch-all loop (no build-log entry at all). Both paths clear state and add to `tasksToKick`.\n2. **No manual trigger required after server restart** — both loops execute on every 15s reconcile cycle automatically.\n3. **Tasks do not sit idle** — `tasksToKick` feeds directly into `queueOrStartBuild`, identical to normal promotion flow.\n\nNo regressions. No security issues. Implementation is tight and correct.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892059082-wkwo",
+      "timestamp": "2026-03-30T17:34:19.082Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Gater QA review: TASK-1774891642333",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. idle | `clearTransientBuildTracking` + `tasksToKick.add(task.id)` queues re-spawn in same cycle |\n\n**Exclusion logic is sound:**\n- `hasScheduledRetry` — skips tasks already queued for retry\n- `isAwaitingReview` — skips tasks in completed/review states (would incorrectly reset them)\n- `isBlocked` — respects deliberate blocks\n\nNo broken imports, no TODOs, no stubs. The `!tasksToKick.has(task.id)` outer guard prevents double-processing against the zombie cleanup block above it.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892039461-96k1",
+      "timestamp": "2026-03-30T17:33:59.461Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Gater QA review: TASK-1774891642333",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. ** ✓ — catch-all loop covers missing build-log entries; zombie cleanup covers stale \"running\" entries\n2. **No manual trigger required after server restart** ✓ — both paths run automatically on every 15s reconcile cycle\n3. **Tasks do not sit idle in in-progress with no builder** ✓ — zombie detection handles build-log entries whose process is dead; catch-all handles missing entries entirely\n\nNo broken imports, no stubs, no regressions. The `now` variable consolidation is clean.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774892008484-g6pk",
+      "timestamp": "2026-03-30T17:33:28.484Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Bug: Pipeline stops spawning builders after server restart — requires manual trigger",
+      "project": "mission-control",
+      "summary": "*Caveats:**\n- The 20-minute stale build timeout still runs as a secondary safety net for builds that hang during normal operation (not restart-related)\n- `SERVER_BOOT_MS` is set at module-load time — if Next.js hot-reloads the module without a full process restart, it resets, which is actually the desired behavior (new module load = old child processes are gone)\n- Builds with no `startedAt` or `queuedAt` timestamp are skipped by the zombie check and handled by the existing orphan detection path",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774891991080-pbc4",
+      "timestamp": "2026-03-30T17:33:11.080Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Bug: Pipeline stops spawning builders after server restart — requires manual trigger",
+      "project": "mission-control",
+      "summary": "ild-log entry and no scheduled retry, then re-spawns builders for them.\n\nAll three acceptance criteria are met:\n- **Reconciler detects in-progress tasks with no active build** — lines 1490-1510 (catch-all) + lines 1513-1537 (zombie cleanup)\n- **No manual trigger required after restart** — both paths run automatically on the 15s reconcile cycle\n- **Tasks do not sit idle** — cleared build state triggers `queueOrStartBuild` via `tasksToKick`\n\nBuild passes, code is pushed. No further action needed.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774891968555-ktij",
+      "timestamp": "2026-03-30T17:32:48.555Z"
+    },
+    {
+      "taskId": "TASK-1774891642333",
+      "taskTitle": "Bug: Pipeline stops spawning builders after server restart — requires manual trigger",
+      "project": "mission-control",
+      "summary": "`panely/sprint-1` → `87e9c8df`.\n\n**Caveats:**\n- The catch-all fires on every reconcile cycle (15s), so a task stuck due to `queueOrStartBuild` failing (e.g., execution key cap full) will be re-attempted each cycle until capacity opens — this is intentional self-healing behavior, not a spam risk, since `queueOrStartBuild` handles concurrency gates\n- The weather-trading screenshot URL was also corrected in this commit (one-line change from `/tasks` → `/trading` that was pending from a prior task)",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774891957384-n0o6",
+      "timestamp": "2026-03-30T17:32:37.384Z"
+    },
+    {
+      "taskId": "TASK-1774849547934",
+      "taskTitle": "Gater QA review: TASK-1774849547934",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. ✓ Read-only estimation function — minor display inaccuracy pre-cleanup is non-blocking |\n\n**Root causes addressed:**\n1. Orphaned builds in build-log.json blocking capacity → ✓ Cleaned before promotion sweep\n2. `advanceTasks` not detecting freed slots → ✓ Fixed via direct count + `promotedPerKey`\n3. Agent ID mismatch causing stale \"active\" entries → ✓ Addressed by task-status-based cleanup (independent of agent ID matching)\n\nNo broken imports, no stubs, no TODOs. Build clean.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774889448792-etw9",
+      "timestamp": "2026-03-30T16:50:48.792Z"
+    },
+    {
+      "taskId": "TASK-1774887958635",
+      "taskTitle": "Gater QA review: TASK-1774887958635",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VisualQAChecklist()` in `visual-qa.ts`, imported and injected |\n| No Sprint 3 until this ships | ✓ — shipped in `afd34be5` |\n\n### One Minor Inconsistency (non-blocking)\n`VISUAL_REVIEW_TAGS` in `build-queue.ts` omits `\"dashboard\"` while `agent-pipeline.ts` includes it. A task tagged only `\"dashboard\"` gets the checklist injected but bypasses the `APPROVED→BLOCKED` override. Tasks with `\"ui\"`, `\"frontend\"`, etc. are covered in both paths. Not a blocker for this task's criteria.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888790992-5g61",
+      "timestamp": "2026-03-30T16:39:50.992Z"
+    },
+    {
+      "taskId": "TASK-1774849547934",
+      "taskTitle": "Gater QA review: TASK-1774849547934",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. with task ID and reason |\n| `MAX_CONCURRENT_BUILDS_PER_KEY` respected | ✓ `effectiveActive >= MAX_CONCURRENT_BUILDS_PER_KEY` (3) is the gate |\n| `findActiveEntryForExecutionKey` consistency | ✓ Also uses `ACTIVE_BUILD_STATUSES` — both code paths consistent |\n| No regressions | ✓ Single-file change, surgical fix, no interface changes |\n\nThe three root causes are precisely identified and correctly addressed. The fix is minimal and correct — no over-engineering, no regressions.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888586110-50t2",
+      "timestamp": "2026-03-30T16:36:26.110Z"
+    },
+    {
+      "taskId": "TASK-1774882957211",
+      "taskTitle": "Gater QA review: TASK-1774882957211",
+      "project": "weather-trading",
+      "summary": "Gater reviewed task. ter 3 cycles | ✓ — dedup logic is fully wired to live Kalshi API; static verification confirms all call sites correct |\n\n### No Issues Found\n- API failure paths are non-fatal (fall through to local DB) — correct for trading safety\n- `_existing_contract_ids` is updated immediately after a placed trade, not just after the full batch — prevents same-run duplicates correctly\n- Bracket filter fires before the duplicate check, avoiding unnecessary API calls for known-skip contracts\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883838039-3s2h",
+      "timestamp": "2026-03-30T15:17:18.039Z"
+    },
+    {
+      "taskId": "TASK-1774882549517",
+      "taskTitle": "Gater QA review: TASK-1774882549517",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. | Persists on refresh | ✓ — sort derived entirely from persisted task fields, no ephemeral state |\n\n**Visual QA:**\n- **Chromium:** 6-column board renders correctly. Blocked column visible (orange X header, 2 tasks). Review mirror cards show \"Current: In Progress\" badge. P0 tasks lead In Progress and Review columns. ✓\n- **WebKit:** Responsive 2-col layout renders cleanly, no layout breakage. P0 leads In Progress. No Safari-specific regressions. ✓\n\n**No regressions detected.**\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883264987-y8uz",
+      "timestamp": "2026-03-30T15:07:44.987Z"
+    },
+    {
       "taskId": "TASK-1774854942232",
       "taskTitle": "Gater QA review: TASK-1774854942232",
       "project": "mission-control",
@@ -167,5 +287,5 @@
       "timestamp": "2026-03-30T01:59:37.665Z"
     }
   ],
-  "lastUpdated": "2026-03-30T14:46:31.840Z"
+  "lastUpdated": "2026-03-30T17:39:47.723Z"
 }

@@ -2,20 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Cpu, HardDrive, MemoryStick, Shield, ShieldCheck, Clock } from "lucide-react";
+import { useMissionControlRealtime } from "@/components/live/RealtimeProvider";
 import { DOCK_WIDTH } from "./Dock";
 
-interface SystemStats {
-  cpu: number;
-  ram: { used: number; total: number };
-  disk: { used: number; total: number };
-  vpnActive: boolean;
-  firewallActive: boolean;
-  activeServices: number;
-  totalServices: number;
-  uptime: string;
-}
+import type { SystemStats } from "@/lib/system-stats";
 
 export function StatusBar() {
+  const realtime = useMissionControlRealtime();
   const [stats, setStats] = useState<SystemStats>({
     cpu: 0,
     ram: { used: 0, total: 4 },
@@ -26,8 +19,19 @@ export function StatusBar() {
     totalServices: 4,
     uptime: "0d 0h",
   });
+  const liveStats = realtime?.snapshot?.systemStats;
 
   useEffect(() => {
+    if (liveStats) {
+      setStats(liveStats);
+    }
+  }, [liveStats]);
+
+  useEffect(() => {
+    if (liveStats) {
+      return;
+    }
+
     const fetchStats = async () => {
       try {
         const res = await fetch("/api/system/stats");
@@ -44,7 +48,7 @@ export function StatusBar() {
     const interval = setInterval(fetchStats, 10000); // Update every 10s
 
     return () => clearInterval(interval);
-  }, []);
+  }, [liveStats]);
 
   const cpuColor = stats.cpu < 60 ? "var(--positive)" : stats.cpu < 85 ? "var(--warning)" : "var(--negative)";
   const ramPercent = (stats.ram.used / stats.ram.total) * 100;

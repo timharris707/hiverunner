@@ -5,6 +5,7 @@ import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { QuickActionBar } from "@/components/QuickActionBar";
 import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
+import { MissionControlRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
 import { DemoModeProvider } from "@/lib/demo-mode";
 
 export default function DashboardLayout({
@@ -23,28 +24,31 @@ export default function DashboardLayout({
 
   return (
     <DemoModeProvider>
-      <div className="tenacios-shell" style={{ minHeight: "100vh" }}>
-        <KeyboardShortcuts />
-        <Dock />
-        <TopBar />
+      <MissionControlRealtimeProvider>
+        <div className="tenacios-shell" style={{ minHeight: "100vh" }}>
+          <KeyboardShortcuts />
+          <Dock />
+          <TopBar />
 
-        <main
-          style={{
-            marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
-            marginTop: "48px", // Height of top bar
-            marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
-            minHeight: "calc(100vh - 48px - 32px)",
-            padding: isMobile ? "16px" : "24px",
-            overflow: "hidden", // contain children that use negative margins
-          }}
-        >
-          <PageBreadcrumbs />
-          {children}
-        </main>
+          <main
+            style={{
+              marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
+              marginTop: "48px", // Height of top bar
+              marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
+              minHeight: "calc(100vh - 48px - 32px)",
+              padding: isMobile ? "16px" : "24px",
+              overflow: "hidden", // contain children that use negative margins
+            }}
+          >
+            <RealtimeStatusBanner />
+            <PageBreadcrumbs />
+            {children}
+          </main>
 
-        <QuickActionBar />
-        {!isMobile && <StatusBar />}
-      </div>
+          <QuickActionBar />
+          {!isMobile && <StatusBar />}
+        </div>
+      </MissionControlRealtimeProvider>
     </DemoModeProvider>
   );
 }

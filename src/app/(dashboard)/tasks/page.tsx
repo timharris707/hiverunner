@@ -116,6 +116,7 @@ const COLUMNS: { id: TaskBoardColumnStatus; label: string; icon: React.Component
   { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
   { id: "review", label: "Review", icon: CheckCircle2, color: "#60a5fa" },
+  { id: "blocked", label: "Blocked", icon: X, color: "#fb923c" },
   { id: "done", label: "Done", icon: CheckCircle2, color: "#4ade80" },
 ];
 
@@ -1975,10 +1976,6 @@ function TaskCard({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   const isActiveBuild = isBuilding || task.buildState === "running" || task.buildState === "spawning";
-  const isReviewMirrorCard = columnId === "review" && task.status !== "review";
-  const actualStatusMeta = task.status === "blocked"
-    ? { label: "Blocked", color: "#fb923c" }
-    : COLUMNS.find((column) => column.id === task.status);
   const reviewStateMeta = getReviewStateMeta(task);
   const reviewVerdictMeta = getReviewVerdictMeta(task);
   const isActiveReview = !isActiveBuild && (task.codeReviewState === "running" || task.reviewStatus === "gater-reviewing");
@@ -1987,9 +1984,8 @@ function TaskCard({
 
   return (
     <div
-      draggable={!isReviewMirrorCard}
+      draggable
       onDragStart={(e) => {
-        if (isReviewMirrorCard) return;
         dragRef.current = true;
         onDragStart(e, task);
       }}
@@ -2095,18 +2091,6 @@ function TaskCard({
             <span key="review" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: chip.bg, border: `1px solid ${chip.border}`, fontSize: "9px", fontWeight: 600, color: chip.color, letterSpacing: "0.3px" }}>
               <span className={chip.active ? "animate-pulse" : ""} style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: chip.color, display: "inline-block", flexShrink: 0 }} />
               {chip.label}
-            </span>
-          );
-        }
-
-        if (isReviewMirrorCard && actualStatusMeta) {
-          chips.push(
-            <span
-              key="actual-status"
-              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded"
-              style={{ backgroundColor: `${actualStatusMeta.color}18`, border: `1px solid ${actualStatusMeta.color}30`, fontSize: "9px", fontWeight: 600, color: actualStatusMeta.color, letterSpacing: "0.3px" }}
-            >
-              Current: {actualStatusMeta.label}
             </span>
           );
         }
@@ -2296,7 +2280,7 @@ export default function TasksPage() {
 
   const fetchTasks = async () => {
     try {
-      const res = await fetch("/api/tasks");
+      const res = await fetch("/api/tasks", { cache: "no-store" });
       const data = await res.json();
       setTasks(data.tasks || []);
     } catch (error) {
@@ -2547,7 +2531,7 @@ export default function TasksPage() {
       </div>
 
       {/* Kanban Board */}
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-2">
         {COLUMNS.map((col) => {
           const colTasks = tasksByStatus[col.id] || [];
           const Icon = col.icon;

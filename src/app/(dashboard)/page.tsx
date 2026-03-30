@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode, useEffect, useState } from "react";
+import { ReactNode, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
 import { NarrativeFeed } from "@/components/NarrativeFeed";
 import { PaperclipActivityFeed } from "@/components/PaperclipActivityFeed";
@@ -35,6 +35,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { useMissionControlRealtime } from "@/components/live/RealtimeProvider";
 
 // Org roster — derived from the central agent registry
 import { AGENT_CONFIGS } from "@/config/agents";
@@ -165,16 +166,26 @@ interface LiveAgentStatus {
 }
 
 export default function DashboardPage() {
-  const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
-  const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
-  const [statsLoading, setStatsLoading] = useState(true);
-  const [doneTasks, setDoneTasks] = useState<Task[]>([]);
-  const [tasksProjectsMap, setTasksProjectsMap] = useState<Record<string, ProjectInfo>>({});
+  const realtime = useMissionControlRealtime();
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
   const [selectedAdvisorySessionId, setSelectedAdvisorySessionId] = useState<string | null>(null);
-  const [agentStatuses, setAgentStatuses] = useState<Record<string, LiveAgentStatus>>({});
-  const [dashboardNow, setDashboardNow] = useState(() => Date.now());
+
+  const snapshot = realtime?.snapshot;
+  const highlights: HighlightData = snapshot?.highlights ?? { todayTasks: [], nextCron: null, providers: [] };
+  const dashStats: DashboardStats | null = snapshot?.dashStats ?? null;
+  const statsLoading = !dashStats;
+  const doneTasks: Task[] = (snapshot?.tasks ?? [])
+    .filter((task: Task) => task.status === "done")
+    .sort((a: Task, b: Task) => new Date(b.updated).getTime() - new Date(a.updated).getTime());
+  const tasksProjectsMap: Record<string, ProjectInfo> = Object.fromEntries(
+    (snapshot?.projects ?? []).map((project: any) => [
+      project.id,
+      { id: project.id, name: project.name, emoji: project.emoji, color: project.color },
+    ]),
+  );
+  const recentSessions: AdvisorySession[] = (snapshot?.advisorySessions ?? []) as AdvisorySession[];
+  const agentStatuses: Record<string, LiveAgentStatus> = (snapshot?.agentStatuses ?? {}) as Record<string, LiveAgentStatus>;
+  const dashboardNow = snapshot?.generatedAt ? new Date(snapshot.generatedAt).getTime() : Date.now();
 
   const renderMetricTooltip = (metric: DashboardMetricMeta | undefined): ReactNode => {
     if (!metric) return null;
@@ -194,51 +205,6 @@ export default function DashboardPage() {
       </div>
     );
   };
-
-  const fetchDashboardData = () => {
-    Promise.all([
-      fetch("/api/agents").then(r => r.json()),
-      fetch("/api/dashboard/highlights").then(r => r.json()),
-      fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
-      fetch("/api/advisory/sessions").then(r => r.json()).catch(() => ({ sessions: [] })),
-      fetch("/api/agents/status").then(r => r.json()).catch(() => ({ agents: [] })),
-    ]).then(([, highlightData, ds, advisoryData, statusData]) => {
-      setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
-      if (ds) setDashStats(ds);
-      setRecentSessions((advisoryData.sessions || []).slice(0, 10));
-      setDashboardNow(Date.now());
-      // Build status map from live data
-      const statusMap: Record<string, LiveAgentStatus> = {};
-      for (const agent of (statusData.agents || [])) {
-        statusMap[agent.id] = agent;
-      }
-      setAgentStatuses(statusMap);
-      setStatsLoading(false);
-    }).catch(() => setStatsLoading(false));
-  };
-
-  const fetchTasksData = () => {
-    Promise.all([
-      fetch("/api/tasks").then(r => r.json()).catch(() => ({ tasks: [] })),
-      fetch("/api/projects").then(r => r.json()).catch(() => ({ projects: [] })),
-    ]).then(([tasksData, projectsData]) => {
-      const allTasks: Task[] = tasksData.tasks || [];
-      setDoneTasks(allTasks.filter(t => t.status === "done").sort((a, b) => new Date(b.updated).getTime() - new Date(a.updated).getTime()));
-      const map: Record<string, ProjectInfo> = {};
-      for (const p of (projectsData.projects || [])) {
-        map[p.id] = { id: p.id, name: p.name, emoji: p.emoji, color: p.color };
-      }
-      setTasksProjectsMap(map);
-    });
-  };
-
-  useEffect(() => {
-    fetchDashboardData();
-    fetchTasksData();
-    // Auto-refresh every 30 seconds
-    const interval = setInterval(() => { fetchDashboardData(); fetchTasksData(); }, 30_000);
-    return () => clearInterval(interval);
-  }, []);
 
   // Merge live statuses into org agents
   const mergedAgents = ORG_AGENTS.map(agent => ({
@@ -1180,7 +1146,6 @@ export default function DashboardPage() {
           task={selectedTask}
           onClose={() => setSelectedTask(null)}
           onTaskUpdated={(updated) => {
-            setDoneTasks((prev) => prev.map((t) => t.id === updated.id ? updated : t).filter((t) => t.status === "done"));
             setSelectedTask(updated.status === "done" ? updated : null);
           }}
           projectsMap={tasksProjectsMap}

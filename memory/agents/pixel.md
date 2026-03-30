@@ -49,6 +49,96 @@
 
 ## Task Log
 
+### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** test_dashboard_kalshi_portfolio.py tests/test_api/test_dashboard_server_resting.py` returned `5 skipped` because the FastAPI test runtime is not installed in this shell. Commit and push both failed for environment reasons above.  Known caveats / lessons learned: live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially to verify the real Kalshi ba
+
+---
+
+### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** rtfolio.py#L39), and [tests/test_api/test_dashboard_server_resting.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_server_resting.py#L74), but several endpoint tests were skipped because the FastAPI test runtime is not available in this shell. - Live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especial
+**Lessons:**
+- This repository is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not available here.
+- The added coverage for settlement fallback and Kalshi portfolio behavior exists in [tests/test_api/test_dashboard_trade_history.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_trade_history.py#L74), [tests/test_api/test_dashboard_kalshi_portfolio.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_kalshi_portfolio.py#L39), and [tests/test_api/test_dashboard_server_resting.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_server_resting.py#L74), but several endpoint tests were skipped because the FastAPI test runtime is not available in this shell.
+- Live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially for real Kalshi bankroll, real-time open-position count, and the settlement countdown rendering.
+
+---
+
+### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** d (`9 passed, 3 skipped`), and `python3 -m py_compile src/dashboard/server.py` passed.  Known caveats / lessons learned: the repo is a FastAPI app, not a Next.js app, so the requested `npm run build` step is not available here; live browser verification of real Kalshi bankroll and open-position count still needs a human run against `uvicorn src.dashboard.server:app --port 8050`; older local DB sch
+
+---
+
+### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** _api/test_dashboard_kalshi_portfolio.py tests/test_api/test_api.py` `python3 -m py_compile src/dashboard/server.py`  Known caveats / lessons learned: - The repo is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not applicable here. - Commit/push remain blocked by sandboxed git permissions, not by code state. - I could not visually confirm the live bankroll 
+**Lessons:**
+- The repo is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not applicable here.
+- Commit/push remain blocked by sandboxed git permissions, not by code state.
+- I could not visually confirm the live bankroll card, Kalshi position count, or settlement countdown behavior in the browser from this environment.
+
+---
+
+### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** ate '.git/index.lock': Operation not permitted`  Known caveats / lessons learned: - The settlement blanks were likely being amplified by repeated per-contract Kalshi fetches on every auto-refresh; the new in-memory cache should reduce that. - The client fallback settlement timestamp was off by a day before this patch; it now correctly falls back to next-day `03:00 UTC`. - I could not visually conf
+**Lessons:**
+- The settlement blanks were likely being amplified by repeated per-contract Kalshi fetches on every auto-refresh; the new in-memory cache should reduce that.
+- The client fallback settlement timestamp was off by a day before this patch; it now correctly falls back to next-day `03:00 UTC`.
+- I could not visually confirm the live bankroll/open-position cards or countdown behavior in a browser from this environment.
+
+---
+
+### 2026-03-30 — Unified WebSocket with reconnect and stale-data banner
+**Project:** mission-control
+**Summary:** wn caveats / lessons learned: - This realtime transport depends on the custom `server.js` entrypoint, so live WebSocket updates only exist when the app is launched through the updated `dev` / `start` scripts in [package.json](/Users/timharris/.openclaw/workspace/projects/mission-control-app/package.json#L5). - I could not visually verify reconnect behavior or the stale banner in a browser from thi
+**Lessons:**
+- This realtime transport depends on the custom `server.js` entrypoint, so live WebSocket updates only exist when the app is launched through the updated `dev` / `start` scripts in [package.json](/Users/timharris/.openclaw/workspace/projects/mission-control-app/package.json#L5).
+- I could not visually verify reconnect behavior or the stale banner in a browser from this environment.
+- Commit and push remain blocked by sandboxed git writes and lack of network access.
+
+---
+
+### 2026-03-30 — Unified WebSocket with reconnect and stale-data banner
+**Project:** mission-control
+**Summary:** rocess - binding to a port - Operation not permitted (os error 1)`. I also could not stage/commit because git writes are blocked: `fatal: Unable to create '.git/index.lock': Operation not permitted`.  Known caveats / lessons learned: this transport now depends on the custom `server.js` entrypoint, so the WebSocket only exists when the app is launched through the updated `dev`/`start` scripts. I co
+
+---
+
+### 2026-03-30 — Bug: Task board UI shows tasks in wrong columns — 32 phantom review items
+**Project:** mission-control
+**Summary:** -board-review-lane.test.ts` - Failed: `npm run build`   Error: `creating new process - binding to a port - Operation not permitted (os error 1)`  Known caveats / lessons learned: - The phantom `32` Review items were caused by client-side review-lane mirroring, not the tasks API. - Hard refresh should now resolve stale board state because task fetches use `cache: "no-store"`. - I did not commit or 
+**Lessons:**
+- The phantom `32` Review items were caused by client-side review-lane mirroring, not the tasks API.
+- Hard refresh should now resolve stale board state because task fetches use `cache: "no-store"`.
+- I did not commit or push because the required build is blocked by the environment, and remote push is unavailable here.
+
+---
+
+### 2026-03-30 — Bug: Ideas badge shows 2 unprocessed when all ideas are processed
+**Project:** mission-control
+**Summary:** mmary || !review.assessment || takeaways.length === 0) { +    return false; +  } + +  return takeaways.every((takeaway) => { +    const status = String(takeaway.status || "").toLowerCase(); +    return status === "rejected" || takeawayHasTask(takeaway); +  }); +} + +export function getUnprocessedReviewIds(reviews: ReviewLike[]) { +  return reviews +    .filter((review) => String(review.status || "
+
+---
+
+### 2026-03-30 — Task board column sorting — priority order + active items float to top
+**Project:** mission-control
+**Summary:** ries pre-existing lint errors, the production build is blocked by the sandboxed Turbopack process-port failure, and I could not commit/push or visually verify the board in a browser here.  Lessons learned / caveats: the sort now persists on refresh because it is derived entirely from persisted task fields; the blocked lane is now visible again on the board, which changes the desktop layout from fi
+
+---
+
+### 2026-03-30 — Label and verify every dashboard metric
+**Project:** mission-control
+**Summary:** us is clean for this task; the only remaining modification is unrelated runtime data in `data/tasks.db-wal`.  Lessons learned / caveats: - The spend metric is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals. - The tooltip interaction fix is present: click now opens the tooltip instead of toggling it shut. - I cannot honestly mark this done becaus
+**Known Issues:**
+- The spend metric is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.
+- The tooltip interaction fix is present: click now opens the tooltip instead of toggling it shut.
+- I cannot honestly mark this done because the required clean build, browser verification, and push cannot be completed in this environment.
+
+---
+
 ### 2026-03-30 — Label and verify every dashboard metric
 **Project:** mission-control
 **Summary:** n pass before this can be honestly marked done.  Known caveats / lessons learned: - The spend card is defined correctly as quota-ledger approved spend for the UTC quota day, not provider-billed actuals. - The environment still blocks both the production build path and local Playwright server startup, so visual verification must be completed in a less restricted environment. - There are unrelated p

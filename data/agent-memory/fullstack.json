@@ -4,6 +4,140 @@
   "role": "Senior Full-Stack Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774891981900",
+      "taskTitle": "Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates",
+      "project": "weather-trading",
+      "summary": "test_dashboard_kalshi_portfolio.py tests/test_api/test_dashboard_server_resting.py` returned `5 skipped` because the FastAPI test runtime is not installed in this shell. Commit and push both failed for environment reasons above.\n\nKnown caveats / lessons learned: live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially to verify the real Kalshi bankroll, real-time open-position count, and settlement countdown rendering with production API data.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774894476107-zisf",
+      "timestamp": "2026-03-30T18:14:36.107Z"
+    },
+    {
+      "taskId": "TASK-1774891981900",
+      "taskTitle": "Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates",
+      "project": "weather-trading",
+      "summary": "rtfolio.py#L39), and [tests/test_api/test_dashboard_server_resting.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_server_resting.py#L74), but several endpoint tests were skipped because the FastAPI test runtime is not available in this shell.\n- Live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially for real Kalshi bankroll, real-time open-position count, and the settlement countdown rendering.",
+      "lessons": [
+        "This repository is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not available here.",
+        "The added coverage for settlement fallback and Kalshi portfolio behavior exists in [tests/test_api/test_dashboard_trade_history.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_trade_history.py#L74), [tests/test_api/test_dashboard_kalshi_portfolio.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_kalshi_portfolio.py#L39), and [tests/test_api/test_dashboard_server_resting.py](/Users/timharris/.openclaw/workspace/projects/weather-trading/tests/test_api/test_dashboard_server_resting.py#L74), but several endpoint tests were skipped because the FastAPI test runtime is not available in this shell.",
+        "Live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially for real Kalshi bankroll, real-time open-position count, and the settlement countdown rendering."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774893677613-ljm0",
+      "timestamp": "2026-03-30T18:01:17.613Z"
+    },
+    {
+      "taskId": "TASK-1774891981900",
+      "taskTitle": "Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates",
+      "project": "weather-trading",
+      "summary": "d (`9 passed, 3 skipped`), and `python3 -m py_compile src/dashboard/server.py` passed.\n\nKnown caveats / lessons learned: the repo is a FastAPI app, not a Next.js app, so the requested `npm run build` step is not available here; live browser verification of real Kalshi bankroll and open-position count still needs a human run against `uvicorn src.dashboard.server:app --port 8050`; older local DB schemas were a real risk for `/api/trades`, so the server now aliases missing optional columns safely.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774893499469-xyb7",
+      "timestamp": "2026-03-30T17:58:19.469Z"
+    },
+    {
+      "taskId": "TASK-1774891981900",
+      "taskTitle": "Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates",
+      "project": "weather-trading",
+      "summary": "_api/test_dashboard_kalshi_portfolio.py tests/test_api/test_api.py`\n`python3 -m py_compile src/dashboard/server.py`\n\nKnown caveats / lessons learned:\n- The repo is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not applicable here.\n- Commit/push remain blocked by sandboxed git permissions, not by code state.\n- I could not visually confirm the live bankroll card, Kalshi position count, or settlement countdown behavior in the browser from this environment.",
+      "lessons": [
+        "The repo is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not applicable here.",
+        "Commit/push remain blocked by sandboxed git permissions, not by code state.",
+        "I could not visually confirm the live bankroll card, Kalshi position count, or settlement countdown behavior in the browser from this environment."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774893165536-cue2",
+      "timestamp": "2026-03-30T17:52:45.536Z"
+    },
+    {
+      "taskId": "TASK-1774891981900",
+      "taskTitle": "Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates",
+      "project": "weather-trading",
+      "summary": "ate '.git/index.lock': Operation not permitted`\n\nKnown caveats / lessons learned:\n- The settlement blanks were likely being amplified by repeated per-contract Kalshi fetches on every auto-refresh; the new in-memory cache should reduce that.\n- The client fallback settlement timestamp was off by a day before this patch; it now correctly falls back to next-day `03:00 UTC`.\n- I could not visually confirm the live bankroll/open-position cards or countdown behavior in a browser from this environment.",
+      "lessons": [
+        "The settlement blanks were likely being amplified by repeated per-contract Kalshi fetches on every auto-refresh; the new in-memory cache should reduce that.",
+        "The client fallback settlement timestamp was off by a day before this patch; it now correctly falls back to next-day `03:00 UTC`.",
+        "I could not visually confirm the live bankroll/open-position cards or countdown behavior in a browser from this environment."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774892893128-0dkt",
+      "timestamp": "2026-03-30T17:48:13.128Z"
+    },
+    {
+      "taskId": "TASK-1774846683217",
+      "taskTitle": "Unified WebSocket with reconnect and stale-data banner",
+      "project": "mission-control",
+      "summary": "wn caveats / lessons learned:\n- This realtime transport depends on the custom `server.js` entrypoint, so live WebSocket updates only exist when the app is launched through the updated `dev` / `start` scripts in [package.json](/Users/timharris/.openclaw/workspace/projects/mission-control-app/package.json#L5).\n- I could not visually verify reconnect behavior or the stale banner in a browser from this environment.\n- Commit and push remain blocked by sandboxed git writes and lack of network access.",
+      "lessons": [
+        "This realtime transport depends on the custom `server.js` entrypoint, so live WebSocket updates only exist when the app is launched through the updated `dev` / `start` scripts in [package.json](/Users/timharris/.openclaw/workspace/projects/mission-control-app/package.json#L5).",
+        "I could not visually verify reconnect behavior or the stale banner in a browser from this environment.",
+        "Commit and push remain blocked by sandboxed git writes and lack of network access."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774889138226-bavu",
+      "timestamp": "2026-03-30T16:45:38.226Z"
+    },
+    {
+      "taskId": "TASK-1774846683217",
+      "taskTitle": "Unified WebSocket with reconnect and stale-data banner",
+      "project": "mission-control",
+      "summary": "rocess - binding to a port - Operation not permitted (os error 1)`. I also could not stage/commit because git writes are blocked: `fatal: Unable to create '.git/index.lock': Operation not permitted`.\n\nKnown caveats / lessons learned: this transport now depends on the custom `server.js` entrypoint, so the WebSocket only exists when the app is launched through the updated `dev`/`start` scripts. I could not visually verify the reconnect banner or socket behavior in a browser from this environment.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774888714215-22et",
+      "timestamp": "2026-03-30T16:38:34.215Z"
+    },
+    {
+      "taskId": "TASK-1774887667490",
+      "taskTitle": "Bug: Task board UI shows tasks in wrong columns — 32 phantom review items",
+      "project": "mission-control",
+      "summary": "-board-review-lane.test.ts`\n- Failed: `npm run build`\n  Error: `creating new process - binding to a port - Operation not permitted (os error 1)`\n\nKnown caveats / lessons learned:\n- The phantom `32` Review items were caused by client-side review-lane mirroring, not the tasks API.\n- Hard refresh should now resolve stale board state because task fetches use `cache: \"no-store\"`.\n- I did not commit or push because the required build is blocked by the environment, and remote push is unavailable here.",
+      "lessons": [
+        "The phantom `32` Review items were caused by client-side review-lane mirroring, not the tasks API.",
+        "Hard refresh should now resolve stale board state because task fetches use `cache: \"no-store\"`.",
+        "I did not commit or push because the required build is blocked by the environment, and remote push is unavailable here."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774887927669-n0zx",
+      "timestamp": "2026-03-30T16:25:27.669Z"
+    },
+    {
+      "taskId": "TASK-1774882787239",
+      "taskTitle": "Bug: Ideas badge shows 2 unprocessed when all ideas are processed",
+      "project": "mission-control",
+      "summary": "mmary || !review.assessment || takeaways.length === 0) {\n+    return false;\n+  }\n+\n+  return takeaways.every((takeaway) => {\n+    const status = String(takeaway.status || \"\").toLowerCase();\n+    return status === \"rejected\" || takeawayHasTask(takeaway);\n+  });\n+}\n+\n+export function getUnprocessedReviewIds(reviews: ReviewLike[]) {\n+  return reviews\n+    .filter((review) => String(review.status || \"active\").toLowerCase() === \"active\")\n+    .filter((review) => !reviewIsFullyProcessed(review));\n+}",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774883070896-cro8",
+      "timestamp": "2026-03-30T15:04:30.896Z"
+    },
+    {
+      "taskId": "TASK-1774882549517",
+      "taskTitle": "Task board column sorting — priority order + active items float to top",
+      "project": "mission-control",
+      "summary": "ries pre-existing lint errors, the production build is blocked by the sandboxed Turbopack process-port failure, and I could not commit/push or visually verify the board in a browser here.\n\nLessons learned / caveats: the sort now persists on refresh because it is derived entirely from persisted task fields; the blocked lane is now visible again on the board, which changes the desktop layout from five to six columns; commit and push remain impossible here due sandbox restrictions, not task logic.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774882953252-hdkp",
+      "timestamp": "2026-03-30T15:02:33.252Z"
+    },
+    {
+      "taskId": "TASK-1774854942238",
+      "taskTitle": "Label and verify every dashboard metric",
+      "project": "mission-control",
+      "summary": "us is clean for this task; the only remaining modification is unrelated runtime data in `data/tasks.db-wal`.\n\nLessons learned / caveats:\n- The spend metric is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.\n- The tooltip interaction fix is present: click now opens the tooltip instead of toggling it shut.\n- I cannot honestly mark this done because the required clean build, browser verification, and push cannot be completed in this environment.",
+      "lessons": [],
+      "knownIssues": [
+        "The spend metric is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.",
+        "The tooltip interaction fix is present: click now opens the tooltip instead of toggling it shut.",
+        "I cannot honestly mark this done because the required clean build, browser verification, and push cannot be completed in this environment."
+      ],
+      "id": "mem-1774882186085-08gd",
+      "timestamp": "2026-03-30T14:49:46.085Z"
+    },
+    {
       "taskId": "TASK-1774854942238",
       "taskTitle": "Label and verify every dashboard metric",
       "project": "mission-control",
@@ -234,5 +368,5 @@
       "timestamp": "2026-03-29T16:49:18.236Z"
     }
   ],
-  "lastUpdated": "2026-03-30T14:43:29.588Z"
+  "lastUpdated": "2026-03-30T18:14:36.107Z"
 }
