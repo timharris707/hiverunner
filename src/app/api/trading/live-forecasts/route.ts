@@ -1,24 +1,26 @@
 import { NextResponse } from "next/server";
 
+// Coordinates match exact NWS station locations (same source Kalshi uses for settlement)
+// DO NOT use generic city-center coordinates — must match the weather station
 const CITIES: Record<string, { lat: number; lon: number; tz: string }> = {
-  austin: { lat: 30.27, lon: -97.74, tz: "America/Chicago" },
-  miami: { lat: 25.76, lon: -80.19, tz: "America/New_York" },
-  new_york: { lat: 40.71, lon: -74.01, tz: "America/New_York" },
-  chicago: { lat: 41.88, lon: -87.63, tz: "America/Chicago" },
-  denver: { lat: 39.74, lon: -104.99, tz: "America/Denver" },
-  seattle: { lat: 47.61, lon: -122.33, tz: "America/Los_Angeles" },
-  los_angeles: { lat: 34.05, lon: -118.24, tz: "America/Los_Angeles" },
-  phoenix: { lat: 33.45, lon: -112.07, tz: "America/Phoenix" },
-  houston: { lat: 29.76, lon: -95.37, tz: "America/Chicago" },
-  atlanta: { lat: 33.75, lon: -84.39, tz: "America/New_York" },
-  oklahoma_city: { lat: 35.47, lon: -97.52, tz: "America/Chicago" },
-  washington_dc: { lat: 38.91, lon: -77.04, tz: "America/New_York" },
-  boston: { lat: 42.36, lon: -71.06, tz: "America/New_York" },
-  san_antonio: { lat: 29.42, lon: -98.49, tz: "America/Chicago" },
-  dallas: { lat: 32.78, lon: -96.80, tz: "America/Chicago" },
-  minneapolis: { lat: 44.98, lon: -93.27, tz: "America/Chicago" },
-  new_orleans: { lat: 29.95, lon: -90.07, tz: "America/Chicago" },
-  san_francisco: { lat: 37.77, lon: -122.42, tz: "America/Los_Angeles" },
+  atlanta: { lat: 33.64028, lon: -84.42694, tz: "America/New_York" },        // KATL
+  austin: { lat: 30.18304, lon: -97.67987, tz: "America/Chicago" },          // KAUS
+  boston: { lat: 42.36056, lon: -71.01056, tz: "America/New_York" },          // KBOS
+  chicago: { lat: 41.97972, lon: -87.90444, tz: "America/Chicago" },         // KORD
+  dallas: { lat: 32.89743, lon: -97.02196, tz: "America/Chicago" },          // KDFW
+  denver: { lat: 39.84658, lon: -104.65622, tz: "America/Denver" },          // KDEN
+  houston: { lat: 29.9844, lon: -95.36074, tz: "America/Chicago" },          // KIAH
+  los_angeles: { lat: 33.93806, lon: -118.38889, tz: "America/Los_Angeles" },// KLAX
+  miami: { lat: 25.79056, lon: -80.31639, tz: "America/New_York" },          // KMIA
+  minneapolis: { lat: 44.88306, lon: -93.22889, tz: "America/Chicago" },     // KMSP
+  new_orleans: { lat: 29.99278, lon: -90.25083, tz: "America/Chicago" },     // KMSY
+  new_york: { lat: 40.78333, lon: -73.96667, tz: "America/New_York" },       // KNYC (Central Park)
+  oklahoma_city: { lat: 35.38861, lon: -97.60028, tz: "America/Chicago" },   // KOKC
+  phoenix: { lat: 33.4278, lon: -112.00347, tz: "America/Phoenix" },         // KPHX
+  san_antonio: { lat: 29.53278, lon: -98.46361, tz: "America/Chicago" },     // KSAT
+  san_francisco: { lat: 37.61961, lon: -122.36558, tz: "America/Los_Angeles" },// KSFO
+  seattle: { lat: 47.44472, lon: -122.31361, tz: "America/Los_Angeles" },    // KSEA
+  washington_dc: { lat: 38.84833, lon: -77.03417, tz: "America/New_York" },  // KDCA
 };
 
 /**

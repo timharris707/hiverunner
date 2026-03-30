@@ -709,7 +709,7 @@ export default function TradingFloorPage() {
         )}
 
         {sortedGroups.map((g) => {
-          const key = `${g.city}|${g.marketLabel}|${g.side}`;
+          const key = `${g.city}|${g.marketLabel}|${g.side}|${g.targetDate}`;
           const isExpanded = expandedGroups.has(key);
           const isOpen = g.trades.some((t) => isOpenStatus(t.status));
           const isSettled = g.trades.every((t) => !isOpenStatus(t.status));
