@@ -432,7 +432,10 @@ export default function TradingFloorPage() {
         className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
       >
         {[
-          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true, sub: `Deposited ${$(deposit)}` },
+          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true,
+            sub: kp ? `${kp.pnl >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl))} (${Math.abs(kp.pnlPercent).toFixed(1)}%) from ${$(deposit)}` : undefined,
+            subColor: kp ? (kp.pnl >= 0 ? "#4ade80" : "#ef4444") : undefined,
+          },
           { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
           { label: "Open Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           {
@@ -457,7 +460,7 @@ export default function TradingFloorPage() {
               {item.value}
             </div>
             {item.sub && (
-              <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{item.sub}</div>
+              <div className="text-xs mt-0.5" style={{ color: (item as Record<string, unknown>).subColor as string || "var(--text-muted)" }}>{item.sub}</div>
             )}
           </div>
         ))}
