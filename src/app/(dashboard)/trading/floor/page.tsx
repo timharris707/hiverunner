@@ -691,7 +691,7 @@ export default function TradingFloorPage() {
                     </>
                   ) : (
                     <>
-                      <div className="text-xs" style={{ color: "#06b6d4" }}>Chance</div>
+                      <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
                       {g.nowPrice != null ? (() => {
                         const nowPct = g.nowPrice * 100;
                         const diff = nowPct - boughtPct;
@@ -701,7 +701,7 @@ export default function TradingFloorPage() {
                         return (
                           <>
                             <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
-                              {nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}
+                              {nowPct.toFixed(0)}% chance {isUp ? "▲" : "▼"}
                             </div>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                               {currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}
