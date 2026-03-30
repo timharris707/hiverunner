@@ -1354,6 +1354,10 @@ function advanceTasks(
     byProject.get(proj)!.push(task);
   }
 
+  // Track how many promotions we've committed per execution key so we don't
+  // over-promote beyond the concurrency cap in a single sweep.
+  const promotedPerKey = new Map<string, number>();
+
   for (const [, projectTasks] of byProject) {
     const onDeck = projectTasks.filter((t: any) => t.status === "on-deck").sort(comparePriority);
     const backlog = projectTasks.filter((t: any) => t.status === "backlog").sort(comparePriority);
@@ -1362,20 +1366,32 @@ function advanceTasks(
     // Step 1: on-deck → in-progress — check per-agent capacity, not per-project
     for (const candidate of onDeck) {
       const { executionKey } = getProjectMeta(candidate, projects);
-      // Respect repo-level concurrency cap
-      if (findActiveEntryForExecutionKey(buildLog, executionKey)) continue;
+
+      // Respect repo-level concurrency cap, accounting for promotions already made this sweep
+      const activeBuilds = buildLog.builds.filter(
+        (b: any) => b.executionKey === executionKey && ACTIVE_BUILD_STATUSES.has(b.status)
+      );
+      const effectiveActive = activeBuilds.length + (promotedPerKey.get(executionKey) || 0);
+      if (effectiveActive >= MAX_CONCURRENT_BUILDS_PER_KEY) {
+        console.log(`[factory] advanceTasks: skipping ${candidate.id} — execution key "${executionKey}" at capacity (${effectiveActive}/${MAX_CONCURRENT_BUILDS_PER_KEY})`);
+        continue;
+      }
 
       // Per-agent concurrency gate DISABLED for Sprint 2 parallel throughput
       // const candidateAgentId = candidate.assignedAgent || resolveAgentForTask(candidate).agentId;
       // if (candidateAgentId && findActiveBuildForAgent(buildLog, candidateAgentId)) continue;
 
       const ok = transitionTask(candidate, "in-progress", "reconciler");
-      if (!ok) continue; // state machine blocked transition (e.g. missing acceptance_criteria)
+      if (!ok) {
+        console.log(`[factory] advanceTasks: skipping ${candidate.id} — transitionTask blocked (missing acceptance_criteria or invalid state)`);
+        continue;
+      }
       candidate.updated = now;
       // Auto-assign the right builder agent on promotion
       autoAssignBuilder(candidate);
       addPipelineComment(candidate, "Auto-promoted from on-deck → in-progress (build capacity available)");
       promoted.push(candidate.id);
+      promotedPerKey.set(executionKey, (promotedPerKey.get(executionKey) || 0) + 1);
       changed = true;
     }
 
@@ -1471,10 +1487,10 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       }
     }
 
-    // Stale build cleanup — mark builds that have been "running" too long as failed
+    // Stale build cleanup — mark builds stuck in "running" or "spawning" too long as failed
     const now = Date.now();
     for (const build of buildLog.builds || []) {
-      if (build.status === "running" && build.startedAt) {
+      if (ACTIVE_BUILD_STATUSES.has(build.status) && build.startedAt) {
         const elapsed = now - new Date(build.startedAt).getTime();
         if (elapsed > STALE_BUILD_TIMEOUT_MS) {
           const hangMinutes = Math.round(elapsed / 60000);
