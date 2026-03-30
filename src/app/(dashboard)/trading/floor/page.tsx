@@ -386,14 +386,55 @@ export default function TradingFloorPage() {
         </div>
       </div>
 
+      {/* ── Filters (above summary so they apply to everything) ── */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <select
+          value={versionFilter}
+          onChange={(e) => setVersionFilter(e.target.value)}
+          className="text-sm px-4 py-2 rounded-full font-medium"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)", minWidth: 140 }}
+        >
+          <option value="all">All Versions</option>
+          {versions.map((v) => <option key={v} value={v}>{v}</option>)}
+        </select>
+        <select
+          value={dateFilter}
+          onChange={(e) => setDateFilter(e.target.value)}
+          className="text-sm px-4 py-2 rounded-full font-medium"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)", minWidth: 140 }}
+        >
+          <option value="all">All Dates</option>
+          {dates.map((d) => <option key={d} value={d}>{d}</option>)}
+        </select>
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          className="text-sm px-4 py-2 rounded-full font-medium"
+          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)", minWidth: 140 }}
+        >
+          <option value="all">All Status</option>
+          <option value="open">Open Only</option>
+          <option value="settled">Settled Only</option>
+        </select>
+        {hasFilters && (
+          <button
+            onClick={() => { setVersionFilter("all"); setDateFilter("all"); setStatusFilter("all"); }}
+            className="flex items-center gap-1 text-sm px-4 py-2 rounded-full font-medium"
+            style={{ backgroundColor: "#ef444415", color: "#ef4444", border: "1px solid #ef444430" }}
+          >
+            <X className="w-3.5 h-3.5" /> Clear
+          </button>
+        )}
+      </div>
+
       {/* ── Portfolio Summary ─────────────────────────────── */}
       <div
         className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
       >
         {[
-          { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
-          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true, sub: `Deposited ${$(deposit)}` },
+          { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
+          { label: "Open Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           {
             label: "Win Rate",
             value: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}%` : "—",
@@ -528,9 +569,8 @@ export default function TradingFloorPage() {
         </div>
       )}
 
-      {/* ── Filters ───────────────────────────────────────── */}
+      {/* ── Sort + Trade Count ─────────────────────────────── */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        {/* Sort mode toggle */}
         <div className="flex items-center gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
           {(["placed", "settles", "city"] as const).map((mode) => {
             const isActive = sortMode === mode;
@@ -559,44 +599,6 @@ export default function TradingFloorPage() {
             );
           })}
         </div>
-        <div className="w-px h-5" style={{ backgroundColor: "var(--border)" }} />
-        <select
-          value={versionFilter}
-          onChange={(e) => setVersionFilter(e.target.value)}
-          className="text-xs px-3 py-1.5 rounded-lg"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-        >
-          <option value="all">All Versions</option>
-          {versions.map((v) => <option key={v} value={v}>{v}</option>)}
-        </select>
-        <select
-          value={dateFilter}
-          onChange={(e) => setDateFilter(e.target.value)}
-          className="text-xs px-3 py-1.5 rounded-lg"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-        >
-          <option value="all">All Dates</option>
-          {dates.map((d) => <option key={d} value={d}>{d}</option>)}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="text-xs px-3 py-1.5 rounded-lg"
-          style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
-        >
-          <option value="all">All Status</option>
-          <option value="open">Open Only</option>
-          <option value="settled">Settled Only</option>
-        </select>
-        {hasFilters && (
-          <button
-            onClick={() => { setVersionFilter("all"); setDateFilter("all"); setStatusFilter("all"); }}
-            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-lg"
-            style={{ backgroundColor: "#ef444415", color: "#ef4444", border: "1px solid #ef444430" }}
-          >
-            <X className="w-3 h-3" /> Clear
-          </button>
-        )}
         <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
           {filtered.length} trades · {filteredOpen.length} open · {filteredWon.length}W/{filteredLost.length}L
         </span>
