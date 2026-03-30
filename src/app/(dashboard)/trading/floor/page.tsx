@@ -623,7 +623,11 @@ export default function TradingFloorPage() {
           const isWon = isSettled && g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0);
           const isLost = isSettled && g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
           const settledPnl = g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0);
-          const totalGroupFees = g.trades.reduce((s, t) => s + (t.fees ?? 0), 0);
+          // Compute fees from trade-level fees first, fallback to summing fills
+          const tradeFees = g.trades.reduce((s, t) => s + (Number(t.fees) || 0), 0);
+          const fillFees = g.trades.reduce((s, t) => 
+            s + (t.fills || []).reduce((fs: number, f: Record<string, unknown>) => fs + (Number(f.fee) || 0), 0), 0);
+          const totalGroupFees = tradeFees > 0 ? tradeFees : fillFees;
           const boughtPct = g.avgPrice * 100;
           const isBadVersion = g.strategyVersion.includes("0.9");
 
