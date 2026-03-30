@@ -21,7 +21,7 @@ export async function GET() {
 
     // Open positions
     const openTrades = db.prepare(
-      `SELECT trade_id, contract_id as ticker, side, quantity,
+      `SELECT trade_id, order_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
               status, created_at, strategy_version, our_probability, market_probability
@@ -32,7 +32,7 @@ export async function GET() {
 
     // Settled positions
     const settledTrades = db.prepare(
-      `SELECT trade_id, contract_id as ticker, side, quantity,
+      `SELECT trade_id, order_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
               CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
@@ -79,16 +79,6 @@ export async function GET() {
       }
     } catch { /* fills table may not exist */ }
 
-    // Also index fills by ticker for matching
-    const fillsByTicker: Record<string, Record<string, unknown>[]> = {};
-    for (const fills of Object.values(fillsByOrder)) {
-      for (const f of fills) {
-        const ticker = String(f.ticker || "");
-        if (!fillsByTicker[ticker]) fillsByTicker[ticker] = [];
-        fillsByTicker[ticker].push(f);
-      }
-    }
-
     db.close();
 
     const enrichWithSettlement = (trade: Record<string, unknown>) => {
@@ -97,15 +87,11 @@ export async function GET() {
         trade.city = parseCityFromTicker(String(trade.ticker || ""));
       }
 
-      // Attach fills for this trade (match by order_id first, fallback to ticker)
+      // Attach fills for this trade — match by order_id only (no ticker fallback to avoid cross-order merging)
       const orderId = String(trade.trade_id || "").replace("bf-", "");
       const tradeOrderId = String(trade.trade_id || "");
-      let tradeFills = fillsByOrder[orderId] || fillsByOrder[tradeOrderId] || [];
-      if (tradeFills.length === 0) {
-        // Try matching by ticker
-        tradeFills = fillsByTicker[String(trade.ticker || "")] || [];
-      }
-      trade.fills = tradeFills;
+      const rawOrderId = String(trade.order_id || "");
+      trade.fills = fillsByOrder[rawOrderId] || fillsByOrder[orderId] || fillsByOrder[tradeOrderId] || [];
       let settlement_scheduled_at: string | null = null;
       if (trade.target_date) {
         const td = new Date(trade.target_date + "T00:00:00Z");
