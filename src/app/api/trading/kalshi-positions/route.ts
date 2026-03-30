@@ -46,7 +46,32 @@ export async function GET() {
     db.close();
 
     // Compute settlement times
+    // City code to name mapping for parsing from tickers
+    const TICKER_CITY_MAP: Record<string, string> = {
+      NYC: "new_york", MIA: "miami", CHI: "chicago", DEN: "denver",
+      SEA: "seattle", LAX: "los_angeles", PHX: "phoenix", HOU: "houston",
+      ATL: "atlanta", OKC: "oklahoma_city", TDC: "washington_dc", BOS: "boston",
+      AUS: "austin", SAN: "san_antonio", DAL: "dallas", MIN: "minneapolis",
+      MSY: "new_orleans", SFO: "san_francisco", TAUS: "austin", TCHI: "chicago",
+      TLAX: "los_angeles", TMIA: "miami", TDEN: "denver", TOKC: "oklahoma_city",
+      TNYC: "new_york", THOU: "houston", TATL: "atlanta",
+    };
+
+    const parseCityFromTicker = (ticker: string): string => {
+      // Tickers like KXHIGHTATL-26MAR30-T72 or KXRAINNYC-26MAR30-T0 or KXLOWTAUS-26MAR30-T57
+      const match = ticker.match(/KX(?:HIGH|LOW|RAIN)T?([A-Z]{2,4})-/);
+      if (match) {
+        const code = match[1];
+        return TICKER_CITY_MAP[code] || code.toLowerCase();
+      }
+      return "";
+    };
+
     const enrichWithSettlement = (trade: Record<string, unknown>) => {
+      // Fill in missing city from ticker
+      if (!trade.city || trade.city === "") {
+        trade.city = parseCityFromTicker(String(trade.ticker || ""));
+      }
       let settlement_scheduled_at: string | null = null;
       if (trade.target_date) {
         const td = new Date(trade.target_date + "T00:00:00Z");

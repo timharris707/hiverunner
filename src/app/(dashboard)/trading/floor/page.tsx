@@ -86,7 +86,9 @@ function cityCode(city: string): string {
     austin: "AUS", miami: "MIA", new_york: "NYC", chicago: "CHI",
     denver: "DEN", seattle: "SEA", los_angeles: "LAX", phoenix: "PHX",
     houston: "HOU", atlanta: "ATL", oklahoma_city: "OKC",
-    washington_dc: "DC", boston: "BOS",
+    washington_dc: "DC", boston: "BOS", san_antonio: "SAN",
+    dallas: "DAL", minneapolis: "MIN", new_orleans: "MSY",
+    san_francisco: "SFO",
   };
   return codes[city.toLowerCase()] || city.slice(0, 3).toUpperCase();
 }

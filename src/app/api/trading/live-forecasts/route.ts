@@ -14,6 +14,11 @@ const CITIES: Record<string, { lat: number; lon: number; tz: string }> = {
   oklahoma_city: { lat: 35.47, lon: -97.52, tz: "America/Chicago" },
   washington_dc: { lat: 38.91, lon: -77.04, tz: "America/New_York" },
   boston: { lat: 42.36, lon: -71.06, tz: "America/New_York" },
+  san_antonio: { lat: 29.42, lon: -98.49, tz: "America/Chicago" },
+  dallas: { lat: 32.78, lon: -96.80, tz: "America/Chicago" },
+  minneapolis: { lat: 44.98, lon: -93.27, tz: "America/Chicago" },
+  new_orleans: { lat: 29.95, lon: -90.07, tz: "America/Chicago" },
+  san_francisco: { lat: 37.77, lon: -122.42, tz: "America/Los_Angeles" },
 };
 
 /**
