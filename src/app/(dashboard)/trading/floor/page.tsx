@@ -436,8 +436,8 @@ export default function TradingFloorPage() {
             sub: kp ? `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} today` : undefined,
             subColor: kp ? (kp.pnl24h >= 0 ? "#4ade80" : "#ef4444") : undefined,
           },
+          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
-          { label: "Open Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           {
             label: "Win Rate",
             value: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}%` : "—",
