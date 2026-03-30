@@ -197,22 +197,26 @@ export default function TradingFloorPage() {
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
   const [sortAsc, setSortAsc] = useState<Record<string, boolean>>({ placed: false, settles: true, city: true });
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
-  const [currentTemps, setCurrentTemps] = useState<Record<string, number>>({});
+  const [currentTemps, setCurrentTemps] = useState<Record<string, { tempF: number; ageMinutes: number; stationId: string }>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsRes, posRes, portfolioRes, forecastRes] = await Promise.all([
+      const [statsRes, posRes, portfolioRes, forecastRes, tempsRes] = await Promise.all([
         fetch("/api/trading/weather-stats"),
         fetch("/api/trading/kalshi-positions"),
         fetch("/api/trading/kalshi-portfolio"),
         fetch("/api/trading/live-forecasts"),
+        fetch("/api/trading/current-temps"),
       ]);
       if (forecastRes.ok) {
         const fData = await forecastRes.json();
         if (fData.forecasts) setLiveForecasts(fData.forecasts);
-        if (fData.currentTemps) setCurrentTemps(fData.currentTemps);
         if (fData.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
+      }
+      if (tempsRes.ok) {
+        const tData = await tempsRes.json();
+        if (tData.observations) setCurrentTemps(tData.observations);
       }
       const statsData = await statsRes.json();
       const posData = await posRes.json();
@@ -709,15 +713,21 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Current — live temperature right now */}
+                {/* Current — NWS station observation (same source Kalshi uses) */}
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Current</div>
                   {(() => {
-                    const temp = currentTemps[g.city.toLowerCase()];
+                    const obs = currentTemps[g.city.toLowerCase()];
+                    if (!obs) return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
                     return (
-                      <div className="text-sm font-bold" style={{ color: temp != null ? "#f59e0b" : "var(--text-muted)" }}>
-                        {temp != null ? `${temp}°F` : "—"}
-                      </div>
+                      <>
+                        <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
+                          {obs.tempF}°F
+                        </div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {obs.ageMinutes < 1 ? "just now" : obs.ageMinutes < 60 ? `${obs.ageMinutes}m ago` : `${Math.floor(obs.ageMinutes / 60)}h ago`}
+                        </div>
+                      </>
                     );
                   })()}
                 </div>
