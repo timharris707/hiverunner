@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks } from "@/lib/build-queue";
+import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment } from "@/lib/build-queue";
 import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,9 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewRequestedAt = tasks[idx].reviewRequestedAt || now;
       delete tasks[idx].completedAt;
 
+      // Auto-assign Gater for QA review
+      autoAssignGater(tasks[idx]);
+
       const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
       if (existingVisualReview?.required) {
         const captureCount = Array.isArray(existingVisualReview.captures) ? existingVisualReview.captures.length : 0;
@@ -76,6 +79,7 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewStatus = updates.reviewStatus || "approved";
       tasks[idx].reviewCompletedAt = now;
       tasks[idx].completedAt = tasks[idx].completedAt || now;
+      addPipelineComment(tasks[idx], "Review approved — task marked done", "Gater 🚧", "🚧");
 
       const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
       if (existingVisualReview?.required) {
@@ -92,6 +96,9 @@ export async function PATCH(req: NextRequest) {
       tasks[idx].reviewStatus = updates.reviewStatus || "changes-requested";
       tasks[idx].reviewCompletedAt = now;
       delete tasks[idx].completedAt;
+      // Re-assign to original builder on rejection
+      addPipelineComment(tasks[idx], "Review rejected — reassigned to builder for fixes", "Gater 🚧", "🚧");
+      autoAssignBuilder(tasks[idx]);
 
       const existingVisualReview = tasks[idx].visualReview || previousTask.visualReview;
       if (existingVisualReview?.required) {
@@ -101,6 +108,15 @@ export async function PATCH(req: NextRequest) {
           lastUpdatedAt: now,
         };
       }
+    }
+
+    // Auto-assign builder agent when task enters in-progress (manual move)
+    if (
+      tasks[idx].status === "in-progress" &&
+      previousTask.status !== "in-progress" &&
+      !tasks[idx].assignedAgent // don't override if pipeline already assigned
+    ) {
+      autoAssignBuilder(tasks[idx]);
     }
 
     writeTasks(tasks);

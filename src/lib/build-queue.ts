@@ -87,6 +87,55 @@ export function readProjects(): any[] {
   return readJSON(PROJECTS_FILE, [] as any[]);
 }
 
+/**
+ * Add an automated pipeline comment to a task (in-memory mutation).
+ * Call writeTasks() after to persist.
+ */
+export function addPipelineComment(task: any, text: string, author = "Pipeline", authorEmoji = "⚙️") {
+  if (!Array.isArray(task.comments)) {
+    task.comments = [];
+  }
+  task.comments.push({
+    id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    author,
+    authorEmoji,
+    text,
+    timestamp: new Date().toISOString(),
+    type: "note",
+  });
+}
+
+/**
+ * Auto-assign Gater as reviewer when a task enters "review" status.
+ * Mutates the task in-place — caller must persist with writeTasks().
+ */
+export function autoAssignGater(task: any) {
+  const gater = getAgentByAnyId("gater");
+  if (!gater) return;
+  task.assignee = "Gater";
+  task.reviewAssignedTo = gater.id;
+  task.reviewAssignedAt = new Date().toISOString();
+  addPipelineComment(task, `Auto-assigned to ${gater.name} ${gater.emoji} for QA review`, gater.name, gater.emoji);
+  sendSystemEvent(`🚧 Auto-assigned to Gater for review: ${String(task.title || task.id).replace(/"/g, "'")}`);
+}
+
+/**
+ * Auto-assign the correct builder agent when a task enters "in-progress".
+ * Uses resolveAgentForTask() for smart routing.
+ * Mutates the task in-place — caller must persist with writeTasks().
+ */
+export function autoAssignBuilder(task: any) {
+  const assignment = resolveAgentForTask(task);
+  const agent = getAgentByAnyId(assignment.agentId);
+  if (!agent) return assignment;
+  task.assignee = agent.name.replace(/\s*[^\w\s].*$/, "").trim() || agent.name; // strip emoji suffix for assignee field
+  task.assignedAgent = assignment.agentId;
+  task.assignedAgentReason = assignment.reason;
+  task.needsQAHandoff = assignment.needsQAHandoff;
+  addPipelineComment(task, `Auto-assigned to ${agent.name} ${agent.emoji} — ${assignment.reason}`, agent.name, agent.emoji);
+  return assignment;
+}
+
 export function readBuildLog(): { builds: any[] } {
   return readJSON(BUILD_LOG_FILE, { builds: [] as any[] });
 }
@@ -713,6 +762,13 @@ async function finalizeVigilQA(
         delete task.completedAt;
         requeue = true;
 
+        // Add rejection comment + re-assign to original builder
+        const builderAgent = getAgentByAnyId(builderAgentId);
+        addPipelineComment(task, `Vigil QA rejected (attempt ${failureCount}) — reassigned to ${builderAgent?.name || builderAgentId} for fixes:\n${notes.slice(0, 300)}`, "Vigil 🛡️", "🛡️");
+        if (builderAgent) {
+          task.assignee = builderAgent.name.replace(/\s*[^\w\s].*$/, "").trim() || builderAgent.name;
+        }
+
         if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
           task.escalatedToHenry = true;
           task.escalatedAt = now;
@@ -1039,6 +1095,9 @@ function advanceTasks(
       if (!hasActiveBuild && !hasInProgressBuild) {
         candidate.status = "in-progress";
         candidate.updated = now;
+        // Auto-assign the right builder agent on promotion
+        autoAssignBuilder(candidate);
+        addPipelineComment(candidate, "Auto-promoted from on-deck → in-progress (build capacity available)");
         promoted.push(candidate.id);
         changed = true;
       }
@@ -1053,6 +1112,7 @@ function advanceTasks(
       for (const task of toAdvance) {
         task.status = "on-deck";
         task.updated = now;
+        addPipelineComment(task, "Auto-advanced from backlog → on-deck (slot available)");
         advanced.push(task.id);
         changed = true;
       }
@@ -1715,6 +1775,16 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
         delete task.completedAt;
         requeue = true;
 
+        // Re-assign to original builder with rejection comment
+        const originalBuilder = task.assignedAgent || task.assignee;
+        if (originalBuilder) {
+          const builderAgent = getAgentByAnyId(originalBuilder);
+          if (builderAgent) {
+            task.assignee = builderAgent.name.replace(/\s*[^\w\s].*$/, "").trim() || builderAgent.name;
+            addPipelineComment(task, `Code review rejected (attempt ${failureCount}) — reassigned to ${builderAgent.name} for fixes:\n${notes.slice(0, 300)}`, "QA Reviewer", "🔍");
+          }
+        }
+
         if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
           // Escalate to Henry — this task has failed review too many times
           task.escalatedToHenry = true;
@@ -1744,6 +1814,7 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
         task.reviewRequired = true;
         task.reviewStatus = "pending";
         task.reviewRequestedAt = now;
+        autoAssignGater(task);
 
         if (shouldRequireVisualReview(task)) {
           const existingVisualReview = task.visualReview || {};
@@ -1755,13 +1826,14 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
             lastUpdatedAt: now,
           };
         }
-        notifyText = `✅ Auto-review approved → ready for human review: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyText = `✅ Auto-review approved → assigned to Gater for review: ${String(task.title || taskId).replace(/"/g, "'")}`;
         notifyOutcome = "review";
       } else {
         task.status = "done";
         task.reviewRequired = false;
         task.reviewStatus = "not-needed";
         task.completedAt = now;
+        addPipelineComment(task, "Auto-review approved — no human review required, task complete");
         notifyText = `✅ Auto-review approved → task complete: ${String(task.title || taskId).replace(/"/g, "'")}`;
         notifyOutcome = "done";
       }
@@ -2041,11 +2113,8 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.savingsPercent = routing.savingsPercent;
     task.buildError = null;
 
-    // Named agent assignment
-    const agentAssignment = resolveAgentForTask(task);
-    task.assignedAgent = agentAssignment.agentId;
-    task.assignedAgentReason = agentAssignment.reason;
-    task.needsQAHandoff = agentAssignment.needsQAHandoff;
+    // Named agent assignment (with audit comment)
+    const agentAssignment = autoAssignBuilder(task);
 
     task.updated = now;
 
