@@ -1,0 +1,129 @@
+import { NextResponse } from "next/server";
+import { existsSync } from "fs";
+import { join } from "path";
+
+const WEATHER_TRADING_DIR =
+  process.env.WEATHER_TRADING_DIR ||
+  "/Users/timharris/.openclaw/workspace/projects/weather-trading";
+const LIVE_TRADING_DB = join(WEATHER_TRADING_DIR, "data", "live_trading.db");
+
+/**
+ * Returns enriched position data: local DB trades + current Kalshi market prices.
+ */
+export async function GET() {
+  try {
+    if (!existsSync(LIVE_TRADING_DB)) {
+      return NextResponse.json({ positions: [], resolved: [] });
+    }
+
+    const Database = require("better-sqlite3");
+    const db = new Database(LIVE_TRADING_DB, { readonly: true });
+
+    // Open positions
+    const openTrades = db.prepare(
+      `SELECT trade_id, contract_id as ticker, side, quantity,
+              COALESCE(fill_price, price) as price, cost, edge,
+              city, target_date, threshold, forecast_mean,
+              status, created_at, strategy_version, our_probability, market_probability
+       FROM live_trades
+       WHERE status IN ('pending', 'filled', 'resting')
+       ORDER BY created_at DESC`
+    ).all() as Record<string, unknown>[];
+
+    // Settled positions
+    const settledTrades = db.prepare(
+      `SELECT trade_id, contract_id as ticker, side, quantity,
+              COALESCE(fill_price, price) as price, cost, edge,
+              city, target_date, threshold, forecast_mean,
+              CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
+              pnl, actual_outcome, actual_temp, settled_at as resolved_at,
+              created_at, strategy_version, our_probability, market_probability
+       FROM live_trades
+       WHERE status IN ('settled_won', 'settled_lost')
+       ORDER BY settled_at DESC`
+    ).all() as Record<string, unknown>[];
+
+    db.close();
+
+    // Compute settlement times
+    const enrichWithSettlement = (trade: Record<string, unknown>) => {
+      let settlement_scheduled_at: string | null = null;
+      if (trade.target_date) {
+        const td = new Date(trade.target_date + "T00:00:00Z");
+        const ticker = String(trade.ticker || "");
+        const isBracket = /-B\d/.test(ticker);
+        const nextDay = new Date(td);
+        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
+        nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
+        settlement_scheduled_at = nextDay.toISOString();
+      }
+      return { ...trade, settlement_scheduled_at };
+    };
+
+    const positions = openTrades.map(enrichWithSettlement);
+    const resolved = settledTrades.map(enrichWithSettlement);
+
+    // Fetch current market prices from Kalshi via dashboard proxy
+    // Get unique tickers to batch-fetch
+    const tickers = [...new Set(positions.map((p) => String(p.ticker)))];
+
+    type MarketPrice = { yes_bid: number | null; yes_ask: number | null; last: number | null };
+    const currentPrices: Record<string, MarketPrice> = {};
+
+    // Fetch market data in parallel (batch of 10 at a time to avoid rate limits)
+    const batchSize = 10;
+    for (let i = 0; i < tickers.length; i += batchSize) {
+      const batch = tickers.slice(i, i + batchSize);
+      const results = await Promise.allSettled(
+        batch.map(async (ticker) => {
+          try {
+            const res = await fetch(`http://localhost:8050/api/market/${ticker}`, {
+              signal: AbortSignal.timeout(3000),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              return { ticker, data };
+            }
+          } catch { /* skip */ }
+          return { ticker, data: null };
+        })
+      );
+      for (const result of results) {
+        if (result.status === "fulfilled" && result.value.data) {
+          const d = result.value.data;
+          currentPrices[result.value.ticker] = {
+            yes_bid: d.yes_bid_dollars ? parseFloat(d.yes_bid_dollars) : null,
+            yes_ask: d.yes_ask_dollars ? parseFloat(d.yes_ask_dollars) : null,
+            last: d.last_price_dollars ? parseFloat(d.last_price_dollars) : null,
+          };
+        }
+      }
+    }
+
+    // Enrich positions with current price
+    const enrichedPositions = positions.map((p) => {
+      const ticker = String(p.ticker);
+      const current = currentPrices[ticker];
+      const side = String(p.side).toLowerCase();
+
+      let nowPrice: number | null = null;
+      if (current) {
+        // For YES side: current yes price; For NO side: 1 - yes price
+        const yesPrice = current.last ?? current.yes_bid ?? current.yes_ask;
+        if (yesPrice != null) {
+          nowPrice = side === "yes" ? yesPrice : 1 - yesPrice;
+        }
+      }
+
+      return { ...p, now_price: nowPrice };
+    });
+
+    return NextResponse.json({
+      positions: enrichedPositions,
+      resolved,
+    });
+  } catch (error) {
+    console.error("[trading/kalshi-positions] Error:", error);
+    return NextResponse.json({ positions: [], resolved: [], error: String(error) }, { status: 500 });
+  }
+}

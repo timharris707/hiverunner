@@ -46,6 +46,7 @@ interface Position {
   actual_outcome?: string | null;
   actual_temp?: number | null;
   resolved_at?: string | null;
+  now_price?: number | null;
 }
 
 interface PositionsData {
@@ -158,6 +159,8 @@ interface GroupedPosition {
   strategyVersion: string;
   forecast: number | null;
   edge: number;
+  nowPrice: number | null;
+  placedAt: string;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -184,11 +187,13 @@ export default function TradingFloorPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all"); // all | open | settled
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
+
   const fetchData = useCallback(async () => {
     try {
       const [statsRes, posRes, portfolioRes] = await Promise.all([
         fetch("/api/trading/weather-stats"),
-        fetch("/api/trading/positions"),
+        fetch("/api/trading/kalshi-positions"),
         fetch("/api/trading/kalshi-portfolio"),
       ]);
       const statsData = await statsRes.json();
@@ -196,10 +201,10 @@ export default function TradingFloorPage() {
       setWeatherStats(statsData);
       setPositionsData({
         positions: posData.positions || [],
-        resolvedPositions: posData.resolvedPositions || [],
-        cityBreakdown: posData.cityBreakdown || [],
-        liveCityBreakdown: posData.liveCityBreakdown || [],
-        paperCityBreakdown: posData.paperCityBreakdown || [],
+        resolvedPositions: posData.resolved || [],
+        cityBreakdown: [],
+        liveCityBreakdown: [],
+        paperCityBreakdown: [],
       });
       if (portfolioRes.ok) {
         const pData = await portfolioRes.json();
@@ -229,19 +234,22 @@ export default function TradingFloorPage() {
   const allPositions = positionsData?.positions ?? [];
   const allResolved = positionsData?.resolvedPositions ?? [];
 
-  // Only live trades
-  const livePositions = allPositions.filter((p) => p.trade_type === "live");
-  const liveResolved = allResolved.filter((p) => p.trade_type === "live");
+  // Only live trades (kalshi-positions API returns only live, so accept missing trade_type too)
+  const livePositions = allPositions.filter((p) => !p.trade_type || p.trade_type === "live");
+  const liveResolved = allResolved.filter((p) => !p.trade_type || p.trade_type === "live");
 
   // Combine for filtering
   const allTrades = [...livePositions, ...liveResolved];
 
+  // Normalize: "filled"/"resting"/"pending" → treat as open
+  const isOpenStatus = (s: string) => ["open", "filled", "resting", "pending"].includes(s);
+  
   // Apply filters
   const filtered = allTrades.filter((t) => {
     if (versionFilter !== "all" && (t.strategy_version || "unknown") !== versionFilter) return false;
     if (dateFilter !== "all" && t.target_date !== dateFilter) return false;
-    if (statusFilter === "open" && t.status !== "open") return false;
-    if (statusFilter === "settled" && t.status === "open") return false;
+    if (statusFilter === "open" && !isOpenStatus(t.status)) return false;
+    if (statusFilter === "settled" && isOpenStatus(t.status)) return false;
     return true;
   });
 
@@ -272,6 +280,8 @@ export default function TradingFloorPage() {
         strategyVersion: t.strategy_version || "unknown",
         forecast: t.forecast_mean,
         edge: 0,
+        nowPrice: null,
+        placedAt: t.created_at,
       });
     }
     const g = groupMap.get(key)!;
@@ -279,7 +289,10 @@ export default function TradingFloorPage() {
     g.totalQuantity += t.quantity;
     g.totalCost += t.cost;
     if (t.our_probability != null) g.boughtProbability = t.our_probability;
+    if (t.now_price != null) g.nowPrice = t.now_price;
     g.edge = t.edge;
+    // Track earliest placed time
+    if (t.created_at && t.created_at < g.placedAt) g.placedAt = t.created_at;
   }
 
   // Compute derived values
@@ -289,17 +302,27 @@ export default function TradingFloorPage() {
     return g;
   });
 
-  // Sort: open first, then by city
+  // Sort based on selected mode
   groups.sort((a, b) => {
-    const aOpen = a.trades.some((t) => t.status === "open");
-    const bOpen = b.trades.some((t) => t.status === "open");
+    const aOpen = a.trades.some((t) => isOpenStatus(t.status));
+    const bOpen = b.trades.some((t) => isOpenStatus(t.status));
+    // Always put open before settled
     if (aOpen !== bOpen) return aOpen ? -1 : 1;
-    return a.city.localeCompare(b.city);
+
+    switch (sortMode) {
+      case "placed":
+        return (b.placedAt || "").localeCompare(a.placedAt || ""); // newest first
+      case "settles":
+        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999"); // soonest first
+      case "city":
+      default:
+        return a.city.localeCompare(b.city);
+    }
   });
 
   // Stats for filtered set
-  const filteredOpen = filtered.filter((t) => t.status === "open");
-  const filteredSettled = filtered.filter((t) => t.status !== "open");
+  const filteredOpen = filtered.filter((t) => isOpenStatus(t.status));
+  const filteredSettled = filtered.filter((t) => !isOpenStatus(t.status));
   const filteredWon = filteredSettled.filter((t) => t.status === "won" || (t.pnl != null && t.pnl > 0));
   const filteredLost = filteredSettled.filter((t) => t.status === "lost" || (t.pnl != null && t.pnl < 0));
   const filteredPnl = filteredSettled.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
@@ -434,9 +457,24 @@ export default function TradingFloorPage() {
 
       {/* ── Filters ───────────────────────────────────────── */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Filter className="w-3.5 h-3.5" style={{ color: "var(--text-muted)" }} />
+        {/* Sort mode toggle */}
+        <div className="flex items-center gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+          {(["placed", "settles", "city"] as const).map((mode) => (
+            <button
+              key={mode}
+              onClick={() => setSortMode(mode)}
+              className="text-xs px-3 py-1.5 font-medium"
+              style={{
+                backgroundColor: sortMode === mode ? "#60a5fa20" : "var(--card)",
+                color: sortMode === mode ? "#60a5fa" : "var(--text-muted)",
+                borderRight: mode !== "city" ? "1px solid var(--border)" : undefined,
+              }}
+            >
+              {mode === "placed" ? "↓ Newest" : mode === "settles" ? "⏰ Settles" : "🏙 City"}
+            </button>
+          ))}
         </div>
+        <div className="w-px h-5" style={{ backgroundColor: "var(--border)" }} />
         <select
           value={versionFilter}
           onChange={(e) => setVersionFilter(e.target.value)}
@@ -495,11 +533,11 @@ export default function TradingFloorPage() {
         {groups.map((g) => {
           const key = `${g.city}|${g.marketLabel}|${g.side}`;
           const isExpanded = expandedGroups.has(key);
-          const isOpen = g.trades.some((t) => t.status === "open");
-          const isSettled = g.trades.every((t) => t.status !== "open");
+          const isOpen = g.trades.some((t) => isOpenStatus(t.status));
+          const isSettled = g.trades.every((t) => !isOpenStatus(t.status));
           const isWon = isSettled && g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0);
           const isLost = isSettled && g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
-          const settledPnl = g.trades.reduce((s, t) => s + (t.status !== "open" ? (t.pnl ?? 0) : 0), 0);
+          const settledPnl = g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0);
           const boughtPct = g.avgPrice * 100;
           const isBadVersion = g.strategyVersion.includes("0.9");
 
@@ -512,122 +550,127 @@ export default function TradingFloorPage() {
                 border: `1px solid ${isWon ? "#4ade8040" : isLost ? "#ef444440" : "var(--border)"}`,
               }}
             >
-              {/* Main row */}
+              {/* Main row — Kalshi-style clean layout */}
               <button
                 onClick={() => toggleGroup(key)}
-                className="w-full flex items-center gap-4 px-4 py-3.5 text-left hover:opacity-90 transition-opacity"
+                className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:opacity-90 transition-opacity"
                 style={{ backgroundColor: isSettled ? (isWon ? "#4ade8008" : "#ef444408") : "transparent" }}
               >
                 {/* City badge */}
                 <div
-                  className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{
-                    backgroundColor: "#60a5fa18",
-                    border: "1px solid #60a5fa30",
-                  }}
+                  className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
+                  style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
                 >
                   <span className="text-xs font-black tracking-wider" style={{ color: "#60a5fa" }}>
                     {cityCode(g.city)}
                   </span>
                 </div>
 
-                {/* Market info */}
+                {/* Market info — Kalshi style: "City · Date" then "Yes · High ≥ 72°F" */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                       {capitalize(g.city)} · {g.targetDate}
                     </span>
-                    {isBadVersion && (
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#ef444420", color: "#ef4444" }}>
-                        {g.strategyVersion}
-                      </span>
-                    )}
-                    {!isBadVersion && g.strategyVersion !== "unknown" && (
-                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: "#4ade8015", color: "#4ade80" }}>
-                        {g.strategyVersion}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444" }}>
-                      {g.side.toUpperCase()}
+                    <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                      backgroundColor: isBadVersion ? "#ef444420" : "#4ade8015",
+                      color: isBadVersion ? "#ef4444" : "#4ade80",
+                    }}>
+                      {g.strategyVersion}
                     </span>
-                    {" · "}
-                    {g.marketLabel}
+                  </div>
+                  <div className="text-xs mt-0.5">
+                    <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 600 }}>
+                      {g.side === "yes" ? "Yes" : "No"}
+                    </span>
+                    <span style={{ color: "var(--text-muted)" }}> · {g.marketLabel}</span>
                   </div>
                 </div>
 
-                {/* Bought probability */}
-                <div className="text-center" style={{ minWidth: 80 }}>
+                {/* Bought — price as % chance + contracts + cost */}
+                <div className="text-right" style={{ minWidth: 90 }}>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    {boughtPct.toFixed(0)}¢
+                    {boughtPct.toFixed(0)}% chance
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {g.totalQuantity} contract{g.totalQuantity !== 1 ? "s" : ""}
+                    {g.totalQuantity} × {$(g.totalCost)}
                   </div>
                 </div>
 
-                {/* Payout */}
-                <div className="text-center" style={{ minWidth: 90 }}>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {isSettled ? "Result" : "Payout if Win"}
-                  </div>
-                  {isSettled ? (
-                    <div className="text-sm font-bold" style={{ color: settledPnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                      {settledPnl >= 0 ? "+" : ""}{$(settledPnl, "")}
-                    </div>
-                  ) : (
-                    <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
-                      ${g.payoutIfWin.toFixed(2)}
-                    </div>
-                  )}
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    Cost: {$(g.totalCost)}
-                  </div>
-                </div>
-
-                {/* Settlement / Status */}
-                <div className="text-center" style={{ minWidth: 80 }}>
+                {/* Now — current market chance + direction arrow */}
+                <div className="text-right" style={{ minWidth: 80 }}>
                   {isSettled ? (
                     <>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
                       <span
-                        className="text-xs font-bold px-2 py-1 rounded"
-                        style={{
-                          backgroundColor: isWon ? "#4ade8020" : "#ef444420",
-                          color: isWon ? "#4ade80" : "#ef4444",
-                        }}
+                        className="text-sm font-bold"
+                        style={{ color: isWon ? "#4ade80" : "#ef4444" }}
                       >
                         {isWon ? "WON ✓" : "LOST ✗"}
                       </span>
                       {g.trades[0]?.actual_temp != null && (
-                        <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                          Actual: {g.trades[0].actual_temp.toFixed(1)}°F
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {g.trades[0].actual_temp.toFixed(1)}°F
                         </div>
                       )}
                     </>
                   ) : (
                     <>
-                      <div className="flex items-center gap-1 justify-center">
-                        <Clock className="w-3 h-3" style={{ color: "var(--text-muted)" }} />
-                        <span className="text-xs font-medium" style={{
-                          color: (() => {
-                            if (!g.settlementAt) return "var(--text-muted)";
-                            const diff = new Date(g.settlementAt).getTime() - Date.now();
-                            if (diff <= 0) return "#f59e0b";
-                            if (diff < 3600000) return "#ef4444";
-                            if (diff < 86400000) return "#f59e0b";
-                            return "var(--text-secondary)";
-                          })(),
-                        }}>
-                          {timeRemaining(g.settlementAt)}
-                        </span>
+                      <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
+                      {g.nowPrice != null ? (() => {
+                        const nowPct = g.nowPrice * 100;
+                        const diff = nowPct - boughtPct;
+                        const isUp = diff > 0;
+                        return (
+                          <>
+                            <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
+                              {nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}
+                            </div>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              Edge: {(g.edge * 100).toFixed(0)}%
+                            </div>
+                          </>
+                        );
+                      })() : (
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>—</div>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Payout if Win + Settlement */}
+                <div className="text-right" style={{ minWidth: 90 }}>
+                  {isSettled ? (
+                    <>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
+                      <div className="text-sm font-bold" style={{ color: settledPnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                        {settledPnl >= 0 ? "+" : ""}{$(settledPnl, "")}
                       </div>
-                      <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
-                        {friendlyDatetime(g.settlementAt)}
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Payout if Win</div>
+                      <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
+                        ${g.payoutIfWin.toFixed(2)}
                       </div>
                     </>
                   )}
+                  <div className="flex items-center gap-1 justify-end mt-0.5">
+                    <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
+                    <span className="text-xs" style={{
+                      color: (() => {
+                        if (!g.settlementAt) return "var(--text-muted)";
+                        const diff = new Date(g.settlementAt).getTime() - Date.now();
+                        if (diff <= 0) return "#f59e0b";
+                        if (diff < 3600000) return "#ef4444";
+                        if (diff < 86400000) return "#f59e0b";
+                        return "var(--text-muted)";
+                      })(),
+                    }}>
+                      {timeRemaining(g.settlementAt)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Expand arrow */}
