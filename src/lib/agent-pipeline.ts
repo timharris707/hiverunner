@@ -11,7 +11,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
-import { getAgentByAnyId, AGENT_MD_FILENAMES, type AgentConfig } from "@/config/agents";
+import { getAgentByAnyId, AGENT_MD_FILENAMES, TAG_AGENT_MAP, BUILDER_AGENT_IDS, type AgentConfig } from "@/config/agents";
 import type {
   AgentMemoryFile,
   AgentMemoryEntry,
@@ -268,41 +268,7 @@ export function listAgentsWithMemory(): AgentMemoryFile[] {
 
 // ─── Named Agent Routing ────────────────────────────────────────────────────
 
-/** Tag-to-agent mapping for task routing */
-const TAG_AGENT_MAP: Record<string, string> = {
-  frontend: "fullstack",
-  ui: "fullstack",
-  component: "fullstack",
-  page: "fullstack",
-  css: "fullstack",
-  layout: "fullstack",
-  design: "fullstack",
-  visual: "fullstack",
-  dashboard: "fullstack",
-  backend: "backend",
-  api: "backend",
-  database: "backend",
-  infrastructure: "backend",
-  "ci/cd": "backend",
-  monitoring: "backend",
-  reliability: "backend",
-  trading: "quant",
-  strategy: "quant",
-  crypto: "t3",
-  weather: "t2",
-  stocks: "t1",
-  options: "t1",
-  research: "scout",
-  intelligence: "scout",
-  marketing: "quill",
-  content: "quill",
-  copy: "quill",
-  legal: "counsel",
-  compliance: "counsel",
-  qa: "vigil",
-  test: "vigil",
-  verification: "vigil",
-};
+/** Tag-to-agent mapping — derived from central agent registry (imported above) */
 
 /** Project owner mapping — loaded from projects.json */
 function getProjectOwner(projectId: string): string | undefined {
@@ -318,8 +284,8 @@ function getProjectOwner(projectId: string): string | undefined {
 /** UI task tags that trigger QA handoff to Vigil */
 const UI_TAGS = new Set(["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "dashboard"]);
 
-/** Builder agents whose work always routes through Vigil QA (not just UI tasks) */
-const BUILDER_AGENTS = new Set(["fullstack", "backend"]);
+/** Builder agents whose work always routes through Vigil QA — derived from central registry */
+const BUILDER_AGENTS = BUILDER_AGENT_IDS;
 
 /**
  * Resolve which named agent should handle a task.

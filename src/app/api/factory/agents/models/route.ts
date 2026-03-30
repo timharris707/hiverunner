@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { ALL_AGENT_NAMES } from "@/config/agents";
 
 const TASKS_FILE = join(process.cwd(), "data/tasks.json");
 const BUILD_LOG_FILE = join(process.cwd(), "data/build-log.json");
@@ -111,10 +112,9 @@ export async function GET() {
   }
 
   // ── Fill any agents not yet seen with the OpenClaw default ───────────────
+  // Derive known agents from the central registry + build-queue agent types
   const KNOWN_AGENTS = [
-    "henry", "atlas", "nimbus", "cipher", "quant",
-    "forge", "pixel", "scout", "quill", "counsel",
-    // build-queue agent types
+    ...ALL_AGENT_NAMES.map((n) => n.toLowerCase()),
     "claude-code", "reviewer",
   ];
   for (const id of KNOWN_AGENTS) {

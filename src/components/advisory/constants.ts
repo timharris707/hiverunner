@@ -15,20 +15,15 @@ import type {
   AdvisoryEvent,
   AdvisorySession,
 } from "@/types/advisory";
-import { AGENT_CONFIGS, getAgentByAnyId, getDisplayName } from "@/config/agents";
+import { AGENT_CONFIGS, getAgentByAnyId, getDisplayName, AGENT_RECOMMENDED_OVERLAY_MAP } from "@/config/agents";
 
 // ─── Agent Definitions — derived from central registry ──────────────────────
-
-const DEFAULT_ROLES: Record<string, "supervisor" | "worker" | "reviewer"> = {
-  henry: "supervisor",
-  counsel: "reviewer",
-};
 
 export const AGENTS: AgentDef[] = AGENT_CONFIGS.map((a) => ({
   id: getDisplayName(a),
   emoji: a.emoji,
   role: a.role,
-  defaultRole: DEFAULT_ROLES[a.id] ?? "worker",
+  defaultRole: a.advisoryRole ?? "worker",
 }));
 
 // ─── Persona Overlays ────────────────────────────────────────────────────────
@@ -54,18 +49,8 @@ export const PERSONA_OVERLAYS_EXTENDED: PersonaOverlay[] = [
   { id: "autonomous-optimization-architect", name: "Autonomous Optimization Architect", emoji: "🤖", desc: "AI agents replacing manual work, feedback loops, self-improving systems", relevantAgents: ["Henry"] },
 ];
 
-export const AGENT_RECOMMENDED_OVERLAYS: Record<string, string[]> = {
-  Atlas: ["trading-strategist", "data-analytics-reporter"],
-  Nimbus: ["trading-strategist", "data-analytics-reporter"],
-  Cipher: ["trading-strategist", "data-analytics-reporter"],
-  Quant: ["trading-strategist", "data-analytics-reporter"],
-  Forge: ["security-engineer", "devops-automator", "backend-architect"],
-  Pixel: ["frontend-developer", "rapid-prototyper"],
-  Scout: ["trend-researcher", "data-analytics-reporter"],
-  Quill: ["seo-specialist", "growth-hacker", "content-creator"],
-  Counsel: ["compliance-auditor"],
-  Henry: ["autonomous-optimization-architect"],
-};
+/** Recommended overlays per agent — derived from central registry */
+export const AGENT_RECOMMENDED_OVERLAYS: Record<string, string[]> = AGENT_RECOMMENDED_OVERLAY_MAP;
 
 // ─── Models ──────────────────────────────────────────────────────────────────
 
@@ -161,7 +146,7 @@ export const SESSION_TEMPLATES: SessionTemplate[] = [
   },
 ];
 
-export const DIVISIONS = ["Leadership", "Trading", "Engineering", "Research", "Creative", "Legal", "Custom"] as const;
+export const DIVISIONS = ["Leadership", "Trading", "Engineering", "Research", "Creative", "Legal", "QA", "Custom"] as const;
 
 // ─── Helper Functions ────────────────────────────────────────────────────────
 
