@@ -191,14 +191,20 @@ export default function TradingFloorPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
+  const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, number>>>({});
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsRes, posRes, portfolioRes] = await Promise.all([
+      const [statsRes, posRes, portfolioRes, forecastRes] = await Promise.all([
         fetch("/api/trading/weather-stats"),
         fetch("/api/trading/kalshi-positions"),
         fetch("/api/trading/kalshi-portfolio"),
+        fetch("/api/trading/live-forecasts"),
       ]);
+      if (forecastRes.ok) {
+        const fData = await forecastRes.json();
+        if (fData.forecasts) setLiveForecasts(fData.forecasts);
+      }
       const statsData = await statsRes.json();
       const posData = await posRes.json();
       setWeatherStats(statsData);
@@ -648,27 +654,23 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Forecast */}
+                {/* Forecast — live from Open-Meteo */}
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
-                  <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
-                    {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°F` : "—"}
-                  </div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {(() => {
-                      const placed = g.placedAt;
-                      if (!placed) return "—";
-                      const d = new Date(placed.includes("T") ? placed : placed + "Z");
-                      if (isNaN(d.getTime())) return "—";
-                      const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-                      if (mins < 1) return "just now";
-                      if (mins < 60) return `${mins}m ago`;
-                      const hrs = Math.floor(mins / 60);
-                      if (hrs < 24) return `${hrs}h ago`;
-                      const days = Math.floor(hrs / 24);
-                      return `${days}d ago`;
-                    })()}
-                  </div>
+                  {(() => {
+                    const liveFc = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
+                    const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
+                    return (
+                      <>
+                        <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
+                          {temp != null ? `${temp}°F` : "—"}
+                        </div>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {liveFc != null ? "live" : temp != null ? "at entry" : "—"}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Cost */}
