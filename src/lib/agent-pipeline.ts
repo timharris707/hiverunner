@@ -39,6 +39,7 @@ const AGENT_MD_FILENAME: Record<string, string> = {
   quill: "quill",
   counsel: "counsel",
   vigil: "vigil",
+  gater: "Gater",
 };
 
 function getAgentMdPath(agentId: string): string {
@@ -302,6 +303,7 @@ const TAG_AGENT_MAP: Record<string, string> = {
   monitoring: "backend",
   reliability: "backend",
   trading: "quant",
+  strategy: "quant",
   crypto: "t3",
   weather: "t2",
   stocks: "t1",

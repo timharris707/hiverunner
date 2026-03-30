@@ -30,7 +30,14 @@ export async function POST(req: NextRequest) {
     tasks.unshift(newTask);
     writeTasks(tasks);
 
-    if (newTask.status === "in-progress") {
+    // Auto-assign builder agent when new task is created as in-progress
+    if (newTask.status === "in-progress" && !newTask.assignedAgent) {
+      const freshTasks = readTasks();
+      const t = freshTasks.find((x: any) => x.id === newTask.id);
+      if (t) {
+        autoAssignBuilder(t);
+        writeTasks(freshTasks);
+      }
       await queueOrStartBuild(newTask.id, { source: "tasks-post" });
     }
 
