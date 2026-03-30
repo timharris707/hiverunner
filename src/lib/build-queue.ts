@@ -43,6 +43,7 @@ const REVIEW_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — review without res
 const MAX_BUILD_RETRIES = 2; // Auto-retry failed builds up to 2 times (3 total attempts)
 const BUILD_RETRY_DELAY_MS = 60_000; // 60 seconds between retry attempts
 const STALL_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — in-progress with no build activity triggers alert
+const SERVER_BOOT_MS = Date.now(); // Captures when this module was first loaded — any build started before this is a zombie
 
 // ── Task Status State Machine ──────────────────────────────────────────────────
 // Single source of truth for all valid task status transitions.
@@ -1487,11 +1488,36 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       }
     }
 
+    // Zombie build cleanup — after a server restart, child processes are dead but
+    // build-log entries still show "running"/"spawning". Detect these by checking
+    // if the build started before the current server process booted.
+    const now = Date.now();
+    for (const build of buildLog.builds || []) {
+      if (!ACTIVE_BUILD_STATUSES.has(build.status)) continue;
+      const buildStarted = build.startedAt ? new Date(build.startedAt).getTime() : (build.queuedAt ? new Date(build.queuedAt).getTime() : 0);
+      if (buildStarted > 0 && buildStarted < SERVER_BOOT_MS) {
+        const task = tasks.find((t: any) => t.id === build.taskId);
+        const label = task ? String(task.title || build.taskId).replace(/"/g, "'") : build.taskId;
+        console.log(`[factory] Zombie build cleanup: ${build.id} for task "${label}" started before server boot — marking failed`);
+        build.status = "failed";
+        build.completedAt = new Date().toISOString();
+        build.output = "Build process lost during server restart — will be re-spawned by reconciler";
+        if (task && task.status === "in-progress") {
+          clearTransientBuildTracking(task);
+          delete task.buildState;
+          delete task.buildTriggeredAt;
+          delete task.buildCompletedAt;
+          recoveredTaskIds.push(task.id);
+          tasksToKick.add(task.id);
+        }
+        changed = true;
+      }
+    }
+
     // Orphaned build cleanup — immediately reclaim capacity from builds whose task
     // no longer exists or has already reached a terminal/review state.
     // This MUST run before advanceTasks so freed slots are visible for promotion.
     const TERMINAL_TASK_STATUSES = new Set(["done", "review"]);
-    const now = Date.now();
     for (const build of buildLog.builds || []) {
       if (!ACTIVE_BUILD_STATUSES.has(build.status)) continue;
       const task = tasks.find((t: any) => t.id === build.taskId);
