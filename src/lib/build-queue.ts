@@ -939,6 +939,27 @@ function nextQueuedTaskId(buildLog: { builds: any[] }, executionKey: string) {
   return queued[0]?.taskId || null;
 }
 
+/**
+ * Check if a named agent already has an active (spawning/running) build.
+ * Returns the active build entry if found, undefined otherwise.
+ */
+function findActiveBuildForAgent(buildLog: { builds: any[] }, agentId: string) {
+  if (!agentId) return undefined;
+  return buildLog.builds.find((b: any) => b.assignedAgent === agentId && ACTIVE_BUILD_STATUSES.has(b.status));
+}
+
+/**
+ * Find the next queued build for a specific agent (across all execution keys).
+ * Returns the taskId of the oldest queued build for that agent.
+ */
+function nextQueuedTaskIdForAgent(buildLog: { builds: any[] }, agentId: string) {
+  if (!agentId) return null;
+  const queued = buildLog.builds
+    .filter((b: any) => b.assignedAgent === agentId && b.status === "queued")
+    .sort((a: any, b: any) => new Date(a.queuedAt || a.startedAt || 0).getTime() - new Date(b.queuedAt || b.startedAt || 0).getTime());
+  return queued[0]?.taskId || null;
+}
+
 function summarizeOutput(error: Error | null, stdout: string, stderr: string) {
   const raw = error ? `${stderr || stdout || error.message}` : `${stdout || stderr || "Build completed successfully"}`;
   return raw.slice(-1500);
@@ -1210,7 +1231,11 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
         }
 
         if (pending.status === "queued" && !active) {
-          tasksToKick.add(task.id);
+          const pendingAgentId = pending.assignedAgent || task.assignedAgent || null;
+          const agentBusyInReconcile = pendingAgentId ? findActiveBuildForAgent(buildLog, pendingAgentId) : undefined;
+          if (!agentBusyInReconcile) {
+            tasksToKick.add(task.id);
+          }
         }
         continue;
       }
@@ -1399,6 +1424,7 @@ async function updateRunningState(buildId: string, taskId: string) {
 
 async function finalizeBuild(buildId: string, taskId: string, success: boolean, output: string) {
   let nextTaskId: string | null = null;
+  let completedAgentId: string | null = null;
   let notifyText = "";
   let reviewSpawnData: { task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string } | null = null;
   let visualQASpawnData: {
@@ -1490,6 +1516,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
       task.buildError = null;
       delete task.codeReviewNotes;
       // task.status stays "in-progress" — reviewer/Vigil will apply the final transition
+      completedAgentId = entry.assignedAgent || assignment.agentId || null;
 
       const { projectName, projectDir } = getProjectMeta(task, projects);
       const isUITask = shouldRequireVisualReview(task);
@@ -1645,6 +1672,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
       task.buildError = output.slice(-1500);
       notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
       nextTaskId = nextQueuedTaskId(buildLog, entry.executionKey);
+      completedAgentId = entry.assignedAgent || assignment.agentId || null;
 
       // Record agent memory even for failures
       memoryData = {
@@ -1691,6 +1719,8 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     // For UI tasks: capture both Chromium + WebKit (Safari) screenshots for cross-browser QA
     const captures = captureScreenshots ? await captureAndStoreScreenshot(task.id, task, "after", true) : [];
     spawnVigilQAProcess(task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captures);
+    // Builder agent is now free — advance their queue
+    reconcileBuildQueue({ source: `post-build-agent:${buildId}`, force: true }).catch(() => {});
     return;
   }
 
@@ -1700,6 +1730,8 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     // Capture "after" screenshot, then spawn visual QA reviewer
     const captures = await captureAndStoreScreenshot(task.id, task, "after");
     spawnVisualQAProcess(task, visualQAEntry, projectName, projectDir, buildOutput, captures);
+    // Builder agent is now free — advance their queue
+    reconcileBuildQueue({ source: `post-build-agent:${buildId}`, force: true }).catch(() => {});
     return;
   }
 
@@ -1707,6 +1739,8 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   if (reviewSpawnData) {
     const { task, reviewEntry, projectName, projectDir, buildOutput } = reviewSpawnData;
     spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
+    // Builder agent is now free — advance their queue
+    reconcileBuildQueue({ source: `post-build-agent:${buildId}`, force: true }).catch(() => {});
     return;
   }
 
@@ -2055,7 +2089,9 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     const existing = findPendingEntryForTask(buildLog, taskId);
 
     if (existing) {
-      if (existing.status === "queued" && !active) {
+      const existingAgentId = existing.assignedAgent || task.assignedAgent || null;
+      const agentBusyForExisting = existingAgentId ? findActiveBuildForAgent(buildLog, existingAgentId) : undefined;
+      if (existing.status === "queued" && !active && !agentBusyForExisting) {
         const now = new Date().toISOString();
         existing.status = "spawning";
         existing.startedAt = now;
@@ -2130,6 +2166,14 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.quotaVerdict = quotaVerdict.action;
     task.quotaReason = quotaVerdict.reason;
 
+    // Named agent assignment FIRST — we need the agent ID to enforce per-agent concurrency
+    const agentAssignment = autoAssignBuilder(task);
+    const assignedAgentId = task.assignedAgent || agentAssignment.agentId || null;
+
+    // Per-agent concurrency gate: only one active build per agent at a time
+    const agentBusy = assignedAgentId ? findActiveBuildForAgent(buildLog, assignedAgentId) : undefined;
+    const shouldQueue = !!(active || agentBusy);
+
     const routing = routeTask(task);
     const executor = selectBuildExecutor(routing, task, projectName);
     const now = new Date().toISOString();
@@ -2143,8 +2187,9 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
       taskTitle: task.title,
       project: task.project,
       executionKey,
-      status: active ? "queued" : "spawning",
-      queuedAt: active ? now : null,
+      assignedAgent: assignedAgentId,
+      status: shouldQueue ? "queued" : "spawning",
+      queuedAt: shouldQueue ? now : null,
       startedAt: now,
       completedAt: null,
       agentType: executor.agentType,
@@ -2166,8 +2211,8 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
 
     buildLog.builds.unshift(buildEntry);
 
-    task.buildState = active ? "queued" : "spawning";
-    task.buildQueuedAt = active ? now : undefined;
+    task.buildState = shouldQueue ? "queued" : "spawning";
+    task.buildQueuedAt = shouldQueue ? now : undefined;
     task.buildTriggeredAt = now;
     task.activeBuildId = buildEntry.id;
     task.buildExecutionKey = executionKey;
@@ -2178,16 +2223,13 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     task.savingsPercent = routing.savingsPercent;
     task.buildError = null;
 
-    // Named agent assignment (with audit comment)
-    const agentAssignment = autoAssignBuilder(task);
-
     task.updated = now;
 
     writeBuildLog(buildLog);
     writeTasks(tasks);
 
     return {
-      kind: active ? ("queued" as const) : ("started" as const),
+      kind: shouldQueue ? ("queued" as const) : ("started" as const),
       task: { ...task },
       build: buildEntry,
       projectName,
