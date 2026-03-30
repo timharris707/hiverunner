@@ -494,7 +494,7 @@ async function captureAndStoreScreenshot(taskId: string, task: any, phase: "befo
         ? `http://localhost:3001${task.visualReview.targetPath}`
         : task.project === "weather-trading"
           ? "http://localhost:8050/trades"
-          : "http://localhost:3001/tasks");
+          : "http://localhost:3001/trading");
 
     const rawCaptures = allBrowsers
       ? await captureScreenshotAllBrowsers(targetUrl, taskId)
@@ -1485,6 +1485,28 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
         recoveredTaskIds.push(task.id);
         tasksToKick.add(task.id);
         changed = true;
+      }
+
+      // Catch-all: in-progress task with no build-log entry and not already queued to kick.
+      // Covers post-restart edge cases like buildState=failed without a scheduled retry,
+      // partially cleared build tracking, or any state that slipped past the orphan check.
+      if (!tasksToKick.has(task.id)) {
+        const hasScheduledRetry = !!task.buildRetryScheduledAt;
+        const isAwaitingReview = task.buildState === "completed" ||
+          ["pending-vigil-qa", "pending-visual-qa", "pending", "vigil-reviewing", "running", "approved"].includes(task.codeReviewState || "");
+        const isBlocked = task.buildState === "blocked";
+
+        if (!hasScheduledRetry && !isAwaitingReview && !isBlocked) {
+          console.log(`[factory] Reconcile catch-all recovery: in-progress task "${String(task.title || task.id).replace(/"/g, "'")}" has no active build (buildState=${task.buildState || "none"}) — re-spawning`);
+          clearTransientBuildTracking(task);
+          delete task.buildState;
+          delete task.buildTriggeredAt;
+          delete task.buildCompletedAt;
+          task.updated = new Date().toISOString();
+          recoveredTaskIds.push(task.id);
+          tasksToKick.add(task.id);
+          changed = true;
+        }
       }
     }
 
