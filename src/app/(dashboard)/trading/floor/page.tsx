@@ -199,6 +199,7 @@ export default function TradingFloorPage() {
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
   const [currentTemps, setCurrentTemps] = useState<Record<string, { tempF: number; ageMinutes: number; stationId: string }>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
+  const [actualHighs, setActualHighs] = useState<Record<string, { high: number; low: number; highAt: string; lowAt: string }>>({});
 
   const fetchData = useCallback(async () => {
     try {
@@ -218,6 +219,13 @@ export default function TradingFloorPage() {
         const tData = await tempsRes.json();
         if (tData.observations) setCurrentTemps(tData.observations);
       }
+      try {
+        const actualsRes = await fetch("/api/trading/actual-highs");
+        if (actualsRes.ok) {
+          const aData = await actualsRes.json();
+          if (aData.actuals) setActualHighs(aData.actuals);
+        }
+      } catch { /* skip */ }
       const statsData = await statsRes.json();
       const posData = await posRes.json();
       setWeatherStats(statsData);
@@ -744,11 +752,33 @@ export default function TradingFloorPage() {
                   })()}
                 </div>
 
-                {/* Forecast — live from Open-Meteo, matched to bet type */}
+                {/* Forecast or Actual — show recorded high/low for today, forecast for future */}
                 <div>
                   {(() => {
                     const isHighBet = /HIGH/i.test(g.ticker);
-                    const label = isHighBet ? "High" : "Low";
+                    const todayStr = new Date().toISOString().slice(0, 10);
+                    const isToday = g.targetDate === todayStr;
+                    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+                    const isPast = g.targetDate <= yesterdayStr;
+                    
+                    // For today or past: show actual recorded high/low from NWS
+                    const actual = actualHighs[g.city.toLowerCase()];
+                    if ((isToday || isPast) && actual) {
+                      const temp = isHighBet ? actual.high : actual.low;
+                      return (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{isHighBet ? "High" : "Low"}</div>
+                          <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
+                            {temp}°F
+                          </div>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                            recorded
+                          </div>
+                        </>
+                      );
+                    }
+                    
+                    // For future: show forecast
                     const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
                     const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
                     const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
