@@ -1,0 +1,3 @@
+{
+  "/api/advisory/sessions/[id]/full-round/route": "app/api/advisory/sessions/[id]/full-round/route.js"
+}

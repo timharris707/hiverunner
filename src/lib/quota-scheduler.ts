@@ -12,7 +12,8 @@
 import { readJSON } from "./build-queue";
 import { calculateCost, normalizeModelId } from "./pricing";
 import { join } from "path";
-import { readFileSync, writeFileSync, mkdirSync } from "fs";
+import { writeFileSync, mkdirSync } from "fs";
+import { getAgentByAnyId, getDisplayName } from "@/config/agents";
 
 /* ------------------------------------------------------------------ */
 /*  Constants                                                          */
@@ -20,6 +21,7 @@ import { readFileSync, writeFileSync, mkdirSync } from "fs";
 
 const DATA_DIR = join(process.cwd(), "data");
 const QUOTA_STATE_FILE = join(DATA_DIR, "quota-state.json");
+const BUILD_LOG_FILE = join(DATA_DIR, "build-log.json");
 
 /** Hours considered off-peak (UTC). Covers ~10 PM – 8 AM US-Pacific. */
 const OFF_PEAK_HOURS_UTC = new Set([6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
@@ -59,6 +61,8 @@ export interface QuotaState {
   lastTrigger: Record<string, number>;
   /** Task IDs deferred to off-peak */
   deferredQueue: DeferredTask[];
+  /** Cost ledger for today's approved work by agent */
+  byAgent: Record<string, number>;
 }
 
 export interface DeferredTask {
@@ -102,6 +106,7 @@ export interface QuotaSummary {
   offPeakTaskCount: number;
   deferredCount: number;
   deferredTasks: DeferredTask[];
+  byAgent: Array<{ agent: string; cost: number }>;
   nextWindowChangeUtc: string;
   idleSlots: number;
 }
@@ -147,6 +152,7 @@ function freshState(): QuotaState {
     offPeakTaskCount: 0,
     lastTrigger: {},
     deferredQueue: [],
+    byAgent: {},
   };
 }
 
@@ -156,7 +162,13 @@ export function loadQuotaState(): QuotaState {
   if (state.date !== todayStr()) {
     return freshState();
   }
-  return state;
+  const byAgent = state.byAgent && Object.keys(state.byAgent).length > 0
+    ? state.byAgent
+    : buildAgentLedgerFromBuildLog(state.date);
+  return {
+    ...state,
+    byAgent,
+  };
 }
 
 export function saveQuotaState(state: QuotaState): void {
@@ -308,6 +320,8 @@ export function evaluateTask(
     routedTier?: string;
     routedModel?: string;
     status?: string;
+    assignedAgent?: string;
+    assignee?: string;
   },
   allTasks: Array<{ id: string; status: string; priority?: string }>,
   now = new Date()
@@ -332,13 +346,7 @@ export function evaluateTask(
   if (priority === "P0") {
     const utilization = budgetUtilization(state, window);
     recordTrigger(state, task.id, now.getTime());
-    if (window === "peak") {
-      state.peakSpendUsd += estimatedCost;
-      state.peakTaskCount++;
-    } else {
-      state.offPeakSpendUsd += estimatedCost;
-      state.offPeakTaskCount++;
-    }
+    recordApprovedSpend(state, task, estimatedCost, window);
     saveQuotaState(state);
 
     if (utilization > 0.9) {
@@ -391,13 +399,7 @@ export function evaluateTask(
     // High priority can exceed budget with warning
     if (isHigh) {
       recordTrigger(state, task.id, now.getTime());
-      if (window === "peak") {
-        state.peakSpendUsd += estimatedCost;
-        state.peakTaskCount++;
-      } else {
-        state.offPeakSpendUsd += estimatedCost;
-        state.offPeakTaskCount++;
-      }
+      recordApprovedSpend(state, task, estimatedCost, window);
       saveQuotaState(state);
       return {
         action: "budget-warn",
@@ -424,13 +426,7 @@ export function evaluateTask(
 
   // 7. All checks passed — allow
   recordTrigger(state, task.id, now.getTime());
-  if (window === "peak") {
-    state.peakSpendUsd += estimatedCost;
-    state.peakTaskCount++;
-  } else {
-    state.offPeakSpendUsd += estimatedCost;
-    state.offPeakTaskCount++;
-  }
+  recordApprovedSpend(state, task, estimatedCost, window);
 
   // Remove from deferred queue if present
   state.deferredQueue = state.deferredQueue.filter((d) => d.taskId !== task.id);
@@ -523,7 +519,19 @@ export function getQuotaSummary(now = new Date()): QuotaSummary {
   const window = currentWindow(now);
   const peakBudget = windowBudget("peak");
   const offPeakBudget = windowBudget("off-peak");
-  const totalSpend = state.peakSpendUsd + state.offPeakSpendUsd;
+  const recordedTotal = round4(state.peakSpendUsd + state.offPeakSpendUsd);
+  const byAgent = Object.entries(state.byAgent || {})
+    .map(([agent, cost]) => ({
+      agent,
+      cost: round4(cost),
+    }))
+    .sort((a, b) => b.cost - a.cost);
+  const normalizedByAgent = byAgent.length > 0
+    ? byAgent
+    : recordedTotal > 0
+      ? [{ agent: "Unattributed", cost: recordedTotal }]
+      : [];
+  const totalSpend = normalizedByAgent.reduce((sum, entry) => sum + entry.cost, 0);
 
   // Calculate idle slots: off-peak batch slots remaining
   const offPeakSlotsUsed = state.offPeakTaskCount;
@@ -546,6 +554,7 @@ export function getQuotaSummary(now = new Date()): QuotaSummary {
     offPeakTaskCount: state.offPeakTaskCount,
     deferredCount: state.deferredQueue.length,
     deferredTasks: state.deferredQueue,
+    byAgent: normalizedByAgent,
     nextWindowChangeUtc: nextWindowChangeUtc(now).toISOString(),
     idleSlots,
   };
@@ -553,6 +562,76 @@ export function getQuotaSummary(now = new Date()): QuotaSummary {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+function round4(n: number): number {
+  return Math.round(n * 10000) / 10000;
+}
+
+function getTaskAgentLabel(task: { assignedAgent?: string; assignee?: string }): string {
+  const agentRef = task.assignedAgent || task.assignee || "unknown";
+  const agent = getAgentByAnyId(agentRef);
+  if (agent) {
+    return getDisplayName(agent);
+  }
+  return String(agentRef);
+}
+
+interface BuildLogEntry {
+  assignedAgent?: string;
+  startedAt?: string | null;
+  queuedAt?: string | null;
+  runningAt?: string | null;
+  completedAt?: string | null;
+  routing?: {
+    tier?: string;
+    modelId?: string;
+  };
+}
+
+function buildAgentLedgerFromBuildLog(date: string): Record<string, number> {
+  const buildLog = readJSON<{ builds?: BuildLogEntry[] }>(BUILD_LOG_FILE, { builds: [] });
+  const byAgent: Record<string, number> = {};
+
+  for (const build of buildLog.builds || []) {
+    const buildDate = getBuildDate(build);
+    if (buildDate !== date) continue;
+
+    const agentLabel = getTaskAgentLabel({ assignedAgent: build.assignedAgent });
+    byAgent[agentLabel] = (byAgent[agentLabel] || 0) + estimateTaskCost({
+      routedTier: build.routing?.tier,
+      routedModel: build.routing?.modelId,
+    });
+  }
+
+  return byAgent;
+}
+
+function getBuildDate(build: BuildLogEntry): string | null {
+  const stamp = build.startedAt || build.queuedAt || build.runningAt || build.completedAt;
+  if (!stamp) return null;
+
+  const parsed = new Date(stamp);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().split("T")[0];
+}
+
+function recordApprovedSpend(
+  state: QuotaState,
+  task: { assignedAgent?: string; assignee?: string },
+  estimatedCost: number,
+  window: "peak" | "off-peak"
+): void {
+  if (window === "peak") {
+    state.peakSpendUsd += estimatedCost;
+    state.peakTaskCount++;
+  } else {
+    state.offPeakSpendUsd += estimatedCost;
+    state.offPeakTaskCount++;
+  }
+
+  const agentLabel = getTaskAgentLabel(task);
+  state.byAgent[agentLabel] = (state.byAgent[agentLabel] || 0) + estimatedCost;
 }
 
 /* ------------------------------------------------------------------ */

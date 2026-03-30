@@ -141,6 +141,30 @@ async function cleanupTask(request: APIRequestContext, taskId: string) {
   }
 }
 
+async function getTask(request: APIRequestContext, taskId: string) {
+  const res = await request.get("/api/tasks");
+  expect(res.status()).toBe(200);
+  const body = await res.json();
+  const task = (body.tasks as Array<Record<string, unknown>>).find((candidate) => candidate.id === taskId);
+  expect(task, `task ${taskId} should exist`).toBeTruthy();
+  return task as Record<string, unknown>;
+}
+
+async function waitForTask(
+  request: APIRequestContext,
+  taskId: string,
+  predicate: (task: Record<string, unknown>) => boolean,
+  timeoutMs = 5_000
+) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const task = await getTask(request, taskId);
+    if (predicate(task)) return task;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Timed out waiting for task ${taskId}`);
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // 1. GET /api/health
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1097,7 +1121,97 @@ test.describe("POST /api/tasks/build — request validation", () => {
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 17. PATCH /api/tasks — acceptance_criteria guard
+// 17. Build lifecycle — buildState transitions
+// ═════════════════════════════════════════════════════════════════════════════
+
+test.describe("Build lifecycle — buildState terminal transitions", () => {
+  test.describe.configure({ mode: "serial" });
+
+  const created: string[] = [];
+
+  test.afterAll(async ({ request }) => {
+    for (const id of created) {
+      await cleanupTask(request, id);
+    }
+  });
+
+  async function createInProgressTask(request: APIRequestContext, title: string) {
+    const res = await request.post("/api/tasks", {
+      data: {
+        title,
+        status: "backlog",
+        priority: "P2",
+        project: "mission-control",
+      },
+    });
+    expect(res.status()).toBe(200);
+    const taskId = (await res.json()).task.id as string;
+    created.push(taskId);
+
+    const onDeckRes = await request.patch("/api/tasks", { data: { id: taskId, status: "on-deck" } });
+    expect(onDeckRes.status()).toBe(200);
+
+    const inProgressRes = await request.patch("/api/tasks", {
+      data: { id: taskId, status: "in-progress", acceptance_criteria: ["Build lifecycle contract coverage"] },
+    });
+    expect(inProgressRes.status()).toBe(200);
+
+    return taskId;
+  }
+
+  async function startBuildAndWaitForRunning(request: APIRequestContext, taskId: string) {
+    const buildRes = await request.post("/api/tasks/build", { data: { taskId } });
+    expect(buildRes.status()).toBe(200);
+    const body = await buildRes.json();
+    expect(body.task.buildState).toMatch(/^(spawning|queued|running)$/);
+
+    return waitForTask(
+      request,
+      taskId,
+      (task) => task.buildState === "running"
+    );
+  }
+
+  test("sets buildState on build start and marks it completed when task reaches done", async ({ request }) => {
+    const taskId = await createInProgressTask(request, "[CONTRACT] buildState done transition");
+
+    const startedTask = await startBuildAndWaitForRunning(request, taskId);
+    expect(startedTask.buildState).toMatch(/^(spawning|running|queued)$/);
+    expect(startedTask.activeBuildId).toBeTruthy();
+
+    const reviewRes = await request.patch("/api/tasks", { data: { id: taskId, status: "review" } });
+    expect(reviewRes.status()).toBe(200);
+
+    const doneRes = await request.patch("/api/tasks", {
+      data: { id: taskId, status: "done", reviewAssignedTo: "gater", reviewStatus: "approved" },
+    });
+    expect(doneRes.status()).toBe(200);
+
+    const doneTask = await getTask(request, taskId);
+    expect(doneTask.status).toBe("done");
+    expect(doneTask.buildState).toBe("completed");
+    expect(doneTask.activeBuildId).toBeUndefined();
+  });
+
+  test("marks buildState blocked when task reaches blocked", async ({ request }) => {
+    const taskId = await createInProgressTask(request, "[CONTRACT] buildState blocked transition");
+
+    const startedTask = await startBuildAndWaitForRunning(request, taskId);
+    expect(startedTask.buildState).toMatch(/^(spawning|running|queued)$/);
+    expect(startedTask.activeBuildId).toBeTruthy();
+
+    const blockedRes = await request.patch("/api/tasks", { data: { id: taskId, status: "blocked" } });
+    expect(blockedRes.status()).toBe(200);
+
+    const blockedTask = await getTask(request, taskId);
+    expect(blockedTask.status).toBe("blocked");
+    expect(blockedTask.buildState).toBe("blocked");
+    expect(blockedTask.activeBuildId).toBeUndefined();
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 18. PATCH /api/tasks — acceptance_criteria guard
 // ═════════════════════════════════════════════════════════════════════════════
 
 test.describe("PATCH /api/tasks — acceptance_criteria guard", () => {
@@ -1276,17 +1390,23 @@ const DashboardStatsSchema = z.object({
   totalSessions: z.number().int().nonnegative(),
   tasksToday: z.number().int().nonnegative(),
   costToday: z.number().nonnegative(),
+  costByAgentToday: z.array(z.object({
+    agent: z.string(),
+    cost: z.number().nonnegative(),
+  })),
   activeAgents: z.number().int().nonnegative(),
 });
 
 test.describe("GET /api/dashboard/stats — response schema", () => {
-  test("returns { activeSessions, totalSessions, tasksToday, costToday, activeAgents }", async ({
+  test("returns { activeSessions, totalSessions, tasksToday, costToday, costByAgentToday, activeAgents }", async ({
     request,
   }) => {
     const res = await request.get("/api/dashboard/stats");
     // 200 on success or 500 fallback still returns the zero-filled schema
     expect([200, 500]).toContain(res.status());
-    assertSchema(DashboardStatsSchema, await res.json());
+    const body = assertSchema(DashboardStatsSchema, await res.json());
+    const breakdownTotal = body.costByAgentToday.reduce((sum, entry) => sum + entry.cost, 0);
+    expect(body.costToday).toBeCloseTo(breakdownTotal, 4);
   });
 });
 
@@ -1341,6 +1461,10 @@ const QuotaResponseSchema = z.object({
   peakTaskCount: z.number().int().nonnegative(),
   offPeakTaskCount: z.number().int().nonnegative(),
   deferredCount: z.number().int().nonnegative(),
+  byAgent: z.array(z.object({
+    agent: z.string(),
+    cost: z.number().nonnegative(),
+  })),
   config: z.object({
     dailyBudgetUsd: z.number().nonnegative(),
     peakBudgetRatio: z.number(),

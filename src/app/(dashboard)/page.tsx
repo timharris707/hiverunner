@@ -145,6 +145,7 @@ interface DashboardStats {
   totalSessions: number;
   tasksToday: number;
   costToday: number;
+  costByAgentToday: Array<{ agent: string; cost: number }>;
   activeAgents: number;
 }
 
@@ -293,13 +294,53 @@ export default function DashboardPage() {
                 icon={<CheckCircle className="w-5 h-5" />}
                 iconColor="var(--success)"
               />
-              <StatsCard
-                title="Cost Today"
-                value={dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
-                subtitle="Token usage"
-                icon={<DollarSign className="w-5 h-5" />}
-                iconColor="var(--error)"
-              />
+              <div
+                className="rounded-xl p-4 md:p-6"
+                style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+              >
+                <div className="flex items-center justify-between mb-1.5 md:mb-2">
+                  <span className="text-xs md:text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+                    Cost Today
+                  </span>
+                  <div className="[&>svg]:w-4 [&>svg]:h-4 md:[&>svg]:w-5 md:[&>svg]:h-5" style={{ color: "var(--error)" }}>
+                    <DollarSign className="w-5 h-5" />
+                  </div>
+                </div>
+                <div
+                  className="text-2xl md:text-3xl font-bold tracking-tight"
+                  style={{
+                    fontFamily: "var(--font-heading)",
+                    color: "var(--text-primary)",
+                    letterSpacing: "-1.5px",
+                  }}
+                >
+                  {dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
+                </div>
+                <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                  Quota-approved spend
+                </div>
+                {dashStats && dashStats.costByAgentToday.length > 0 && (
+                  <div className="mt-3 space-y-1.5">
+                    {dashStats.costByAgentToday.slice(0, 3).map((entry) => (
+                      <div key={entry.agent} className="flex items-center justify-between text-xs">
+                        <span className="truncate pr-2" style={{ color: "var(--text-secondary)" }}>
+                          {entry.agent}
+                        </span>
+                        <span className="font-medium" style={{ color: "var(--text-primary)" }}>
+                          ${entry.cost.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                    <div
+                      className="flex items-center justify-between text-[11px] pt-2"
+                      style={{ color: "var(--text-muted)", borderTop: "1px solid var(--border)" }}
+                    >
+                      <span>Sum of agents</span>
+                      <span>${dashStats.costByAgentToday.reduce((sum, entry) => sum + entry.cost, 0).toFixed(2)}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </>
           )}
         </div>

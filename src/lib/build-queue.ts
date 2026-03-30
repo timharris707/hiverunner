@@ -47,11 +47,11 @@ export const VALID_TASK_TRANSITIONS: Record<string, string[]> = {
   "backlog":     ["on-deck"],
   "on-deck":     ["in-progress"],
   "in-progress": ["review", "blocked", "in-progress"], // in-progress→in-progress for retries/failures
-  "review":      ["done", "in-progress"],              // done=Gater approval, in-progress=rejection
+  "review":      ["done", "in-progress", "blocked"],   // done=Gater approval, in-progress=rejection, blocked=QA cannot verify
   "blocked":     ["in-progress"],
   "done":        [],                                   // terminal — nothing leaves done
 };
-const MAX_ON_DECK_PER_PROJECT = 1;
+const MAX_ON_DECK_PER_PROJECT = 5;
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const PROJECT_DIRS: Record<string, string> = {
   "mission-control": "projects/mission-control-app",
@@ -1195,6 +1195,12 @@ function clearTransientBuildTracking(task: any) {
   delete task.buildStartedAt;
 }
 
+function finalizeTerminalBuildState(task: any, buildState: "completed" | "blocked", now: string) {
+  clearTransientBuildTracking(task);
+  task.buildState = buildState;
+  task.buildCompletedAt = now;
+}
+
 function comparePriority(a: any, b: any) {
   const pa = PRIORITY_ORDER[a.priority] ?? 9;
   const pb = PRIORITY_ORDER[b.priority] ?? 9;
@@ -1240,13 +1246,12 @@ function advanceTasks(
       // Respect repo-level concurrency cap
       if (findActiveEntryForExecutionKey(buildLog, executionKey)) continue;
 
-      // Resolve which agent would build this task
-      const candidateAgentId = candidate.assignedAgent || resolveAgentForTask(candidate).agentId;
+      // Per-agent concurrency gate DISABLED for Sprint 2 parallel throughput
+      // const candidateAgentId = candidate.assignedAgent || resolveAgentForTask(candidate).agentId;
+      // if (candidateAgentId && findActiveBuildForAgent(buildLog, candidateAgentId)) continue;
 
-      // Skip if the candidate's agent already has an active build
-      if (candidateAgentId && findActiveBuildForAgent(buildLog, candidateAgentId)) continue;
-
-      transitionTask(candidate, "in-progress", "reconciler");
+      const ok = transitionTask(candidate, "in-progress", "reconciler");
+      if (!ok) continue; // state machine blocked transition (e.g. missing acceptance_criteria)
       candidate.updated = now;
       // Auto-assign the right builder agent on promotion
       autoAssignBuilder(candidate);
@@ -2316,6 +2321,7 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
       gaterEntry.status = "failed";
       console.warn(`[factory] Gater QA process failed for ${taskId}, treating as approved`);
       transitionTask(task, "done", "gater-qa", { force: true, reason: "Gater process failed — auto-approved to unblock pipeline" });
+      finalizeTerminalBuildState(task, "completed", now);
       task.reviewStatus = "approved";
       task.reviewCompletedAt = now;
       task.completedAt = now;
@@ -2332,6 +2338,7 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
         const blockerReason = blockerMatch ? blockerMatch[1].trim() : "Gater cannot verify this task";
 
         transitionTask(task, "blocked", "gater-qa");
+        finalizeTerminalBuildState(task, "blocked", now);
         task.reviewStatus = "blocked";
         task.blocker = {
           reason: blockerReason,
@@ -2347,6 +2354,7 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
         createInAppNotification("🚧 Gater Blocked", `"${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason}`, "warning", "/tasks");
       } else if (verdict === "APPROVED") {
         transitionTask(task, "done", "gater-qa", { force: true, reason: "Gater approved" });
+        finalizeTerminalBuildState(task, "completed", now);
         task.reviewStatus = "approved";
         task.reviewCompletedAt = now;
         task.completedAt = now;
@@ -2458,6 +2466,15 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
     PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
   };
 
+  if (process.env.MISSION_CONTROL_E2E_BUILD_STUB === "1") {
+    setTimeout(() => {
+      updateRunningState(buildEntry.id, task.id).catch((err) => {
+        console.error("Error marking stubbed build running:", err);
+      });
+    }, 25);
+    return;
+  }
+
   const child = execFile(
     executor.command,
     executor.args,
@@ -2486,8 +2503,8 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
   });
 }
 
-export async function queueOrStartBuild(taskId: string, options?: { source?: string }) {
-  const decision = await withFactoryLock(async () => {
+async function queueOrStartBuildDecision(taskId: string, options?: { source?: string }) {
+  return withFactoryLock(async () => {
     const tasks = readTasks();
     const projects = readProjects();
     const buildLog = readBuildLog();
@@ -2587,9 +2604,9 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
     const agentAssignment = autoAssignBuilder(task);
     const assignedAgentId = task.assignedAgent || agentAssignment.agentId || null;
 
-    // Per-agent concurrency gate: only one active build per agent at a time
-    const agentBusy = assignedAgentId ? findActiveBuildForAgent(buildLog, assignedAgentId) : undefined;
-    const shouldQueue = !!(active || agentBusy);
+    // Per-agent concurrency gate: DISABLED — allow parallel builds per agent for Sprint 2 throughput
+    // const agentBusy = assignedAgentId ? findActiveBuildForAgent(buildLog, assignedAgentId) : undefined;
+    const shouldQueue = !!active; // only queue if repo-level cap is hit
 
     const routing = routeTask(task);
     const executor = selectBuildExecutor(routing, task, projectName);
@@ -2653,6 +2670,10 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
       projectDir,
     };
   });
+}
+
+export async function queueOrStartBuild(taskId: string, options?: { source?: string }) {
+  const decision = await queueOrStartBuildDecision(taskId, options);
 
   if (decision.kind === "started") {
     spawnBuildProcess(decision.task, decision.build, decision.projectName, decision.projectDir);
@@ -2693,3 +2714,9 @@ export async function retryBuild(taskId: string, options?: { source?: string }) 
   if (blocked) return { kind: "done-task-skipped" as const };
   return queueOrStartBuild(taskId, { source: options?.source || "retry" });
 }
+
+export const __testHooks = {
+  queueOrStartBuildDecision,
+  finalizeGaterQA,
+  updateRunningState,
+};

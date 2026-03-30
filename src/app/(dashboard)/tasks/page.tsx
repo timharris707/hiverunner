@@ -77,6 +77,8 @@ interface Task {
   savingsPercent?: number;
   reviewRequired?: boolean;
   reviewStatus?: string;
+  reviewAssignedTo?: string;
+  reviewAssignedAt?: string;
   reviewRequestedAt?: string;
   reviewCompletedAt?: string;
   reviewFailureCount?: number;
@@ -181,6 +183,125 @@ function isVideoType(type: string) {
 
 function hasUiTag(task: Task) {
   return Array.isArray(task.tags) && task.tags.some((tag) => String(tag).toLowerCase() === "ui");
+}
+
+function getReviewerName(task: Task): string | null {
+  if (task.lastReviewerAgent) return getAssigneeName(task.lastReviewerAgent);
+  if (task.reviewAssignedTo) return getAssigneeName(task.reviewAssignedTo);
+  return null;
+}
+
+function getReviewStateMeta(task: Task): { label: string; color: string; bg: string; border: string; active?: boolean } | null {
+  if (task.reviewStatus === "gater-reviewing") {
+    return {
+      label: "Gater reviewing",
+      color: "#fbbf24",
+      bg: "rgba(251,191,36,0.10)",
+      border: "rgba(251,191,36,0.18)",
+      active: true,
+    };
+  }
+
+  if (task.reviewStatus === "blocked") {
+    return {
+      label: "Review blocked",
+      color: "#fb923c",
+      bg: "rgba(251,146,60,0.10)",
+      border: "rgba(251,146,60,0.18)",
+    };
+  }
+
+  if (task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED") {
+    return {
+      label: "Gater approved",
+      color: "#4ade80",
+      bg: "rgba(74,222,128,0.08)",
+      border: "rgba(74,222,128,0.16)",
+    };
+  }
+
+  if (
+    task.reviewStatus === "changes-requested" ||
+    task.reviewStatus === "rejected" ||
+    task.lastReviewVerdict === "NEEDS_FIX"
+  ) {
+    return {
+      label: task.reviewFailureCount ? `Changes needed ×${task.reviewFailureCount}` : "Changes needed",
+      color: "#f87171",
+      bg: "rgba(239,68,68,0.10)",
+      border: "rgba(239,68,68,0.18)",
+    };
+  }
+
+  if (task.codeReviewState === "pending") {
+    return {
+      label: "QA queued",
+      color: "#93c5fd",
+      bg: "rgba(96,165,250,0.08)",
+      border: "rgba(96,165,250,0.16)",
+    };
+  }
+
+  if (task.codeReviewState === "running" || task.status === "review" || task.reviewRequired) {
+    return {
+      label: "Review queued",
+      color: "#93c5fd",
+      bg: "rgba(96,165,250,0.08)",
+      border: "rgba(96,165,250,0.16)",
+    };
+  }
+
+  return null;
+}
+
+function getReviewVerdictMeta(task: Task): { text: string; detail: string; color: string; bg: string; border: string } | null {
+  const reviewer = getReviewerName(task) || "Gater";
+
+  if (task.reviewStatus === "gater-reviewing") {
+    return {
+      text: `${reviewer} is reviewing now`,
+      detail: "Task stays in Review until the gate resolves.",
+      color: "#fbbf24",
+      bg: "rgba(251,191,36,0.08)",
+      border: "rgba(251,191,36,0.18)",
+    };
+  }
+
+  if (task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED") {
+    return {
+      text: `${reviewer} verdict: APPROVED`,
+      detail: task.reviewCompletedAt ? `Closed ${formatDateFull(task.reviewCompletedAt)}` : "Ready to ship",
+      color: "#4ade80",
+      bg: "rgba(74,222,128,0.08)",
+      border: "rgba(74,222,128,0.16)",
+    };
+  }
+
+  if (
+    task.reviewStatus === "changes-requested" ||
+    task.reviewStatus === "rejected" ||
+    task.lastReviewVerdict === "NEEDS_FIX"
+  ) {
+    return {
+      text: `${reviewer} verdict: NEEDS FIX`,
+      detail: task.lastReviewNotes?.trim() || "Returned to the builder for changes.",
+      color: "#f87171",
+      bg: "rgba(239,68,68,0.10)",
+      border: "rgba(239,68,68,0.18)",
+    };
+  }
+
+  if (task.reviewStatus === "blocked") {
+    return {
+      text: `${reviewer} verdict: BLOCKED`,
+      detail: task.lastReviewNotes?.trim() || "Review could not be completed.",
+      color: "#fb923c",
+      bg: "rgba(251,146,60,0.10)",
+      border: "rgba(251,146,60,0.18)",
+    };
+  }
+
+  return null;
 }
 
 function AttachmentIcon({ type }: { type: string }) {
@@ -1507,10 +1628,24 @@ function TaskDetailDrawer({
                   )}
                   <span style={{
                     fontSize: "0.6rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px",
-                    backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(96,165,250,0.12)",
-                    color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#93c5fd",
+                    backgroundColor:
+                      task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" :
+                      task.reviewStatus === "changes-requested" || task.reviewStatus === "rejected" ? "rgba(239,68,68,0.12)" :
+                      task.reviewStatus === "gater-reviewing" ? "rgba(251,191,36,0.12)" :
+                      task.reviewStatus === "blocked" ? "rgba(251,146,60,0.12)" :
+                      "rgba(96,165,250,0.12)",
+                    color:
+                      task.reviewStatus === "approved" ? "#4ade80" :
+                      task.reviewStatus === "changes-requested" || task.reviewStatus === "rejected" ? "#f87171" :
+                      task.reviewStatus === "gater-reviewing" ? "#fbbf24" :
+                      task.reviewStatus === "blocked" ? "#fb923c" :
+                      "#93c5fd",
                   }}>
-                    {task.reviewStatus || "pending"}
+                    {task.reviewStatus === "gater-reviewing"
+                      ? "Gater reviewing"
+                      : task.reviewStatus === "rejected"
+                      ? "Changes requested"
+                      : task.reviewStatus || "pending"}
                   </span>
                 </div>
               </div>
@@ -1530,19 +1665,34 @@ function TaskDetailDrawer({
               )}
 
               {/* Reviewer info */}
-              {task.lastReviewerAgent && (
+              {(task.lastReviewerAgent || task.reviewAssignedTo) && (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                   <div>
-                    <label style={DRAWER_LABEL}>Reviewer</label>
-                    <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>{task.lastReviewerAgent}</div>
+                    <label style={DRAWER_LABEL}>{task.lastReviewerAgent ? "Reviewer" : "Assigned Reviewer"}</label>
+                    <div style={{ fontSize: "0.78rem", color: "var(--text-primary)" }}>
+                      {getReviewerName(task)}
+                    </div>
                   </div>
                   <div>
                     <label style={DRAWER_LABEL}>Verdict</label>
                     <div style={{
                       fontSize: "0.78rem", fontWeight: 700,
-                      color: task.lastReviewVerdict === "APPROVED" ? "#4ade80" : task.lastReviewVerdict === "NEEDS_FIX" ? "#f87171" : "var(--text-secondary)",
+                      color:
+                        task.lastReviewVerdict === "APPROVED" || task.reviewStatus === "approved" ? "#4ade80" :
+                        task.lastReviewVerdict === "NEEDS_FIX" || task.reviewStatus === "rejected" || task.reviewStatus === "changes-requested" ? "#f87171" :
+                        task.reviewStatus === "gater-reviewing" ? "#fbbf24" :
+                        task.reviewStatus === "blocked" ? "#fb923c" :
+                        "var(--text-secondary)",
                     }}>
-                      {task.lastReviewVerdict === "APPROVED" ? "✅ Passed" : task.lastReviewVerdict === "NEEDS_FIX" ? "❌ Failed" : task.lastReviewVerdict || "—"}
+                      {task.reviewStatus === "gater-reviewing"
+                        ? "⏳ In review"
+                        : task.lastReviewVerdict === "APPROVED" || task.reviewStatus === "approved"
+                        ? "✅ Approved"
+                        : task.lastReviewVerdict === "NEEDS_FIX" || task.reviewStatus === "rejected" || task.reviewStatus === "changes-requested"
+                        ? "❌ Needs fix"
+                        : task.reviewStatus === "blocked"
+                        ? "🚧 Blocked"
+                        : task.lastReviewVerdict || "—"}
                     </div>
                   </div>
                 </div>
@@ -1840,7 +1990,9 @@ function TaskCard({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   const isActiveBuild = isBuilding || task.buildState === "running" || task.buildState === "spawning";
-  const isActiveReview = !isActiveBuild && task.codeReviewState === "running";
+  const reviewStateMeta = getReviewStateMeta(task);
+  const reviewVerdictMeta = getReviewVerdictMeta(task);
+  const isActiveReview = !isActiveBuild && (task.codeReviewState === "running" || task.reviewStatus === "gater-reviewing");
   const glowClass = isActiveBuild ? "card-glow-build" : isActiveReview ? "card-glow-review" : "";
   const activityEvents = useActivityStream(task.id, isActiveBuild);
 
@@ -1940,22 +2092,16 @@ function TaskCard({
 
         // Review state
         if (task.status === "review" || task.reviewRequired || task.codeReviewState === "pending" || task.codeReviewState === "running") {
-          const isPending = task.codeReviewState === "pending" || task.codeReviewState === "running";
-          const isApproved = task.reviewStatus === "approved" || task.lastReviewVerdict === "APPROVED";
-          const isFailed = task.lastReviewVerdict === "NEEDS_FIX";
-          const dotColor = isPending ? "#fbbf24" : isApproved ? "#4ade80" : isFailed ? "#f87171" : "#93c5fd";
-          const bgColor = isPending ? "rgba(251,191,36,0.10)" : isApproved ? "rgba(74,222,128,0.08)" : isFailed ? "rgba(239,68,68,0.10)" : "rgba(96,165,250,0.08)";
-          const borderColor = isPending ? "rgba(251,191,36,0.18)" : isApproved ? "rgba(74,222,128,0.16)" : isFailed ? "rgba(239,68,68,0.18)" : "rgba(96,165,250,0.16)";
-          const label = task.codeReviewState === "pending" ? "QA queued" :
-                        task.codeReviewState === "running" ? "QA reviewing" :
-                        task.reviewStatus === "approved" ? "Approved" :
-                        task.reviewStatus === "changes-requested" ? "Changes needed" :
-                        task.lastReviewVerdict === "NEEDS_FIX" ? `Failed${task.reviewFailureCount ? ` ×${task.reviewFailureCount}` : ""}` :
-                        task.lastReviewVerdict === "APPROVED" ? "QA passed" : "Review needed";
+          const chip = reviewStateMeta ?? {
+            label: "Review queued",
+            color: "#93c5fd",
+            bg: "rgba(96,165,250,0.08)",
+            border: "rgba(96,165,250,0.16)",
+          };
           chips.push(
-            <span key="review" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: bgColor, border: `1px solid ${borderColor}`, fontSize: "9px", fontWeight: 600, color: dotColor, letterSpacing: "0.3px" }}>
-              <span style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: dotColor, display: "inline-block", flexShrink: 0 }} />
-              {label}
+            <span key="review" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: chip.bg, border: `1px solid ${chip.border}`, fontSize: "9px", fontWeight: 600, color: chip.color, letterSpacing: "0.3px" }}>
+              <span className={chip.active ? "animate-pulse" : ""} style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: chip.color, display: "inline-block", flexShrink: 0 }} />
+              {chip.label}
             </span>
           );
         }
@@ -2003,6 +2149,20 @@ function TaskCard({
       >
         {task.title}
       </div>
+
+      {reviewVerdictMeta && (
+        <div
+          className="mb-1.5 rounded-md px-2 py-1.5"
+          style={{ backgroundColor: reviewVerdictMeta.bg, border: `1px solid ${reviewVerdictMeta.border}` }}
+        >
+          <div style={{ fontSize: "0.65rem", fontWeight: 700, color: reviewVerdictMeta.color, letterSpacing: "0.2px" }}>
+            {reviewVerdictMeta.text}
+          </div>
+          <div className="line-clamp-2" style={{ fontSize: "0.62rem", color: "var(--text-secondary)", marginTop: "0.2rem" }}>
+            {reviewVerdictMeta.detail}
+          </div>
+        </div>
+      )}
 
       {/* Live build activity stream */}
       {isActiveBuild && <BuildActivityFeed events={activityEvents} />}

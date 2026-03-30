@@ -46,6 +46,10 @@ export default defineConfig({
     ? undefined
     : {
         command: "npm run dev",
+        env: {
+          ...process.env,
+          MISSION_CONTROL_E2E_BUILD_STUB: "1",
+        },
         url: "http://localhost:3000",
         reuseExistingServer: true,
         timeout: 120_000,

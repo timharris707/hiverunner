@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment, VALID_TASK_TRANSITIONS, transitionTask } from "@/lib/build-queue";
+import { queueOrStartBuild, readBuildLog, readTasks, reconcileBuildQueue, writeBuildLog, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment, VALID_TASK_TRANSITIONS, transitionTask } from "@/lib/build-queue";
 import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
@@ -177,6 +177,19 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
+    const landedInTerminalStatus =
+      (tasks[idx].status === "done" || tasks[idx].status === "blocked") &&
+      tasks[idx].status !== previousTask.status;
+
+    if (landedInTerminalStatus) {
+      tasks[idx].buildState = tasks[idx].status === "done" ? "completed" : "blocked";
+      tasks[idx].buildCompletedAt = now;
+      delete tasks[idx].activeBuildId;
+      delete tasks[idx].buildQueuedAt;
+      delete tasks[idx].buildStartedAt;
+      delete tasks[idx].buildExecutionKey;
+    }
+
     // Auto-assign builder agent when task enters in-progress (manual move)
     if (
       tasks[idx].status === "in-progress" &&
@@ -184,6 +197,21 @@ export async function PATCH(req: NextRequest) {
       !tasks[idx].assignedAgent // don't override if pipeline already assigned
     ) {
       autoAssignBuilder(tasks[idx]);
+    }
+
+    if (landedInTerminalStatus) {
+      const buildLog = readBuildLog();
+      const pendingEntry = buildLog.builds.find((build: any) =>
+        build.taskId === id && ["queued", "spawning", "running"].includes(build.status)
+      );
+      if (pendingEntry) {
+        pendingEntry.status = tasks[idx].status === "done" ? "completed" : "failed";
+        pendingEntry.completedAt = now;
+        pendingEntry.output = tasks[idx].status === "done"
+          ? "Build tracking closed by terminal task transition"
+          : "Build tracking closed because task moved to blocked";
+        writeBuildLog(buildLog);
+      }
     }
 
     writeTasks(tasks);

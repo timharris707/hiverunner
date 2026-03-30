@@ -32,6 +32,22 @@ export interface NarrativeItem {
     | "activity";
 }
 
+type NarrativeTask = {
+  id: string;
+  title?: string;
+  status?: string;
+  updated?: string;
+  completedAt?: string;
+  assignedAgent?: string;
+  assignee?: string;
+  reviewAssignedTo?: string;
+  reviewStatus?: string;
+  lastReviewVerdict?: string;
+  lastReviewerAgent?: string;
+  lastReviewNotes?: string;
+  lastReviewAt?: string;
+};
+
 /** Truncate task title to max N chars for clean narrative display */
 function shortTitle(title: string, max = 48): string {
   if (!title) return "a task";
@@ -45,6 +61,15 @@ function agentLabel(agentId: string): string {
   return getDisplayName(agent);
 }
 
+function reviewerId(task: NarrativeTask): string | undefined {
+  return task.lastReviewerAgent || task.reviewAssignedTo || undefined;
+}
+
+function reviewerLabel(task: NarrativeTask): string {
+  const id = reviewerId(task);
+  return id ? agentLabel(id) : "Gater";
+}
+
 /** Today midnight UTC */
 function todayStart(): Date {
   const d = new Date();
@@ -52,21 +77,18 @@ function todayStart(): Date {
   return d;
 }
 
-export async function GET() {
+export function buildNarrativeItems(tasks: NarrativeTask[], activities: Array<{
+  id: string;
+  timestamp: string;
+  type?: string;
+  description?: string;
+  status?: string;
+  agent?: string | null;
+}> = []) {
   const items: NarrativeItem[] = [];
-
-  // ── 1. Task-derived narratives ──────────────────────────────────────────
-  let tasks: any[] = [];
-  try {
-    tasks = readTasks();
-  } catch {
-    tasks = [];
-  }
-
   const now = Date.now();
   const today = todayStart();
 
-  // Track done-today count
   let doneToday = 0;
   let inProgressCount = 0;
   let blockedCount = 0;
@@ -75,9 +97,7 @@ export async function GET() {
     const updated = task.updated ? new Date(task.updated) : null;
     const ageMs = updated ? now - updated.getTime() : Infinity;
 
-    // Only generate narrative for recent tasks (last 7 days) to keep feed relevant
     if (ageMs > 7 * 24 * 60 * 60 * 1000) {
-      // Still count statuses for summary
       if (task.status === "done" && updated && updated >= today) doneToday++;
       if (task.status === "in-progress") inProgressCount++;
       if (task.status === "blocked") blockedCount++;
@@ -86,9 +106,38 @@ export async function GET() {
 
     const title = shortTitle(task.title || "a task");
     const assignee = task.assignedAgent || task.assignee || "";
-    const agentId = assignee ? getAgentByAnyId(assignee)?.id : undefined;
+    const actorAgent = assignee ? getAgentByAnyId(assignee)?.id : undefined;
     const actorLabel = assignee ? agentLabel(assignee) : null;
     const ts = updated?.toISOString() ?? new Date().toISOString();
+
+    if (task.lastReviewAt && task.lastReviewVerdict) {
+      const reviewTs = new Date(task.lastReviewAt).toISOString();
+      const reviewer = reviewerLabel(task);
+      const reviewAgentId = getAgentByAnyId(reviewerId(task) || "")?.id;
+      const reviewNotes = task.lastReviewNotes?.trim();
+
+      if (task.lastReviewVerdict === "APPROVED") {
+        items.push({
+          id: `task-review-approved-${task.id}`,
+          timestamp: reviewTs,
+          text: `${reviewer} approved "${title}"`,
+          agentId: reviewAgentId,
+          taskId: task.id,
+          type: "task_review",
+        });
+      } else if (task.lastReviewVerdict === "NEEDS_FIX") {
+        items.push({
+          id: `task-review-rejected-${task.id}`,
+          timestamp: reviewTs,
+          text: reviewNotes
+            ? `${reviewer} sent "${title}" back: ${shortTitle(reviewNotes, 72)}`
+            : `${reviewer} sent "${title}" back for fixes`,
+          agentId: reviewAgentId,
+          taskId: task.id,
+          type: "task_review",
+        });
+      }
+    }
 
     if (task.status === "in-progress") {
       inProgressCount++;
@@ -99,23 +148,23 @@ export async function GET() {
         id: `task-inprog-${task.id}`,
         timestamp: ts,
         text,
-        agentId,
+        agentId: actorAgent,
         taskId: task.id,
         type: "task_started",
       });
     } else if (task.status === "review") {
-      const reviewer = task.reviewAssignedTo
-        ? getAgentByAnyId(task.reviewAssignedTo)
-        : null;
-      const reviewerLabel = reviewer ? getDisplayName(reviewer) : "Gater";
-      const text = actorLabel
-        ? `${actorLabel} sent "${title}" to ${reviewerLabel} for review`
-        : `"${title}" is awaiting review by ${reviewerLabel}`;
+      const reviewer = reviewerLabel(task);
+      const reviewAgentId = getAgentByAnyId(reviewerId(task) || "")?.id;
+      const text = task.reviewStatus === "gater-reviewing"
+        ? `${reviewer} is reviewing "${title}"`
+        : actorLabel
+        ? `${actorLabel} sent "${title}" to ${reviewer} for review`
+        : `"${title}" is awaiting review by ${reviewer}`;
       items.push({
         id: `task-review-${task.id}`,
         timestamp: ts,
         text,
-        agentId,
+        agentId: reviewAgentId ?? actorAgent,
         taskId: task.id,
         type: "task_review",
       });
@@ -128,49 +177,43 @@ export async function GET() {
         id: `task-done-${task.id}`,
         timestamp: ts,
         text,
-        agentId,
+        agentId: actorAgent,
         taskId: task.id,
         type: "task_done",
       });
     } else if (task.status === "blocked") {
       blockedCount++;
-      const text = `"${title}" hit a blocker`;
+      const reviewer = reviewerLabel(task);
+      const text = task.reviewStatus === "blocked"
+        ? `${reviewer} blocked "${title}"`
+        : `"${title}" hit a blocker`;
       items.push({
         id: `task-blocked-${task.id}`,
         timestamp: ts,
         text,
-        agentId,
+        agentId: getAgentByAnyId(reviewerId(task) || "")?.id ?? actorAgent,
         taskId: task.id,
         type: "task_blocked",
       });
     }
   }
 
-  // ── 2. Activity-derived narratives ──────────────────────────────────────
-  try {
-    const { activities } = getActivities({ limit: 30, sort: "newest" });
-
-    for (const act of activities) {
-      // Build pass/fail events
-      if (act.type === "build" || act.description?.toLowerCase().includes("build")) {
-        const passed = act.status === "success";
-        const text = passed
-          ? `Build passed${act.description ? ` · ${shortTitle(act.description, 40)}` : ""}`
-          : `Build failed${act.description ? ` · ${shortTitle(act.description, 40)}` : ""}`;
-        items.push({
-          id: `act-build-${act.id}`,
-          timestamp: act.timestamp,
-          text,
-          agentId: act.agent ?? undefined,
-          type: passed ? "build_passed" : "build_failed",
-        });
-      }
+  for (const act of activities) {
+    if (act.type === "build" || act.description?.toLowerCase().includes("build")) {
+      const passed = act.status === "success";
+      const text = passed
+        ? `Build passed${act.description ? ` · ${shortTitle(act.description, 40)}` : ""}`
+        : `Build failed${act.description ? ` · ${shortTitle(act.description, 40)}` : ""}`;
+      items.push({
+        id: `act-build-${act.id}`,
+        timestamp: act.timestamp,
+        text,
+        agentId: act.agent ?? undefined,
+        type: passed ? "build_passed" : "build_failed",
+      });
     }
-  } catch {
-    // Activities DB optional — narratives still work without it
   }
 
-  // ── 3. Daily summary ────────────────────────────────────────────────────
   if (doneToday > 0 || inProgressCount > 0 || blockedCount > 0) {
     const parts: string[] = [];
     if (doneToday > 0) parts.push(`${doneToday} task${doneToday !== 1 ? "s" : ""} shipped today`);
@@ -184,25 +227,47 @@ export async function GET() {
     });
   }
 
-  // ── 4. Sort newest first, dedupe ─────────────────────────────────────────
-  // Dedup: keep only one item per taskId (the most-recent one)
   const seen = new Set<string>();
   const deduped: NarrativeItem[] = [];
   for (const item of items.sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
   )) {
-    const key = item.taskId ?? item.id;
+    const key = item.taskId ? `${item.taskId}:${item.type}` : item.id;
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(item);
   }
 
-  // Keep daily summary at end
   const summary = deduped.filter((i) => i.type === "daily_summary");
   const rest = deduped.filter((i) => i.type !== "daily_summary");
 
-  return NextResponse.json({
+  return {
     items: [...rest, ...summary].slice(0, 20),
     meta: { doneToday, inProgress: inProgressCount, blocked: blockedCount },
-  });
+  };
+}
+
+export async function GET() {
+  let tasks: any[] = [];
+  try {
+    tasks = readTasks();
+  } catch {
+    tasks = [];
+  }
+ 
+  let activities: Array<{
+    id: string;
+    timestamp: string;
+    type?: string;
+    description?: string;
+    status?: string;
+    agent?: string | null;
+  }> = [];
+  try {
+    activities = getActivities({ limit: 30, sort: "newest" }).activities;
+  } catch {
+    activities = [];
+  }
+
+  return NextResponse.json(buildNarrativeItems(tasks, activities));
 }
