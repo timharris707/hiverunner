@@ -32,6 +32,7 @@ const REVIEW_TAGS = new Set(["ui", "trading-live", "external", "marketing", "mon
 const REVIEWER_MODEL = "sonnet";
 const VISUAL_REVIEW_TAGS = new Set(["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "task-board"]);
 const MAX_REVIEW_FAILURES_BEFORE_ESCALATION = 2;
+const MAX_REVIEW_FAILURES_HARD_CAP = 3; // Stop rebuilding entirely after this many failures
 const RECONCILE_INTERVAL_MS = 15_000;
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
 const MAX_ON_DECK_PER_PROJECT = 1;
@@ -513,9 +514,19 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
         const failureCount = (task.reviewFailureCount || 0) + 1;
         task.reviewFailureCount = failureCount;
         delete task.completedAt;
-        requeue = true;
 
-        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+        // Hard cap: stop rebuilding after too many failures to prevent infinite loops
+        if (failureCount > MAX_REVIEW_FAILURES_HARD_CAP) {
+          requeue = false;
+          task.status = "review";
+          task.buildState = "completed";
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `HARD STOP: Visual QA failed ${failureCount}x — exceeded max retries. Needs manual intervention.`;
+          notifyText = `🛑 HARD STOP: Visual QA loop killed after ${failureCount} failures: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🛑 HARD STOP: "${String(task.title || taskId).replace(/"/g, "'")}" killed after ${failureCount} Visual QA failures. Manual fix needed.`);
+        } else if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          requeue = true;
           task.escalatedToHenry = true;
           task.escalatedAt = now;
           task.escalationReason = `Visual QA failed ${failureCount} times. Latest issues: ${notes.slice(0, 300)}`;
@@ -528,6 +539,7 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
             "/tasks",
           );
         } else {
+          requeue = true;
           notifyText = `🔄 Visual QA NEEDS FIX (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
         }
 
@@ -760,7 +772,6 @@ async function finalizeVigilQA(
         const failureCount = (task.reviewFailureCount || 0) + 1;
         task.reviewFailureCount = failureCount;
         delete task.completedAt;
-        requeue = true;
 
         // Add rejection comment + re-assign to original builder
         const builderAgent = getAgentByAnyId(builderAgentId);
@@ -769,7 +780,18 @@ async function finalizeVigilQA(
           task.assignee = builderAgent.name.replace(/\s*[^\w\s].*$/, "").trim() || builderAgent.name;
         }
 
-        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+        // Hard cap: stop rebuilding after too many failures to prevent infinite loops
+        if (failureCount > MAX_REVIEW_FAILURES_HARD_CAP) {
+          requeue = false;
+          task.status = "review";
+          task.buildState = "completed";
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `HARD STOP: Vigil QA rejected ${failureCount}x — exceeded max retries. Needs manual intervention.`;
+          notifyText = `🛑 HARD STOP: Vigil loop killed after ${failureCount} rejections: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🛑 HARD STOP: "${String(task.title || taskId).replace(/"/g, "'")}" killed after ${failureCount} Vigil rejections. Manual fix needed.`);
+        } else if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          requeue = true;
           task.escalatedToHenry = true;
           task.escalatedAt = now;
           task.escalationReason = `Vigil QA rejected ${failureCount} times. Latest: ${notes.slice(0, 300)}`;
@@ -782,6 +804,7 @@ async function finalizeVigilQA(
             "/tasks",
           );
         } else {
+          requeue = true;
           notifyText = `🔄 Vigil QA REJECTED → back to ${builderAgentId} (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
         }
 
