@@ -39,6 +39,8 @@ export async function GET() {
     // Version breakdown from local DB + current market values for unrealized P&L
     let versionBreakdown: unknown[] = [];
     let won = 0, lost = 0, realizedPnl = 0, totalFees = 0;
+    let pnl24h = 0;
+    let portfolio24hAgo: number | null = null;
     if (existsSync(LIVE_TRADING_DB)) {
       try {
         const Database = require("better-sqlite3");
@@ -104,10 +106,9 @@ export async function GET() {
         won = totals?.won ?? 0;
         lost = totals?.lost ?? 0;
         realizedPnl = totals?.realized_pnl ?? 0;
-        var pnl24h = totals?.pnl_24h ?? 0;
+        pnl24h = totals?.pnl_24h ?? 0;
         
         // Try to get 24h portfolio change from snapshots
-        let portfolio24hAgo: number | null = null;
         try {
           const snap = db.prepare(
             `SELECT portfolio_total FROM portfolio_snapshots 
@@ -148,7 +149,7 @@ export async function GET() {
       pnl: portfolio - initialDeposit,
       pnlPercent: ((portfolio - initialDeposit) / initialDeposit) * 100,
       realizedPnl,
-      pnl24h: typeof pnl24h !== "undefined" ? pnl24h : 0,
+      pnl24h,
       portfolio24hAgo,
       unrealizedPnl: (portfolio - initialDeposit) - realizedPnl,
       won,
