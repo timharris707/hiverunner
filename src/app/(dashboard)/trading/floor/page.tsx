@@ -654,6 +654,21 @@ export default function TradingFloorPage() {
                   <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
                     {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°F` : "—"}
                   </div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {(() => {
+                      const placed = g.placedAt;
+                      if (!placed) return "—";
+                      const d = new Date(placed.includes("T") ? placed : placed + "Z");
+                      if (isNaN(d.getTime())) return "—";
+                      const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                      if (mins < 1) return "just now";
+                      if (mins < 60) return `${mins}m ago`;
+                      const hrs = Math.floor(mins / 60);
+                      if (hrs < 24) return `${hrs}h ago`;
+                      const days = Math.floor(hrs / 24);
+                      return `${days}d ago`;
+                    })()}
+                  </div>
                 </div>
 
                 {/* Cost */}
