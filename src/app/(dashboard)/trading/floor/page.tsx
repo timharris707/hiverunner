@@ -441,34 +441,55 @@ export default function TradingFloorPage() {
         )}
       </div>
 
-      {/* ── Portfolio Summary ─────────────────────────────── */}
+      {/* ── Portfolio Summary (filter-aware) ────────────────── */}
       <div
         className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
       >
-        {[
-          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true,
-            sub: kp ? (() => {
-              // Use snapshot-based 24h change if available, otherwise fall back to settled P&L
-              if (kp.portfolio24hAgo != null) {
-                const change = kp.portfolio - kp.portfolio24hAgo;
-                return `${change >= 0 ? "▲" : "▼"} ${$(Math.abs(change))} (24h)`;
-              }
-              return `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} settled (24h)`;
-            })() : undefined,
-            subColor: kp ? (() => {
-              if (kp.portfolio24hAgo != null) return (kp.portfolio - kp.portfolio24hAgo) >= 0 ? "#4ade80" : "#ef4444";
-              return kp.pnl24h >= 0 ? "#4ade80" : "#ef4444";
-            })() : undefined,
-          },
-          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
-          { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
-          {
-            label: "Win Rate",
-            value: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}%` : "—",
-            color: kp && (kp.won + kp.lost) > 0 && (kp.won / (kp.won + kp.lost)) >= 0.5 ? "#4ade80" : "#ef4444",
-            sub: kp ? `${kp.won}W – ${kp.lost}L` : undefined,
-          },
-        ].map((item) => (
+        {(() => {
+          // When filters are active, show filtered stats instead of account-level
+          if (hasFilters) {
+            const fCost = filtered.reduce((s, t) => s + t.cost, 0);
+            const fSettledPnl = filteredSettled.reduce((s, t) => s + (t.pnl ?? 0), 0);
+            const fWR = (filteredWon.length + filteredLost.length) > 0 
+              ? ((filteredWon.length / (filteredWon.length + filteredLost.length)) * 100).toFixed(0) 
+              : "—";
+            return [
+              { label: "Filtered Trades", value: `${filtered.length}`, color: "var(--text-primary)", bold: true,
+                sub: `${filteredOpen.length} open · ${filteredSettled.length} settled` },
+              { label: "Cost Deployed", value: $(fCost), color: "#60a5fa" },
+              { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "—",
+                color: fSettledPnl >= 0 ? "#4ade80" : "#ef4444",
+                sub: filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
+              { label: "Win Rate", value: fWR !== "—" ? `${fWR}%` : "—",
+                color: fWR !== "—" && parseInt(fWR) >= 50 ? "#4ade80" : "#ef4444",
+                sub: fWR !== "—" ? `${filteredWon.length}W – ${filteredLost.length}L` : undefined },
+            ];
+          }
+          // No filters — show account-level summary
+          return [
+            { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true,
+              sub: kp ? (() => {
+                if (kp.portfolio24hAgo != null) {
+                  const change = kp.portfolio - kp.portfolio24hAgo;
+                  return `${change >= 0 ? "▲" : "▼"} ${$(Math.abs(change))} (24h)`;
+                }
+                return `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} settled (24h)`;
+              })() : undefined,
+              subColor: kp ? (() => {
+                if (kp.portfolio24hAgo != null) return (kp.portfolio - kp.portfolio24hAgo) >= 0 ? "#4ade80" : "#ef4444";
+                return kp.pnl24h >= 0 ? "#4ade80" : "#ef4444";
+              })() : undefined,
+            },
+            { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
+            { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
+            {
+              label: "Win Rate",
+              value: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}%` : "—",
+              color: kp && (kp.won + kp.lost) > 0 && (kp.won / (kp.won + kp.lost)) >= 0.5 ? "#4ade80" : "#ef4444",
+              sub: kp ? `${kp.won}W – ${kp.lost}L` : undefined,
+            },
+          ];
+        })().map((item) => (
           <div
             key={item.label}
             className="p-4 rounded-xl"
