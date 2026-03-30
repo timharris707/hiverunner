@@ -149,8 +149,31 @@ export async function GET() {
              FROM live_trades WHERE status != 'failed'`
           )
           .get() as { settled_pnl: number } | undefined;
-        const initialDeposit = 500;
+        
+        // Read initial deposit from bankroll.json
+        const bankrollPath = join(WEATHER_TRADING_DIR, "data", "bankroll.json");
+        let initialDeposit = 1000;
+        if (existsSync(bankrollPath)) {
+          try {
+            const bdata = JSON.parse(readFileSync(bankrollPath, "utf-8"));
+            initialDeposit = bdata.initial_deposit || 1000;
+          } catch { /* use default */ }
+        }
         const computedBankroll = initialDeposit + (kalshiBankroll?.settled_pnl || 0);
+        
+        // Get version breakdown
+        const versionBreakdown = liveDb
+          .prepare(
+            `SELECT strategy_version,
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open,
+                    SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
+                    SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
+                    SUM(pnl) as pnl
+             FROM live_trades WHERE status != 'failed'
+             GROUP BY strategy_version`
+          )
+          .all();
 
         liveDb.close();
 
@@ -165,10 +188,12 @@ export async function GET() {
           totalPnl: liveTradeStats.total_pnl || 0,
           openExposure: liveTradeStats.open_exposure || 0,
           bankroll: computedBankroll,
+          initialDeposit,
           recentTrades: recentLiveTrades,
           resolvedTrades: recentLiveTrades.filter(
             (t: Record<string, unknown>) => t.status === "won" || t.status === "lost"
           ),
+          versionBreakdown,
         };
       } catch {
         // live DB read failed

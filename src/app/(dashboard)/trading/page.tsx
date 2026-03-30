@@ -326,6 +326,8 @@ export default function TradingPage() {
   const [showPaperTrades, setShowPaperTrades] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("placed");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [versionFilter, setVersionFilter] = useState<string>("all");
+  const [dateFilter, setDateFilter] = useState<string>("all");
   const weatherIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const toggleSort = (key: SortKey) => {
@@ -449,11 +451,27 @@ export default function TradingPage() {
   // Filtered positions based on toggle
   const allPositions = positionsData?.positions ?? [];
   const allResolved = positionsData?.resolvedPositions ?? [];
-  const positions = showPaperTrades ? allPositions : allPositions.filter((p) => p.trade_type === "live");
-  const resolvedPositions = showPaperTrades ? allResolved : allResolved.filter((p) => p.trade_type === "live");
+  const preFilterPositions = showPaperTrades ? allPositions : allPositions.filter((p) => p.trade_type === "live");
+  const preFilterResolved = showPaperTrades ? allResolved : allResolved.filter((p) => p.trade_type === "live");
+  
+  // Version & date filters
+  const positions = preFilterPositions.filter((p) => {
+    if (versionFilter !== "all" && (p.strategy_version || "unknown") !== versionFilter) return false;
+    if (dateFilter !== "all" && p.target_date !== dateFilter) return false;
+    return true;
+  });
+  const resolvedPositions = preFilterResolved.filter((p) => {
+    if (versionFilter !== "all" && ((p as unknown as Record<string, string>).strategy_version || "unknown") !== versionFilter) return false;
+    if (dateFilter !== "all" && p.target_date !== dateFilter) return false;
+    return true;
+  });
   const cityBreakdown = showPaperTrades
     ? (positionsData?.cityBreakdown ?? [])
     : (positionsData?.liveCityBreakdown ?? []);
+  
+  // Unique versions and dates for filter dropdowns
+  const allVersions = [...new Set([...allPositions, ...allResolved].map((p) => (p as unknown as Record<string, string>).strategy_version || "unknown"))].sort();
+  const allDates = [...new Set([...allPositions, ...allResolved].map((p) => p.target_date))].filter(Boolean).sort();
 
   // Sort positions
   const sortedPositions = [...positions].sort((a, b) => {
@@ -677,13 +695,13 @@ export default function TradingPage() {
               </div>
               <div className="flex flex-wrap items-center gap-6">
                 <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bankroll</div>
-                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
-                    {$(ls.bankroll)}
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Deposited</div>
+                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
+                    {$((ls as Record<string, unknown>).initialDeposit as number ?? 1000)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Deployed</div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Positions</div>
                   <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
                     {$(ls.openExposure)}
                   </div>
@@ -695,13 +713,13 @@ export default function TradingPage() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open</div>
-                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
-                    {ls.openTrades}
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total Value</div>
+                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}>
+                    {$(ls.bankroll)}
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
                   <div className="text-sm font-bold" style={{
                     fontFamily: "var(--font-heading)",
                     color: ls.totalPnl >= 0 ? "#4ade80" : "#ef4444",
@@ -715,6 +733,12 @@ export default function TradingPage() {
                     <span style={{ color: "#4ade80" }}>{ls.won}W</span>
                     {" \u2014 "}
                     <span style={{ color: "#ef4444" }}>{ls.lost}L</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open</div>
+                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
+                    {ls.openTrades}
                   </div>
                 </div>
               </div>
@@ -756,14 +780,51 @@ export default function TradingPage() {
             </Link>
           </div>
 
-          {/* Stats filter label */}
-          {showPaperTrades && hasLiveTrades && (
-            <div className="flex items-center gap-2 mb-3 px-1">
+          {/* Filter bar */}
+          <div className="flex items-center gap-3 mb-4 flex-wrap">
+            {showPaperTrades && hasLiveTrades && (
               <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
                 Showing all trades — including paper
               </span>
+            )}
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version:</label>
+              <select
+                value={versionFilter}
+                onChange={(e) => setVersionFilter(e.target.value)}
+                className="text-xs px-2 py-1 rounded"
+                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="all">All Versions</option>
+                {allVersions.map((v) => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
             </div>
-          )}
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Date:</label>
+              <select
+                value={dateFilter}
+                onChange={(e) => setDateFilter(e.target.value)}
+                className="text-xs px-2 py-1 rounded"
+                style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-primary)" }}
+              >
+                <option value="all">All Dates</option>
+                {allDates.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
+            </div>
+            {(versionFilter !== "all" || dateFilter !== "all") && (
+              <button
+                onClick={() => { setVersionFilter("all"); setDateFilter("all"); }}
+                className="text-xs px-2 py-1 rounded"
+                style={{ backgroundColor: "#ef444420", color: "#ef4444", border: "1px solid #ef444430" }}
+              >
+                Clear Filters
+              </button>
+            )}
+          </div>
 
           {/* Stats cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
@@ -800,16 +861,14 @@ export default function TradingPage() {
               { label: "Placed", key: "placed" },
               { label: "City", key: "city" },
               { label: "Bet", key: "bet" },
-              { label: "Settles", key: "settles" },
-              { label: "Remaining", key: "remaining" },
               { label: "Side", key: "side" },
-              { label: "Price", key: "price" },
+              { label: "Bought", key: "price" },
               { label: "Qty", key: "qty" },
               { label: "Cost", key: "cost" },
-              { label: "Win", key: "win" },
-              { label: "Win Prob", key: "winProb" },
+              { label: "Payout", key: "win" },
               { label: "Edge", key: "edge" },
-              { label: "Forecast", key: "forecast" },
+              { label: "Settles", key: "settles" },
+              { label: "Remaining", key: "remaining" },
               { label: "Version", key: "version" },
             ];
             return (
@@ -887,6 +946,49 @@ export default function TradingPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
+                          <span
+                            className="text-xs font-bold px-2 py-0.5 rounded"
+                            style={{
+                              backgroundColor: pos.side === "yes" ? "#4ade8018" : "#ef444418",
+                              color: pos.side === "yes" ? "#4ade80" : "#ef4444",
+                            }}
+                          >
+                            {pos.side.toUpperCase()}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
+                            {isDemoMode ? "XX¢" : `${(pos.price * 100).toFixed(0)}¢`}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{isDemoMode ? "XX" : pos.quantity}</span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                            {$(pos.cost)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className="text-xs font-semibold" style={{ color: "#4ade80" }}>
+                            {isDemoMode ? "$X.XX" : `$${potentialWin.toFixed(2)}`}
+                          </span>
+                          <span className="text-xs ml-1" style={{ color: "#ef4444" }}>
+                            / {isDemoMode ? "$X.XX" : `-$${pos.cost.toFixed(2)}`}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span
+                            className="text-xs font-bold px-1.5 py-0.5 rounded"
+                            style={{
+                              backgroundColor: isZeroEdge ? "#ef444418" : `${edgeColor(pos.edge)}15`,
+                              color: isZeroEdge ? "#ef4444" : edgeColor(pos.edge),
+                            }}
+                          >
+                            {(pos.edge * 100).toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
                           <span className="text-xs" style={{ color: "var(--text-secondary)", whiteSpace: "nowrap" }}>
                             {friendlyDatetime(pos.settlement_scheduled_at)}
                           </span>
@@ -909,64 +1011,11 @@ export default function TradingPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span
-                            className="text-xs font-bold px-2 py-0.5 rounded"
-                            style={{
-                              backgroundColor: pos.side === "yes" ? "#4ade8018" : "#ef444418",
-                              color: pos.side === "yes" ? "#4ade80" : "#ef4444",
-                            }}
-                          >
-                            {pos.side.toUpperCase()}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
-                            {isDemoMode ? "XX\u00A2" : `${(pos.price * 100).toFixed(0)}\u00A2`}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{isDemoMode ? "XX" : pos.quantity}</span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                            {$(pos.cost)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-semibold" style={{ color: "#4ade80" }}>
-                            {isDemoMode ? "$X.XX" : `$${potentialWin.toFixed(2)}`}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-                            {pos.our_probability != null
-                              ? `${(pos.our_probability * 100).toFixed(1)}%`
-                              : "\u2014"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span
-                            className="text-xs font-bold px-1.5 py-0.5 rounded"
-                            style={{
-                              backgroundColor: isZeroEdge ? "#ef444418" : `${edgeColor(pos.edge)}15`,
-                              color: isZeroEdge ? "#ef4444" : edgeColor(pos.edge),
-                            }}
-                          >
-                            {(pos.edge * 100).toFixed(1)}%
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                            {pos.forecast_mean != null
-                              ? pos.forecast_std != null
-                                ? `${pos.forecast_mean.toFixed(1)}\u00B0 \u00B1 ${pos.forecast_std.toFixed(1)}`
-                                : `${pos.forecast_mean.toFixed(1)}\u00B0`
-                              : "\u2014"}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            {pos.strategy_version || "\u2014"}
+                          <span className="text-xs font-medium px-1.5 py-0.5 rounded" style={{
+                            backgroundColor: (pos.strategy_version || "").includes("v0.9") ? "#ef444415" : "#4ade8015",
+                            color: (pos.strategy_version || "").includes("v0.9") ? "#ef4444" : "#4ade80",
+                          }}>
+                            {pos.strategy_version || "—"}
                           </span>
                         </td>
                       </tr>

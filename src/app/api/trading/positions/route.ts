@@ -86,8 +86,8 @@ export async function GET() {
                   COALESCE(fill_price, price) as price, cost, edge, composite_score,
                   city, target_date,
                   forecast_mean, NULL as forecast_std, NULL as n_models,
-                  'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
-                  strategy_version, our_probability, threshold
+                  status as raw_status, 'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
+                  strategy_version, our_probability, market_probability, threshold
            FROM live_trades
            WHERE status IN ('pending', 'filled', 'resting')
            ORDER BY created_at DESC`
