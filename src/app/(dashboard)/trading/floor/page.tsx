@@ -693,7 +693,7 @@ export default function TradingFloorPage() {
                     {$(g.totalCost)}
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {g.totalQuantity}x {(g.avgPrice * 100).toFixed(0)}¢
+                    {g.totalQuantity}x @ {(g.avgPrice * 100).toFixed(0)}¢
                   </div>
                 </div>
 
