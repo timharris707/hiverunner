@@ -353,9 +353,12 @@ export default function TradingFloorPage() {
       case "placed":
         cmp = (a.placedAt || "").localeCompare(b.placedAt || "");
         break;
-      case "settles":
-        cmp = (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
+      case "settles": {
+        const aTime = a.settlementAt ? new Date(a.settlementAt).getTime() : 9999999999999;
+        const bTime = b.settlementAt ? new Date(b.settlementAt).getTime() : 9999999999999;
+        cmp = aTime - bTime;
         break;
+      }
       case "city":
         cmp = a.city.localeCompare(b.city);
         if (cmp === 0) cmp = (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
