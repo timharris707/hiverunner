@@ -480,7 +480,8 @@ export default function TradingFloorPage() {
                 return kp.pnl24h >= 0 ? "#4ade80" : "#ef4444";
               })() : undefined,
             },
-            { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
+            { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa",
+            sub: kp ? `${new Set(livePositions.map(p => p.ticker)).size || kp.positionsCount} positions · Cost basis ${$(kp.costBasis)}` : undefined },
             { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
             {
               label: "Win Rate",
