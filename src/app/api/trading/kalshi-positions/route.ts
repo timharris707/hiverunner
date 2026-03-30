@@ -88,6 +88,22 @@ export async function GET() {
     const positions = openTrades.map(enrichWithSettlement);
     const resolved = settledTrades.map(enrichWithSettlement);
 
+    // Fetch fees per position from Kalshi portfolio positions
+    const feesMap: Record<string, number> = {};
+    try {
+      const kalshiPosRes = await fetch("http://localhost:8050/api/kalshi/portfolio", {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (kalshiPosRes.ok) {
+        const kpData = await kalshiPosRes.json();
+        const kPositions = kpData.market_positions || kpData.positions || [];
+        for (const kp of kPositions) {
+          const ticker = kp.ticker || "";
+          feesMap[ticker] = parseFloat(kp.fees_paid_dollars || "0");
+        }
+      }
+    } catch { /* skip */ }
+
     // Fetch current market prices from Kalshi via dashboard proxy
     // Get unique tickers to batch-fetch
     const tickers = [...new Set(positions.map((p) => String(p.ticker)))];
@@ -140,7 +156,8 @@ export async function GET() {
         }
       }
 
-      return { ...p, now_price: nowPrice };
+      const fees = feesMap[ticker] ?? 0;
+      return { ...p, now_price: nowPrice, fees };
     });
 
     return NextResponse.json({

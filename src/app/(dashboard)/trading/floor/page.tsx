@@ -47,6 +47,7 @@ interface Position {
   actual_temp?: number | null;
   resolved_at?: string | null;
   now_price?: number | null;
+  fees?: number;
 }
 
 interface PositionsData {
@@ -621,6 +622,7 @@ export default function TradingFloorPage() {
           const isWon = isSettled && g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0);
           const isLost = isSettled && g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
           const settledPnl = g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0);
+          const totalGroupFees = g.trades.reduce((s, t) => s + (t.fees ?? 0), 0);
           const boughtPct = g.avgPrice * 100;
           const isBadVersion = g.strategyVersion.includes("0.9");
 
@@ -851,6 +853,18 @@ export default function TradingFloorPage() {
                       </div>
                     </div>
                     <div>
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>Fees</span>
+                      <div className="text-sm font-bold" style={{ color: totalGroupFees > 0 ? "#f59e0b" : "var(--text-muted)" }}>
+                        {totalGroupFees > 0 ? `$${totalGroupFees.toFixed(2)}` : "$0.00"}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-xs" style={{ color: "var(--text-muted)" }}>Total w/ Fees</span>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                        {$((g.totalCost + totalGroupFees))}
+                      </div>
+                    </div>
+                    <div>
                       <span className="text-xs" style={{ color: "var(--text-muted)" }}>Version</span>
                       <div className="text-sm font-bold" style={{ color: isBadVersion ? "#ef4444" : "#4ade80" }}>
                         {g.strategyVersion}
@@ -862,7 +876,7 @@ export default function TradingFloorPage() {
                   <table style={{ width: "100%", borderCollapse: "collapse" }}>
                     <thead>
                       <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                        {["Action", "Avg Price", "Contracts", "Cost", "Edge", "Placed"].map((h) => (
+                        {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Edge", "Placed"].map((h) => (
                           <th
                             key={h}
                             className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
@@ -900,6 +914,16 @@ export default function TradingFloorPage() {
                           <td className="px-4 py-2.5">
                             <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
                               {$(t.cost)}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="text-xs" style={{ color: (t.fees ?? 0) > 0 ? "#f59e0b" : "var(--text-muted)" }}>
+                              {(t.fees ?? 0) > 0 ? `$${(t.fees ?? 0).toFixed(2)}` : "$0.00"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
+                              {$(t.cost + (t.fees ?? 0))}
                             </span>
                           </td>
                           <td className="px-4 py-2.5">
