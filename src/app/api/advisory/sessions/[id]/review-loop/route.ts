@@ -14,37 +14,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
-import { AGENT_CONFIGS } from "@/config/agents";
+import { buildAdvisoryAgentDefs, type AdvisoryAgentDef } from "@/config/agents";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
-// ─── Agent definitions ──────────────────────────────────────────────────────
+// ─── Agent definitions — from central registry ──────────────────────────────
 
-const ADVISORY_NAME_TO_CONFIG_ID: Record<string, string> = {
-  Henry: "henry", Atlas: "t1", Nimbus: "t2", Cipher: "t3", Quant: "quant",
-  Forge: "backend", Pixel: "fullstack", Scout: "scout", Quill: "quill", Counsel: "counsel",
-};
-
-interface AgentDef {
-  name: string; emoji: string; role: string; expertise: string; persona: string;
-}
-
-function buildAgentDefs(): Record<string, AgentDef> {
-  const defs: Record<string, AgentDef> = {};
-  for (const [advisoryName, configId] of Object.entries(ADVISORY_NAME_TO_CONFIG_ID)) {
-    const config = AGENT_CONFIGS.find((a) => a.id === configId);
-    if (config) {
-      defs[advisoryName] = {
-        name: advisoryName, emoji: config.emoji, role: config.role,
-        expertise: config.description, persona: config.persona,
-      };
-    }
-  }
-  return defs;
-}
-
-const AGENT_DEFS = buildAgentDefs();
+const AGENT_DEFS = buildAdvisoryAgentDefs();
 
 // ─── Agent spawning helper ───────────────────────────────────────────────────
 

@@ -1,9 +1,20 @@
 /**
  * Office 3D — Agent Configuration
  *
- * Harris Autonomous — 11 agents, 5 divisions
+ * Harris Autonomous — all agents from central registry
  * Office size: ~28x18 units (X: -14 to +14, Z: -9 to +9)
+ *
+ * Positions and desk colors are layout-specific so they live here,
+ * but agent identity (name, emoji, role, division) is derived from
+ * the canonical registry at src/config/agents.ts.
  */
+
+import {
+  AGENT_CONFIGS as REGISTRY,
+  AGENT_MAP,
+  getDisplayName,
+  type AgentConfig as RegistryAgentConfig,
+} from "@/config/agents";
 
 export interface AgentConfig {
   id: string;
@@ -25,122 +36,42 @@ export const DIVISION_COLORS = {
   research: '#a78bfa',
   creative: '#f472b6',
   legal: '#94a3b8',
+  qa: '#f43f5e',
 };
 
-export const AGENTS: AgentConfig[] = [
-  // ── Henry — Chief of Staff (center-front, orchestrator) ──────────────────
-  {
-    id: 'henry',
-    name: 'Henry',
-    emoji: '⚡',
-    position: [0, 0, 2],           // Center-front, prominent
-    color: '#f59e0b',
-    role: 'Chief of Staff',
-    division: 'Leadership',
-    divisionColor: DIVISION_COLORS.leadership,
-    deskRotation: 0,
-  },
+/** Desk positions keyed by canonical agent ID */
+const DESK_POSITIONS: Record<string, { position: [number, number, number]; color: string; deskRotation?: number }> = {
+  henry:    { position: [0, 0, 2],     color: '#f59e0b', deskRotation: 0 },
+  t1:       { position: [-10, 0, -6],  color: '#4ade80' },
+  t2:       { position: [-6, 0, -6],   color: '#34d399' },
+  t3:       { position: [-10, 0, -2],  color: '#f59e0b' },
+  quant:    { position: [-6, 0, -2],   color: '#86efac' },
+  backend:  { position: [7, 0, -6],    color: '#60a5fa' },
+  fullstack:{ position: [11, 0, -6],   color: '#93c5fd' },
+  scout:    { position: [-4, 0, 2],    color: '#a78bfa' },
+  quill:    { position: [10, 0, 4],    color: '#f472b6' },
+  counsel:  { position: [11, 0, -2],   color: '#94a3b8' },
+  gater:    { position: [4, 0, 2],     color: '#f43f5e' },
+  vigil:    { position: [7, 0, 2],     color: '#fb7185' },
+};
 
-  // ── Trading Desk (left section, back) ────────────────────────────────────
-  {
-    id: 't1',
-    name: 'Atlas',
-    emoji: '📈',
-    position: [-10, 0, -6],
-    color: '#4ade80',
-    role: 'Stocks & Options',
-    division: 'Trading',
-    divisionColor: DIVISION_COLORS.trading,
-  },
-  {
-    id: 't2',
-    name: 'Nimbus',
-    emoji: '🌤️',
-    position: [-6, 0, -6],
-    color: '#34d399',
-    role: 'Weather Trading',
-    division: 'Trading',
-    divisionColor: DIVISION_COLORS.trading,
-  },
-  {
-    id: 't3',
-    name: 'Cipher',
-    emoji: '₿',
-    position: [-10, 0, -2],
-    color: '#f59e0b',
-    role: 'Crypto Bot',
-    division: 'Trading',
-    divisionColor: DIVISION_COLORS.trading,
-  },
-  {
-    id: 'quant',
-    name: 'Quant',
-    emoji: '📊',
-    position: [-6, 0, -2],
-    color: '#86efac',
-    role: 'Strategy Architect',
-    division: 'Trading',
-    divisionColor: DIVISION_COLORS.trading,
-  },
+/** Default desk for any new agent not yet assigned a position */
+const DEFAULT_DESK = { position: [0, 0, 6] as [number, number, number], color: '#6b7280' };
 
-  // ── Engineering (right section, back) ────────────────────────────────────
-  {
-    id: 'backend',
-    name: 'Forge',
-    emoji: '🔧',
-    position: [7, 0, -6],
-    color: '#60a5fa',
-    role: 'Infrastructure',
-    division: 'Engineering',
-    divisionColor: DIVISION_COLORS.engineering,
-  },
-  {
-    id: 'fullstack',
-    name: 'Pixel',
-    emoji: '💻',
-    position: [11, 0, -6],
-    color: '#93c5fd',
-    role: 'Web Apps',
-    division: 'Engineering',
-    divisionColor: DIVISION_COLORS.engineering,
-  },
-
-  // ── Research (center-left, near whiteboard) ───────────────────────────────
-  {
-    id: 'scout',
-    name: 'Scout',
-    emoji: '🔭',
-    position: [-4, 0, 2],
-    color: '#a78bfa',
-    role: 'Research & Intel',
-    division: 'Research',
-    divisionColor: DIVISION_COLORS.research,
-  },
-
-  // ── Creative (right, near plants) ────────────────────────────────────────
-  {
-    id: 'quill',
-    name: 'Quill',
-    emoji: '✍️',
-    position: [10, 0, 4],
-    color: '#f472b6',
-    role: 'Creative Writer',
-    division: 'Creative',
-    divisionColor: DIVISION_COLORS.creative,
-  },
-
-  // ── Legal (far right corner) ──────────────────────────────────────────────
-  {
-    id: 'counsel',
-    name: 'Counsel',
-    emoji: '⚖️',
-    position: [11, 0, -2],
-    color: '#94a3b8',
-    role: 'Legal Expert',
-    division: 'Legal',
-    divisionColor: DIVISION_COLORS.legal,
-  },
-];
+export const AGENTS: AgentConfig[] = REGISTRY.map((a) => {
+  const desk = DESK_POSITIONS[a.id] ?? DEFAULT_DESK;
+  return {
+    id: a.id,
+    name: getDisplayName(a),
+    emoji: a.emoji,
+    position: desk.position,
+    color: desk.color,
+    role: a.role,
+    division: a.division,
+    divisionColor: a.divisionColor,
+    deskRotation: desk.deskRotation,
+  };
+});
 
 export type AgentStatus = 'idle' | 'working' | 'thinking' | 'error';
 

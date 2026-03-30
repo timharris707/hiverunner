@@ -11,7 +11,7 @@
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { join } from "path";
-import { getAgentByAnyId, type AgentConfig } from "@/config/agents";
+import { getAgentByAnyId, AGENT_MD_FILENAMES, type AgentConfig } from "@/config/agents";
 import type {
   AgentMemoryFile,
   AgentMemoryEntry,
@@ -26,24 +26,8 @@ const AGENT_MEMORY_MD_DIR = join(process.cwd(), "memory", "agents");
 // Ensure agent memory directories exist
 mkdirSync(AGENT_MEMORY_DIR, { recursive: true });
 
-/** Map from canonical agentId to markdown filename (using display name) */
-const AGENT_MD_FILENAME: Record<string, string> = {
-  henry: "henry",
-  t1: "atlas",
-  t2: "nimbus",
-  t3: "cipher",
-  quant: "quant",
-  backend: "forge",
-  fullstack: "pixel",
-  scout: "scout",
-  quill: "quill",
-  counsel: "counsel",
-  vigil: "vigil",
-  gater: "Gater",
-};
-
 function getAgentMdPath(agentId: string): string {
-  const filename = AGENT_MD_FILENAME[agentId] || agentId;
+  const filename = AGENT_MD_FILENAMES[agentId] || agentId;
   return join(AGENT_MEMORY_MD_DIR, `${filename}.md`);
 }
 

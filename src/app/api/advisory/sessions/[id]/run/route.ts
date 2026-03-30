@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { archiveSession } from "../archive/route";
-import { AGENT_CONFIGS } from "@/config/agents";
+import { buildAdvisoryAgentDefs, PERSONA_OVERLAY_CONTENT, type AdvisoryAgentDef } from "@/config/agents";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
@@ -47,82 +47,13 @@ function formatMemoryForPrompt(entries: AgentMemoryEntry[]): string {
   return `\nYou recall from previous advisory sessions:\n${lines.join("\n")}\n`;
 }
 
-// ─── Agent definitions ────────────────────────────────────────────────────────
-// Build from the canonical AGENT_CONFIGS so personas are single-sourced
+// ─── Agent definitions — from central registry ───────────────────────────────
 
-// Canonical name mapping: advisory display names → config IDs
-const ADVISORY_NAME_TO_CONFIG_ID: Record<string, string> = {
-  Henry: "henry",
-  Atlas: "t1",
-  Nimbus: "t2",
-  Cipher: "t3",
-  Quant: "quant",
-  Forge: "backend",
-  Pixel: "fullstack",
-  Scout: "scout",
-  Quill: "quill",
-  Counsel: "counsel",
-};
+const AGENT_DEFS: Record<string, AdvisoryAgentDef> = buildAdvisoryAgentDefs();
 
-interface AgentDef {
-  name: string;
-  emoji: string;
-  role: string;
-  expertise: string;
-  persona: string;
-}
+// ─── Persona overlay content — from central registry ─────────────────────────
 
-function buildAgentDefs(): Record<string, AgentDef> {
-  const defs: Record<string, AgentDef> = {};
-  for (const [advisoryName, configId] of Object.entries(ADVISORY_NAME_TO_CONFIG_ID)) {
-    const config = AGENT_CONFIGS.find((a) => a.id === configId);
-    if (config) {
-      defs[advisoryName] = {
-        name: advisoryName,
-        emoji: config.emoji,
-        role: config.role,
-        expertise: config.description,
-        persona: config.persona,
-      };
-    }
-  }
-  return defs;
-}
-
-const AGENT_DEFS: Record<string, AgentDef> = buildAgentDefs();
-
-// ─── Persona overlay content ──────────────────────────────────────────────────
-
-const PERSONA_CONTENT: Record<string, string> = {
-  "trading-strategist":
-    "Apply deep quantitative analysis to this discussion: consider momentum signals, mean-reversion opportunities, risk-reward optimization, and position sizing.",
-  "seo-specialist":
-    "Bring an SEO lens: keyword research insights, SERP competition, content gap analysis, on-page optimization opportunities, and organic growth potential.",
-  "growth-hacker":
-    "Think like a growth hacker: identify viral loops, acquisition funnels, retention mechanics, rapid experimentation opportunities, and scalable growth levers.",
-  "content-creator":
-    "Approach this as a content creator: focus on audience-first storytelling, platform-native formats, engagement optimization, and authentic brand voice.",
-  "compliance-auditor":
-    "Audit for compliance: identify regulatory risks, flag potential legal exposure, suggest audit trails, and ensure policy adherence.",
-  "security-engineer":
-    "Apply a security engineering mindset: threat modeling, vulnerability identification, secure design principles, authentication hardening, and attack surface reduction.",
-  "devops-automator":
-    "Think DevOps: CI/CD pipelines, infrastructure-as-code, monitoring and observability, incident response playbooks, and automation opportunities.",
-  "reality-checker":
-    "Be a reality checker: cut through hype, stress-test assumptions, identify blind spots, surface hidden risks, and ask the hard questions.",
-  "trend-researcher":
-    "As a trend researcher: identify emerging signals, market timing opportunities, early-mover advantages, and competitive intelligence gaps.",
-  "data-analytics-reporter":
-    "Think in data: structure the analysis with clear metrics, frame insights with numbers, identify what KPIs matter, and suggest data-driven next steps.",
-  "backend-architect":
-    "Apply backend architecture thinking: system design patterns, API contracts, scalability concerns, database schema considerations, and technical debt.",
-  "frontend-developer":
-    "Apply frontend engineering thinking: component architecture, state management, accessibility, performance optimization, and user experience craftsmanship.",
-  "rapid-prototyper":
-    "Move fast and iterate: identify the fastest path to a working demo, what to cut for v1, and how to validate assumptions before building the full system.",
-  "autonomous-optimization-architect":
-    "Think as an autonomous optimization architect: identify where AI agents can replace manual work, what feedback loops can be automated, and how to build self-improving systems.",
-};
+const PERSONA_CONTENT = PERSONA_OVERLAY_CONTENT;
 
 
 // ─── Default fallback model ───────────────────────────────────────────────────

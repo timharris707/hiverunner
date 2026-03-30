@@ -31,35 +31,13 @@ function loadCustomAgentDefs(): Record<string, { name: string; emoji: string; ro
   return {};
 }
 
-const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = {
-  Henry: { name: "Henry", emoji: "⚡", role: "Chief of Staff / Orchestrator", expertise: "Strategic oversight, orchestrating teams, identifying priorities, cutting through noise." },
-  Atlas: { name: "Atlas", emoji: "📈", role: "Stocks & Options Trader", expertise: "Equity analysis, options strategies, technical and fundamental analysis, trade signal generation, portfolio risk management." },
-  Nimbus: { name: "Nimbus", emoji: "🌤️", role: "Weather Prediction Trader", expertise: "Weather data analysis, prediction markets (Polymarket, Kalshi), seasonal patterns, event-driven opportunities." },
-  Cipher: { name: "Cipher", emoji: "₿", role: "Crypto Trader", expertise: "Cryptocurrency markets, DeFi, on-chain metrics, momentum strategies, risk management for digital assets." },
-  Quant: { name: "Quant", emoji: "📊", role: "Trading Strategy Architect", expertise: "Quantitative strategy design, backtesting, optimization, factor models, statistical arbitrage, alpha generation." },
-  Forge: { name: "Forge", emoji: "🔧", role: "Backend Engineer", expertise: "Infrastructure design, APIs, databases, system reliability, CI/CD, DevOps, performance optimization, security hardening." },
-  Pixel: { name: "Pixel", emoji: "💻", role: "Senior Full-Stack Engineer", expertise: "Web application development, React/Next.js/TypeScript, UI/UX, API integrations, rapid prototyping, shipping production code." },
-  Scout: { name: "Scout", emoji: "🔭", role: "Research & Intelligence Agent", expertise: "Market research, competitive intelligence, trend analysis, data gathering, opportunity identification." },
-  Quill: { name: "Quill", emoji: "✍️", role: "Creative Writer & Marketing Strategist", expertise: "Marketing copy, content strategy, brand voice, SEO, audience engagement, storytelling." },
-  Counsel: { name: "Counsel", emoji: "⚖️", role: "Legal Expert Agent", expertise: "Legal research, contract review, regulatory compliance, risk exposure, IP guidance." },
-};
+import { buildAdvisoryAgentDefs, PERSONA_OVERLAY_CONTENT } from "@/config/agents";
 
-const PERSONA_CONTENT: Record<string, string> = {
-  "trading-strategist": "Apply deep quantitative analysis: momentum signals, mean-reversion, risk-reward optimization, position sizing.",
-  "seo-specialist": "Bring an SEO lens: keyword research, SERP competition, content gap analysis, organic growth potential.",
-  "growth-hacker": "Think like a growth hacker: viral loops, acquisition funnels, retention mechanics, rapid experimentation.",
-  "content-creator": "Approach as a content creator: audience-first storytelling, platform-native formats, engagement optimization.",
-  "compliance-auditor": "Audit for compliance: regulatory risks, legal exposure, audit trails, policy adherence.",
-  "security-engineer": "Apply security engineering: threat modeling, vulnerability identification, secure design, auth hardening.",
-  "devops-automator": "Think DevOps: CI/CD pipelines, infrastructure-as-code, monitoring, incident response, automation.",
-  "reality-checker": "Be a reality checker: cut through hype, stress-test assumptions, identify blind spots and risks.",
-  "trend-researcher": "As a trend researcher: emerging signals, market timing, early-mover advantages, competitive intelligence.",
-  "data-analytics-reporter": "Think in data: clear metrics, insights with numbers, KPIs, data-driven next steps.",
-  "backend-architect": "Apply backend architecture thinking: system design, API contracts, scalability, database schema, technical debt.",
-  "frontend-developer": "Apply frontend engineering thinking: component architecture, state management, accessibility, performance.",
-  "rapid-prototyper": "Move fast: fastest path to working demo, what to cut for v1, validate assumptions before building.",
-  "autonomous-optimization-architect": "Think autonomous optimization: AI agents replacing manual work, feedback loops, self-improving systems.",
-};
+const AGENT_DEFS: Record<string, { name: string; emoji: string; role: string; expertise: string }> = Object.fromEntries(
+  Object.entries(buildAdvisoryAgentDefs()).map(([k, v]) => [k, { name: v.name, emoji: v.emoji, role: v.role, expertise: v.expertise }])
+);
+
+const PERSONA_CONTENT = PERSONA_OVERLAY_CONTENT;
 
 
 function getAgentOverlay(

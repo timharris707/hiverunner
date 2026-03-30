@@ -89,7 +89,7 @@ export default function OrgChartPage() {
     return agent.model;
   };
 
-  const deptOrder = ["trading", "engineering", "research", "creative", "legal"] as const;
+  const deptOrder = ["Trading", "Engineering", "Research", "Creative", "Legal", "QA"] as const;
   const grouped = deptOrder.map((deptKey) => ({
     key: deptKey,
     ...DEPARTMENTS[deptKey],
