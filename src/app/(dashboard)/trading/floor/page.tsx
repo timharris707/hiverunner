@@ -668,7 +668,7 @@ export default function TradingFloorPage() {
                   </div>
                   <div className="text-xs mt-0.5 flex items-center gap-2">
                     <span style={{ color: "var(--text-muted)" }}>
-                      {capitalize(g.city)} · {g.targetDate}
+                      {capitalize(g.city)} · {friendlyDatetime(g.placedAt)}
                     </span>
                     <span className="px-1.5 py-0.5 rounded" style={{
                       fontSize: 10,
