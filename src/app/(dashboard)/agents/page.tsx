@@ -224,7 +224,7 @@ export default function AgentsPage() {
 
         <div className="flex items-center gap-4 flex-wrap">
           <span style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-            10 agents · 5 divisions · Henry ⚡ orchestrating
+            {AGENT_CONFIGS.length} agents · {new Set(AGENT_CONFIGS.map(a => a.division)).size} divisions · Henry ⚡ orchestrating
           </span>
           <div className="flex items-center gap-3">
             {onlineCount > 0 && (

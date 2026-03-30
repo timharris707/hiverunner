@@ -24,15 +24,8 @@ interface OrgAgent {
   cronCount: number;
 }
 
-const DEPARTMENTS = {
-  Trading: { label: "Trading Desk", color: "#10b981", icon: "📈" },
-  Engineering: { label: "Engineering", color: "#3b82f6", icon: "⚙️" },
-  Research: { label: "Research", color: "#8b5cf6", icon: "🔭" },
-  Creative: { label: "Creative", color: "#ec4899", icon: "✍️" },
-  QA: { label: "Quality Control", color: "#f43f5e", icon: "🛡️" },
-  Legal: { label: "Legal", color: "#64748b", icon: "⚖️" },
-  Leadership: { label: "Leadership", color: "#f59e0b", icon: "⚡" },
-} as const;
+// Derive departments from the central agent registry
+const DEPARTMENTS = DIVISION_META;
 
 function formatModelName(model: string): string {
   if (model.includes("opus")) return "Opus 4.6";
@@ -89,7 +82,8 @@ export default function OrgChartPage() {
     return agent.model;
   };
 
-  const deptOrder = ["Trading", "Engineering", "Research", "Creative", "Legal", "QA"] as const;
+  // Derive department order from the registry, excluding Leadership (Henry is shown separately)
+  const deptOrder = (Object.keys(DEPARTMENTS) as (keyof typeof DEPARTMENTS)[]).filter((k) => k !== "Leadership");
   const grouped = deptOrder.map((deptKey) => ({
     key: deptKey,
     ...DEPARTMENTS[deptKey],

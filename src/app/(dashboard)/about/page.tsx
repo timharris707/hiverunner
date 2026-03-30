@@ -18,6 +18,7 @@ import {
   Coffee,
 } from "lucide-react";
 import Link from "next/link";
+import { AGENT_CONFIGS, DIVISIONS as DIVISION_META, getDisplayName } from "@/config/agents";
 
 const HENRY = {
   name: "Henry ⚡",
@@ -59,22 +60,18 @@ const ORG_GOALS = [
   { icon: "📣", goal: "Marketing for Insight — Decision Cloud SaaS" },
 ];
 
-const ORG_STRUCTURE = [
-  { division: "Leadership", color: "#f59e0b", agents: [{ name: "Henry ⚡", role: "Chief of Staff", status: "online" }] },
-  { division: "Trading Desk", color: "#4ade80", agents: [
-    { name: "Quant 📊", role: "Strategy Architect", status: "pending" },
-    { name: "Atlas 📈", role: "Stocks & Options", status: "pending" },
-    { name: "Nimbus 🌤️", role: "Weather Trading", status: "pending" },
-    { name: "Cipher ₿", role: "Crypto Bot", status: "building" },
-  ]},
-  { division: "Engineering", color: "#60a5fa", agents: [
-    { name: "Forge 🔧", role: "Infrastructure", status: "pending" },
-    { name: "Pixel 💻", role: "Web Apps", status: "active" },
-  ]},
-  { division: "Research", color: "#a78bfa", agents: [{ name: "Scout", role: "Research & Intel", status: "pending" }] },
-  { division: "Creative", color: "#f472b6", agents: [{ name: "Quill", role: "Creative Writer", status: "pending" }] },
-  { division: "Legal", color: "#94a3b8", agents: [{ name: "Counsel", role: "Legal Expert", status: "pending" }] },
-];
+// Derive org structure from the central agent registry — no hardcoded agent lists
+const DIVISION_ORDER = ["Leadership", "Trading", "Engineering", "Research", "Creative", "Legal", "QA"] as const;
+const ORG_STRUCTURE = DIVISION_ORDER.map((divKey) => {
+  const meta = DIVISION_META[divKey];
+  return {
+    division: meta?.label ?? divKey,
+    color: meta?.color ?? "#6b7280",
+    agents: AGENT_CONFIGS
+      .filter((a) => a.division === divKey)
+      .map((a) => ({ name: `${getDisplayName(a)} ${a.emoji}`, role: a.role, status: "pending" as const })),
+  };
+}).filter((d) => d.agents.length > 0);
 
 const STATUS_COLORS: Record<string, string> = {
   online: "#4ade80",
