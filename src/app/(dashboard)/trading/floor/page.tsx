@@ -653,19 +653,27 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
+                {/* Forecast — latest temperature forecast */}
+                <div className="text-center" style={{ minWidth: 60 }}>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
+                  <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
+                    {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°` : "—"}
+                  </div>
+                </div>
+
                 {/* Bought — % chance when purchased */}
-                <div className="text-center" style={{ minWidth: 70 }}>
+                <div className="text-center" style={{ minWidth: 80 }}>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    {boughtPct.toFixed(0)}¢
+                    {boughtPct.toFixed(0)}% chance
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}
                   </div>
                 </div>
 
-                {/* Now — current market price + direction */}
-                <div className="text-center" style={{ minWidth: 70 }}>
+                {/* Chance (Now) — current market probability */}
+                <div className="text-center" style={{ minWidth: 80 }}>
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
@@ -683,18 +691,17 @@ export default function TradingFloorPage() {
                     </>
                   ) : (
                     <>
-                      <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
+                      <div className="text-xs" style={{ color: "#06b6d4" }}>Chance</div>
                       {g.nowPrice != null ? (() => {
                         const nowPct = g.nowPrice * 100;
                         const diff = nowPct - boughtPct;
                         const isUp = diff > 0;
-                        // Current edge = our probability - current market price
                         const ourProb = g.trades[0]?.our_probability;
                         const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
                         return (
                           <>
                             <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
-                              {nowPct.toFixed(0)}¢ {isUp ? "▲" : "▼"}
+                              {nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}
                             </div>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                               {currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}
