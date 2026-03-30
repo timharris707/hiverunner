@@ -672,20 +672,30 @@ export default function TradingFloorPage() {
                   </span>
                 </div>
 
-                {/* Market info — bet is hero, city/date is subtitle */}
+                {/* Market info — "Yes • High ≥ 93°F in Phoenix Tomorrow" */}
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
                       {g.side === "yes" ? "Yes" : "No"}
                     </span>
                     <span style={{ color: "var(--text-primary)", fontSize: 15, lineHeight: "14px" }}>•</span>
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {g.marketLabel}
+                      {g.marketLabel} in {capitalize(g.city)} {(() => {
+                        const today = new Date();
+                        const target = new Date(g.targetDate + "T00:00:00");
+                        const todayStr = today.toISOString().slice(0, 10);
+                        const tomorrow = new Date(today);
+                        tomorrow.setDate(tomorrow.getDate() + 1);
+                        const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+                        if (g.targetDate === todayStr) return "Today";
+                        if (g.targetDate === tomorrowStr) return "Tomorrow";
+                        return `on ${target.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+                      })()}
                     </span>
                   </div>
                   <div className="text-xs mt-0.5 flex items-center gap-2">
                     <span style={{ color: "var(--text-muted)" }}>
-                      {capitalize(g.city)} · {friendlyDatetime(g.placedAt)}
+                      Placed {friendlyDatetime(g.placedAt)}
                     </span>
                     <span className="px-1.5 py-0.5 rounded" style={{
                       fontSize: 10,
