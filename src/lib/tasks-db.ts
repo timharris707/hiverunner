@@ -28,7 +28,12 @@ import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'tasks.db');
+// On Vercel (and other serverless platforms), process.cwd() is read-only.
+// Use /tmp for the DB so SQLite writes succeed in preview deployments.
+const DATA_DIR = process.env.VERCEL
+  ? '/tmp/mission-control'
+  : path.join(process.cwd(), 'data');
+const DB_PATH = path.join(DATA_DIR, 'tasks.db');
 const TASKS_JSON_PATH = path.join(process.cwd(), 'data', 'tasks.json');
 
 let _db: Database.Database | null = null;

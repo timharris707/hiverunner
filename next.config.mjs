@@ -10,6 +10,10 @@ const nextConfig = {
     // TODO: Remove this once advisory refactor is complete
     ignoreBuildErrors: true,
   },
+  // better-sqlite3 is a native Node.js addon — must not be bundled by webpack.
+  // This is required for Vercel preview deployments where the module is used
+  // in API routes (server-side only).
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;
