@@ -36,24 +36,63 @@ export async function GET() {
       } catch { /* default */ }
     }
 
-    // Version breakdown from local DB
+    // Version breakdown from local DB + current market values for unrealized P&L
     let versionBreakdown: unknown[] = [];
-    let won = 0, lost = 0, realizedPnl = 0;
+    let won = 0, lost = 0, realizedPnl = 0, totalFees = 0;
     if (existsSync(LIVE_TRADING_DB)) {
       try {
         const Database = require("better-sqlite3");
         const db = new Database(LIVE_TRADING_DB, { readonly: true });
-        versionBreakdown = db.prepare(
+        const rawVersions = db.prepare(
           `SELECT strategy_version,
                   COUNT(*) as total,
                   SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open,
                   SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
                   SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
-                  SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as pnl,
+                  SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as realized_pnl,
+                  SUM(CASE WHEN status IN ('pending','filled','resting') THEN cost ELSE 0 END) as open_cost,
                   SUM(cost) as total_cost
            FROM live_trades WHERE status != 'failed'
            GROUP BY strategy_version`
-        ).all();
+        ).all() as Record<string, unknown>[];
+
+        // Fetch current market values for open positions to compute unrealized P&L
+        let positionsData: Record<string, unknown>[] = [];
+        try {
+          const posRes = await fetch("http://localhost:3000/api/trading/kalshi-positions", {
+            signal: AbortSignal.timeout(8000),
+          });
+          if (posRes.ok) {
+            const pd = await posRes.json();
+            positionsData = pd.positions || [];
+          }
+        } catch { /* skip */ }
+
+        // Compute unrealized P&L per version from current market prices
+        const unrealizedByVersion: Record<string, number> = {};
+        for (const pos of positionsData) {
+          const v = String(pos.strategy_version || "unknown");
+          const cost = Number(pos.cost || 0);
+          const nowPrice = pos.now_price != null ? Number(pos.now_price) : null;
+          const qty = Number(pos.quantity || 0);
+          if (!unrealizedByVersion[v]) unrealizedByVersion[v] = 0;
+          if (nowPrice != null) {
+            unrealizedByVersion[v] += (nowPrice * qty) - cost;
+          }
+        }
+
+        versionBreakdown = rawVersions.map((v) => {
+          const version = String(v.strategy_version || "unknown");
+          const rPnl = Number(v.realized_pnl || 0);
+          const uPnl = unrealizedByVersion[version] ?? 0;
+          return {
+            ...v,
+            realized_pnl: rPnl,
+            unrealized_pnl: Math.round(uPnl * 100) / 100,
+            total_pnl: Math.round((rPnl + uPnl) * 100) / 100,
+          };
+        });
+
         const totals = db.prepare(
           `SELECT
             SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
@@ -68,6 +107,20 @@ export async function GET() {
       } catch { /* ignore */ }
     }
 
+    // Get total fees from Kalshi positions API
+    try {
+      const kalshiPosRes = await fetch(`${dashboardUrl}/api/kalshi/portfolio`, {
+        signal: AbortSignal.timeout(5000),
+      });
+      if (kalshiPosRes.ok) {
+        const kpData = await kalshiPosRes.json();
+        const positions = kpData.market_positions || kpData.positions || [];
+        for (const p of positions) {
+          totalFees += parseFloat(p.fees_paid_dollars || "0");
+        }
+      }
+    } catch { /* skip */ }
+
     // Kalshi source of truth numbers
     const cash = bankroll.kalshi_balance ?? 0;
     const positions = bankroll.kalshi_portfolio_value ?? bankroll.deployed ?? 0;
@@ -81,10 +134,12 @@ export async function GET() {
       initialDeposit,
       pnl: portfolio - initialDeposit,
       pnlPercent: ((portfolio - initialDeposit) / initialDeposit) * 100,
+      realizedPnl,
+      unrealizedPnl: (portfolio - initialDeposit) - realizedPnl,
       won,
       lost,
-      realizedPnl,
-      costBasis: bankroll.deployed ?? 0,  // What we paid for open positions
+      totalFees: Math.round(totalFees * 100) / 100,
+      costBasis: bankroll.deployed ?? 0,
       versionBreakdown,
       kalshiConfigured: bankroll.kalshi_configured ?? false,
       balanceError: bankroll.balance_error ?? null,

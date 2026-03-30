@@ -174,9 +174,11 @@ export default function TradingFloorPage() {
 
   const [kalshiPortfolio, setKalshiPortfolio] = useState<{
     cash: number; positions: number; portfolio: number; initialDeposit: number;
-    pnl: number; pnlPercent: number; won: number; lost: number; realizedPnl: number;
+    pnl: number; pnlPercent: number; won: number; lost: number;
+    realizedPnl: number; unrealizedPnl: number; totalFees: number;
     costBasis: number; positionsCount: number;
-    versionBreakdown: { strategy_version: string; total: number; open: number; won: number; lost: number; pnl: number }[];
+    versionBreakdown: { strategy_version: string; total: number; open: number; won: number; lost: number;
+      realized_pnl: number; unrealized_pnl: number; total_pnl: number; open_cost: number; total_cost: number }[];
   } | null>(null);
   const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null);
   const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
@@ -363,19 +365,12 @@ export default function TradingFloorPage() {
 
       {/* ── Portfolio Summary ─────────────────────────────── */}
       <div
-        className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6"
+        className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3"
       >
         {[
           { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
-          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open` : undefined },
-          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true },
-          { label: "Deposited", value: $(deposit), color: "var(--text-muted)" },
-          {
-            label: "P&L (Total)",
-            value: kp ? $(kp.pnl) : "—",
-            color: (kp?.pnl ?? 0) >= 0 ? "#4ade80" : "#ef4444",
-            sub: kp ? `${kp.pnlPercent.toFixed(1)}%` : undefined,
-          },
+          { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
+          { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true, sub: `Deposited ${$(deposit)}` },
           {
             label: "Record",
             value: kp ? `${kp.won}W – ${kp.lost}L` : "—",
@@ -404,6 +399,33 @@ export default function TradingFloorPage() {
         ))}
       </div>
 
+      {/* ── P&L Breakdown ─────────────────────────────── */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
+          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.realizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+            {kp ? $(kp.realizedPnl) : "—"}
+          </div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Settled trades</div>
+        </div>
+        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
+          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+            {kp ? $(kp.unrealizedPnl) : "—"}
+          </div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open positions (current market)</div>
+        </div>
+        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
+          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.pnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+            {kp ? $(kp.pnl) : "—"}
+          </div>
+          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+            {kp?.pnlPercent != null ? `${kp.pnlPercent.toFixed(1)}%` : ""}{kp?.totalFees ? ` · Fees: ${$(kp.totalFees)}` : ""}
+          </div>
+        </div>
+      </div>
+
       {/* ── Version Breakdown ─────────────────────────────── */}
       {kp?.versionBreakdown && kp.versionBreakdown.length > 0 && (
         <div className="mb-6 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
@@ -411,7 +433,7 @@ export default function TradingFloorPage() {
             <Filter className="w-4 h-4" style={{ color: "#a78bfa" }} />
             <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Strategy Version Breakdown</span>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-0">
+          <div className="space-y-0">
             {kp.versionBreakdown.map((v) => {
               const resolved = v.won + v.lost;
               const wr = resolved > 0 ? ((v.won / resolved) * 100).toFixed(0) : "—";
@@ -419,14 +441,13 @@ export default function TradingFloorPage() {
               return (
                 <div
                   key={v.strategy_version}
-                  className="p-4 flex items-center justify-between"
+                  className="px-4 py-3.5 flex items-center gap-6"
                   style={{
                     backgroundColor: isBad ? "#ef444408" : "#4ade8008",
-                    borderRight: "1px solid var(--border)",
                     borderBottom: "1px solid var(--border)",
                   }}
                 >
-                  <div>
+                  <div style={{ minWidth: 100 }}>
                     <span
                       className="text-xs font-bold px-2 py-0.5 rounded"
                       style={{
@@ -440,12 +461,24 @@ export default function TradingFloorPage() {
                       {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div
-                      className="text-sm font-bold"
-                      style={{ color: v.pnl >= 0 ? "#4ade80" : "#ef4444" }}
-                    >
-                      {$(v.pnl)}
+                  <div className="flex-1 grid grid-cols-3 gap-4 text-right">
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Realized</div>
+                      <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                        {$(v.realized_pnl)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Unrealized</div>
+                      <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                        {$(v.unrealized_pnl)}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Total</div>
+                      <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
+                        {$(v.total_pnl)}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -566,40 +599,46 @@ export default function TradingFloorPage() {
                   </span>
                 </div>
 
-                {/* Market info — Kalshi style: "City · Date" then "Yes · High ≥ 72°F" */}
+                {/* Market info — bet is hero, city/date is subtitle */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
+                    <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
+                      {g.side === "yes" ? "Yes" : "No"}
+                    </span>
                     <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                      {g.marketLabel}
+                    </span>
+                  </div>
+                  <div className="text-xs mt-0.5 flex items-center gap-2">
+                    <span style={{ color: "var(--text-muted)" }}>
                       {capitalize(g.city)} · {g.targetDate}
                     </span>
-                    <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                    <span className="px-1.5 py-0.5 rounded" style={{
+                      fontSize: 10,
                       backgroundColor: isBadVersion ? "#ef444420" : "#4ade8015",
                       color: isBadVersion ? "#ef4444" : "#4ade80",
                     }}>
                       {g.strategyVersion}
                     </span>
-                  </div>
-                  <div className="text-xs mt-0.5">
-                    <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 600 }}>
-                      {g.side === "yes" ? "Yes" : "No"}
+                    <span style={{ color: "var(--text-muted)" }}>
+                      {g.totalQuantity} contracts · {$(g.totalCost)}
                     </span>
-                    <span style={{ color: "var(--text-muted)" }}> · {g.marketLabel}</span>
                   </div>
                 </div>
 
-                {/* Bought — price as % chance + contracts + cost */}
-                <div className="text-right" style={{ minWidth: 90 }}>
+                {/* Bought — % chance when purchased */}
+                <div className="text-center" style={{ minWidth: 70 }}>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
                   <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    {boughtPct.toFixed(0)}% chance
+                    {boughtPct.toFixed(0)}¢
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {g.totalQuantity} × {$(g.totalCost)}
+                    {g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}
                   </div>
                 </div>
 
-                {/* Now — current market chance + direction arrow */}
-                <div className="text-right" style={{ minWidth: 80 }}>
+                {/* Now — current market price + direction */}
+                <div className="text-center" style={{ minWidth: 70 }}>
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
@@ -607,7 +646,7 @@ export default function TradingFloorPage() {
                         className="text-sm font-bold"
                         style={{ color: isWon ? "#4ade80" : "#ef4444" }}
                       >
-                        {isWon ? "WON ✓" : "LOST ✗"}
+                        {isWon ? "WON" : "LOST"}
                       </span>
                       {g.trades[0]?.actual_temp != null && (
                         <div className="text-xs" style={{ color: "var(--text-muted)" }}>
@@ -623,24 +662,19 @@ export default function TradingFloorPage() {
                         const diff = nowPct - boughtPct;
                         const isUp = diff > 0;
                         return (
-                          <>
-                            <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
-                              {nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}
-                            </div>
-                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              Edge: {(g.edge * 100).toFixed(0)}%
-                            </div>
-                          </>
+                          <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
+                            {nowPct.toFixed(0)}¢ {isUp ? "▲" : "▼"}
+                          </div>
                         );
                       })() : (
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>—</div>
+                        <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>
                       )}
                     </>
                   )}
                 </div>
 
-                {/* Payout if Win + Settlement */}
-                <div className="text-right" style={{ minWidth: 90 }}>
+                {/* Payout if Win (total return, not profit) + Settlement */}
+                <div className="text-right" style={{ minWidth: 85 }}>
                   {isSettled ? (
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
@@ -652,7 +686,7 @@ export default function TradingFloorPage() {
                     <>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Payout if Win</div>
                       <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
-                        ${g.payoutIfWin.toFixed(2)}
+                        ${(g.totalQuantity * 1).toFixed(2)}
                       </div>
                     </>
                   )}
