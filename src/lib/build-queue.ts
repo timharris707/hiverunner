@@ -498,6 +498,13 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
       const { verdict, notes } = parseReviewVerdict(output);
 
       if (verdict === "NEEDS_FIX") {
+        // GUARD: never resurrect a done task via review rejection
+        if (task.status === "done") {
+          console.log(`[factory] Visual QA NEEDS_FIX but task ${taskId} is done — skipping rejection`);
+          writeBuildLog(buildLog);
+          writeTasks(tasks);
+          return;
+        }
         // Visual QA found issues — send back to builder
         task.visualReview = {
           ...(task.visualReview || {}),
@@ -750,6 +757,13 @@ async function finalizeVigilQA(
       }
 
       if (verdict === "NEEDS_FIX") {
+        // GUARD: never resurrect a done task via Vigil rejection
+        if (task.status === "done") {
+          console.log(`[factory] Vigil NEEDS_FIX but task ${taskId} is done — skipping rejection`);
+          writeBuildLog(buildLog);
+          writeTasks(tasks);
+          return;
+        }
         // Vigil rejected — send back to builder agent
         task.visualReview = {
           ...(task.visualReview || {}),
@@ -1095,9 +1109,11 @@ function advanceTasks(
   let changed = false;
   const now = new Date().toISOString();
 
-  // Group tasks by project
+  // Group tasks by project — exclude done tasks entirely so they can never be re-promoted
+  const TERMINAL_STATUSES = new Set(["done"]);
   const byProject = new Map<string, any[]>();
   for (const task of tasks) {
+    if (TERMINAL_STATUSES.has(task.status)) continue;
     const proj = task.project || "unscoped";
     if (!byProject.has(proj)) byProject.set(proj, []);
     byProject.get(proj)!.push(task);
@@ -1227,15 +1243,19 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
           build.status = "failed";
           build.completedAt = new Date().toISOString();
           build.output = `Build timed out after ${hangMinutes} minutes (stale process detected)`;
-          // Clear the task's build tracking so it can be re-queued
+          // Clear the task's build tracking so it can be re-queued (but never for done tasks)
           const task = tasks.find((t: any) => t.id === build.taskId);
           const hangLabel = task ? String(task.title || build.taskId).replace(/"/g, "'") : build.taskId;
           const hangAgent = task?.assignee || task?.routedModel || "unknown agent";
-          if (task) {
+          if (task && task.status !== "done") {
             clearTransientBuildTracking(task);
             delete task.buildState;
             recoveredTaskIds.push(task.id);
             tasksToKick.add(task.id);
+          } else if (task && task.status === "done") {
+            // Just clean up stale build tracking, don't re-queue
+            clearTransientBuildTracking(task);
+            delete task.buildState;
           }
           // Notify Henry — agent has been running too long without completing
           sendTelegramNotification(
@@ -1405,6 +1425,19 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     entry.status = success ? "completed" : "failed";
     entry.completedAt = now;
     entry.output = output.slice(-1500);
+
+    // GUARD: never resurrect a done task — record build result but leave status untouched
+    if (task.status === "done") {
+      console.log(`[factory] finalizeBuild: task ${taskId} is done — recording build result but not changing status`);
+      clearTransientBuildTracking(task);
+      delete task.buildState;
+      task.buildCompletedAt = now;
+      task.buildOutput = output.slice(-1500);
+      task.updated = now;
+      writeBuildLog(buildLog);
+      writeTasks(tasks);
+      return;
+    }
 
     // Resolve which named agent handled this task
     const assignment = resolveAgentForTask(task);
@@ -1788,6 +1821,13 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
       if (notes) task.codeReviewNotes = notes;
 
       if (verdict === "NEEDS_FIX") {
+        // GUARD: never resurrect a done task via code review rejection
+        if (task.status === "done") {
+          console.log(`[factory] Code review NEEDS_FIX but task ${taskId} is done — skipping rejection`);
+          writeBuildLog(buildLog);
+          writeTasks(tasks);
+          return;
+        }
         const failureCount = (task.reviewFailureCount || 0) + 1;
         task.reviewFailureCount = failureCount;
         task.status = "in-progress";
@@ -2163,10 +2203,18 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
 }
 
 export async function retryBuild(taskId: string, options?: { source?: string }) {
+  let blocked = false;
   await withFactoryLock(async () => {
     const tasks = readTasks();
     const task = tasks.find((t: any) => t.id === taskId);
     if (!task) return;
+
+    // GUARD: never resurrect a done task
+    if (task.status === "done") {
+      console.log(`[factory] retryBuild: task ${taskId} is done — refusing to retry`);
+      blocked = true;
+      return;
+    }
 
     clearTransientBuildTracking(task);
     delete task.buildState;
@@ -2183,5 +2231,6 @@ export async function retryBuild(taskId: string, options?: { source?: string }) 
     writeTasks(tasks);
   });
 
+  if (blocked) return { kind: "done-task-skipped" as const };
   return queueOrStartBuild(taskId, { source: options?.source || "retry" });
 }
