@@ -81,21 +81,44 @@ export async function GET() {
 
     db.close();
 
+    // Parse target date from ticker as source of truth (e.g. KXHIGHMIA-26MAR28-B79.5 → 2026-03-28)
+    const MONTH_MAP: Record<string, string> = {
+      JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+      JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+    };
+    const parseDateFromTicker = (ticker: string): string | null => {
+      const match = ticker.match(/-(\d{2})([A-Z]{3})(\d{2})-/);
+      if (match && MONTH_MAP[match[2]]) {
+        return `20${match[1]}-${MONTH_MAP[match[2]]}-${match[3]}`;
+      }
+      return null;
+    };
+
     const enrichWithSettlement = (trade: Record<string, unknown>) => {
+      const ticker = String(trade.ticker || "");
+
       // Fill in missing city from ticker
       if (!trade.city || trade.city === "") {
-        trade.city = parseCityFromTicker(String(trade.ticker || ""));
+        trade.city = parseCityFromTicker(ticker);
       }
 
-      // Attach fills for this trade — match by order_id only (no ticker fallback to avoid cross-order merging)
+      // Always verify target_date from ticker (safeguard against bad backfills)
+      const tickerDate = parseDateFromTicker(ticker);
+      if (tickerDate && trade.target_date !== tickerDate) {
+        trade.target_date = tickerDate;
+      }
+
+      // Attach fills for this trade — match by order_id only
       const orderId = String(trade.trade_id || "").replace("bf-", "");
       const tradeOrderId = String(trade.trade_id || "");
       const rawOrderId = String(trade.order_id || "");
       trade.fills = fillsByOrder[rawOrderId] || fillsByOrder[orderId] || fillsByOrder[tradeOrderId] || [];
+
+      // Compute settlement time from target_date + contract type
       let settlement_scheduled_at: string | null = null;
-      if (trade.target_date) {
-        const td = new Date(trade.target_date + "T00:00:00Z");
-        const ticker = String(trade.ticker || "");
+      const targetDate = String(trade.target_date || "");
+      if (targetDate) {
+        const td = new Date(targetDate + "T00:00:00Z");
         const isBracket = /-B\d/.test(ticker);
         const nextDay = new Date(td);
         nextDay.setUTCDate(nextDay.getUTCDate() + 1);
