@@ -7,8 +7,8 @@ import { NextResponse } from "next/server";
  */
 
 const STATIONS: Record<string, string> = {
-  new_york: "KNYC", chicago: "KORD", los_angeles: "KLAX", miami: "KMIA",
-  phoenix: "KPHX", dallas: "KDFW", denver: "KDEN", houston: "KIAH",
+  new_york: "KNYC", chicago: "KMDW", los_angeles: "KLAX", miami: "KMIA",
+  phoenix: "KPHX", dallas: "KDFW", denver: "KDEN", houston: "KHOU",
   atlanta: "KATL", boston: "KBOS", seattle: "KSEA", san_francisco: "KSFO",
   washington_dc: "KDCA", minneapolis: "KMSP", austin: "KAUS",
   oklahoma_city: "KOKC", new_orleans: "KMSY", san_antonio: "KSAT",

@@ -7,13 +7,13 @@ import { NextResponse } from "next/server";
 
 const STATIONS: Record<string, { stationId: string; name: string }> = {
   new_york: { stationId: "KNYC", name: "New York" },
-  chicago: { stationId: "KORD", name: "Chicago" },
+  chicago: { stationId: "KMDW", name: "Chicago" },
   los_angeles: { stationId: "KLAX", name: "Los Angeles" },
   miami: { stationId: "KMIA", name: "Miami" },
   phoenix: { stationId: "KPHX", name: "Phoenix" },
   dallas: { stationId: "KDFW", name: "Dallas" },
   denver: { stationId: "KDEN", name: "Denver" },
-  houston: { stationId: "KIAH", name: "Houston" },
+  houston: { stationId: "KHOU", name: "Houston" },
   atlanta: { stationId: "KATL", name: "Atlanta" },
   boston: { stationId: "KBOS", name: "Boston" },
   seattle: { stationId: "KSEA", name: "Seattle" },

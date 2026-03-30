@@ -6,10 +6,10 @@ const CITIES: Record<string, { lat: number; lon: number; tz: string }> = {
   atlanta: { lat: 33.64028, lon: -84.42694, tz: "America/New_York" },        // KATL
   austin: { lat: 30.18304, lon: -97.67987, tz: "America/Chicago" },          // KAUS
   boston: { lat: 42.36056, lon: -71.01056, tz: "America/New_York" },          // KBOS
-  chicago: { lat: 41.97972, lon: -87.90444, tz: "America/Chicago" },         // KORD
+  chicago: { lat: 41.78417, lon: -87.75528, tz: "America/Chicago" },         // KMDW Midway (Kalshi uses Midway)
   dallas: { lat: 32.89743, lon: -97.02196, tz: "America/Chicago" },          // KDFW
   denver: { lat: 39.84658, lon: -104.65622, tz: "America/Denver" },          // KDEN
-  houston: { lat: 29.9844, lon: -95.36074, tz: "America/Chicago" },          // KIAH
+  houston: { lat: 29.6375, lon: -95.2825, tz: "America/Chicago" },           // KHOU Hobby (Kalshi uses Hobby)
   los_angeles: { lat: 33.93806, lon: -118.38889, tz: "America/Los_Angeles" },// KLAX
   miami: { lat: 25.79056, lon: -80.31639, tz: "America/New_York" },          // KMIA
   minneapolis: { lat: 44.88306, lon: -93.22889, tz: "America/Chicago" },     // KMSP
