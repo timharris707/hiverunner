@@ -35,6 +35,20 @@ const MAX_REVIEW_FAILURES_BEFORE_ESCALATION = 2;
 const MAX_REVIEW_FAILURES_HARD_CAP = 3; // Stop rebuilding entirely after this many failures
 const RECONCILE_INTERVAL_MS = 15_000;
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
+const IN_PROGRESS_HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — in-progress with no active build triggers escalation
+const REVIEW_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — review without resolution triggers alert
+
+// ── Task Status State Machine ──────────────────────────────────────────────────
+// Single source of truth for all valid task status transitions.
+// Enforced by transitionTask(); callers must not set task.status directly.
+export const VALID_TASK_TRANSITIONS: Record<string, string[]> = {
+  "backlog":     ["on-deck"],
+  "on-deck":     ["in-progress"],
+  "in-progress": ["review", "blocked", "in-progress"], // in-progress→in-progress for retries/failures
+  "review":      ["done", "in-progress"],              // done=Gater approval, in-progress=rejection
+  "blocked":     ["in-progress"],
+  "done":        [],                                   // terminal — nothing leaves done
+};
 const MAX_ON_DECK_PER_PROJECT = 1;
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const PROJECT_DIRS: Record<string, string> = {
@@ -104,6 +118,42 @@ export function addPipelineComment(task: any, text: string, author = "Pipeline",
     timestamp: new Date().toISOString(),
     type: "note",
   });
+}
+
+/**
+ * Apply a task status transition, enforcing the state machine.
+ * Returns true if the transition was applied, false if it was rejected.
+ *
+ * Use force=true ONLY for controlled pipeline overrides (e.g. auto-approve
+ * skipping review for low-risk tasks, or the visual-qc done→review reraise).
+ * All such force usages are logged as warnings for auditability.
+ */
+export function transitionTask(
+  task: any,
+  newStatus: string,
+  actor = "pipeline",
+  opts?: { force?: boolean; reason?: string }
+): boolean {
+  const from: string = task.status;
+  if (from === newStatus) return true; // no-op self-transition
+
+  const allowed: string[] = VALID_TASK_TRANSITIONS[from] ?? [];
+  if (!allowed.includes(newStatus)) {
+    if (opts?.force) {
+      console.warn(
+        `[state-machine] FORCE ${from} → ${newStatus} (task ${task.id}, actor: ${actor})` +
+        (opts.reason ? ` — ${opts.reason}` : "")
+      );
+    } else {
+      console.error(
+        `[state-machine] BLOCKED ${from} → ${newStatus} (task ${task.id}, actor: ${actor}) — not in valid transitions`
+      );
+      return false;
+    }
+  }
+
+  task.status = newStatus;
+  return true;
 }
 
 /**
@@ -513,7 +563,7 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
           lastVerdict: "NEEDS_FIX",
           lastNotes: notes,
         };
-        task.status = "in-progress";
+        transitionTask(task, "in-progress", "visual-qa");
         task.buildState = "failed";
         task.buildError = `Visual QA failed:\n${notes}`;
         task.lastReviewVerdict = "NEEDS_FIX";
@@ -527,7 +577,7 @@ async function finalizeVisualQA(visualQABuildId: string, taskId: string, success
         // Hard cap: stop rebuilding after too many failures to prevent infinite loops
         if (failureCount > MAX_REVIEW_FAILURES_HARD_CAP) {
           requeue = false;
-          task.status = "review";
+          transitionTask(task, "review", "visual-qa");
           task.buildState = "completed";
           task.escalatedToHenry = true;
           task.escalatedAt = now;
@@ -723,7 +773,7 @@ async function finalizeVigilQA(
         const blockerMatch = output.match(/BLOCKED:\s*(.+?)(?:\n|$)/i);
         const blockerReason = blockerMatch ? blockerMatch[1].trim() : "Vigil cannot verify this task";
 
-        task.status = "blocked";
+        transitionTask(task, "blocked", "vigil-qa");
         task.buildState = "blocked";
         task.blocker = {
           reason: blockerReason,
@@ -772,7 +822,7 @@ async function finalizeVigilQA(
           lastVerdict: "NEEDS_FIX",
           lastNotes: notes,
         };
-        task.status = "in-progress";
+        transitionTask(task, "in-progress", "vigil-qa");
         task.buildState = "failed";
         task.buildError = `Vigil QA rejected (sent back to ${builderAgentId}):\n${notes}`;
         task.lastReviewVerdict = "NEEDS_FIX";
@@ -799,7 +849,7 @@ async function finalizeVigilQA(
         // Hard cap: stop rebuilding after too many failures to prevent infinite loops
         if (failureCount > MAX_REVIEW_FAILURES_HARD_CAP) {
           requeue = false;
-          task.status = "review";
+          transitionTask(task, "review", "vigil-qa");
           task.buildState = "completed";
           task.escalatedToHenry = true;
           task.escalatedAt = now;
@@ -1155,7 +1205,7 @@ function advanceTasks(
       );
 
       if (!hasActiveBuild && !hasInProgressBuild) {
-        candidate.status = "in-progress";
+        transitionTask(candidate, "in-progress", "reconciler");
         candidate.updated = now;
         // Auto-assign the right builder agent on promotion
         autoAssignBuilder(candidate);
@@ -1172,7 +1222,7 @@ function advanceTasks(
     if (slotsAvailable > 0 && backlog.length > 0) {
       const toAdvance = backlog.slice(0, slotsAvailable);
       for (const task of toAdvance) {
-        task.status = "on-deck";
+        transitionTask(task, "on-deck", "reconciler");
         task.updated = now;
         addPipelineComment(task, "Auto-advanced from backlog → on-deck (slot available)");
         advanced.push(task.id);
@@ -1298,6 +1348,51 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
     }
     if (changed) {
       writeBuildLog(buildLog);
+    }
+
+    // In-progress heartbeat timeout — escalate if in-progress with no active build > 30min
+    for (const task of tasks) {
+      if (task.status !== "in-progress") continue;
+      if (findPendingEntryForTask(buildLog, task.id)) continue; // active build exists
+      if (task.escalatedToHenry) continue; // already escalated
+      const lastUpdate = task.buildStartedAt || task.updated || task.created;
+      if (!lastUpdate) continue;
+      const elapsedMs = now - new Date(lastUpdate).getTime();
+      if (elapsedMs > IN_PROGRESS_HEARTBEAT_TIMEOUT_MS) {
+        const minutes = Math.round(elapsedMs / 60000);
+        console.warn(`[factory] Heartbeat timeout: ${task.id} in-progress ${minutes}min with no active build`);
+        task.escalatedToHenry = true;
+        task.escalatedAt = new Date().toISOString();
+        task.escalationReason = `No active build for ${minutes} minutes`;
+        addPipelineComment(task, `⏱️ Heartbeat timeout: no active build for ${minutes}min — escalated to Henry`, "Pipeline");
+        sendTelegramNotification(
+          `⏱️ HEARTBEAT TIMEOUT: "${String(task.title || task.id).replace(/"/g, "'")}" stuck in-progress for ${minutes}min with no active build. Needs triage.`
+        );
+        createInAppNotification(
+          "⏱️ Heartbeat Timeout",
+          `"${String(task.title || task.id).replace(/"/g, "'")}" stuck in-progress ${minutes}min — no active build`,
+          "warning",
+          "/tasks"
+        );
+        changed = true;
+      }
+    }
+
+    // Review alert — notify if task has been in review > 15min without resolution
+    for (const task of tasks) {
+      if (task.status !== "review") continue;
+      if (task.reviewAlertSent) continue; // already alerted this cycle
+      const reviewSince = task.reviewRequestedAt || task.updated;
+      if (!reviewSince) continue;
+      const elapsedMs = now - new Date(reviewSince).getTime();
+      if (elapsedMs > REVIEW_ALERT_TIMEOUT_MS) {
+        const minutes = Math.round(elapsedMs / 60000);
+        console.warn(`[factory] Review alert: ${task.id} in review for ${minutes}min`);
+        task.reviewAlertSent = true;
+        addPipelineComment(task, `⚠️ Review alert: task has been in review for ${minutes}min — needs Gater attention`, "Pipeline");
+        sendSystemEvent(`⚠️ Review timeout: "${String(task.title || task.id).replace(/"/g, "'")}" in review ${minutes}min — needs Gater attention`);
+        changed = true;
+      }
     }
 
     // Autonomous task advancement — on-deck → in-progress, backlog → on-deck
@@ -1479,7 +1574,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     const blocker = detectBlocker(output, assignment.agentId);
     if (blocker) {
       blockerDetected = true;
-      task.status = "blocked";
+      transitionTask(task, "blocked", "blocker-detector");
       task.buildState = "blocked";
       task.blocker = blocker;
       task.buildError = `BLOCKED by ${assignment.agentId}: ${blocker.reason}`;
@@ -1667,7 +1762,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
         notifyText = `🔍 Build complete, auto-reviewer spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
       }
     } else {
-      task.status = "in-progress";
+      transitionTask(task, "in-progress", "build-failure");
       task.buildState = "failed";
       task.buildError = output.slice(-1500);
       notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
@@ -1864,7 +1959,7 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
         }
         const failureCount = (task.reviewFailureCount || 0) + 1;
         task.reviewFailureCount = failureCount;
-        task.status = "in-progress";
+        transitionTask(task, "in-progress", "code-review");
         task.buildState = "failed";
         task.buildError = `Auto-reviewer requested changes (attempt ${failureCount}):\n${notes}`;
         task.lastReviewVerdict = "NEEDS_FIX";
@@ -1909,7 +2004,7 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
       task.lastReviewAt = now;
 
       if (shouldRequireReview(task)) {
-        task.status = "review";
+        transitionTask(task, "review", "code-review");
         task.reviewRequired = true;
         task.reviewStatus = "pending";
         task.reviewRequestedAt = now;
@@ -1928,7 +2023,7 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
         notifyText = `✅ Auto-review approved → assigned to Gater for review: ${String(task.title || taskId).replace(/"/g, "'")}`;
         notifyOutcome = "review";
       } else {
-        task.status = "done";
+        transitionTask(task, "done", "code-review", { force: true, reason: "auto-approve: review not required for this task type" });
         task.reviewRequired = false;
         task.reviewStatus = "not-needed";
         task.completedAt = now;
@@ -2268,7 +2363,7 @@ export async function retryBuild(taskId: string, options?: { source?: string }) 
     task.buildError = null;
     task.updated = new Date().toISOString();
     if (task.status !== "in-progress") {
-      task.status = "in-progress";
+      transitionTask(task, "in-progress", "retry");
     }
     writeTasks(tasks);
   });

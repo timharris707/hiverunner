@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment } from "@/lib/build-queue";
+import { queueOrStartBuild, readTasks, reconcileBuildQueue, writeTasks, autoAssignGater, autoAssignBuilder, addPipelineComment, VALID_TASK_TRANSITIONS } from "@/lib/build-queue";
 import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +59,18 @@ export async function PATCH(req: NextRequest) {
 
     const previousTask = { ...tasks[idx] };
     const now = new Date().toISOString();
+
+    // State machine guard: reject invalid status transitions
+    if (updates.status && updates.status !== previousTask.status) {
+      const allowed: string[] = VALID_TASK_TRANSITIONS[previousTask.status] ?? [];
+      if (!allowed.includes(updates.status)) {
+        return NextResponse.json(
+          { error: `Invalid status transition: ${previousTask.status} → ${updates.status}` },
+          { status: 400 }
+        );
+      }
+    }
+
     tasks[idx] = { ...tasks[idx], ...updates, updated: now };
 
     if (tasks[idx].status === "review" && previousTask.status !== "review") {

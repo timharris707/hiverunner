@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextResponse } from "next/server";
-import { readTasks, writeTasks } from "@/lib/build-queue";
+import { readTasks, writeTasks, transitionTask } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +64,7 @@ export async function PATCH(request: Request) {
     task.blocker.resolvedAt = now;
     task.blocker.resolvedBy = resolvedBy || "henry";
     task.blocker.resolutionNotes = resolution;
-    task.status = "in-progress";
+    transitionTask(task, "in-progress", "blocker-resolve");
     task.buildState = undefined;
     task.updated = now;
 

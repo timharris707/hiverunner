@@ -4,7 +4,7 @@ import path from "path";
 import crypto from "crypto";
 import { promisify } from "util";
 import { NextRequest, NextResponse } from "next/server";
-import { readTasks, writeTasks } from "@/lib/build-queue";
+import { readTasks, writeTasks, transitionTask } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
     };
 
     if (task.status === "done" && (task.reviewRequired || isVisualUiTask(task))) {
-      task.status = "review";
+      transitionTask(task, "review", "visual-qc", { force: true, reason: "screenshot captured for done task requiring visual review" });
       task.reviewRequired = true;
       task.reviewStatus = "pending";
       task.reviewRequestedAt = task.reviewRequestedAt || now;
