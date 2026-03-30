@@ -1,0 +1,128 @@
+name: Preview Deploy Gate
+
+# Runs on every PR. Deploys a Vercel preview, then runs the full
+# Playwright smoke suite (Chromium + WebKit) against it.
+# The PR cannot merge until this check passes.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: preview-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  deploy-and-test:
+    name: "Vercel Preview + E2E (Gater)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      VERCEL_ORG_ID: team_MPvumAivpjmjl7lKlNAS2zaF
+      VERCEL_PROJECT_ID: prj_iCHAtRlwintTpa5TfaZNTKx1LpuB
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@latest
+
+      # Deploy a preview build and capture the URL.
+      # --yes skips interactive prompts; output goes to stdout with the URL on the last line.
+      - name: Deploy to Vercel (preview)
+        id: vercel
+        run: |
+          DEPLOY_URL=$(vercel deploy \
+            --token="${{ secrets.VERCEL_TOKEN }}" \
+            --yes \
+            2>&1 | tail -1)
+          echo "url=$DEPLOY_URL" >> "$GITHUB_OUTPUT"
+          echo "Preview URL: $DEPLOY_URL"
+
+      # Wait for the deployment to finish booting (Vercel sets DEPLOYMENT_READY once live)
+      - name: Wait for preview to be ready
+        run: |
+          URL="${{ steps.vercel.outputs.url }}"
+          echo "Waiting for $URL to respond..."
+          for i in $(seq 1 30); do
+            STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$URL" || echo "000")
+            echo "  attempt $i — HTTP $STATUS"
+            if [ "$STATUS" = "200" ] || [ "$STATUS" = "301" ] || [ "$STATUS" = "302" ]; then
+              echo "Preview is live."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "Preview did not become ready in time."
+          exit 1
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      # Run the full smoke suite against the preview URL.
+      # CI=true enforces forbidOnly and enables 1 retry per test.
+      - name: Run Playwright smoke suite
+        env:
+          CI: "true"
+          BASE_URL: ${{ steps.vercel.outputs.url }}
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-pr-${{ github.event.pull_request.number }}
+          path: playwright-report/
+          retention-days: 7
+
+      # Post a summary comment on the PR with the preview URL
+      - name: Comment preview URL on PR
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const previewUrl = "${{ steps.vercel.outputs.url }}";
+            const body = [
+              "## Preview Deploy Gate — PASSED",
+              "",
+              `**Preview URL:** ${previewUrl}`,
+              "",
+              "Playwright smoke suite (Chromium + WebKit) passed against this preview. Safe to merge.",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+
+      - name: Comment on E2E failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const previewUrl = "${{ steps.vercel.outputs.url }}";
+            const body = [
+              "## Preview Deploy Gate — FAILED",
+              "",
+              `**Preview URL:** ${previewUrl}`,
+              "",
+              "Playwright smoke suite failed. Check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for details and download the Playwright report artifact.",
+            ].join("\n");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
