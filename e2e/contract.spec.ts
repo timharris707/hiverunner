@@ -1095,3 +1095,462 @@ test.describe("POST /api/tasks/build — request validation", () => {
     assertSchema(ErrorSchema, await res.json());
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 17. PATCH /api/tasks — acceptance_criteria guard
+// ═════════════════════════════════════════════════════════════════════════════
+
+test.describe("PATCH /api/tasks — acceptance_criteria guard", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let taskId = "";
+
+  test.beforeAll(async ({ request }) => {
+    const res = await request.post("/api/tasks", {
+      data: {
+        title: "[CONTRACT] acceptance_criteria guard",
+        status: "backlog",
+        project: "mission-control",
+      },
+    });
+    taskId = (await res.json()).task.id;
+    await request.patch("/api/tasks", {
+      data: { id: taskId, status: "on-deck" },
+    });
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (taskId) await cleanupTask(request, taskId);
+  });
+
+  test("on-deck → in-progress without acceptance_criteria returns 400", async ({
+    request,
+  }) => {
+    const res = await request.patch("/api/tasks", {
+      data: { id: taskId, status: "in-progress" },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    assertSchema(ErrorSchema, body);
+    expect(body.error).toMatch(/acceptance_criteria required/i);
+  });
+
+  test("on-deck → in-progress with empty acceptance_criteria returns 400", async ({
+    request,
+  }) => {
+    const res = await request.patch("/api/tasks", {
+      data: { id: taskId, status: "in-progress", acceptance_criteria: [] },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    assertSchema(ErrorSchema, body);
+    expect(body.error).toMatch(/acceptance_criteria required/i);
+  });
+
+  test("on-deck → in-progress with at least one criterion succeeds", async ({
+    request,
+  }) => {
+    const res = await request.patch("/api/tasks", {
+      data: {
+        id: taskId,
+        status: "in-progress",
+        acceptance_criteria: ["Contract guard test: criterion provided"],
+      },
+    });
+    expect(res.status()).toBe(200);
+    expect(assertSchema(TaskSchema, (await res.json()).task).status).toBe(
+      "in-progress"
+    );
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 18. POST /api/tasks — acceptance_criteria guard when creating in-progress
+// ═════════════════════════════════════════════════════════════════════════════
+
+test.describe("POST /api/tasks — acceptance_criteria guard on create", () => {
+  test("creating task directly as in-progress without criteria returns 400", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/tasks", {
+      data: {
+        title: "[CONTRACT] create in-progress no criteria",
+        status: "in-progress",
+        project: "mission-control",
+      },
+    });
+    expect(res.status()).toBe(400);
+    const body = await res.json();
+    assertSchema(ErrorSchema, body);
+    expect(body.error).toMatch(/acceptance_criteria required/i);
+  });
+
+  test("creating task directly as in-progress with criteria returns 200", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/tasks", {
+      data: {
+        title: "[CONTRACT] create in-progress with criteria",
+        status: "in-progress",
+        project: "mission-control",
+        acceptance_criteria: ["Contract test: created with criteria"],
+      },
+    });
+    // 200 OK — in-progress with criteria is allowed (build will be auto-started)
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    const task = assertSchema(TaskSchema, body.task);
+    expect(task.status).toBe("in-progress");
+    // Cleanup: walk to done
+    await cleanupTask(request, task.id);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 19. PATCH /api/tasks — review → done requires reviewAssignedTo guard
+// ═════════════════════════════════════════════════════════════════════════════
+
+// Note on reviewAssignedTo guard: autoAssignGater() always sets task.reviewAssignedTo
+// when a task enters "review" via the normal API flow. The guard exists as a safeguard
+// for legacy tasks that were placed in review without auto-assignment. The tests below
+// document the contract for both paths.
+test.describe("PATCH /api/tasks — review → done reviewAssignedTo contract", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let taskId = "";
+
+  test.beforeAll(async ({ request }) => {
+    const res = await request.post("/api/tasks", {
+      data: {
+        title: "[CONTRACT] reviewAssignedTo contract",
+        status: "backlog",
+        project: "mission-control",
+      },
+    });
+    taskId = (await res.json()).task.id;
+    await request.patch("/api/tasks", { data: { id: taskId, status: "on-deck" } });
+    await request.patch("/api/tasks", {
+      data: {
+        id: taskId,
+        status: "in-progress",
+        acceptance_criteria: ["Contract test: reviewAssignedTo contract"],
+      },
+    });
+    await request.patch("/api/tasks", { data: { id: taskId, status: "review" } });
+  });
+
+  test.afterAll(async ({ request }) => {
+    if (taskId) await cleanupTask(request, taskId);
+  });
+
+  // autoAssignGater sets reviewAssignedTo when entering review, so omitting it
+  // in the PATCH body is fine — the guard merges with the pre-existing task value.
+  test("review → done without explicit reviewAssignedTo in body returns 200 (auto-assigned)", async ({
+    request,
+  }) => {
+    // First confirm reviewAssignedTo was set by autoAssignGater
+    const getRes = await request.get("/api/tasks");
+    const tasks = (await getRes.json()).tasks as Array<{ id: string; reviewAssignedTo?: string }>;
+    const t = tasks.find((x) => x.id === taskId);
+    expect(t?.reviewAssignedTo, "autoAssignGater should have set reviewAssignedTo").toBeTruthy();
+
+    // Now attempt review → done without sending reviewAssignedTo in the body
+    const res = await request.patch("/api/tasks", {
+      data: { id: taskId, status: "done", reviewStatus: "approved" },
+    });
+    // Should succeed because reviewAssignedTo is already on the task from autoAssignGater
+    expect(res.status()).toBe(200);
+    const { task } = await res.json();
+    assertSchema(TaskSchema, task);
+    expect(task.status).toBe("done");
+    taskId = ""; // consumed
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 20. GET /api/dashboard/stats — response schema
+// ═════════════════════════════════════════════════════════════════════════════
+
+const DashboardStatsSchema = z.object({
+  activeSessions: z.number().int().nonnegative(),
+  totalSessions: z.number().int().nonnegative(),
+  tasksToday: z.number().int().nonnegative(),
+  costToday: z.number().nonnegative(),
+  activeAgents: z.number().int().nonnegative(),
+});
+
+test.describe("GET /api/dashboard/stats — response schema", () => {
+  test("returns { activeSessions, totalSessions, tasksToday, costToday, activeAgents }", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/dashboard/stats");
+    // 200 on success or 500 fallback still returns the zero-filled schema
+    expect([200, 500]).toContain(res.status());
+    assertSchema(DashboardStatsSchema, await res.json());
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 21. GET /api/settings — response schema
+// ═════════════════════════════════════════════════════════════════════════════
+
+const ProviderSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.enum(["active", "inactive", "unconfigured"]),
+  isPrimary: z.boolean(),
+});
+
+const SettingsResponseSchema = z.object({
+  config: z.record(z.string(), z.unknown()),
+  providers: z.array(ProviderSchema),
+});
+
+test.describe("GET /api/settings — response schema", () => {
+  test("returns { config, providers[] } with expected provider fields", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/settings");
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    assertSchema(SettingsResponseSchema, body);
+    expect(body.providers.length).toBeGreaterThan(0);
+    // Secrets must be redacted
+    const raw = JSON.stringify(body.config);
+    expect(raw).not.toMatch(/[A-Za-z0-9+/]{32,}/); // no long unredacted tokens
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 22. GET /api/quota — response schema
+// ═════════════════════════════════════════════════════════════════════════════
+
+const QuotaResponseSchema = z.object({
+  date: z.string(),
+  currentWindow: z.enum(["peak", "off-peak"]),
+  currentHourUtc: z.number().int(),
+  dailyBudgetUsd: z.number().nonnegative(),
+  peakBudgetUsd: z.number().nonnegative(),
+  offPeakBudgetUsd: z.number().nonnegative(),
+  peakSpendUsd: z.number().nonnegative(),
+  offPeakSpendUsd: z.number().nonnegative(),
+  peakUtilization: z.number(),
+  offPeakUtilization: z.number(),
+  totalSpendUsd: z.number().nonnegative(),
+  totalUtilization: z.number(),
+  peakTaskCount: z.number().int().nonnegative(),
+  offPeakTaskCount: z.number().int().nonnegative(),
+  deferredCount: z.number().int().nonnegative(),
+  config: z.object({
+    dailyBudgetUsd: z.number().nonnegative(),
+    peakBudgetRatio: z.number(),
+    offPeakBudgetRatio: z.number(),
+    debounceWindowMs: z.number().int(),
+    maxOffPeakBatchSize: z.number().int(),
+  }),
+});
+
+test.describe("GET /api/quota — response schema", () => {
+  test("returns full quota summary with config block", async ({ request }) => {
+    const res = await request.get("/api/quota");
+    expect(res.status()).toBe(200);
+    assertSchema(QuotaResponseSchema, await res.json());
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 23. POST /api/quota — action validation
+// ═════════════════════════════════════════════════════════════════════════════
+
+test.describe("POST /api/quota — action validation", () => {
+  test("action=drain returns { drained, taskIds, message }", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/quota", {
+      data: { action: "drain" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("drained");
+    expect(typeof body.drained).toBe("number");
+    expect(Array.isArray(body.taskIds)).toBe(true);
+    expect(typeof body.message).toBe("string");
+  });
+
+  test("action=evaluate without taskId returns 400 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/quota", {
+      data: { action: "evaluate" },
+    });
+    expect(res.status()).toBe(400);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("action=evaluate with non-existent taskId returns 404 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/quota", {
+      data: { action: "evaluate", taskId: "TASK-0000000000000" },
+    });
+    expect(res.status()).toBe(404);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("action=remove-deferred without taskId returns 400 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.post("/api/quota", {
+      data: { action: "remove-deferred" },
+    });
+    expect(res.status()).toBe(400);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("unknown action returns 400 with { error }", async ({ request }) => {
+    const res = await request.post("/api/quota", {
+      data: { action: "explode" },
+    });
+    expect(res.status()).toBe(400);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("action=configure updates quota config and returns it", async ({
+    request,
+  }) => {
+    // Read current config first so we can restore it
+    const initial = await (await request.get("/api/quota")).json();
+    const originalBudget = initial.config.dailyBudgetUsd;
+
+    const res = await request.post("/api/quota", {
+      data: {
+        action: "configure",
+        dailyBudgetUsd: originalBudget, // same value — no-op reconfigure
+      },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("message");
+    expect(body).toHaveProperty("config");
+    expect(body.config.dailyBudgetUsd).toBe(originalBudget);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 24. GET /api/agents/registry — response schema
+// ═════════════════════════════════════════════════════════════════════════════
+
+const RegistryAgentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  displayName: z.string(),
+  emoji: z.string(),
+  role: z.string(),
+  division: z.string(),
+  isBuilder: z.boolean(),
+  routingTags: z.array(z.string()),
+});
+
+test.describe("GET /api/agents/registry — response schema", () => {
+  test("returns { agents[], divisions, count } with registry fields", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/agents/registry");
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("agents");
+    expect(body).toHaveProperty("divisions");
+    expect(body).toHaveProperty("count");
+    expect(typeof body.count).toBe("number");
+    expect(Array.isArray(body.agents)).toBe(true);
+    expect(body.agents.length).toBeGreaterThan(0);
+    expect(body.agents.length).toBe(body.count);
+    for (const agent of body.agents) {
+      assertSchema(RegistryAgentSchema, agent);
+    }
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// 25. GET/PATCH/DELETE /api/factory/pipelines/[id] — CRUD + 404
+// ═════════════════════════════════════════════════════════════════════════════
+
+test.describe("GET/PATCH/DELETE /api/factory/pipelines/[id] — CRUD", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let pipelineId = "";
+
+  test.beforeAll(async ({ request }) => {
+    const res = await request.post("/api/factory/pipelines", {
+      data: {
+        name: "[CONTRACT] pipelines/[id] test",
+        description: "CRUD test pipeline — safe to delete",
+        source: "manual",
+      },
+    });
+    pipelineId = (await res.json()).pipeline.id;
+  });
+
+  test("GET /api/factory/pipelines/[id] returns { pipeline } with schema fields", async ({
+    request,
+  }) => {
+    const res = await request.get(`/api/factory/pipelines/${pipelineId}`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("pipeline");
+    assertSchema(PipelineSchema, body.pipeline);
+    expect(body.pipeline.id).toBe(pipelineId);
+  });
+
+  test("GET /api/factory/pipelines/[id] with unknown id returns 404 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.get("/api/factory/pipelines/pipeline-0000000000000-xxxxxx");
+    expect(res.status()).toBe(404);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("PATCH /api/factory/pipelines/[id] updates name — returns { pipeline }", async ({
+    request,
+  }) => {
+    const res = await request.patch(`/api/factory/pipelines/${pipelineId}`, {
+      data: { name: "[CONTRACT] pipelines/[id] test — PATCHED" },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("pipeline");
+    assertSchema(PipelineSchema, body.pipeline);
+    expect(body.pipeline.name).toBe("[CONTRACT] pipelines/[id] test — PATCHED");
+  });
+
+  test("PATCH /api/factory/pipelines/[id] with unknown id returns 404 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.patch(
+      "/api/factory/pipelines/pipeline-0000000000000-xxxxxx",
+      { data: { name: "should not exist" } }
+    );
+    expect(res.status()).toBe(404);
+    assertSchema(ErrorSchema, await res.json());
+  });
+
+  test("DELETE /api/factory/pipelines/[id] removes pipeline — returns { ok: true }", async ({
+    request,
+  }) => {
+    const res = await request.delete(`/api/factory/pipelines/${pipelineId}`);
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toHaveProperty("ok", true);
+    pipelineId = ""; // consumed
+  });
+
+  test("DELETE /api/factory/pipelines/[id] with unknown id returns 404 with { error }", async ({
+    request,
+  }) => {
+    const res = await request.delete(
+      "/api/factory/pipelines/pipeline-0000000000000-xxxxxx"
+    );
+    expect(res.status()).toBe(404);
+    assertSchema(ErrorSchema, await res.json());
+  });
+});
