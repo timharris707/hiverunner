@@ -639,9 +639,17 @@ export default function TradingFloorPage() {
                     }}>
                       {g.strategyVersion}
                     </span>
-                    <span style={{ color: "var(--text-muted)" }}>
-                      {g.totalQuantity} contracts · {$(g.totalCost)}
-                    </span>
+                  </div>
+                </div>
+
+                {/* Cost — total spent + contracts breakdown */}
+                <div className="text-center" style={{ minWidth: 75 }}>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
+                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
+                    {$(g.totalCost)}
+                  </div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                    {g.totalQuantity} × {(g.avgPrice * 100).toFixed(0)}¢
                   </div>
                 </div>
 
