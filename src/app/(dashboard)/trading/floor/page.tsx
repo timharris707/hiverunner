@@ -456,7 +456,7 @@ export default function TradingFloorPage() {
             return [
               { label: "Positions", value: `${groups.length}`, color: "var(--text-primary)", bold: true,
                 sub: `${filtered.length} orders · ${filteredOpen.length} open` },
-              { label: "Cost Deployed", value: $(fCost), color: "#60a5fa" },
+              { label: "Cash Deployed", value: $(fCost), color: "#60a5fa" },
               { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "—",
                 color: fSettledPnl >= 0 ? "#4ade80" : "#ef4444",
                 sub: filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
