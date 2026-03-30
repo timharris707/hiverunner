@@ -15,22 +15,21 @@ import type {
   AdvisoryEvent,
   AdvisorySession,
 } from "@/types/advisory";
-import { getAgentByAnyId } from "@/config/agents";
+import { AGENT_CONFIGS, getAgentByAnyId, getDisplayName } from "@/config/agents";
 
-// ─── Agent Definitions ───────────────────────────────────────────────────────
+// ─── Agent Definitions — derived from central registry ──────────────────────
 
-export const AGENTS: AgentDef[] = [
-  { id: "Henry", emoji: "⚡", role: "Chief of Staff", defaultRole: "supervisor" },
-  { id: "Atlas", emoji: "📈", role: "Stocks & Options Trader", defaultRole: "worker" },
-  { id: "Nimbus", emoji: "🌤️", role: "Weather Prediction Trader", defaultRole: "worker" },
-  { id: "Cipher", emoji: "₿", role: "Crypto Trader", defaultRole: "worker" },
-  { id: "Quant", emoji: "📊", role: "Trading Strategy Architect", defaultRole: "worker" },
-  { id: "Forge", emoji: "🔧", role: "Backend Engineer", defaultRole: "worker" },
-  { id: "Pixel", emoji: "💻", role: "Senior Full-Stack Engineer", defaultRole: "worker" },
-  { id: "Scout", emoji: "🔭", role: "Research & Intelligence", defaultRole: "worker" },
-  { id: "Quill", emoji: "✍️", role: "Creative Writer & Marketing", defaultRole: "worker" },
-  { id: "Counsel", emoji: "⚖️", role: "Legal Expert", defaultRole: "reviewer" },
-];
+const DEFAULT_ROLES: Record<string, "supervisor" | "worker" | "reviewer"> = {
+  henry: "supervisor",
+  counsel: "reviewer",
+};
+
+export const AGENTS: AgentDef[] = AGENT_CONFIGS.map((a) => ({
+  id: getDisplayName(a),
+  emoji: a.emoji,
+  role: a.role,
+  defaultRole: DEFAULT_ROLES[a.id] ?? "worker",
+}));
 
 // ─── Persona Overlays ────────────────────────────────────────────────────────
 

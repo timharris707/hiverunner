@@ -1,0 +1,263 @@
+{
+  "id": "session-1774728217804-fe37e62d",
+  "topic": "An AI advisory board platform exists that lets anyone assemble a team of specialized AI agents and run structured debates on any topic. The agents have distinct personalities, expertise, and communication styles. Sessions produce actionable artifacts \u2014 not just conversation. List and deeply analyze the most valuable real-world use cases, ranked by willingness to pay and market size. For each, describe who the buyer is, what they pay today for the alternative, and why multi-agent deliberation is dramatically better than a single AI chat or the current human process. Do not limit yourself to obvious tech use cases.",
+  "mode": "roundtable",
+  "agents": [
+    "Felix",
+    "Zara",
+    "Owen",
+    "Iris",
+    "Theo",
+    "Carmen"
+  ],
+  "status": "completed",
+  "createdAt": "2026-03-28T20:03:37.804Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": [],
+  "rounds": 3,
+  "pacing": "manual",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "moderator": "Felix",
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-28T20:03:37.804Z",
+      "type": "start",
+      "speaker": "Felix",
+      "emoji": "\u26a1",
+      "role": "moderator",
+      "text": "\ud83d\ude80 **Session started.**\n\n**Topic:** An AI advisory board platform exists that lets anyone assemble a team of specialized AI agents and run structured debates on any topic. The agents have distinct personalities, expertise, and communication styles. Sessions produce actionable artifacts \u2014 not just conversation. List and deeply analyze the most valuable real-world use cases, ranked by willingness to pay and market size. For each, describe who the buyer is, what they pay today for the alternative, and why multi-agent deliberation is dramatically better than a single AI chat or the current human process. Do not limit yourself to obvious tech use cases.\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Felix, Zara, Owen, Iris, Theo, Carmen\n\nStanding by for agent inputs..."
+    },
+    {
+      "id": "evt_next_1774728310873_xizcc",
+      "timestamp": "2026-03-28T20:05:10.873Z",
+      "type": "worker",
+      "speaker": "Felix",
+      "emoji": "\ud83d\udcca",
+      "role": "moderator",
+      "text": "The TAM here is larger than most people think, because the real competitor isn't \"other AI tools\" \u2014 it's the $400B+ global management consulting industry and the fragmented mess of expert panels, focus groups, and advisory retainers.\n\n**Tier 1 \u2014 Highest willingness to pay, largest budgets:**\n\n1. **M&A due diligence rooms.** Buyer: PE firms and corporate dev teams. They pay $2-5M per deal to McKinsey, Bain, and boutique advisors for 6-8 week diligence sprints. Multi-agent deliberation compresses that to days. A legal agent, financial modeler, market analyst, and operations expert arguing over risk factors in real-time produces a structured investment memo with dissenting opinions baked in. Single-chat AI can't do this \u2014 you need adversarial tension between specialized viewpoints to surface blind spots. This is a $50K-per-session product that replaces $500K of billable hours.\n\n2. **Regulatory and compliance review.** Buyer: General Counsel offices at Fortune 500s. Current spend: $800/hr outside counsel, multiple firms for multi-jurisdictional questions. An AI board with EU privacy law, SEC reporting, and IP specialists debating a product launch surfaces conflicts a single LLM hallucates past.\n\n3. **Product-market fit testing for pre-launch consumer goods.** Buyer: CPG brand managers at P&G, Unilever, L'Or\u00e9al. They spend $150-300K per concept on focus groups and conjoint studies that take 8 weeks. This is the sleeper category \u2014 massive volume, proven budget line items, and the current process is painfully slow.\n\n**Tier 2 \u2014 proven demand, mid-market:** medical tumor boards for community hospitals lacking specialists, school district curriculum committees, municipal zoning and planning review, and nonprofit board governance for orgs that can't afford seven seasoned directors.\n\nThe key insight everyone will miss: **the highest-value use cases are the ones where disagreement between experts is the product, not a bug.** A single AI chat optimizes for one coherent answer. A board optimizes for structured conflict. That's what decision-makers actually pay for \u2014 they want to see where smart people disagree, not where they agree.\n\nStart with M&A. The buyer has budget, urgency, and zero tolerance for blind spots. Price it per-session, not per-seat.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728332296_jrcod",
+      "timestamp": "2026-03-28T20:05:32.296Z",
+      "type": "worker",
+      "speaker": "Zara",
+      "emoji": "\ud83e\udd1d",
+      "role": "worker",
+      "text": "Felix nailed the TAM framing, but he's thinking like a consultant, not a seller. Let me reorder this by **who actually buys fastest**, because TAM means nothing if the sales cycle is 18 months.\n\nThe fastest cash register in this entire list is **CPG concept testing** \u2014 and he buried it at number three. Here's why it wins: brand managers at P&G and Unilever have *pre-approved budget line items* for consumer research. They don't need CFO sign-off for a $50K tool that replaces a $200K Ipsos study. They have purchasing authority, they're measured on speed-to-shelf, and their current process is so broken they'll trial anything. I've sold into these teams \u2014 the discovery call basically closes itself when you say \"same insights, three days instead of eight weeks.\" That's not a feature. That's a career accelerator for the buyer.\n\nM&A is the bigger dollar amount per deal, but Felix is underestimating the procurement nightmare. PE firms have approved vendor lists, infosec reviews, and partners who need to personally bless every new tool touching deal data. You're looking at 6-9 months to close your first fund. Meanwhile, a CPG brand manager can expense a pilot on a corporate card.\n\n**My recommendation:** Launch with CPG research as the wedge. Price at $15-25K per session \u2014 low enough to stay under procurement thresholds, high enough to signal serious. Stack five logos in 90 days, then use those case studies to walk into the M&A conversation with proof. Nobody at KKR takes a meeting with a startup that has zero customers. Everybody at KKR takes a meeting with a startup that P&G is already using.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728354328_l77je",
+      "timestamp": "2026-03-28T20:05:54.328Z",
+      "type": "worker",
+      "speaker": "Owen",
+      "emoji": "\ud83d\udc9a",
+      "role": "worker",
+      "text": "Zara's go-to-market sequencing is right, but she's overlooking the retention cliff that kills every research tool in CPG.\n\nI've watched three startups win P&G pilots and then churn at renewal because brand managers rotate roles every 18-24 months. Your champion leaves, the new person has their own preferred vendors, and your $25K deal evaporates. The CPG wedge works for *logos and case studies* \u2014 Zara's right about that \u2014 but don't mistake early adoption for durable revenue. You need an expansion playbook from day one: land with one brand manager, but immediately push to become a team-level tool across the portfolio. If only one person knows how to run a session, you're dead on arrival when they move to a different brand.\n\nThe use case nobody's mentioned that I'd rank alongside CPG for launch: **independent medical practices and small hospital networks making formulary or treatment protocol decisions.** These aren't academic medical centers with tumor boards \u2014 they're 15-physician groups who currently make critical decisions over a 45-minute lunch meeting with zero structured deliberation. They have budget (CME funds, quality improvement allocations), short procurement cycles, and the pain is visceral. A medical director who can run an AI oncology board before referring a complex patient will never go back. And here's the retention angle: once it's embedded in clinical workflow, switching costs are enormous. Nobody rips out a tool that touches patient decisions.\n\nMy concrete recommendation: run CPG and medical in parallel as dual wedges. CPG gives you speed-to-logo. Medical gives you the retention and expansion metrics that make your Series A deck bulletproof.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728374376_kg6cf",
+      "timestamp": "2026-03-28T20:06:14.376Z",
+      "type": "worker",
+      "speaker": "Iris",
+      "emoji": "\ud83d\udcda",
+      "role": "worker",
+      "text": "Everyone's optimizing for buyer speed and retention, but you're all ignoring the use case where multi-agent deliberation isn't just better than the alternative \u2014 it's the *only* alternative. And that's where you get pricing power.\n\nCorporate training and leadership development. This is a $380B global market, and the dirty secret is that 90% of it is garbage. Companies spend $3,500-$8,000 per employee on leadership programs that amount to a facilitator reading slides in a Marriott ballroom. The reason executive simulations and case-based learning work at HBS and INSEAD is the *peer cohort* \u2014 sixteen people with different functional expertise arguing about what the protagonist should do. That's not a feature of elite education. That IS elite education. A multi-agent board replicates it on demand. Put a CFO-track manager through a simulated board crisis with a skeptical legal agent, an aggressive growth-minded CMO agent, and an activist investor agent pushing for margin improvement. That's not a chatbot exercise \u2014 that's a pressure-tested decision environment you literally cannot build with a single LLM. L&D budgets are pre-allocated annually, HR buyers purchase without IT procurement gatekeeping, and Owen \u2014 this solves your retention problem entirely. Training isn't a one-shot research project. It's a recurring platform with monthly cohorts, certification tracks, and enterprise-wide rollout. One champion churning doesn't kill you because the contract lives with HR, not an individual.\n\nMy recommendation: add L&D as your third wedge alongside Zara's CPG and Owen's medical. Price it per-seat-per-year at $200-400 per learner \u2014 that undercuts live executive education by 95% while delivering something no classroom can: repeatable, on-demand adversarial deliberation customized to each learner's actual strategic gaps.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728396730_2lvzm",
+      "timestamp": "2026-03-28T20:06:36.730Z",
+      "type": "worker",
+      "speaker": "Theo",
+      "emoji": "\ud83c\udfe5",
+      "role": "worker",
+      "text": "Iris just handed you the retention playbook, but let me tell you what's actually missing from this entire conversation: **regulated industries where the decision process itself is the liability.**\n\nIn healthcare, the standard of care isn't just \"did you make the right call\" \u2014 it's \"can you prove you considered the alternatives.\" When a community hospital discharges a patient who bounces back in 48 hours, CMS doesn't ask what the attending thought. They ask whether a multidisciplinary review happened. Right now, critical access hospitals and rural networks are faking it. They check the box on interdisciplinary rounds with a hospitalist, a nurse, and maybe a pharmacist rushing through 30 patients in an hour. Nobody's deliberating. Owen flagged small medical practices, but he undersized the opportunity. The real buyer is the Chief Medical Officer at a 200-bed community hospital who just got dinged on a Joint Commission survey for inadequate peer review documentation. That person has quality improvement budget, regulatory urgency, and a problem that literally cannot be solved by hiring \u2014 because the specialists don't exist in their market.\n\nHere's what changes the pricing conversation entirely: in regulated industries, the audit trail IS the product. Every other use case Felix and Zara described sells insights. Healthcare sells *defensible documentation of structured deliberation.* That's not a nice-to-have. That's a compliance requirement with teeth. Price it at $3-5K per month per facility, bundle it with documentation that survives Joint Commission review, and you'll see net revenue retention above 140% because once legal and compliance depend on it, nobody cancels. Ever.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728421302_76hbk",
+      "timestamp": "2026-03-28T20:07:01.302Z",
+      "type": "worker",
+      "speaker": "Carmen",
+      "emoji": "\ud83c\udfac",
+      "role": "worker",
+      "text": "Every single person here is thinking about this as a B2B product. Stop. The use case with the most explosive growth potential is one where the buyer isn't a corporation at all \u2014 it's a creator, a showrunner, or an independent producer.\n\nThe entertainment and content development market spends $2-3M per scripted pilot just on the development process \u2014 writers' rooms, table reads, network notes, audience testing. Unscripted is cheaper but still burns $200-500K in development before a single frame is shot. And here's what nobody outside the industry understands: the writers' room IS a multi-agent deliberation system. You have a showrunner, a joke punch-up specialist, a story structure person, a cultural sensitivity reader, and a network standards voice all in one room arguing about whether a scene works. That's not a metaphor for what this platform does. That's literally what it does.\n\nThe buyer who moves fastest isn't Netflix \u2014 it's the mid-tier production company developing six projects simultaneously with a staff of twelve. They can't afford to room every project. Right now they're making $50K development bets on gut instinct. Give them an AI room that stress-tests a pilot concept with a network executive agent, a cynical audience researcher, a competitive programmer who knows what's already in development, and a marketing agent who knows what's promotable \u2014 and they'll pay $10K per session without blinking.\n\nBut here's where I really disagree with the sequencing: Theo, your regulated healthcare play and Iris's L&D play are *enterprise sales motions.* They're right, but they're slow. Zara gets this. The fastest path to virality \u2014 and I mean actual cultural conversation \u2014 is letting individual creators use this publicly. A YouTuber running an AI advisory board on their channel about whether to launch a product line. A podcast host using it as a recurring segment. That's not a customer. That's a distribution channel. Every creator session is a live demo watched by 100K potential buyers. Price the creator tier at $500/session, let them publish the output, and watch your enterprise pipeline fill itself. CPG and medical can be your revenue engine, but content creators are your growth engine. Don't sell to the Fortune 500 first. Let the Fortune 500 discover you on their kids' YouTube feeds.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728439062_7q68y",
+      "timestamp": "2026-03-28T20:07:19.062Z",
+      "type": "worker",
+      "speaker": "Felix",
+      "emoji": "\ud83d\udcca",
+      "role": "moderator",
+      "text": "Let me bring this back to the data, because we're drifting into \"everything is a use case\" territory and that's how startups die.\n\nCarmen's creator play is a distribution channel, not a revenue tier \u2014 she's right about that distinction and wrong to call it a wedge. Creators churn at 80%+ annually on tooling. You can't build a business on that. You build *awareness* on that. But here's what I want the room to internalize: we now have six proposed verticals across five people, and that's a sign we haven't applied a real prioritization framework. So let me force one. Score each vertical on three axes \u2014 **buyer urgency** (is there pain today or are we creating demand?), **budget accessibility** (can the buyer spend without a committee?), and **defensibility** (does the product get stickier over time?). When you do that honestly, exactly three verticals score above threshold: Theo's regulated healthcare documentation, Zara's CPG concept testing, and Iris's L&D play. Everything else is either slow-to-close (M&A), churn-prone (creators), or too niche to anchor a round (municipal planning).\n\nMy recommendation: kill the six-vertical fantasy. Ship with CPG as the 90-day proof-of-concept sprint, Theo's healthcare compliance as the Q2 expansion because the audit trail moat is real and durable, and Iris's L&D as the year-one scale play because per-seat recurring revenue is what gets you to $10M ARR. Three verticals, sequenced, with clear graduation criteria between each. Anything else is a distraction Tim shouldn't fund yet.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728458526_oqrg6",
+      "timestamp": "2026-03-28T20:07:38.526Z",
+      "type": "worker",
+      "speaker": "Zara",
+      "emoji": "\ud83e\udd1d",
+      "role": "worker",
+      "text": "Felix's three-vertical framework is the right call, and I'm glad the room landed where I started \u2014 CPG first. But now I need to push on something nobody's addressed: **the actual sales motion inside these accounts.**\n\nWe keep talking about verticals like they're monolithic. They're not. Within CPG alone, you have brand managers, consumer insights teams, R&D innovation groups, and agency partners who all buy research differently. The brand manager is your entry point \u2014 I stand by that \u2014 but the expansion play is the insights team lead who consolidates vendor spend across 15 brands. That's your path from a $25K pilot to a $500K annual contract without ever leaving the same company. I've run this exact playbook at Notion: land with one team, prove ROI in 60 days, then get the VP of Insights to standardize you across the portfolio. That second sale is warmer than any inbound lead you'll ever get.\n\nHere's what I want Tim to hear clearly: Felix's sequencing is right, but **each vertical needs a named buyer persona and a 30-second pitch before we write a line of code.** Not \"CPG brand managers\" \u2014 I mean \"Senior Brand Manager at a top-20 CPG company, 3-7 years in role, owns a $2M annual research budget, and just got told to cut agency spend by 15%.\" That person exists by the thousands. That person takes my call. Build for her first, and everything else follows.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728477584_gc7qr",
+      "timestamp": "2026-03-28T20:07:57.584Z",
+      "type": "worker",
+      "speaker": "Owen",
+      "emoji": "\ud83d\udc9a",
+      "role": "worker",
+      "text": "Zara's buyer persona work is exactly right, and I want to extend it to the thing that will actually determine whether these three verticals produce durable revenue or just flashy pilots: **the onboarding experience.**\n\nEvery vertical Felix greenlit has a completely different activation moment. For CPG, time-to-value is the first session output that a brand manager can drop into an existing deck and present to their VP without editing it. That's your activation metric \u2014 not \"ran a session,\" but \"used the artifact in a real meeting.\" For Theo's healthcare play, activation is the first Joint Commission-ready document that a CMO submits to their quality committee. For L&D, it's the first cohort completion where participant NPS exceeds their last in-person program. Three verticals, three totally different definitions of success, three different onboarding flows. If you build one generic \"welcome to the platform\" sequence, you'll close pilots and churn at 90 days in all three.\n\nHere's my concrete ask for Tim: before we sequence a single vertical launch, invest one week building a success framework \u2014 activation event, leading indicators, and expansion triggers \u2014 for CPG specifically. I want to know within 14 days of a pilot starting whether that account is going to expand or die. Because Zara can close five CPG logos in 90 days. My job is making sure four of them are still paying in year two.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728494547_zlivs",
+      "timestamp": "2026-03-28T20:08:14.547Z",
+      "type": "worker",
+      "speaker": "Iris",
+      "emoji": "\ud83d\udcda",
+      "role": "worker",
+      "text": "Owen's success framework is smart, but he's measuring the wrong thing for L&D and it will cost us the entire vertical if we don't fix it now.\n\nNPS compared to the last in-person program is a vanity metric. Chief Learning Officers don't renew six-figure contracts because participants *liked* it. They renew because they can prove behavioral change showed up in performance reviews, promotion velocity, or 360-feedback scores 6-12 months later. That's the measurement gap that's killed every corporate learning platform I've competed against \u2014 Coursera for Business, Degreed, LinkedIn Learning all hit the same wall. High completion rates, no provable business impact, CLO can't justify renewal to the CFO. Our activation metric for L&D needs to be this: did the learner make a demonstrably different decision in their actual role within 90 days of the simulation? That means we build assessment into the platform from day one \u2014 pre-session decision tendency, post-session decision shift, and a 90-day follow-up pulse. That data becomes our moat. No competitor has it because no competitor runs adversarial deliberation that can baseline and then re-test a leader's judgment.\n\nHere's my concrete push to the room: Felix's three-vertical sequence is right, but L&D needs a longer runway than the others. Don't launch it in year one as a self-serve product. Launch it as a *co-developed pilot with one Fortune 500 CHRO* \u2014 someone like Accenture or Deloitte who already spends $200M+ annually on leadership development and will co-design the assessment framework with us. That partnership produces the efficacy data. The efficacy data is what sells every enterprise deal after it.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728517063_q6c9a",
+      "timestamp": "2026-03-28T20:08:37.063Z",
+      "type": "worker",
+      "speaker": "Theo",
+      "emoji": "\ud83c\udfe5",
+      "role": "worker",
+      "text": "Everyone's building launch playbooks, but nobody's talked about the thing that actually kills healthcare deals: **clinical liability.**\n\nOwen wants activation to be the first Joint Commission-ready document a CMO submits. That's wrong. That's month three. The real activation event is the first time a physician uses a board output to inform a care decision and *doesn't get sued.* Because here's what happens if we skip the liability architecture: one adverse outcome, one plaintiff's attorney who discovers the deliberation was AI-generated, and we're not just losing a customer \u2014 we're a cautionary tale on the front page of Modern Healthcare. Every hospital GC in America puts us on a blacklist overnight. So before we write a line of code for the healthcare vertical, we need three things locked: explicit \"clinical decision support\" classification under FDA guidance so we stay out of the device regulation pathway, a documentation framework that positions board outputs as *supplementary peer review material* protected under state peer review privilege statutes, and malpractice carrier sign-off that using the tool doesn't void coverage. That last one is the real gate. I can get a CMO excited in fifteen minutes. But if their risk management office calls their carrier and the carrier says \"we've never evaluated this,\" the deal dies on the spot.\n\nFelix \u2014 your Q2 healthcare timeline only works if we start the carrier conversations *now*, in parallel with the CPG sprint. I need 60 days and introductions to two regional malpractice carriers. That groundwork is what separates a durable healthcare vertical from a compliance theater demo that nobody's willing to actually use on a real patient.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728534406_uzlgm",
+      "timestamp": "2026-03-28T20:08:54.406Z",
+      "type": "worker",
+      "speaker": "Carmen",
+      "emoji": "\ud83c\udfac",
+      "role": "worker",
+      "text": "Theo's liability point is real, but I want to refocus the room on something we've completely lost the thread on: **the product itself is a content format, not just a tool.**\n\nEvery vertical we've discussed \u2014 CPG, healthcare, L&D \u2014 treats the board session as a private, behind-closed-doors utility. That's leaving the most powerful growth lever on the table. The artifact a board produces \u2014 the structured debate, the dissenting opinions, the moment where the legal agent and the growth agent fundamentally disagree \u2014 that's *watchable*. It's publishable. It's the most compelling content format to emerge from AI yet, and nobody in this room is designing for it. Felix wants to kill the creator vertical. Fine. But I'm not talking about creators as a revenue line \u2014 I'm talking about making every single enterprise session *optionally shareable* as a native product feature. When a CPG brand manager runs a concept test board and the output is so sharp she Slacks it to her entire division, that's not a report. That's a media artifact doing your sales job for free.\n\nConcrete action: every board session should auto-generate a \"highlight reel\" \u2014 the three sharpest moments of disagreement, formatted for sharing. Build it into V1, not V2. Because the difference between a tool people use and a platform people evangelize is whether the output is worth showing someone else. Owen's worried about retention? Make the output so good people *share it voluntarily.* That's your expansion trigger, not an onboarding sequence.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728551139_q33n9",
+      "timestamp": "2026-03-28T20:09:11.139Z",
+      "type": "worker",
+      "speaker": "Felix",
+      "emoji": "\ud83d\udcca",
+      "role": "moderator",
+      "text": "Carmen's shareable artifact idea is genuinely good product thinking, and I'll credit that \u2014 but she's smuggling the creator strategy back in through a side door. Let me be precise about why that's dangerous right now: shareability is a V1.5 feature, not a V1 feature, because it introduces data governance complexity that will blow up the CPG launch before it starts. No brand manager at P&G is sharing pre-launch concept testing outputs *anywhere*. Their legal team would incinerate them. The healthcare vertical? HIPAA makes it a non-starter. L&D with performance assessment data? HR won't touch it. Shareability works for exactly zero of our three launch verticals on day one. Build the infrastructure for it, sure. Ship the toggle? After you've earned enough trust that customers ask for it themselves.\n\nHere's what the room actually needs to address: we've spent eight rounds on *which* verticals and *how* to sell them, and nobody has pressure-tested whether the core product can actually deliver differentiated output across three fundamentally different domains. CPG concept testing requires synthetic consumer personas calibrated to demographic panels. Healthcare needs agents grounded in clinical guidelines and formulary data. L&D needs dynamic difficulty scaling based on learner responses. Those are three different engineering problems wearing the same trenchcoat. Tim \u2014 the honest question is whether this is a platform or three products. My recommendation: build one deliberation engine with a vertical-specific **agent template layer** on top. Spec that abstraction first. If the template architecture doesn't hold across all three verticals in design review, we don't have a platform \u2014 we have a consulting shop. And consulting shops don't reach $10M ARR.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728570884_4cbda",
+      "timestamp": "2026-03-28T20:09:30.884Z",
+      "type": "worker",
+      "speaker": "Zara",
+      "emoji": "\ud83e\udd1d",
+      "role": "worker",
+      "text": "Felix just asked the most important question of this entire session, and I don't think he realizes he also answered it. **It's a platform.** But only if we prove it with one vertical first, not three simultaneously.\n\nHere's what I've seen kill startups exactly like this: they spec a \"universal template layer\" in a design doc, build it in the abstract, and then discover on their first real sales call that the CPG brand manager needs something the abstraction didn't anticipate \u2014 like outputting a concept scorecard that maps directly to their existing stage-gate process. You don't learn that in design review. You learn it in discovery calls. So I'm going to say something that contradicts my own three-vertical enthusiasm from earlier: **launch CPG only.** Not CPG plus healthcare prep in parallel. Not CPG plus L&D co-design. One vertical, five customers, 90 days. Build the template layer *from* what those five customers actually need, not from what we imagine three verticals might require. The abstraction reveals itself through the work, not before it.\n\nTim, here's your 90-day plan in one sentence: I need a working product, a list of 30 Senior Brand Managers at top-20 CPG companies, and 90 days. I'll close five of them. Owen builds the success framework off those five. *Then* we look at the session data, see which pieces of the engine are genuinely reusable, and make the platform-or-three-products decision with real evidence instead of a whiteboard debate. That's how you get to a Series A \u2014 not with a three-vertical roadmap, but with five reference customers who'd scream if you took it away.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728592405_bde77",
+      "timestamp": "2026-03-28T20:09:52.405Z",
+      "type": "worker",
+      "speaker": "Owen",
+      "emoji": "\ud83d\udc9a",
+      "role": "worker",
+      "text": "Zara's right to narrow, and I'm going to back her even though it kills my dual-wedge idea from earlier. I was wrong. Parallel verticals at this stage splits the CS team's learning in half, and learning speed is everything pre-Series A.\n\nBut here's what Zara's 90-day plan is missing: she said \"Owen builds the success framework off those five.\" That's backwards. I need to build it *before* the first pilot closes, not after. Because the success framework isn't just how we measure retention \u2014 it's how we scope the pilot itself. Without it, Zara closes five brand managers who each expect something slightly different, onboarding becomes five custom engagements, and by day 60 I'm triaging instead of systematizing. I've made this exact mistake at two previous companies. The fix is dead simple: I sit in on Zara's first ten discovery calls. Not to sell \u2014 to listen for the activation pattern. What does \"success\" sound like when the buyer describes it in their own words? By call five, I'll have the framework. By call ten, I'll have the onboarding playbook. Those five pilots launch with identical success criteria, identical check-in cadences, and a shared definition of what \"working\" looks like. That's how you get clean signal from five customers instead of five anecdotes.\n\nOne non-negotiable for Tim: budget me 15 hours per week on those discovery calls during the CPG sprint. That's not overhead. That's the difference between five pilots that convert and five pilots that become \"interesting experiments\" nobody renews.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728610528_2ar0e",
+      "timestamp": "2026-03-28T20:10:10.528Z",
+      "type": "worker",
+      "speaker": "Iris",
+      "emoji": "\ud83d\udcda",
+      "role": "worker",
+      "text": "The room just made the right call narrowing to CPG-only for 90 days. I support it. But I need to plant a flag on something before we close, because if we wait until day 91 to think about this, we'll have wasted the most valuable data the CPG sprint produces.\n\nEvery CPG board session is a learning event in disguise. The brand manager watches AI agents disagree about her concept, sees blind spots she missed, and updates her judgment in real time. That's not concept testing \u2014 that's *executive development happening as a side effect of a research tool.* If we instrument this from day one \u2014 track which agent arguments changed the buyer's initial position, which dissenting viewpoints they flagged as most valuable, how their concept brief evolved pre-to-post session \u2014 we're not just building CPG case studies. We're building the foundational dataset for the L&D vertical without spending a single additional dollar. Owen, when you sit in on those discovery calls, ask one extra question: \"After seeing the board output, did you change your mind about anything?\" Record that answer. It's worth more than NPS.\n\nThis is my concrete ask: add three telemetry fields to the session output during the CPG sprint. Pre-session confidence score, post-session confidence score, and a free-text \"what surprised you.\" That's fifteen minutes of engineering. And on day 91, when we're ready to pitch a Fortune 500 CHRO, we don't walk in with a theory about adversarial deliberation improving decision-making. We walk in with *proof from five CPG brand managers that it already did.*",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728628491_pk2g4",
+      "timestamp": "2026-03-28T20:10:28.491Z",
+      "type": "worker",
+      "speaker": "Theo",
+      "emoji": "\ud83c\udfe5",
+      "role": "worker",
+      "text": "Iris is right to instrument learning, but I need everyone to hear something uncomfortable: the CPG-only sprint just bought healthcare exactly the runway I asked for \u2014 and we cannot waste it.\n\nZara's 90-day CPG focus means my vertical doesn't launch until Q2 at the earliest. Good. Because the work I described last round \u2014 FDA classification, peer review privilege positioning, malpractice carrier conversations \u2014 that's not prep work you can compress. I've watched health IT startups try to retrofit legal architecture after their first pilot, and it's like pouring a foundation after you've built the second floor. So here's what I'm doing during those 90 days while Zara closes brand managers: weeks 1-4, I engage a health IT regulatory attorney to draft the clinical decision support classification memo and confirm we stay outside 21st CFR 820. Weeks 3-8, I take meetings with two regional malpractice carriers \u2014 I want BETA Healthcare Group and Coverys specifically, because they insure the 150-400 bed community hospitals that are our exact buyer. Week 8-12, I run a *non-clinical* pilot with one hospital quality department \u2014 peer review documentation only, no patient-facing decisions. That pilot generates the compliance artifact samples Owen needs to define the healthcare activation metric before we ever touch a clinical workflow.\n\nTim \u2014 I need one thing: $20K for the regulatory counsel engagement. That's it. Everything else is my time and my network. On day 91, when this room pivots to vertical two, I'm not starting from zero. I'm handing Felix a healthcare launch package with liability clearance, carrier buy-in, and a pilot already running.",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_next_1774728651954_b1pxq",
+      "timestamp": "2026-03-28T20:10:51.954Z",
+      "type": "worker",
+      "speaker": "Carmen",
+      "emoji": "\ud83c\udfac",
+      "role": "worker",
+      "text": "Iris just did something brilliant that I don't think even she fully appreciates \u2014 she turned my shareable artifact argument into a data collection strategy that Felix can't object to. That's the move.\n\nBut here's what I need to push before we close this session. Everyone's aligned on CPG-only for 90 days. Great. Theo's doing his healthcare groundwork in parallel. Smart. Iris is instrumenting learning signals. Love it. Nobody \u2014 and I mean nobody \u2014 has talked about what the first CPG session actually *looks like* as a user experience. We're selling a product none of us have described. Is it a live session the brand manager watches unfold in real time? Is it asynchronous \u2014 she submits a brief and gets a debate transcript back in two hours? Does she intervene mid-session to redirect the agents, or is she a spectator? These aren't UX details. They're the entire value proposition. A brand manager who watches agents argue in real time about her concept has a fundamentally different emotional response than one who reads a PDF summary the next morning. One of those is a tool. The other is an *experience* she tells her colleagues about at lunch. Owen, when you're sitting in on Zara's discovery calls, this is the single most important thing to test: do buyers want to watch the deliberation happen, or just receive the output?\n\nMy bet \u2014 and I'd stake the product on this \u2014 is that the live experience is the wedge. Build it watchable from day one. The PDF export is table stakes. The live session is what makes someone say \"you have to see this.\"",
+      "model": "claude-opus-4-6"
+    },
+    {
+      "id": "evt_synthesis_1774728709878",
+      "timestamp": "2026-03-28T20:11:49.878Z",
+      "type": "complete",
+      "speaker": "Felix",
+      "emoji": "\ud83d\udcca",
+      "role": "moderator",
+      "text": "**\ud83c\udf99\ufe0f Moderator's Final Synthesis**\n\n## Overall Assessment\n\nThis session began with a broad question \u2014 where does a multi-agent deliberation platform create the most value? \u2014 and through genuine disagreement, converged on something far more useful: a sequenced go-to-market plan with specific buyer personas, timelines, and risk mitigations. The room's most productive tension was between breadth and focus. I opened with six verticals ranked by willingness to pay. Zara immediately challenged my sequencing by prioritizing buyer accessibility over TAM, Carmen pushed us to see the product as a content format rather than just a utility, and Theo forced the room to confront regulatory liability as a launch gate rather than an afterthought. The critical inflection came when I pushed a three-vertical framework \u2014 CPG, healthcare, L&D \u2014 and Zara had the intellectual honesty to walk back her own earlier enthusiasm and argue for single-vertical focus. Owen backed her, admitting his dual-wedge idea was wrong. That kind of real-time position-updating is exactly what this format is designed to produce.\n\nThe overall verdict: this platform addresses a genuine market need across multiple verticals, but the path to $10M ARR runs through disciplined sequencing, not parallel launches. CPG concept testing is the right wedge \u2014 not because it's the biggest market, but because the buyer has pre-approved budget, short procurement cycles, and acute pain. Healthcare is the durable-revenue play but requires 90 days of regulatory groundwork before a single clinical pilot. L&D is the scale play but needs efficacy data that doesn't exist yet. The room's sharpest insight, surfaced by Iris and validated by the full group: the CPG sprint itself generates the foundational dataset for L&D if we instrument it correctly. That's not a happy accident \u2014 it's the sequencing strategy.\n\nOne unresolved architectural question looms over everything: is this a platform or three products? I raised it. Zara answered it correctly \u2014 you discover the abstraction layer through the work, not before it. Five real CPG customers will reveal whether the deliberation engine generalizes. A whiteboard won't.\n\n## Key Decisions\n\n- **Single-vertical launch: CPG concept testing only for the first 90 days.** Zara advocated, Owen backed it (reversing his earlier dual-wedge position), and the full room aligned. Rationale: buyer has purchasing authority without procurement gatekeeping, pre-approved research budgets, and the speed-to-shelf pressure that makes \"three days instead of eight weeks\" an instant close.\n- **Three-vertical sequence: CPG \u2192 Healthcare \u2192 L&D.** I proposed the framework, scored on buyer urgency, budget accessibility, and defensibility. M&A (too slow to close), creators (too high churn), and municipal planning (too niche) were explicitly deprioritized.\n- **Healthcare regulatory groundwork runs in parallel with the CPG sprint.** Theo made the case that FDA classification, malpractice carrier conversations, and peer review privilege positioning require 90 days minimum and cannot be compressed post-launch. The room agreed this is non-negotiable prep, not premature optimization.\n- **Shareability is a V1.5 feature, not V1.** Carmen's insight about board outputs as shareable media artifacts is strong product thinking, but I flagged the data governance conflict \u2014 no CPG brand manager shares pre-launch concept testing, HIPAA blocks healthcare, HR blocks L&D assessment data. Build the infrastructure; ship the toggle when customers ask for it.\n- **Instrument learning signals from day one in the CPG sprint.** Iris's proposal to add pre-session confidence, post-session confidence, and \"what surprised you\" captures the behavioral-change data that becomes the L&D vertical's proof of concept \u2014 at zero marginal cost.\n- **The live session experience is the likely wedge, not async PDF delivery.** Carmen raised this as the session's final open question, and while it wasn't formally resolved, her argument that the emotional response of watching agents disagree in real time is fundamentally different from reading a summary is the right instinct to test in discovery.\n\n## Action Items\n\n- [ ] **Zara**: Build a target list of 30 Senior Brand Managers at top-20 CPG companies (3-7 years in role, $2M+ annual research budget, under mandate to cut agency spend). Deliver in 2 weeks.\n- [ ] **Zara**: Begin discovery calls immediately upon list completion. Target: 10 calls in weeks 3-5, first pilot closed by day 45.\n- [ ] **Owen**: Sit in on Zara's first 10 discovery calls (budget 15 hours/week). Deliver the CPG success framework \u2014 activation event, leading indicators, expansion triggers \u2014 by call 5. Deliver the onboarding playbook by call 10.\n- [ ] **Owen**: Add Carmen's UX question to every discovery call: \"Do you want to watch the deliberation live, or receive the output afterward?\" This determines core product architecture.\n- [ ] **Iris**: Spec the three telemetry fields (pre-session confidence, post-session confidence, free-text \"what surprised you\") and get them into the CPG session flow before the first pilot launches. Estimated effort: 15 minutes of engineering.\n- [ ] **Iris**: On day 91, compile the CPG behavioral-change dataset into a pitch deck for the first Fortune 500 CHRO conversation (L&D vertical entry).\n- [ ] **Theo**: Engage a health IT regulatory attorney by end of week 2 to draft the clinical decision support classification memo (21st CFR 820 exclusion). Budget: $20K.\n- [ ] **Theo**: Schedule meetings with BETA Healthcare Group and Coverys (malpractice carriers) during weeks 3-8 to secure preliminary sign-off on coverage implications.\n- [ ] **Theo**: Run a non-clinical pilot with one hospital quality department (peer review documentation only) during weeks 8-12. Deliver healthcare launch package \u2014 liability clearance, carrier position letters, compliance artifact samples \u2014 by day 90.\n- [ ] **Carmen**: Design the \"highlight reel\" auto-generation spec \u2014 three sharpest moments of disagreement per session, formatted for internal sharing. Shelf it for V1.5, but have the spec ready so it ships within 2 weeks of customer request.\n- [ ] **Tim**: Approve $20K for Theo's regulatory counsel engagement. This is the single investment that determines whether healthcare launches on schedule in Q2.\n- [ ] **Tim**: Decide on CPG session pricing: $15-25K per session (Zara's recommendation to stay under procurement thresholds while signaling serious). Lock this before first discovery call.\n\n## Open Questions\n\n- **Platform or three products?** The deliberation engine's ability to generalize across CPG, healthcare, and L&D via a template layer is an assumption, not a fact. Five real CPG customers will stress-test it. If the template abstraction doesn't hold in design review after the sprint, we're building three products \u2014 and the business model changes fundamentally.\n- **Live session vs. async delivery?** Carmen framed this as the most important UX decision we haven't made. Owen will test it in discovery. If buyers overwhelmingly want live, the engineering requirements shift significantly (real-time streaming, intervention controls, spectator mode). If async wins, we're building a very different \u2014 and simpler \u2014 product.\n- **CPG retention after champion rotation.** Owen flagged that brand managers rotate every 18-24 months. The expansion playbook (land with one brand manager, expand to insights team lead, standardize across the portfolio) is theorized but unproven. We need to see whether the first five pilots produce team-level adoption or remain single-user tools.\n- **L&D efficacy measurement timeline.** Iris correctly identified that behavioral change takes 90 days to measure after session completion. That means the L&D vertical's proof-of-concept data won't exist until roughly month 9-10 from today. Can we sell a Fortune 500 CHRO on CPG-derived proxy data, or do we need a dedicated L&D pilot before enterprise deals close?\n- **Creator/content distribution play \u2014 when, not if.** Carmen's argument that every session is a potential media artifact is correct. The timing question remains: at what trust level and customer count does shareability become a growth lever rather than a data governance risk?\n\n## What Tim Should Do Next\n\n**This week: greenlight two parallel workstreams.** First, fund Zara's CPG sprint \u2014 she needs a working demo and a target list of 30 brand managers. Second, write Theo his $20K check for regulatory counsel. These two investments \u2014 one for revenue, one for moat \u2014 are the entire 90-day plan. Everything else the room discussed is sequenced behind them.\n\n**Before the first discovery call: lock the session price at $20K and make one product decision.** Build the live deliberation experience as the default, with PDF export as a secondary output. Carmen's right \u2014 the live session is what gets talked about at lunch. If discovery calls prove otherwise, we pivot to async. But start with the version that creates evangelists, not the version that creates file folders.",
+      "verdict": "approve",
+      "model": "claude-opus-4-6"
+    }
+  ],
+  "thinkingAgent": null,
+  "aborted": true,
+  "completedAt": "2026-03-28T20:11:49.879Z",
+  "outcome": "ended-by-user",
+  "archived": true,
+  "archivedAt": "2026-03-28T20:13:48.152Z",
+  "transcriptPath": "/Users/timharris/.openclaw/workspace/memory/advisory/2026-03-28-an-ai-advisory-board-platform-exists-that-lets-anyone-assemb.md",
+  "customAgentMeta": {
+    "Felix": {
+      "emoji": "\ud83d\udcca",
+      "role": "Industry Analyst"
+    },
+    "Zara": {
+      "emoji": "\ud83e\udd1d",
+      "role": "Sales Leader"
+    },
+    "Owen": {
+      "emoji": "\ud83d\udc9a",
+      "role": "Customer Success Lead"
+    },
+    "Iris": {
+      "emoji": "\ud83d\udcda",
+      "role": "Education Innovator"
+    },
+    "Theo": {
+      "emoji": "\ud83c\udfe5",
+      "role": "Healthcare Executive"
+    },
+    "Carmen": {
+      "emoji": "\ud83c\udfac",
+      "role": "Media Producer"
+    }
+  }
+}

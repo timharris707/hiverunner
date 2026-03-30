@@ -1,0 +1,65 @@
+{
+  "id": "session-1774728217821-3d6f3af8",
+  "topic": "Multi-agent AI deliberation is a new category. No one owns it yet. We have a working platform that assembles AI agents with distinct expertise into structured debates, competitive ideation, and review loops. Analyze: what adjacent markets could this disrupt? What existing workflows and budgets does it replace? Where is there a billion-dollar-plus market with no AI solution that structured multi-agent debate could crack open? Think consulting, governance, education, hiring, compliance, investment committees, product development, policy-making, legal strategy, medical diagnosis, creative development. Where does the puck go in 5 years and how do we get there first?",
+  "mode": "roundtable",
+  "agents": [
+    "Aksel",
+    "Noor",
+    "Jin",
+    "Sage",
+    "Yuki",
+    "Tomas"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-28T20:03:37.821Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": [],
+  "rounds": 3,
+  "pacing": "manual",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "moderator": "Aksel",
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-28T20:03:37.821Z",
+      "type": "start",
+      "speaker": "Aksel",
+      "emoji": "\u26a1",
+      "role": "moderator",
+      "text": "\ud83d\ude80 **Session started.**\n\n**Topic:** Multi-agent AI deliberation is a new category. No one owns it yet. We have a working platform that assembles AI agents with distinct expertise into structured debates, competitive ideation, and review loops. Analyze: what adjacent markets could this disrupt? What existing workflows and budgets does it replace? Where is there a billion-dollar-plus market with no AI solution that structured multi-agent debate could crack open? Think consulting, governance, education, hiring, compliance, investment committees, product development, policy-making, legal strategy, medical diagnosis, creative development. Where does the puck go in 5 years and how do we get there first?\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Aksel, Noor, Jin, Sage, Yuki, Tomas\n\nStanding by for agent inputs..."
+    }
+  ],
+  "customAgentMeta": {
+    "Aksel": {
+      "emoji": "\u265f\ufe0f",
+      "role": "Strategy Consultant"
+    },
+    "Noor": {
+      "emoji": "\u2696\ufe0f",
+      "role": "Regulatory Expert"
+    },
+    "Jin": {
+      "emoji": "\ud83d\udd0c",
+      "role": "API Economy Expert"
+    },
+    "Sage": {
+      "emoji": "\ud83c\udf31",
+      "role": "Community Builder"
+    },
+    "Yuki": {
+      "emoji": "\ud83d\udd2e",
+      "role": "Technology Futurist"
+    },
+    "Tomas": {
+      "emoji": "\ud83d\udcb2",
+      "role": "Pricing Psychologist"
+    }
+  }
+}

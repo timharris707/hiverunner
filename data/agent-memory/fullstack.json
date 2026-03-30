@@ -4,6 +4,76 @@
   "role": "Senior Full-Stack Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774834034544",
+      "taskTitle": "Fix task drawer comments — show threaded history with author, emoji, timestamp per entry",
+      "project": "mission-control",
+      "summary": "lean, no errors or warnings.\n\n**Caveats:**\n- BLOCKED: Cannot verify visually — browser validation needed by Tim\n- The `lastReviewNotes` field still exists on the task type and is still written by the pipeline for backward compatibility — it's just no longer displayed as a separate UI block\n- The `/tasks` page still has its own duplicate `CommentThread` implementation (identical to the shared one in `TaskDetailDrawer.tsx`). A future cleanup could consolidate these into a single shared component.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834173937-b043",
+      "timestamp": "2026-03-30T01:29:33.937Z"
+    },
+    {
+      "taskId": "TASK-1774831705705",
+      "taskTitle": "Task board glow effects — breathing pulse on active builds and reviews",
+      "project": "mission-control",
+      "summary": "ully, no errors or warnings.\n\n**Caveats:**\n- BLOCKED: Cannot verify visually — browser validation needed by Tim. With no tasks currently in `running`/`spawning` or `codeReviewState=running`, you may want to temporarily set a task's `buildState` to `\"running\"` in `data/tasks.json` to see the green glow, and `codeReviewState` to `\"running\"` for the purple glow.\n- The `transition-all` class on the card could briefly flash on mount; if noticeable, it can be scoped to `transition-transform` instead.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774832976583-vmsg",
+      "timestamp": "2026-03-30T01:09:36.583Z"
+    },
+    {
+      "taskId": "TASK-1774831103489",
+      "taskTitle": "Fix task comment system — submit button, timestamped history, author tracking not working in UI",
+      "project": "mission-control",
+      "summary": "X validation needed by a human\n- Two separate `CommentThread` implementations exist: `src/components/TaskDetailDrawer.tsx` (shared, used by main dashboard) and `src/app/(dashboard)/tasks/page.tsx` (inline, used by `/tasks` page). The tasks page version already had correct Tim handling. Future improvements need to be applied in both places, or the duplication should be resolved.\n- The `notes` field still exists on tasks for backward compatibility; existing notes are not auto-migrated to comments",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774832665514-f6cc",
+      "timestamp": "2026-03-30T01:04:25.514Z"
+    },
+    {
+      "taskId": "TASK-TRADING-3",
+      "taskTitle": "Trading Desk — live trade activity feed with edge data at time of purchase",
+      "project": "weather-trading",
+      "summary": "an (`py_compile`). Pushed to `origin/main`.\n\n**BLOCKED:** Cannot verify in browser — server must be running (`uvicorn src.dashboard.server:app --port 8050`). Human validation needed at `http://127.0.0.1:8050/trades`.\n\n**Known caveat:** Live price enrichment only fires for open (`pending`/`filled`) positions. Settled trades show `--` for current price (Kalshi markets may be expired/resolved). If Kalshi isn't configured, the entire feed still works — it just shows `OFFLINE` and no current prices.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774822438919-peg2",
+      "timestamp": "2026-03-29T22:13:58.919Z"
+    },
+    {
+      "taskId": "TASK-TRADING-4",
+      "taskTitle": "Watcher status widget in Trading Desk — is it running, last scan, next window",
+      "project": "weather-trading",
+      "summary": "t be running (`uvicorn src.dashboard.server:app --port 8050`) for visual confirmation\n- Log timestamps are parsed as **local time** (not UTC) since the `model_watcher.log` uses local timestamps. The heartbeat age calculation uses `datetime.now()` (local) for comparison — this is correct but worth noting if the server runs in a different timezone than the machine writing the logs\n- The \"trades placed in last scan\" shows the most recent scan, which may be from a prior run if watcher was restarted",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774822262527-ngkx",
+      "timestamp": "2026-03-29T22:11:02.527Z"
+    },
+    {
+      "taskId": "TASK-MC-1",
+      "taskTitle": "Task comment history — threaded notes with author, timestamp, and full history",
+      "project": "mission-control",
+      "summary": "# Validation\n- `npm run build` passes clean\n- Comments API route confirmed in build output\n\n### Caveats\n- BLOCKED: Cannot verify in browser — visual/UX validation needed by a human\n- The old `notes` field still exists on tasks in `tasks.json` for backward compatibility; existing notes are not auto-migrated to comments\n- Agent integration (auto-adding rejection/resolution comments from Gater pipeline) will need the pipeline code to call `POST /api/tasks/[id]/comments` when rejecting or resolving",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774820294218-1tm5",
+      "timestamp": "2026-03-29T21:38:14.218Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
+      "project": "weather-trading",
+      "summary": "balance requires `KALSHI_API_KEY` + `kalshi_private_key.pem` to be configured in `.env`. If not configured, the balance card shows `N/A` gracefully\n- `data/bankroll.json` with `{\"initial_deposit\": 500}` should be created manually to track deposits — defaults to $500 if missing\n- BLOCKED: Cannot verify in a live browser — the dashboard requires the FastAPI server to be running. Visual/UX validation must be done by Tim after starting the server with `uvicorn src.dashboard.server:app --port 8050`",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774815952413-n80a",
+      "timestamp": "2026-03-29T20:25:52.413Z"
+    },
+    {
       "taskId": "TASK-TRADING-1",
       "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
       "project": "weather-trading",
@@ -24,5 +94,5 @@
       "timestamp": "2026-03-29T16:49:18.236Z"
     }
   ],
-  "lastUpdated": "2026-03-29T20:21:45.238Z"
+  "lastUpdated": "2026-03-30T01:29:33.937Z"
 }

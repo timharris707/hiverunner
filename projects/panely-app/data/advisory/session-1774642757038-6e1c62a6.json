@@ -1,0 +1,50 @@
+{
+  "id": "session-1774642757038-6e1c62a6",
+  "topic": "We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company — Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. The current site (insight.tm) is 6-7 years old and looks it. A designer built a new version (insight.cliffcircuit.com) but Tim doesn't love it — it's cleaner but generic and doesn't have WOW factor.\n\nOur #1 competitor is tekambi.com — they look polished but beatable.\n\nTim wants:\n- A website that looks like it cost $50K-$100K to build\n- Full-screen animations, modern interactions, latest web tech\n- Primary goal: IMPRESS visitors and convey that Insight is an advanced, premium company\n- Secondary goal: generate phone calls and Decision Cloud demos\n- Beat tekambi.com decisively\n- Content exists on the Cliff rebuild but may need rewriting\n\nKey context:\n- Decision Cloud: cloud-based underwriting + analytics for private money lenders\n- 100+ plug-and-play data integrations\n- Fraud detection, credit scoring, identity verification, banking verification\n- Vendor partners: TransUnion, BigML, MicroBilt, IDology, GIACT, Ribbit.ai, many more\n- ~12 years in business\n- CEO: Timothy Harris\n\nCurrent tech: Laravel + Vite + Tailwind (Cliff's build)\nProposed new tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel\n\nWe need: concrete page structure, animation concepts, content strategy, tech stack decisions, and a build plan we can execute immediately. Think big. Be creative. Make it unforgettable.",
+  "mode": "roundtable",
+  "agents": [
+    "Henry",
+    "Pixel",
+    "Quill",
+    "Scout",
+    "Forge"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-27T20:19:17.038Z",
+  "reviewStyle": "open",
+  "model": "claude-sonnet-4-6",
+  "personaOverlays": [],
+  "rounds": 3,
+  "pacing": "auto",
+  "responseLength": "standard",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": true,
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-27T20:19:17.038Z",
+      "type": "start",
+      "speaker": "Henry",
+      "emoji": "⚡",
+      "role": "supervisor",
+      "text": "🚀 **Session started.**\n\n**Topic:** We need to completely rebuild the Insight.tm website from scratch. Insight is Tim's 12-year data and software company — Decision Cloud is their cloud-based underwriting and analytics platform for private money lenders. The current site (insight.tm) is 6-7 years old and looks it. A designer built a new version (insight.cliffcircuit.com) but Tim doesn't love it — it's cleaner but generic and doesn't have WOW factor.\n\nOur #1 competitor is tekambi.com — they look polished but beatable.\n\nTim wants:\n- A website that looks like it cost $50K-$100K to build\n- Full-screen animations, modern interactions, latest web tech\n- Primary goal: IMPRESS visitors and convey that Insight is an advanced, premium company\n- Secondary goal: generate phone calls and Decision Cloud demos\n- Beat tekambi.com decisively\n- Content exists on the Cliff rebuild but may need rewriting\n\nKey context:\n- Decision Cloud: cloud-based underwriting + analytics for private money lenders\n- 100+ plug-and-play data integrations\n- Fraud detection, credit scoring, identity verification, banking verification\n- Vendor partners: TransUnion, BigML, MicroBilt, IDology, GIACT, Ribbit.ai, many more\n- ~12 years in business\n- CEO: Timothy Harris\n\nCurrent tech: Laravel + Vite + Tailwind (Cliff's build)\nProposed new tech: Next.js 15 + Framer Motion + Tailwind CSS 4 + Vercel\n\nWe need: concrete page structure, animation concepts, content strategy, tech stack decisions, and a build plan we can execute immediately. Think big. Be creative. Make it unforgettable.\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-sonnet-4-6\n\n**Participants:** Henry, Pixel, Quill, Scout, Forge\n\nStanding by for agent inputs..."
+    },
+    {
+      "id": "evt_err_1774642757553",
+      "timestamp": "2026-03-27T20:19:17.553Z",
+      "type": "error",
+      "speaker": "System",
+      "emoji": "⚠️",
+      "role": "supervisor",
+      "text": "⚠️ **Session error.** An unexpected error occurred.\n\nDetails: TypeError: Cannot read properties of undefined (reading 'instruction')",
+      "error": true,
+      "model": "anthropic/claude-sonnet-4-6"
+    }
+  ],
+  "lastError": "TypeError: Cannot read properties of undefined (reading 'instruction')",
+  "thinkingAgent": null
+}

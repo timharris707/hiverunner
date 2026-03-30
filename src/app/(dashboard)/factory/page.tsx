@@ -111,18 +111,20 @@ const PRIORITY_BADGES: Record<Priority, { icon: string; color: string }> = {
   low: { icon: "\u{1F7E2}", color: "#22c55e" },
 };
 
-// Fallback used before live model data loads
-const OWNER_MODEL_FALLBACK: Record<string, string> = {
-  pixel: "GPT 5.4",
-  forge: "Opus 4.6",
-  henry: "Opus 4.6",
-  scout: "Gemini Pro",
-  quill: "Sonnet 4.6",
-  atlas: "Sonnet 4.6",
-  cipher: "GPT 5.4",
-  nimbus: "Sonnet 4.6",
-  quant: "Opus 4.6",
-};
+// Fallback used before live model data loads — derived from registry
+import { AGENT_CONFIGS, getDisplayName } from "@/config/agents";
+
+function _fmtModel(m: string): string {
+  if (m.includes("opus")) return "Opus 4.6";
+  if (m.includes("sonnet")) return "Sonnet 4.6";
+  if (m.includes("haiku")) return "Haiku 4.5";
+  if (m === "TBD") return "Sonnet 4.6"; // default fallback for undeployed agents
+  return m;
+}
+
+const OWNER_MODEL_FALLBACK: Record<string, string> = Object.fromEntries(
+  AGENT_CONFIGS.map((a) => [getDisplayName(a).toLowerCase(), _fmtModel(a.model)])
+);
 
 interface AgentModelEntry {
   modelName: string;

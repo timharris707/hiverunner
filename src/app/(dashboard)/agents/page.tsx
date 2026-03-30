@@ -20,13 +20,14 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AGENT_CONFIGS, getDisplayName } from "@/config/agents";
 import {
   useAgentStatus,
   mapToDisplayStatus,
   type AgentStatus,
 } from "@/hooks/useAgentStatus";
 
-// ─── Org Roster (static metadata — status comes from live API) ───────────────
+// ─── Org Roster — derived from the central agent registry ────────────────────
 
 interface OrgAgent {
   id: string;
@@ -40,128 +41,17 @@ interface OrgAgent {
   comms: string;
 }
 
-const ORG_AGENTS: OrgAgent[] = [
-  {
-    id: "henry",
-    name: "Henry",
-    emoji: "⚡",
-    role: "Chief of Staff / Orchestrator",
-    division: "Leadership",
-    divisionColor: "#f59e0b",
-    description:
-      "Orchestrates all agents, assigns work, tracks progress. Delivers morning briefs, status reports, and proactive alerts. The nerve center of Harris Autonomous.",
-    reportsTo: "Tim Harris (CEO)",
-    comms: "Telegram (primary)",
-  },
-  {
-    id: "t1",
-    name: "Atlas 📈",
-    emoji: "📈",
-    role: "Stocks & Options Trader",
-    division: "Trading",
-    divisionColor: "#10b981",
-    description:
-      "Stock screening and analysis, options strategy development, trade signal generation, and portfolio monitoring. Will manage equities and derivatives positions.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "t2",
-    name: "Nimbus 🌤️",
-    emoji: "🌤️",
-    role: "Weather Prediction Trader",
-    division: "Trading",
-    divisionColor: "#10b981",
-    description:
-      "Weather data ingestion and analysis, correlation of weather patterns to market movements. Polymarket + Kalshi event contracts. Seasonal and event-driven strategy development.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "t3",
-    name: "Cipher ₿",
-    emoji: "₿",
-    role: "Crypto Trader",
-    division: "Trading",
-    divisionColor: "#10b981",
-    description:
-      "Crypto market data pipeline (CCXT), momentum and mean-reversion strategies, paper trading → live execution. Risk management and position sizing via Binance/Coinbase APIs.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "quant",
-    name: "Quant 📊",
-    emoji: "📊",
-    role: "Trading Strategy Architect",
-    division: "Trading",
-    divisionColor: "#10b981",
-    description:
-      "Designs trading strategies, backtests, optimizes. The quant research brain behind the Trading Desk. Atlas/Nimbus/Cipher execute what Quant designs.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "backend",
-    name: "Forge 🔧",
-    emoji: "🔧",
-    role: "Backend Engineer",
-    division: "Engineering",
-    divisionColor: "#3b82f6",
-    description:
-      "Infrastructure, databases, APIs. System reliability and monitoring. CI/CD pipelines, cost management and optimization. Circuit breakers and error recovery systems.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "fullstack",
-    name: "Pixel 💻",
-    emoji: "💻",
-    role: "Senior Full-Stack Engineer",
-    division: "Engineering",
-    divisionColor: "#3b82f6",
-    description:
-      "Web application development (frontend + backend). Dashboard and UI builds like Mission Control. API integrations. Rapid prototyping and shipping. Stack: Next.js, React, TypeScript, Tailwind.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "scout",
-    name: "Scout",
-    emoji: "🔭",
-    role: "Research & Intelligence Agent",
-    division: "Research",
-    divisionColor: "#8b5cf6",
-    description:
-      "Market research and opportunity identification. Tech trend monitoring, competitive intelligence. Data gathering for trading strategies. New project ideation and feasibility analysis.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "quill",
-    name: "Quill",
-    emoji: "✍️",
-    role: "Creative Writer & Marketing Strategist",
-    division: "Creative",
-    divisionColor: "#ec4899",
-    description:
-      "Marketing copy, campaigns, and strategy for Insight (Tim's company). Content writing: blogs, newsletters, social media. Brand voice development. Ad copy, landing pages, email sequences.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-  {
-    id: "counsel",
-    name: "Counsel",
-    emoji: "⚖️",
-    role: "Legal Expert Agent",
-    division: "Legal",
-    divisionColor: "#64748b",
-    description:
-      "Federal and state law research and analysis. Contract review and drafting assistance. Regulatory compliance guidance (trading, apps, data privacy). Terms of service, privacy policies. IP guidance.",
-    reportsTo: "Henry ⚡",
-    comms: "Internal",
-  },
-];
+const ORG_AGENTS: OrgAgent[] = AGENT_CONFIGS.map((a) => ({
+  id: a.id,
+  name: getDisplayName(a),
+  emoji: a.emoji,
+  role: a.role,
+  division: a.division,
+  divisionColor: a.divisionColor,
+  description: a.description,
+  reportsTo: a.reportsTo,
+  comms: a.id === "henry" ? "Telegram (primary)" : "Internal",
+}));
 
 // ─── Status display config ───────────────────────────────────────────────────
 

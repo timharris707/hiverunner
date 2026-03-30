@@ -55,18 +55,12 @@ export async function POST(
 
 // ─── Trigger a follow-up agent response to a human message ───────────────────
 
-const AGENT_EMOJIS: Record<string, string> = {
-  Henry: "⚡", Atlas: "📈", Nimbus: "🌤️", Cipher: "₿", Quant: "📊",
-  Forge: "🔧", Pixel: "💻", Scout: "🔭", Quill: "✍️", Counsel: "⚖️",
-};
+import { AGENT_EMOJIS, buildAdvisoryAgentDefs } from "@/config/agents";
 
-const AGENT_ROLES: Record<string, string> = {
-  Henry: "Chief of Staff / Orchestrator", Atlas: "Stocks & Options Trader",
-  Nimbus: "Weather Prediction Trader", Cipher: "Crypto Trader",
-  Quant: "Trading Strategy Architect", Forge: "Backend Engineer",
-  Pixel: "Senior Full-Stack Engineer", Scout: "Research & Intelligence",
-  Quill: "Creative Writer & Marketing Strategist", Counsel: "Legal Expert",
-};
+const _ADVISORY_DEFS = buildAdvisoryAgentDefs();
+const AGENT_ROLES: Record<string, string> = Object.fromEntries(
+  Object.values(_ADVISORY_DEFS).map((d) => [d.name, d.role])
+);
 
 async function triggerFollowUp(
   sessionId: string,

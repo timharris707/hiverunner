@@ -2,13 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { AGENT_CONFIGS, DIVISIONS as DIVISION_META, getDisplayName } from "@/config/agents";
 import {
   useAgentStatus,
   mapToDisplayStatus,
   type AgentStatusEntry,
 } from "@/hooks/useAgentStatus";
 
-// ─── Types & Data ──────────────────────────────────────────────────────────
+// ─── Types & Data — derived from the central agent registry ────────────────
 
 interface OrgAgent {
   id: string;
@@ -24,136 +25,35 @@ interface OrgAgent {
 }
 
 const DEPARTMENTS = {
-  trading: { label: "Trading Desk", color: "#10b981", icon: "📈" },
-  engineering: { label: "Engineering", color: "#3b82f6", icon: "⚙️" },
-  research: { label: "Research", color: "#8b5cf6", icon: "🔭" },
-  creative: { label: "Creative", color: "#ec4899", icon: "✍️" },
-  legal: { label: "Legal", color: "#64748b", icon: "⚖️" },
-  leadership: { label: "Leadership", color: "#f59e0b", icon: "⚡" },
+  Trading: { label: "Trading Desk", color: "#10b981", icon: "📈" },
+  Engineering: { label: "Engineering", color: "#3b82f6", icon: "⚙️" },
+  Research: { label: "Research", color: "#8b5cf6", icon: "🔭" },
+  Creative: { label: "Creative", color: "#ec4899", icon: "✍️" },
+  QA: { label: "Quality Control", color: "#f43f5e", icon: "🛡️" },
+  Legal: { label: "Legal", color: "#64748b", icon: "⚖️" },
+  Leadership: { label: "Leadership", color: "#f59e0b", icon: "⚡" },
 } as const;
 
-const AGENTS: OrgAgent[] = [
-  {
-    id: "henry",
-    name: "Henry",
-    emoji: "⚡",
-    role: "Chief of Staff",
-    department: "leadership",
-    departmentColor: DEPARTMENTS.leadership.color,
-    model: "Opus 4.6",
-    reportsTo: "Tim Harris",
-    capabilities: ["Orchestration", "Morning Briefs", "Task Routing", "Status Reports"],
-    cronCount: 3,
-  },
-  {
-    id: "quant",
-    name: "Quant",
-    emoji: "📊",
-    role: "Trading Strategy Architect",
-    department: "trading",
-    departmentColor: DEPARTMENTS.trading.color,
-    model: "Opus 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Backtesting", "Factor Models", "Strategy Design", "Risk Analysis"],
-    cronCount: 2,
-  },
-  {
-    id: "t1",
-    name: "Atlas",
-    emoji: "📈",
-    role: "Stocks & Options Trader",
-    department: "trading",
-    departmentColor: DEPARTMENTS.trading.color,
-    model: "Sonnet 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Options Strategies", "Trade Signals", "Equity Screening", "Greeks Analysis"],
-    cronCount: 4,
-  },
-  {
-    id: "t2",
-    name: "Nimbus",
-    emoji: "🌤️",
-    role: "Weather Prediction Trader",
-    department: "trading",
-    departmentColor: DEPARTMENTS.trading.color,
-    model: "Sonnet 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Weather Forecasting", "Polymarket", "Kalshi", "Ensemble Modeling"],
-    cronCount: 3,
-  },
-  {
-    id: "t3",
-    name: "Cipher",
-    emoji: "₿",
-    role: "Crypto Trader",
-    department: "trading",
-    departmentColor: DEPARTMENTS.trading.color,
-    model: "Sonnet 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Crypto Trading", "On-chain Analysis", "DeFi Protocols", "Exchange Arbitrage"],
-    cronCount: 5,
-  },
-  {
-    id: "backend",
-    name: "Forge",
-    emoji: "🔧",
-    role: "Backend Engineer",
-    department: "engineering",
-    departmentColor: DEPARTMENTS.engineering.color,
-    model: "Opus 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Infrastructure", "APIs", "CI/CD", "Reliability & SLOs"],
-    cronCount: 1,
-  },
-  {
-    id: "fullstack",
-    name: "Pixel",
-    emoji: "💻",
-    role: "Senior Full-Stack Engineer",
-    department: "engineering",
-    departmentColor: DEPARTMENTS.engineering.color,
-    model: "Opus 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Next.js / React", "UI/UX Design", "TypeScript", "Full-Stack Dev"],
-    cronCount: 0,
-  },
-  {
-    id: "scout",
-    name: "Scout",
-    emoji: "🔭",
-    role: "Research & Intelligence",
-    department: "research",
-    departmentColor: DEPARTMENTS.research.color,
-    model: "Opus 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Market Research", "Intel Analysis", "Trend Monitoring", "Competitive Intel"],
-    cronCount: 2,
-  },
-  {
-    id: "quill",
-    name: "Quill",
-    emoji: "✍️",
-    role: "Creative Writer & Marketing",
-    department: "creative",
-    departmentColor: DEPARTMENTS.creative.color,
-    model: "Sonnet 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Copywriting", "Brand Voice", "Content Strategy", "Campaign Dev"],
-    cronCount: 1,
-  },
-  {
-    id: "counsel",
-    name: "Counsel",
-    emoji: "⚖️",
-    role: "Legal Expert",
-    department: "legal",
-    departmentColor: DEPARTMENTS.legal.color,
-    model: "Sonnet 4.6",
-    reportsTo: "Henry",
-    capabilities: ["Contract Review", "Compliance", "Privacy Law", "Securities Law"],
-    cronCount: 0,
-  },
-];
+function formatModelName(model: string): string {
+  if (model.includes("opus")) return "Opus 4.6";
+  if (model.includes("sonnet")) return "Sonnet 4.6";
+  if (model.includes("haiku")) return "Haiku 4.5";
+  if (model === "TBD") return "TBD";
+  return model;
+}
+
+const AGENTS: OrgAgent[] = AGENT_CONFIGS.map((a) => ({
+  id: a.id,
+  name: getDisplayName(a),
+  emoji: a.emoji,
+  role: a.role,
+  department: a.division,
+  departmentColor: a.divisionColor,
+  model: formatModelName(a.model),
+  reportsTo: getDisplayName(a) === "Henry" ? "Tim Harris" : "Henry",
+  capabilities: a.capabilities,
+  cronCount: 0,
+}));
 
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; dot: string }> = {
   ONLINE: { color: "#4ade80", bg: "#4ade8018", label: "Online", dot: "#4ade80" },

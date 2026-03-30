@@ -4,6 +4,206 @@
   "role": "Backend Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "explicit `targetUrl`/`targetPath` overrides set to `/tasks` in `tasks.json` — the fallback is sufficient.\n\n**Validation:** `python3 -m py_compile src/dashboard/server.py` clean. Pushed to `main @ 7d6d1d3`.\n\n**Caveat:** The previous run of this task incorrectly claimed Bug 1 was \"already fixed\" — it only checked line 1186 (`/api/risk-controls`) and missed line 694 (`/api/risk-status`), which was the surviving instance of the same bug. Both endpoints now agree on the correct three-status filter.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834696647-i48y",
+      "timestamp": "2026-03-30T01:38:16.647Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
+      "project": "weather-trading",
+      "summary": "/loss API)\n- All other views (charts, city breakdown, risk controls, watcher) untouched\n\n### Known Caveats\n- `total_pnl` uses **entry cost** for open positions (not current market value) — so if positions have moved significantly, the number is slightly off from true mark-to-market; the `total_unrealized_pnl` sub-line shows the delta when Kalshi provides `unrealized_pnl` in the positions response\n- If Kalshi API is down, card 4 gracefully degrades to local DB realized P&L with a `[LOCAL]` badge",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834517237-fetf",
+      "timestamp": "2026-03-30T01:35:17.237Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)",
+      "project": "weather-trading",
+      "summary": "weather-trading` → `http://localhost:8050/trades` (Trading Desk)\n- all others → `http://localhost:3001/tasks` (unchanged)\n\nBuild: `✓ Compiled successfully in 2.6s`\nPushed: `panely/sprint-1` → `8052103`\n\n**Caveat:** The fix applies to the fallback path only. If a task already has `visualReview.targetUrl` or `visualReview.targetPath` set to `/tasks`, those explicit values take precedence and would still be wrong — but the root cause Vigil flagged was the fallback default, not a per-task override.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834344343-6ts2",
+      "timestamp": "2026-03-30T01:32:24.343Z"
+    },
+    {
+      "taskId": "TASK-TRADING-3",
+      "taskTitle": "Trading Desk — live trade activity feed with edge data at time of purchase",
+      "project": "weather-trading",
+      "summary": "t column now shows `target_date` (e.g. `· 2026-03-29`) giving Tim immediate context on which event each trade is betting on\n\n**Validation**: `python3 -m py_compile server.py` clean, all 11 API tests pass, pushed to `main @ 02e81b5`.\n\n**Caveat**: `resting` orders' unrealized P&L shows the *entry cost* delta against current bid — but since a resting limit order hasn't been filled yet, the P&L is notional until filled. This is the same logic as `filled` orders and is accurate for display purposes.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834275455-xpg0",
+      "timestamp": "2026-03-30T01:31:15.455Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "itch status, circuit breaker state, watcher health, last scan time\n- Backend route handler for fetching/updating parameters\n- Build was passing, commit pushed to remote\n\n**No further work needed.** The only uncommitted change is `uv.lock` (unrelated dependency lockfile).\n\n**Known caveats:**\n- The old `riskColor` function remains unused (harmless dead code, cleanup candidate)\n- `fmtMoney` / `fmtPctFull` / `fmtTime` helpers have slight naming overlap with existing `fmt` / `fmtPct` but no conflict",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833981725-f938",
+      "timestamp": "2026-03-30T01:26:21.725Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "with inline editing (max deployed, max per trade, max per city/date, daily loss halt, bankroll, Kelly fraction, min edge, max daily trades, win rate floor)\n- Dual mode: percentage AND dollar caps\n- Progress bars for deployed capital and daily P&L vs limits\n- Kill switch status, circuit breaker state, watcher health, last scan time\n- Backend route handler at `/api/risk-controls` for fetching/updating parameters\n- 432 lines added to `trades.html`\n\nAlready pushed to remote. No further work needed.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833892756-gmu5",
+      "timestamp": "2026-03-30T01:24:52.756Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "circuit breaker state, watcher health, last scan time\n- Backend route handler for fetching/updating parameters\n- 432 lines added to `trades.html`\n\nThe commit is pushed to remote. The only uncommitted change is `uv.lock` (unrelated dependency lockfile).\n\n**Caveats:**\n- The old `riskColor` function remains unused (harmless dead code, cleanup candidate)\n- `fmtMoney` / `fmtPctFull` / `fmtTime` helpers have slight naming overlap with existing `fmt` / `fmtPct` but no conflict\n\nNo further work needed.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833795535-nv5x",
+      "timestamp": "2026-03-30T01:23:15.535Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "(max deployed, max per trade, max per city/date, daily loss halt, bankroll, Kelly fraction, min edge, max daily trades, win rate floor)\n- Dual mode: percentage AND dollar caps\n- Progress bars for deployed capital and daily P&L vs limits\n- Kill switch status, circuit breaker state, watcher health, last scan time\n- Backend route handler for fetching/updating parameters\n- Already pushed to remote\n\n**No further work needed.** The only uncommitted change is `uv.lock` (unrelated dependency lockfile).",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833705901-utfc",
+      "timestamp": "2026-03-30T01:21:45.901Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "atus, circuit breaker state, watcher health, last scan time\n- Backend route handler for fetching/updating parameters\n- 432 lines added to `trades.html`\n\nThe commit is pushed to remote. The only uncommitted change is `uv.lock` (unrelated dependency lockfile).\n\n**Caveats:**\n- The old `riskColor` function remains in the file but is unused (harmless dead code, cleanup candidate)\n- `fmtMoney` / `fmtPctFull` / `fmtTime` helpers have slight naming overlap with existing `fmt` / `fmtPct` but no conflict",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833599958-5mhp",
+      "timestamp": "2026-03-30T01:19:59.958Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "le parameters with inline editing\n- Progress bars for deployed capital and daily P&L\n- Kill switch status, circuit breaker state, watcher health, last scan time\n- 432 lines added to `trades.html`\n\nThe commit is already pushed to remote. No further work needed.\n\n**Caveats from prior session:**\n- The old `riskColor` function is still in the file but unused (harmless dead code)\n- `fmtMoney` / `fmtPctFull` / `fmtTime` helpers have slight naming overlap with existing `fmt` / `fmtPct` but no conflict",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833403106-0uhg",
+      "timestamp": "2026-03-30T01:16:43.106Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "controls` for fetching/updating parameters\n- **`server.py`** — Backend route handler\n\nAll changes are on `main` and pushed. The only uncommitted change is `uv.lock` (unrelated dependency lockfile).\n\n**Summary:** This task is already complete. Commit `478c4ab` added the full risk controls dashboard with inline parameter editing, progress bars for deployed capital and daily P&L, kill switch status, circuit breaker state, watcher health, and last scan time — exactly matching the task requirements.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833217985-l5sm",
+      "timestamp": "2026-03-30T01:13:37.985Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "Trading Desk — risk controls dashboard with live parameter adjustments",
+      "project": "weather-trading",
+      "summary": "2_stress` — stale limit values, not related).\n\n**Commit:** `478c4ab` pushed to `main`.\n\n**Caveats:**\n- The old `riskColor` function is still in the file but now unused (harmless dead code — could be removed in a cleanup pass)\n- The `fmtMoney` / `fmtPctFull` / `fmtTime` helpers are defined within the `<script>` block alongside the existing `fmt` / `fmtPct` — slight naming overlap but no conflict since `fmtPct` returns `X.Y%` while `fmtPctFull` is identical but scoped to the risk controls section",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774833034842-w6f2",
+      "timestamp": "2026-03-30T01:10:34.842Z"
+    },
+    {
+      "taskId": "TASK-1774830665670",
+      "taskTitle": "Pipeline automation — auto-assign Gater on review, smart agent routing, auto-promote on-deck",
+      "project": "mission-control",
+      "summary": "priority\n- Auto-promote on-deck: covered in `advanceTasks` called from `reconcileBuildQueue`\n- Comment trail: `addPipelineComment` called at every auto-transition\n\n**Build:** `Compiled successfully`\n**Pushed:** `panely/sprint-1` → `3005a24`\n\n**Caveat:** The `autoAssignBuilder` call in the POST handler re-reads and re-writes tasks.json — this is a double-write but necessary since `writeTasks` was already called before the status check. The factory lock in `queueOrStartBuild` handles concurrency.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774832633288-6dhh",
+      "timestamp": "2026-03-30T01:03:53.288Z"
+    },
+    {
+      "taskId": "TASK-1774830665670",
+      "taskTitle": "Pipeline automation — auto-assign Gater on review, smart agent routing, auto-promote on-deck",
+      "project": "mission-control",
+      "summary": "s how the task board renders assignees. If an agent name has no space-separated emoji suffix, the full name is used.\n- The `resolveAgentForTask()` call in `finalizeBuild` still re-resolves the agent on build completion. This is intentional — it confirms the assignment and captures any tag changes made during the build.\n- Comments use type `\"note\"` — the existing comment API supports `\"note\" | \"review\" | \"rejection\" | \"resolution\"`. Pipeline comments are informational so `\"note\"` is appropriate.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774831260178-r50p",
+      "timestamp": "2026-03-30T00:41:00.178Z"
+    },
+    {
+      "taskId": "TASK-1774829425355",
+      "taskTitle": "Fix weather trading DB tracking gap — 55 untracked Kalshi trades + reconciler bugs",
+      "project": "weather-trading",
+      "summary": "cover the 55 untracked trades\nRun the backfill script:\n```bash\npython scripts/backfill_trades.py              # dry-run first\npython scripts/backfill_trades.py --commit     # then insert\n```\n\n### Caveats\n- The reconciler is already re-enabled (from a prior session's commit `1e7fc78`). After running the backfill, it should pass cleanly on the next cron run.\n- The `test_v2_stress` file has stale limit values (same pattern we fixed in `test_live_risk_controls`). Not in scope but worth a follow-up.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774830235103-zhb3",
+      "timestamp": "2026-03-30T00:23:55.103Z"
+    },
+    {
+      "taskId": "TASK-1774829432698",
+      "taskTitle": "Fix weather trading DB tracking gap — 55 untracked Kalshi trades + reconciler bugs",
+      "project": "weather-trading",
+      "summary": "ge`, `composite_score` (marked null) since that model context wasn't preserved. Settlement reconciliation still works — P&L is computed from price vs outcome.\n- The reconciler will now activate the **kill switch** if positions don't match after backfill. Run the backfill script BEFORE the next model_watcher cycle to avoid a false halt.\n- Ticker parsing in the backfill script covers `KXHIGH*`, `KXHIGHT*`, `KXLOW*`, `KXLOWT*` patterns. Non-standard tickers will have empty city/target_date fields.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774829871975-l50b",
+      "timestamp": "2026-03-30T00:17:51.975Z"
+    },
+    {
+      "taskId": "TASK-PIPELINE-5",
+      "taskTitle": "Henry orchestration notifications — blocked tasks, QA failures, completions alert Henry",
+      "project": "mission-control",
+      "summary": "cked | Same, with \"Needs Henry's triage\" text |\n| QA escalation (2nd+ rejection) | `sendTelegramNotification` + `createInAppNotification` + `escalatedToHenry=true` |\n| Task completion | `notifyTaskCompletion()` → Telegram + in-app |\n| **Agent hang >20min** | **Added this session** |\n\n## Caveat\nThe `task` lookup in the stale loop can return `undefined` if a task was deleted after its build entry was created — the hang label falls back to the raw `build.taskId` string in that case, which is safe.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774822155308-z42a",
+      "timestamp": "2026-03-29T22:09:15.308Z"
+    },
+    {
+      "taskId": "TASK-TRADING-6",
+      "taskTitle": "Kalshi WebSocket integration — real-time orderbook + fill notifications",
+      "project": "weather-trading",
+      "summary": "**`scripts/model_watcher.py`** — Starts WS on boot, logs connection status in heartbeats\n- **`src/automation/cron_runner.py`** — Subscribes to orderbook for candidate tickers before trading\n\n### Caveats (from prior session):\n- Channel names are based on Kalshi v2 API docs — if wire format differs, handlers need tuning after first live connection\n- Unknown message types are logged and skipped (defensive)\n- Slippage threshold is 3 cents, configurable via `SlippageTracker(alert_threshold_cents=N)`",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774817736499-3y8d",
+      "timestamp": "2026-03-29T20:55:36.499Z"
+    },
+    {
+      "taskId": "TASK-TRADING-6",
+      "taskTitle": "Kalshi WebSocket integration — real-time orderbook + fill notifications",
+      "project": "weather-trading",
+      "summary": "mat, channel names) are based on their v2 API docs. If the actual wire format differs slightly (e.g., different field names in orderbook deltas), the handlers will need tuning after first live connection. The handlers are defensive — unknown message types are logged and skipped.\n- `websockets>=13.0` was already installed in the venv (15.0.1). The `pyproject.toml` pins `>=13.0` for broad compatibility.\n- Slippage threshold is 3 cents — configurable via `SlippageTracker(alert_threshold_cents=N)`.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774816989913-gulz",
+      "timestamp": "2026-03-29T20:43:09.913Z"
+    },
+    {
+      "taskId": "TASK-PIPELINE-2",
+      "taskTitle": "Named agent task routing — assign to specific agent identity, not disposable sub-agents",
+      "project": "mission-control",
+      "summary": "n both files — previously static copies that diverged from the source of truth\n- Task cards now show correct agent emoji for short-name assignees (fixes the \"🤖\" regression for tasks with `assignee: \"Forge\"` etc.)\n\n**Build:** ✓ `Compiled successfully in 3.2s`  \n**Pushed:** `panely/sprint-1` → `73ddbba`\n\n**Caveat:** The `buildPrompt` changes were already present in HEAD (`f93012c`) — the factory-side prompt was fully agent-aware before this session. This commit closes the UI half of the feature.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774815875472-pxt3",
+      "timestamp": "2026-03-29T20:24:35.472Z"
+    },
+    {
       "taskId": "TASK-PIPELINE-4",
       "taskTitle": "QA handoff chain — builder completes → auto-routes to Vigil for verification",
       "project": "mission-control",
@@ -44,5 +244,5 @@
       "timestamp": "2026-03-29T16:30:53.897Z"
     }
   ],
-  "lastUpdated": "2026-03-29T20:22:36.930Z"
+  "lastUpdated": "2026-03-30T01:38:16.647Z"
 }

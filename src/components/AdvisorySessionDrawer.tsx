@@ -15,24 +15,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import type { AdvisorySession, AdvisoryEvent, SessionInsights } from "@/types/advisory";
+import { AGENT_EMOJIS } from "@/config/agents";
 
 interface AdvisorySessionDrawerProps {
   sessionId: string;
   onClose: () => void;
 }
-
-const AGENT_EMOJIS: Record<string, string> = {
-  Henry: "⚡",
-  Atlas: "📈",
-  Nimbus: "🌤️",
-  Cipher: "₿",
-  Quant: "📊",
-  Forge: "🔧",
-  Pixel: "💻",
-  Scout: "🔭",
-  Quill: "✍️",
-  Counsel: "⚖️",
-};
 
 function formatDateFull(iso?: string) {
   if (!iso) return "—";

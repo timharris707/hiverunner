@@ -38,4 +38,10 @@
 
 ## Task Log
 
+### 2026-03-29 — Deep dive: Polymarket weather access — US workarounds, brokerages, timeline for weather markets
+**Project:** weather-trading
+**Summary:** 1. 🔴 **P1 — Open IBKR entity account for ForecastEx** — fastest path to new weather liquidity, zero commission, already CFTC-regulated 2. 🟠 **P2 — Check Kalshi weather depth beyond NYC** — 4+ cities available; confirm if volume warrants expanding our coverage 3. 🟡 **P3 — `polymarket_us_monitor.py` handles Polymarket US watch** — run on a daily cron, will alert when weather goes live 4. 🟢 **P4 
+
+---
+
 <!-- Scout appends new entries here after completing tasks. -->

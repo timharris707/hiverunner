@@ -1,0 +1,203 @@
+{
+  "agentId": "vigil",
+  "agentName": "Vigil",
+  "role": "QA & Verification Agent",
+  "entries": [
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "QA review: TASK-1774834048750",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. **Build:** PASSES (mission-control-app builds clean, no TypeScript errors)\n\n---\n\nVERDICT: NEEDS_FIX\nNOTES:\n- **Bug 2 URL is still wrong (7th flagging):** `build-queue.ts:355` routes `weather-trading` tasks to `http://localhost:8050/trades` (Python server trade history) instead of `http://localhost:3001/trading` (mission-control Trading Desk). Fix: change `\"http://localhost:8050/trades\"` → `\"http://localhost:3001/trading\"`. The `/trading` route is confirmed to exist in the current build output.",
+      "lessons": [
+        "**Bug 2 URL is still wrong (7th flagging):** `build-queue.ts:355` routes `weather-trading` tasks to `http://localhost:8050/trades` (Python server trade history) instead of `http://localhost:3001/trading` (mission-control Trading Desk). Fix: change `\"http://localhost:8050/trades\"` → `\"http://localhost:3001/trading\"`. The `/trading` route is confirmed to exist in the current build output."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774834772491-ro3l",
+      "timestamp": "2026-03-30T01:39:32.491Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "QA review: TASK-TRADING-2",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. es below zero, then `Math.abs(pnl)` removes the sign from the number. A loss of `-$50` displays as `$50`. Fix: change to `(pnl >= 0 ? '+' : '-')` at lines 1579, 1583, 1589, 1596, and 1621 in `trades.html`. Note: the existing `fmtMoney()` function already handles this correctly.\n- **[Persistent — 10th cycle] Screenshot system navigates to `/tasks` instead of `/trading`** — all Trading Desk visual QA is blind. Must be fixed before any Trading Desk feature can receive visual verification coverage.",
+      "lessons": [
+        "**[BLOCKING] Negative P&L renders without minus sign** — `(pnl >= 0 ? '+' : '')` strips the negative for values below zero, then `Math.abs(pnl)` removes the sign from the number. A loss of `-$50` displays as `$50`. Fix: change to `(pnl >= 0 ? '+' : '-')` at lines 1579, 1583, 1589, 1596, and 1621 in `trades.html`. Note: the existing `fmtMoney()` function already handles this correctly.",
+        "**[Persistent — 10th cycle] Screenshot system navigates to `/tasks` instead of `/trading`** — all Trading Desk visual QA is blind. Must be fixed before any Trading Desk feature can receive visual verification coverage."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774834669728-ces2",
+      "timestamp": "2026-03-30T01:37:49.728Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "QA review: TASK-1774834048750",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. 3001/trading`. The screenshot system captures mission-control pages (port 3001). QA flagged `/trading` (the Trading Desk page in mission-control) in every one of the 6 prior cycles — not the Python server's `/trades` history page.\n- **Bug 1 is confirmed fixed** — no action needed on `server.py:1186`.\n- **Note (out of scope, log for next cycle):** `/api/risk-status` at `server.py:694` also uses `status IN ('pending', 'filled')` without `'resting'`. Not in scope for this task, but worth tracking.",
+      "lessons": [
+        "**Bug 2 URL is wrong**: `http://localhost:8050/trades` must be `http://localhost:3001/trading`. The screenshot system captures mission-control pages (port 3001). QA flagged `/trading` (the Trading Desk page in mission-control) in every one of the 6 prior cycles — not the Python server's `/trades` history page.",
+        "**Bug 1 is confirmed fixed** — no action needed on `server.py:1186`.",
+        "**Note (out of scope, log for next cycle):** `/api/risk-status` at `server.py:694` also uses `status IN ('pending', 'filled')` without `'resting'`. Not in scope for this task, but worth tracking."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774834514310-mdbc",
+      "timestamp": "2026-03-30T01:35:14.310Z"
+    },
+    {
+      "taskId": "TASK-TRADING-3",
+      "taskTitle": "QA review: TASK-TRADING-3",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. ect is confirmed fixed. Build is clean. CSS variables are valid. Logic is correct. The screenshot system failure is infrastructure and does not constitute a defect in this feature — but it **must** be escalated and fixed before any further Trading Desk visual QA can be performed.\n\n**Outstanding Infrastructure Bug (escalate separately):** Playwright screenshot system navigates to `/tasks` instead of `/trading`. 9 cycles. No Trading Desk feature can have visual QA coverage until this is resolved.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774834367647-mlmf",
+      "timestamp": "2026-03-30T01:32:47.647Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. A cycle since this feature was built — it is the fix that `71a9a4c` applied to `live_engine.py` but did not apply to the dashboard server.\n- **[BLOCKING — 8th cycle] Screenshot system**: All \"after\" screenshots capture the Task Board (`/tasks`), not the Trading Desk (`/trading`). Visual regression coverage for this feature is zero across all eight QA cycles. The Playwright system must navigate to `/trading` before capture. No Trading Desk feature can be visually verified until this is resolved.",
+      "lessons": [
+        "**[BLOCKING — 8th cycle] `server.py:1186`**: `/api/risk-controls` live exposure query reads `status IN ('pending', 'filled')` — must be `status IN ('pending', 'filled', 'resting')`. This directly undercounts deployed capital and open_positions feeding the dashboard progress bars. One-line fix. Has been flagged in every QA cycle since this feature was built — it is the fix that `71a9a4c` applied to `live_engine.py` but did not apply to the dashboard server.",
+        "**[BLOCKING — 8th cycle] Screenshot system**: All \"after\" screenshots capture the Task Board (`/tasks`), not the Trading Desk (`/trading`). Visual regression coverage for this feature is zero across all eight QA cycles. The Playwright system must navigate to `/trading` before capture. No Trading Desk feature can be visually verified until this is resolved."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774834167858-dthw",
+      "timestamp": "2026-03-30T01:29:27.858Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. ting')`. This undercounts deployed capital and open_positions. One-line fix. This has been flagged in every single QA cycle for this feature and remains unaddressed.\n- **[BLOCKING — 7th cycle] Screenshot system**: All \"after\" screenshots show Task Board (`/tasks`), not Trading Desk (`/trading`). Visual regression coverage is zero across all seven cycles. The Playwright system must navigate to `/trading` before capture. No future Trading Desk feature can be visually verified until this is fixed.",
+      "lessons": [
+        "**[BLOCKING — 7th cycle] `server.py:1186`**: `/api/risk-controls` live exposure query reads `status IN ('pending', 'filled')` — must be `status IN ('pending', 'filled', 'resting')`. This undercounts deployed capital and open_positions. One-line fix. This has been flagged in every single QA cycle for this feature and remains unaddressed.",
+        "**[BLOCKING — 7th cycle] Screenshot system**: All \"after\" screenshots show Task Board (`/tasks`), not Trading Desk (`/trading`). Visual regression coverage is zero across all seven cycles. The Playwright system must navigate to `/trading` before capture. No future Trading Desk feature can be visually verified until this is fixed."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833963705-saok",
+      "timestamp": "2026-03-30T01:26:03.705Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. dashboard progress bars. This is a one-line fix that has been documented in every QA cycle since this feature was built.\n- **[BLOCKING] Screenshots still capture Task Board, not Trading Desk**: All \"after\" screenshots show the Task Board. The Playwright system must navigate to `/trading` before capture. Visual regression coverage for this feature remains at zero across all six QA cycles. The screenshot system must be fixed before this or any future Trading Desk feature can be visually verified.",
+      "lessons": [
+        "**[BLOCKING — 6th cycle] `server.py:1186`**: `/api/risk-controls` live exposure query must be `status IN ('pending', 'filled', 'resting')`. This directly undercounts deployed capital and open_positions feeding the dashboard progress bars. This is a one-line fix that has been documented in every QA cycle since this feature was built.",
+        "**[BLOCKING] Screenshots still capture Task Board, not Trading Desk**: All \"after\" screenshots show the Task Board. The Playwright system must navigate to `/trading` before capture. Visual regression coverage for this feature remains at zero across all six QA cycles. The screenshot system must be fixed before this or any future Trading Desk feature can be visually verified."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833877848-siun",
+      "timestamp": "2026-03-30T01:24:37.848Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. S:\n- **[BLOCKING — 5th cycle] `server.py:1186`**: `/api/risk-controls` endpoint query `status IN ('pending', 'filled')` must include `'resting'`. This directly undercounts deployed capital and open_positions in the dashboard progress bars. One-line fix.\n- **[BLOCKING] Screenshots still showing Task Board, not Trading Desk** — no visual verification of the feature is possible. The Playwright screenshot system must navigate to `/trading` before capture. This has been flagged in every prior cycle.",
+      "lessons": [
+        "**[BLOCKING — 5th cycle] `server.py:1186`**: `/api/risk-controls` endpoint query `status IN ('pending', 'filled')` must include `'resting'`. This directly undercounts deployed capital and open_positions in the dashboard progress bars. One-line fix.",
+        "**[BLOCKING] Screenshots still showing Task Board, not Trading Desk** — no visual verification of the feature is possible. The Playwright screenshot system must navigate to `/trading` before capture. This has been flagged in every prior cycle."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833780185-cmhs",
+      "timestamp": "2026-03-30T01:23:00.185Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. pen-position count will undercount when resting limit orders exist.\n- **[INFORMATIONAL] Screenshots capture Task Board, not Trading Desk** — visual regression coverage for this feature is zero across all four QA cycles. The Playwright screenshot system must be corrected to navigate to `/trading` before capture.\n- **[INFORMATIONAL] Percentage param input UX** — inline edit inputs accept raw decimals (`0.15`) while the display renders `15.0%`; consider adding a hint label or normalizing on input.",
+      "lessons": [
+        "**[BLOCKING — 4th cycle] `server.py:1186`** `/api/risk-controls` live exposure query: `status IN ('pending', 'filled')` must be `status IN ('pending', 'filled', 'resting')`. Commit `71a9a4c` fixed the live engine's internal checks but never patched the dashboard API endpoint. Dashboard progress bars and open-position count will undercount when resting limit orders exist.",
+        "**[INFORMATIONAL] Screenshots capture Task Board, not Trading Desk** — visual regression coverage for this feature is zero across all four QA cycles. The Playwright screenshot system must be corrected to navigate to `/trading` before capture.",
+        "**[INFORMATIONAL] Percentage param input UX** — inline edit inputs accept raw decimals (`0.15`) while the display renders `15.0%`; consider adding a hint label or normalizing on input."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833688823-0apt",
+      "timestamp": "2026-03-30T01:21:28.823Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. 'resting'`**: `status IN ('pending', 'filled')` must be `status IN ('pending', 'filled', 'resting')`. This feeds both the deployed amount and open_positions count on the new dashboard progress bars. This defect has been flagged in three consecutive QA cycles — it must be fixed before approval.\n- **[INFORMATIONAL] Screenshots still capture Task Board, not Trading Desk** — visual regression coverage for this feature is zero across all cycles. The screenshot system is navigating to the wrong page.",
+      "lessons": [
+        "**[BLOCKING] `server.py:1185` — deployed capital query still missing `'resting'`**: `status IN ('pending', 'filled')` must be `status IN ('pending', 'filled', 'resting')`. This feeds both the deployed amount and open_positions count on the new dashboard progress bars. This defect has been flagged in three consecutive QA cycles — it must be fixed before approval.",
+        "**[INFORMATIONAL] Screenshots still capture Task Board, not Trading Desk** — visual regression coverage for this feature is zero across all cycles. The screenshot system is navigating to the wrong page."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833581338-nfo2",
+      "timestamp": "2026-03-30T01:19:41.338Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. Fix commit `71a9a4c` only updated `live_engine.py`. The dashboard endpoint was never patched. Progress bar and open-position count will undercount active exposure when resting limit orders exist.\n- [INFORMATIONAL] Screenshots capture wrong page — all captures show Task Board, not Trading Desk. No visual regression coverage for this feature.\n- [INFORMATIONAL] Percentage parameter edit UX: raw decimal input (`0.15`) while display shows `15.0%` — consider clarifying the hint or normalizing input.",
+      "lessons": [
+        "[BLOCKING] `server.py:1185` — `/api/risk-controls` deployed capital query uses `status IN ('pending', 'filled')`, missing `'resting'`. Fix commit `71a9a4c` only updated `live_engine.py`. The dashboard endpoint was never patched. Progress bar and open-position count will undercount active exposure when resting limit orders exist.",
+        "[INFORMATIONAL] Screenshots capture wrong page — all captures show Task Board, not Trading Desk. No visual regression coverage for this feature.",
+        "[INFORMATIONAL] Percentage parameter edit UX: raw decimal input (`0.15`) while display shows `15.0%` — consider clarifying the hint or normalizing input."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833384954-pzbn",
+      "timestamp": "2026-03-30T01:16:24.954Z"
+    },
+    {
+      "taskId": "TASK-TRADING-1",
+      "taskTitle": "QA review: TASK-TRADING-1",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. ntrols code)\n\n---\n\nVERDICT: NEEDS_FIX\nNOTES:\n- **[BLOCKING] Deployed capital query omits 'resting' orders** (`server.py:1185`): `status IN ('pending', 'filled')` must be `status IN ('pending', 'filled', 'resting')` to match what the live engine counts as active exposure. Same fix needed on the `open_positions` count on the same line.\n- **[INFORMATIONAL] Screenshots captured wrong page** — after screenshots show Task Board, not Trading Desk. Visual regression coverage is absent for this feature.",
+      "lessons": [
+        "**[BLOCKING] Deployed capital query omits 'resting' orders** (`server.py:1185`): `status IN ('pending', 'filled')` must be `status IN ('pending', 'filled', 'resting')` to match what the live engine counts as active exposure. Same fix needed on the `open_positions` count on the same line.",
+        "**[INFORMATIONAL] Screenshots captured wrong page** — after screenshots show Task Board, not Trading Desk. Visual regression coverage is absent for this feature."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774833194532-axat",
+      "timestamp": "2026-03-30T01:13:14.532Z"
+    },
+    {
+      "taskId": "TASK-1774830665670",
+      "taskTitle": "QA review: TASK-1774830665670",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. UX trace artifact.\n\n- **Double-write in POST handler:** As Forge noted, `autoAssignBuilder(t)` re-reads/re-writes `tasks.json` after `writeTasks` was already called. The factory lock in `queueOrStartBuild` guards against concurrency races here. Acceptable.\n\n- **`!newTask.assignedAgent` guard:** The POST handler only auto-assigns if `assignedAgent` is unset. If a task is created via API with an explicit agent already set, it won't be overridden. This is correct behavior.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774832741835-w3q7",
+      "timestamp": "2026-03-30T01:05:41.835Z"
+    },
+    {
+      "taskId": "TASK-1774829425355",
+      "taskTitle": "QA review: TASK-1774829425355",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. ded in risk limits | ✅ `_ACTIVE_STATUSES` covers `pending`, `filled`, `resting` |\n| Backfill dedup: checks both `order_id` and `bf-{trade_id}` | ✅ |\n| Backfill dry-run by default | ✅ |\n| SQL injection risk from f-string status constant | ✅ None — compile-time class constant only |\n\n### Known follow-up (not blocking)\n- `test_v2_stress.py` has stale limit values (cap=10, loss=$50) that will fail. Forge noted this out-of-scope. File is pre-existing broken, not a regression.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774830356884-0538",
+      "timestamp": "2026-03-30T00:25:56.884Z"
+    },
+    {
+      "taskId": "TASK-1774829432698",
+      "taskTitle": "QA review: TASK-1774829432698",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. fill script safety | ✅ Dry-run default, insert-only, deduped by `order_id` |\n| Uncommitted `or 0` in working tree | ⚠️ Minor — harmless defensive addition, not yet committed |\n\n**One minor note:** `src/trading/live_engine.py` has a small uncommitted change (`pos.get(\"position\", 0) or 0`) in the working tree that wasn't included in the commit. It's redundant (default `0` can't be falsy-None) but harmless. Recommend committing it or discarding it to keep the working tree clean.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774829984855-mzu0",
+      "timestamp": "2026-03-30T00:19:44.855Z"
+    },
+    {
+      "taskId": "TASK-PIPELINE-5",
+      "taskTitle": "QA review: TASK-PIPELINE-5",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. ler cycles\n- `hangLabel` falls back to raw `build.taskId` when task is undefined — safe\n- `hangAgent` falls back to `\"unknown agent\"` — safe\n- Both `sendTelegramNotification` and `createInAppNotification` are defined locally in `build-queue.ts` — no import issues\n- Fire-and-forget notification pattern is consistent with all other notification calls in the file\n\n### No Issues Found\n\nThe change is minimal, targeted, and correct. The hang guard path is clean and idempotent.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774822235711-x4t1",
+      "timestamp": "2026-03-29T22:10:35.711Z"
+    }
+  ],
+  "lastUpdated": "2026-03-30T01:39:32.491Z"
+}
