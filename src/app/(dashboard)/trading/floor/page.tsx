@@ -451,11 +451,11 @@ export default function TradingFloorPage() {
                 <div style={{ minWidth: 180 }}>
                   <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Version</span>
                 </div>
-                <div className="flex-1 grid grid-cols-4 gap-4 text-right">
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Deployed</div>
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Realized</div>
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Unrealized</div>
-                  <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--text-muted)" }}>Total</div>
+                <div className="flex-1 grid grid-cols-4 gap-4">
+                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Deployed</div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Realized</div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Unrealized</div>
+                  <div className="text-xs font-bold uppercase tracking-wider text-left" style={{ color: "var(--text-muted)" }}>Total</div>
                 </div>
               </div>
               {/* Rows — newest version first */}
@@ -486,23 +486,23 @@ export default function TradingFloorPage() {
                         {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
                       </div>
                     </div>
-                    <div className="flex-1 grid grid-cols-4 gap-4 text-right">
-                      <div>
+                    <div className="flex-1 grid grid-cols-4 gap-4">
+                      <div className="text-left">
                         <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
                           {$(v.total_cost)}
                         </div>
                       </div>
-                      <div>
+                      <div className="text-left">
                         <div className="text-sm font-bold" style={{ color: v.realized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
                           {$(v.realized_pnl)}
                         </div>
                       </div>
-                      <div>
+                      <div className="text-left">
                         <div className="text-sm font-bold" style={{ color: v.unrealized_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
                           {$(v.unrealized_pnl)}
                         </div>
                       </div>
-                      <div>
+                      <div className="text-left">
                         <div className="text-sm font-bold" style={{ color: v.total_pnl >= 0 ? "#4ade80" : "#ef4444" }}>
                           {$(v.total_pnl)}
                         </div>
