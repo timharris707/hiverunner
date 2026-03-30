@@ -200,8 +200,24 @@ export async function GET() {
 
       let nowPrice: number | null = null;
       if (current) {
-        // For YES side: current yes price; For NO side: 1 - yes price
-        const yesPrice = current.last ?? current.yes_bid ?? current.yes_ask;
+        // Use mid-market when available, otherwise best available price
+        // Avoid using last_price alone in illiquid markets (can be very stale)
+        const yesBid = current.yes_bid;
+        const yesAsk = current.yes_ask;
+        let yesPrice: number | null = null;
+
+        if (yesBid != null && yesAsk != null && yesBid > 0 && yesAsk > 0) {
+          // Use midpoint when both sides have liquidity
+          yesPrice = (yesBid + yesAsk) / 2;
+        } else if (yesAsk != null && yesAsk > 0 && (yesBid == null || yesBid === 0)) {
+          // Only ask exists — market is one-sided, use ask but flag as illiquid
+          yesPrice = yesAsk;
+        } else if (yesBid != null && yesBid > 0) {
+          yesPrice = yesBid;
+        } else {
+          yesPrice = current.last;
+        }
+
         if (yesPrice != null) {
           nowPrice = side === "yes" ? yesPrice : 1 - yesPrice;
         }
