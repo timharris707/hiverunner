@@ -1531,15 +1531,6 @@ function TaskDetailDrawer({
                 </div>
               )}
 
-              {/* Last review notes */}
-              {task.lastReviewNotes && (
-                <div>
-                  <label style={DRAWER_LABEL}>Latest Review Notes</label>
-                  <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", fontSize: "0.72rem", lineHeight: 1.5, color: "#fca5a5", backgroundColor: "rgba(127,29,29,0.15)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: "0.5rem", padding: "0.6rem", maxHeight: "150px", overflowY: "auto" }}>
-                    {task.lastReviewNotes}
-                  </pre>
-                </div>
-              )}
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.5rem" }}>
                 {task.reviewRequestedAt && (
