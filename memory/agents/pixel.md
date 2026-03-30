@@ -49,6 +49,56 @@
 
 ## Task Log
 
+### 2026-03-30 — Label and verify every dashboard metric
+**Project:** mission-control
+**Summary:** n pass before this can be honestly marked done.  Known caveats / lessons learned: - The spend card is defined correctly as quota-ledger approved spend for the UTC quota day, not provider-billed actuals. - The environment still blocks both the production build path and local Playwright server startup, so visual verification must be completed in a less restricted environment. - There are unrelated p
+**Lessons:**
+- The spend card is defined correctly as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.
+- The environment still blocks both the production build path and local Playwright server startup, so visual verification must be completed in a less restricted environment.
+- There are unrelated pre-existing modifications in the worktree; I limited my code change to the tooltip interaction fix.
+
+---
+
+### 2026-03-30 — Show live build activity on task cards
+**Project:** mission-control
+**Summary:** eate `.git/index.lock`. - `git push` failed because network access is blocked and `github.com` could not be resolved.  Lessons learned / caveats: - The live card feed plumbing was already present; this change mainly makes it match the acceptance criteria more closely and avoids duplicate SSE lines after reconnects. - I could not visually verify the board in a browser here. - I could not satisfy th
+**Known Issues:**
+- The live card feed plumbing was already present; this change mainly makes it match the acceptance criteria more closely and avoids duplicate SSE lines after reconnects.
+- I could not visually verify the board in a browser here.
+- I could not satisfy the required clean build, commit, or push because of environment restrictions outside the task logic.
+
+---
+
+### 2026-03-30 — Label and verify every dashboard metric
+**Project:** mission-control
+**Summary:** commit or push because the required build and visual verification could not be completed.  Lessons learned / caveats: - The spend card is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals. - The visual baseline file for `dashboard-metrics-grid.png` still needs to be generated in an environment that allows the app server to start. - There are unrela
+**Known Issues:**
+- The spend card is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.
+- The visual baseline file for `dashboard-metrics-grid.png` still needs to be generated in an environment that allows the app server to start.
+- There are unrelated pre-existing TypeScript failures in the repo that also prevent a clean global verification run.
+
+---
+
+### 2026-03-30 — Make review step visible — show task in review column with Gater verdict
+**Project:** mission-control
+**Summary:** ing implementation was fixed. - Focused `tsx` test execution could not be completed here because `tsx` is not installed locally and `npx` could not be relied on in this restricted environment.  Known caveats: - I could not visually verify the board in a browser. - I could not commit or push because `.git/index.lock` creation is blocked in this sandbox. - The Review column now mirrors recent verdic
+**Known Issues:**
+- I could not visually verify the board in a browser.
+- I could not commit or push because `.git/index.lock` creation is blocked in this sandbox.
+- The Review column now mirrors recent verdicts for 24 hours to keep the review step visible without permanently duplicating old completed work.
+
+---
+
+### 2026-03-30 — Label and verify every dashboard metric
+**Project:** mission-control
+**Summary:** sandbox also denied starting the local dev server.  I did not commit or push because the required build/visual verification could not be completed here.  Caveats: - The spend card is now explicitly labeled as quota-ledger spend for the UTC quota day; it is not provider-billed actuals. - The new screenshot baseline file was not generated because browser/server startup is blocked in this sandbox. - 
+**Known Issues:**
+- The spend card is now explicitly labeled as quota-ledger spend for the UTC quota day; it is not provider-billed actuals.
+- The new screenshot baseline file was not generated because browser/server startup is blocked in this sandbox.
+- The repo currently has unrelated modified files and unrelated TypeScript errors outside this scope.
+
+---
+
 ### 2026-03-30 — Live build activity stream on task cards — show what the agent is doing in real-time
 **Project:** mission-control
 **Summary:** SK-123", "action": "WRITE", "description": "src/components/Button.tsx", "status": "completed", "agent": "Forge" } ```  **Caveats:** - Cannot verify visually in browser — need Tim to confirm the feed renders on an active build card - Events are in-memory only — they don't survive server restarts. This is by design (ephemeral build telemetry, not persistent history) - Agents need to be instrumented 

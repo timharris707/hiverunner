@@ -4,6 +4,139 @@
   "role": "Quality Control Lead",
   "entries": [
     {
+      "taskId": "TASK-1774854942232",
+      "taskTitle": "Gater QA review: TASK-1774854942232",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. ` → `slice(-3)` (line 1889) | ✓ Last 3 lines enforced |\n| `seenEventIdsRef` dedup (lines 1825/1844-1853) | ✓ No duplicate SSE lines on reconnect |\n| `isActiveBuild` gate (line 2173) | ✓ Feed collapses when idle |\n| `isRunning` fix — `lastEvent?.status === \"running\" \\|\\| lastEvent?.action !== \"DONE\"` | ✓ Correct |\n| Build | ✓ Clean |\n| Tests | N/A (no test script) |\n| Chromium render | ✓ Correct |\n| WebKit render | ✓ Matches Chromium |\n\nAll three acceptance criteria satisfied.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774881991840-m41i",
+      "timestamp": "2026-03-30T14:46:31.840Z"
+    },
+    {
+      "taskId": "TASK-1774854942244",
+      "taskTitle": "Gater QA review: TASK-1774854942244",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. ` total, breakdown: Unattributed $41.85, Pixel $6.30, Forge $3.38, Vigil $1.35. Sum renders as `$55.13` in JavaScript — matches header.\n\n**Acceptance criteria:**\n- API returns per-agent cost breakdown ✓\n- Dashboard shows cost per agent in list ✓ (code verified in diff)\n- Total matches sum of per-agent costs ✓ (JS `toFixed(2)` both render `$55.13`)\n- Updates on dashboard refresh ✓ (30s `setInterval` unchanged)\n- Build passes clean ✓\n- Code changes verified ✓\n- No regressions ✓\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774881524190-sybt",
+      "timestamp": "2026-03-30T14:38:44.190Z"
+    },
+    {
+      "taskId": "test-build-state-1774879837785-a9jm0v",
+      "taskTitle": "Gater QA review: test-build-state-1774879837785-a9jm0v",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: BLOCKED\nBLOCKED: Safari verification unavailable",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879837839-56dg",
+      "timestamp": "2026-03-30T14:10:37.839Z"
+    },
+    {
+      "taskId": "test-build-state-1774879837768-pas95x",
+      "taskTitle": "Gater QA review: test-build-state-1774879837768-pas95x",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: APPROVED\nLooks good.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879837770-cj3s",
+      "timestamp": "2026-03-30T14:10:37.770Z"
+    },
+    {
+      "taskId": "test-build-state-1774879830556-2n8um8",
+      "taskTitle": "Gater QA review: test-build-state-1774879830556-2n8um8",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: BLOCKED\nBLOCKED: Safari verification unavailable",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879830611-5hzj",
+      "timestamp": "2026-03-30T14:10:30.611Z"
+    },
+    {
+      "taskId": "test-build-state-1774879830538-ru9czd",
+      "taskTitle": "Gater QA review: test-build-state-1774879830538-ru9czd",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: APPROVED\nLooks good.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879830540-6ms1",
+      "timestamp": "2026-03-30T14:10:30.540Z"
+    },
+    {
+      "taskId": "TASK-1774854942203",
+      "taskTitle": "E2E test — buildState cleared on terminal transitions",
+      "project": "mission-control",
+      "summary": ") with network restricted in this sandbox\n- `git commit`\n  Result: failed with `Unable to create .git/index.lock: Operation not permitted`\n- Push was not possible from this environment\n\nCaveats:\n- The test run emits non-fatal noise from existing side effects in the queue pipeline (`tasks-log` write permission, background QA/reconcile logs), but the assertions themselves passed.\n- I did not push anything because git writes to `.git` are blocked here, and remote network access is also restricted.",
+      "lessons": [],
+      "knownIssues": [
+        "The test run emits non-fatal noise from existing side effects in the queue pipeline (`tasks-log` write permission, background QA/reconcile logs), but the assertions themselves passed.",
+        "I did not push anything because git writes to `.git` are blocked here, and remote network access is also restricted."
+      ],
+      "id": "mem-1774879811219-jswi",
+      "timestamp": "2026-03-30T14:10:11.219Z"
+    },
+    {
+      "taskId": "test-build-state-1774879786569-0adff0",
+      "taskTitle": "Gater QA review: test-build-state-1774879786569-0adff0",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: BLOCKED\nBLOCKED: Safari verification unavailable",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879787772-qp4y",
+      "timestamp": "2026-03-30T14:09:47.772Z"
+    },
+    {
+      "taskId": "test-build-state-1774879786549-offx3i",
+      "taskTitle": "Gater QA review: test-build-state-1774879786549-offx3i",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: APPROVED\nLooks good.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879786551-wkzb",
+      "timestamp": "2026-03-30T14:09:46.551Z"
+    },
+    {
+      "taskId": "test-build-state-1774879698465-tk2d34",
+      "taskTitle": "Gater QA review: test-build-state-1774879698465-tk2d34",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: BLOCKED\nBLOCKED: Safari verification unavailable",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879698520-h77x",
+      "timestamp": "2026-03-30T14:08:18.520Z"
+    },
+    {
+      "taskId": "test-build-state-1774879698443-uon6ic",
+      "taskTitle": "Gater QA review: test-build-state-1774879698443-uon6ic",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: APPROVED\nLooks good.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879698446-05jb",
+      "timestamp": "2026-03-30T14:08:18.446Z"
+    },
+    {
+      "taskId": "test-build-state-1774879663476-ayt95f",
+      "taskTitle": "Gater QA review: test-build-state-1774879663476-ayt95f",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: BLOCKED\nBLOCKED: Safari verification unavailable",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879663532-3c0u",
+      "timestamp": "2026-03-30T14:07:43.532Z"
+    },
+    {
+      "taskId": "test-build-state-1774879663452-ptzdan",
+      "taskTitle": "Gater QA review: test-build-state-1774879663452-ptzdan",
+      "project": "mission-control",
+      "summary": "Gater reviewed task. VERDICT: APPROVED\nLooks good.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774879663454-mvpe",
+      "timestamp": "2026-03-30T14:07:43.454Z"
+    },
+    {
       "taskId": "TASK-TRADING-2",
       "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
       "project": "weather-trading",
@@ -34,5 +167,5 @@
       "timestamp": "2026-03-30T01:59:37.665Z"
     }
   ],
-  "lastUpdated": "2026-03-30T02:21:14.486Z"
+  "lastUpdated": "2026-03-30T14:46:31.840Z"
 }

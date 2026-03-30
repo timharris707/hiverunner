@@ -41,6 +41,65 @@
 
 ## Task Log
 
+### 2026-03-30 — QA review: TASK-1774854942238
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. 1 (API contract) — WebKit | ✅ PASSED | | | E2E test 2 (UI + tooltips) — Chromium | ✅ PASSED | Cards render labels; tooltip click shows correct content | | E2E test 2 (UI + tooltips) — WebKit | ✅ PASSED | | | Visual regression baseline — Chromium | ✅ 26K | Genuine capture | | Visual regression baseline — WebKit | ✅ 31K | Genuine capture | | No regressions | ✅ | Dead
+
+---
+
+### 2026-03-30 — QA review: TASK-1774854942232
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. ehavior untouched |  ### Minor Observation (non-blocking) `useActivityStream` clears `seenEventIdsRef` but not `events` state when a build stops. If the same task starts building again and the server replays prior event IDs (unlikely with ephemeral in-memory streams), old events could briefly re-appear. Not blocking because: (a) the server streams are ephemeral per
+
+---
+
+### 2026-03-30 — QA review: TASK-1774854942238
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. ) => !current)` which immediately closes the tooltip that `onMouseEnter` opened. Change to `onClick={() => setOpen(true)}` so click always opens (mouse-leave and blur still close it). Reproduces: click any tooltip button → tooltip does not appear. - **Visual baseline `dashboard-metrics-grid.png`** — never captured because test 2 fails before the screenshot assertio
+**Lessons:**
+- **`src/components/InlineTooltip.tsx:28`** — `onClick` uses `setOpen((current) => !current)` which immediately closes the tooltip that `onMouseEnter` opened. Change to `onClick={() => setOpen(true)}` so click always opens (mouse-leave and blur still close it). Reproduces: click any tooltip button → tooltip does not appear.
+- **Visual baseline `dashboard-metrics-grid.png`** — never captured because test 2 fails before the screenshot assertion. Once the click bug is fixed, run `npx playwright test e2e/dashboard-metrics.spec.ts --update-snapshots` to generate the baseline.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774854942218
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. ing"` triggers mirror | | Gater verdict displayed on task card after review | ✅ Colored verdict banner: APPROVED / NEEDS FIX / BLOCKED | | Review events appear in narrative feed | ✅ `task_review` items emitted by `buildNarrativeItems`, rendered with Eye icon | | Review column is never invisible | ✅ Column is in fixed COLUMNS array; always rendered with empty state 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774880783785
+**Project:** qa
+**Summary:** QA reviewed task from backend. posit` from `500.00` to `1000.00` to match the 2026-03-30 deposit noted in `live_engine.py`. Without this, the balance check in `reconcile_kalshi_db.py` will always report a ~$500 mismatch, making AC #1 unverifiable. - **Run the reconcile**: After fixing the above two items, run `python scripts/reconcile_kalshi_db.py --commit --verbose` and confirm the output shows `
+**Lessons:**
+- **Install the cron**: Run `crontab config/crontab.production` — the new 04:30 UTC entry is in the file but not active. AC #5 is unmet.
+- **Update `bankroll.json`**: Change `initial_deposit` from `500.00` to `1000.00` to match the 2026-03-30 deposit noted in `live_engine.py`. Without this, the balance check in `reconcile_kalshi_db.py` will always report a ~$500 mismatch, making AC #1 unverifiable.
+- **Run the reconcile**: After fixing the above two items, run `python scripts/reconcile_kalshi_db.py --commit --verbose` and confirm the output shows `balance_delta ≤ $1`. AC #1 cannot be verified from code review alone — it requires the script to execute against live Kalshi data.
+
+---
+
+### 2026-03-30 — QA review: TASK-1774854942244
+**Project:** qa
+**Summary:** QA reviewed task from backend. tributed bucket** — when build-log attribution is missing (tasks approved before this change), an "Unattributed" row will appear. Expected behavior; consider a follow-on to retroactively attribute from build-log once the ledger warms up. 4. `totalSpendUsd` in `getQuotaSummary` goes through `round2` before being passed to `getDashboardStats` as `costToday` — the `pars
+
+---
+
+### 2026-03-30 — QA review: TASK-1774854942238
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. pshots` to establish the baseline. This is expected behavior for a new screenshot spec, not a defect in the implementation. - `localCalendarDay` is used correctly in `costToday.timeRange` — not dead code. - The `agents/status` route simplification removes `gatewayPort` from the success response (it was present in the old version). Consumers relying on `gatewayPort`
+
+---
+
+### 2026-03-30 — E2E test — buildState cleared on terminal transitions
+**Project:** mission-control
+**Summary:** sory, dashboard, voice, pricing, and build route files.  I did not push to remote. Network access is restricted here, and I also cannot honestly mark the task approved without a successful build and E2E run.  Known issues and caveats: - Build/test verification is blocked by environment constraints, not by the specific `buildState` changes. - The repo already has unrelated compile/type failures tha
+**Known Issues:**
+- Build/test verification is blocked by environment constraints, not by the specific `buildState` changes.
+- The repo already has unrelated compile/type failures that must be cleared before this can be signed off.
+- A clean push was not possible from this sandbox.
+
+---
+
 ### 2026-03-30 — QA review: TASK-1774849547934
 **Project:** qa
 **Summary:** QA reviewed task from backend. omote fix. It's functional and clean, but warrants awareness — the default model routing for most build tasks has changed. - If a task is manually assigned via API with a non-canonical agent ID (e.g., `"Forge"` instead of `"backend"`), `findActiveBuildForAgent` could miss the active build and allow a false promotion. Low probability given `autoAssignBuilder` normaliz

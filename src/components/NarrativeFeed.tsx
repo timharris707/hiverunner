@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { AgentAvatar } from "./AgentAvatar";
-import type { NarrativeItem } from "@/app/api/narrative/route";
+import type { NarrativeItem } from "@/lib/task-narrative";
 
 const TYPE_CONFIG: Record<
   NarrativeItem["type"],

@@ -4,6 +4,76 @@
   "role": "Senior Full-Stack Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774854942238",
+      "taskTitle": "Label and verify every dashboard metric",
+      "project": "mission-control",
+      "summary": "n pass before this can be honestly marked done.\n\nKnown caveats / lessons learned:\n- The spend card is defined correctly as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.\n- The environment still blocks both the production build path and local Playwright server startup, so visual verification must be completed in a less restricted environment.\n- There are unrelated pre-existing modifications in the worktree; I limited my code change to the tooltip interaction fix.",
+      "lessons": [
+        "The spend card is defined correctly as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.",
+        "The environment still blocks both the production build path and local Playwright server startup, so visual verification must be completed in a less restricted environment.",
+        "There are unrelated pre-existing modifications in the worktree; I limited my code change to the tooltip interaction fix."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774881809588-w64g",
+      "timestamp": "2026-03-30T14:43:29.588Z"
+    },
+    {
+      "taskId": "TASK-1774854942232",
+      "taskTitle": "Show live build activity on task cards",
+      "project": "mission-control",
+      "summary": "eate `.git/index.lock`.\n- `git push` failed because network access is blocked and `github.com` could not be resolved.\n\nLessons learned / caveats:\n- The live card feed plumbing was already present; this change mainly makes it match the acceptance criteria more closely and avoids duplicate SSE lines after reconnects.\n- I could not visually verify the board in a browser here.\n- I could not satisfy the required clean build, commit, or push because of environment restrictions outside the task logic.",
+      "lessons": [],
+      "knownIssues": [
+        "The live card feed plumbing was already present; this change mainly makes it match the acceptance criteria more closely and avoids duplicate SSE lines after reconnects.",
+        "I could not visually verify the board in a browser here.",
+        "I could not satisfy the required clean build, commit, or push because of environment restrictions outside the task logic."
+      ],
+      "id": "mem-1774881660460-hz1e",
+      "timestamp": "2026-03-30T14:41:00.460Z"
+    },
+    {
+      "taskId": "TASK-1774854942238",
+      "taskTitle": "Label and verify every dashboard metric",
+      "project": "mission-control",
+      "summary": "commit or push because the required build and visual verification could not be completed.\n\nLessons learned / caveats:\n- The spend card is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.\n- The visual baseline file for `dashboard-metrics-grid.png` still needs to be generated in an environment that allows the app server to start.\n- There are unrelated pre-existing TypeScript failures in the repo that also prevent a clean global verification run.",
+      "lessons": [],
+      "knownIssues": [
+        "The spend card is correctly defined as quota-ledger approved spend for the UTC quota day, not provider-billed actuals.",
+        "The visual baseline file for `dashboard-metrics-grid.png` still needs to be generated in an environment that allows the app server to start.",
+        "There are unrelated pre-existing TypeScript failures in the repo that also prevent a clean global verification run."
+      ],
+      "id": "mem-1774881498177-2wx8",
+      "timestamp": "2026-03-30T14:38:18.177Z"
+    },
+    {
+      "taskId": "TASK-1774854942218",
+      "taskTitle": "Make review step visible — show task in review column with Gater verdict",
+      "project": "mission-control",
+      "summary": "ing implementation was fixed.\n- Focused `tsx` test execution could not be completed here because `tsx` is not installed locally and `npx` could not be relied on in this restricted environment.\n\nKnown caveats:\n- I could not visually verify the board in a browser.\n- I could not commit or push because `.git/index.lock` creation is blocked in this sandbox.\n- The Review column now mirrors recent verdicts for 24 hours to keep the review step visible without permanently duplicating old completed work.",
+      "lessons": [],
+      "knownIssues": [
+        "I could not visually verify the board in a browser.",
+        "I could not commit or push because `.git/index.lock` creation is blocked in this sandbox.",
+        "The Review column now mirrors recent verdicts for 24 hours to keep the review step visible without permanently duplicating old completed work."
+      ],
+      "id": "mem-1774881404436-z0dy",
+      "timestamp": "2026-03-30T14:36:44.436Z"
+    },
+    {
+      "taskId": "TASK-1774854942238",
+      "taskTitle": "Label and verify every dashboard metric",
+      "project": "mission-control",
+      "summary": "sandbox also denied starting the local dev server.\n\nI did not commit or push because the required build/visual verification could not be completed here.\n\nCaveats:\n- The spend card is now explicitly labeled as quota-ledger spend for the UTC quota day; it is not provider-billed actuals.\n- The new screenshot baseline file was not generated because browser/server startup is blocked in this sandbox.\n- The repo currently has unrelated modified files and unrelated TypeScript errors outside this scope.",
+      "lessons": [],
+      "knownIssues": [
+        "The spend card is now explicitly labeled as quota-ledger spend for the UTC quota day; it is not provider-billed actuals.",
+        "The new screenshot baseline file was not generated because browser/server startup is blocked in this sandbox.",
+        "The repo currently has unrelated modified files and unrelated TypeScript errors outside this scope."
+      ],
+      "id": "mem-1774880965109-dy7k",
+      "timestamp": "2026-03-30T14:29:25.109Z"
+    },
+    {
       "taskId": "TASK-1774848763713",
       "taskTitle": "Live build activity stream on task cards — show what the agent is doing in real-time",
       "project": "mission-control",
@@ -164,5 +234,5 @@
       "timestamp": "2026-03-29T16:49:18.236Z"
     }
   ],
-  "lastUpdated": "2026-03-30T05:52:31.972Z"
+  "lastUpdated": "2026-03-30T14:43:29.588Z"
 }

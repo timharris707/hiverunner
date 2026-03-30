@@ -1,6 +1,6 @@
 /**
  * Queue lifecycle tests for buildState terminal transitions.
- * Run: npx tsx src/lib/__tests__/build-state-terminal-transitions.test.ts
+ * Run: node --import ./scripts/register-ts-paths.mjs src/lib/__tests__/build-state-terminal-transitions.test.ts
  */
 
 import assert from "node:assert";
@@ -196,7 +196,7 @@ async function run() {
   }
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
-  if (failed > 0) process.exit(1);
+  process.exit(failed > 0 ? 1 : 0);
 }
 
 run().catch((error) => {

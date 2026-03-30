@@ -1,6 +1,7 @@
 "use client";
 
 import { ReactNode } from "react";
+import { InlineTooltip } from "@/components/InlineTooltip";
 
 interface StatsCardProps {
   title: string;
@@ -12,6 +13,9 @@ interface StatsCardProps {
     value: number;
     isPositive: boolean;
   };
+  tooltip?: ReactNode;
+  testId?: string;
+  valueTestId?: string;
 }
 
 export function StatsCard({
@@ -21,9 +25,13 @@ export function StatsCard({
   iconColor = "var(--info)",
   subtitle,
   trend,
+  tooltip,
+  testId,
+  valueTestId,
 }: StatsCardProps) {
   return (
-    <div 
+    <div
+      data-testid={testId}
       className="rounded-xl p-4 md:p-6"
       style={{
         backgroundColor: 'var(--card)',
@@ -31,19 +39,23 @@ export function StatsCard({
       }}
     >
       <div className="flex items-center justify-between mb-1.5 md:mb-2">
-        <span 
-          className="text-xs md:text-sm font-medium"
-          style={{ color: 'var(--text-secondary)' }}
-        >
-          {title}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span
+            className="text-xs md:text-sm font-medium"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {title}
+          </span>
+          {tooltip ? <InlineTooltip label={`Explain ${title}`}>{tooltip}</InlineTooltip> : null}
+        </div>
         <div className="[&>svg]:w-4 [&>svg]:h-4 md:[&>svg]:w-5 md:[&>svg]:h-5" style={{ color: iconColor }}>
           {icon}
         </div>
       </div>
 
       <div className="flex items-end justify-between">
-        <span 
+        <span
+          data-testid={valueTestId}
           className="text-2xl md:text-3xl font-bold tracking-tight"
           style={{ 
             fontFamily: 'var(--font-heading)',

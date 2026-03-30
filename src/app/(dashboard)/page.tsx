@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { ReactNode, useEffect, useState } from "react";
 import { StatsCard } from "@/components/StatsCard";
 import { NarrativeFeed } from "@/components/NarrativeFeed";
 import { PaperclipActivityFeed } from "@/components/PaperclipActivityFeed";
 import { WeatherWidget } from "@/components/WeatherWidget";
+import { InlineTooltip } from "@/components/InlineTooltip";
 import { TaskDetailDrawer, Task, ProjectInfo, PRIORITY_COLORS, formatDate } from "@/components/TaskDetailDrawer";
 import { AdvisorySessionDrawer } from "@/components/AdvisorySessionDrawer";
 import {
@@ -35,27 +36,8 @@ import {
 import Link from "next/link";
 import { AgentAvatar } from "@/components/AgentAvatar";
 
-interface Stats {
-  total: number;
-  today: number;
-  success: number;
-  error: number;
-  byType: Record<string, number>;
-}
-
-interface Agent {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
-  model: string;
-  status: "online" | "offline";
-  lastActivity?: string;
-  botToken?: string;
-}
-
 // Org roster — derived from the central agent registry
-import { AGENT_CONFIGS, getDisplayName } from "@/config/agents";
+import { AGENT_CONFIGS } from "@/config/agents";
 
 const ORG_AGENTS = AGENT_CONFIGS.map((a) => ({
   id: a.id,
@@ -147,6 +129,21 @@ interface DashboardStats {
   costToday: number;
   costByAgentToday: Array<{ agent: string; cost: number }>;
   activeAgents: number;
+  metrics: {
+    activeAgents: DashboardMetricMeta;
+    tasksToday: DashboardMetricMeta;
+    activeSessions: DashboardMetricMeta;
+    costToday: DashboardMetricMeta;
+  };
+}
+
+interface DashboardMetricMeta {
+  label: string;
+  subtitle: string;
+  definition: string;
+  source: string;
+  timeRange: string;
+  verification: string;
 }
 
 function StatSkeleton() {
@@ -168,8 +165,6 @@ interface LiveAgentStatus {
 }
 
 export default function DashboardPage() {
-  const [stats, setStats] = useState<Stats>({ total: 0, today: 0, success: 0, error: 0, byType: {} });
-  const [liveAgents, setLiveAgents] = useState<Agent[]>([]);
   const [highlights, setHighlights] = useState<HighlightData>({ todayTasks: [], nextCron: null, providers: [] });
   const [dashStats, setDashStats] = useState<DashboardStats | null>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -179,27 +174,39 @@ export default function DashboardPage() {
   const [recentSessions, setRecentSessions] = useState<AdvisorySession[]>([]);
   const [selectedAdvisorySessionId, setSelectedAdvisorySessionId] = useState<string | null>(null);
   const [agentStatuses, setAgentStatuses] = useState<Record<string, LiveAgentStatus>>({});
+  const [dashboardNow, setDashboardNow] = useState(() => Date.now());
+
+  const renderMetricTooltip = (metric: DashboardMetricMeta | undefined): ReactNode => {
+    if (!metric) return null;
+
+    return (
+      <div className="space-y-2">
+        <p>{metric.definition}</p>
+        <p>
+          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Time range:</span> {metric.timeRange}
+        </p>
+        <p>
+          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Source:</span> {metric.source}
+        </p>
+        <p>
+          <span className="font-semibold" style={{ color: "var(--text-primary)" }}>Verification:</span> {metric.verification}
+        </p>
+      </div>
+    );
+  };
 
   const fetchDashboardData = () => {
     Promise.all([
-      fetch("/api/activities/stats").then(r => r.json()),
       fetch("/api/agents").then(r => r.json()),
       fetch("/api/dashboard/highlights").then(r => r.json()),
       fetch("/api/dashboard/stats").then(r => r.json()).catch(() => null),
       fetch("/api/advisory/sessions").then(r => r.json()).catch(() => ({ sessions: [] })),
       fetch("/api/agents/status").then(r => r.json()).catch(() => ({ agents: [] })),
-    ]).then(([actStats, agentsData, highlightData, ds, advisoryData, statusData]) => {
-      setStats({
-        total: actStats.total || 0,
-        today: actStats.today || 0,
-        success: actStats.byStatus?.success || 0,
-        error: actStats.byStatus?.error || 0,
-        byType: actStats.byType || {},
-      });
-      setLiveAgents(agentsData.agents || []);
+    ]).then(([, highlightData, ds, advisoryData, statusData]) => {
       setHighlights(highlightData || { todayTasks: [], nextCron: null, providers: [] });
       if (ds) setDashStats(ds);
       setRecentSessions((advisoryData.sessions || []).slice(0, 10));
+      setDashboardNow(Date.now());
       // Build status map from live data
       const statusMap: Record<string, LiveAgentStatus> = {};
       for (const agent of (statusData.agents || [])) {
@@ -231,16 +238,16 @@ export default function DashboardPage() {
     // Auto-refresh every 30 seconds
     const interval = setInterval(() => { fetchDashboardData(); fetchTasksData(); }, 30_000);
     return () => clearInterval(interval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Merge live statuses into org agents
   const mergedAgents = ORG_AGENTS.map(agent => ({
     ...agent,
-    status: (agentStatuses[agent.id]?.status ?? agent.status) as typeof agent.status,
+    status: agentStatuses[agent.id]?.status ?? agent.status,
   }));
 
-  const activeAgentCount = mergedAgents.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
+  const activeAgentCount = dashStats?.activeAgents
+    ?? mergedAgents.filter(a => a.status === "online" || a.status === "active" || a.status === "building").length;
 
   return (
     <div className="p-4 md:p-8">
@@ -263,7 +270,7 @@ export default function DashboardPage() {
 
       {/* Stats Grid + Weather */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 mb-6">
-        <div className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div data-testid="dashboard-metrics-grid" className="lg:col-span-3 grid grid-cols-2 md:grid-cols-4 gap-3">
           {statsLoading ? (
             <>
               <StatSkeleton />
@@ -274,39 +281,57 @@ export default function DashboardPage() {
           ) : (
             <>
               <StatsCard
-                title="Active Agents"
+                title={dashStats?.metrics.activeAgents.label ?? "Active Agents"}
                 value={activeAgentCount.toString()}
-                subtitle="Deployed & running"
+                subtitle={dashStats?.metrics.activeAgents.subtitle ?? "Status = online, active, or building"}
                 icon={<Users className="w-5 h-5" />}
                 iconColor="var(--accent)"
+                tooltip={renderMetricTooltip(dashStats?.metrics.activeAgents)}
+                testId="metric-active-agents"
+                valueTestId="metric-active-agents-value"
               />
               <StatsCard
-                title="Tasks Today"
-                value={(dashStats?.tasksToday ?? stats.today).toLocaleString()}
-                subtitle="From tasks-log.md"
+                title={dashStats?.metrics.tasksToday.label ?? "Task Log Entries"}
+                value={dashStats ? dashStats.tasksToday.toLocaleString() : "—"}
+                subtitle={dashStats?.metrics.tasksToday.subtitle ?? "Loading verified source"}
                 icon={<Zap className="w-5 h-5" />}
                 iconColor="#f59e0b"
+                tooltip={renderMetricTooltip(dashStats?.metrics.tasksToday)}
+                testId="metric-task-log-entries"
+                valueTestId="metric-task-log-entries-value"
               />
               <StatsCard
-                title="Active Sessions"
-                value={(dashStats?.activeSessions ?? stats.success).toLocaleString()}
-                subtitle="Last 2 hours"
+                title={dashStats?.metrics.activeSessions.label ?? "Sessions Updated"}
+                value={dashStats ? dashStats.activeSessions.toLocaleString() : "—"}
+                subtitle={dashStats?.metrics.activeSessions.subtitle ?? "Loading verified source"}
                 icon={<CheckCircle className="w-5 h-5" />}
                 iconColor="var(--success)"
+                tooltip={renderMetricTooltip(dashStats?.metrics.activeSessions)}
+                testId="metric-active-sessions"
+                valueTestId="metric-active-sessions-value"
               />
               <div
+                data-testid="metric-approved-spend"
                 className="rounded-xl p-4 md:p-6"
                 style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
               >
                 <div className="flex items-center justify-between mb-1.5 md:mb-2">
-                  <span className="text-xs md:text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
-                    Cost Today
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs md:text-sm font-medium" style={{ color: "var(--text-secondary)" }}>
+                      {dashStats?.metrics.costToday.label ?? "Approved Spend"}
+                    </span>
+                    {dashStats?.metrics.costToday ? (
+                      <InlineTooltip label={`Explain ${dashStats.metrics.costToday.label}`}>
+                        {renderMetricTooltip(dashStats.metrics.costToday)}
+                      </InlineTooltip>
+                    ) : null}
+                  </div>
                   <div className="[&>svg]:w-4 [&>svg]:h-4 md:[&>svg]:w-5 md:[&>svg]:h-5" style={{ color: "var(--error)" }}>
                     <DollarSign className="w-5 h-5" />
                   </div>
                 </div>
                 <div
+                  data-testid="metric-approved-spend-value"
                   className="text-2xl md:text-3xl font-bold tracking-tight"
                   style={{
                     fontFamily: "var(--font-heading)",
@@ -317,11 +342,11 @@ export default function DashboardPage() {
                   {dashStats ? `$${dashStats.costToday.toFixed(2)}` : "—"}
                 </div>
                 <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-                  Quota-approved spend
+                  {dashStats?.metrics.costToday.subtitle ?? "Loading verified source"}
                 </div>
                 {dashStats && dashStats.costByAgentToday.length > 0 && (
                   <div className="mt-3 space-y-1.5">
-                    {dashStats.costByAgentToday.slice(0, 3).map((entry) => (
+                    {dashStats.costByAgentToday.map((entry) => (
                       <div key={entry.agent} className="flex items-center justify-between text-xs">
                         <span className="truncate pr-2" style={{ color: "var(--text-secondary)" }}>
                           {entry.agent}
@@ -445,7 +470,7 @@ export default function DashboardPage() {
                   const isActive = session.status === "active";
                   const statusColor = isActive ? "#4ade80" : session.status === "completed" ? "#60a5fa" : "#6b7280";
                   const statusLabel = isActive ? "Active" : session.status === "completed" ? "Completed" : session.status;
-                  const diff = Date.now() - new Date(session.createdAt).getTime();
+                  const diff = dashboardNow - new Date(session.createdAt).getTime();
                   const mins = Math.floor(diff / 60000);
                   const hrs = Math.floor(mins / 60);
                   const days = Math.floor(hrs / 24);

@@ -4,6 +4,56 @@
   "role": "Backend Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774880783785",
+      "taskTitle": "Fix weather trading P&L data integrity — DB must match Kalshi reality",
+      "project": "weather-trading",
+      "summary": ". Gater (QA) should then compare `data/last_reconciliation.json` balance_delta to verify it's within $1.\n\n### Caveats\n- The reconciliation script requires Kalshi API credentials (`.env` with `KALSHI_API_KEY`)\n- Trades without an `order_id` (e.g., the failed trade `d72d521e`) can't be matched to Kalshi fills — they're flagged but not corrected\n- Non-weather fills (UFC, NFL) are excluded from reconciliation by design\n- The crontab change requires `crontab config/crontab.production` to take effect",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774881304066-6lj9",
+      "timestamp": "2026-03-30T14:35:04.066Z"
+    },
+    {
+      "taskId": "TASK-1774854942244",
+      "taskTitle": "Break down cost metric by agent",
+      "project": "mission-control",
+      "summary": "ting repo errors outside this task, including advisory/tasks/voice/build-queue/pricing files.\n\nI did not commit or push because the required verification gate is not met.\n\nLessons / caveats:\n- The per-agent breakdown path is present end-to-end; the dashboard truncation was the only task-specific gap I found.\n- Existing repo-wide TypeScript errors are currently a stronger blocker than this feature change.\n- Build failure here appears environmental rather than caused by the cost-breakdown change.",
+      "lessons": [],
+      "knownIssues": [
+        "The per-agent breakdown path is present end-to-end; the dashboard truncation was the only task-specific gap I found.",
+        "Existing repo-wide TypeScript errors are currently a stronger blocker than this feature change.",
+        "Build failure here appears environmental rather than caused by the cost-breakdown change."
+      ],
+      "id": "mem-1774881180034-e0d6",
+      "timestamp": "2026-03-30T14:33:00.034Z"
+    },
+    {
+      "taskId": "TASK-1774854942244",
+      "taskTitle": "Break down cost metric by agent",
+      "project": "mission-control",
+      "summary": "repo errors outside this task, so it is not a clean verification signal.\n\nI did not commit or push because the required “build passes clean” gate is not met.\n\nLessons / caveats:\n- Existing `quota-state.json` can contain older spend without per-agent attribution; the summary now surfaces that delta as `Unattributed` so totals stay correct during migration.\n- Once the app runs in a normal environment, new quota approvals will accumulate real per-agent attribution directly in the scheduler state.",
+      "lessons": [],
+      "knownIssues": [
+        "Existing `quota-state.json` can contain older spend without per-agent attribution; the summary now surfaces that delta as `Unattributed` so totals stay correct during migration.",
+        "Once the app runs in a normal environment, new quota approvals will accumulate real per-agent attribution directly in the scheduler state."
+      ],
+      "id": "mem-1774879773496-t2xb",
+      "timestamp": "2026-03-30T14:09:33.496Z"
+    },
+    {
+      "taskId": "TASK-1774854942244",
+      "taskTitle": "Break down cost metric by agent",
+      "project": "mission-control",
+      "summary": "n advisory/tasks/voice/build-queue/pricing codepaths\n\nI did not commit or push because the required verification did not pass in this environment.\n\nCaveats / lessons:\n- Existing quota state files without `byAgent` now backfill from today’s build log, so the dashboard can show breakdowns immediately after deploy.\n- If build-log attribution is incomplete for some historical entries, the scheduler summary surfaces that delta as `Unattributed` rather than letting the total drift from the breakdown.",
+      "lessons": [
+        "Existing quota state files without `byAgent` now backfill from today’s build log, so the dashboard can show breakdowns immediately after deploy.",
+        "If build-log attribution is incomplete for some historical entries, the scheduler summary surfaces that delta as `Unattributed` rather than letting the total drift from the breakdown."
+      ],
+      "knownIssues": [],
+      "id": "mem-1774879754773-8wzl",
+      "timestamp": "2026-03-30T14:09:14.773Z"
+    },
+    {
       "taskId": "TASK-1774849547934",
       "taskTitle": "Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens",
       "project": "mission-control",
@@ -394,5 +444,5 @@
       "timestamp": "2026-03-29T16:30:53.897Z"
     }
   ],
-  "lastUpdated": "2026-03-30T05:55:49.128Z"
+  "lastUpdated": "2026-03-30T14:35:04.067Z"
 }

@@ -526,11 +526,13 @@ export function getQuotaSummary(now = new Date()): QuotaSummary {
       cost: round4(cost),
     }))
     .sort((a, b) => b.cost - a.cost);
-  const normalizedByAgent = byAgent.length > 0
-    ? byAgent
-    : recordedTotal > 0
-      ? [{ agent: "Unattributed", cost: recordedTotal }]
-      : [];
+  const byAgentTotal = round4(byAgent.reduce((sum, entry) => sum + entry.cost, 0));
+  const unattributedDelta = round4(recordedTotal - byAgentTotal);
+  const normalizedByAgent = [...byAgent];
+  if (unattributedDelta > 0) {
+    normalizedByAgent.push({ agent: "Unattributed", cost: unattributedDelta });
+  }
+  normalizedByAgent.sort((a, b) => b.cost - a.cost);
   const totalSpend = normalizedByAgent.reduce((sum, entry) => sum + entry.cost, 0);
 
   // Calculate idle slots: off-peak batch slots remaining

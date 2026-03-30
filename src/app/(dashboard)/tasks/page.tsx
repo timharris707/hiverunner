@@ -29,6 +29,7 @@ import {
   Send,
 } from "lucide-react";
 import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
+import { buildTasksByStatus, type TaskBoardColumnStatus } from "@/lib/task-board";
 
 interface TaskComment {
   id: string;
@@ -52,7 +53,7 @@ interface Task {
   title: string;
   description?: string;
   acceptance_criteria?: string[];
-  status: "backlog" | "on-deck" | "in-progress" | "review" | "done";
+  status: "backlog" | "on-deck" | "in-progress" | "review" | "done" | "blocked";
   priority: "P0" | "P1" | "P2" | "P3";
   assignee?: string;
   project?: string;
@@ -110,7 +111,7 @@ interface ProjectInfo {
   color: string;
 }
 
-const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<any>; color: string }[] = [
+const COLUMNS: { id: TaskBoardColumnStatus; label: string; icon: React.ComponentType<any>; color: string }[] = [
   { id: "backlog", label: "Backlog", icon: Inbox, color: "#6b7280" },
   { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
@@ -1821,6 +1822,7 @@ const ACTION_ICONS: Record<string, { icon: string; color: string }> = {
 function useActivityStream(taskId: string, active: boolean) {
   const [events, setEvents] = useState<ActivityEvent[]>([]);
   const sourceRef = useRef<EventSource | null>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     if (!active || !taskId) {
@@ -1829,7 +1831,7 @@ function useActivityStream(taskId: string, active: boolean) {
         sourceRef.current.close();
         sourceRef.current = null;
       }
-      setEvents([]);
+      seenEventIdsRef.current = new Set();
       return;
     }
 
@@ -1839,10 +1841,17 @@ function useActivityStream(taskId: string, active: boolean) {
     es.onmessage = (msg) => {
       try {
         const event: ActivityEvent = JSON.parse(msg.data);
+        if (seenEventIdsRef.current.has(event.id)) {
+          return;
+        }
+
         setEvents((prev) => {
+          seenEventIdsRef.current.add(event.id);
           const next = [...prev, event];
           // Keep last 50 events in UI
-          return next.length > 50 ? next.slice(-50) : next;
+          const trimmed = next.length > 50 ? next.slice(-50) : next;
+          seenEventIdsRef.current = new Set(trimmed.map((entry) => entry.id));
+          return trimmed;
         });
       } catch {
         // Ignore malformed messages
@@ -1863,14 +1872,6 @@ function useActivityStream(taskId: string, active: boolean) {
 }
 
 function BuildActivityFeed({ events }: { events: ActivityEvent[] }) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [events.length]);
-
   if (events.length === 0) {
     return (
       <div
@@ -1885,10 +1886,9 @@ function BuildActivityFeed({ events }: { events: ActivityEvent[] }) {
     );
   }
 
-  // Show last 8 events in the card feed
-  const visible = events.slice(-8);
+  const visible = events.slice(-3);
   const lastEvent = events[events.length - 1];
-  const isRunning = lastEvent?.action !== "DONE";
+  const isRunning = lastEvent?.status === "running" || lastEvent?.action !== "DONE";
 
   return (
     <div
@@ -1907,58 +1907,41 @@ function BuildActivityFeed({ events }: { events: ActivityEvent[] }) {
           </span>
         </div>
         <span style={{ fontSize: "0.55rem", color: "var(--text-muted)" }}>
-          {events.length} action{events.length !== 1 ? "s" : ""}
+          {visible.length}/3
         </span>
       </div>
 
       {/* Event list */}
-      <div
-        ref={scrollRef}
-        style={{ maxHeight: "120px", overflowY: "auto", padding: "3px 0" }}
-        className="activity-feed-scroll"
-      >
+      <div style={{ padding: "4px 0" }}>
         {visible.map((evt) => {
-          const meta = ACTION_ICONS[evt.action] || { icon: "•", color: "#9ca3af" };
+          const meta = ACTION_ICONS[evt.action] || { color: "#9ca3af" };
           const isCurrent = evt.status === "running";
           return (
             <div
               key={evt.id}
-              className="flex items-start gap-1.5 px-2 py-0.5"
+              className="flex items-start gap-1.5 px-2 py-1"
               style={{ opacity: isCurrent ? 1 : 0.7 }}
             >
               {/* Status indicator */}
               {evt.status === "completed" ? (
-                <span style={{ fontSize: "0.6rem", color: "#4ade80", flexShrink: 0, marginTop: "1px" }}>✓</span>
+                <span style={{ fontSize: "0.6rem", color: "#4ade80", flexShrink: 0, marginTop: "2px" }}>✓</span>
               ) : evt.status === "failed" ? (
-                <span style={{ fontSize: "0.6rem", color: "#f87171", flexShrink: 0, marginTop: "1px" }}>✗</span>
+                <span style={{ fontSize: "0.6rem", color: "#f87171", flexShrink: 0, marginTop: "2px" }}>✗</span>
               ) : (
-                <span className="animate-spin" style={{ fontSize: "0.55rem", color: meta.color, flexShrink: 0, marginTop: "1px", display: "inline-block" }}>◌</span>
+                <span className="animate-spin" style={{ fontSize: "0.55rem", color: meta.color, flexShrink: 0, marginTop: "2px", display: "inline-block" }}>◌</span>
               )}
 
-              {/* Action badge */}
-              <span
-                className="inline-flex items-center px-1 rounded"
-                style={{
-                  fontSize: "0.55rem",
-                  fontWeight: 700,
-                  color: meta.color,
-                  backgroundColor: `${meta.color}15`,
-                  letterSpacing: "0.3px",
-                  flexShrink: 0,
-                  lineHeight: "14px",
-                }}
-              >
-                {evt.action}
-              </span>
-
               {/* Description */}
-              <span
-                className="truncate"
-                style={{ fontSize: "0.6rem", color: isCurrent ? "var(--text-primary)" : "var(--text-muted)", lineHeight: "14px" }}
-                title={evt.description}
-              >
-                {evt.description}
-              </span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div
+                  className="truncate"
+                  style={{ fontSize: "0.63rem", color: isCurrent ? "var(--text-primary)" : "var(--text-secondary)", lineHeight: "15px" }}
+                  title={`${evt.action}: ${evt.description}`}
+                >
+                  <span style={{ color: meta.color, fontWeight: 700, marginRight: "0.35rem" }}>{evt.action}</span>
+                  {evt.description}
+                </div>
+              </div>
             </div>
           );
         })}
@@ -1969,6 +1952,7 @@ function BuildActivityFeed({ events }: { events: ActivityEvent[] }) {
 
 function TaskCard({
   task,
+  columnId,
   onDragStart,
   onStatusChange,
   onClick,
@@ -1976,6 +1960,7 @@ function TaskCard({
   isBuilding,
 }: {
   task: Task;
+  columnId: TaskBoardColumnStatus;
   onDragStart: (e: React.DragEvent, task: Task) => void;
   onStatusChange: (id: string, status: Task["status"]) => void;
   onClick: (task: Task) => void;
@@ -1990,6 +1975,10 @@ function TaskCard({
   const mouseDownPos = useRef<{ x: number; y: number } | null>(null);
 
   const isActiveBuild = isBuilding || task.buildState === "running" || task.buildState === "spawning";
+  const isReviewMirrorCard = columnId === "review" && task.status !== "review";
+  const actualStatusMeta = task.status === "blocked"
+    ? { label: "Blocked", color: "#fb923c" }
+    : COLUMNS.find((column) => column.id === task.status);
   const reviewStateMeta = getReviewStateMeta(task);
   const reviewVerdictMeta = getReviewVerdictMeta(task);
   const isActiveReview = !isActiveBuild && (task.codeReviewState === "running" || task.reviewStatus === "gater-reviewing");
@@ -1998,8 +1987,12 @@ function TaskCard({
 
   return (
     <div
-      draggable
-      onDragStart={(e) => { dragRef.current = true; onDragStart(e, task); }}
+      draggable={!isReviewMirrorCard}
+      onDragStart={(e) => {
+        if (isReviewMirrorCard) return;
+        dragRef.current = true;
+        onDragStart(e, task);
+      }}
       onDragEnd={() => { setTimeout(() => { dragRef.current = false; }, 0); }}
       onMouseDown={(e) => { mouseDownPos.current = { x: e.clientX, y: e.clientY }; }}
       onClick={(e) => {
@@ -2102,6 +2095,18 @@ function TaskCard({
             <span key="review" className="inline-flex items-center gap-0.5 px-1.5 py-px rounded" style={{ backgroundColor: chip.bg, border: `1px solid ${chip.border}`, fontSize: "9px", fontWeight: 600, color: chip.color, letterSpacing: "0.3px" }}>
               <span className={chip.active ? "animate-pulse" : ""} style={{ width: 4, height: 4, borderRadius: "50%", backgroundColor: chip.color, display: "inline-block", flexShrink: 0 }} />
               {chip.label}
+            </span>
+          );
+        }
+
+        if (isReviewMirrorCard && actualStatusMeta) {
+          chips.push(
+            <span
+              key="actual-status"
+              className="inline-flex items-center gap-0.5 px-1.5 py-px rounded"
+              style={{ backgroundColor: `${actualStatusMeta.color}18`, border: `1px solid ${actualStatusMeta.color}30`, fontSize: "9px", fontWeight: 600, color: actualStatusMeta.color, letterSpacing: "0.3px" }}
+            >
+              Current: {actualStatusMeta.label}
             </span>
           );
         }
@@ -2449,10 +2454,7 @@ export default function TasksPage() {
   const projectIds = ["all", ...Array.from(new Set(tasks.map((t) => t.project || "").filter(Boolean)))];
   const filteredTasks = filter === "all" ? tasks : tasks.filter((t) => t.project === filter);
 
-  const tasksByStatus = COLUMNS.reduce((acc, col) => {
-    acc[col.id] = filteredTasks.filter((t) => t.status === col.id);
-    return acc;
-  }, {} as Record<string, Task[]>);
+  const tasksByStatus = buildTasksByStatus(filteredTasks, COLUMNS.map((col) => col.id));
 
   if (loading) {
     return (
@@ -2731,6 +2733,7 @@ export default function TasksPage() {
                         <TaskCard
                           key={task.id}
                           task={task}
+                          columnId={col.id}
                           onDragStart={handleDragStart}
                           onStatusChange={handleStatusChange}
                           onClick={setSelectedTask}

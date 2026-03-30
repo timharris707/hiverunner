@@ -1,23 +1,6 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Sora, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-
-const inter = Inter({ 
-  subsets: ["latin"],
-  variable: "--font-inter",
-});
-
-const sora = Sora({ 
-  subsets: ["latin"],
-  variable: "--font-sora",
-  weight: ["400", "500", "600", "700"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-jetbrains",
-});
 
 export const metadata: Metadata = {
   title: "Harris Mission Control",
@@ -44,7 +27,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body 
-        className={`${inter.variable} ${sora.variable} ${jetbrainsMono.variable} font-sans`}
+        className="font-sans"
         style={{ 
           backgroundColor: 'var(--background)', 
           color: 'var(--foreground)',

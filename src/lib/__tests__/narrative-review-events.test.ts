@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert/strict";
-import { buildNarrativeItems } from "@/app/api/narrative/route";
+import { buildNarrativeItems } from "@/lib/task-narrative";
 
 let passed = 0;
 let failed = 0;

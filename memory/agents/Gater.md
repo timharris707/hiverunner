@@ -35,3 +35,84 @@
 - I don't say "looks wrong" — I say exactly what's wrong and how to fix it
 
 ## Task Log
+
+### 2026-03-30 — Gater QA review: TASK-1774854942232
+**Project:** mission-control
+**Summary:** Gater reviewed task. ` → `slice(-3)` (line 1889) | ✓ Last 3 lines enforced | | `seenEventIdsRef` dedup (lines 1825/1844-1853) | ✓ No duplicate SSE lines on reconnect | | `isActiveBuild` gate (line 2173) | ✓ Feed collapses when idle | | `isRunning` fix — `lastEvent?.status === "running" \|\| lastEvent?.action !== "DONE"` | ✓ Correct | | Build | ✓ Clean | | Tests | N/A (no test script) | | Chromium 
+
+---
+
+### 2026-03-30 — Gater QA review: TASK-1774854942244
+**Project:** mission-control
+**Summary:** Gater reviewed task. ` total, breakdown: Unattributed $41.85, Pixel $6.30, Forge $3.38, Vigil $1.35. Sum renders as `$55.13` in JavaScript — matches header.  **Acceptance criteria:** - API returns per-agent cost breakdown ✓ - Dashboard shows cost per agent in list ✓ (code verified in diff) - Total matches sum of per-agent costs ✓ (JS `toFixed(2)` both render `$55.13`) - Updates on dashboard refres
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879837785-a9jm0v
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879837768-pas95x
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879830556-2n8um8
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879830538-ru9czd
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-03-30 — E2E test — buildState cleared on terminal transitions
+**Project:** mission-control
+**Summary:** ) with network restricted in this sandbox - `git commit`   Result: failed with `Unable to create .git/index.lock: Operation not permitted` - Push was not possible from this environment  Caveats: - The test run emits non-fatal noise from existing side effects in the queue pipeline (`tasks-log` write permission, background QA/reconcile logs), but the assertions themselves passed. - I did not push an
+**Known Issues:**
+- The test run emits non-fatal noise from existing side effects in the queue pipeline (`tasks-log` write permission, background QA/reconcile logs), but the assertions themselves passed.
+- I did not push anything because git writes to `.git` are blocked here, and remote network access is also restricted.
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879786569-0adff0
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879786549-offx3i
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879698465-tk2d34
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879698443-uon6ic
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879663476-ayt95f
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-03-30 — Gater QA review: test-build-state-1774879663452-ptzdan
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---

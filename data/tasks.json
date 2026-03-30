@@ -174,7 +174,7 @@
     "id": "TASK-1774848116169",
     "title": "Fix Agents page \u2014 stuck on Polling agent sessions, never renders cards",
     "description": "The /agents page shows Polling agent sessions... forever and never renders agent cards. The agent config (src/config/agents.ts) has all 12 agents including Gater and Vigil with correct avatar paths. The page imports AGENT_CONFIGS but depends on a live OpenClaw session poll that times out. Fix: render agent cards from AGENT_CONFIGS immediately, then overlay live session status when available. Do not block rendering on the poll. All 12 agents with cyberpunk avatars must be visible on page load.",
-    "status": "review",
+    "status": "done",
     "priority": "P0",
     "assignee": "Gater",
     "project": "mission-control",
@@ -186,7 +186,7 @@
       "critical"
     ],
     "created": "2026-03-30T05:21:56.169Z",
-    "updated": "2026-03-30T05:42:30.642Z",
+    "updated": "2026-03-30T14:25:00Z",
     "assignedAgent": "fullstack",
     "assignedAgentReason": "Explicitly assigned to Pixel \ud83d\udcbb",
     "needsQAHandoff": true,
@@ -218,7 +218,7 @@
     ],
     "quotaVerdict": "allow",
     "quotaReason": "P0 critical \u2014 always allowed",
-    "buildState": "running",
+    "buildState": "completed",
     "buildTriggeredAt": "2026-03-30T05:38:34.389Z",
     "buildExecutionKey": "harris-autonomous/mission-control",
     "routedModel": "Sonnet 4.6",
@@ -298,7 +298,8 @@
     "reviewStatus": "pending",
     "reviewRequestedAt": "2026-03-30T05:42:30.642Z",
     "reviewAssignedTo": "gater",
-    "reviewAssignedAt": "2026-03-30T05:42:30.642Z"
+    "reviewAssignedAt": "2026-03-30T05:42:30.642Z",
+    "completedAt": "2026-03-30T14:25:00Z"
   },
   {
     "id": "TASK-1774846854498",

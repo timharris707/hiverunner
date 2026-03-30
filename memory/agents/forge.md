@@ -46,6 +46,40 @@
 
 ## Task Log
 
+### 2026-03-30 — Fix weather trading P&L data integrity — DB must match Kalshi reality
+**Project:** weather-trading
+**Summary:** . Gater (QA) should then compare `data/last_reconciliation.json` balance_delta to verify it's within $1.  ### Caveats - The reconciliation script requires Kalshi API credentials (`.env` with `KALSHI_API_KEY`) - Trades without an `order_id` (e.g., the failed trade `d72d521e`) can't be matched to Kalshi fills — they're flagged but not corrected - Non-weather fills (UFC, NFL) are excluded from reconc
+
+---
+
+### 2026-03-30 — Break down cost metric by agent
+**Project:** mission-control
+**Summary:** ting repo errors outside this task, including advisory/tasks/voice/build-queue/pricing files.  I did not commit or push because the required verification gate is not met.  Lessons / caveats: - The per-agent breakdown path is present end-to-end; the dashboard truncation was the only task-specific gap I found. - Existing repo-wide TypeScript errors are currently a stronger blocker than this feature 
+**Known Issues:**
+- The per-agent breakdown path is present end-to-end; the dashboard truncation was the only task-specific gap I found.
+- Existing repo-wide TypeScript errors are currently a stronger blocker than this feature change.
+- Build failure here appears environmental rather than caused by the cost-breakdown change.
+
+---
+
+### 2026-03-30 — Break down cost metric by agent
+**Project:** mission-control
+**Summary:** repo errors outside this task, so it is not a clean verification signal.  I did not commit or push because the required “build passes clean” gate is not met.  Lessons / caveats: - Existing `quota-state.json` can contain older spend without per-agent attribution; the summary now surfaces that delta as `Unattributed` so totals stay correct during migration. - Once the app runs in a normal environmen
+**Known Issues:**
+- Existing `quota-state.json` can contain older spend without per-agent attribution; the summary now surfaces that delta as `Unattributed` so totals stay correct during migration.
+- Once the app runs in a normal environment, new quota approvals will accumulate real per-agent attribution directly in the scheduler state.
+
+---
+
+### 2026-03-30 — Break down cost metric by agent
+**Project:** mission-control
+**Summary:** n advisory/tasks/voice/build-queue/pricing codepaths  I did not commit or push because the required verification did not pass in this environment.  Caveats / lessons: - Existing quota state files without `byAgent` now backfill from today’s build log, so the dashboard can show breakdowns immediately after deploy. - If build-log attribution is incomplete for some historical entries, the scheduler su
+**Lessons:**
+- Existing quota state files without `byAgent` now backfill from today’s build log, so the dashboard can show breakdowns immediately after deploy.
+- If build-log attribution is incomplete for some historical entries, the scheduler summary surfaces that delta as `Unattributed` rather than letting the total drift from the breakdown.
+
+---
+
 ### 2026-03-30 — Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens
 **Project:** mission-control
 **Summary:** gned agent is idle and whose execution key hasn't hit the concurrency cap.  **Validation:** `npm run build` clean. Pushed to `panely/sprint-1` → `08d01db`.  **Caveats:** - Tasks without a pre-assigned agent will have `resolveAgentForTask()` called during promotion to determine the agent — this is the same function `autoAssignBuilder` uses, so it's consistent. - The execution-key concurrency cap (3
