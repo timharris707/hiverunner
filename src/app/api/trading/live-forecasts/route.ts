@@ -38,19 +38,23 @@ export async function GET() {
 
     const forecasts: Record<string, Record<string, number>> = {};
 
-    // Batch fetch all cities in parallel
+    // Batch fetch all cities — both highs and lows
     const entries = Object.entries(CITIES);
     const results = await Promise.allSettled(
       entries.map(async ([city, { lat, lon, tz }]) => {
-        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max&timezone=${encodeURIComponent(tz)}&forecast_days=4`;
+        const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&daily=temperature_2m_max,temperature_2m_min&timezone=${encodeURIComponent(tz)}&forecast_days=4`;
         const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
         if (!res.ok) return { city, data: null };
         const json = await res.json();
         const dates: string[] = json.daily?.time ?? [];
-        const tempsC: number[] = json.daily?.temperature_2m_max ?? [];
-        const byDate: Record<string, number> = {};
+        const highs: number[] = json.daily?.temperature_2m_max ?? [];
+        const lows: number[] = json.daily?.temperature_2m_min ?? [];
+        const byDate: Record<string, { high: number; low: number }> = {};
         for (let i = 0; i < dates.length; i++) {
-          byDate[dates[i]] = Math.round((tempsC[i] * 9) / 5 + 32);
+          byDate[dates[i]] = {
+            high: Math.round((highs[i] * 9) / 5 + 32),
+            low: Math.round((lows[i] * 9) / 5 + 32),
+          };
         }
         return { city, data: byDate };
       })

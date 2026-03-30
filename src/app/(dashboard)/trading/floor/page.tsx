@@ -191,7 +191,7 @@ export default function TradingFloorPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
-  const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, number>>>({});
+  const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -656,14 +656,17 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
-                {/* Forecast — live from Open-Meteo */}
+                {/* Forecast — live from Open-Meteo, matched to bet type */}
                 <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                   {(() => {
-                    const liveFc = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
+                    const isHighBet = /HIGH/i.test(g.ticker);
+                    const label = isHighBet ? "High" : "Low";
+                    const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
+                    const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
                     const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
                     return (
                       <>
+                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Fc {label}</div>
                         <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
                           {temp != null ? `${temp}°F` : "—"}
                         </div>
