@@ -304,8 +304,11 @@ export default function TradingFloorPage() {
     if (t.our_probability != null) g.boughtProbability = t.our_probability;
     if (t.now_price != null) g.nowPrice = t.now_price;
     g.edge = t.edge;
-    // Track earliest placed time
+    // Track earliest placed time and earliest settlement
     if (t.created_at && t.created_at < g.placedAt) g.placedAt = t.created_at;
+    if (t.settlement_scheduled_at && (!g.settlementAt || t.settlement_scheduled_at < g.settlementAt)) {
+      g.settlementAt = t.settlement_scheduled_at;
+    }
   }
 
   // Compute derived values
@@ -319,17 +322,22 @@ export default function TradingFloorPage() {
   groups.sort((a, b) => {
     const aOpen = a.trades.some((t) => isOpenStatus(t.status));
     const bOpen = b.trades.some((t) => isOpenStatus(t.status));
-    // Always put open before settled
-    if (aOpen !== bOpen) return aOpen ? -1 : 1;
 
     switch (sortMode) {
       case "placed":
-        return (b.placedAt || "").localeCompare(a.placedAt || ""); // newest first
+        // Open first, then newest first
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
+        return (b.placedAt || "").localeCompare(a.placedAt || "");
       case "settles":
-        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999"); // soonest first
+        // Purely by settlement time — soonest first (settled trades last)
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
+        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
       case "city":
       default:
-        return a.city.localeCompare(b.city);
+        if (aOpen !== bOpen) return aOpen ? -1 : 1;
+        const cityCompare = a.city.localeCompare(b.city);
+        if (cityCompare !== 0) return cityCompare;
+        return (a.settlementAt || "9999").localeCompare(b.settlementAt || "9999");
     }
   });
 
@@ -520,20 +528,24 @@ export default function TradingFloorPage() {
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         {/* Sort mode toggle */}
         <div className="flex items-center gap-0 rounded-lg overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          {(["placed", "settles", "city"] as const).map((mode) => (
-            <button
-              key={mode}
-              onClick={() => setSortMode(mode)}
-              className="text-xs px-3 py-1.5 font-medium"
-              style={{
-                backgroundColor: sortMode === mode ? "#60a5fa20" : "var(--card)",
-                color: sortMode === mode ? "#60a5fa" : "var(--text-muted)",
-                borderRight: mode !== "city" ? "1px solid var(--border)" : undefined,
-              }}
-            >
-              {mode === "placed" ? "↓ Newest" : mode === "settles" ? "⏰ Settles" : "🏙 City"}
-            </button>
-          ))}
+          {(["placed", "settles", "city"] as const).map((mode) => {
+            const isActive = sortMode === mode;
+            return (
+              <button
+                key={mode}
+                onClick={() => setSortMode(mode)}
+                className="text-xs px-4 py-2 font-semibold"
+                style={{
+                  backgroundColor: isActive ? "#60a5fa" : "var(--card)",
+                  color: isActive ? "#fff" : "var(--text-muted)",
+                  borderRight: mode !== "city" ? "1px solid var(--border)" : undefined,
+                  transition: "all 0.15s",
+                }}
+              >
+                {mode === "placed" ? "↓ Newest" : mode === "settles" ? "⏰ Settles" : "🏙 City"}
+              </button>
+            );
+          })}
         </div>
         <div className="w-px h-5" style={{ backgroundColor: "var(--border)" }} />
         <select
