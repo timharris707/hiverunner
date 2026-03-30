@@ -642,6 +642,14 @@ export default function TradingFloorPage() {
                   </div>
                 </div>
 
+                {/* Forecast — on the left side, part of the story */}
+                <div className="text-center" style={{ minWidth: 60 }}>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
+                  <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
+                    {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°F` : "—"}
+                  </div>
+                </div>
+
                 {/* Cost — total spent + contracts breakdown */}
                 <div className="text-center" style={{ minWidth: 75 }}>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
@@ -650,14 +658,6 @@ export default function TradingFloorPage() {
                   </div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                     {g.totalQuantity}x
-                  </div>
-                </div>
-
-                {/* Forecast — latest temperature forecast */}
-                <div className="text-center" style={{ minWidth: 60 }}>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
-                  <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
-                    {g.forecast != null && g.forecast > 0 ? `${g.forecast.toFixed(0)}°` : "—"}
                   </div>
                 </div>
 
