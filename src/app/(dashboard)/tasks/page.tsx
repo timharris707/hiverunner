@@ -1838,31 +1838,57 @@ function TaskCard({
         </div>
       )}
 
-      {/* Footer — agent left, links + date right */}
+      {/* Agent row — full name always visible, never truncated */}
       <div className="flex items-center justify-between pt-1.5" style={{ borderTop: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2 min-w-0">
-          {task.assignee && (
-            <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-secondary)" }}>
-              <span className="flex-shrink-0">{getAssigneeEmoji(task.assignee)}</span>
-              <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>{getAssigneeName(task.assignee)}</span>
-            </span>
-          )}
-          {attachmentCount > 0 && (
-            <span className="flex-shrink-0 flex items-center gap-0.5 text-xs" style={{ color: "var(--text-muted)" }}>
-              <Paperclip className="w-3 h-3" />
-              {attachmentCount}
-            </span>
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {task.assignee ? (
+            <>
+              <span style={{ fontSize: "0.9rem", lineHeight: 1 }}>{getAssigneeEmoji(task.assignee)}</span>
+              <span
+                style={{
+                  color: "var(--text-primary)",
+                  fontWeight: 600,
+                  fontSize: "0.78rem",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {getAssigneeName(task.assignee)}
+              </span>
+              {(isActiveBuild || isActiveReview) && (
+                <span
+                  className="flex-shrink-0"
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    backgroundColor: isActiveBuild ? "#4ade80" : "#a78bfa",
+                    boxShadow: isActiveBuild ? "0 0 6px #4ade8066" : "0 0 6px #a78bfa66",
+                    animation: "pulse 2s ease-in-out infinite",
+                    display: "inline-block",
+                  }}
+                />
+              )}
+            </>
+          ) : (
+            <span style={{ color: "var(--text-muted)", fontSize: "0.75rem" }}>Unassigned</span>
           )}
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+        {/* Micro metadata — date, links, attachments */}
+        <div className="flex items-center gap-1.5 flex-shrink-0 ml-2">
+          {attachmentCount > 0 && (
+            <span className="flex items-center gap-0.5" style={{ color: "var(--text-muted)", fontSize: "0.65rem" }}>
+              <Paperclip className="w-2.5 h-2.5" />
+              {attachmentCount}
+            </span>
+          )}
           {task.source_url && (
             <a
               href={task.source_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
-              style={{ color: "#60a5fa", textDecoration: "none" }}
+              className="transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
+              style={{ color: "#60a5fa", textDecoration: "none", fontSize: "0.7rem" }}
               onClick={(e) => e.stopPropagation()}
               title="Source"
             >
@@ -1874,15 +1900,15 @@ function TaskCard({
               href={`https://github.com/${task.github_issue}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-xs transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
-              style={{ color: "#a78bfa", textDecoration: "none" }}
+              className="transition-opacity hover:opacity-80 opacity-0 group-hover:opacity-100"
+              style={{ color: "#a78bfa", textDecoration: "none", fontSize: "0.65rem" }}
               onClick={(e) => e.stopPropagation()}
               title="GitHub"
             >
               GH
             </a>
           )}
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+          <span style={{ color: "var(--text-muted)", fontSize: "0.65rem" }}>
             {formatDate(task.updated)}
           </span>
         </div>
