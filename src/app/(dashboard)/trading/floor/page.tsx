@@ -395,10 +395,10 @@ export default function TradingFloorPage() {
           { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true, sub: `Deposited ${$(deposit)}` },
           {
-            label: "Record",
-            value: kp ? `${kp.won}W – ${kp.lost}L` : "—",
-            color: "var(--text-primary)",
-            sub: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}% win rate` : undefined,
+            label: "Win Rate",
+            value: kp && (kp.won + kp.lost) > 0 ? `${((kp.won / (kp.won + kp.lost)) * 100).toFixed(0)}%` : "—",
+            color: kp && (kp.won + kp.lost) > 0 && (kp.won / (kp.won + kp.lost)) >= 0.5 ? "#4ade80" : "#ef4444",
+            sub: kp ? `${kp.won}W – ${kp.lost}L` : undefined,
           },
         ].map((item) => (
           <div
