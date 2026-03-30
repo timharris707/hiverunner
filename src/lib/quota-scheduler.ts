@@ -298,14 +298,20 @@ export function hasHigherPriorityPending(
   // If the candidate is already high priority, never block it
   if (HIGH_PRIORITY.has(candidate.priority || "P2")) return false;
 
-  // Check if any high-priority tasks are waiting to run
+  // Check if any high-priority tasks are waiting to run.
+  // Failed/blocked tasks should NOT gate lower-priority promotion — they are stuck
+  // and will be retried or triaged independently.
   return tasks.some(
-    (t) =>
+    (t: any) =>
       t.id !== candidateTaskId &&
       HIGH_PRIORITY.has(t.priority || "P2") &&
       ["backlog", "on-deck", "in-progress"].includes(t.status) &&
       // Only block if the high-priority task doesn't already have an active build
-      !["done", "review"].includes(t.status)
+      !["done", "review"].includes(t.status) &&
+      // Don't let failed or blocked builds gate lower-priority tasks
+      t.buildState !== "failed" &&
+      t.buildState !== "blocked" &&
+      t.status !== "blocked"
   );
 }
 

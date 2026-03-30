@@ -18,6 +18,7 @@ import {
 } from "@/lib/agent-pipeline";
 import { getAgentByAnyId } from "@/config/agents";
 import { dbReadTasks, dbWriteTasks, dbJournalTransition, dbCheckpoint } from "@/lib/tasks-db";
+import { dbGetTransitions } from "@/lib/tasks-db";
 
 const DATA_DIR = join(process.cwd(), "data");
 const PROJECTS_FILE = join(DATA_DIR, "projects.json");
@@ -39,6 +40,9 @@ const CHECKPOINT_INTERVAL_MS = 60 * 60 * 1000; // 1 hour — periodic WAL snapsh
 const STALE_BUILD_TIMEOUT_MS = 20 * 60 * 1000; // 20 minutes — if a build is "running" longer than this, mark it failed
 const IN_PROGRESS_HEARTBEAT_TIMEOUT_MS = 30 * 60 * 1000; // 30 min — in-progress with no active build triggers escalation
 const REVIEW_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — review without resolution triggers alert
+const MAX_BUILD_RETRIES = 2; // Auto-retry failed builds up to 2 times (3 total attempts)
+const BUILD_RETRY_DELAY_MS = 60_000; // 60 seconds between retry attempts
+const STALL_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — in-progress with no build activity triggers alert
 
 // ── Task Status State Machine ──────────────────────────────────────────────────
 // Single source of truth for all valid task status transitions.
@@ -223,19 +227,65 @@ export function writeBuildLog(data: { builds: any[] }) {
   writeFileSync(BUILD_LOG_FILE, JSON.stringify(data, null, 2));
 }
 
-async function withFactoryLock<T>(fn: () => Promise<T> | T): Promise<T> {
+function parseFactoryLockFile(raw: string): { holder: string; acquiredAt: string | null; timestampMs: number | null } {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return { holder: "factory", acquiredAt: null, timestampMs: null };
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as { holder?: string; acquiredAt?: string; timestampMs?: number };
+    return {
+      holder: parsed.holder || "factory",
+      acquiredAt: parsed.acquiredAt || null,
+      timestampMs: typeof parsed.timestampMs === "number" ? parsed.timestampMs : parsed.acquiredAt ? new Date(parsed.acquiredAt).getTime() : null,
+    };
+  } catch {
+    const timestampMs = Number(trimmed);
+    return {
+      holder: "factory",
+      acquiredAt: Number.isNaN(timestampMs) ? null : new Date(timestampMs).toISOString(),
+      timestampMs: Number.isNaN(timestampMs) ? null : timestampMs,
+    };
+  }
+}
+
+function readFactoryLockState(): { holder: string; acquiredAt: string | null; held: boolean } {
+  try {
+    const raw = readFileSync(FACTORY_LOCK_FILE, "utf-8");
+    const parsed = parseFactoryLockFile(raw);
+    return {
+      holder: parsed.holder || "factory",
+      acquiredAt: parsed.acquiredAt,
+      held: true,
+    };
+  } catch {
+    return {
+      holder: "none",
+      acquiredAt: null,
+      held: false,
+    };
+  }
+}
+
+async function withFactoryLock<T>(fn: () => Promise<T> | T, holder = "factory"): Promise<T> {
   const staleMs = 30_000;
   const maxWaitMs = 5_000;
   const started = Date.now();
 
   while (true) {
     try {
-      writeFileSync(FACTORY_LOCK_FILE, String(Date.now()), { flag: "wx" });
+      const now = Date.now();
+      writeFileSync(FACTORY_LOCK_FILE, JSON.stringify({
+        holder,
+        acquiredAt: new Date(now).toISOString(),
+        timestampMs: now,
+      }), { flag: "wx" });
       break;
     } catch {
       try {
-        const existingTs = Number(readFileSync(FACTORY_LOCK_FILE, "utf-8"));
-        if (!Number.isNaN(existingTs) && Date.now() - existingTs > staleMs) {
+        const existing = parseFactoryLockFile(readFileSync(FACTORY_LOCK_FILE, "utf-8"));
+        if (existing.timestampMs !== null && Date.now() - existing.timestampMs > staleMs) {
           unlinkSync(FACTORY_LOCK_FILE);
           continue;
         }
@@ -1208,6 +1258,75 @@ function comparePriority(a: any, b: any) {
   return new Date(a.created || 0).getTime() - new Date(b.created || 0).getTime();
 }
 
+function computePendingPromotions(tasks: any[], projects: any[], buildLog: { builds: any[] }) {
+  let toInProgress = 0;
+  let toOnDeck = 0;
+
+  const terminalStatuses = new Set(["done"]);
+  const byProject = new Map<string, any[]>();
+
+  for (const task of tasks) {
+    if (terminalStatuses.has(task.status)) continue;
+    const projectId = task.project || "unscoped";
+    if (!byProject.has(projectId)) byProject.set(projectId, []);
+    byProject.get(projectId)!.push(task);
+  }
+
+  for (const [, projectTasks] of byProject) {
+    const onDeck = projectTasks.filter((task: any) => task.status === "on-deck").sort(comparePriority);
+    const backlog = projectTasks.filter((task: any) => task.status === "backlog").sort(comparePriority);
+    const currentOnDeckCount = projectTasks.filter((task: any) => task.status === "on-deck").length;
+    const slotsAvailable = Math.max(0, MAX_ON_DECK_PER_PROJECT - currentOnDeckCount);
+
+    for (const candidate of onDeck) {
+      const { executionKey } = getProjectMeta(candidate, projects);
+      if (findActiveEntryForExecutionKey(buildLog, executionKey)) continue;
+      if (!Array.isArray(candidate.acceptance_criteria) || candidate.acceptance_criteria.length === 0) continue;
+      toInProgress++;
+    }
+
+    toOnDeck += Math.min(slotsAvailable, backlog.length);
+  }
+
+  return {
+    toInProgress,
+    toOnDeck,
+    total: toInProgress + toOnDeck,
+  };
+}
+
+export function getFactoryStatusSnapshot() {
+  const tasks = readTasks();
+  const projects = readProjects();
+  const buildLog = readBuildLog();
+  const lock = readFactoryLockState();
+  const pendingPromotions = computePendingPromotions(tasks, projects, buildLog);
+  const recentPromotionEvents = dbGetTransitions(undefined, 200)
+    .filter((entry) => entry.actor === "reconciler" && (entry.to_status === "in-progress" || entry.to_status === "on-deck"))
+    .slice(0, 10)
+    .map((entry) => {
+      const task = tasks.find((candidate: any) => candidate.id === entry.task_id);
+      return {
+        taskId: entry.task_id,
+        taskTitle: task?.title || entry.task_id,
+        project: task?.project || "unscoped",
+        kind: entry.to_status === "in-progress" ? "on-deck-to-in-progress" : "backlog-to-on-deck",
+        fromStatus: entry.from_status,
+        toStatus: entry.to_status,
+        timestamp: entry.ts,
+      };
+    });
+
+  return {
+    lastReconcileAt: lastReconcileAt > 0 ? new Date(lastReconcileAt).toISOString() : null,
+    nextScheduledReconcileAt: new Date((lastReconcileAt > 0 ? lastReconcileAt : Date.now()) + RECONCILE_INTERVAL_MS).toISOString(),
+    currentLockHolder: lock.held ? lock.holder : "none",
+    queueDepth: (buildLog.builds || []).filter((build: any) => build.status === "queued").length,
+    pendingPromotions,
+    recentPromotionEvents,
+  };
+}
+
 /**
  * Autonomous task advancement:
  * 1. on-deck → in-progress when build capacity is available for that execution key
@@ -1423,6 +1542,57 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       }
     }
 
+    // ── Auto-retry drain — kick tasks whose retry delay has elapsed ────────────
+    for (const task of tasks) {
+      if (task.status !== "in-progress") continue;
+      if (task.buildState !== "failed") continue;
+      if (!task.buildRetryScheduledAt) continue;
+      const retryAt = new Date(task.buildRetryScheduledAt).getTime();
+      if (now >= retryAt) {
+        const attempt = (task.buildFailureCount || 0) + 1;
+        console.log(`[factory] Auto-retry drain: ${task.id} — attempt ${attempt}/${MAX_BUILD_RETRIES + 1}`);
+        delete task.buildRetryScheduledAt;
+        clearTransientBuildTracking(task);
+        delete task.buildState;
+        delete task.buildTriggeredAt;
+        delete task.buildQueuedAt;
+        delete task.buildStartedAt;
+        delete task.buildCompletedAt;
+        delete task.buildOutput;
+        task.buildError = null;
+        task.updated = new Date().toISOString();
+        tasksToKick.add(task.id);
+        changed = true;
+      }
+    }
+
+    // ── Stall detection — alert if any task in-progress >15 min with no build activity
+    for (const task of tasks) {
+      if (task.status !== "in-progress") continue;
+      if (task.stallAlertSent) continue; // already alerted
+      if (findPendingEntryForTask(buildLog, task.id)) continue; // active build exists
+      if (task.buildRetryScheduledAt) continue; // retry is scheduled, not stalled
+      const lastActivity = task.buildCompletedAt || task.buildStartedAt || task.buildTriggeredAt || task.updated || task.created;
+      if (!lastActivity) continue;
+      const elapsedMs = now - new Date(lastActivity).getTime();
+      if (elapsedMs > STALL_ALERT_TIMEOUT_MS) {
+        const minutes = Math.round(elapsedMs / 60000);
+        console.warn(`[factory] Stall alert: ${task.id} in-progress ${minutes}min with no build activity`);
+        task.stallAlertSent = true;
+        addPipelineComment(task, `⚠️ Stall detected: no build activity for ${minutes}min — alerting Henry`, "Pipeline", "⚠️");
+        sendTelegramNotification(
+          `⚠️ STALL DETECTED: "${String(task.title || task.id).replace(/"/g, "'")}" in-progress for ${minutes}min with no build activity. May need triage.`
+        );
+        createInAppNotification(
+          "⚠️ Stall Detected",
+          `"${String(task.title || task.id).replace(/"/g, "'")}" in-progress ${minutes}min — no build activity`,
+          "warning",
+          "/tasks"
+        );
+        changed = true;
+      }
+    }
+
     // Review alert — notify if task has been in review > 15min without resolution
     for (const task of tasks) {
       if (task.status !== "review") continue;
@@ -1519,7 +1689,7 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
       taskIdsToKick: Array.from(tasksToKick),
       importedFromLog: importedCount,
     };
-  });
+  }, `reconcile:${options?.source || "factory"}`);
 
   // Notify when on-deck tasks are auto-promoted to in-progress
   for (const label of sweep.promotedLabels) {
@@ -1819,16 +1989,11 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
         notifyText = `🔍 Build complete, auto-reviewer spawning: ${String(task.title || taskId).replace(/"/g, "'")}`;
       }
     } else {
-      transitionTask(task, "in-progress", "build-failure");
-      task.buildState = "failed";
+      // ── Auto-retry failed builds ──────────────────────────────────────
+      const failureCount = (task.buildFailureCount || 0) + 1;
+      task.buildFailureCount = failureCount;
       task.buildError = output.slice(-1500);
-      notifyText = `❌ Task failed: ${String(task.title || taskId).replace(/"/g, "'")} — check build log`;
       completedAgentId = entry.assignedAgent || assignment.agentId || null;
-      // Advance the AGENT's queue (not just the execution key) so the next queued task for
-      // the same agent starts immediately, even if it's in a different project.
-      nextTaskId = completedAgentId
-        ? nextQueuedTaskIdForAgent(buildLog, completedAgentId)
-        : nextQueuedTaskId(buildLog, entry.executionKey);
 
       // Record agent memory even for failures
       memoryData = {
@@ -1838,6 +2003,47 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
         project: task.project || "unscoped",
         output,
       };
+
+      if (failureCount > MAX_BUILD_RETRIES) {
+        // 3rd failure (or more) → move to blocked, alert Henry
+        transitionTask(task, "blocked", "build-failure-cap");
+        task.buildState = "blocked";
+        task.escalatedToHenry = true;
+        task.escalatedAt = now;
+        task.escalationReason = `Build failed ${failureCount} times — auto-retry exhausted`;
+        addPipelineComment(
+          task,
+          `🛑 Build failed ${failureCount} times — auto-retry exhausted, moved to blocked. Last error:\n${output.slice(-300)}`,
+          "Pipeline",
+          "🛑"
+        );
+        notifyText = `🛑 BUILD RETRY EXHAUSTED: "${String(task.title || taskId).replace(/"/g, "'")}" failed ${failureCount} times — moved to blocked. Needs triage.`;
+        sendTelegramNotification(notifyText);
+        createInAppNotification(
+          "🛑 Build Retry Exhausted",
+          `"${String(task.title || taskId).replace(/"/g, "'")}" failed ${failureCount} times — blocked`,
+          "error",
+          "/tasks"
+        );
+      } else {
+        // Retry available — schedule retry after delay
+        transitionTask(task, "in-progress", "build-failure");
+        task.buildState = "failed";
+        task.buildRetryScheduledAt = new Date(Date.now() + BUILD_RETRY_DELAY_MS).toISOString();
+        addPipelineComment(
+          task,
+          `❌ Build failed (attempt ${failureCount}/${MAX_BUILD_RETRIES + 1}) — auto-retry scheduled in ${BUILD_RETRY_DELAY_MS / 1000}s`,
+          "Pipeline",
+          "🔄"
+        );
+        notifyText = `🔄 Build failed (attempt ${failureCount}/${MAX_BUILD_RETRIES + 1}): "${String(task.title || taskId).replace(/"/g, "'")}" — auto-retry in 60s`;
+      }
+
+      // Advance the AGENT's queue (not just the execution key) so the next queued task for
+      // the same agent starts immediately, even if it's in a different project.
+      nextTaskId = completedAgentId
+        ? nextQueuedTaskIdForAgent(buildLog, completedAgentId)
+        : nextQueuedTaskId(buildLog, entry.executionKey);
     }
 
     writeBuildLog(buildLog);
@@ -2719,4 +2925,7 @@ export const __testHooks = {
   queueOrStartBuildDecision,
   finalizeGaterQA,
   updateRunningState,
+  setLastReconcileAt(value: number) {
+    lastReconcileAt = value;
+  },
 };
