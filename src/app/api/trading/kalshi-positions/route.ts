@@ -159,7 +159,7 @@ export async function GET() {
     // Get unique tickers to batch-fetch
     const tickers = [...new Set(positions.map((p) => String(p.ticker)))];
 
-    type MarketPrice = { yes_bid: number | null; yes_ask: number | null; last: number | null };
+    type MarketPrice = { yes_bid: number | null; yes_ask: number | null; last: number | null; close_time: string | null };
     const currentPrices: Record<string, MarketPrice> = {};
 
     // Fetch market data in parallel (batch of 10 at a time to avoid rate limits)
@@ -187,6 +187,7 @@ export async function GET() {
             yes_bid: d.yes_bid_dollars ? parseFloat(d.yes_bid_dollars) : null,
             yes_ask: d.yes_ask_dollars ? parseFloat(d.yes_ask_dollars) : null,
             last: d.last_price_dollars ? parseFloat(d.last_price_dollars) : null,
+            close_time: d.close_time || null,
           };
         }
       }
@@ -229,6 +230,12 @@ export async function GET() {
         (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
       ) ?? 0;
       const fees = apiFees ?? (fillFees > 0 ? fillFees : 0);
+
+      // Use Kalshi's actual close_time for settlement if available
+      if (current && (current as Record<string, unknown>).close_time) {
+        p.settlement_scheduled_at = String((current as Record<string, unknown>).close_time);
+      }
+
       return { ...p, now_price: nowPrice, fees };
     });
 
