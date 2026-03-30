@@ -179,7 +179,7 @@ export default function TradingFloorPage() {
   const [kalshiPortfolio, setKalshiPortfolio] = useState<{
     cash: number; positions: number; portfolio: number; initialDeposit: number;
     pnl: number; pnlPercent: number; won: number; lost: number;
-    realizedPnl: number; unrealizedPnl: number; pnl24h: number; totalFees: number;
+    realizedPnl: number; unrealizedPnl: number; pnl24h: number; portfolio24hAgo: number | null; totalFees: number;
     costBasis: number; positionsCount: number;
     versionBreakdown: { strategy_version: string; total: number; open: number; won: number; lost: number;
       realized_pnl: number; unrealized_pnl: number; total_pnl: number; open_cost: number; total_cost: number }[];
@@ -433,8 +433,18 @@ export default function TradingFloorPage() {
       >
         {[
           { label: "Portfolio", value: kp ? $(kp.portfolio) : "—", color: "var(--text-primary)", bold: true,
-            sub: kp ? `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} (24h)` : undefined,
-            subColor: kp ? (kp.pnl24h >= 0 ? "#4ade80" : "#ef4444") : undefined,
+            sub: kp ? (() => {
+              // Use snapshot-based 24h change if available, otherwise fall back to settled P&L
+              if (kp.portfolio24hAgo != null) {
+                const change = kp.portfolio - kp.portfolio24hAgo;
+                return `${change >= 0 ? "▲" : "▼"} ${$(Math.abs(change))} (24h)`;
+              }
+              return `${kp.pnl24h >= 0 ? "▲" : "▼"} ${$(Math.abs(kp.pnl24h))} settled (24h)`;
+            })() : undefined,
+            subColor: kp ? (() => {
+              if (kp.portfolio24hAgo != null) return (kp.portfolio - kp.portfolio24hAgo) >= 0 ? "#4ade80" : "#ef4444";
+              return kp.pnl24h >= 0 ? "#4ade80" : "#ef4444";
+            })() : undefined,
           },
           { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa", sub: kp ? `${kp.positionsCount} open · Cost basis ${$(kp.costBasis)}` : undefined },
           { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },

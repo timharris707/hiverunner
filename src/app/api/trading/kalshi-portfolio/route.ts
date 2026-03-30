@@ -105,6 +105,17 @@ export async function GET() {
         lost = totals?.lost ?? 0;
         realizedPnl = totals?.realized_pnl ?? 0;
         var pnl24h = totals?.pnl_24h ?? 0;
+        
+        // Try to get 24h portfolio change from snapshots
+        let portfolio24hAgo: number | null = null;
+        try {
+          const snap = db.prepare(
+            `SELECT portfolio_total FROM portfolio_snapshots 
+             WHERE timestamp < datetime('now', '-23 hours') 
+             ORDER BY timestamp DESC LIMIT 1`
+          ).get() as { portfolio_total: number } | undefined;
+          if (snap) portfolio24hAgo = snap.portfolio_total;
+        } catch { /* snapshots table may not exist yet */ }
         db.close();
       } catch { /* ignore */ }
     }
@@ -138,6 +149,7 @@ export async function GET() {
       pnlPercent: ((portfolio - initialDeposit) / initialDeposit) * 100,
       realizedPnl,
       pnl24h: typeof pnl24h !== "undefined" ? pnl24h : 0,
+      portfolio24hAgo,
       unrealizedPnl: (portfolio - initialDeposit) - realizedPnl,
       won,
       lost,
