@@ -142,30 +142,6 @@ export default function AgentsPage() {
     (a) => a.displayStatus === "NOT DEPLOYED"
   ).length;
 
-  if (loading) {
-    return (
-      <div className="p-8">
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="w-8 h-8 border-2 rounded-full animate-spin"
-              style={{
-                borderColor: "var(--border)",
-                borderTopColor: "var(--accent)",
-              }}
-            />
-            <div
-              className="text-sm font-medium"
-              style={{ color: "var(--text-muted)" }}
-            >
-              Polling agent sessions…
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 md:p-8">
       {/* Header */}
@@ -198,13 +174,15 @@ export default function AgentsPage() {
                   : "Gateway unreachable — statuses may be stale"
               }
             >
-              {gatewayReachable ? (
+              {loading ? (
+                <div className="w-3.5 h-3.5 border border-current rounded-full animate-spin opacity-60" style={{ borderTopColor: "transparent" }} />
+              ) : gatewayReachable ? (
                 <Wifi className="w-3.5 h-3.5" />
               ) : (
                 <WifiOff className="w-3.5 h-3.5" />
               )}
               <span className="hidden sm:inline">
-                {gatewayReachable ? "Live" : "Disconnected"}
+                {loading ? "Connecting…" : gatewayReachable ? "Live" : "Disconnected"}
               </span>
             </div>
             <button
