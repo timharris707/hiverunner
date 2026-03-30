@@ -457,12 +457,12 @@ export default function TradingFloorPage() {
               { label: "Positions", value: `${groups.length}`, color: "var(--text-primary)", bold: true,
                 sub: `${filtered.length} orders · ${filteredOpen.length} open` },
               { label: "Cash Deployed", value: $(fCost), color: "#60a5fa" },
-              { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "—",
-                color: fSettledPnl >= 0 ? "#4ade80" : "#ef4444",
+              { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "$0.00",
+                color: filteredSettled.length > 0 ? (fSettledPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)",
                 sub: filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
               { label: "Win Rate", value: fWR !== "—" ? `${fWR}%` : "—",
                 color: fWR !== "—" && parseInt(fWR) >= 50 ? "#4ade80" : "#ef4444",
-                sub: fWR !== "—" ? `${filteredWon.length}W – ${filteredLost.length}L` : undefined },
+                sub: fWR !== "—" ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
             ];
           }
           // No filters — show account-level summary
@@ -511,32 +511,66 @@ export default function TradingFloorPage() {
         ))}
       </div>
 
-      {/* ── P&L Breakdown ─────────────────────────────── */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
-        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
-          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.realizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
-            {kp ? $(kp.realizedPnl) : "—"}
+      {/* ── P&L Breakdown (filter-aware) ────────────────── */}
+      {(() => {
+        if (hasFilters) {
+          // When filtered: show P&L only for filtered trades
+          const fRealizedPnl = filteredSettled.reduce((s, t) => s + (t.pnl ?? 0), 0);
+          return (
+            <div className="grid grid-cols-3 gap-3 mb-6">
+              <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
+                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: filteredSettled.length > 0 ? (fRealizedPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)" }}>
+                  {filteredSettled.length > 0 ? $(fRealizedPnl) : "$0.00"}
+                </div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements in filter"}</div>
+              </div>
+              <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
+                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+                  {filteredOpen.length > 0 && kp ? $(kp.unrealizedPnl) : "$0.00"}
+                </div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredOpen.length} open positions</div>
+              </div>
+              <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+                <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
+                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
+                  {filteredSettled.length > 0 ? $(fRealizedPnl) : "$0.00"}
+                </div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Filtered view</div>
+              </div>
+            </div>
+          );
+        }
+        // No filter: show account-level P&L
+        return (
+          <div className="grid grid-cols-3 gap-3 mb-6">
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
+              <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.realizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+                {kp ? $(kp.realizedPnl) : "—"}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Settled trades</div>
+            </div>
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
+              <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+                {kp ? $(kp.unrealizedPnl) : "—"}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open positions (current market)</div>
+            </div>
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
+              <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
+              <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.pnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
+                {kp ? $(kp.pnl) : "—"}
+              </div>
+              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                {kp?.pnlPercent != null ? `${kp.pnlPercent.toFixed(1)}%` : ""}{kp?.totalFees ? ` · Fees: ${$(kp.totalFees)}` : ""}
+              </div>
+            </div>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Settled trades</div>
-        </div>
-        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
-          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.unrealizedPnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
-            {kp ? $(kp.unrealizedPnl) : "—"}
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open positions (current market)</div>
-        </div>
-        <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
-          <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
-          <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: (kp?.pnl ?? 0) >= 0 ? "#4ade80" : "#ef4444" }}>
-            {kp ? $(kp.pnl) : "—"}
-          </div>
-          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-            {kp?.pnlPercent != null ? `${kp.pnlPercent.toFixed(1)}%` : ""}{kp?.totalFees ? ` · Fees: ${$(kp.totalFees)}` : ""}
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* ── Version Breakdown (collapsible, newest first) ── */}
       {kp?.versionBreakdown && kp.versionBreakdown.length > 0 && (
@@ -648,7 +682,7 @@ export default function TradingFloorPage() {
           })}
         </div>
         <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
-          {filtered.length} trades · {filteredOpen.length} open · {filteredWon.length}W/{filteredLost.length}L
+          {groups.length} positions · {filtered.length} orders · {filteredOpen.length} open · {filteredWon.length}W/{filteredLost.length}L
         </span>
       </div>
 
