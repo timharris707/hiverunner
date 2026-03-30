@@ -197,6 +197,7 @@ export default function TradingFloorPage() {
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
   const [sortAsc, setSortAsc] = useState<Record<string, boolean>>({ placed: false, settles: true, city: true });
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
+  const [currentTemps, setCurrentTemps] = useState<Record<string, number>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -210,6 +211,7 @@ export default function TradingFloorPage() {
       if (forecastRes.ok) {
         const fData = await forecastRes.json();
         if (fData.forecasts) setLiveForecasts(fData.forecasts);
+        if (fData.currentTemps) setCurrentTemps(fData.currentTemps);
         if (fData.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
       }
       const statsData = await statsRes.json();
@@ -657,7 +659,7 @@ export default function TradingFloorPage() {
                 style={{
                   backgroundColor: isSettled ? (isWon ? "#4ade8008" : "#ef444408") : "transparent",
                   display: "grid",
-                  gridTemplateColumns: "48px 1fr 70px 80px 100px 110px 100px 28px",
+                  gridTemplateColumns: "48px 1fr 60px 70px 80px 100px 110px 100px 28px",
                   gap: 12,
                   alignItems: "center",
                 }}
@@ -705,6 +707,19 @@ export default function TradingFloorPage() {
                       {g.strategyVersion}
                     </span>
                   </div>
+                </div>
+
+                {/* Current — live temperature right now */}
+                <div>
+                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Current</div>
+                  {(() => {
+                    const temp = currentTemps[g.city.toLowerCase()];
+                    return (
+                      <div className="text-sm font-bold" style={{ color: temp != null ? "#f59e0b" : "var(--text-muted)" }}>
+                        {temp != null ? `${temp}°F` : "—"}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Forecast — live from Open-Meteo, matched to bet type */}
