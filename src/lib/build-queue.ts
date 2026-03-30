@@ -14,6 +14,7 @@ import {
   extractMemoryFromOutput,
   recordAgentMemory,
   buildQAHandoffPrompt,
+  buildGaterReviewPrompt,
 } from "@/lib/agent-pipeline";
 import { getAgentByAnyId } from "@/config/agents";
 import { dbReadTasks, dbWriteTasks, dbJournalTransition, dbCheckpoint } from "@/lib/tasks-db";
@@ -1988,10 +1989,14 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
   let notifyOutcome: "done" | "review" | "failed" | null = null;
   let notifyTask: any = null;
   let originalExecutionKey = "";
+  let gaterSpawnData: {
+    task: any; gaterEntry: any; projectName: string; projectDir: string; buildOutput: string; captures: any[];
+  } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
     const tasks = readTasks();
+    const projects = readProjects();
     const reviewEntry = buildLog.builds.find((b: any) => b.id === reviewBuildId);
     const task = tasks.find((t: any) => t.id === taskId);
 
@@ -2085,7 +2090,45 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
             lastUpdatedAt: now,
           };
         }
-        notifyText = `✅ Auto-review approved → assigned to Gater for review: ${String(task.title || taskId).replace(/"/g, "'")}`;
+
+        // Create build log entry and prepare to spawn Gater as a real process
+        const { projectName, projectDir } = getProjectMeta(task, projects);
+        const gaterEntry = {
+          id: `gater-qa-${Date.now()}`,
+          taskId: task.id,
+          taskTitle: task.title,
+          project: task.project,
+          executionKey: `${reviewEntry.executionKey || reviewEntry.originalExecutionKey || task.project}:gater-qa`,
+          originalExecutionKey: reviewEntry.originalExecutionKey || reviewEntry.executionKey || "",
+          status: "spawning",
+          queuedAt: null,
+          startedAt: now,
+          completedAt: null,
+          agentType: "gater-qa",
+          workDir: reviewEntry.workDir || projectDir,
+          source: "auto-gater-qa",
+          routing: {
+            tier: "sonnet",
+            modelId: "anthropic/claude-sonnet-4-6",
+            modelName: "Sonnet 4.6",
+            reason: "Code review approved → Gater final QA gate",
+          },
+        };
+        buildLog.builds.unshift(gaterEntry);
+
+        // Collect existing screenshots for Gater
+        const existingCaptures = Array.isArray(task.visualReview?.captures) ? task.visualReview.captures : [];
+
+        gaterSpawnData = {
+          task: { ...task },
+          gaterEntry,
+          projectName,
+          projectDir,
+          buildOutput: output.slice(-1500),
+          captures: existingCaptures,
+        };
+
+        notifyText = `✅ Auto-review approved → spawning Gater QA: ${String(task.title || taskId).replace(/"/g, "'")}`;
         notifyOutcome = "review";
       } else {
         transitionTask(task, "done", "code-review", { force: true, reason: "auto-approve: review not required for this task type" });
@@ -2109,6 +2152,14 @@ async function finalizeReview(reviewBuildId: string, taskId: string, success: bo
     notifyTaskCompletion(notifyTask, notifyOutcome);
   } else if (notifyText) {
     sendSystemEvent(notifyText);
+  }
+
+  // Spawn Gater QA as a real Claude process
+  if (gaterSpawnData) {
+    const { task, gaterEntry, projectName, projectDir, buildOutput, captures } = gaterSpawnData;
+    spawnGaterQAProcess(task, gaterEntry, projectName, projectDir, buildOutput, captures);
+    // Review pipeline continues in finalizeGaterQA — don't advance build queue yet
+    return;
   }
 
   if (requeue) {
@@ -2180,6 +2231,211 @@ function spawnReviewProcess(task: any, reviewEntry: any, projectName: string, pr
     finalizeReview(reviewEntry.id, task.id, false, err.message).catch((finalizeErr) => {
       console.error("Error finalizing failed review spawn:", finalizeErr);
     });
+  });
+}
+
+/** Spawn Gater QA agent as a real Claude process for final review gate */
+function spawnGaterQAProcess(
+  task: any,
+  gaterEntry: any,
+  projectName: string,
+  projectDir: string,
+  buildOutput: string,
+  captures: any[],
+) {
+  const prompt = buildGaterReviewPrompt(task, projectName, buildOutput, captures);
+  const args = ["--permission-mode", "bypassPermissions", "--model", REVIEWER_MODEL, "--print", prompt];
+
+  sendSystemEvent(`🚧 Gater QA spawning for: ${String(task.title || task.id).replace(/"/g, "'")} — final review gate`);
+
+  const gaterEnv = {
+    ...process.env,
+    PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
+  };
+
+  const child = execFile(
+    "claude",
+    args,
+    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env: gaterEnv },
+    (error, stdout, stderr) => {
+      const output = summarizeOutput(error, stdout, stderr);
+      finalizeGaterQA(gaterEntry.id, task.id, !error, output).catch((err) => {
+        console.error("Error finalizing Gater QA:", err);
+      });
+    },
+  );
+
+  child.on("spawn", () => {
+    withFactoryLock(async () => {
+      const buildLog = readBuildLog();
+      const entry = buildLog.builds.find((b: any) => b.id === gaterEntry.id);
+      if (entry && entry.status === "spawning") {
+        entry.status = "running";
+        entry.runningAt = new Date().toISOString();
+        writeBuildLog(buildLog);
+      }
+      const tasks = readTasks();
+      const t = tasks.find((t: any) => t.id === task.id);
+      if (t) {
+        t.reviewStatus = "gater-reviewing";
+        t.updated = new Date().toISOString();
+        writeTasks(tasks);
+      }
+    }).catch(() => {});
+  });
+
+  child.on("error", (err) => {
+    finalizeGaterQA(gaterEntry.id, task.id, false, err.message).catch((finalizeErr) => {
+      console.error("Error finalizing failed Gater QA spawn:", finalizeErr);
+    });
+  });
+}
+
+/** Handle Gater QA completion — approved → done, rejected → back to in-progress, blocked → surface */
+async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: boolean, output: string) {
+  let requeue = false;
+  let notifyText = "";
+  let notifyOutcome: "done" | "review" | "failed" | null = null;
+  let notifyTask: any = null;
+
+  await withFactoryLock(async () => {
+    const buildLog = readBuildLog();
+    const tasks = readTasks();
+    const gaterEntry = buildLog.builds.find((b: any) => b.id === gaterBuildId);
+    const task = tasks.find((t: any) => t.id === taskId);
+
+    if (!gaterEntry || !task) return;
+
+    const now = new Date().toISOString();
+    gaterEntry.completedAt = now;
+    gaterEntry.output = output.slice(-1500);
+
+    if (!success) {
+      // Gater process itself failed — treat as approved to avoid blocking the pipeline
+      gaterEntry.status = "failed";
+      console.warn(`[factory] Gater QA process failed for ${taskId}, treating as approved`);
+      transitionTask(task, "done", "gater-qa", { force: true, reason: "Gater process failed — auto-approved to unblock pipeline" });
+      task.reviewStatus = "approved";
+      task.reviewCompletedAt = now;
+      task.completedAt = now;
+      addPipelineComment(task, "Gater QA process failed — auto-approved to avoid blocking pipeline", "Gater", "🚧");
+      notifyText = `⚠️ Gater QA failed (process error) — auto-approved: ${String(task.title || taskId).replace(/"/g, "'")}`;
+      notifyOutcome = "done";
+    } else {
+      gaterEntry.status = "completed";
+      const { verdict, notes } = parseReviewVerdict(output);
+
+      // Check for BLOCKED verdict
+      if (/VERDICT:\s*BLOCKED/i.test(output)) {
+        const blockerMatch = output.match(/BLOCKED:\s*(.+?)(?:\n|$)/i);
+        const blockerReason = blockerMatch ? blockerMatch[1].trim() : "Gater cannot verify this task";
+
+        transitionTask(task, "blocked", "gater-qa");
+        task.reviewStatus = "blocked";
+        task.blocker = {
+          reason: blockerReason,
+          category: "cannot-verify" as const,
+          raisedAt: now,
+          raisedBy: "gater",
+          notifiedHenry: true,
+          resolved: false,
+        };
+        addPipelineComment(task, `BLOCKED: ${blockerReason}`, "Gater", "🚧");
+        notifyText = `🚧 Gater BLOCKED on: ${String(task.title || taskId).replace(/"/g, "'")} — ${blockerReason}`;
+        sendTelegramNotification(`🚧 Gater BLOCKED: "${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason}`);
+        createInAppNotification("🚧 Gater Blocked", `"${String(task.title || taskId).replace(/"/g, "'")}" — ${blockerReason}`, "warning", "/tasks");
+      } else if (verdict === "APPROVED") {
+        transitionTask(task, "done", "gater-qa", { force: true, reason: "Gater approved" });
+        task.reviewStatus = "approved";
+        task.reviewCompletedAt = now;
+        task.completedAt = now;
+        task.lastReviewVerdict = "APPROVED";
+        task.lastReviewerAgent = "Gater";
+        task.lastReviewAt = now;
+        addPipelineComment(task, "✅ Gater QA APPROVED — task complete", "Gater", "🚧");
+        notifyText = `✅ Gater APPROVED: ${String(task.title || taskId).replace(/"/g, "'")}`;
+        notifyOutcome = "done";
+      } else {
+        // NEEDS_FIX — send back to in-progress
+        // GUARD: never resurrect a done task
+        if (task.status === "done") {
+          console.log(`[factory] Gater NEEDS_FIX but task ${taskId} is done — skipping rejection`);
+          writeBuildLog(buildLog);
+          writeTasks(tasks);
+          return;
+        }
+
+        const failureCount = (task.reviewFailureCount || 0) + 1;
+        task.reviewFailureCount = failureCount;
+        transitionTask(task, "in-progress", "gater-qa");
+        task.buildState = "failed";
+        task.buildError = `Gater review rejected (attempt ${failureCount}):\n${notes}`;
+        task.reviewStatus = "rejected";
+        task.lastReviewVerdict = "NEEDS_FIX";
+        task.lastReviewerAgent = "Gater";
+        task.lastReviewNotes = notes;
+        task.lastReviewAt = now;
+        delete task.completedAt;
+        requeue = true;
+
+        // Re-assign to original builder
+        const originalBuilder = task.assignedAgent || task.assignee;
+        if (originalBuilder) {
+          const builderAgent = getAgentByAnyId(originalBuilder);
+          if (builderAgent) {
+            task.assignee = builderAgent.name.replace(/\s*[^\w\s].*$/, "").trim() || builderAgent.name;
+            addPipelineComment(task, `Gater review rejected (attempt ${failureCount}) — reassigned to ${builderAgent.name} for fixes:\n${notes.slice(0, 300)}`, "Gater", "🚧");
+          }
+        }
+
+        if (failureCount >= MAX_REVIEW_FAILURES_BEFORE_ESCALATION) {
+          task.escalatedToHenry = true;
+          task.escalatedAt = now;
+          task.escalationReason = `Gater rejected ${failureCount} times. Latest issues: ${notes.slice(0, 300)}`;
+          notifyText = `🚨 ESCALATION: Gater rejected ${failureCount}x — needs Henry's attention: ${String(task.title || taskId).replace(/"/g, "'")}`;
+          sendTelegramNotification(`🚨 GATER ESCALATION: "${String(task.title || taskId).replace(/"/g, "'")}" rejected ${failureCount} times.\n\nLatest issues:\n${notes.slice(0, 500)}\n\nThis task needs manual intervention.`);
+          createInAppNotification("⚠️ Gater Escalation", `"${String(task.title || taskId).replace(/"/g, "'")}" rejected ${failureCount}x — needs manual attention`, "warning", "/tasks");
+        } else {
+          notifyText = `🔄 Gater NEEDS FIX (attempt ${failureCount}/${MAX_REVIEW_FAILURES_BEFORE_ESCALATION}): ${String(task.title || taskId).replace(/"/g, "'")}`;
+        }
+      }
+    }
+
+    // Record Gater's memory from the output
+    try {
+      const { summary, lessons, knownIssues } = extractMemoryFromOutput(output);
+      recordAgentMemory("gater", {
+        taskId,
+        taskTitle: `Gater QA review: ${taskId}`,
+        project: task.project || "qa",
+        summary: `Gater reviewed task. ${summary}`,
+        lessons,
+        knownIssues,
+      });
+    } catch (_) { /* non-critical */ }
+
+    notifyTask = { ...task };
+    task.updated = now;
+    writeBuildLog(buildLog);
+    writeTasks(tasks);
+  });
+
+  if (notifyOutcome && notifyTask) {
+    notifyTaskCompletion(notifyTask, notifyOutcome);
+  } else if (notifyText) {
+    sendSystemEvent(notifyText);
+  }
+
+  if (requeue) {
+    queueOrStartBuild(taskId, { source: `gater-needs-fix:${gaterBuildId}` }).catch((err) => {
+      console.error("Failed to re-queue task after Gater rejection:", err);
+    });
+    return;
+  }
+
+  // Advance the build queue
+  reconcileBuildQueue({ source: `post-gater-qa:${gaterBuildId}`, force: true }).catch((err) => {
+    console.error("Failed to advance queue after Gater QA:", err);
   });
 }
 

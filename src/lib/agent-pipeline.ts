@@ -582,3 +582,106 @@ export function buildQAHandoffPrompt(
     "Do NOT approve work you cannot verify. Use BLOCKED instead.",
   ].join("\n");
 }
+
+/**
+ * Build the Gater QA review prompt.
+ * Gater is the final gate-keeper: build verification, dual-browser screenshots,
+ * code diff review, and approve/reject with structured comments.
+ */
+export function buildGaterReviewPrompt(
+  task: any,
+  projectName: string,
+  buildOutput: string,
+  captures: any[],
+): string {
+  const tags: string[] = Array.isArray(task.tags) ? task.tags.map((t: string) => String(t).toLowerCase()) : [];
+  const isUITask = tags.some((t) => ["ui", "frontend", "component", "page", "visual", "design", "css", "layout", "dashboard"].includes(t));
+
+  const screenshotPaths = captures
+    .filter((c: any) => c.relativePath || c.filePath)
+    .map((c: any) => {
+      const path = c.filePath || join(process.cwd(), "public", c.relativePath || "");
+      return `- [${c.phase || "after"}] ${path} (captured ${c.capturedAt || "unknown"})`;
+    })
+    .join("\n");
+
+  const qaSteps = [
+    "### Your QA Steps",
+    "You are Gater, the final QA gate-keeper. Nothing ships without your sign-off.",
+    "",
+  ];
+
+  let stepNum = 1;
+  qaSteps.push(`${stepNum++}. **Run \`npm run build 2>&1 | tail -80\`** — build MUST pass. Failure = automatic REJECT.`);
+  qaSteps.push(`${stepNum++}. **Run \`npm test 2>&1 | tail -50\`** — run tests if they exist. New failures = REJECT.`);
+  qaSteps.push(`${stepNum++}. **Run \`git log --oneline -5\`** — verify commits exist with reasonable messages.`);
+  qaSteps.push(`${stepNum++}. **Run \`git diff HEAD~1\`** — read every change. Check for:`);
+  qaSteps.push(`   - Broken imports, missing dependencies, syntax errors`);
+  qaSteps.push(`   - Incomplete implementations (TODO, placeholder, hardcoded stubs)`);
+  qaSteps.push(`   - Does the diff actually address the task description?`);
+  if (isUITask && screenshotPaths) {
+    qaSteps.push(`${stepNum++}. **Read the screenshots** — verify the UI matches the task description.`);
+  }
+  if (isUITask) {
+    qaSteps.push(`${stepNum++}. **Run Playwright screenshots** — capture Chromium + WebKit (Safari) for cross-browser QA:`);
+    qaSteps.push(`   \`npx playwright screenshot --browser=chromium http://localhost:3000 /tmp/gater-chromium.png\``);
+    qaSteps.push(`   \`npx playwright screenshot --browser=webkit http://localhost:3000 /tmp/gater-webkit.png\``);
+    qaSteps.push(`   Then read both screenshots and compare for layout/rendering issues.`);
+  }
+  if (Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0) {
+    qaSteps.push(`${stepNum++}. **Acceptance criteria** — verify EACH criterion below is actually satisfied. Any unmet = REJECT.`);
+  }
+  qaSteps.push(`${stepNum++}. **Final judgement** — is this change safe to ship? Any regressions, security issues, or obvious failure modes?`);
+
+  return [
+    `## Gater QA Review: ${task.title}`,
+    "",
+    `**Project:** ${projectName}`,
+    `**Task Type:** ${task.type || "feature"}`,
+    `**Priority:** ${task.priority}`,
+    `**Tags:** ${Array.isArray(task.tags) ? task.tags.join(", ") : "none"}`,
+    "",
+    buildAgentIdentityBlock("gater", task.project),
+    "",
+    "### Task Description",
+    task.description || task.title,
+    "",
+    ...(Array.isArray(task.acceptance_criteria) && task.acceptance_criteria.length > 0
+      ? [
+          "### Acceptance Criteria",
+          "These verify-that statements MUST all be satisfied for the task to pass:",
+          ...task.acceptance_criteria.map((c: string) => `- ${c}`),
+          "",
+          "You MUST verify each criterion above. Do not approve if any are unmet.",
+          "",
+        ]
+      : []),
+    "### Build Output (last 1500 chars)",
+    "```",
+    buildOutput || "(no output captured)",
+    "```",
+    "",
+    screenshotPaths ? `### Screenshots\n${screenshotPaths}\n` : "",
+    ...qaSteps,
+    "",
+    "### Verdict",
+    "Output EXACTLY one of these blocks at the very end of your response — nothing after it:",
+    "",
+    "If the work is correct, complete, builds clean, and all acceptance criteria met:",
+    "VERDICT: APPROVED",
+    "",
+    "If there are defects, build failures, unmet acceptance criteria, or missing requirements:",
+    "VERDICT: NEEDS_FIX",
+    "NOTES:",
+    "- [specific issue 1]",
+    "- [specific issue 2]",
+    "",
+    "If you cannot verify the work due to missing tools, environment issues, etc.:",
+    "VERDICT: BLOCKED",
+    "BLOCKED: <specific reason why you cannot verify>",
+    "",
+    "IMPORTANT: You are the FINAL gate. Only APPROVED tasks move to Done.",
+    "Only flag real defects — not style nits or theoretical improvements.",
+    "But DO reject if: build fails, tests break, imports missing, acceptance criteria unmet, or task description not addressed.",
+  ].join("\n");
+}
