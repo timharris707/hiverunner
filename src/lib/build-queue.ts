@@ -1234,24 +1234,25 @@ function advanceTasks(
     const backlog = projectTasks.filter((t: any) => t.status === "backlog").sort(comparePriority);
     const inProgress = projectTasks.filter((t: any) => t.status === "in-progress");
 
-    // Step 1: on-deck → in-progress if no active/pending build for this execution key
-    if (onDeck.length > 0) {
-      const candidate = onDeck[0];
+    // Step 1: on-deck → in-progress — check per-agent capacity, not per-project
+    for (const candidate of onDeck) {
       const { executionKey } = getProjectMeta(candidate, projects);
-      const hasActiveBuild = findActiveEntryForExecutionKey(buildLog, executionKey);
-      const hasInProgressBuild = inProgress.some(
-        (t: any) => findPendingEntryForTask(buildLog, t.id)
-      );
+      // Respect repo-level concurrency cap
+      if (findActiveEntryForExecutionKey(buildLog, executionKey)) continue;
 
-      if (!hasActiveBuild && !hasInProgressBuild) {
-        transitionTask(candidate, "in-progress", "reconciler");
-        candidate.updated = now;
-        // Auto-assign the right builder agent on promotion
-        autoAssignBuilder(candidate);
-        addPipelineComment(candidate, "Auto-promoted from on-deck → in-progress (build capacity available)");
-        promoted.push(candidate.id);
-        changed = true;
-      }
+      // Resolve which agent would build this task
+      const candidateAgentId = candidate.assignedAgent || resolveAgentForTask(candidate).agentId;
+
+      // Skip if the candidate's agent already has an active build
+      if (candidateAgentId && findActiveBuildForAgent(buildLog, candidateAgentId)) continue;
+
+      transitionTask(candidate, "in-progress", "reconciler");
+      candidate.updated = now;
+      // Auto-assign the right builder agent on promotion
+      autoAssignBuilder(candidate);
+      addPipelineComment(candidate, "Auto-promoted from on-deck → in-progress (build capacity available)");
+      promoted.push(candidate.id);
+      changed = true;
     }
 
     // Step 2: backlog → on-deck if on-deck count is below threshold
