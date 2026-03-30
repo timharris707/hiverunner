@@ -902,6 +902,7 @@ export default function TradingFloorPage() {
                       <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
                       {(() => {
                         // Check if current temp already determines the outcome
+                        // ONLY for today's bets — tomorrow's weather hasn't happened yet
                         const currentObs = currentTemps[g.city.toLowerCase()];
                         const currentTemp = currentObs?.tempF;
                         const ticker = g.ticker || "";
@@ -909,14 +910,15 @@ export default function TradingFloorPage() {
                         const threshMatch = ticker.match(/-T([\d.]+)$/);
                         const threshold = threshMatch ? parseFloat(threshMatch[1]) : null;
                         const isYes = g.side === "yes";
+                        const todayStr = new Date().toISOString().slice(0, 10);
+                        const isTodayBet = g.targetDate === todayStr;
+                        const isPastBet = g.targetDate < todayStr;
 
-                        // Determine if we've already won based on current temp
+                        // Only determine outcome if the bet's day is today or past
                         let alreadyWon = false;
-                        if (currentTemp != null && threshold != null) {
+                        if ((isTodayBet || isPastBet) && currentTemp != null && threshold != null) {
                           if (isHighBet && isYes && currentTemp >= threshold) alreadyWon = true;
-                          if (isHighBet && !isYes && currentTemp >= threshold) alreadyWon = false; // NO bet loses if temp hit threshold
-                          // For NO bets on high: if temp already exceeded, we lost
-                          // But we can't determine NO wins until end of day
+                          if (isHighBet && !isYes && currentTemp >= threshold) alreadyWon = false;
                         }
 
                         if (alreadyWon) {
