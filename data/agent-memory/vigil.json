@@ -4,6 +4,226 @@
   "role": "QA & Verification Agent",
   "entries": [
     {
+      "taskId": "TASK-1774849547934",
+      "taskTitle": "QA review: TASK-1774849547934",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. omote fix. It's functional and clean, but warrants awareness — the default model routing for most build tasks has changed.\n- If a task is manually assigned via API with a non-canonical agent ID (e.g., `\"Forge\"` instead of `\"backend\"`), `findActiveBuildForAgent` could miss the active build and allow a false promotion. Low probability given `autoAssignBuilder` normalizes IDs on all in-progress transitions, but worth a follow-on defensive check in `autoAssignBuilder` to assert canonical ID format.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774850290068-dlj6",
+      "timestamp": "2026-03-30T05:58:10.068Z"
+    },
+    {
+      "taskId": "TASK-1774848763713",
+      "taskTitle": "QA review: TASK-1774848763713",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. --\n\nVERDICT: APPROVED\n\n**Caveats:**\n- `ActivityEvent` interface should be imported from `activity-stream.ts` in `page.tsx` rather than redeclared locally — minor cleanup for a follow-on PR.\n- Visual verification of live streaming requires an active build in progress — taken on faith from code review; implementation path is straightforward and correct.\n- Agent instrumentation (POSTing to `/api/tasks/activity`) is the remaining consumer-side work to make this feature fully operational end-to-end.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774850024928-9aj9",
+      "timestamp": "2026-03-30T05:53:44.928Z"
+    },
+    {
+      "taskId": "TASK-1774846683206",
+      "taskTitle": "QA review: TASK-1774846683206",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. he cosmetic column-width bug doesn't affect correctness or usability — data is still readable, the tool eliminates the 3AM curl. No functional defects.\n\n---\n\nVERDICT: APPROVED\n\n**Caveats:**\n- Column alignment is off by ~9 chars per ANSI-colored cell — cosmetic only, low priority fix. Root cause: `pad()` already strips ANSI internally, so the `+9` in `pad(col(c.cyan, t.id), ID_W + 9)` etc. should be just `ID_W`.\n- Non-atomic reject and acceptance_criteria guard acknowledged (carried from Forge).",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849950388-j03b",
+      "timestamp": "2026-03-30T05:52:30.388Z"
+    },
+    {
+      "taskId": "TASK-1774846683188",
+      "taskTitle": "QA review: TASK-1774846683188",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. plain text and quoted-title format correctly ✅\n\n**Visual:** Screenshots captured Task Board (harness nav issue), not Dashboard. Same known harness bug from previous task. Code review confirms the \"What's Happening\" card renders `NarrativeFeed` with `limit={8}`.\n\n**Minor note:** One edge case — if a task title contains a `\"` character, the `NarrativeText` regex may parse it unexpectedly. Low-probability; `shortTitle` doesn't strip quotes from source titles. Not blocking.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849679318-bdqh",
+      "timestamp": "2026-03-30T05:47:59.318Z"
+    },
+    {
+      "taskId": "TASK-1774846854498",
+      "taskTitle": "QA review: TASK-1774846854498",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. kCompletion` fires before early return on `gaterSpawnData` — notifications not lost ✅\n- Queue advance deferred to `finalizeGaterQA` → `reconcileBuildQueue` at end ✅\n\n**Known caveats (carried from Forge, acknowledged):**\n- Gater uses `REVIEWER_MODEL` (Sonnet) — same as code reviewer. Update `routing.tier` in the build log entry if a different model is needed.\n- Manual PATCH to `review` status won't trigger `finalizeReview`, so auto-spawn won't fire for non-pipeline paths.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849373112-yfl3",
+      "timestamp": "2026-03-30T05:42:53.112Z"
+    },
+    {
+      "taskId": "TASK-1774848116169",
+      "taskTitle": "QA review: TASK-1774848116169",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. G) — empty state handled ✅\n\n---\n\n### Caveats\n1. **Playwright navigation bug:** Screenshots captured Task Board, not `/agents`. The visual QA harness needs its default route corrected for agents tasks — this is a harness issue, not a product defect. Tim should manually confirm 12 cards render on first paint.\n2. **Pixel's caveat acknowledged:** Spinner-to-icon transition depends on the poll settling — unverifiable without a live dev server. Logic is correct by code review.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849300863-k3i0",
+      "timestamp": "2026-03-30T05:41:40.863Z"
+    },
+    {
+      "taskId": "TASK-1774834376074",
+      "taskTitle": "QA review: TASK-1774834376074",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. istry with `division: \"QA\"`, appear on all dynamic pages: ✅\n- Build: ✅ clean compile, no TypeScript errors\n\n**Acknowledged caveat (carried forward from Forge):** `SESSION_TEMPLATES` and `PERSONA_OVERLAYS_EXTENDED.relevantAgents` in `advisory/constants.ts` contain curated agent name lists — these are intentional per-template selections, not full rosters. New agents won't auto-appear in templates, but will appear in the advisory session agent *selector* (which is dynamic).\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849119048-gjr2",
+      "timestamp": "2026-03-30T05:38:39.048Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "QA review: TASK-TRADING-2",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. and **Safari** (`safari-2026-03-30T05-31-44-953Z.png`) are visually identical — no layout regression\n- The KALSHI badge uses `display: inline-block` which is universally supported — no Safari quirk risk\n\n---\n\n### Caveats Carried Forward (from Forge, acknowledged)\n1. Win rate still from local DB — Kalshi has no settlement history endpoint for fill-to-win mapping\n2. `bankroll.json` must be manually updated if Tim deposits more capital\n3. Voided-market edge case noted above\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848876711-6wkw",
+      "timestamp": "2026-03-30T05:34:36.711Z"
+    },
+    {
+      "taskId": "TASK-1774846683178",
+      "taskTitle": "QA review: TASK-1774846683178",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. y use raw `fetch()` + `AbortController` (Playwright `request` API doesn't stream — right call)\n- Concurrency tests use `Promise.all` (correct)\n- §9 unmitigated risks documented with mitigation paths — properly scoped out-of-task\n\n### Incidental Change Noted\n`src/lib/llm-router.ts` was modified in the same commit: default coding/product tier changed from `sonnet` → `gpt-5.4`. This is unrelated to the chaos task but builds cleanly. No blocking concern.\n\n### No Issues Found\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848844289-6sw6",
+      "timestamp": "2026-03-30T05:34:04.289Z"
+    },
+    {
+      "taskId": "TASK-1774834376074",
+      "taskTitle": "QA review: TASK-1774834376074",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. — zero runtime overhead\n- Adding agent #13: edit `AGENT_CONFIGS` in `src/config/agents.ts` only — all derived maps, the registry endpoint, voice styles, routing tags, builder flags, and overlay recommendations cascade automatically\n- `PERSONA_OVERLAYS_EXTENDED.relevantAgents` and session template agent lists in `advisory/constants.ts` still contain literal agent names — these are cosmetic/UI hints for display filtering, not routing logic, so they are acceptable as-is and not a blocking concern",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848531108-gu8d",
+      "timestamp": "2026-03-30T05:28:51.108Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "QA review: TASK-1774834048750",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. 3001/trading (wrong)\n  : \"http://localhost:3001/tasks\"\n```\n\n- `http://localhost:8050` — correct port for weather-trading dashboard\n- `/trades` — confirmed route exists (`@app.get(\"/trades\")` at line 82)\n- Build: `✓ Compiled successfully in 2.5s`\n\n**Caveats carried forward from Forge:** Tasks with an explicit `visualReview.targetUrl` pre-set to the old value won't be corrected by this change. Only new tasks or tasks without an explicit `targetUrl` pick up the new default.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848402214-e965",
+      "timestamp": "2026-03-30T05:26:42.214Z"
+    },
+    {
+      "taskId": "TASK-1774846683149",
+      "taskTitle": "QA review: TASK-1774846683149",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. uota actions, and agents/registry. All correct.\n- **§25 pipelines/[id] CRUD** — GET/PATCH/DELETE with valid ID, and 404 on unknown ID for all three verbs. Serial mode correct since tests share a pipeline ID.\n\n### No concerns\n\nThe `configure` action test in §23 is a no-op reconfigure (same budget value) — safe, leaves system state unchanged. Secret redaction check in §21 (`/[A-Za-z0-9+/]{32,}/`) is pragmatic and catches any leaked 32+ char tokens. Both are clean patterns.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848183813-ie5i",
+      "timestamp": "2026-03-30T05:23:03.813Z"
+    },
+    {
+      "taskId": "TASK-1774846683158",
+      "taskTitle": "QA review: TASK-1774846683158",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. tive test for \"PATCH to in-progress without criteria → 400\". The guards are correct in code and implicitly exercised (lifecycle tests would fail without them), but a dedicated negative test would tighten coverage.\n\n### Caveats (acknowledged)\n- `shouldRequireReview` changed to always `true` — all tasks now require Gater sign-off. Intentional scope expansion bundled here.\n- Legacy tasks without criteria are blocked from in-progress until populated. By design, not a defect.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847786565-e8iz",
+      "timestamp": "2026-03-30T05:16:26.565Z"
+    },
+    {
+      "taskId": "TASK-1774846683128",
+      "taskTitle": "QA review: TASK-1774846683128",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. e_criteria` to each `in-progress` step | Correct — all cascading failures now resolved |\n\n### Test run\n\n```\n142 passed (29.0s)\n```\n- 10 smoke tests × 2 browsers = 20 ✓\n- 61 contract tests × 2 browsers = 122 ✓\n- Zero failures, zero skips\n\n### No concerns\n\nThe legacy ID filter is a pragmatic call — schema enforcement only applies to tasks created under the current `TASK-{timestamp}` format. This is the right boundary; enforcing schema on old IDs would be brittle and wrong.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847672814-7aa9",
+      "timestamp": "2026-03-30T05:14:32.814Z"
+    },
+    {
+      "taskId": "TASK-1774846683168",
+      "taskTitle": "QA review: TASK-1774846683168",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. **Idle checkpoint**: periodic checkpoint requires `reconcileBuildQueue` to run (needs an API request). SQLite auto-checkpoint at 1000 pages is the backstop. Acknowledged by Forge and acceptable.\n- **`lastCheckpointAt` resets on restart**: first reconcile after restart always checkpoints. Intentional and harmless.\n- **Replay doesn't re-trigger side effects**: crash replay re-applies status to DB but doesn't re-fire build triggers. Reconcile loop handles this on next pass.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847483985-75vr",
+      "timestamp": "2026-03-30T05:11:23.985Z"
+    },
+    {
+      "taskId": "TASK-1774846683138",
+      "taskTitle": "QA review: TASK-1774846683138",
+      "project": "qa",
+      "summary": "QA reviewed task from fullstack. t.\n\nOne minor note: the URL extraction `2>&1 | tail -1` is the standard Vercel CI pattern. If Vercel ever adds a trailing newline or summary line after the URL, this could break. Not a blocking issue — it's how every Vercel CI guide does it.\n\n### 6. Unverifiable (acknowledged)\nThe workflow cannot be run end-to-end without a real PR with `VERCEL_TOKEN` set. Pixel flagged this correctly as a known caveat. The code is correct; live validation requires Tim to open a test PR.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847246242-9a66",
+      "timestamp": "2026-03-30T05:07:26.242Z"
+    },
+    {
+      "taskId": "TASK-1774846683117",
+      "taskTitle": "QA review: TASK-1774846683117",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. blocked from closing — Forge acknowledged this correctly. Acceptable caveat.\n\n### Caveats (acknowledged, not blocking)\n- The double pre-check pattern (`route.ts` + `transitionTask()`) means guard logic lives in two places. Not a defect, but if guards evolve they need updating in both.\n- `VALID_TASK_TRANSITIONS` doesn't include `backlog → on-deck` in the sense that `backlog` can skip to `in-progress` if needed via force. This is pre-existing behavior, not introduced here.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847209937-pkb9",
+      "timestamp": "2026-03-30T05:06:49.937Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "QA review: TASK-TRADING-2",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. × qty). Correct.\n\n### Cross-browser\n- Chromium and WebKit screenshots match. No Safari-incompatible CSS patterns found (`backdrop-filter` absent; flexbox `gap:` is Safari 14.1+, acceptable).\n\n### Caveats (acknowledged, not blocking)\n- Win rate sourced from local DB reconciliation — Kalshi API has no settlement-history endpoint\n- P&L uses entry cost for open positions, not true mark-to-market bid pricing\n- Graceful degradation to LOCAL badge when Kalshi API is unreachable\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774844710681-e5ew",
+      "timestamp": "2026-03-30T04:25:10.681Z"
+    },
+    {
+      "taskId": "TASK-1774834775661",
+      "taskTitle": "QA review: TASK-1774834775661",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. path ✅\n\n**Glow logic** (line 1658): `isActiveBuild = isBuilding || buildState === \"running\" || buildState === \"spawning\"` — queued tasks get purple badge, no glow ✅\n\n**Build:** Clean, all routes compile ✅  \n**Tests:** No test script — consistent with project baseline ✅\n\n**Minor note (pre-existing, out of scope):** The `post-review` advancement (line 2079) still uses `nextQueuedTaskId(executionKey)` — but reconcile's per-agent gate compensates for this on the next cycle.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774844082053-rwdu",
+      "timestamp": "2026-03-30T04:14:42.053Z"
+    },
+    {
+      "taskId": "TASK-1774834048750",
+      "taskTitle": "QA review: TASK-1774834048750",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. | Status |\n|-----|----------|--------------|--------|\n| Bug 1: wrong status filter | `server.py:1186` | `status IN ('pending', 'filled', 'resting')` | ✅ Correct — fixed in commit `7d6d1d3`, still present in HEAD |\n| Bug 2: screenshot URL | `build-queue.ts:421` | `http://localhost:3001/trading` | ✅ Correct — routes to `/trading` not `/tasks` |\n| Build | mission-control-app | Must pass | ✅ Clean, `/trading` route confirmed in output |\n\nBoth bugs are fixed and the build passes.\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774843505709-a465",
+      "timestamp": "2026-03-30T04:05:05.709Z"
+    },
+    {
+      "taskId": "TASK-1774834376074",
+      "taskTitle": "QA review: TASK-1774834376074",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. rmed |\n\n**Remaining hardcoded refs (acceptable):** Individual ID references to `\"henry\"` for specific functional roles (CEO position in org layout, voice chat type annotation, default project owner fallback) — these are NOT agent lists, they reference a specific agent by a known architectural role. SESSION_TEMPLATES and persona overlay `relevantAgents` are intentional curations per Forge's caveats.\n\n**Tests:** No test script configured — consistent with project baseline.\n\n---\n\nVERDICT: APPROVED",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774843194720-wiqb",
+      "timestamp": "2026-03-30T03:59:54.720Z"
+    },
+    {
+      "taskId": "TASK-1774838546878",
+      "taskTitle": "QA review: TASK-1774838546878",
+      "project": "qa",
+      "summary": "QA reviewed task from backend. The background task confirmed 64 failed — consistent with the pre-existing baseline. Verdict stands.\n\n**VERDICT: APPROVED**",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774843015893-zc98",
+      "timestamp": "2026-03-30T03:56:55.893Z"
+    },
+    {
       "taskId": "TASK-1774834048750",
       "taskTitle": "QA review: TASK-1774834048750",
       "project": "qa",
@@ -199,5 +419,5 @@
       "timestamp": "2026-03-29T22:10:35.711Z"
     }
   ],
-  "lastUpdated": "2026-03-30T01:39:32.491Z"
+  "lastUpdated": "2026-03-30T05:58:10.068Z"
 }

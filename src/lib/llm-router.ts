@@ -10,7 +10,7 @@
 
 import { MODEL_PRICING, type ModelPricing } from "./pricing";
 
-export type RoutingTier = "opus" | "sonnet" | "haiku" | "gemini-flash" | "gemini-pro";
+export type RoutingTier = "opus" | "sonnet" | "haiku" | "gpt-5.4" | "gpt" | "gemini-flash" | "gemini-pro";
 
 export interface RoutingDecision {
   modelId: string;
@@ -90,6 +90,8 @@ const TIER_MODEL_MAP: Record<RoutingTier, string> = {
   opus: "anthropic/claude-opus-4-6",
   sonnet: "anthropic/claude-sonnet-4-6",
   haiku: "anthropic/claude-haiku-3-5",
+  "gpt-5.4": "openai/gpt-5.4",
+  "gpt": "openai/gpt-5.4",
   "gemini-flash": "google/gemini-2.5-flash",
   "gemini-pro": "google/gemini-2.5-pro",
 };
@@ -221,9 +223,9 @@ export function routeTask(task: TaskInput): RoutingDecision {
     tier = "opus";
     reason = "Very high complexity or high-stakes work — requires strongest reasoning lane";
   } else if (score >= 80 && codingTask) {
-    tier = "sonnet";
-    reason = "High complexity coding — Sonnet handles implementation well, saving Opus for architecture";
-    signals.push("Complexity 80-89 coding task → Sonnet (Opus conservation)");
+    tier = "gpt-5.4";
+    reason = "High complexity coding — GPT Codex saves Anthropic tokens";
+    signals.push("Complexity 80-89 coding task → GPT Codex");
   } else if (score >= 80) {
     tier = "opus";
     reason = "High complexity non-coding work — requires strongest reasoning lane";
@@ -231,16 +233,16 @@ export function routeTask(task: TaskInput): RoutingDecision {
     tier = "haiku";
     reason = "Low complexity mechanical task — cheapest fast lane is enough";
   } else if (codingTask) {
-    tier = "sonnet";
-    reason = "Standard coding task — Sonnet is the implementation workhorse";
-    signals.push("Coding-oriented task → Sonnet workhorse lane");
+    tier = "gpt-5.4";
+    reason = "Standard coding task — GPT Codex is the implementation workhorse, saves Anthropic quota";
+    signals.push("Coding-oriented task → GPT Codex lane");
   } else if (productThinkingTask) {
-    tier = "sonnet";
-    reason = "Fast product/orchestration task — Sonnet balances speed with strong judgment";
-    signals.push("Product-thinking/orchestration task → Sonnet lane");
+    tier = "gpt-5.4";
+    reason = "Product/orchestration task — GPT Codex to conserve Anthropic quota";
+    signals.push("Product-thinking/orchestration task → GPT Codex");
   } else {
-    tier = "sonnet";
-    reason = "General-purpose non-critical task — Sonnet is the balanced default";
+    tier = "gpt-5.4";
+    reason = "General-purpose task — defaulting to GPT Codex to conserve Anthropic quota";
   }
 
   const modelId = TIER_MODEL_MAP[tier];

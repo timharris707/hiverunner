@@ -4,6 +4,76 @@
   "role": "Senior Full-Stack Engineer",
   "entries": [
     {
+      "taskId": "TASK-1774848763713",
+      "taskTitle": "Live build activity stream on task cards — show what the agent is doing in real-time",
+      "project": "mission-control",
+      "summary": "SK-123\", \"action\": \"WRITE\", \"description\": \"src/components/Button.tsx\", \"status\": \"completed\", \"agent\": \"Forge\" }\n```\n\n**Caveats:**\n- Cannot verify visually in browser — need Tim to confirm the feed renders on an active build card\n- Events are in-memory only — they don't survive server restarts. This is by design (ephemeral build telemetry, not persistent history)\n- Agents need to be instrumented to POST events to the activity endpoint — this is the consumer-side contract; the plumbing is ready",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849951972-1i9p",
+      "timestamp": "2026-03-30T05:52:31.972Z"
+    },
+    {
+      "taskId": "TASK-1774846683188",
+      "taskTitle": "Real-time narrative activity feed — make MC legible to humans",
+      "project": "mission-control",
+      "summary": "ints to `/activity` for drill-in\n\n**Validation:** `npm run build` — clean, `✓ Compiled successfully`\n\n---\n\n**Caveat:** Cannot verify visually in browser. The quality of the narrative depends on how recent tasks are populated in `data/tasks.json` — if most tasks have no `assignedAgent`, sentences will use the generic form (`\"[title] is in progress\"`) rather than the named form. The agent detection uses `getAgentByAnyId` which handles all known aliases (`\"fullstack\"`, `\"Pixel\"`, `\"pixel\"`, etc.).",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849569840-69rp",
+      "timestamp": "2026-03-30T05:46:09.840Z"
+    },
+    {
+      "taskId": "TASK-1774848116169",
+      "taskTitle": "Fix Agents page — stuck on Polling agent sessions, never renders cards",
+      "project": "mission-control",
+      "summary": "ately from `AGENT_CONFIGS` with `NOT DEPLOYED` status on first paint.\n2. Replaced the gateway icon with an inline spinner while `loading` is true, so users get non-blocking feedback that live status is being fetched.\n\n**Validation:** `npm run build` clean, pushed to `panely/sprint-1`.\n\n**Caveat:** Cannot verify visually in browser. Need Tim to confirm all 12 agent cards appear on page load and that the spinner in the header resolves to the Wifi/WifiOff icon once the poll settles (or times out).",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774849211086-xzlq",
+      "timestamp": "2026-03-30T05:40:11.086Z"
+    },
+    {
+      "taskId": "TASK-1774846683178",
+      "taskTitle": "CHAOS.md failure matrix — expected recovery for every break scenario",
+      "project": "mission-control",
+      "summary": "(§6) use raw `fetch()` — if the dev server isn't running when the suite starts, Playwright's `webServer` config will start it automatically.\n- Concurrency tests (§5) are best-effort: same-millisecond ID collision is documented in CHAOS.md §9.8 as a known low-risk gap; the test logs a warning but doesn't fail.\n- The 8 unmitigated risks in CHAOS.md §9 require code changes (quota lock, agent memory lock, advisory session lock) — those are documented but not patched here as they were out of scope.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774848752443-lenm",
+      "timestamp": "2026-03-30T05:32:32.443Z"
+    },
+    {
+      "taskId": "TASK-1774846683128",
+      "taskTitle": "Playwright E2E smoke suite — 10 critical path tests in Chromium+WebKit",
+      "project": "mission-control",
+      "summary": "nedTo` guard** — PATCH `review → done` returns 400 unless `reviewAssignedTo` is set (the Gater gate). The `review → done` lifecycle test was missing this.\n3. **Legacy task IDs** — `GET /api/tasks` returned 55 tasks with non-standard IDs (`TASK-W001`, `TASK-C001`, `task-new-*`) that predate the `TASK-{timestamp}` format. The schema test now skips those and only validates modern-format tasks.\n\n**Files changed:** `e2e/contract.spec.ts` — `cleanupTask` helper + 5 transition calls + 1 schema filter.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847604105-bmc2",
+      "timestamp": "2026-03-30T05:13:24.105Z"
+    },
+    {
+      "taskId": "TASK-1774846683138",
+      "taskTitle": "Preview deploy gate — Vercel preview URL tested before merge",
+      "project": "mission-control",
+      "summary": "lready linked\n\n**Remaining caveat:** The `VERCEL_TOKEN` secret must be set in GitHub repository settings (`Settings → Secrets → Actions`) for the workflow to deploy. This is a one-time manual step in the GitHub UI that can't be done in code.\n\n**BLOCKED (partial):** Cannot verify the workflow actually runs end-to-end — that requires a real PR against `main` with `VERCEL_TOKEN` configured. The code changes are correct and the build passes, but live workflow validation needs Tim to open a test PR.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774847166153-o3cf",
+      "timestamp": "2026-03-30T05:06:06.153Z"
+    },
+    {
+      "taskId": "TASK-1774834742956",
+      "taskTitle": "Task card redesign v2 — prioritize agent name visibility, reduce clutter",
+      "project": "mission-control",
+      "summary": "links/attachments** pushed to a compact micro-metadata cluster at `0.65rem` — still there, just visually demoted so they don't compete\n\n**What was already correct** (no changes needed):\n- Description preview — was never on cards\n- Tags — were never on cards\n- Model badge — was never on cards\n\n**Validation:** `npm run build` clean, zero errors or warnings.\n\n**BLOCKED:** Cannot verify visually in browser — need Tim to confirm the card layout looks right and agent names display without truncation.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774842795757-3csd",
+      "timestamp": "2026-03-30T03:53:15.757Z"
+    },
+    {
       "taskId": "TASK-1774834034544",
       "taskTitle": "Fix task drawer comments — show threaded history with author, emoji, timestamp per entry",
       "project": "mission-control",
@@ -94,5 +164,5 @@
       "timestamp": "2026-03-29T16:49:18.236Z"
     }
   ],
-  "lastUpdated": "2026-03-30T01:29:33.937Z"
+  "lastUpdated": "2026-03-30T05:52:31.972Z"
 }

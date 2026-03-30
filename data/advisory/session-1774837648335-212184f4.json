@@ -1,0 +1,39 @@
+{
+  "id": "session-1774837648335-212184f4",
+  "topic": "Mission Control v0.5 → v1.0: What does production-ready look like?",
+  "mode": "roundtable",
+  "agents": [
+    "pixel",
+    "forge",
+    "gater",
+    "vigil",
+    "quill",
+    "quant"
+  ],
+  "status": "active",
+  "createdAt": "2026-03-30T02:27:28.335Z",
+  "reviewStyle": "open",
+  "model": "claude-opus-4-6",
+  "personaOverlays": [],
+  "rounds": 3,
+  "pacing": "instant",
+  "responseLength": "balanced",
+  "extendedThinking": false,
+  "specialist": false,
+  "specialistAgent": null,
+  "forkedFrom": null,
+  "forkedAtEvent": null,
+  "paused": false,
+  "moderator": "henry",
+  "events": [
+    {
+      "id": "evt_001",
+      "timestamp": "2026-03-30T02:27:28.335Z",
+      "type": "start",
+      "speaker": "henry",
+      "emoji": "⚡",
+      "role": "moderator",
+      "text": "🚀 **Session started.**\n\n**Topic:** Mission Control v0.5 → v1.0: What does production-ready look like?\n\n**Mode:** roundtable | **Review style:** open | **Model:** claude-opus-4-6\n\n**Participants:** pixel, forge, gater, vigil, quill, quant\n\nStanding by for agent inputs..."
+    }
+  ]
+}

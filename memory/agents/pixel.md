@@ -49,6 +49,48 @@
 
 ## Task Log
 
+### 2026-03-30 — Live build activity stream on task cards — show what the agent is doing in real-time
+**Project:** mission-control
+**Summary:** SK-123", "action": "WRITE", "description": "src/components/Button.tsx", "status": "completed", "agent": "Forge" } ```  **Caveats:** - Cannot verify visually in browser — need Tim to confirm the feed renders on an active build card - Events are in-memory only — they don't survive server restarts. This is by design (ephemeral build telemetry, not persistent history) - Agents need to be instrumented 
+
+---
+
+### 2026-03-30 — Real-time narrative activity feed — make MC legible to humans
+**Project:** mission-control
+**Summary:** ints to `/activity` for drill-in  **Validation:** `npm run build` — clean, `✓ Compiled successfully`  ---  **Caveat:** Cannot verify visually in browser. The quality of the narrative depends on how recent tasks are populated in `data/tasks.json` — if most tasks have no `assignedAgent`, sentences will use the generic form (`"[title] is in progress"`) rather than the named form. The agent detection 
+
+---
+
+### 2026-03-30 — Fix Agents page — stuck on Polling agent sessions, never renders cards
+**Project:** mission-control
+**Summary:** ately from `AGENT_CONFIGS` with `NOT DEPLOYED` status on first paint. 2. Replaced the gateway icon with an inline spinner while `loading` is true, so users get non-blocking feedback that live status is being fetched.  **Validation:** `npm run build` clean, pushed to `panely/sprint-1`.  **Caveat:** Cannot verify visually in browser. Need Tim to confirm all 12 agent cards appear on page load and tha
+
+---
+
+### 2026-03-30 — CHAOS.md failure matrix — expected recovery for every break scenario
+**Project:** mission-control
+**Summary:** (§6) use raw `fetch()` — if the dev server isn't running when the suite starts, Playwright's `webServer` config will start it automatically. - Concurrency tests (§5) are best-effort: same-millisecond ID collision is documented in CHAOS.md §9.8 as a known low-risk gap; the test logs a warning but doesn't fail. - The 8 unmitigated risks in CHAOS.md §9 require code changes (quota lock, agent memory l
+
+---
+
+### 2026-03-30 — Playwright E2E smoke suite — 10 critical path tests in Chromium+WebKit
+**Project:** mission-control
+**Summary:** nedTo` guard** — PATCH `review → done` returns 400 unless `reviewAssignedTo` is set (the Gater gate). The `review → done` lifecycle test was missing this. 3. **Legacy task IDs** — `GET /api/tasks` returned 55 tasks with non-standard IDs (`TASK-W001`, `TASK-C001`, `task-new-*`) that predate the `TASK-{timestamp}` format. The schema test now skips those and only validates modern-format tasks.  **Fil
+
+---
+
+### 2026-03-30 — Preview deploy gate — Vercel preview URL tested before merge
+**Project:** mission-control
+**Summary:** lready linked  **Remaining caveat:** The `VERCEL_TOKEN` secret must be set in GitHub repository settings (`Settings → Secrets → Actions`) for the workflow to deploy. This is a one-time manual step in the GitHub UI that can't be done in code.  **BLOCKED (partial):** Cannot verify the workflow actually runs end-to-end — that requires a real PR against `main` with `VERCEL_TOKEN` configured. The code 
+
+---
+
+### 2026-03-30 — Task card redesign v2 — prioritize agent name visibility, reduce clutter
+**Project:** mission-control
+**Summary:** links/attachments** pushed to a compact micro-metadata cluster at `0.65rem` — still there, just visually demoted so they don't compete  **What was already correct** (no changes needed): - Description preview — was never on cards - Tags — were never on cards - Model badge — was never on cards  **Validation:** `npm run build` clean, zero errors or warnings.  **BLOCKED:** Cannot verify visually in br
+
+---
+
 ### 2026-03-30 — Fix task drawer comments — show threaded history with author, emoji, timestamp per entry
 **Project:** mission-control
 **Summary:** lean, no errors or warnings.  **Caveats:** - BLOCKED: Cannot verify visually — browser validation needed by Tim - The `lastReviewNotes` field still exists on the task type and is still written by the pipeline for backward compatibility — it's just no longer displayed as a separate UI block - The `/tasks` page still has its own duplicate `CommentThread` implementation (identical to the shared one i

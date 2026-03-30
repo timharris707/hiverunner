@@ -1,0 +1,38 @@
+{
+  "agentId": "gater",
+  "agentName": "Gater",
+  "role": "Quality Control Lead",
+  "entries": [
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
+      "project": "weather-trading",
+      "summary": "ats (unchanged from prior session)\n- `total_pnl` uses entry cost for open positions, not mark-to-market. The circuit breaker treats open costs as worst-case loss.\n- `total_unrealized_pnl` is `None` when Kalshi v2 API returns `realized_pnl_dollars=$0` for open positions\n- Settlement tracking is local DB (via `reconcile_settlements.py`), not real-time per-trade Kalshi API — this is the intended architecture\n- If Kalshi API is down, the P&L card degrades gracefully to local DB with `[LOCAL]` badge",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774837274486-cvm5",
+      "timestamp": "2026-03-30T02:21:14.486Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
+      "project": "weather-trading",
+      "summary": "open positions, not mark-to-market. When Kalshi v2 provides mark-to-market, the true P&L may differ slightly.\n- `total_unrealized_pnl` is `None` because the v2 API doesn't return unrealized P&L per-position (only `realized_pnl_dollars`, which was $0 for all positions at time of check).\n- Settlement tracking flows through `reconcile_settlements.py` → local DB, not real-time Kalshi per-trade API — this is the intended architecture.\n- Fallback to LOCAL badge on Kalshi API error is still in place.",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774836405350-s5ri",
+      "timestamp": "2026-03-30T02:06:45.350Z"
+    },
+    {
+      "taskId": "TASK-TRADING-2",
+      "taskTitle": "Trading Desk — live-only view with real Kalshi P&L (no paper trades)",
+      "project": "weather-trading",
+      "summary": "a95129`). Pushed to `main @ 2d0a7bc`.\n\n**Known caveats (unchanged from prior session):**\n- `total_pnl` uses entry cost for open positions, not current mark-to-market. `total_unrealized_pnl` shows the delta when Kalshi provides it in the positions response\n- Settlement tracking flows through `reconcile_settlements.py` → local DB, not real-time Kalshi per-trade API — this is the intended architecture\n- If Kalshi API is down, card 4 degrades gracefully to local DB realized P&L with `[LOCAL]` badge",
+      "lessons": [],
+      "knownIssues": [],
+      "id": "mem-1774835977665-2hrn",
+      "timestamp": "2026-03-30T01:59:37.665Z"
+    }
+  ],
+  "lastUpdated": "2026-03-30T02:21:14.486Z"
+}

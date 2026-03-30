@@ -46,6 +46,96 @@
 
 ## Task Log
 
+### 2026-03-30 — Bug: on-deck tasks not auto-promoting to in-progress when agent capacity opens
+**Project:** mission-control
+**Summary:** gned agent is idle and whose execution key hasn't hit the concurrency cap.  **Validation:** `npm run build` clean. Pushed to `panely/sprint-1` → `08d01db`.  **Caveats:** - Tasks without a pre-assigned agent will have `resolveAgentForTask()` called during promotion to determine the agent — this is the same function `autoAssignBuilder` uses, so it's consistent. - The execution-key concurrency cap (3
+
+---
+
+### 2026-03-30 — CLI wrapper for board operations — mc tasks list, assign, reject
+**Project:** mission-control
+**Summary:** n` comment with the supplied reason - `MC_API_URL` env var overrides default `http://localhost:3000`  ### Caveats - `reject` only works if the task is currently in `review` status — the state machine will return a 400 otherwise; the CLI surfaces the API error clearly - Agent name resolution requires the server to be running; if the registry is unreachable, the `--to` value is passed through unchan
+
+---
+
+### 2026-03-30 — Auto-spawn Gater when task hits review — real agent, not just a label
+**Project:** mission-control
+**Summary:** net) same as the existing code reviewer. If Gater should use a different model tier, update the `routing` block in the build log entry and the `--model` arg. - If a task reaches `review` status through a non-standard path (e.g., manual PATCH), `finalizeReview` won't fire, so Gater won't auto-spawn — only the pipeline-driven path triggers it. - The `extractMemoryFromOutput` call for Gater is non-cr
+
+---
+
+### 2026-03-30 — Dynamic agent registry — eliminate ALL hardcoded agent lists across Mission Control
+**Project:** mission-control
+**Summary:** `** and **`PERSONA_OVERLAYS`** still reference specific agents by display name (e.g. `["Henry", "Atlas", "Quant"]`). These are *curated selections* for each template/overlay — they're not meant to include all agents. They'll resolve correctly as long as the agent exists in the registry. - **`DESK_POSITIONS`** in `Office3D/agentsConfig.ts` maps agent IDs to physical desk coordinates. New agents wit
+
+---
+
+### 2026-03-30 — Trading Desk — live-only view with real Kalshi P&L (no paper trades)
+**Project:** weather-trading
+**Summary:** d`  ### Caveats - Win rate still sourced from local DB — Kalshi has no settlement history endpoint that maps fills to win/loss counts - `total_pnl` uses position entry cost for open trades (not live bid price). True MTM would require fetching current bid per position on every load — too many API calls - If Kalshi API is down, P&L card degrades gracefully to local DB realized P&L with `[LOCAL]` bad
+
+---
+
+### 2026-03-30 — Dynamic agent registry — eliminate ALL hardcoded agent lists across Mission Control
+**Project:** mission-control
+**Summary:** I'll start by exploring all the files that need to change to understand the current hardcoded agent lists.
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** uild` in mission-control-app passed clean. `python3 -m py_compile server.py` clean.  **Commits:** - `mission-control-app` `panely/sprint-1` → `40ad138` - `weather-trading` `main` → `65c92f1` (bonus: backfill now skips non-weather Kalshi fills)  **Caveats:** - Tasks that already have an explicit `visualReview.targetUrl` set to the old wrong value won't be corrected by this change — only the fallbac
+
+---
+
+### 2026-03-30 — API contract tests — schema validation on every endpoint
+**Project:** mission-control
+**Summary:** ipelines/[id]` | CRUD + 404 on all three verbs |  **Result:** 83/83 passed (8.7s)   **Pushed:** `panely/sprint-1 → 0832438`  ---  **Caveat:** The `reviewAssignedTo` guard (§19) only fires for legacy tasks that reach `review` state without `autoAssignGater` having run — which can't happen through the normal API flow. The test documents the *actual* contract (omitting the field in the PATCH body is 
+
+---
+
+### 2026-03-30 — Acceptance criteria required field — tasks cannot enter in_progress without it
+**Project:** mission-control
+**Summary:** lder sees criteria | `buildPrompt()` | ✅ added this task | | Code reviewer checks criteria | `reviewPrompt()` | ✅ added this task | | Vigil QA checks criteria | `buildQAHandoffPrompt()` | ✅ pre-existing | | Drawer displays criteria | `TaskDetailDrawer` | ✅ added this task |  **Caveat:** Existing backlog/on-deck tasks without `acceptance_criteria` will be blocked from entering in-progress by the st
+
+---
+
+### 2026-03-30 — SQLite WAL persistence with crash replay
+**Project:** mission-control
+**Summary:** econcileBuildQueue` runs, which requires at least one API request every hour. In a fully idle server this may not fire — but in practice the dashboard polls frequently enough that this is never an issue. SQLite's own auto-checkpoint (1000 WAL pages) is the backstop for idle periods. - The `lastCheckpointAt` counter resets on server restart, meaning the first reconcile after a restart will always t
+
+---
+
+### 2026-03-30 — Task lifecycle state machine — enforce valid transitions in code
+**Project:** mission-control
+**Summary:** I handler and in `finalizeBuild`). The edge case is legacy tasks in `review` that predate the auto-assign logic — those would be blocked from closing until `reviewAssignedTo` is manually set or a `force` override is used. - The auto-approve path (`force: true, reason: "auto-approve: review not required..."`) in `build-queue.ts:2046` goes `in-progress → done`, bypassing review entirely. This is by 
+
+---
+
+### 2026-03-30 — Trading Desk — live-only view with real Kalshi P&L (no paper trades)
+**Project:** weather-trading
+**Summary:** ow** — 5 cards: Kalshi Balance · Deployed · Available · Total P&L [KALSHI] · Initial Deposit  ### Caveats - Win rate still sourced from local DB reconciliation — Kalshi doesn't expose a settlement-history endpoint for direct win/loss counting - `total_pnl = balance + deployed_cost − initial_deposit` uses entry cost for open positions; true mark-to-market would require real-time bid pricing per pos
+
+---
+
+### 2026-03-30 — Pipeline fix — one active build per agent, queue the rest
+**Project:** mission-control
+**Summary:** e === "running"` or `"spawning"` — queued tasks show a purple "Queued" badge without glow.  **Build:** Compiled successfully   **Pushed:** `panely/sprint-1` → `fe14f30`  **Caveat:** The `nextQueuedTaskIdForAgent` function (line 1020) was already defined but unused — this commit wires it up. The `findActiveBuildForAgent` check relies on `b.assignedAgent` being set consistently; if a build entry has
+
+---
+
+### 2026-03-30 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** - `min_edge` 0.03 → 0.05 - `min_composite` 0.20 → 0.10 - `max_contracts` 100 → 25 - `max_per_city_date` 5 → 2 - Bracket contract (`-B`) block in `can_trade()`  **Caveat:** The reason this task cycled 6+ times is that previous runs checked one bug instance while missing a second, or made fixes that later commits partially touched. Both are now confirmed correct in HEAD. The new commit is purely the
+
+---
+
+### 2026-03-30 — Dynamic agent registry — eliminate ALL hardcoded agent lists across Mission Control
+**Project:** mission-control
+**Summary:** TES` in `advisory/constants.ts` still reference agent display names (e.g. `agents: ["Henry", "Atlas"]`). These are session-specific curations (which agents participate in a template), not agent definitions — converting them would mean every new agent auto-appears in every template, which isn't desired. - The `aliases` map in `getAgentByAnyId()` still needs a manual entry for agents with non-obviou
+
+---
+
 ### 2026-03-30 — Task lifecycle state machine — enforce valid transitions in code
 **Project:** mission-control
 **Summary:** prevent re-alerting on every reconcile cycle. It is never reset (by design) — once alerted, it won't fire again even if the task stays in review indefinitely. If recurring alerts are needed, add a `reviewAlertSentAt` timestamp and compare against a re-alert interval. - The heartbeat check uses `task.buildStartedAt || task.updated || task.created` as the reference timestamp, which means a task manu
@@ -264,3 +354,12 @@
 
 ---
 -->
+
+### 2026-03-30 — Acceptance criteria required field — block in_progress without it
+**Project:** mission-control
+**Summary:** Enforcement was partially in place when I picked up the task. Added the missing pieces: (1) `buildPrompt()` in build-queue.ts now injects the `acceptance_criteria` block so builder agents know what to satisfy; (2) `reviewPrompt()` now injects criteria and adds step 5 to verify each one; (3) `TaskDetailDrawer` in tasks/page.tsx now displays the criteria list so Gater and team can review against them. The existing layers (transitionTask guard, POST/PATCH API validation, UI form with red-border, Vigil QA prompt injection) were already present from a prior partial implementation.
+
+**Build:** Compiled successfully
+**Pushed:** `panely/sprint-1` → `2938783`
+
+**Caveat:** Tasks already in the backlog/on-deck without `acceptance_criteria` set will be blocked from entering in-progress. This is intentional — they need criteria before the pipeline can promote them.

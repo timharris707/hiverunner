@@ -41,6 +41,138 @@
 
 ## Task Log
 
+### 2026-03-30 — QA review: TASK-1774849547934
+**Project:** qa
+**Summary:** QA reviewed task from backend. omote fix. It's functional and clean, but warrants awareness — the default model routing for most build tasks has changed. - If a task is manually assigned via API with a non-canonical agent ID (e.g., `"Forge"` instead of `"backend"`), `findActiveBuildForAgent` could miss the active build and allow a false promotion. Low probability given `autoAssignBuilder` normaliz
+
+---
+
+### 2026-03-30 — QA review: TASK-1774848763713
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. --  VERDICT: APPROVED  **Caveats:** - `ActivityEvent` interface should be imported from `activity-stream.ts` in `page.tsx` rather than redeclared locally — minor cleanup for a follow-on PR. - Visual verification of live streaming requires an active build in progress — taken on faith from code review; implementation path is straightforward and correct. - Agent instr
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683206
+**Project:** qa
+**Summary:** QA reviewed task from backend. he cosmetic column-width bug doesn't affect correctness or usability — data is still readable, the tool eliminates the 3AM curl. No functional defects.  ---  VERDICT: APPROVED  **Caveats:** - Column alignment is off by ~9 chars per ANSI-colored cell — cosmetic only, low priority fix. Root cause: `pad()` already strips ANSI internally, so the `+9` in `pad(col(c.cyan, 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683188
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. plain text and quoted-title format correctly ✅  **Visual:** Screenshots captured Task Board (harness nav issue), not Dashboard. Same known harness bug from previous task. Code review confirms the "What's Happening" card renders `NarrativeFeed` with `limit={8}`.  **Minor note:** One edge case — if a task title contains a `"` character, the `NarrativeText` regex may 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846854498
+**Project:** qa
+**Summary:** QA reviewed task from backend. kCompletion` fires before early return on `gaterSpawnData` — notifications not lost ✅ - Queue advance deferred to `finalizeGaterQA` → `reconcileBuildQueue` at end ✅  **Known caveats (carried from Forge, acknowledged):** - Gater uses `REVIEWER_MODEL` (Sonnet) — same as code reviewer. Update `routing.tier` in the build log entry if a different model is needed. - Manual
+
+---
+
+### 2026-03-30 — QA review: TASK-1774848116169
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. G) — empty state handled ✅  ---  ### Caveats 1. **Playwright navigation bug:** Screenshots captured Task Board, not `/agents`. The visual QA harness needs its default route corrected for agents tasks — this is a harness issue, not a product defect. Tim should manually confirm 12 cards render on first paint. 2. **Pixel's caveat acknowledged:** Spinner-to-icon transi
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834376074
+**Project:** qa
+**Summary:** QA reviewed task from backend. istry with `division: "QA"`, appear on all dynamic pages: ✅ - Build: ✅ clean compile, no TypeScript errors  **Acknowledged caveat (carried forward from Forge):** `SESSION_TEMPLATES` and `PERSONA_OVERLAYS_EXTENDED.relevantAgents` in `advisory/constants.ts` contain curated agent name lists — these are intentional per-template selections, not full rosters. New agents wo
+
+---
+
+### 2026-03-30 — QA review: TASK-TRADING-2
+**Project:** qa
+**Summary:** QA reviewed task from backend. and **Safari** (`safari-2026-03-30T05-31-44-953Z.png`) are visually identical — no layout regression - The KALSHI badge uses `display: inline-block` which is universally supported — no Safari quirk risk  ---  ### Caveats Carried Forward (from Forge, acknowledged) 1. Win rate still from local DB — Kalshi has no settlement history endpoint for fill-to-win mapping 2. `b
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683178
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. y use raw `fetch()` + `AbortController` (Playwright `request` API doesn't stream — right call) - Concurrency tests use `Promise.all` (correct) - §9 unmitigated risks documented with mitigation paths — properly scoped out-of-task  ### Incidental Change Noted `src/lib/llm-router.ts` was modified in the same commit: default coding/product tier changed from `sonnet` → 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834376074
+**Project:** qa
+**Summary:** QA reviewed task from backend. — zero runtime overhead - Adding agent #13: edit `AGENT_CONFIGS` in `src/config/agents.ts` only — all derived maps, the registry endpoint, voice styles, routing tags, builder flags, and overlay recommendations cascade automatically - `PERSONA_OVERLAYS_EXTENDED.relevantAgents` and session template agent lists in `advisory/constants.ts` still contain literal agent name
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. 3001/trading (wrong)   : "http://localhost:3001/tasks" ```  - `http://localhost:8050` — correct port for weather-trading dashboard - `/trades` — confirmed route exists (`@app.get("/trades")` at line 82) - Build: `✓ Compiled successfully in 2.5s`  **Caveats carried forward from Forge:** Tasks with an explicit `visualReview.targetUrl` pre-set to the old value won't be 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683149
+**Project:** qa
+**Summary:** QA reviewed task from backend. uota actions, and agents/registry. All correct. - **§25 pipelines/[id] CRUD** — GET/PATCH/DELETE with valid ID, and 404 on unknown ID for all three verbs. Serial mode correct since tests share a pipeline ID.  ### No concerns  The `configure` action test in §23 is a no-op reconfigure (same budget value) — safe, leaves system state unchanged. Secret redaction check in 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683158
+**Project:** qa
+**Summary:** QA reviewed task from backend. tive test for "PATCH to in-progress without criteria → 400". The guards are correct in code and implicitly exercised (lifecycle tests would fail without them), but a dedicated negative test would tighten coverage.  ### Caveats (acknowledged) - `shouldRequireReview` changed to always `true` — all tasks now require Gater sign-off. Intentional scope expansion bundled he
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683128
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. e_criteria` to each `in-progress` step | Correct — all cascading failures now resolved |  ### Test run  ``` 142 passed (29.0s) ``` - 10 smoke tests × 2 browsers = 20 ✓ - 61 contract tests × 2 browsers = 122 ✓ - Zero failures, zero skips  ### No concerns  The legacy ID filter is a pragmatic call — schema enforcement only applies to tasks created under the current `T
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683168
+**Project:** qa
+**Summary:** QA reviewed task from backend. **Idle checkpoint**: periodic checkpoint requires `reconcileBuildQueue` to run (needs an API request). SQLite auto-checkpoint at 1000 pages is the backstop. Acknowledged by Forge and acceptable. - **`lastCheckpointAt` resets on restart**: first reconcile after restart always checkpoints. Intentional and harmless. - **Replay doesn't re-trigger side effects**: crash re
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683138
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. t.  One minor note: the URL extraction `2>&1 | tail -1` is the standard Vercel CI pattern. If Vercel ever adds a trailing newline or summary line after the URL, this could break. Not a blocking issue — it's how every Vercel CI guide does it.  ### 6. Unverifiable (acknowledged) The workflow cannot be run end-to-end without a real PR with `VERCEL_TOKEN` set. Pixel fl
+
+---
+
+### 2026-03-30 — QA review: TASK-1774846683117
+**Project:** qa
+**Summary:** QA reviewed task from backend. blocked from closing — Forge acknowledged this correctly. Acceptable caveat.  ### Caveats (acknowledged, not blocking) - The double pre-check pattern (`route.ts` + `transitionTask()`) means guard logic lives in two places. Not a defect, but if guards evolve they need updating in both. - `VALID_TASK_TRANSITIONS` doesn't include `backlog → on-deck` in the sense that `b
+
+---
+
+### 2026-03-30 — QA review: TASK-TRADING-2
+**Project:** qa
+**Summary:** QA reviewed task from backend. × qty). Correct.  ### Cross-browser - Chromium and WebKit screenshots match. No Safari-incompatible CSS patterns found (`backdrop-filter` absent; flexbox `gap:` is Safari 14.1+, acceptable).  ### Caveats (acknowledged, not blocking) - Win rate sourced from local DB reconciliation — Kalshi API has no settlement-history endpoint - P&L uses entry cost for open positions
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834775661
+**Project:** qa
+**Summary:** QA reviewed task from backend. path ✅  **Glow logic** (line 1658): `isActiveBuild = isBuilding || buildState === "running" || buildState === "spawning"` — queued tasks get purple badge, no glow ✅  **Build:** Clean, all routes compile ✅   **Tests:** No test script — consistent with project baseline ✅  **Minor note (pre-existing, out of scope):** The `post-review` advancement (line 2079) still uses 
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. | Status | |-----|----------|--------------|--------| | Bug 1: wrong status filter | `server.py:1186` | `status IN ('pending', 'filled', 'resting')` | ✅ Correct — fixed in commit `7d6d1d3`, still present in HEAD | | Bug 2: screenshot URL | `build-queue.ts:421` | `http://localhost:3001/trading` | ✅ Correct — routes to `/trading` not `/tasks` | | Build | mission-contro
+
+---
+
+### 2026-03-30 — QA review: TASK-1774834376074
+**Project:** qa
+**Summary:** QA reviewed task from backend. rmed |  **Remaining hardcoded refs (acceptable):** Individual ID references to `"henry"` for specific functional roles (CEO position in org layout, voice chat type annotation, default project owner fallback) — these are NOT agent lists, they reference a specific agent by a known architectural role. SESSION_TEMPLATES and persona overlay `relevantAgents` are intentiona
+
+---
+
+### 2026-03-30 — QA review: TASK-1774838546878
+**Project:** qa
+**Summary:** QA reviewed task from backend. The background task confirmed 64 failed — consistent with the pre-existing baseline. Verdict stands.  **VERDICT: APPROVED**
+
+---
+
 ### 2026-03-30 — QA review: TASK-1774834048750
 **Project:** qa
 **Summary:** QA reviewed task from backend. **Build:** PASSES (mission-control-app builds clean, no TypeScript errors)  ---  VERDICT: NEEDS_FIX NOTES: - **Bug 2 URL is still wrong (7th flagging):** `build-queue.ts:355` routes `weather-trading` tasks to `http://localhost:8050/trades` (Python server trade history) instead of `http://localhost:3001/trading` (mission-control Trading Desk). Fix: change `"http://loc
@@ -169,6 +301,23 @@
 ### 2026-03-29 — QA review: TASK-PIPELINE-5
 **Project:** qa
 **Summary:** QA reviewed task from backend. ler cycles - `hangLabel` falls back to raw `build.taskId` when task is undefined — safe - `hangAgent` falls back to `"unknown agent"` — safe - Both `sendTelegramNotification` and `createInAppNotification` are defined locally in `build-queue.ts` — no import issues - Fire-and-forget notification pattern is consistent with all other notification calls in the file  ### N
+
+---
+
+### 2026-03-30 — QA review: SQLite WAL persistence (ad08f7a)
+**Project:** qa
+**Summary:** QA reviewed task from backend. SQLite WAL mode replaces in-memory/JSON task store. Migration from tasks.json works (189 of 196 tasks; 7 duplicate IDs TASK-023..029 silently dropped via INSERT OR IGNORE). Crash replay logic verified end-to-end: journal written before writeTasks(), _replayCheck() detects to_status != current_status and re-applies. ISO timestamp MAX(ts) ordering correct. Checkpoint POST/GET endpoint clean. All direct tasks.json readers replaced. Contract test failures (64) are pre-existing — identical count on HEAD~1. Dev server returns empty 200 bodies (pre-existing HMR + native module race — restart server after deploy).
+
+---
+
+VERDICT: APPROVED
+
+**Notes for backlog:**
+- Ops should audit tasks.json for duplicate IDs TASK-023..029 — migration silently keeps first occurrence only
+- Add migration warning log for skipped duplicates in Sprint 2
+- Wire dbCheckpoint() to cron job in Sprint 2
+- Add contract tests for GET/POST /api/tasks/checkpoint in Sprint 2
+- Restart dev server after deploying this commit (Turbopack HMR + better-sqlite3 singleton race)
 
 ---
 
