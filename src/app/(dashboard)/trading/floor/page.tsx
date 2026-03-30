@@ -282,9 +282,9 @@ export default function TradingFloorPage() {
   // Group by city + market (ticker base)
   const groupMap = new Map<string, GroupedPosition>();
   for (const t of filtered) {
-    // Group key: city + bet description
+    // Group key: city + bet description + target date (different dates = different contracts)
     const betDesc = parseBetDescription(t.ticker, t.side, t.threshold);
-    const key = `${t.city}|${betDesc}|${t.side}`;
+    const key = `${t.city}|${betDesc}|${t.side}|${t.target_date}`;
     if (!groupMap.has(key)) {
       groupMap.set(key, {
         city: t.city,
