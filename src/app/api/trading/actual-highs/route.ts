@@ -58,7 +58,7 @@ export async function GET() {
             const tempC = f.properties?.temperature?.value;
             const ts = f.properties?.timestamp || "";
             if (tempC == null) continue;
-            const tempF = Math.round((tempC * 9) / 5 + 32);
+            const tempF = Math.round(((tempC * 9) / 5 + 32) * 10) / 10;
             count++;
             if (tempF > high) { high = tempF; highAt = ts; }
             if (tempF < low) { low = tempF; lowAt = ts; }

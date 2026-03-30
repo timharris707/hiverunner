@@ -769,7 +769,7 @@ export default function TradingFloorPage() {
                         <>
                           <div className="text-xs" style={{ color: "var(--text-muted)" }}>{isHighBet ? "High" : "Low"}</div>
                           <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
-                            {temp}°F
+                            {temp.toFixed(1)}°F
                           </div>
                           <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                             recorded
