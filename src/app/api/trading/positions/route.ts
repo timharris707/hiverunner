@@ -17,6 +17,75 @@ export async function GET() {
 
     const Database = require("better-sqlite3");
 
+    const TICKER_CITY_MAP: Record<string, string> = {
+      NYC: "new_york", MIA: "miami", CHI: "chicago", DEN: "denver",
+      SEA: "seattle", LAX: "los_angeles", PHX: "phoenix", HOU: "houston",
+      ATL: "atlanta", OKC: "oklahoma_city", TDC: "washington_dc", BOS: "boston",
+      AUS: "austin", SAN: "san_antonio", DAL: "dallas", MIN: "minneapolis",
+      MSY: "new_orleans", SFO: "san_francisco", TAUS: "austin", TCHI: "chicago",
+      TLAX: "los_angeles", TMIA: "miami", TDEN: "denver", TOKC: "oklahoma_city",
+      TNYC: "new_york", THOU: "houston", TATL: "atlanta",
+    };
+    const MONTH_MAP: Record<string, string> = {
+      JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+      JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+    };
+    const parseCityFromTicker = (ticker: string): string => {
+      const match = ticker.match(/KX(?:HIGH|LOW|RAIN)T?([A-Z]{2,4})-/);
+      if (match) {
+        const code = match[1];
+        return TICKER_CITY_MAP[code] || code.toLowerCase();
+      }
+      return "";
+    };
+    const parseDateFromTicker = (ticker: string): string | null => {
+      const match = ticker.match(/-(\d{2})([A-Z]{3})(\d{2})-/);
+      if (match && MONTH_MAP[match[2]]) {
+        return `20${match[1]}-${MONTH_MAP[match[2]]}-${match[3]}`;
+      }
+      return null;
+    };
+    const computeWeatherSettlementAt = (targetDate: string, city: string): string | null => {
+      if (!targetDate) return null;
+      const timeZoneMap: Record<string, string> = {
+        new_york: "America/New_York",
+        chicago: "America/Chicago",
+        los_angeles: "America/Los_Angeles",
+        miami: "America/New_York",
+        phoenix: "America/Phoenix",
+        dallas: "America/Chicago",
+        denver: "America/Denver",
+        houston: "America/Chicago",
+        atlanta: "America/New_York",
+        boston: "America/New_York",
+        seattle: "America/Los_Angeles",
+        san_francisco: "America/Los_Angeles",
+        washington_dc: "America/New_York",
+        minneapolis: "America/Chicago",
+        austin: "America/Chicago",
+        oklahoma_city: "America/Chicago",
+        new_orleans: "America/Chicago",
+        san_antonio: "America/Chicago",
+      };
+      const tz = timeZoneMap[city.toLowerCase()] || "America/New_York";
+      const [y, m, d] = targetDate.split("-").map(Number);
+      const utcProbe = new Date(Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59, 0));
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        timeZoneName: "shortOffset",
+      }).formatToParts(utcProbe);
+      const off = parts.find((p) => p.type === "timeZoneName")?.value || "GMT-0";
+      const match = off.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+      const sign = match?.[1] === "-" ? -1 : 1;
+      const hours = Number(match?.[2] || 0);
+      const mins = Number(match?.[3] || 0);
+      const offsetMinutes = sign * (hours * 60 + mins);
+      const localEndUtcMs = Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59 + 5, 0) - offsetMinutes * 60_000;
+      return new Date(localEndUtcMs).toISOString();
+    };
+
     // --- Paper trading ---
     let paperPositions: object[] = [];
     let paperCityBreakdown: object[] = [];
@@ -94,19 +163,16 @@ export async function GET() {
         )
         .all()
         .map((row: Record<string, unknown>) => {
-          // Compute settlement_scheduled_at from target_date
-          // Kalshi weather settles next day: thresholds at 14:00 UTC, brackets at 19:00 UTC
-          let settlement_scheduled_at: string | null = null;
-          if (row.target_date) {
-            const td = new Date(row.target_date + "T00:00:00Z");
-            const ticker = String(row.ticker || "");
-            const isBracket = /-B\d/.test(ticker);
-            const nextDay = new Date(td);
-            nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-            nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
-            settlement_scheduled_at = nextDay.toISOString();
-          }
-          return { ...row, settlement_scheduled_at };
+          const ticker = String(row.ticker || "");
+          const parsedTargetDate = parseDateFromTicker(ticker);
+          const city = String(row.city || parseCityFromTicker(ticker) || "");
+          const targetDate = parsedTargetDate || String(row.target_date || "");
+          return {
+            ...row,
+            city,
+            target_date: targetDate,
+            settlement_scheduled_at: computeWeatherSettlementAt(targetDate, city),
+          };
         });
 
       liveCityBreakdown = liveDb
@@ -133,7 +199,7 @@ export async function GET() {
                   NULL as forecast_std, NULL as n_models,
                   CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
                   pnl, pnl as payout, actual_outcome, actual_temp,
-                  settled_at as resolved_at, created_at,
+                  close_time, settled_at as resolved_at, created_at,
                   'live' as trade_type, strategy_version, our_probability
            FROM live_trades
            WHERE status IN ('settled_won', 'settled_lost')
@@ -142,18 +208,66 @@ export async function GET() {
         )
         .all()
         .map((row: Record<string, unknown>) => {
-          let settlement_scheduled_at: string | null = null;
-          if (row.target_date) {
-            const td = new Date(row.target_date + "T00:00:00Z");
-            const ticker = String(row.ticker || "");
-            const isBracket = /-B\d/.test(ticker);
-            const nextDay = new Date(td);
-            nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-            nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
-            settlement_scheduled_at = nextDay.toISOString();
-          }
-          return { ...row, settlement_scheduled_at };
+          const ticker = String(row.ticker || "");
+          const parsedTargetDate = parseDateFromTicker(ticker);
+          const city = String(row.city || parseCityFromTicker(ticker) || "");
+          const targetDate = parsedTargetDate || String(row.target_date || "");
+          return {
+            ...row,
+            city,
+            target_date: targetDate,
+            settlement_scheduled_at: String(row.close_time || computeWeatherSettlementAt(targetDate, city) || ""),
+          };
         });
+
+      const liveTickers = [...new Set([
+        ...livePositions.map((row: Record<string, unknown>) => String(row.ticker || "")),
+        ...liveResolvedPositions.map((row: Record<string, unknown>) => String(row.ticker || "")),
+      ].filter(Boolean))];
+
+      type MarketData = { result: string | null; close_time: string | null };
+      const marketDataByTicker: Record<string, MarketData> = {};
+      const batchSize = 10;
+      for (let i = 0; i < liveTickers.length; i += batchSize) {
+        const batch = liveTickers.slice(i, i + batchSize);
+        const results = await Promise.allSettled(
+          batch.map(async (ticker) => {
+            try {
+              const res = await fetch(`http://localhost:8050/api/market/${ticker}`, {
+                signal: AbortSignal.timeout(3000),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                return { ticker, data };
+              }
+            } catch { /* skip */ }
+            return { ticker, data: null };
+          })
+        );
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value.data) {
+            const d = result.value.data;
+            marketDataByTicker[result.value.ticker] = {
+              result: typeof d.result === "string" ? d.result.toUpperCase() : null,
+              close_time: typeof d.close_time === "string" ? d.close_time : null,
+            };
+          }
+        }
+      }
+
+      livePositions = livePositions.map((row: Record<string, unknown>) => {
+        const market = marketDataByTicker[String(row.ticker || "")];
+        return market?.close_time ? { ...row, settlement_scheduled_at: market.close_time } : row;
+      });
+
+      liveResolvedPositions = liveResolvedPositions.map((row: Record<string, unknown>) => {
+        const market = marketDataByTicker[String(row.ticker || "")];
+        return {
+          ...row,
+          market_result: market?.result || null,
+          settlement_scheduled_at: market?.close_time || row.settlement_scheduled_at,
+        };
+      });
 
       liveDb.close();
     }

@@ -1,30 +1,10 @@
 import { NextResponse } from "next/server";
+import { TRADING_STATIONS } from "@/lib/trading-weather";
 
 /**
  * Fetches current temperatures from NWS weather stations — the SAME source Kalshi uses
- * for settlement. Each city uses its designated airport weather station.
+ * for settlement. Each city uses its designated weather station.
  */
-
-const STATIONS: Record<string, { stationId: string; name: string }> = {
-  new_york: { stationId: "KNYC", name: "New York" },
-  chicago: { stationId: "KMDW", name: "Chicago" },
-  los_angeles: { stationId: "KLAX", name: "Los Angeles" },
-  miami: { stationId: "KMIA", name: "Miami" },
-  phoenix: { stationId: "KPHX", name: "Phoenix" },
-  dallas: { stationId: "KDFW", name: "Dallas" },
-  denver: { stationId: "KDEN", name: "Denver" },
-  houston: { stationId: "KHOU", name: "Houston" },
-  atlanta: { stationId: "KATL", name: "Atlanta" },
-  boston: { stationId: "KBOS", name: "Boston" },
-  seattle: { stationId: "KSEA", name: "Seattle" },
-  san_francisco: { stationId: "KSFO", name: "San Francisco" },
-  washington_dc: { stationId: "KDCA", name: "Washington DC" },
-  minneapolis: { stationId: "KMSP", name: "Minneapolis" },
-  austin: { stationId: "KAUS", name: "Austin" },
-  oklahoma_city: { stationId: "KOKC", name: "Oklahoma City" },
-  new_orleans: { stationId: "KMSY", name: "New Orleans" },
-  san_antonio: { stationId: "KSAT", name: "San Antonio" },
-};
 
 interface StationObs {
   tempF: number;
@@ -39,7 +19,6 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes (NWS updates every ~5-10 min)
 export async function GET() {
   try {
     if (cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
-      // Recompute ageMinutes on each request
       const now = Date.now();
       const updated: Record<string, StationObs> = {};
       for (const [city, obs] of Object.entries(cache.data)) {
@@ -55,14 +34,13 @@ export async function GET() {
 
     const observations: Record<string, StationObs> = {};
     const now = Date.now();
+    const entries = Object.entries(TRADING_STATIONS);
 
-    // Fetch all stations in parallel
-    const entries = Object.entries(STATIONS);
     const results = await Promise.allSettled(
-      entries.map(async ([city, { stationId }]) => {
+      entries.map(async ([city, station]) => {
         try {
           const res = await fetch(
-            `https://api.weather.gov/stations/${stationId}/observations/latest`,
+            `https://api.weather.gov/stations/${station.stationId}/observations/latest`,
             {
               headers: { "User-Agent": "WeatherEdge/1.0 (trading@harrisautonomous.com)" },
               signal: AbortSignal.timeout(5000),
@@ -79,7 +57,7 @@ export async function GET() {
           const ageMinutes = Math.floor((now - obsTime) / 60000);
           return {
             city,
-            obs: { tempF, observedAt, stationId, ageMinutes } as StationObs,
+            obs: { tempF, observedAt, stationId: station.stationId, ageMinutes } as StationObs,
           };
         } catch {
           return { city, obs: null };

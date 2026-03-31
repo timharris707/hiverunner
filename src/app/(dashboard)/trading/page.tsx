@@ -208,6 +208,7 @@ interface ResolvedPosition {
   payout: number;
   actual_outcome: string | null;
   actual_temp: number | null;
+  market_result?: string | null;
   settlement_scheduled_at: string | null;
   resolved_at: string | null;
   created_at: string;
@@ -1055,6 +1056,10 @@ export default function TradingPage() {
                   <tbody>
                     {resolvedPositions.map((rp) => {
                       const isWin = rp.status === "won";
+                      const displayOutcome = rp.trade_type === "live"
+                        ? (rp.market_result || rp.actual_outcome)
+                        : rp.actual_outcome;
+                      const displayTemp = rp.trade_type === "live" ? null : rp.actual_temp;
                       return (
                         <tr
                           key={rp.trade_id}
@@ -1106,16 +1111,16 @@ export default function TradingPage() {
                             <span
                               className="text-xs font-bold px-2 py-0.5 rounded"
                               style={{
-                                backgroundColor: rp.actual_outcome === "YES" ? "#4ade8018" : "#ef444418",
-                                color: rp.actual_outcome === "YES" ? "#4ade80" : "#ef4444",
+                                backgroundColor: displayOutcome === "YES" ? "#4ade8018" : displayOutcome === "NO" ? "#ef444418" : "#6b728018",
+                                color: displayOutcome === "YES" ? "#4ade80" : displayOutcome === "NO" ? "#ef4444" : "#9ca3af",
                               }}
                             >
-                              {rp.actual_outcome ?? "\u2014"}
+                              {displayOutcome ?? "\u2014"}
                             </span>
                           </td>
                           <td className="px-3 py-2">
                             <span className="text-xs font-mono" style={{ color: "var(--text-secondary)" }}>
-                              {rp.actual_temp != null ? `${rp.actual_temp.toFixed(1)}\u00B0F` : "\u2014"}
+                              {displayTemp != null ? `${displayTemp.toFixed(1)}\u00B0F` : "\u2014"}
                             </span>
                           </td>
                           <td className="px-3 py-2">

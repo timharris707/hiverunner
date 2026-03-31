@@ -2,17 +2,15 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
-  DollarSign,
   RefreshCw,
   ChevronDown,
   ChevronUp,
-  TrendingUp,
-  TrendingDown,
   Clock,
   Filter,
   X,
 } from "lucide-react";
 import { useDemoMode, maskDollar } from "@/lib/demo-mode";
+import { actualTempKey, formatLocalDate, TRADING_STATIONS } from "@/lib/trading-weather";
 
 /* ═══════════════════════════════════════════════════════════════
    TYPES
@@ -48,6 +46,12 @@ interface Position {
   resolved_at?: string | null;
   now_price?: number | null;
   fees?: number;
+  market_result?: string | null;
+  market_status?: string | null;
+  market_title?: string | null;
+  market_subtitle?: string | null;
+  market_floor_strike?: number | null;
+  market_cap_strike?: number | null;
   fills?: { fill_id: string; order_id: string; ticker: string; side: string; action: string; quantity: number; yes_price: number; no_price: number; fee: number; is_taker: number; filled_at: string }[];
 }
 
@@ -57,22 +61,6 @@ interface PositionsData {
   cityBreakdown: unknown[];
   liveCityBreakdown: unknown[];
   paperCityBreakdown: unknown[];
-}
-
-interface WeatherStats {
-  available: boolean;
-  kalshiStats?: {
-    totalTrades: number;
-    openTrades: number;
-    won: number;
-    lost: number;
-    winRate: number;
-    totalPnl: number;
-    openExposure: number;
-    bankroll: number | null;
-    initialDeposit?: number;
-    versionBreakdown?: { strategy_version: string; total: number; open: number; won: number; lost: number; pnl: number }[];
-  } | null;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -108,9 +96,14 @@ function parseBetDescription(ticker: string, side: string, threshold?: number | 
   const threshMatch = ticker.match(/-T([\d.]+)$/);
   const t = threshMatch ? parseFloat(threshMatch[1]) : threshold;
   if (t != null) {
+    if (isHigh) {
+      return side.toLowerCase() === "yes"
+        ? `High ≥ ${t}°F`
+        : `High < ${t}°F`;
+    }
     return side.toLowerCase() === "yes"
-      ? `${metric} ≥ ${t}°F`
-      : `${metric} < ${t}°F`;
+      ? `Low < ${t}°F`
+      : `Low ≥ ${t}°F`;
   }
   return `${metric} ${side.toUpperCase()}`;
 }
@@ -138,9 +131,116 @@ function timeRemaining(dateStr: string | null | undefined): string {
   return remHrs > 0 ? `${days}d ${remHrs}h` : `${days}d`;
 }
 
-function pctDisplay(val: number | null | undefined): string {
-  if (val == null) return "—";
-  return `${(val * 100).toFixed(0)}%`;
+interface ActualTemp {
+  city: string;
+  targetDate: string;
+  stationId: string;
+  timeZone: string;
+  high: number;
+  highAt: string;
+  low: number;
+  lowAt: string;
+  observations: number;
+  complete: boolean;
+}
+
+function parseThresholdDetails(ticker: string, fallbackThreshold?: number | null) {
+  const isHigh = /HIGH/i.test(ticker);
+  const isLow = /LOW/i.test(ticker);
+  const bracketMatch = ticker.match(/-B([\d.]+)$/);
+  const thresholdMatch = ticker.match(/-T([\d.]+)$/);
+  const bracketBase = bracketMatch ? parseFloat(bracketMatch[1]) : null;
+  const threshold = thresholdMatch ? parseFloat(thresholdMatch[1]) : (fallbackThreshold ?? null);
+  return { isHigh, isLow, bracketBase, threshold };
+}
+
+function evaluateContractFromActual(ticker: string, side: string, actual: ActualTemp, fallbackThreshold?: number | null): boolean | null {
+  const { isHigh, isLow, bracketBase, threshold } = parseThresholdDetails(ticker, fallbackThreshold);
+  const metric = isHigh ? actual.high : isLow ? actual.low : null;
+  if (metric == null) return null;
+
+  if (bracketBase != null) {
+    const inRange = metric >= bracketBase && metric < bracketBase + 2;
+    return side.toLowerCase() === "yes" ? inRange : !inRange;
+  }
+
+  if (threshold == null) return null;
+
+  if (isHigh) {
+    const eventOccurs = metric >= threshold;
+    return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
+  }
+
+  if (isLow) {
+    const eventOccurs = metric < threshold;
+    return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
+  }
+
+  return null;
+}
+
+function getLockedIntradayOutcome(ticker: string, side: string, actual: ActualTemp, fallbackThreshold?: number | null): boolean | null {
+  const { isHigh, isLow, bracketBase, threshold } = parseThresholdDetails(ticker, fallbackThreshold);
+
+  if (bracketBase != null) {
+    const metric = isHigh ? actual.high : isLow ? actual.low : null;
+    if (metric == null) return null;
+    if (isHigh && metric >= bracketBase + 2) return side.toLowerCase() !== "yes";
+    if (isLow && metric < bracketBase) return side.toLowerCase() !== "yes";
+    return null;
+  }
+
+  if (threshold == null) return null;
+
+  if (isHigh) {
+    if (actual.high >= threshold) return side.toLowerCase() === "yes";
+    return null;
+  }
+
+  if (isLow) {
+    if (actual.low < threshold) return side.toLowerCase() === "yes";
+    return null;
+  }
+
+  return null;
+}
+
+function addDaysToYmd(ymd: string, deltaDays: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
+
+function parseTargetDateFromTicker(ticker: string): string | null {
+  const match = ticker.match(/-(\d{2})([A-Z]{3})(\d{2})-/i);
+  if (!match) return null;
+  const monthMap: Record<string, string> = {
+    JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+    JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+  };
+  const [, yy, monRaw, dd] = match;
+  const mon = monthMap[monRaw.toUpperCase()];
+  if (!mon) return null;
+  return `20${yy}-${mon}-${dd}`;
+}
+
+function getEffectiveTargetDate(ticker: string, fallbackTargetDate: string): string {
+  return parseTargetDateFromTicker(ticker) || fallbackTargetDate;
+}
+
+function getLocalTodayForCity(city: string): string {
+  const station = TRADING_STATIONS[city.toLowerCase()];
+  return station ? formatLocalDate(new Date(), station.timeZone) : new Date().toISOString().slice(0, 10);
+}
+
+function getTargetDateLabel(targetDate: string, city: string): string {
+  const localToday = getLocalTodayForCity(city);
+  if (targetDate === localToday) return "Today";
+  if (targetDate === addDaysToYmd(localToday, 1)) return "Tomorrow";
+  if (targetDate === addDaysToYmd(localToday, -1)) return "Yesterday";
+  const [year, month, day] = targetDate.split("-").map(Number);
+  const target = new Date(Date.UTC(year, (month || 1) - 1, day || 1, 12, 0, 0));
+  return `on ${target.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -167,6 +267,49 @@ interface GroupedPosition {
   placedAt: string;
 }
 
+function getDisplayedRecordedTemp(group: GroupedPosition, actual: ActualTemp | undefined): number | null {
+  if (!actual) return null;
+  const isHighBet = /HIGH/i.test(group.ticker);
+  const isLowBet = /LOW/i.test(group.ticker);
+  if (isHighBet) return actual.high;
+  if (isLowBet) return actual.low;
+  return null;
+}
+
+function getActualDetailLabel(actual: ActualTemp, targetDate: string): string {
+  return actual.complete ? targetDate : "so far today";
+}
+
+function getActualResultText(group: GroupedPosition, actual: ActualTemp | undefined): string | null {
+  const temp = getDisplayedRecordedTemp(group, actual);
+  if (temp == null) return null;
+  return `${temp.toFixed(1)}°F`;
+}
+
+function getSettledOutcomeFromFreshActual(group: GroupedPosition, actual: ActualTemp | undefined): boolean | null {
+  if (!actual?.complete) return null;
+  return evaluateContractFromActual(group.ticker, group.side, actual, group.trades[0]?.threshold);
+}
+
+function getSettledOutcomeFromKalshi(group: GroupedPosition): boolean | null {
+  const result = group.trades.find((t) => t.market_result)?.market_result?.toLowerCase();
+  if (!result || (result !== "yes" && result !== "no")) return null;
+  return group.side.toLowerCase() === result;
+}
+
+function isGroupedPositionOpen(group: GroupedPosition): boolean {
+  return group.trades.some((t) => ["open", "filled", "resting", "pending"].includes(t.status));
+}
+
+function isGroupedPositionSettled(group: GroupedPosition): boolean {
+  return group.trades.every((t) => !["open", "filled", "resting", "pending"].includes(t.status));
+}
+
+function getGroupedSettledOutcome(group: GroupedPosition, actualHighs: Record<string, ActualTemp>): boolean | null {
+  const freshActual = actualHighs[actualTempKey(group.city, group.targetDate)];
+  return getSettledOutcomeFromKalshi(group) ?? getSettledOutcomeFromFreshActual(group, freshActual);
+}
+
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
    ═══════════════════════════════════════════════════════════════ */
@@ -184,7 +327,6 @@ export default function TradingFloorPage() {
     versionBreakdown: { strategy_version: string; total: number; open: number; won: number; lost: number;
       realized_pnl: number; unrealized_pnl: number; total_pnl: number; open_cost: number; total_cost: number }[];
   } | null>(null);
-  const [weatherStats, setWeatherStats] = useState<WeatherStats | null>(null);
   const [positionsData, setPositionsData] = useState<PositionsData | null>(null);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -199,43 +341,67 @@ export default function TradingFloorPage() {
   const [liveForecasts, setLiveForecasts] = useState<Record<string, Record<string, { high: number; low: number }>>>({});
   const [currentTemps, setCurrentTemps] = useState<Record<string, { tempF: number; ageMinutes: number; stationId: string }>>({});
   const [forecastFetchedAt, setForecastFetchedAt] = useState<string | null>(null);
-  const [actualHighs, setActualHighs] = useState<Record<string, { high: number; low: number; highAt: string; lowAt: string }>>({});
+  const [actualHighs, setActualHighs] = useState<Record<string, ActualTemp>>({});
 
   const fetchData = useCallback(async () => {
     try {
-      const [statsRes, posRes, portfolioRes, forecastRes, tempsRes] = await Promise.all([
-        fetch("/api/trading/weather-stats"),
+      const [posRes, portfolioRes, forecastRes, tempsRes] = await Promise.all([
         fetch("/api/trading/kalshi-positions"),
         fetch("/api/trading/kalshi-portfolio"),
         fetch("/api/trading/live-forecasts"),
         fetch("/api/trading/current-temps"),
       ]);
+
       if (forecastRes.ok) {
         const fData = await forecastRes.json();
         if (fData.forecasts) setLiveForecasts(fData.forecasts);
         if (fData.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
       }
+
       if (tempsRes.ok) {
         const tData = await tempsRes.json();
         if (tData.observations) setCurrentTemps(tData.observations);
       }
-      try {
-        const actualsRes = await fetch("/api/trading/actual-highs");
-        if (actualsRes.ok) {
-          const aData = await actualsRes.json();
-          if (aData.actuals) setActualHighs(aData.actuals);
-        }
-      } catch { /* skip */ }
-      const statsData = await statsRes.json();
+
       const posData = await posRes.json();
-      setWeatherStats(statsData);
+      const positions = posData.positions || [];
+      const resolvedPositions = posData.resolved || [];
+
       setPositionsData({
-        positions: posData.positions || [],
-        resolvedPositions: posData.resolved || [],
+        positions,
+        resolvedPositions,
         cityBreakdown: [],
         liveCityBreakdown: [],
         paperCityBreakdown: [],
       });
+
+      const actualPairs = Array.from(
+        new Set(
+          [...positions, ...resolvedPositions]
+            .filter((trade) => {
+              if (!trade.city || !trade.target_date) return false;
+              const effectiveTargetDate = getEffectiveTargetDate(String(trade.ticker || ""), String(trade.target_date));
+              return effectiveTargetDate <= getLocalTodayForCity(String(trade.city));
+            })
+            .map((trade) => {
+              const effectiveTargetDate = getEffectiveTargetDate(String(trade.ticker || ""), String(trade.target_date));
+              return `${String(trade.city).toLowerCase()}|${effectiveTargetDate}`;
+            })
+        )
+      );
+
+      if (actualPairs.length > 0) {
+        try {
+          const actualsRes = await fetch(`/api/trading/actual-highs?${actualPairs.map((pair) => `pair=${encodeURIComponent(pair)}`).join("&")}`);
+          if (actualsRes.ok) {
+            const aData = await actualsRes.json();
+            if (aData.actuals) setActualHighs(aData.actuals);
+          }
+        } catch { /* skip */ }
+      } else {
+        setActualHighs({});
+      }
+
       if (portfolioRes.ok) {
         const pData = await portfolioRes.json();
         if (!pData.error) setKalshiPortfolio(pData);
@@ -244,7 +410,12 @@ export default function TradingFloorPage() {
     } catch { /* silent */ }
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      void fetchData();
+    }, 0);
+    return () => clearTimeout(timeoutId);
+  }, [fetchData]);
   useEffect(() => {
     intervalRef.current = setInterval(fetchData, 60000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
@@ -253,14 +424,13 @@ export default function TradingFloorPage() {
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => {
       const next = new Set(prev);
-      next.has(key) ? next.delete(key) : next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
 
-  const ks = weatherStats?.kalshiStats;
   const kp = kalshiPortfolio;
-  const deposit = kp?.initialDeposit ?? 1000;
   const allPositions = positionsData?.positions ?? [];
   const allResolved = positionsData?.resolvedPositions ?? [];
 
@@ -277,7 +447,7 @@ export default function TradingFloorPage() {
   // Apply filters
   const filtered = allTrades.filter((t) => {
     if (versionFilter !== "all" && (t.strategy_version || "unknown") !== versionFilter) return false;
-    if (dateFilter !== "all" && t.target_date !== dateFilter) return false;
+    if (dateFilter !== "all" && getEffectiveTargetDate(t.ticker, t.target_date) !== dateFilter) return false;
     if (statusFilter === "open" && !isOpenStatus(t.status)) return false;
     if (statusFilter === "settled" && isOpenStatus(t.status)) return false;
     return true;
@@ -285,14 +455,15 @@ export default function TradingFloorPage() {
 
   // Unique filter values
   const versions = [...new Set(allTrades.map((t) => t.strategy_version || "unknown"))].sort();
-  const dates = [...new Set(allTrades.map((t) => t.target_date))].filter(Boolean).sort();
+  const dates = [...new Set(allTrades.map((t) => getEffectiveTargetDate(t.ticker, t.target_date)))].filter(Boolean).sort();
 
   // Group by city + market (ticker base)
   const groupMap = new Map<string, GroupedPosition>();
   for (const t of filtered) {
     // Group key: city + bet description + target date (different dates = different contracts)
+    const effectiveTargetDate = getEffectiveTargetDate(t.ticker, t.target_date);
     const betDesc = parseBetDescription(t.ticker, t.side, t.threshold);
-    const key = `${t.city}|${betDesc}|${t.side}|${t.target_date}`;
+    const key = `${t.city}|${betDesc}|${t.side}|${effectiveTargetDate}`;
     if (!groupMap.has(key)) {
       groupMap.set(key, {
         city: t.city,
@@ -306,7 +477,7 @@ export default function TradingFloorPage() {
         boughtProbability: null,
         payoutIfWin: 0,
         settlementAt: t.settlement_scheduled_at,
-        targetDate: t.target_date,
+        targetDate: effectiveTargetDate,
         strategyVersion: t.strategy_version || "unknown",
         forecast: t.forecast_mean,
         edge: 0,
@@ -372,13 +543,21 @@ export default function TradingFloorPage() {
     return asc ? cmp : -cmp;
   });
 
-  // Stats for filtered set
-  const filteredOpen = filtered.filter((t) => isOpenStatus(t.status));
-  const filteredSettled = filtered.filter((t) => !isOpenStatus(t.status));
-  const filteredWon = filteredSettled.filter((t) => t.status === "won" || (t.pnl != null && t.pnl > 0));
-  const filteredLost = filteredSettled.filter((t) => t.status === "lost" || (t.pnl != null && t.pnl < 0));
-  const filteredPnl = filteredSettled.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const filteredCost = filtered.reduce((sum, t) => sum + t.cost, 0);
+  // Stats for filtered set — use grouped positions, not raw order rows,
+  // so reporting matches what the user sees on the Trading Floor.
+  const filteredOpenGroups = groups.filter((g) => isGroupedPositionOpen(g));
+  const filteredSettledGroups = groups.filter((g) => isGroupedPositionSettled(g));
+  const filteredWonGroups = filteredSettledGroups.filter((g) => getGroupedSettledOutcome(g, actualHighs) ?? g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0));
+  const filteredLostGroups = filteredSettledGroups.filter((g) => {
+    const outcome = getGroupedSettledOutcome(g, actualHighs);
+    return outcome != null ? !outcome : g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
+  });
+  const filteredSettledPnl = filteredSettledGroups.reduce(
+    (sum, g) => sum + g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0),
+    0,
+  );
+  const filteredCost = filtered.reduce((s, t) => s + t.cost, 0);
+  const summaryCountText = `${groups.length} positions · ${filteredOpenGroups.length} open · ${filteredSettledGroups.length} settled · ${filteredWonGroups.length}W/${filteredLostGroups.length}L`;
 
   const hasFilters = versionFilter !== "all" || dateFilter !== "all" || statusFilter !== "all";
 
@@ -391,7 +570,7 @@ export default function TradingFloorPage() {
             className="text-2xl font-bold"
             style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-1px" }}
           >
-            ⚡ Trading Floor
+            Trading Floor
           </h1>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
             Weather Markets · Kalshi · Live Positions & History
@@ -461,21 +640,19 @@ export default function TradingFloorPage() {
         {(() => {
           // When filters are active, show filtered stats instead of account-level
           if (hasFilters) {
-            const fCost = filtered.reduce((s, t) => s + t.cost, 0);
-            const fSettledPnl = filteredSettled.reduce((s, t) => s + (t.pnl ?? 0), 0);
-            const fWR = (filteredWon.length + filteredLost.length) > 0 
-              ? ((filteredWon.length / (filteredWon.length + filteredLost.length)) * 100).toFixed(0) 
+            const fWR = (filteredWonGroups.length + filteredLostGroups.length) > 0 
+              ? ((filteredWonGroups.length / (filteredWonGroups.length + filteredLostGroups.length)) * 100).toFixed(0) 
               : "—";
             return [
               { label: "Positions", value: `${groups.length}`, color: "var(--text-primary)", bold: true,
-                sub: `${filtered.length} orders` },
-              { label: "Cash Deployed", value: $(fCost), color: "#60a5fa" },
-              { label: "Realized P&L", value: filteredSettled.length > 0 ? $(fSettledPnl) : "$0.00",
-                color: filteredSettled.length > 0 ? (fSettledPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)",
-                sub: filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
+                sub: `${filtered.length} orders · ${filteredOpenGroups.length} open · ${filteredSettledGroups.length} settled` },
+              { label: "Cash Deployed", value: $(filteredCost), color: "#60a5fa" },
+              { label: "Realized P&L", value: filteredSettledGroups.length > 0 ? $(filteredSettledPnl) : "$0.00",
+                color: filteredSettledGroups.length > 0 ? (filteredSettledPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)",
+                sub: filteredSettledGroups.length > 0 ? `${filteredWonGroups.length}W – ${filteredLostGroups.length}L` : "No settlements" },
               { label: "Win Rate", value: fWR !== "—" ? `${fWR}%` : "—",
                 color: fWR !== "—" && parseInt(fWR) >= 50 ? "#4ade80" : "#ef4444",
-                sub: fWR !== "—" ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements" },
+                sub: fWR !== "—" ? `${filteredWonGroups.length}W – ${filteredLostGroups.length}L` : "No settlements" },
             ];
           }
           // No filters — show account-level summary
@@ -493,8 +670,12 @@ export default function TradingFloorPage() {
                 return kp.pnl24h >= 0 ? "#4ade80" : "#ef4444";
               })() : undefined,
             },
-            { label: "Positions", value: kp ? $(kp.positions) : "—", color: "#60a5fa",
-            sub: kp ? `${new Set(livePositions.map(p => p.ticker)).size || kp.positionsCount} positions · Cost basis ${$(kp.costBasis)}` : undefined },
+            {
+              label: "Positions",
+              value: `${groups.length}`,
+              color: "#60a5fa",
+              sub: `${livePositions.length} orders · Cost basis ${kp ? $(kp.costBasis) : $(filteredCost)}`,
+            },
             { label: "Cash", value: kp ? $(kp.cash) : "—", color: "var(--text-primary)" },
             {
               label: "Win Rate",
@@ -528,30 +709,28 @@ export default function TradingFloorPage() {
       {/* ── P&L Breakdown (filter-aware) ────────────────── */}
       {(() => {
         if (hasFilters) {
-          // When filtered: show P&L only for filtered trades
-          const fRealizedPnl = filteredSettled.reduce((s, t) => s + (t.pnl ?? 0), 0);
           return (
             <div className="grid grid-cols-3 gap-3 mb-6">
               <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Realized P&L</div>
-                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: filteredSettled.length > 0 ? (fRealizedPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)" }}>
-                  {filteredSettled.length > 0 ? $(fRealizedPnl) : "$0.00"}
+                <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: filteredSettledGroups.length > 0 ? (filteredSettledPnl >= 0 ? "#4ade80" : "#ef4444") : "var(--text-muted)" }}>
+                  {filteredSettledGroups.length > 0 ? $(filteredSettledPnl) : "$0.00"}
                 </div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredSettled.length > 0 ? `${filteredWon.length}W – ${filteredLost.length}L` : "No settlements in filter"}</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredSettledGroups.length > 0 ? `${filteredWonGroups.length}W – ${filteredLostGroups.length}L` : "No settlements in filter"}</div>
               </div>
               <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Unrealized P&L</div>
                 <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
                   TBD
                 </div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{groups.length} positions · Settles tonight</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>{filteredOpenGroups.length} open positions · grouped view</div>
               </div>
               <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                 <div className="text-xs uppercase tracking-wider mb-1" style={{ color: "var(--text-muted)" }}>Total P&L</div>
                 <div className="text-lg font-bold" style={{ fontFamily: "var(--font-heading)", color: "var(--text-muted)" }}>
-                  {filteredSettled.length > 0 ? $(fRealizedPnl) : "$0.00"}
+                  {filteredSettledGroups.length > 0 ? $(filteredSettledPnl) : "$0.00"}
                 </div>
-                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Filtered view</div>
+                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Filtered grouped view</div>
               </div>
             </div>
           );
@@ -696,7 +875,7 @@ export default function TradingFloorPage() {
           })}
         </div>
         <span className="text-xs ml-auto" style={{ color: "var(--text-muted)" }}>
-          {groups.length} positions · {filteredOpen.length} open · {filteredSettled.length} settled · {filteredWon.length}W/{filteredLost.length}L
+          {summaryCountText}
         </span>
       </div>
 
@@ -713,8 +892,12 @@ export default function TradingFloorPage() {
           const isExpanded = expandedGroups.has(key);
           const isOpen = g.trades.some((t) => isOpenStatus(t.status));
           const isSettled = g.trades.every((t) => !isOpenStatus(t.status));
-          const isWon = isSettled && g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0);
-          const isLost = isSettled && g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
+          const freshActual = actualHighs[actualTempKey(g.city, g.targetDate)];
+          const kalshiSettledOutcome = getSettledOutcomeFromKalshi(g);
+          const freshSettledOutcome = getSettledOutcomeFromFreshActual(g, freshActual);
+          const settledOutcome = kalshiSettledOutcome ?? freshSettledOutcome;
+          const isWon = isSettled && (settledOutcome ?? g.trades.some((t) => t.status === "won" || (t.pnl ?? 0) > 0));
+          const isLost = isSettled && (settledOutcome != null ? !settledOutcome : g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0));
           const settledPnl = g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0);
           // For countdown: use latest open trade's settlement (resolved trades have past dates that mislead)
           const displaySettlement = isOpen
@@ -744,277 +927,392 @@ export default function TradingFloorPage() {
               {/* Main row — Kalshi-style clean layout */}
               <button
                 onClick={() => toggleGroup(key)}
-                className="w-full px-4 py-3.5 text-left hover:opacity-90 transition-opacity"
+                className="w-full px-4 py-4 text-left hover:opacity-90 transition-opacity"
                 style={{
                   backgroundColor: isSettled ? (isWon ? "#4ade8008" : "#ef444408") : "transparent",
-                  display: "grid",
-                  gridTemplateColumns: "48px 1fr 60px 70px 80px 100px 110px 100px 28px",
-                  gap: 12,
-                  alignItems: "center",
                 }}
               >
-                {/* City badge */}
-                <div
-                  className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
-                  style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
-                >
-                  <span className="text-xs font-black tracking-wider" style={{ color: "#60a5fa" }}>
-                    {cityCode(g.city)}
-                  </span>
-                </div>
+                <div className="space-y-3">
+                  <div
+                    className="hidden lg:grid gap-3 items-center"
+                    style={{
+                      gridTemplateColumns: "52px minmax(0, 2.25fr) minmax(88px, 0.8fr) minmax(112px, 0.95fr) minmax(88px, 0.8fr) minmax(88px, 0.8fr) minmax(110px, 0.95fr) minmax(108px, 0.95fr) 24px",
+                    }}
+                  >
+                    <div
+                      className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
+                    >
+                      <span className="text-xs font-black tracking-wider" style={{ color: "#60a5fa" }}>
+                        {cityCode(g.city)}
+                      </span>
+                    </div>
 
-                {/* Market info — "Yes • High ≥ 93°F in Phoenix Tomorrow" */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
-                      {g.side === "yes" ? "Yes" : "No"}
-                    </span>
-                    <span style={{ color: "var(--text-primary)", fontSize: 15, lineHeight: "14px" }}>•</span>
-                    <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
-                      {g.marketLabel} in {capitalize(g.city)} {(() => {
-                        const today = new Date();
-                        const todayStr = today.toISOString().slice(0, 10);
-                        const yesterday = new Date(today);
-                        yesterday.setDate(yesterday.getDate() - 1);
-                        const yesterdayStr = yesterday.toISOString().slice(0, 10);
-                        const tomorrow = new Date(today);
-                        tomorrow.setDate(tomorrow.getDate() + 1);
-                        const tomorrowStr = tomorrow.toISOString().slice(0, 10);
-                        if (g.targetDate === todayStr) return "Today";
-                        if (g.targetDate === tomorrowStr) return "Tomorrow";
-                        if (g.targetDate === yesterdayStr) return "Yesterday";
-                        const target = new Date(g.targetDate + "T00:00:00");
-                        return `on ${target.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
+                          {g.side === "yes" ? "Yes" : "No"}
+                        </span>
+                        <span style={{ color: "var(--text-primary)", fontSize: 15, lineHeight: "14px" }}>•</span>
+                        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {g.marketLabel} in {capitalize(g.city)} {getTargetDateLabel(g.targetDate, g.city)}
+                        </span>
+                      </div>
+                      <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "var(--text-muted)" }}>
+                        <span>Placed {friendlyDatetime(g.placedAt)}</span>
+                        <span className="px-1.5 py-0.5 rounded" style={{
+                          fontSize: 10,
+                          backgroundColor: isBadVersion ? "#ef444420" : "#4ade8015",
+                          color: isBadVersion ? "#ef4444" : "#4ade80",
+                        }}>
+                          {g.strategyVersion}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Current</div>
+                      {isSettled ? (
+                        <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>
+                      ) : (() => {
+                        const obs = currentTemps[g.city.toLowerCase()];
+                        if (!obs) return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                        return (
+                          <>
+                            <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>{obs.tempF}°F</div>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              {obs.ageMinutes < 1 ? "just now" : obs.ageMinutes < 60 ? `${obs.ageMinutes}m ago` : `${Math.floor(obs.ageMinutes / 60)}h ago`}
+                            </div>
+                          </>
+                        );
                       })()}
-                    </span>
-                  </div>
-                  <div className="text-xs mt-0.5 flex items-center gap-2">
-                    <span style={{ color: "var(--text-muted)" }}>
-                      Placed {friendlyDatetime(g.placedAt)}
-                    </span>
-                    <span className="px-1.5 py-0.5 rounded" style={{
-                      fontSize: 10,
-                      backgroundColor: isBadVersion ? "#ef444420" : "#4ade8015",
-                      color: isBadVersion ? "#ef4444" : "#4ade80",
-                    }}>
-                      {g.strategyVersion}
-                    </span>
-                  </div>
-                </div>
+                    </div>
 
-                {/* Current — NWS station observation (same source Kalshi uses) */}
-                <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Current</div>
-                  {(() => {
-                    const obs = currentTemps[g.city.toLowerCase()];
-                    if (!obs) return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
-                    return (
-                      <>
-                        <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
-                          {obs.tempF}°F
-                        </div>
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                          {obs.ageMinutes < 1 ? "just now" : obs.ageMinutes < 60 ? `${obs.ageMinutes}m ago` : `${Math.floor(obs.ageMinutes / 60)}h ago`}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
+                    <div>
+                      {(() => {
+                        const isHighBet = /HIGH/i.test(g.ticker);
+                        const actualText = getActualResultText(g, freshActual);
+                        if (freshActual && actualText) {
+                          return (
+                            <>
+                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{isHighBet ? "High recorded" : "Low recorded"}</div>
+                              <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>{actualText}</div>
+                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{getActualDetailLabel(freshActual, g.targetDate)}</div>
+                            </>
+                          );
+                        }
+                        const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
+                        const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
+                        const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
+                        return (
+                          <>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
+                            <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>{temp != null ? `${temp}°F` : "—"}</div>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              {liveFc != null && forecastFetchedAt ? (() => {
+                                const d = new Date(forecastFetchedAt);
+                                const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                                if (mins < 1) return "just now";
+                                if (mins < 60) return `${mins}m ago`;
+                                return `${Math.floor(mins / 60)}h ago`;
+                              })() : temp != null ? "at entry" : "—"}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
 
-                {/* Forecast or Actual — show recorded high/low for today, forecast for future */}
-                <div>
-                  {(() => {
-                    const isHighBet = /HIGH/i.test(g.ticker);
-                    const todayStr = new Date().toISOString().slice(0, 10);
-                    const isToday = g.targetDate === todayStr;
-                    const yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-                    const isPast = g.targetDate <= yesterdayStr;
-                    
-                    // For today or past: show actual recorded high/low from NWS
-                    const actual = actualHighs[g.city.toLowerCase()];
-                    if ((isToday || isPast) && actual) {
-                      const temp = isHighBet ? actual.high : actual.low;
-                      return (
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{$(g.totalCost)}</div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.totalQuantity}x @ {(g.avgPrice * 100).toFixed(0)}¢</div>
+                    </div>
+
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}%</div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}</div>
+                    </div>
+
+                    <div>
+                      {isSettled ? (
                         <>
-                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>{isHighBet ? "High" : "Low"}</div>
-                          <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
-                            {temp.toFixed(1)}°F
-                          </div>
-                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                            recorded
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
+                          <div className="text-sm font-bold" style={{ color: isWon ? "#4ade80" : "#ef4444" }}>{isWon ? "WON" : "LOST"}</div>
+                          {(() => {
+                            const actualText = getActualResultText(g, freshActual);
+                            const kalshiResult = g.trades.find((t) => t.market_result)?.market_result?.toUpperCase();
+                            const hasConflict = kalshiSettledOutcome != null && freshSettledOutcome != null && kalshiSettledOutcome !== freshSettledOutcome;
+                            return (
+                              <>
+                                {kalshiResult ? <div className="text-xs" style={{ color: hasConflict ? "#f59e0b" : "var(--text-muted)" }}>Kalshi settled {kalshiResult}</div> : null}
+                                {actualText ? <div className="text-xs" style={{ color: hasConflict ? "#f59e0b" : "var(--text-muted)" }}>{actualText}{hasConflict ? " · audit disagrees" : ""}</div> : null}
+                              </>
+                            );
+                          })()}
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
+                          {(() => {
+                            const finalOutcome = freshActual ? evaluateContractFromActual(g.ticker, g.side, freshActual, g.trades[0]?.threshold) : null;
+                            const lockedOutcome = freshActual && !freshActual.complete
+                              ? getLockedIntradayOutcome(g.ticker, g.side, freshActual, g.trades[0]?.threshold)
+                              : null;
+                            if (freshActual?.complete && finalOutcome != null) {
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: finalOutcome ? "#4ade80" : "#ef4444" }}>{finalOutcome ? "100% ✓" : "0% ✕"}</div>
+                                  <div className="text-xs" style={{ color: finalOutcome ? "#4ade80" : "#ef4444" }}>Final actual</div>
+                                </>
+                              );
+                            }
+                            if (lockedOutcome != null) {
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>{lockedOutcome ? "Locked win" : "Locked loss"}</div>
+                                  <div className="text-xs" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>From today's recorded {(/HIGH/i.test(g.ticker) ? "high" : /LOW/i.test(g.ticker) ? "low" : "actual")}</div>
+                                </>
+                              );
+                            }
+                            if (g.nowPrice != null) {
+                              const nowPct = g.nowPrice * 100;
+                              const diff = nowPct - boughtPct;
+                              const isUp = diff > 0;
+                              const ourProb = g.trades[0]?.our_probability;
+                              const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>{nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}</div>
+                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>{currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}</div>
+                                </>
+                              );
+                            }
+                            return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                          })()}
+                        </>
+                      )}
+                    </div>
+
+                    <div className="text-right">
+                      {isSettled ? (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
+                          <div className="text-sm font-bold" style={{ color: settledPnl >= 0 ? "#4ade80" : "#ef4444" }}>{settledPnl >= 0 ? "+" : ""}{$(settledPnl, "")}</div>
+                          <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Settled</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Payout if Win</div>
+                          <div className="text-sm font-bold" style={{ color: "#4ade80" }}>${(g.totalQuantity * 1).toFixed(2)}</div>
+                          <div className="flex items-center gap-1 justify-end mt-0.5">
+                            <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
+                            <span className="text-xs" style={{
+                              color: (() => {
+                                if (!displaySettlement) return "var(--text-muted)";
+                                const diff = new Date(displaySettlement).getTime() - Date.now();
+                                if (diff <= 0) return "#f59e0b";
+                                if (diff < 3600000) return "#ef4444";
+                                if (diff < 86400000) return "#f59e0b";
+                                return "var(--text-muted)";
+                              })(),
+                            }}>
+                              {timeRemaining(displaySettlement)}
+                            </span>
                           </div>
                         </>
-                      );
-                    }
-                    
-                    // For future: show forecast
-                    const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
-                    const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
-                    const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
-                    return (
-                      <>
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
-                        <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
-                          {temp != null ? `${temp}°F` : "—"}
-                        </div>
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                          {liveFc != null && forecastFetchedAt ? (() => {
-                            const d = new Date(forecastFetchedAt);
-                            const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-                            if (mins < 1) return "just now";
-                            if (mins < 60) return `${mins}m ago`;
-                            return `${Math.floor(mins / 60)}h ago`;
-                          })() : temp != null ? "at entry" : "—"}
-                        </div>
-                      </>
-                    );
-                  })()}
-                </div>
-
-                {/* Cost */}
-                <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
-                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    {$(g.totalCost)}
-                  </div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {g.totalQuantity}x @ {(g.avgPrice * 100).toFixed(0)}¢
-                  </div>
-                </div>
-
-                {/* Bought */}
-                <div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
-                  <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>
-                    {boughtPct.toFixed(0)}% chance
-                  </div>
-                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                    {g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}
-                  </div>
-                </div>
-
-                {/* Now */}
-                <div>
-                  {isSettled ? (
-                    <>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Result</div>
-                      <span
-                        className="text-sm font-bold"
-                        style={{ color: isWon ? "#4ade80" : "#ef4444" }}
-                      >
-                        {isWon ? "WON" : "LOST"}
-                      </span>
-                      {g.trades[0]?.actual_temp != null && (
-                        <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                          {g.trades[0].actual_temp.toFixed(1)}°F
-                        </div>
                       )}
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-xs" style={{ color: "#06b6d4" }}>Now</div>
-                      {(() => {
-                        // Check if current temp already determines the outcome
-                        // ONLY for today's bets — tomorrow's weather hasn't happened yet
-                        const currentObs = currentTemps[g.city.toLowerCase()];
-                        const currentTemp = currentObs?.tempF;
-                        const ticker = g.ticker || "";
-                        const isHighBet = /HIGH/i.test(ticker);
-                        const threshMatch = ticker.match(/-T([\d.]+)$/);
-                        const threshold = threshMatch ? parseFloat(threshMatch[1]) : null;
-                        const isYes = g.side === "yes";
-                        const todayStr = new Date().toISOString().slice(0, 10);
-                        const isTodayBet = g.targetDate === todayStr;
-                        const isPastBet = g.targetDate < todayStr;
+                    </div>
 
-                        // Only determine outcome if the bet's day is today or past
-                        let alreadyWon = false;
-                        if ((isTodayBet || isPastBet) && currentTemp != null && threshold != null) {
-                          if (isHighBet && isYes && currentTemp >= threshold) alreadyWon = true;
-                          if (isHighBet && !isYes && currentTemp >= threshold) alreadyWon = false;
-                        }
+                    <div style={{ color: "var(--text-muted)" }}>
+                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
+                  </div>
 
-                        if (alreadyWon) {
-                          return (
-                            <>
-                              <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
-                                99% ✓
-                              </div>
-                              <div className="text-xs" style={{ color: "#4ade80" }}>
-                                Threshold hit
-                              </div>
-                            </>
-                          );
-                        }
-
-                        // Fall back to market price
-                        if (g.nowPrice != null) {
-                          const nowPct = g.nowPrice * 100;
-                          const diff = nowPct - boughtPct;
-                          const isUp = diff > 0;
-                          const ourProb = g.trades[0]?.our_probability;
-                          const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
-                          return (
-                            <>
-                              <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>
-                                {nowPct.toFixed(0)}% chance {isUp ? "▲" : "▼"}
-                              </div>
-                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                                {currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}
-                              </div>
-                            </>
-                          );
-                        }
-                        return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
-                      })()}
-                    </>
-                  )}
-                </div>
-
-                {/* Payout if Win + Settlement */}
-                <div className="text-right">
-                  {isSettled ? (
-                    <>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
-                      <div className="text-sm font-bold" style={{ color: settledPnl >= 0 ? "#4ade80" : "#ef4444" }}>
-                        {settledPnl >= 0 ? "+" : ""}{$(settledPnl, "")}
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Payout if Win</div>
-                      <div className="text-sm font-bold" style={{ color: "#4ade80" }}>
-                        ${(g.totalQuantity * 1).toFixed(2)}
-                      </div>
-                    </>
-                  )}
-                  {isOpen && (
-                    <div className="flex items-center gap-1 justify-end mt-0.5">
-                      <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
-                      <span className="text-xs" style={{
-                        color: (() => {
-                          if (!displaySettlement) return "var(--text-muted)";
-                          const diff = new Date(displaySettlement).getTime() - Date.now();
-                          if (diff <= 0) return "#f59e0b";
-                          if (diff < 3600000) return "#ef4444";
-                          if (diff < 86400000) return "#f59e0b";
-                          return "var(--text-muted)";
-                        })(),
-                      }}>
-                        {timeRemaining(displaySettlement)}
+                  <div className="lg:hidden flex items-start gap-3">
+                    <div
+                      className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
+                    >
+                      <span className="text-xs font-black tracking-wider" style={{ color: "#60a5fa" }}>
+                        {cityCode(g.city)}
                       </span>
                     </div>
-                  )}
-                  {isSettled && (
-                    <div className="text-xs mt-0.5 text-right" style={{ color: "var(--text-muted)" }}>
-                      Settled
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span style={{ color: g.side === "yes" ? "#4ade80" : "#ef4444", fontWeight: 700, fontSize: 14 }}>
+                          {g.side === "yes" ? "Yes" : "No"}
+                        </span>
+                        <span style={{ color: "var(--text-primary)", fontSize: 15, lineHeight: "14px" }}>•</span>
+                        <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
+                          {g.marketLabel} in {capitalize(g.city)} {getTargetDateLabel(g.targetDate, g.city)}
+                        </span>
+                      </div>
+                      <div className="text-xs mt-0.5 flex items-center gap-2 flex-wrap" style={{ color: "var(--text-muted)" }}>
+                        <span>Placed {friendlyDatetime(g.placedAt)}</span>
+                        <span className="px-1.5 py-0.5 rounded" style={{
+                          fontSize: 10,
+                          backgroundColor: isBadVersion ? "#ef444420" : "#4ade8015",
+                          color: isBadVersion ? "#ef4444" : "#4ade80",
+                        }}>
+                          {g.strategyVersion}
+                        </span>
+                      </div>
                     </div>
-                  )}
-                </div>
+                    <div className="pt-1" style={{ color: "var(--text-muted)" }}>
+                      {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                    </div>
+                  </div>
 
-                {/* Expand arrow */}
-                <div style={{ color: "var(--text-muted)" }}>
-                  {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:hidden">
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Current</div>
+                      {isSettled ? (
+                        <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>
+                      ) : (() => {
+                        const obs = currentTemps[g.city.toLowerCase()];
+                        if (!obs) return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                        return (
+                          <>
+                            <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>{obs.tempF}°F</div>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              {obs.ageMinutes < 1 ? "just now" : obs.ageMinutes < 60 ? `${obs.ageMinutes}m ago` : `${Math.floor(obs.ageMinutes / 60)}h ago`}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div>
+                      {(() => {
+                        const isHighBet = /HIGH/i.test(g.ticker);
+                        const actualText = getActualResultText(g, freshActual);
+                        if (freshActual && actualText) {
+                          return (
+                            <>
+                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{isHighBet ? "High recorded" : "Low recorded"}</div>
+                              <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>{actualText}</div>
+                              <div className="text-xs" style={{ color: "var(--text-muted)" }}>{getActualDetailLabel(freshActual, g.targetDate)}</div>
+                            </>
+                          );
+                        }
+                        const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
+                        const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
+                        const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
+                        return (
+                          <>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
+                            <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>{temp != null ? `${temp}°F` : "—"}</div>
+                            <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                              {liveFc != null && forecastFetchedAt ? (() => {
+                                const d = new Date(forecastFetchedAt);
+                                const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                                if (mins < 1) return "just now";
+                                if (mins < 60) return `${mins}m ago`;
+                                return `${Math.floor(mins / 60)}h ago`;
+                              })() : temp != null ? "at entry" : "—"}
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</div>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{$(g.totalCost)}</div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.totalQuantity}x @ {(g.avgPrice * 100).toFixed(0)}¢</div>
+                    </div>
+                    <div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}%</div>
+                      <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}</div>
+                    </div>
+                    <div>
+                      {isSettled ? (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
+                          <div className="text-sm font-bold" style={{ color: isWon ? "#4ade80" : "#ef4444" }}>{isWon ? "WON" : "LOST"}</div>
+                          {(() => {
+                            const actualText = getActualResultText(g, freshActual);
+                            const kalshiResult = g.trades.find((t) => t.market_result)?.market_result?.toUpperCase();
+                            const hasConflict = kalshiSettledOutcome != null && freshSettledOutcome != null && kalshiSettledOutcome !== freshSettledOutcome;
+                            return kalshiResult
+                              ? <div className="text-xs" style={{ color: hasConflict ? "#f59e0b" : "var(--text-muted)" }}>Kalshi settled {kalshiResult}</div>
+                              : actualText
+                                ? <div className="text-xs" style={{ color: hasConflict ? "#f59e0b" : "var(--text-muted)" }}>{actualText}{hasConflict ? " · audit disagrees" : ""}</div>
+                                : null;
+                          })()}
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
+                          {(() => {
+                            const finalOutcome = freshActual ? evaluateContractFromActual(g.ticker, g.side, freshActual, g.trades[0]?.threshold) : null;
+                            const lockedOutcome = freshActual && !freshActual.complete
+                              ? getLockedIntradayOutcome(g.ticker, g.side, freshActual, g.trades[0]?.threshold)
+                              : null;
+                            if (freshActual?.complete && finalOutcome != null) {
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: finalOutcome ? "#4ade80" : "#ef4444" }}>{finalOutcome ? "100% ✓" : "0% ✕"}</div>
+                                  <div className="text-xs" style={{ color: finalOutcome ? "#4ade80" : "#ef4444" }}>Final actual</div>
+                                </>
+                              );
+                            }
+                            if (lockedOutcome != null) {
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>{lockedOutcome ? "Locked win" : "Locked loss"}</div>
+                                  <div className="text-xs" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>From today's recorded {(/HIGH/i.test(g.ticker) ? "high" : /LOW/i.test(g.ticker) ? "low" : "actual")}</div>
+                                </>
+                              );
+                            }
+                            if (g.nowPrice != null) {
+                              const nowPct = g.nowPrice * 100;
+                              const diff = nowPct - boughtPct;
+                              const isUp = diff > 0;
+                              const ourProb = g.trades[0]?.our_probability;
+                              const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
+                              return (
+                                <>
+                                  <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>{nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}</div>
+                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>{currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}</div>
+                                </>
+                              );
+                            }
+                            return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                          })()}
+                        </>
+                      )}
+                    </div>
+                    <div>
+                      {isSettled ? (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>P&L</div>
+                          <div className="text-sm font-bold" style={{ color: settledPnl >= 0 ? "#4ade80" : "#ef4444" }}>{settledPnl >= 0 ? "+" : ""}{$(settledPnl, "")}</div>
+                          <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>Settled</div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-xs" style={{ color: "var(--text-muted)" }}>Payout if Win</div>
+                          <div className="text-sm font-bold" style={{ color: "#4ade80" }}>${(g.totalQuantity * 1).toFixed(2)}</div>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <Clock className="w-2.5 h-2.5" style={{ color: "var(--text-muted)" }} />
+                            <span className="text-xs" style={{
+                              color: (() => {
+                                if (!displaySettlement) return "var(--text-muted)";
+                                const diff = new Date(displaySettlement).getTime() - Date.now();
+                                if (diff <= 0) return "#f59e0b";
+                                if (diff < 3600000) return "#ef4444";
+                                if (diff < 86400000) return "#f59e0b";
+                                return "var(--text-muted)";
+                              })(),
+                            }}>
+                              {timeRemaining(displaySettlement)}
+                            </span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </button>
 
@@ -1022,7 +1320,7 @@ export default function TradingFloorPage() {
               {isExpanded && (
                 <div style={{ borderTop: "1px solid var(--border)" }}>
                   {/* Summary stats */}
-                  <div className="px-4 py-3 flex flex-wrap gap-6" style={{ backgroundColor: "var(--card-elevated)" }}>
+                  <div className="px-4 py-3 grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-4" style={{ backgroundColor: "var(--card-elevated)" }}>
                     <div>
                       <span className="text-xs" style={{ color: "var(--text-muted)" }}>Cost</span>
                       <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{$(g.totalCost)}</div>
@@ -1076,96 +1374,85 @@ export default function TradingFloorPage() {
                   </div>
 
                   {/* Fill-level line items */}
-                  <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                        {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Type", "Filled"].map((h) => (
-                          <th
-                            key={h}
-                            className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
-                            style={{ color: "var(--text-muted)", backgroundColor: "var(--card-elevated)" }}
-                          >
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(() => {
-                        // Collect all fills from all trades in this group
-                        const allFills = g.trades.flatMap((t) => t.fills || []);
-                        // If no fills data, fall back to trade-level rows
-                        const rows = allFills.length > 0 ? allFills : g.trades.map((t) => ({
-                          fill_id: t.trade_id,
-                          side: t.side,
-                          action: "buy",
-                          quantity: t.quantity,
-                          yes_price: t.side === "yes" ? t.price : 1 - t.price,
-                          no_price: t.side === "no" ? t.price : 1 - t.price,
-                          fee: t.fees ?? 0,
-                          is_taker: 0,
-                          filled_at: t.created_at,
-                        }));
-                        return rows.map((f, fi) => {
-                          const side = String(f.side || g.side);
-                          const price = side === "yes" ? Number(f.yes_price) : Number(f.no_price);
-                          const qty = Number(f.quantity);
-                          const cost = qty * price;
-                          const fee = Number(f.fee || 0);
-                          return (
-                        <tr
-                          key={String(f.fill_id) + fi}
-                          style={{ borderBottom: "1px solid var(--border)" }}
-                        >
-                          <td className="px-4 py-2.5">
-                            <span
-                              className="text-xs font-bold"
-                              style={{ color: side === "yes" ? "#4ade80" : "#ef4444" }}
+                  <div className="overflow-x-auto">
+                    <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
+                      <thead>
+                        <tr style={{ borderBottom: "1px solid var(--border)" }}>
+                          {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Type", "Filled"].map((h) => (
+                            <th
+                              key={h}
+                              className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
+                              style={{ color: "var(--text-muted)", backgroundColor: "var(--card-elevated)" }}
                             >
-                              Bought {side.charAt(0).toUpperCase() + side.slice(1)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
-                              {(price * 100).toFixed(1)}¢
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
-                              {qty}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                              ${cost.toFixed(2)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{ color: fee > 0 ? "#f59e0b" : "var(--text-muted)" }}>
-                              ${fee.toFixed(2)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>
-                              ${(cost + fee).toFixed(2)}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{ color: f.is_taker ? "#f59e0b" : "var(--text-muted)" }}>
-                              {f.is_taker ? "Taker" : "Maker"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2.5">
-                            <span className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {friendlyDatetime(String(f.filled_at || ""))}
-                            </span>
-                          </td>
+                              {h}
+                            </th>
+                          ))}
                         </tr>
-                          );
-                        });
-                      })()}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {(() => {
+                          const allFills = g.trades.flatMap((t) => t.fills || []);
+                          const rows = allFills.length > 0 ? allFills : g.trades.map((t) => ({
+                            fill_id: t.trade_id,
+                            side: t.side,
+                            action: "buy",
+                            quantity: t.quantity,
+                            yes_price: t.side === "yes" ? t.price : 1 - t.price,
+                            no_price: t.side === "no" ? t.price : 1 - t.price,
+                            fee: t.fees ?? 0,
+                            is_taker: 0,
+                            filled_at: t.created_at,
+                          }));
+                          return rows.map((f, fi) => {
+                            const side = String(f.side || g.side);
+                            const price = side === "yes" ? Number(f.yes_price) : Number(f.no_price);
+                            const qty = Number(f.quantity);
+                            const cost = qty * price;
+                            const fee = Number(f.fee || 0);
+                            return (
+                              <tr
+                                key={String(f.fill_id) + fi}
+                                style={{ borderBottom: "1px solid var(--border)" }}
+                              >
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs font-bold" style={{ color: side === "yes" ? "#4ade80" : "#ef4444" }}>
+                                    Bought {side.charAt(0).toUpperCase() + side.slice(1)}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs font-mono" style={{ color: "var(--text-primary)" }}>
+                                    {(price * 100).toFixed(1)}¢
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{qty}</span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>${cost.toFixed(2)}</span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs" style={{ color: fee > 0 ? "#f59e0b" : "var(--text-muted)" }}>${fee.toFixed(2)}</span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs font-semibold" style={{ color: "var(--text-primary)" }}>${(cost + fee).toFixed(2)}</span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs" style={{ color: f.is_taker ? "#f59e0b" : "var(--text-muted)" }}>
+                                    {f.is_taker ? "Taker" : "Maker"}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                    {friendlyDatetime(String(f.filled_at || ""))}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })()}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
             </div>

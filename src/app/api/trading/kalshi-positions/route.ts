@@ -118,12 +118,47 @@ export async function GET() {
       let settlement_scheduled_at: string | null = null;
       const targetDate = String(trade.target_date || "");
       if (targetDate) {
-        const td = new Date(targetDate + "T00:00:00Z");
-        const isBracket = /-B\d/.test(ticker);
-        const nextDay = new Date(td);
-        nextDay.setUTCDate(nextDay.getUTCDate() + 1);
-        nextDay.setUTCHours(isBracket ? 19 : 14, 0, 0, 0);
-        settlement_scheduled_at = nextDay.toISOString();
+        // Weather contracts should settle shortly after the target weather day ends,
+        // not at an arbitrary next-day fallback. Use city-local end-of-day + a small buffer
+        // until authoritative Kalshi close_time is attached below.
+        const city = String(trade.city || "").toLowerCase();
+        const timeZoneMap: Record<string, string> = {
+          new_york: "America/New_York",
+          chicago: "America/Chicago",
+          los_angeles: "America/Los_Angeles",
+          miami: "America/New_York",
+          phoenix: "America/Phoenix",
+          dallas: "America/Chicago",
+          denver: "America/Denver",
+          houston: "America/Chicago",
+          atlanta: "America/New_York",
+          boston: "America/New_York",
+          seattle: "America/Los_Angeles",
+          san_francisco: "America/Los_Angeles",
+          washington_dc: "America/New_York",
+          minneapolis: "America/Chicago",
+          austin: "America/Chicago",
+          oklahoma_city: "America/Chicago",
+          new_orleans: "America/Chicago",
+          san_antonio: "America/Chicago",
+        };
+        const tz = timeZoneMap[city] || "America/New_York";
+        const [y, m, d] = targetDate.split("-").map(Number);
+        const utcProbe = new Date(Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59, 0));
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: tz,
+          year: "numeric", month: "2-digit", day: "2-digit",
+          hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+          timeZoneName: "shortOffset",
+        }).formatToParts(utcProbe);
+        const off = parts.find((p) => p.type === "timeZoneName")?.value || "GMT-0";
+        const match = off.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+        const sign = match?.[1] === "-" ? -1 : 1;
+        const hours = Number(match?.[2] || 0);
+        const mins = Number(match?.[3] || 0);
+        const offsetMinutes = sign * (hours * 60 + mins);
+        const localEndUtcMs = Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59 + 5, 0) - offsetMinutes * 60_000;
+        settlement_scheduled_at = new Date(localEndUtcMs).toISOString();
       }
       return { ...trade, settlement_scheduled_at };
     };
@@ -155,12 +190,24 @@ export async function GET() {
       }
     } catch { /* skip */ }
 
-    // Fetch current market prices from Kalshi via dashboard proxy
-    // Get unique tickers to batch-fetch
-    const tickers = [...new Set(positions.map((p) => String(p.ticker)))];
+    // Fetch market data from Kalshi via dashboard proxy.
+    // We need this for BOTH open and settled rows so the Trading Floor can
+    // prefer source-of-truth market results/metadata over poisoned local fields.
+    const tickers = [...new Set([...positions, ...resolved].map((p) => String(p.ticker)))];
 
-    type MarketPrice = { yes_bid: number | null; yes_ask: number | null; last: number | null; close_time: string | null };
-    const currentPrices: Record<string, MarketPrice> = {};
+    type MarketData = {
+      yes_bid: number | null;
+      yes_ask: number | null;
+      last: number | null;
+      close_time: string | null;
+      result: string | null;
+      market_status: string | null;
+      title: string | null;
+      subtitle: string | null;
+      floor_strike: number | null;
+      cap_strike: number | null;
+    };
+    const marketDataByTicker: Record<string, MarketData> = {};
 
     // Fetch market data in parallel (batch of 10 at a time to avoid rate limits)
     const batchSize = 10;
@@ -183,28 +230,64 @@ export async function GET() {
       for (const result of results) {
         if (result.status === "fulfilled" && result.value.data) {
           const d = result.value.data;
-          currentPrices[result.value.ticker] = {
+          marketDataByTicker[result.value.ticker] = {
             yes_bid: d.yes_bid_dollars ? parseFloat(d.yes_bid_dollars) : null,
             yes_ask: d.yes_ask_dollars ? parseFloat(d.yes_ask_dollars) : null,
             last: d.last_price_dollars ? parseFloat(d.last_price_dollars) : null,
             close_time: d.close_time || null,
+            result: typeof d.result === "string" ? d.result.toLowerCase() : null,
+            market_status: typeof d.status === "string" ? d.status : null,
+            title: typeof d.title === "string" ? d.title : null,
+            subtitle: typeof d.subtitle === "string" ? d.subtitle : null,
+            floor_strike: d.floor_strike != null ? Number(d.floor_strike) : null,
+            cap_strike: d.cap_strike != null ? Number(d.cap_strike) : null,
           };
         }
       }
     }
 
+    const enrichWithMarketData = (trade: Record<string, unknown>) => {
+      const ticker = String(trade.ticker || "");
+      const market = marketDataByTicker[ticker];
+      const enriched = { ...trade };
+
+      if (market?.close_time) {
+        enriched.settlement_scheduled_at = String(market.close_time);
+      }
+      if (market?.result) {
+        enriched.market_result = market.result;
+      }
+      if (market?.market_status) {
+        enriched.market_status = market.market_status;
+      }
+      if (market?.title) {
+        enriched.market_title = market.title;
+      }
+      if (market?.subtitle) {
+        enriched.market_subtitle = market.subtitle;
+      }
+      if (market?.floor_strike != null) {
+        enriched.market_floor_strike = market.floor_strike;
+      }
+      if (market?.cap_strike != null) {
+        enriched.market_cap_strike = market.cap_strike;
+      }
+
+      return { enriched, market };
+    };
+
     // Enrich positions with current price
     const enrichedPositions = positions.map((p) => {
       const ticker = String(p.ticker);
-      const current = currentPrices[ticker];
-      const side = String(p.side).toLowerCase();
+      const { enriched, market } = enrichWithMarketData(p);
+      const side = String(enriched.side).toLowerCase();
 
       let nowPrice: number | null = null;
-      if (current) {
+      if (market) {
         // Use mid-market when available, otherwise best available price
         // Avoid using last_price alone in illiquid markets (can be very stale)
-        const yesBid = current.yes_bid;
-        const yesAsk = current.yes_ask;
+        const yesBid = market.yes_bid;
+        const yesAsk = market.yes_ask;
         let yesPrice: number | null = null;
 
         if (yesBid != null && yesAsk != null && yesBid > 0 && yesAsk > 0) {
@@ -216,7 +299,7 @@ export async function GET() {
         } else if (yesBid != null && yesBid > 0) {
           yesPrice = yesBid;
         } else {
-          yesPrice = current.last;
+          yesPrice = market.last;
         }
 
         if (yesPrice != null) {
@@ -226,22 +309,22 @@ export async function GET() {
 
       // Compute fees: prefer Kalshi positions API, fall back to fills table
       const apiFees = feesMap[ticker];
-      const fillFees = (p.fills as Record<string, unknown>[])?.reduce(
+      const fillFees = (enriched.fills as Record<string, unknown>[])?.reduce(
         (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
       ) ?? 0;
       const fees = apiFees ?? (fillFees > 0 ? fillFees : 0);
 
-      // Use Kalshi's actual close_time for settlement if available
-      if (current && (current as Record<string, unknown>).close_time) {
-        p.settlement_scheduled_at = String((current as Record<string, unknown>).close_time);
-      }
+      return { ...enriched, now_price: nowPrice, fees };
+    });
 
-      return { ...p, now_price: nowPrice, fees };
+    const enrichedResolved = resolved.map((p) => {
+      const { enriched } = enrichWithMarketData(p);
+      return enriched;
     });
 
     return NextResponse.json({
       positions: enrichedPositions,
-      resolved,
+      resolved: enrichedResolved,
     });
   } catch (error) {
     console.error("[trading/kalshi-positions] Error:", error);

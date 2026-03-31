@@ -17,6 +17,63 @@ export async function GET() {
     const hasDb = existsSync(PAPER_TRADING_DB);
     const hasSummary = existsSync(DASHBOARD_SUMMARY);
 
+    const TICKER_CITY_MAP: Record<string, string> = {
+      NYC: "new_york", MIA: "miami", CHI: "chicago", DEN: "denver",
+      SEA: "seattle", LAX: "los_angeles", PHX: "phoenix", HOU: "houston",
+      ATL: "atlanta", OKC: "oklahoma_city", TDC: "washington_dc", BOS: "boston",
+      AUS: "austin", SAN: "san_antonio", DAL: "dallas", MIN: "minneapolis",
+      MSY: "new_orleans", SFO: "san_francisco", TAUS: "austin", TCHI: "chicago",
+      TLAX: "los_angeles", TMIA: "miami", TDEN: "denver", TOKC: "oklahoma_city",
+      TNYC: "new_york", THOU: "houston", TATL: "atlanta",
+    };
+    const MONTH_MAP: Record<string, string> = {
+      JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
+      JUL: "07", AUG: "08", SEP: "09", OCT: "10", NOV: "11", DEC: "12",
+    };
+    const parseCityFromTicker = (ticker: string): string => {
+      const match = ticker.match(/KX(?:HIGH|LOW|RAIN)T?([A-Z]{2,4})-/);
+      if (match) {
+        const code = match[1];
+        return TICKER_CITY_MAP[code] || code.toLowerCase();
+      }
+      return "";
+    };
+    const parseDateFromTicker = (ticker: string): string | null => {
+      const match = ticker.match(/-(\d{2})([A-Z]{3})(\d{2})-/);
+      if (match && MONTH_MAP[match[2]]) {
+        return `20${match[1]}-${MONTH_MAP[match[2]]}-${match[3]}`;
+      }
+      return null;
+    };
+    const computeWeatherSettlementAt = (targetDate: string, city: string): string | null => {
+      if (!targetDate) return null;
+      const timeZoneMap: Record<string, string> = {
+        new_york: "America/New_York", chicago: "America/Chicago", los_angeles: "America/Los_Angeles",
+        miami: "America/New_York", phoenix: "America/Phoenix", dallas: "America/Chicago",
+        denver: "America/Denver", houston: "America/Chicago", atlanta: "America/New_York",
+        boston: "America/New_York", seattle: "America/Los_Angeles", san_francisco: "America/Los_Angeles",
+        washington_dc: "America/New_York", minneapolis: "America/Chicago", austin: "America/Chicago",
+        oklahoma_city: "America/Chicago", new_orleans: "America/Chicago", san_antonio: "America/Chicago",
+      };
+      const tz = timeZoneMap[city.toLowerCase()] || "America/New_York";
+      const [y, m, d] = targetDate.split("-").map(Number);
+      const utcProbe = new Date(Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59, 0));
+      const parts = new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+        timeZoneName: "shortOffset",
+      }).formatToParts(utcProbe);
+      const off = parts.find((p) => p.type === "timeZoneName")?.value || "GMT-0";
+      const match = off.match(/GMT([+-])(\d{1,2})(?::?(\d{2}))?/);
+      const sign = match?.[1] === "-" ? -1 : 1;
+      const hours = Number(match?.[2] || 0);
+      const mins = Number(match?.[3] || 0);
+      const offsetMinutes = sign * (hours * 60 + mins);
+      const localEndUtcMs = Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59 + 5, 0) - offsetMinutes * 60_000;
+      return new Date(localEndUtcMs).toISOString();
+    };
+
     if (!hasData) {
       return NextResponse.json({ available: false, reason: "weather-trading project not found" });
     }
@@ -122,7 +179,7 @@ export async function GET() {
           )
           .get() as Record<string, number>;
 
-        const recentLiveTrades = liveDb
+        let recentLiveTrades = liveDb
           .prepare(
             `SELECT trade_id, contract_id as ticker, side, quantity,
                     COALESCE(fill_price, price) as price, cost, edge,
@@ -132,7 +189,7 @@ export async function GET() {
                       WHEN status='settled_lost' THEN 'lost'
                       ELSE status
                     END as status,
-                    pnl, pnl as payout, actual_outcome, actual_temp,
+                    pnl, pnl as payout, actual_outcome, actual_temp, close_time,
                     city, target_date, threshold, forecast_mean,
                     NULL as settlement_scheduled_at, settled_at as resolved_at, created_at
              FROM live_trades
@@ -140,7 +197,55 @@ export async function GET() {
              ORDER BY created_at DESC
              LIMIT 40`
           )
-          .all();
+          .all() as Record<string, unknown>[];
+
+        const liveTickers = [...new Set(recentLiveTrades.map((t) => String(t.ticker || "")).filter(Boolean))];
+        const marketResultByTicker: Record<string, { result: string | null; close_time: string | null }> = {};
+        const batchSize = 10;
+        for (let i = 0; i < liveTickers.length; i += batchSize) {
+          const batch = liveTickers.slice(i, i + batchSize);
+          const results = await Promise.allSettled(
+            batch.map(async (ticker) => {
+              try {
+                const res = await fetch(`http://localhost:8050/api/market/${ticker}`, {
+                  signal: AbortSignal.timeout(3000),
+                });
+                if (res.ok) {
+                  const data = await res.json();
+                  return { ticker, data };
+                }
+              } catch { /* skip */ }
+              return { ticker, data: null };
+            })
+          );
+          for (const result of results) {
+            if (result.status === "fulfilled" && result.value.data) {
+              const d = result.value.data;
+              marketResultByTicker[result.value.ticker] = {
+                result: typeof d.result === "string" ? d.result.toUpperCase() : null,
+                close_time: typeof d.close_time === "string" ? d.close_time : null,
+              };
+            }
+          }
+        }
+
+        recentLiveTrades = recentLiveTrades.map((trade) => {
+          const ticker = String(trade.ticker || "");
+          const parsedTargetDate = parseDateFromTicker(ticker);
+          const city = String(trade.city || parseCityFromTicker(ticker) || "");
+          const targetDate = parsedTargetDate || String(trade.target_date || "");
+          const market = marketResultByTicker[ticker];
+          const isSettled = trade.status === "won" || trade.status === "lost";
+          return {
+            ...trade,
+            city,
+            target_date: targetDate,
+            settlement_scheduled_at: market?.close_time || String(trade.close_time || computeWeatherSettlementAt(targetDate, city) || ""),
+            market_result: market?.result || null,
+            actual_outcome: isSettled ? (market?.result || trade.actual_outcome || null) : trade.actual_outcome,
+            actual_temp: isSettled ? null : trade.actual_temp,
+          };
+        });
 
         // Compute Kalshi bankroll from initial deposit + settled P&L
         const kalshiBankroll = liveDb
