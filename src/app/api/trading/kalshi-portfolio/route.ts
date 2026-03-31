@@ -90,7 +90,8 @@ export async function GET() {
                   SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
                   SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as realized_pnl,
                   SUM(${REAL_OPEN_LIVE_TRADE_COST_EXPR}) as open_cost,
-                  SUM(cost) as total_cost
+                  SUM(cost) as total_cost,
+                  SUM(CASE WHEN target_date < date("now") AND status NOT IN ("settled_won","settled_lost","failed","cancelled") THEN 1 ELSE 0 END) as stale_count
            FROM live_trades WHERE status != 'failed'
            GROUP BY strategy_version`
         ).all() as Record<string, unknown>[];

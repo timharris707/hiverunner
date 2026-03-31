@@ -929,6 +929,15 @@ export default function TradingFloorPage() {
                       <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
                         {v.total} trades · {v.open} open · {v.won}W/{v.lost}L · {wr}% WR
                       </div>
+                      {v.stale_count > 0 && (
+                        <div
+                          className="text-xs mt-1 px-2 py-0.5 rounded inline-flex items-center gap-1"
+                          style={{ backgroundColor: "#f59e0b20", color: "#f59e0b" }}
+                          title="These trades have passed their target date but settlement has not been confirmed. Realized P&L for this version may be understated."
+                        >
+                          ⚠ {v.stale_count} awaiting settlement
+                        </div>
+                      )}
                     </div>
                     <div className="text-sm font-bold" style={{ color: "var(--text-primary)", minWidth: 90 }}>
                       {$(v.total_cost)}
