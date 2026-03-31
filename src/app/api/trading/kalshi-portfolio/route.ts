@@ -80,7 +80,8 @@ export async function GET() {
 
     if (existsSync(LIVE_TRADING_DB)) {
       try {
-        const { default: Database } = await import("better-sqlite3");
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const Database = require("better-sqlite3");
         const db = new Database(LIVE_TRADING_DB, { readonly: true });
         const rawVersions = db.prepare(
           `SELECT strategy_version,
@@ -91,7 +92,7 @@ export async function GET() {
                   SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as realized_pnl,
                   SUM(${REAL_OPEN_LIVE_TRADE_COST_EXPR}) as open_cost,
                   SUM(cost) as total_cost,
-                  SUM(CASE WHEN target_date < date("now") AND status NOT IN ("settled_won","settled_lost","failed","cancelled") THEN 1 ELSE 0 END) as stale_count
+                  SUM(CASE WHEN target_date < date('now') AND status NOT IN ('settled_won','settled_lost','failed','cancelled') THEN 1 ELSE 0 END) as stale_count
            FROM live_trades WHERE status != 'failed'
            GROUP BY strategy_version`
         ).all() as Record<string, unknown>[];
@@ -150,8 +151,8 @@ export async function GET() {
           /* snapshots table may not exist yet */
         }
         db.close();
-      } catch {
-        /* ignore */
+      } catch (dbErr) {
+        console.error("[kalshi-portfolio] DB block error:", dbErr);
       }
     }
 
