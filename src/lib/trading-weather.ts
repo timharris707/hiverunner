@@ -38,9 +38,12 @@ export interface TradingActualTemp {
   lowAt: string;
   observations: number;
   complete: boolean;
+  source?: "cli" | "observations";
 }
 
 const DATE_FORMATTER_CACHE = new Map<string, Intl.DateTimeFormat>();
+const actualCache = new Map<string, { value: TradingActualTemp | null; fetchedAt: number }>();
+const ACTUAL_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function getDateFormatter(timeZone: string): Intl.DateTimeFormat {
   const key = `date:${timeZone}`;
@@ -69,18 +72,157 @@ export function actualTempKey(city: string, targetDate: string): string {
   return `${city.toLowerCase()}|${targetDate}`;
 }
 
-function buildObservationWindow(targetDate: string) {
+function buildObservationChunks(targetDate: string) {
   const utcMidnight = new Date(`${targetDate}T00:00:00Z`);
-  const start = new Date(utcMidnight.getTime() - 12 * 60 * 60 * 1000);
-  const end = new Date(utcMidnight.getTime() + 36 * 60 * 60 * 1000);
+  const windowStart = utcMidnight.getTime() - 12 * 60 * 60 * 1000;
+  const windowEnd = utcMidnight.getTime() + 36 * 60 * 60 * 1000;
+  const chunkMs = 6 * 60 * 60 * 1000; // 6-hour chunks
+  const chunks: { start: string; end: string }[] = [];
+  for (let t = windowStart; t < windowEnd; t += chunkMs) {
+    chunks.push({
+      start: new Date(t).toISOString().replace(/\.\d+Z$/, "Z"),
+      end: new Date(Math.min(t + chunkMs, windowEnd)).toISOString().replace(/\.\d+Z$/, "Z"),
+    });
+  }
+  return chunks;
+}
+
+function getCliLocationCode(stationId: string): string {
+  return stationId.replace(/^K/, "");
+}
+
+function escapeRegex(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseCliNumber(productText: string, label: "MAXIMUM" | "MINIMUM"): number | null {
+  const re = new RegExp(`\\b${escapeRegex(label)}\\s+(-?\\d+(?:\\.\\d+)?)`, "i");
+  const match = productText.match(re);
+  return match ? Number(match[1]) : null;
+}
+
+async function fetchCliActualTempForDate(cityKey: string, targetDate: string, station: TradingStationConfig): Promise<TradingActualTemp | null> {
+  const locationCode = getCliLocationCode(station.stationId);
+  const listRes = await fetch(
+    `https://api.weather.gov/products/types/CLI/locations/${locationCode}`,
+    {
+      headers: { "User-Agent": "WeatherEdge/1.0 (trading@harrisautonomous.com)" },
+      signal: AbortSignal.timeout(8000),
+      next: { revalidate: 600 },
+    }
+  );
+
+  if (!listRes.ok) return null;
+
+  const listJson = await listRes.json();
+  const products = Array.isArray(listJson?.["@graph"]) ? listJson["@graph"] : [];
+  const matchingProduct = products.find((item: Record<string, unknown>) => {
+    const issuanceTime = typeof item.issuanceTime === "string" ? item.issuanceTime : null;
+    return issuanceTime && formatLocalDate(new Date(issuanceTime), station.timeZone) === targetDate;
+  });
+
+  if (!matchingProduct?.id) return null;
+
+  const productRes = await fetch(`https://api.weather.gov/products/${matchingProduct.id}`, {
+    headers: { "User-Agent": "WeatherEdge/1.0 (trading@harrisautonomous.com)" },
+    signal: AbortSignal.timeout(8000),
+    next: { revalidate: 600 },
+  });
+
+  if (!productRes.ok) return null;
+
+  const productJson = await productRes.json();
+  const productText = typeof productJson?.productText === "string" ? productJson.productText : "";
+  const high = parseCliNumber(productText, "MAXIMUM");
+  const low = parseCliNumber(productText, "MINIMUM");
+
+  if (high == null || low == null) return null;
+
+  const issuanceTime = typeof matchingProduct.issuanceTime === "string" ? matchingProduct.issuanceTime : new Date().toISOString();
+
   return {
-    start: start.toISOString().replace(/\.\d+Z$/, "Z"),
-    end: end.toISOString().replace(/\.\d+Z$/, "Z"),
+    city: cityKey,
+    targetDate,
+    stationId: station.stationId,
+    timeZone: station.timeZone,
+    high,
+    highAt: issuanceTime,
+    low,
+    lowAt: issuanceTime,
+    observations: 1,
+    complete: true,
+    source: "cli",
   };
 }
 
-const actualCache = new Map<string, { value: TradingActualTemp | null; fetchedAt: number }>();
-const ACTUAL_CACHE_TTL_MS = 10 * 60 * 1000;
+async function fetchObservationActualTempForDate(cityKey: string, targetDate: string, station: TradingStationConfig): Promise<TradingActualTemp | null> {
+  const chunks = buildObservationChunks(targetDate);
+
+  // Fetch all chunks in parallel — each 6-hour window stays well under any per-request limit
+  const chunkResults = await Promise.all(
+    chunks.map(async ({ start, end }) => {
+      try {
+        const res = await fetch(
+          `https://api.weather.gov/stations/${station.stationId}/observations?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`,
+          {
+            headers: { "User-Agent": "WeatherEdge/1.0 (trading@harrisautonomous.com)" },
+            signal: AbortSignal.timeout(8000),
+            next: { revalidate: 600 },
+          }
+        );
+        if (!res.ok) return [];
+        const json = await res.json();
+        return Array.isArray(json.features) ? json.features : [];
+      } catch {
+        return [];
+      }
+    })
+  );
+
+  let high = Number.NEGATIVE_INFINITY;
+  let low = Number.POSITIVE_INFINITY;
+  let highAt = "";
+  let lowAt = "";
+  let observations = 0;
+
+  for (const features of chunkResults) {
+    for (const feature of features) {
+      const tempC = feature?.properties?.temperature?.value;
+      const timestamp = feature?.properties?.timestamp;
+      if (tempC == null || !timestamp) continue;
+      if (formatLocalDate(new Date(timestamp), station.timeZone) !== targetDate) continue;
+
+      const tempF = Math.round((((tempC * 9) / 5 + 32) * 10)) / 10;
+      observations += 1;
+
+      if (tempF > high) {
+        high = tempF;
+        highAt = timestamp;
+      }
+      if (tempF < low) {
+        low = tempF;
+        lowAt = timestamp;
+      }
+    }
+  }
+
+  if (observations === 0) return null;
+
+  const todayLocal = formatLocalDate(new Date(), station.timeZone);
+  return {
+    city: cityKey,
+    targetDate,
+    stationId: station.stationId,
+    timeZone: station.timeZone,
+    high,
+    highAt,
+    low,
+    lowAt,
+    observations,
+    complete: targetDate < todayLocal,
+    source: "observations",
+  };
+}
 
 export async function fetchActualTempForDate(city: string, targetDate: string): Promise<TradingActualTemp | null> {
   const cityKey = city.toLowerCase();
@@ -93,67 +235,18 @@ export async function fetchActualTempForDate(city: string, targetDate: string): 
     return cached.value;
   }
 
-  const { start, end } = buildObservationWindow(targetDate);
-  const res = await fetch(
-    `https://api.weather.gov/stations/${station.stationId}/observations?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&limit=200`,
-    {
-      headers: { "User-Agent": "WeatherEdge/1.0 (trading@harrisautonomous.com)" },
-      signal: AbortSignal.timeout(8000),
-      next: { revalidate: 600 },
-    }
-  );
-
-  if (!res.ok) {
-    actualCache.set(cacheKey, { value: null, fetchedAt: Date.now() });
-    return null;
-  }
-
-  const json = await res.json();
-  const features = Array.isArray(json.features) ? json.features : [];
-
-  let high = Number.NEGATIVE_INFINITY;
-  let low = Number.POSITIVE_INFINITY;
-  let highAt = "";
-  let lowAt = "";
-  let observations = 0;
-
-  for (const feature of features) {
-    const tempC = feature?.properties?.temperature?.value;
-    const timestamp = feature?.properties?.timestamp;
-    if (tempC == null || !timestamp) continue;
-    if (formatLocalDate(new Date(timestamp), station.timeZone) !== targetDate) continue;
-
-    const tempF = Math.round((((tempC * 9) / 5 + 32) * 10)) / 10;
-    observations += 1;
-
-    if (tempF > high) {
-      high = tempF;
-      highAt = timestamp;
-    }
-    if (tempF < low) {
-      low = tempF;
-      lowAt = timestamp;
-    }
-  }
-
-  if (observations === 0) {
-    actualCache.set(cacheKey, { value: null, fetchedAt: Date.now() });
-    return null;
-  }
-
   const todayLocal = formatLocalDate(new Date(), station.timeZone);
-  const value: TradingActualTemp = {
-    city: cityKey,
-    targetDate,
-    stationId: station.stationId,
-    timeZone: station.timeZone,
-    high,
-    highAt,
-    low,
-    lowAt,
-    observations,
-    complete: targetDate < todayLocal,
-  };
+  let value: TradingActualTemp | null = null;
+
+  if (targetDate < todayLocal) {
+    value = await fetchCliActualTempForDate(cityKey, targetDate, station);
+    if (!value) {
+      value = await fetchObservationActualTempForDate(cityKey, targetDate, station);
+      if (value) value.complete = true;
+    }
+  } else {
+    value = await fetchObservationActualTempForDate(cityKey, targetDate, station);
+  }
 
   actualCache.set(cacheKey, { value, fetchedAt: Date.now() });
   return value;
