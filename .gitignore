@@ -19,6 +19,9 @@
 
 # production
 /build
+/.stable/
+/.stable.backup-*
+/.stable-release-worktree/
 
 # misc
 .DS_Store
@@ -38,9 +41,18 @@ yarn-error.log*
 /data/*.json
 !data/*.example.json
 /data/*.db
+/data/*.db-*
 /data/*.sqlite
 /data/*.sqlite3
 /data/attachments/
+/data/*.pid
+/data/*.log
+/data/*.err.log
+/data/*.out.log
+/data/*.backup-*
+/data/advisory/session-*.json
+/data/agent-memory/
+/data/releases/
 
 # vercel
 .vercel
@@ -54,4 +66,13 @@ next-env.d.ts
 
 # backup files
 *.bak
+*.tmp
+/.tmp_*
+/.agents/
+/.claude/
+/.next_backup_*/
+/playwright-report/
+/test-results/
 projects/panely-app/node_modules/
+projects/panely-app/.next/
+projects/panely-app/.agents/
