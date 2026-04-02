@@ -41,6 +41,99 @@
 
 ## Task Log
 
+### 2026-04-01 — QA review: dbg-1775056013264
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774895935715
+**Project:** qa
+**Summary:** QA reviewed task from backend. ive 3+ builds/hour) cannot be fully verified offline — structural correctness confirmed, live runtime not tested.  ---  VERDICT: NEEDS_FIX NOTES: - [BLOCKING] Code is not committed (third occurrence). Both `src/lib/build-queue.ts` and `src/app/api/tasks/build/route.ts` remain in the working tree only with no new commit. The implementation is correct and all tests pas
+**Lessons:**
+- [BLOCKING] Code is not committed (third occurrence). Both `src/lib/build-queue.ts` and `src/app/api/tasks/build/route.ts` remain in the working tree only with no new commit. The implementation is correct and all tests pass — this is purely a delivery failure. Forge must commit from an environment with a writable `.git` directory before resubmitting.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774895935715
+**Project:** qa
+**Summary:** QA reviewed task from backend. as soon as environment allows. 2. **Flaky test** — `spawn verifier rejects processes that die immediately after spawn` uses a 50ms liveness check against `process.exit(0)`. On a loaded machine the child may not have exited yet. The `delayMs` parameter could be bumped to 100–150ms to reduce sensitivity. 3. **No live runtime test** — confirmed via code inspection and u
+
+---
+
+### 2026-04-01 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. oard/static/trades.html` changes are uncommitted (6th occurrence). Changes include `.text-warning` bold-red CSS class, "Temp"→"Forecast" column rename, bold-red edge/forecast zero-value visual flags, and settlement source tooltips. No index.lock present — commit is unblocked. Stage and commit before shipping. - [ADVISORY] AC5 (bankroll) and AC6 (open positions coun
+**Lessons:**
+- [BLOCKING] `src/dashboard/static/trades.html` changes are uncommitted (6th occurrence). Changes include `.text-warning` bold-red CSS class, "Temp"→"Forecast" column rename, bold-red edge/forecast zero-value visual flags, and settlement source tooltips. No index.lock present — commit is unblocked. Stage and commit before shipping.
+- [ADVISORY] AC5 (bankroll) and AC6 (open positions count) are structurally correct but require live Kalshi API connection to verify actual values at runtime — cannot be confirmed offline.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774895935715
+**Project:** qa
+**Summary:** QA reviewed task from backend. checking.  ---  VERDICT: NEEDS_FIX NOTES: - [BLOCKING] Code is not committed — `git log` shows no new commit for this task. All changes remain in working tree only. Commit before re-submitting. - [BLOCKING] `spawn verifier rejects processes that die immediately after spawn` is flaky (~50% failure rate). Fix the test: await `shortLivedChild` exit before calling `verif
+**Lessons:**
+- [BLOCKING] Code is not committed — `git log` shows no new commit for this task. All changes remain in working tree only. Commit before re-submitting.
+- [BLOCKING] `spawn verifier rejects processes that die immediately after spawn` is flaky (~50% failure rate). Fix the test: await `shortLivedChild` exit before calling `verifySpawnedProcess`, or increase the delay to ≥500ms so zombie reaping completes on macOS. A flaky test in CI is worse than no test.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. + Kalshi API. Structurally correct. 2. **Uncommitted changes (6th occurrence)** — the same `text-warning`/Forecast/tooltip block has been found uncommitted across 6 consecutive QA sessions. Recommend committing immediately as a standalone hardening commit before the next sprint. 3. `isMissingEdge` also flags trades with legitimate `edge = 0.0` (genuinely priced at 
+
+---
+
+### 2026-04-01 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. us filter**: `server.py:972` still uses an inline `WHERE (status IN ('pending', 'filled') OR (status = 'resting' AND ...))` rather than `ACTIVE_LIVE_TRADE_STATUSES_SQL`. It's a different conditional (partial-fill semantics), not the same bug, but warrants a cleanup pass for consistency. - **Live verification**: Correctness of `open_count` including resting orders can
+
+---
+
+### 2026-04-01 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. , 3 skipped, 0 failures**  ### Caveats 1. `/api/risk-status` (line 972) still uses a hand-rolled status filter `(status IN ('pending', 'filled') OR (status = 'resting' AND COALESCE(fill_quantity, 0) = 0))` instead of `ACTIVE_LIVE_TRADE_STATUSES_SQL`. Semantically equivalent but inconsistent. Out of scope for this task but worth a follow-up. 2. No `__init__.py` exists
+
+---
+
+### 2026-04-01 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. sk")`, or (b) if the capture runs in an external system (the agent harness), escalate to the harness owner with the correct URL so they can fix it there. A spec file that nothing reads does not constitute a fix. - **[INFO] Bug 1 was pre-existing fix:** The `/api/risk-controls` status filter was already using `ACTIVE_LIVE_TRADE_STATUSES_SQL` before this task. The comm
+**Lessons:**
+- **[BLOCKING] Uncommitted code (5th occurrence):** All four modified/new files (`src/dashboard/server.py`, `scripts/visual_qa_targets.py`, `tests/test_scripts/test_visual_qa_targets.py`, `tests/test_scripts/test_risk_controls_source_contract.py`) are uncommitted. A commit must be made before this can be approved. If `.git/index.lock` exists: `rm -f .git/index.lock` then stage and commit.
+- **[BLOCKING] Bug 2 incomplete — screenshot capture is unfixed:** `scripts/visual_qa_targets.py` is a new spec file that correctly documents `/trades` as the target URL, but **no existing code reads from it**. The actual screenshot automation that was capturing `/tasks` has not been identified or modified. Either: (a) find the script/config that drives Playwright captures and update it to use `build_capture_url("trading_desk")`, or (b) if the capture runs in an external system (the agent harness), escalate to the harness owner with the correct URL so they can fix it there. A spec file that nothing reads does not constitute a fix.
+- **[INFO] Bug 1 was pre-existing fix:** The `/api/risk-controls` status filter was already using `ACTIVE_LIVE_TRADE_STATUSES_SQL` before this task. The comment clarification and regression test are good additions, but Forge should note this in their task output so the history is clear.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774834048750
+**Project:** qa
+**Summary:** QA reviewed task from backend. OTES: - Stage and commit `src/dashboard/server.py`, `scripts/visual_qa_targets.py`, and `tests/test_scripts/test_risk_controls_source_contract.py` + `tests/test_scripts/test_visual_qa_targets.py`. The code itself is correct — this is purely a commit gate. - This is the 6th review cycle this project has failed on uncommitted code. If the git sandbox restriction is a p
+**Lessons:**
+- Stage and commit `src/dashboard/server.py`, `scripts/visual_qa_targets.py`, and `tests/test_scripts/test_risk_controls_source_contract.py` + `tests/test_scripts/test_visual_qa_targets.py`. The code itself is correct — this is purely a commit gate.
+- This is the 6th review cycle this project has failed on uncommitted code. If the git sandbox restriction is a persistent environment issue, this needs to be resolved at the infrastructure level, not worked around by leaving changes unstaged.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. visual baseline exists.  ---  VERDICT: NEEDS_FIX NOTES: - [BLOCKING] Uncommitted code (5th occurrence): `src/dashboard/static/trades.html` and `src/dashboard/server.py` are modified but not staged/committed. All 7 ACs are correctly implemented — this is a versioning gate only. Commit required before approval. - [INFO] Live verification (bankroll amount, open positi
+**Lessons:**
+- [BLOCKING] Uncommitted code (5th occurrence): `src/dashboard/static/trades.html` and `src/dashboard/server.py` are modified but not staged/committed. All 7 ACs are correctly implemented — this is a versioning gate only. Commit required before approval.
+- [INFO] Live verification (bankroll amount, open positions count) requires a running FastAPI server with Kalshi credentials. Code path is correct but cannot be confirmed without runtime.
+
+---
+
+### 2026-04-01 — QA review: TASK-1774891981900
+**Project:** qa
+**Summary:** QA reviewed task from fullstack. ocked Pixel is gone — commit is unblocked. Stage both files and create a commit (`fix(dashboard): strengthen edge/forecast warning flags, rename Temp→Forecast, add settlement tooltips`). All 7 ACs are satisfied in code — this is purely a versioning gate. - **[ADVISORY] AC6 live verification not possible offline**: Open positions count uses `portfolio.positions_coun
+**Lessons:**
+- **[BLOCKING] Uncommitted code (5th occurrence)**: `src/dashboard/static/trades.html` and `src/dashboard/server.py` are modified but unstaged. The `index.lock` file that blocked Pixel is gone — commit is unblocked. Stage both files and create a commit (`fix(dashboard): strengthen edge/forecast warning flags, rename Temp→Forecast, add settlement tooltips`). All 7 ACs are satisfied in code — this is purely a versioning gate.
+- **[ADVISORY] AC6 live verification not possible offline**: Open positions count uses `portfolio.positions_count` from Kalshi API — structurally correct. Verify the "65" count is accurate when the server is running and Kalshi API is reachable.
+
+---
+
 ### 2026-03-30 — QA review: TASK-1774891981930
 **Project:** qa
 **Summary:** QA reviewed task from backend. ut should be confirmed in the deployment requirements.  ---  VERDICT: APPROVED  **Caveats:** 1. Quant sign-off (AC5) is a human gate — routing to Tim/quant for approval. 2. Run the backfill SQL on production DB before the next settlement cycle. 3. Confirm PyYAML is in `requirements.txt` / deployment env — fallback works but silent degradation is worth closing. 4. The

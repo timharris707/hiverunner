@@ -36,6 +36,436 @@
 
 ## Task Log
 
+### 2026-04-02 — Gater QA review: TASK-1775098919611
+**Project:** idea-intake
+**Summary:** Gater reviewed task. `summary` in SQLite is 0 chars — must be populated with the 1087-char summary from reviews.json - `assessment` in SQLite is 0 chars — must be populated with the 1005-char assessment from reviews.json - `ideas_takeaways` for review-020 has 0 rows — all 5 takeaways must be written - Use `run_review_update.py` with a payload JSON — it calls `sync_review_to_mc_sqlite` and handles 
+**Lessons:**
+- `title` in SQLite is still the raw URL — must be set to `"OpenClaw 3.31 Is LIFE Changing - Here's Why"` to match reviews.json
+- `channel` in SQLite is empty — must be `"Nate Herkelman"`
+- `rating` in SQLite is 0.0 — must be 5
+- `summary` in SQLite is 0 chars — must be populated with the 1087-char summary from reviews.json
+- `assessment` in SQLite is 0 chars — must be populated with the 1005-char assessment from reviews.json
+
+---
+
+### 2026-04-02 — Gater QA review: TASK-1775097171378
+**Project:** idea-intake
+**Summary:** Gater reviewed task. ires updating "the Mission Control Ideas store (SQLite-backed via APIs)".  VERDICT: NEEDS_FIX NOTES: - `channel` is empty in SQLite (`ideas_reviews` where `id='review-011'`) — reviews.json has `"Matt Maher / WordLight"`; must be written to SQLite - `summary` in SQLite is 411 chars (older/different content) vs 1143 chars in reviews.json — SQLite must be updated to match - `asse
+**Lessons:**
+- `channel` is empty in SQLite (`ideas_reviews` where `id='review-011'`) — reviews.json has `"Matt Maher / WordLight"`; must be written to SQLite
+- `summary` in SQLite is 411 chars (older/different content) vs 1143 chars in reviews.json — SQLite must be updated to match
+- `assessment` in SQLite is 337 chars (older/different content) vs 1086 chars in reviews.json — SQLite must be updated to match
+
+---
+
+### 2026-04-02 — Gater QA review: TASK-1775097171368
+**Project:** idea-intake
+**Summary:** Gater reviewed task. tle, channel, rating 4.0, summary 1069, assessment 1021 ✅ - `ideas_takeaways`: all 6 takeaways present with review_id = "review-009", all fields populated ✅  **Pre-existing data loss flag (not introduced by this task):** `review-003` is still absent from `reviews.json` in the working tree. This was flagged in prior sessions and predates this task. The diff confirms the removal
+
+---
+
+### 2026-04-02 — Gater QA review: TASK-1775097169048
+**Project:** idea-intake
+**Summary:** Gater reviewed task. effort`, `status: "idea"` - Priority distribution: 5 high / 2 medium — well-reasoned for a directly actionable voice/agent topic  **Flag (pre-existing, not this task):** `review-003` is absent from both `reviews.json` and SQLite. It was present in the last committed state of `reviews.json`. This looks like data loss from a previous unreviewed task. `review-012` is also absent 
+
+---
+
+### 2026-04-02 — Gater QA review: TASK-1775097169819
+**Project:** idea-intake
+**Summary:** Gater reviewed task. ment`: 1032 chars, relevance-focused ✅ - `rating`: 4 (valid 1–5) ✅ - `takeaways`: 5 entries, all with `id`, `title`, `description`, `video_timestamp`, `video_url`, `video_context`, `priority`, `effort`, `status: "idea"` ✅  **Note:** `review-003` is absent from the working tree version of `reviews.json` — it was present in HEAD. This appears to be accumulated working tree drift
+
+---
+
+### 2026-04-02 — Gater QA review: test-build-state-1775091008144-x9f7hg
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-02 — Gater QA review: test-build-state-1775091008104-mc7x1p
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775086843965-lcgb2p
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775086843921-nu0g2s
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775071691919-d5t5w8
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775070230550-u3yxdg
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775070230518-2332ef
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775068401672-9q7b7p
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775068401641-k8fyrz
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775067993033-3l00oz
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775067993000-506iye
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775056232477-ysrnsx
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775056232446-jagu7y
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775056215821-ahk55v
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: dbg-1775056013264
+**Project:** mission-control
+**Summary:** Gater reviewed task. Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055829973-n24rws
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055829940-7irk0k
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055776852-8nr7g2
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055776821-ggvvqf
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055480474-jw2sp3
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055480437-hbczh6
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055366633-ux1z53
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055366601-528d41
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055246368-ae3csx
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775055246331-7jbzy0
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051955828-3lzcq1
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051955801-d3eidn
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051898879-mvwnuf
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051898854-ucz6q4
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051750233-pj4u61
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051750206-jmcryl
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051721467-0hkpsk
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051721438-ldnv32
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051697021-131u1i
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051696993-g4lc0l
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051636269-yk0x1i
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051636239-8t2h6d
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051608769-ukqoew
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051608740-vm8wvg
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051607758-7dpy3g
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775051607728-3v52x1
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045146247-2ssmvx
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045146222-nekuzh
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045127212-tgyobc
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045127187-ib6j45
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045006276-98tpo5
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045006244-k1smf0
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045001007-86ibbi
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775045000980-dbo0ol
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: TASK-1774834048750
+**Project:** weather-trading
+**Summary:** Gater reviewed task. Constant is also used at 6 other call sites (consistent, no partial fix) ✅  **Bug 2 — Screenshot target URL:** - `scripts/visual_qa_targets.py` created with `TRADING_DESK_PATH = "/trades"` - `SCREENSHOT_TARGETS["trading_desk"] = "/trades"` — not `/tasks` ✅ - Test explicitly asserts `!= "/tasks"` and `== "/trades"` ✅  **Other changes in diff:** Timezone formatting in `risk-cont
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044996379-rboamn
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044996349-lrfh9k
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044990217-7e40ti
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044990188-p9yges
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044985746-9y7io6
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044985621-b63xx9
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044980088-80i8yi
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044980046-3rw4bw
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044978994-a01n61
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044978962-mic2b9
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: TASK-1774834048750
+**Project:** weather-trading
+**Summary:** Gater reviewed task. functions, 12 assertions): `test_visual_qa_targets.py` ✅ 2/2, `test_risk_controls_source_contract.py` ✅ 1/1. - No new failures introduced by this commit.  ---  **Caveats:** - Task description pointed to `/api/risk-controls` as the broken endpoint; the actual broken query was in `settlement_countdown`. The commit message is transparent about this distinction. Both are now corre
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044968425-muhcne
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044968397-zk70xm
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044919094-ij6id6
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-01 — Gater QA review: test-build-state-1775044919050-6nnaoe
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
 ### 2026-03-30 — Gater QA review: TASK-1774891642333
 **Project:** mission-control
 **Summary:** Gater reviewed task. enshot `/trading`, not `/tasks`.  **Acceptance criteria:** - Reconciler detects in-progress tasks with no active build ✅ — both catch-all and zombie paths cover this - No manual trigger required after restart ✅ — `SERVER_BOOT_MS` fires on first 15s reconcile cycle automatically - Tasks do not sit idle with no builder ✅ — both paths feed `tasksToKick` → `queueOrStartBuild`  **B

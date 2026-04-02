@@ -46,6 +46,112 @@
 
 ## Task Log
 
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** skId);      if (entry && entry.status === "spawning") {       entry.status = "running";       entry.runningAt = new Date().toISOString();       entry.pid = typeof pid === "number" && Number.isFinite(pid) ? pid : null;       writeBuildLog(buildLog);     }      if (task && ["spawning", "queued"].includes(task.buildState)) {       task.buildState = "running";       task.buildStartedAt = new Date().to
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** .`   Result: `fatal: Unable to create .../.git/index.lock: Operation not permitted`  Known issues / caveats: - The new route-level test file could not be executed with the current direct Node harness because `next/server` is not resolvable there; the helper-level spawn tests did pass. - I could not prove live PID liveness with `ps`/`kill -0` because process inspection is restricted in this sandbox
+**Known Issues:**
+- The new route-level test file could not be executed with the current direct Node harness because `next/server` is not resolvable there; the helper-level spawn tests did pass.
+- I could not prove live PID liveness with `ps`/`kill -0` because process inspection is restricted in this sandbox.
+- Commit and push still must be done from an environment with writable `.git` and network access.
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** ng Playwright loader `EISDIR` failure. - `git commit` failed because `.git/index.lock` is not writable in this sandbox, and `git push` failed because network/DNS access to GitHub is blocked here.  Remaining caveats / lessons learned: - I could not complete the required live `/api/tasks/build` end-to-end verification within this environment, so I cannot claim the full 10-second acceptance path is p
+**Lessons:**
+- I could not complete the required live `/api/tasks/build` end-to-end verification within this environment, so I cannot claim the full 10-second acceptance path is proven here.
+- Commit/push must be done from an environment with writable `.git` and network access.
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** script. - `./node_modules/.bin/tsc -p tsconfig.json --noEmit --pretty false`   Fails on many unrelated pre-existing branch errors, but a targeted grep showed no TypeScript errors in the two modified files.  Remaining caveats / lessons learned: - End-to-end spawn verification against the live server is still unconfirmed in this environment because the required build path is broken upstream of this 
+**Lessons:**
+- End-to-end spawn verification against the live server is still unconfirmed in this environment because the required build path is broken upstream of this change.
+- Commit and push were not possible solely because `.git` is not writable from the sandbox.
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** errors outside this fix, including `projects/panely-app`, advisory pages, trading routes, and orchestration types. - Commit/push could not be performed because `.git/index.lock` cannot be created in this sandbox.  Remaining caveats: - I could not get the standalone TS test runner to complete in this environment; the repo’s direct Node loader path fails with a Playwright-related `EISDIR`, and `npx`
+**Known Issues:**
+- I could not get the standalone TS test runner to complete in this environment; the repo’s direct Node loader path fails with a Playwright-related `EISDIR`, and `npx` is unusable here.
+- The code changes are present in the working tree only; no commit was created.
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** commit: `fatal: Unable to create .../.git/index.lock: Operation not permitted`. - I could not push for the same reason.  Remaining caveats: - Because commit/push is blocked by sandbox permissions, this task is not fully complete. - Because the environment blocks a clean end-to-end runtime check, I could not prove `/api/tasks/build` against a live server here within the requested 10-second SLA. - T
+**Known Issues:**
+- Because commit/push is blocked by sandbox permissions, this task is not fully complete.
+- Because the environment blocks a clean end-to-end runtime check, I could not prove `/api/tasks/build` against a live server here within the requested 10-second SLA.
+- The repo already has unrelated build/type issues that should be cleared before broader verification.
+
+---
+
+### 2026-04-01 — Bug: Factory build trigger says ok but does not spawn builder process
+**Project:** mission-control
+**Summary:** at a clean TypeScript baseline. - Direct execution of the TS test file is blocked by missing local TS runner / path-loader support in this sandbox, so I could not complete automated test execution here.  Caveats: - The build-route success/failure reporting is fixed in code, but I could not finish the requested commit/push steps because `.git` is not writable in this environment. - The required tem
+**Known Issues:**
+- The build-route success/failure reporting is fixed in code, but I could not finish the requested commit/push steps because `.git` is not writable in this environment.
+- The required temp-copy production build currently fails for an existing config issue unrelated to this spawn patch.
+
+---
+
+### 2026-04-01 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** equired build command failed because this repository does not contain a root Node/Next app.  Remaining caveats: - `HEAD` already had `/api/risk-controls` using `ACTIVE_LIVE_TRADE_STATUSES_SQL`; the concrete tracked server fix here is the remaining dashboard summary query that still excluded `resting`. - Commit/push must be completed from an environment with permission to write `.git`. - If you wan
+**Known Issues:**
+- `HEAD` already had `/api/risk-controls` using `ACTIVE_LIVE_TRADE_STATUSES_SQL`; the concrete tracked server fix here is the remaining dashboard summary query that still excluded `resting`.
+- Commit/push must be completed from an environment with permission to write `.git`.
+- If you want, I can still prepare the exact `git add`/`git commit`/`git push` commands for you to run locally.
+
+---
+
+### 2026-04-01 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** eck && npm run build ...` → failed with `ENOENT` because `/tmp/mc-build-check/package.json` does not exist  Remaining caveats / lessons learned: - The screenshot-target helper and its regression tests are currently untracked files in this worktree, so they still need a human or less-restricted environment to `git add`/commit them. - There is no Node/Next build target at the repo root, so the reque
+**Lessons:**
+- The screenshot-target helper and its regression tests are currently untracked files in this worktree, so they still need a human or less-restricted environment to `git add`/commit them.
+- There is no Node/Next build target at the repo root, so the requested `npm run build` is not a meaningful verification step for this repository as checked out here.
+
+---
+
+### 2026-04-01 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** has no `package.json`. - Full `pytest` is red for many pre-existing unrelated failures; this task’s targeted checks passed.  Remaining caveats: - Commit/push is still outstanding because `.git` is not writable in this environment. - If you run this locally outside the sandbox, the next steps are `git add src/dashboard/server.py scripts/visual_qa_targets.py tests/test_scripts/test_visual_qa_targets
+**Known Issues:**
+- Commit/push is still outstanding because `.git` is not writable in this environment.
+- If you run this locally outside the sandbox, the next steps are `git add src/dashboard/server.py scripts/visual_qa_targets.py tests/test_scripts/test_visual_qa_targets.py && git commit -m "fix: restore risk-controls exposure and trading desk QA target" && git push`.
+
+---
+
+### 2026-04-01 — Fix risk controls dashboard bugs flagged by Vigil QA (6x failed review)
+**Project:** weather-trading
+**Summary:** led because this repo has no root `package.json`  Caveats / lessons learned: - The risk-controls endpoint is already using `ACTIVE_LIVE_TRADE_STATUSES_SQL` on this branch; the added regression is there to keep it from drifting. - The screenshot-target bug did not have a tracked implementation in this repo, so I added a tracked source of truth for QA capture targets instead of guessing at an untrac
+**Lessons:**
+- The risk-controls endpoint is already using `ACTIVE_LIVE_TRADE_STATUSES_SQL` on this branch; the added regression is there to keep it from drifting.
+- The screenshot-target bug did not have a tracked implementation in this repo, so I added a tracked source of truth for QA capture targets instead of guessing at an untracked local script.
+- Commit/push remains undone solely because of the sandbox restriction on `.git`.
+
+---
+
+### 2026-03-31 — Strategy versioning — every trade must record which strategy version placed it
+**Project:** weather-trading
+**Summary:** ### Caveats - The "Quant reviews and approves the versioning scheme" criterion requires human sign-off - Branch is 10 commits ahead of origin — may need `git push` if not yet pushed - The quant audit report (`reports/quant_strategy_audit_20260330.md:120`) notes paper trades still show `strategy_version: "1.0"` rather than `"2.0"` — this may be expected if v2.0 params haven't been activated yet in 
+
+---
+
 ### 2026-03-30 — Strategy versioning — every trade must record which strategy version placed it
 **Project:** weather-trading
 **Summary:** it up | | Quant reviews and approves | **Requires human sign-off** — cannot be completed by an agent |  This task is **already complete** (commit `112b81a`). The uncommitted `server.py`/`trades.html` diffs are from a separate dashboard task, not this one.  **Remaining caveats:** - Existing trades have `strategy_version = ''` — backfill with: `UPDATE live_trades SET strategy_version = '1.0' WHERE s

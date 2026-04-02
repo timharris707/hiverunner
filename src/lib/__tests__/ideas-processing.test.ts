@@ -5,7 +5,14 @@
 
 import assert from "node:assert/strict";
 // @ts-expect-error Direct .ts import keeps this test runnable via Node strip-types.
-import { getUnprocessedReviewIds, reviewIsFullyProcessed, takeawayHasTask } from "../ideas-processing.ts";
+import {
+  buildTimestampedVideoUrl,
+  getUnprocessedReviewIds,
+  normalizeVideoTimestampLabel,
+  parseVideoTimestampSeconds,
+  reviewIsFullyProcessed,
+  takeawayHasTask,
+} from "../ideas-processing.ts";
 
 let passed = 0;
 let failed = 0;
@@ -72,6 +79,33 @@ test("ignores archived reviews when counting unprocessed items for the badge", (
   ] as Array<{ id: string; status: string; summary: string; assessment: string; takeaways: Array<{ status: string }> }>);
 
   assert.deepEqual(result.map((review) => (review as { id: string }).id), []);
+});
+
+test("parses MM:SS and HH:MM:SS timestamps", () => {
+  assert.equal(parseVideoTimestampSeconds("3:45"), 225);
+  assert.equal(parseVideoTimestampSeconds("1:02:03"), 3723);
+  assert.equal(parseVideoTimestampSeconds("75"), 75);
+});
+
+test("builds timestamped video URL when timestamp exists and URL lacks time query", () => {
+  assert.equal(
+    buildTimestampedVideoUrl("https://youtu.be/abc123def45", "2:10"),
+    "https://youtu.be/abc123def45?t=130"
+  );
+});
+
+test("keeps existing time query params unchanged", () => {
+  assert.equal(
+    buildTimestampedVideoUrl("https://www.youtube.com/watch?v=abc123def45&t=95", "2:10"),
+    "https://www.youtube.com/watch?v=abc123def45&t=95"
+  );
+});
+
+test("normalizes timestamp label from URL when timestamp field is empty", () => {
+  assert.equal(
+    normalizeVideoTimestampLabel("", "https://www.youtube.com/watch?v=abc123def45&t=95"),
+    "1:35"
+  );
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

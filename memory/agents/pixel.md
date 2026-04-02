@@ -49,6 +49,79 @@
 
 ## Task Log
 
+### 2026-04-01 — dbg
+**Project:** mission-control
+**Summary:** Build completed successfully
+
+---
+
+### 2026-04-01 — [QA-TEST] P0 buildState
+**Project:** mission-control
+**Summary:** ork access is restricted.  Known caveats / lessons learned: - The scoped `buildState` test coverage is now exposed as a first-class npm script, but the repo’s required build verification is still blocked by the sandboxed environment, not by this specific change. - The `buildState` suite passes, but it emits non-fatal `tasks-log.md` permission warnings because test execution tries to write outside 
+**Lessons:**
+- The scoped `buildState` test coverage is now exposed as a first-class npm script, but the repo’s required build verification is still blocked by the sandboxed environment, not by this specific change.
+- The `buildState` suite passes, but it emits non-fatal `tasks-log.md` permission warnings because test execution tries to write outside this workspace.
+- Commit/push remain impossible in this sandbox due `.git/index.lock` write denial.
+
+---
+
+### 2026-04-01 — [QA-TEST] P0 buildState
+**Project:** mission-control
+**Summary:** -error-report&title=Turbopack%20Error%3A%20%5Bproject%5D%2Fsrc%2Fapp%2Fglobals.css%20%5Bapp-client%5D%20%28css%29&body=Turbopack%20version%3A%20%6023c464985%60%0ANext.js%20version%3A%20%600.0.0%60%0A%0AError%20message%3A%0A%60%60%60%0ATurbopack%20Error%3A%20%5Bproject%5D%2Fsrc%2Fapp%2Fglobals.css%20%5Bapp-client%5D%20%28css%29%0A%60%60%60&labels=Turbopack,Turbopack%20Panic%20Backtrace -----   > Bu
+
+---
+
+### 2026-04-01 — [QA-TEST] P0 buildState
+**Project:** mission-control
+**Summary:** + b/scripts/register-ts-paths.mjs @@ -1,5 +1,5 @@  import { registerHooks } from "node:module"; -import { existsSync } from "node:fs"; +import { existsSync, statSync } from "node:fs";  import path from "node:path";  import { fileURLToPath, pathToFileURL } from "node:url";   @@ -18,7 +18,7 @@    ];      for (const candidate of candidates) { -    if (existsSync(candidate)) { +    if (existsSync(cand
+
+---
+
+### 2026-04-01 — [QA-TEST] P0 buildState
+**Project:** mission-control
+**Summary:** lock': Operation not permitted`, so I could not commit. - Push was not possible from this sandbox after the commit failure, and network access is restricted.  Known caveats / lessons learned: - The `buildState` slice itself is type-clean now, but the repo has unrelated compile failures in other areas that still block a green build. - Post-lock state in `build-queue.ts` needs explicit typed snapsho
+**Lessons:**
+- The `buildState` slice itself is type-clean now, but the repo has unrelated compile failures in other areas that still block a green build.
+- Post-lock state in `build-queue.ts` needs explicit typed snapshots because TypeScript does not track mutation through the async lock callback in a useful way here.
+
+---
+
+### 2026-04-01 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** because this repo has no `package.json` and is a Python/FastAPI project, not an npm app.  Remaining caveats / lessons learned: - `git add` / `git commit` is blocked by sandbox permissions: `Unable to create '.git/index.lock': Operation not permitted`, so I could not create the required commit. - Push was therefore not possible. - I could not do live browser verification of the real Kalshi balance,
+**Lessons:**
+- `git add` / `git commit` is blocked by sandbox permissions: `Unable to create '.git/index.lock': Operation not permitted`, so I could not create the required commit.
+- Push was therefore not possible.
+- I could not do live browser verification of the real Kalshi balance, authoritative open-position count, or countdown rendering against production data from this shell.
+
+---
+
+### 2026-04-01 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** djustments, not fresh implementation work.  Lessons learned: This repo’s acceptance path is Python/FastAPI plus browser/API verification, not `npm run build`. For this task, the remaining blockers are environment verification and ship mechanics, not an obvious missing implementation in [trades.html](/Users/timharris/.openclaw/workspace/projects/weather-trading/src/dashboard/static/trades.html) or 
+
+---
+
+### 2026-04-01 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** ning blockers and caveats: - I could not browser-verify the real Kalshi balance, authoritative open-position count, or live settlement countdown rendering against production data. - I did not commit or push: the worktree is already dirty with many unrelated changes, and I cannot safely package/push this task alone from here. - Lesson learned: the implementation path is FastAPI + static HTML, so ve
+**Known Issues:**
+- I could not browser-verify the real Kalshi balance, authoritative open-position count, or live settlement countdown rendering against production data.
+- I did not commit or push: the worktree is already dirty with many unrelated changes, and I cannot safely package/push this task alone from here.
+- Lesson learned: the implementation path is FastAPI + static HTML, so verification needs Python/FastAPI runtime and a live Kalshi-connected dashboard, not `npm run build`.
+
+---
+
+### 2026-04-01 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
+**Project:** weather-trading
+**Summary:** lve host: github.com`.  Known caveats / lessons learned: - This repository is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not available here. - Browser verification is still needed against the live dashboard to confirm the real Kalshi balance, authoritative open-position count, and settlement countdown rendering with production data. - Commit/push remain
+**Lessons:**
+- This repository is a Python/FastAPI dashboard, not a Next.js app, so the requested `npm run build` step is not available here.
+- Browser verification is still needed against the live dashboard to confirm the real Kalshi balance, authoritative open-position count, and settlement countdown rendering with production data.
+- Commit/push remain blocked by sandboxed git permissions and network resolution limits, not by the code change itself.
+
+---
+
 ### 2026-03-30 — Trading Desk — fix columns, add settlement countdown, sortable, user-friendly dates
 **Project:** weather-trading
 **Summary:** test_dashboard_kalshi_portfolio.py tests/test_api/test_dashboard_server_resting.py` returned `5 skipped` because the FastAPI test runtime is not installed in this shell. Commit and push both failed for environment reasons above.  Known caveats / lessons learned: live browser confirmation is still needed against `uvicorn src.dashboard.server:app --port 8050`, especially to verify the real Kalshi ba

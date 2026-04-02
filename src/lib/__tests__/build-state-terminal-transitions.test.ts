@@ -4,8 +4,10 @@
  */
 
 import assert from "node:assert";
+import { execFile } from "node:child_process";
 import {
   __testHooks,
+  queueOrStartBuild,
   readBuildLog,
   readTasks,
   writeBuildLog,
@@ -83,6 +85,22 @@ const fixtureTaskIds: string[] = [];
 
 async function run() {
   try {
+    await test("projectDir resolves back to the checked-out mission-control repo when WORKSPACE_ROOT is unset", async () => {
+      const priorWorkspaceRoot = process.env.WORKSPACE_ROOT;
+      delete process.env.WORKSPACE_ROOT;
+
+      try {
+        const meta = __testHooks.getProjectMeta(makeTask({ project: "mission-control" }));
+        assert.strictEqual(meta.projectDir, process.cwd());
+      } finally {
+        if (priorWorkspaceRoot === undefined) {
+          delete process.env.WORKSPACE_ROOT;
+        } else {
+          process.env.WORKSPACE_ROOT = priorWorkspaceRoot;
+        }
+      }
+    });
+
     await test("buildState is set on build start and updated while running", async () => {
       writeBuildLog({ builds: [] });
 
@@ -97,11 +115,208 @@ async function run() {
       assert.strictEqual(startedTask.buildState, "spawning");
       assert.strictEqual(startedTask.activeBuildId, decision.build.id);
 
-      await __testHooks.updateRunningState(decision.build.id, task.id);
+      await __testHooks.updateRunningState(decision.build.id, task.id, 42424);
 
       const runningTask = getTask(task.id);
       assert.strictEqual(runningTask.buildState, "running");
       assert.ok(runningTask.buildStartedAt);
+      assert.strictEqual(runningTask.buildPid, 42424);
+
+      const runningBuild = readBuildLog().builds.find((entry: any) => entry.id === decision.build.id);
+      assert.ok(runningBuild);
+      assert.strictEqual(runningBuild.status, "running");
+      assert.strictEqual(runningBuild.pid, 42424);
+    });
+
+    await test("spawn failures move the task to blocked with the spawn error", async () => {
+      const task = makeTask({
+        buildState: "spawning",
+        activeBuildId: "spawn-failed-build",
+      });
+      fixtureTaskIds.push(task.id);
+      upsertTask(task);
+      writeBuildLog({
+        builds: [
+          {
+            id: "spawn-failed-build",
+            taskId: task.id,
+            taskTitle: task.title,
+            project: task.project,
+            executionKey: `${task.id}:spawn`,
+            status: "spawning",
+            queuedAt: null,
+            startedAt: new Date().toISOString(),
+            completedAt: null,
+            agentType: "codex",
+            workDir: process.cwd(),
+            source: "test",
+            routing: { tier: "gpt-5.4", modelId: "test", modelName: "Test", reason: "test" },
+          },
+        ],
+      });
+
+      await __testHooks.blockTaskForSpawnFailure("spawn-failed-build", task.id, "spawn ENOENT codex");
+
+      const blockedTask = getTask(task.id);
+      assert.strictEqual(blockedTask.status, "blocked");
+      assert.strictEqual(blockedTask.buildState, "blocked");
+      assert.ok(String(blockedTask.buildError || "").includes("spawn ENOENT codex"));
+      assert.ok(String(blockedTask.blockedReason || "").includes("spawn ENOENT codex"));
+      assert.ok(!blockedTask.activeBuildId);
+      assert.ok(!blockedTask.buildPid);
+
+      const blockedBuild = readBuildLog().builds.find((entry: any) => entry.id === "spawn-failed-build");
+      assert.ok(blockedBuild);
+      assert.strictEqual(blockedBuild.status, "blocked");
+      assert.strictEqual(blockedBuild.pid, null);
+      assert.ok(String(blockedBuild.error || "").includes("spawn ENOENT codex"));
+    });
+
+    await test("spawnBuildProcess returns only after a real builder PID exists", async () => {
+      writeBuildLog({ builds: [] });
+
+      const priorStub = process.env.MISSION_CONTROL_E2E_BUILD_STUB;
+      process.env.MISSION_CONTROL_E2E_BUILD_STUB = "1";
+
+      try {
+        const task = makeTask({
+          status: "done",
+          buildState: "spawning",
+          activeBuildId: "stubbed-spawn-build",
+        });
+        fixtureTaskIds.push(task.id);
+        upsertTask(task);
+        writeBuildLog({
+          builds: [
+            {
+              id: "stubbed-spawn-build",
+              taskId: task.id,
+              taskTitle: task.title,
+              project: task.project,
+              executionKey: `${task.id}:spawn`,
+              status: "spawning",
+              queuedAt: null,
+              startedAt: new Date().toISOString(),
+              completedAt: null,
+              agentType: "codex",
+              workDir: process.cwd(),
+              source: "test",
+              routing: { tier: "gpt-5.4", modelId: "test", modelName: "Test", reason: "test" },
+            },
+          ],
+        });
+
+        const result = await __testHooks.spawnBuildProcess(
+          task,
+          readBuildLog().builds[0],
+          "mission-control",
+          process.cwd(),
+        );
+        assert.strictEqual(typeof result?.pid, "number");
+
+        const runningTask = getTask(task.id);
+        assert.strictEqual(runningTask.buildState, "running");
+        assert.strictEqual(typeof runningTask.buildPid, "number");
+
+        const runningBuild = readBuildLog().builds.find((entry: any) => entry.id === "stubbed-spawn-build");
+        assert.ok(runningBuild);
+        assert.strictEqual(runningBuild.status, "running");
+        assert.strictEqual(typeof runningBuild.pid, "number");
+      } finally {
+        if (priorStub === undefined) {
+          delete process.env.MISSION_CONTROL_E2E_BUILD_STUB;
+        } else {
+          process.env.MISSION_CONTROL_E2E_BUILD_STUB = priorStub;
+        }
+      }
+    });
+
+    await test("spawn verifier rejects processes that die immediately after spawn", async () => {
+      const liveChild = execFile(process.execPath, ["-e", "setTimeout(() => process.exit(0), 1500)"]);
+      await new Promise<void>((resolve, reject) => {
+        liveChild.once("spawn", () => resolve());
+        liveChild.once("error", reject);
+      });
+      assert.strictEqual(await __testHooks.verifySpawnedProcess(liveChild.pid, 50), true);
+      liveChild.kill("SIGTERM");
+
+      const shortLivedChild = execFile(process.execPath, ["-e", "process.exit(0)"]);
+      await new Promise<void>((resolve, reject) => {
+        shortLivedChild.once("spawn", () => resolve());
+        shortLivedChild.once("error", reject);
+      });
+      assert.strictEqual(await __testHooks.verifySpawnedProcess(shortLivedChild.pid, 50), false);
+    });
+
+    await test("queueOrStartBuild reclaims stale spawning entries that never produced a live PID", async () => {
+      const priorStub = process.env.MISSION_CONTROL_E2E_BUILD_STUB;
+      process.env.MISSION_CONTROL_E2E_BUILD_STUB = "1";
+
+      try {
+        const task = makeTask({
+          buildState: "spawning",
+          activeBuildId: "stale-build-entry",
+          buildTriggeredAt: new Date(Date.now() - 30_000).toISOString(),
+        });
+        fixtureTaskIds.push(task.id);
+        upsertTask(task);
+
+        writeBuildLog({
+          builds: [
+            {
+              id: "stale-build-entry",
+              taskId: task.id,
+              taskTitle: task.title,
+              project: task.project,
+              executionKey: "project:mission-control",
+              status: "spawning",
+              queuedAt: null,
+              startedAt: new Date(Date.now() - 30_000).toISOString(),
+              completedAt: null,
+              agentType: "codex",
+              workDir: process.cwd(),
+              source: "test",
+              routing: { tier: "gpt-5.4", modelId: "test", modelName: "Test", reason: "test" },
+            },
+          ],
+        });
+
+        const result = await queueOrStartBuild(task.id, { source: "test-reclaim-stale-spawn" });
+        assert.strictEqual(result.kind, "started");
+        if (result.kind !== "started") {
+          throw new Error(`expected started result, received ${result.kind}`);
+        }
+        const startedResult = result as typeof result & { spawn?: { pid?: number | null } };
+        assert.notStrictEqual(startedResult.build.id, "stale-build-entry");
+        assert.strictEqual(typeof startedResult.spawn?.pid, "number");
+        assert.strictEqual(startedResult.build.status, "running");
+        assert.strictEqual(typeof startedResult.build.pid, "number");
+        assert.strictEqual(startedResult.task.buildState, "running");
+        assert.strictEqual(typeof startedResult.task.buildPid, "number");
+
+        const builds = readBuildLog().builds;
+        const staleBuild = builds.find((entry: any) => entry.id === "stale-build-entry");
+        assert.ok(staleBuild);
+        assert.strictEqual(staleBuild.status, "failed");
+        assert.strictEqual(staleBuild.pid, null);
+        assert.ok(String(staleBuild.error || "").includes("Builder process missing"));
+
+        const runningBuild = builds.find((entry: any) => entry.id === startedResult.build.id);
+        assert.ok(runningBuild);
+        assert.strictEqual(runningBuild.status, "running");
+        assert.strictEqual(typeof runningBuild.pid, "number");
+
+        const runningTask = getTask(task.id);
+        assert.strictEqual(runningTask.buildState, "running");
+        assert.strictEqual(runningTask.activeBuildId, startedResult.build.id);
+        assert.strictEqual(typeof runningTask.buildPid, "number");
+      } finally {
+        if (priorStub === undefined) {
+          delete process.env.MISSION_CONTROL_E2E_BUILD_STUB;
+        } else {
+          process.env.MISSION_CONTROL_E2E_BUILD_STUB = priorStub;
+        }
+      }
     });
 
     await test("buildState becomes completed and transient build tracking clears when task reaches done", async () => {
