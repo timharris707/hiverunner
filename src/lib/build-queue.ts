@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { execFile, execFileSync } from "child_process";
-import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import { randomUUID } from "crypto";
 import os from "os";
@@ -44,6 +44,8 @@ const MAX_BUILD_RETRIES = 2; // Auto-retry failed builds up to 2 times (3 total 
 const BUILD_RETRY_DELAY_MS = 60_000; // 60 seconds between retry attempts
 const STALL_ALERT_TIMEOUT_MS = 15 * 60 * 1000; // 15 min — in-progress with no build activity triggers alert
 const SERVER_BOOT_MS = Date.now(); // Captures when this module was first loaded — any build started before this is a zombie
+const SPAWN_VERIFICATION_DELAY_MS = 750; // Child must remain alive briefly before we report a successful spawn
+const BUILDER_SPAWN_TIMEOUT_MS = 10_000;
 
 // ── Task Status State Machine ──────────────────────────────────────────────────
 // Single source of truth for all valid task status transitions.
@@ -313,9 +315,21 @@ function getProjectMeta(task: any, projects = readProjects()) {
   const project = projects.find((p: any) => p.id === task.project);
   const projectName = project?.name || task.project || "Unscoped";
   const executionKey = project?.repo?.trim() || `project:${task.project || "unscoped"}`;
-  const workspaceRoot = process.env.WORKSPACE_ROOT || join(process.cwd(), "..", "..");
   const relProjectDir = PROJECT_DIRS[task.project] ?? "";
-  const projectDir = relProjectDir ? join(workspaceRoot, relProjectDir) : workspaceRoot;
+  const cwd = process.cwd();
+  const workspaceRoots = Array.from(new Set([
+    process.env.WORKSPACE_ROOT,
+    cwd,
+    join(cwd, ".."),
+    join(cwd, "..", ".."),
+  ].filter((value): value is string => Boolean(value))));
+
+  const projectDir = relProjectDir
+    ? workspaceRoots
+      .map((root) => join(root, relProjectDir))
+      .find((candidate) => existsSync(candidate)) || join(workspaceRoots[0] || cwd, relProjectDir)
+    : workspaceRoots.find((root) => existsSync(root)) || cwd;
+
   return { project, projectName, executionKey, projectDir };
 }
 
@@ -1105,6 +1119,95 @@ function summarizeOutput(error: Error | null, stdout: string, stderr: string) {
   return raw.slice(-1500);
 }
 
+function isBuilderEntry(entry: any) {
+  return entry?.agentType === "codex" || entry?.agentType === "claude-code" || entry?.agentType === "gemini";
+}
+
+function isProcessAlive(pid?: number | null) {
+  if (typeof pid !== "number" || !Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    try {
+      const stat = execFileSync("ps", ["-o", "stat=", "-p", String(pid)], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (!stat) return false;
+      return !stat.startsWith("Z");
+    } catch {
+      // Fall back to kill(0) semantics if ps is unavailable in the runtime.
+      return true;
+    }
+  } catch (error: any) {
+    return error?.code === "EPERM";
+  }
+}
+
+function getBuildAgeMs(entry: any) {
+  const timestamp = entry?.runningAt || entry?.startedAt || entry?.queuedAt;
+  if (!timestamp) return Number.POSITIVE_INFINITY;
+  const startedMs = new Date(timestamp).getTime();
+  if (!Number.isFinite(startedMs) || startedMs <= 0) return Number.POSITIVE_INFINITY;
+  return Date.now() - startedMs;
+}
+
+function hasMissingBuilderProcess(entry: any) {
+  if (!isBuilderEntry(entry) || !ACTIVE_BUILD_STATUSES.has(entry?.status)) return false;
+  if (typeof entry?.pid === "number" && Number.isFinite(entry.pid)) {
+    return !isProcessAlive(entry.pid);
+  }
+  return getBuildAgeMs(entry) > BUILDER_SPAWN_TIMEOUT_MS;
+}
+
+async function verifySpawnedProcess(pid?: number | null, delayMs = SPAWN_VERIFICATION_DELAY_MS) {
+  if (delayMs > 0) {
+    await sleep(delayMs);
+  }
+  return isProcessAlive(pid);
+}
+
+function readCurrentBuildTaskSnapshot(buildId: string, taskId: string) {
+  const buildLog = readBuildLog();
+  const tasks = readTasks();
+  return {
+    build: buildLog.builds.find((entry: any) => entry.id === buildId) || null,
+    task: tasks.find((entry: any) => entry.id === taskId) || null,
+  };
+}
+
+function buildSpawnStartupError(
+  command: string,
+  pid: number | null,
+  details?: {
+    reason?: string;
+    exitCode?: number | null;
+    signal?: NodeJS.Signals | null;
+    output?: string | null;
+  }
+) {
+  const parts = [details?.reason || `Builder process exited before startup verification (${command})`];
+
+  if (typeof pid === "number" && Number.isFinite(pid)) {
+    parts.push(`pid=${pid}`);
+  }
+  if (typeof details?.exitCode === "number") {
+    parts.push(`exit=${details.exitCode}`);
+  }
+  if (details?.signal) {
+    parts.push(`signal=${details.signal}`);
+  }
+
+  const outputSnippet = String(details?.output || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+  if (outputSnippet) {
+    parts.push(outputSnippet);
+  }
+
+  return parts.join(" | ");
+}
+
 const SPAWN_ENV = {
   ...process.env,
   PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH || ""}`,
@@ -1230,6 +1333,7 @@ function hydrateTaskFromPendingEntry(task: any, entry: any, executionKey: string
   task.buildTriggeredAt = task.buildTriggeredAt || entry.startedAt || entry.queuedAt || new Date().toISOString();
   task.buildQueuedAt = entry.queuedAt || task.buildQueuedAt;
   task.buildStartedAt = entry.runningAt || task.buildStartedAt;
+  task.buildPid = typeof entry.pid === "number" && Number.isFinite(entry.pid) ? entry.pid : task.buildPid;
 
   if (entry.routing) {
     task.routedModel = task.routedModel || entry.routing.modelName;
@@ -1244,6 +1348,7 @@ function clearTransientBuildTracking(task: any) {
   delete task.activeBuildId;
   delete task.buildQueuedAt;
   delete task.buildStartedAt;
+  delete task.buildPid;
 }
 
 function finalizeTerminalBuildState(task: any, buildState: "completed" | "blocked", now: string) {
@@ -1382,9 +1487,20 @@ function advanceTasks(
       // const candidateAgentId = candidate.assignedAgent || resolveAgentForTask(candidate).agentId;
       // if (candidateAgentId && findActiveBuildForAgent(buildLog, candidateAgentId)) continue;
 
+      // Auto-generate acceptance criteria if missing — prevents the transitionTask guard
+      // from silently blocking on-deck → in-progress promotion forever.
+      if (!Array.isArray(candidate.acceptance_criteria) || candidate.acceptance_criteria.length === 0) {
+        candidate.acceptance_criteria = [
+          `Complete the task described in: ${String(candidate.title || candidate.id).slice(0, 120)}`,
+        ];
+        console.log(`[factory] advanceTasks: auto-generated acceptance_criteria for ${candidate.id} — was empty, blocking promotion`);
+        addPipelineComment(candidate, "Auto-generated acceptance criteria (was empty, blocking auto-promotion)");
+        changed = true;
+      }
+
       const ok = transitionTask(candidate, "in-progress", "reconciler");
       if (!ok) {
-        console.log(`[factory] advanceTasks: skipping ${candidate.id} — transitionTask blocked (missing acceptance_criteria or invalid state)`);
+        console.log(`[factory] advanceTasks: skipping ${candidate.id} — transitionTask blocked (state: ${candidate.status})`);
         continue;
       }
       candidate.updated = now;
@@ -1534,6 +1650,29 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
         }
         changed = true;
       }
+    }
+
+    // Missing-process cleanup — reclaim builder capacity immediately when a build-log
+    // entry claims a builder is active but the child PID is gone (or never materialized).
+    for (const build of buildLog.builds || []) {
+      if (!hasMissingBuilderProcess(build)) continue;
+      const task = tasks.find((t: any) => t.id === build.taskId);
+      const label = task ? String(task.title || build.taskId).replace(/"/g, "'") : build.taskId;
+      console.warn(`[factory] Missing builder cleanup: ${build.id} for "${label}" has no live process — reclaiming slot`);
+      build.status = "failed";
+      build.completedAt = new Date().toISOString();
+      build.error = build.error || "Builder process missing";
+      build.output = "Builder process missing or died before Mission Control observed a stable PID";
+      build.pid = null;
+      if (task && task.status === "in-progress") {
+        clearTransientBuildTracking(task);
+        delete task.buildState;
+        delete task.buildTriggeredAt;
+        delete task.buildCompletedAt;
+        recoveredTaskIds.push(task.id);
+        tasksToKick.add(task.id);
+      }
+      changed = true;
     }
 
     // Orphaned build cleanup — immediately reclaim capacity from builds whose task
@@ -1812,7 +1951,7 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
   };
 }
 
-async function updateRunningState(buildId: string, taskId: string) {
+async function updateRunningState(buildId: string, taskId: string, pid?: number | null) {
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
     const tasks = readTasks();
@@ -1822,32 +1961,83 @@ async function updateRunningState(buildId: string, taskId: string) {
     if (entry && entry.status === "spawning") {
       entry.status = "running";
       entry.runningAt = new Date().toISOString();
+      entry.pid = typeof pid === "number" && Number.isFinite(pid) ? pid : null;
       writeBuildLog(buildLog);
     }
 
     if (task && ["spawning", "queued"].includes(task.buildState)) {
       task.buildState = "running";
       task.buildStartedAt = new Date().toISOString();
+      task.buildPid = typeof pid === "number" && Number.isFinite(pid) ? pid : undefined;
       task.updated = new Date().toISOString();
       writeTasks(tasks);
     }
   });
 }
 
+async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMessage: string) {
+  let notifyText = "";
+  let notifyTask: any = null;
+
+  await withFactoryLock(async () => {
+    const buildLog = readBuildLog();
+    const tasks = readTasks();
+    const entry = buildLog.builds.find((b: any) => b.id === buildId);
+    const task = tasks.find((t: any) => t.id === taskId);
+    if (!entry || !task) return;
+
+    const now = new Date().toISOString();
+    const trimmedError = errorMessage.trim() || "Unknown spawn failure";
+    const buildError = `Build spawn failed: ${trimmedError}`;
+
+    entry.status = "blocked";
+    entry.completedAt = now;
+    entry.output = buildError.slice(-1500);
+    entry.error = trimmedError;
+    entry.pid = null;
+
+    transitionTask(task, "blocked", "build-spawn", { reason: "Builder process failed to start" });
+    finalizeTerminalBuildState(task, "blocked", now);
+    task.buildError = buildError;
+    task.blockedReason = buildError;
+    task.updated = now;
+
+    addPipelineComment(task, `🚧 Builder failed to start:\n${trimmedError}`, "Pipeline", "🚧");
+
+    notifyTask = { ...task };
+    notifyText = `🚧 BUILD SPAWN FAILED: "${String(task.title || taskId).replace(/"/g, "'")}" — ${trimmedError.slice(0, 300)}`;
+
+    writeBuildLog(buildLog);
+    writeTasks(tasks);
+  });
+
+  if (notifyTask) {
+    notifyTaskCompletion(notifyTask, "failed");
+  }
+  if (notifyText) {
+    sendSystemEvent(notifyText);
+  }
+}
+
 async function finalizeBuild(buildId: string, taskId: string, success: boolean, output: string) {
+  type ReviewSpawnData = { task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string };
+  type VisualQASpawnData = {
+    task: any; visualQAEntry: any; projectName: string; projectDir: string;
+    buildOutput: string; executionKey: string;
+  };
+  type VigilQASpawnData = {
+    task: any; qaEntry: any; projectName: string; projectDir: string;
+    buildOutput: string; builderAgentId: string; captureScreenshots: boolean;
+  };
+  type AgentMemoryData = { agentId: string; taskId: string; taskTitle: string; project: string; output: string };
+
   let nextTaskId: string | null = null;
   let completedAgentId: string | null = null;
   let notifyText = "";
-  let reviewSpawnData: { task: any; reviewEntry: any; projectName: string; projectDir: string; buildOutput: string } | null = null;
-  let visualQASpawnData: {
-    task: any; visualQAEntry: any; projectName: string; projectDir: string;
-    buildOutput: string; executionKey: string;
-  } | null = null;
-  let vigilQASpawnData: {
-    task: any; qaEntry: any; projectName: string; projectDir: string;
-    buildOutput: string; builderAgentId: string; captureScreenshots: boolean;
-  } | null = null;
-  let memoryData: { agentId: string; taskId: string; taskTitle: string; project: string; output: string } | null = null;
+  let reviewSpawnData: ReviewSpawnData | null = null;
+  let visualQASpawnData: VisualQASpawnData | null = null;
+  let vigilQASpawnData: VigilQASpawnData | null = null;
+  let memoryData: AgentMemoryData | null = null;
   let blockerDetected = false;
 
   await withFactoryLock(async () => {
@@ -2141,13 +2331,14 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   });
 
   // Record agent memory outside the lock (non-critical path)
-  if (memoryData) {
+  const completedMemoryData = memoryData as AgentMemoryData | null;
+  if (completedMemoryData) {
     try {
-      const { summary, lessons, knownIssues } = extractMemoryFromOutput(memoryData.output);
-      recordAgentMemory(memoryData.agentId, {
-        taskId: memoryData.taskId,
-        taskTitle: memoryData.taskTitle,
-        project: memoryData.project,
+      const { summary, lessons, knownIssues } = extractMemoryFromOutput(completedMemoryData.output);
+      recordAgentMemory(completedMemoryData.agentId, {
+        taskId: completedMemoryData.taskId,
+        taskTitle: completedMemoryData.taskTitle,
+        project: completedMemoryData.project,
         summary,
         lessons,
         knownIssues,
@@ -2166,8 +2357,9 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   }
 
   // Vigil QA handoff for tasks built by builder agents (Pixel/Forge)
-  if (vigilQASpawnData) {
-    const { task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captureScreenshots } = vigilQASpawnData;
+  const pendingVigilQA = vigilQASpawnData as VigilQASpawnData | null;
+  if (pendingVigilQA) {
+    const { task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captureScreenshots } = pendingVigilQA;
     // For UI tasks: capture both Chromium + WebKit (Safari) screenshots for cross-browser QA
     const captures = captureScreenshots ? await captureAndStoreScreenshot(task.id, task, "after", true) : [];
     spawnVigilQAProcess(task, qaEntry, projectName, projectDir, buildOutput, builderAgentId, captures);
@@ -2177,8 +2369,9 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   }
 
   // UI tasks: capture screenshot then spawn visual QA review
-  if (visualQASpawnData) {
-    const { task, visualQAEntry, projectName, projectDir, buildOutput } = visualQASpawnData;
+  const pendingVisualQA = visualQASpawnData as VisualQASpawnData | null;
+  if (pendingVisualQA) {
+    const { task, visualQAEntry, projectName, projectDir, buildOutput } = pendingVisualQA;
     // Capture "after" screenshot, then spawn visual QA reviewer
     const captures = await captureAndStoreScreenshot(task.id, task, "after");
     spawnVisualQAProcess(task, visualQAEntry, projectName, projectDir, buildOutput, captures);
@@ -2188,8 +2381,9 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   }
 
   // Non-UI tasks: go directly to code review
-  if (reviewSpawnData) {
-    const { task, reviewEntry, projectName, projectDir, buildOutput } = reviewSpawnData;
+  const pendingReview = reviewSpawnData as ReviewSpawnData | null;
+  if (pendingReview) {
+    const { task, reviewEntry, projectName, projectDir, buildOutput } = pendingReview;
     spawnReviewProcess(task, reviewEntry, projectName, projectDir, buildOutput);
     // Builder agent is now free — advance their queue
     reconcileBuildQueue({ source: `post-build-agent:${buildId}`, force: true }).catch(() => {});
@@ -2782,6 +2976,31 @@ async function finalizeGaterQA(gaterBuildId: string, taskId: string, success: bo
 
 function spawnBuildProcess(task: any, buildEntry: any, projectName: string, projectDir: string) {
   const executor = selectBuildExecutor(buildEntry.routing, task, projectName);
+  const forcedSpawnFailure = process.env.MISSION_CONTROL_E2E_BUILD_FORCE_SPAWN_FAILURE;
+
+  if (forcedSpawnFailure) {
+    const error = new Error(forcedSpawnFailure === "1" ? "Forced builder spawn failure for test" : forcedSpawnFailure);
+    console.error(`[factory] Builder spawn forced to fail for ${task.id}:`, error.message);
+    return blockTaskForSpawnFailure(buildEntry.id, task.id, error.message).then(() => {
+      throw error;
+    });
+  }
+
+  if (!existsSync(projectDir)) {
+    const error = new Error(`Project directory does not exist: ${projectDir}`);
+    console.error(`[factory] Builder spawn preflight failed for ${task.id}:`, error.message);
+    return blockTaskForSpawnFailure(buildEntry.id, task.id, error.message).then(() => {
+      throw error;
+    });
+  }
+
+  if (!isCliAvailable(executor.command)) {
+    const error = new Error(`Builder CLI not found on PATH: ${executor.command}`);
+    console.error(`[factory] Builder spawn preflight failed for ${task.id}:`, error.message);
+    return blockTaskForSpawnFailure(buildEntry.id, task.id, error.message).then(() => {
+      throw error;
+    });
+  }
 
   sendSystemEvent(`🏭 Spawning agent for task: ${String(task.title || task.id).replace(/"/g, "'")} [${executor.actualModelName}]`);
 
@@ -2799,38 +3018,145 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
   };
 
   if (process.env.MISSION_CONTROL_E2E_BUILD_STUB === "1") {
-    setTimeout(() => {
-      updateRunningState(buildEntry.id, task.id).catch((err) => {
-        console.error("Error marking stubbed build running:", err);
+    return new Promise<{ pid: number | null }>((resolve, reject) => {
+      const stubChild = execFile(
+        process.execPath,
+        ["-e", "setTimeout(() => process.exit(0), 250)"],
+        { cwd: projectDir, maxBuffer: 1024 * 1024, env },
+        (error, stdout, stderr) => {
+          const output = summarizeOutput(error, stdout, stderr);
+          finalizeBuild(buildEntry.id, task.id, !error, output).catch((err) => {
+            console.error("Error finalizing stubbed build:", err);
+          });
+        }
+      );
+
+      stubChild.on("spawn", () => {
+        const pid = typeof stubChild.pid === "number" ? stubChild.pid : null;
+        updateRunningState(buildEntry.id, task.id, pid)
+          .then(() => resolve({ pid }))
+          .catch(async (err) => {
+            console.error("Error marking stubbed build running:", err);
+            await blockTaskForSpawnFailure(buildEntry.id, task.id, err instanceof Error ? err.message : String(err));
+            reject(err);
+          });
       });
-    }, 25);
-    return;
+
+      stubChild.on("error", async (err) => {
+        console.error(`[factory] Stubbed builder spawn failed for ${task.id}:`, err);
+        await blockTaskForSpawnFailure(buildEntry.id, task.id, err.message);
+        reject(err);
+      });
+    });
   }
 
-  const child = execFile(
-    executor.command,
-    executor.args,
-    { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env },
-    (error, stdout, stderr) => {
-      const output = summarizeOutput(error, stdout, stderr);
+  return new Promise<{ pid: number | null }>((resolve, reject) => {
+    let spawnSettled = false;
+    let startupVerified = false;
+    let spawnFailureHandled = false;
+    let child: ReturnType<typeof execFile> | undefined;
+    let exitCode: number | null = null;
+    let exitSignal: NodeJS.Signals | null = null;
+    let completion: { error: Error | null; stdout: string; stderr: string } | null = null;
+    let finalized = false;
+
+    const finalizeIfReady = () => {
+      if (!startupVerified || !completion || finalized) return;
+      finalized = true;
+      const output = summarizeOutput(completion.error, completion.stdout, completion.stderr);
       const withExecutorNote = executor.fallbackReason
         ? `${executor.fallbackReason}\n\n${output}`
         : output;
-      finalizeBuild(buildEntry.id, task.id, !error, withExecutorNote).catch((err) => {
+      finalizeBuild(buildEntry.id, task.id, !completion.error, withExecutorNote).catch((err) => {
         console.error("Error finalizing build:", err);
       });
+    };
+
+    const failSpawn = async (message: string, err?: Error) => {
+      if (spawnFailureHandled) return;
+      spawnFailureHandled = true;
+      try {
+        await blockTaskForSpawnFailure(buildEntry.id, task.id, message);
+      } catch (blockErr) {
+        console.error("Error blocking task after failed spawn:", blockErr);
+      }
+      if (!spawnSettled) {
+        spawnSettled = true;
+        reject(err || new Error(message));
+      }
+    };
+
+    const spawnTimeout = setTimeout(async () => {
+      if (spawnSettled) return;
+      const err = new Error(`Builder process did not emit spawn within ${BUILDER_SPAWN_TIMEOUT_MS}ms (${executor.command})`);
+      console.error(`[factory] Builder spawn timeout for ${task.id}:`, err.message);
+      try {
+        child?.kill("SIGTERM");
+      } catch (killErr) {
+        console.error(`[factory] Failed to terminate timed-out builder for ${task.id}:`, killErr);
+      }
+      await failSpawn(err.message, err);
+    }, BUILDER_SPAWN_TIMEOUT_MS);
+
+    try {
+      child = execFile(
+        executor.command,
+        executor.args,
+        { cwd: projectDir, maxBuffer: 10 * 1024 * 1024, env },
+        (error, stdout, stderr) => {
+          completion = { error, stdout, stderr };
+          finalizeIfReady();
+        }
+      );
+    } catch (err) {
+      clearTimeout(spawnTimeout);
+      const spawnError = err instanceof Error ? err : new Error(String(err));
+      console.error(`[factory] Builder spawn threw synchronously for ${task.id}:`, spawnError);
+      void failSpawn(spawnError.message, spawnError);
+      return;
     }
-  );
 
-  child.on("spawn", () => {
-    updateRunningState(buildEntry.id, task.id).catch((err) => {
-      console.error("Error marking build running:", err);
+    child.on("exit", (code, signal) => {
+      exitCode = code;
+      exitSignal = signal;
     });
-  });
 
-  child.on("error", (err) => {
-    finalizeBuild(buildEntry.id, task.id, false, err.message).catch((finalizeErr) => {
-      console.error("Error finalizing failed spawn:", finalizeErr);
+    child.on("spawn", async () => {
+      clearTimeout(spawnTimeout);
+      const pid = typeof child.pid === "number" ? child.pid : null;
+
+      const stillAlive = await verifySpawnedProcess(pid);
+      if (!stillAlive) {
+        const startupMessage = buildSpawnStartupError(executor.command, pid, {
+          exitCode,
+          signal: exitSignal,
+          output: completion ? summarizeOutput(completion.error, completion.stdout, completion.stderr) : null,
+        });
+        console.error(`[factory] Builder exited before startup verification for ${task.id}:`, startupMessage);
+        await failSpawn(startupMessage, new Error(startupMessage));
+        return;
+      }
+
+      startupVerified = true;
+      try {
+        await updateRunningState(buildEntry.id, task.id, pid);
+      } catch (err) {
+        console.error("Error marking build running:", err);
+        await failSpawn(err instanceof Error ? err.message : String(err), err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
+      if (!spawnSettled) {
+        spawnSettled = true;
+        resolve({ pid });
+      }
+      finalizeIfReady();
+    });
+
+    child.on("error", async (err) => {
+      clearTimeout(spawnTimeout);
+      if (spawnSettled) return;
+      console.error(`[factory] Builder spawn failed for ${task.id}:`, err);
+      await failSpawn(err.message, err);
     });
   });
 }
@@ -2852,7 +3178,27 @@ async function queueOrStartBuildDecision(taskId: string, options?: { source?: st
 
     const { projectName, executionKey, projectDir } = getProjectMeta(task, projects);
     const active = findActiveEntryForExecutionKey(buildLog, executionKey);
-    const existing = findPendingEntryForTask(buildLog, taskId);
+    let existing = findPendingEntryForTask(buildLog, taskId);
+
+    if (existing && hasMissingBuilderProcess(existing)) {
+      const now = new Date().toISOString();
+      console.warn(`[factory] Reclaiming stale builder record for task ${taskId}: ${existing.id} has no live process`);
+      existing.status = "failed";
+      existing.completedAt = now;
+      existing.error = existing.error || "Builder process missing";
+      existing.output = "Builder process missing or died before Mission Control observed a stable PID";
+      existing.pid = null;
+      if (task.activeBuildId === existing.id || task.buildState === "spawning" || task.buildState === "running") {
+        clearTransientBuildTracking(task);
+        delete task.buildState;
+        delete task.buildTriggeredAt;
+        delete task.buildCompletedAt;
+        task.updated = now;
+      }
+      writeBuildLog(buildLog);
+      writeTasks(tasks);
+      existing = undefined;
+    }
 
     if (existing) {
       const existingAgentId = existing.assignedAgent || task.assignedAgent || null;
@@ -3008,7 +3354,25 @@ export async function queueOrStartBuild(taskId: string, options?: { source?: str
   const decision = await queueOrStartBuildDecision(taskId, options);
 
   if (decision.kind === "started") {
-    spawnBuildProcess(decision.task, decision.build, decision.projectName, decision.projectDir);
+    try {
+      const spawn = await spawnBuildProcess(decision.task, decision.build, decision.projectName, decision.projectDir);
+      const snapshot = readCurrentBuildTaskSnapshot(decision.build.id, taskId);
+      return {
+        ...decision,
+        build: snapshot.build || decision.build,
+        task: snapshot.task || decision.task,
+        spawn,
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const snapshot = readCurrentBuildTaskSnapshot(decision.build.id, taskId);
+      return {
+        kind: "spawn-failed" as const,
+        error: errorMessage,
+        build: snapshot.build || decision.build,
+        task: snapshot.task || decision.task,
+      };
+    }
   }
 
   return decision;
@@ -3051,6 +3415,10 @@ export const __testHooks = {
   queueOrStartBuildDecision,
   finalizeGaterQA,
   updateRunningState,
+  blockTaskForSpawnFailure,
+  spawnBuildProcess,
+  verifySpawnedProcess,
+  getProjectMeta,
   setLastReconcileAt(value: number) {
     lastReconcileAt = value;
   },
