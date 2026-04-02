@@ -15,7 +15,6 @@ const NON_PRODUCTION_TOKENS = [
   "fixture",
   "mock",
   "smoke",
-  "qa",
   "seed",
   "chaos",
   "debug",
@@ -29,6 +28,9 @@ const NON_PRODUCTION_TOKENS = [
 const NON_PRODUCTION_CREATED_BY = new Set(
   NON_PRODUCTION_TOKENS.map((token) => token.toLowerCase())
 );
+const AGENT_NON_PRODUCTION_TOKENS = NON_PRODUCTION_TOKENS.filter(
+  (token) => token !== "qa"
+);
 
 function hasNonProductionToken(value: string | null | undefined): boolean {
   if (!value) return false;
@@ -40,6 +42,18 @@ function hasNonProductionToken(value: string | null | undefined): boolean {
 
   const tokens = new Set(normalized.split(/\s+/));
   return NON_PRODUCTION_TOKENS.some((token) => tokens.has(token));
+}
+
+function hasAgentNonProductionToken(value: string | null | undefined): boolean {
+  if (!value) return false;
+  const normalized = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (!normalized) return false;
+
+  const tokens = new Set(normalized.split(/\s+/));
+  return AGENT_NON_PRODUCTION_TOKENS.some((token) => tokens.has(token));
 }
 
 function isNonProductionCompany(input: {
@@ -68,8 +82,8 @@ function isNonProductionProject(input: {
 
 /**
  * Matches agents that are clearly test/debug/duplicate junk.
- * Patterns: "Duplicate Agent", "Forge QA", "Guard Agent", "Error Agent",
- * "Cross Project Agent", "Test Agent", "[CP-TEST]", "[AGENT-TEST]",
+ * Patterns: "Duplicate Agent", "Forge QA", "Guard Agent",
+ * "Test Agent", "[CP-TEST]", "[AGENT-TEST]",
  * "Graduation Test", numbered generic "Agent-N" names, plus the standard
  * non-production tokens in name/role.
  */
@@ -79,14 +93,14 @@ function isNonProductionAgent(input: {
 }): boolean {
   const name = input.name ?? "";
   // Exact patterns for known junk agent prefixes
-  if (/^(Duplicate Agent|Forge QA|Guard Agent|Error Agent|Cross Project Agent|Test Agent)\b/i.test(name)) return true;
+  if (/^(Duplicate Agent|Forge QA|Guard Agent|Test Agent)\b/i.test(name)) return true;
   if (/^\[CP-TEST\]|\[AGENT-TEST\]|\[TEST-VIGIL\]|\[DEBUG\]/i.test(name)) return true;
   if (/^Graduation Test/i.test(name)) return true;
   // Generic numbered agents: "Agent-1", "Agent-12" etc.
   if (/^Agent-\d+$/i.test(name)) return true;
   // Also check standard non-production tokens in name and role
-  if (hasNonProductionToken(name)) return true;
-  if (hasNonProductionToken(input.role)) return true;
+  if (hasAgentNonProductionToken(name)) return true;
+  if (hasAgentNonProductionToken(input.role)) return true;
   return false;
 }
 

@@ -14,6 +14,8 @@ const FORGE_PAPERCLIP_AGENT_ID = "9c9f7974-97ee-4b43-b622-ad83381c5237";
 const GATER_PAPERCLIP_AGENT_ID = "e198ee19-eb6c-49f3-a89a-043fdaa3d7d1";
 const PIXEL_PAPERCLIP_AGENT_ID = "e2f2e51c-dd3a-4476-85ca-e8b38b28202d";
 const DEFAULT_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+const DEFAULT_OPENCLAW_WORKSPACE_ROOT =
+  process.env.OPENCLAW_WORKSPACE_ROOT?.trim() || "/Users/timharris/.openclaw/workspace";
 
 const ORCHESTRATION_DB_PATH = process.env.ORCHESTRATION_DB_PATH
   ? path.resolve(process.env.ORCHESTRATION_DB_PATH)
@@ -205,6 +207,10 @@ const MIGRATIONS: Migration[] = [
   {
     version: 3,
     name: "companies_schema_and_project_link",
+    compatibleChecksums: [
+      // Legacy checksum from pre-cleanup DB state.
+      "46dd2645b3138d8abe580a2023e84dc690471d455c0c17dd25f44d80dc9b660c",
+    ],
     sql: `
       CREATE TABLE companies (
         id                      TEXT PRIMARY KEY,
@@ -565,6 +571,9 @@ const MIGRATIONS: Migration[] = [
   {
     version: 12,
     name: "archive_test_debug_junk_data",
+    compatibleChecksums: [
+      "1450d2f3b2676fc3205227803605b10fbcd795d1e7428afcb112a9ed751d1fb8",
+    ],
     sql: `
       -- Soft-archive all non-production companies (test, debug, agent-test, cp-test, etc.)
       UPDATE companies
@@ -624,7 +633,97 @@ const MIGRATIONS: Migration[] = [
         AND company_id IN (
           SELECT id FROM companies
           WHERE id != '${DEFAULT_COMPANY_ID}' AND archived_at IS NOT NULL
-        );
+      );
+    `,
+  },
+  {
+    version: 13,
+    name: "companies_workspace_binding_contract",
+    sql: `
+      ALTER TABLE companies ADD COLUMN workspace_root TEXT;
+      ALTER TABLE companies ADD COLUMN workspace_source TEXT NOT NULL DEFAULT 'manual'
+        CHECK (workspace_source IN ('openclaw','provisioned','imported','manual'));
+
+      CREATE UNIQUE INDEX idx_companies_workspace_root_unique
+        ON companies(workspace_root)
+        WHERE workspace_root IS NOT NULL AND TRIM(workspace_root) <> '';
+
+      UPDATE companies
+      SET
+        workspace_root = CASE
+          WHEN id = '${DEFAULT_COMPANY_ID}' THEN '${DEFAULT_OPENCLAW_WORKSPACE_ROOT}'
+          WHEN workspace_root IS NULL OR TRIM(workspace_root) = '' THEN '${DEFAULT_OPENCLAW_WORKSPACE_ROOT}/companies/' || slug
+          ELSE workspace_root
+        END,
+        workspace_source = CASE
+          WHEN id = '${DEFAULT_COMPANY_ID}' THEN 'openclaw'
+          WHEN workspace_source IS NULL OR TRIM(workspace_source) = '' OR workspace_source = 'manual' THEN 'provisioned'
+          ELSE workspace_source
+        END,
+        updated_at = ${NOW_SQL}
+      WHERE
+        workspace_root IS NULL
+        OR TRIM(workspace_root) = ''
+        OR workspace_source IS NULL
+        OR TRIM(workspace_source) = ''
+        OR id = '${DEFAULT_COMPANY_ID}';
+    `,
+  },
+  {
+    version: 14,
+    name: "avatar_themes_company_scope",
+    sql: `
+      PRAGMA foreign_keys = OFF;
+
+      DROP INDEX IF EXISTS idx_avatar_themes_project_id;
+      DROP INDEX IF EXISTS idx_avatar_themes_single_default;
+
+      CREATE TABLE avatar_themes_new (
+        id                  TEXT PRIMARY KEY,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        name                TEXT NOT NULL,
+        prompt_template     TEXT NOT NULL,
+        style_keywords_json TEXT NOT NULL DEFAULT '[]',
+        sample_url          TEXT,
+        is_default          INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(company_id, name)
+      );
+
+      INSERT OR IGNORE INTO avatar_themes_new (
+        id,
+        company_id,
+        name,
+        prompt_template,
+        style_keywords_json,
+        sample_url,
+        is_default,
+        created_at,
+        updated_at
+      )
+      SELECT
+        at.id,
+        COALESCE(p.company_id, '${DEFAULT_COMPANY_ID}') AS company_id,
+        at.name,
+        at.prompt_template,
+        at.style_keywords_json,
+        at.sample_url,
+        0,
+        at.created_at,
+        at.updated_at
+      FROM avatar_themes at
+      LEFT JOIN projects p ON p.id = at.project_id;
+
+      DROP TABLE avatar_themes;
+      ALTER TABLE avatar_themes_new RENAME TO avatar_themes;
+
+      CREATE INDEX idx_avatar_themes_company_id ON avatar_themes(company_id);
+      CREATE UNIQUE INDEX idx_avatar_themes_single_default
+        ON avatar_themes(company_id)
+        WHERE is_default = 1;
+
+      PRAGMA foreign_keys = ON;
     `,
   },
 ];
@@ -886,36 +985,122 @@ export function seedOrchestrationDevData(db = getOrchestrationDb()): {
 } {
   const now = new Date().toISOString();
 
-  const projectA = {
-    id: randomUUID(),
-    slug: "weather-edge",
-    name: "Weather Edge",
-    description: "Weather market trading automation and execution systems",
-    color: "#0ea5e9",
-  };
+  const seededProjects = [
+    {
+      id: randomUUID(),
+      slug: "mission-control-orchestration",
+      name: "Mission Control Orchestration",
+      description: "Core orchestration layer, board APIs, and execution lifecycle",
+      color: "#f97316",
+      emoji: "🛰️",
+      theme: "Corporate Noir",
+    },
+    {
+      id: randomUUID(),
+      slug: "weather-trading",
+      name: "Weather Trading",
+      description: "Weather market strategy automation, execution, and monitoring",
+      color: "#0ea5e9",
+      emoji: "🌦️",
+      theme: "Sci-Fi Crew",
+    },
+    {
+      id: randomUUID(),
+      slug: "crypto-trading",
+      name: "Crypto Trading",
+      description: "Systematic crypto strategy execution and risk controls",
+      color: "#22c55e",
+      emoji: "₿",
+      theme: "Cyberpunk",
+    },
+    {
+      id: randomUUID(),
+      slug: "stock-trading",
+      name: "Stock Trading",
+      description: "Equities automation stack for signal generation and execution",
+      color: "#38bdf8",
+      emoji: "📈",
+      theme: "Corporate Noir",
+    },
+    {
+      id: randomUUID(),
+      slug: "boardrunner",
+      name: "BoardRunner",
+      description: "Board orchestration workflows, reviews, and cadence automation",
+      color: "#a855f7",
+      emoji: "🏁",
+      theme: "Corporate Noir",
+    },
+    {
+      id: randomUUID(),
+      slug: "insight-website",
+      name: "Insight Website",
+      description: "Public insights surface, reporting pages, and publishing pipeline",
+      color: "#f59e0b",
+      emoji: "🌐",
+      theme: "Corporate Noir",
+    },
+    {
+      id: randomUUID(),
+      slug: "signalforge",
+      name: "SignalForge",
+      description: "Signal research, feature experiments, and model readiness",
+      color: "#e11d48",
+      emoji: "🧪",
+      theme: "Cyberpunk",
+    },
+    {
+      id: randomUUID(),
+      slug: "ideas-pipeline",
+      name: "Ideas Pipeline",
+      description: "Idea intake, triage, synthesis, and task generation loop",
+      color: "#14b8a6",
+      emoji: "💡",
+      theme: "Corporate Noir",
+    },
+    {
+      id: randomUUID(),
+      slug: "snapaudit",
+      name: "SnapAudit",
+      description: "Automated quality assurance evidence capture, regression checks, and audits",
+      color: "#f43f5e",
+      emoji: "📸",
+      theme: "Corporate Noir",
+    },
+  ] as const;
 
-  const projectB = {
-    id: randomUUID(),
-    slug: "mission-control",
-    name: "Mission Control Orchestration Layer",
-    description: "Native orchestration backend replacing Paperclip",
-    color: "#f97316",
-  };
+  const projectA = seededProjects.find((project) => project.slug === "weather-trading");
+  const projectB = seededProjects.find(
+    (project) => project.slug === "mission-control-orchestration"
+  );
+  if (!projectA || !projectB) {
+    throw new Error("Missing required seed project definitions");
+  }
 
   const insertProject = db.prepare(`
-    INSERT OR IGNORE INTO projects
+    INSERT INTO projects
       (id, company_id, slug, name, description, color, status, owner_user_id, settings_json, created_at, updated_at)
     VALUES
-      (@id, @company_id, @slug, @name, @description, @color, 'active', 'tim', '{}', @created_at, @updated_at)
+      (@id, @company_id, @slug, @name, @description, @color, 'active', 'tim', @settings_json, @created_at, @updated_at)
+    ON CONFLICT(slug) DO UPDATE SET
+      company_id = excluded.company_id,
+      name = excluded.name,
+      description = excluded.description,
+      color = excluded.color,
+      status = 'active',
+      owner_user_id = COALESCE(projects.owner_user_id, excluded.owner_user_id),
+      settings_json = excluded.settings_json,
+      archived_at = NULL,
+      updated_at = excluded.updated_at
   `);
 
   const findProject = db.prepare("SELECT id, slug, company_id FROM projects WHERE slug = ?");
 
   const insertTheme = db.prepare(`
     INSERT OR IGNORE INTO avatar_themes
-      (id, project_id, name, prompt_template, style_keywords_json, sample_url, is_default, created_at, updated_at)
+      (id, company_id, name, prompt_template, style_keywords_json, sample_url, is_default, created_at, updated_at)
     VALUES
-      (@id, @project_id, @name, @prompt_template, @style_keywords_json, @sample_url, 1, @created_at, @updated_at)
+      (@id, @company_id, @name, @prompt_template, @style_keywords_json, @sample_url, 0, @created_at, @updated_at)
   `);
 
   const insertSprint = db.prepare(`
@@ -946,18 +1131,15 @@ export function seedOrchestrationDevData(db = getOrchestrationDb()): {
   `);
 
   const tx = db.transaction(() => {
-    insertProject.run({
-      ...projectA,
-      company_id: DEFAULT_COMPANY_ID,
-      created_at: now,
-      updated_at: now,
-    });
-    insertProject.run({
-      ...projectB,
-      company_id: DEFAULT_COMPANY_ID,
-      created_at: now,
-      updated_at: now,
-    });
+    for (const project of seededProjects) {
+      insertProject.run({
+        ...project,
+        company_id: DEFAULT_COMPANY_ID,
+        settings_json: JSON.stringify({ emoji: project.emoji }),
+        created_at: now,
+        updated_at: now,
+      });
+    }
 
     const dbProjectA = findProject.get(projectA.slug) as
       | { id: string; slug: string; company_id: string | null }
@@ -969,26 +1151,24 @@ export function seedOrchestrationDevData(db = getOrchestrationDb()): {
       throw new Error("Failed to resolve seeded project IDs");
     }
 
-    insertTheme.run({
-      id: randomUUID(),
-      project_id: dbProjectA.id,
-      name: "Sci-Fi Crew",
-      prompt_template: "cinematic sci-fi crew portrait, role-based attire, coherent style",
-      style_keywords_json: JSON.stringify(["cinematic", "futuristic", "crew"]),
-      sample_url: null,
-      created_at: now,
-      updated_at: now,
-    });
-    insertTheme.run({
-      id: randomUUID(),
-      project_id: dbProjectB.id,
-      name: "Cyberpunk",
-      prompt_template: "cyberpunk operator portrait, neon accents, high contrast, coherent style",
-      style_keywords_json: JSON.stringify(["cyberpunk", "neon", "high contrast"]),
-      sample_url: null,
-      created_at: now,
-      updated_at: now,
-    });
+    for (const project of seededProjects) {
+      const dbProject = findProject.get(project.slug) as
+        | { id: string; slug: string; company_id: string | null }
+        | undefined;
+      if (!dbProject) {
+        throw new Error(`Failed to resolve seeded project ID for slug: ${project.slug}`);
+      }
+      insertTheme.run({
+        id: randomUUID(),
+        company_id: dbProject.company_id ?? DEFAULT_COMPANY_ID,
+        name: project.theme,
+        prompt_template: "cohesive team avatar style, role-informed portrait, production-safe",
+        style_keywords_json: JSON.stringify(["cohesive", "team", "avatar"]),
+        sample_url: null,
+        created_at: now,
+        updated_at: now,
+      });
+    }
 
     const sprintAName = "Sprint 1: Forecast Integrity";
     const sprintBName = "Sprint 1: Foundation";
@@ -1166,14 +1346,32 @@ export function seedOrchestrationDevData(db = getOrchestrationDb()): {
       updated_at: now,
     });
 
-    setProjectUpdatedAt(db, dbProjectA.id);
-    setProjectUpdatedAt(db, dbProjectB.id);
+    for (const project of seededProjects) {
+      const dbProject = findProject.get(project.slug) as { id: string } | undefined;
+      if (dbProject) {
+        setProjectUpdatedAt(db, dbProject.id);
+      }
+    }
   });
 
   tx();
 
   const projectRows = db
-    .prepare("SELECT id FROM projects WHERE slug IN ('weather-edge','mission-control')")
+    .prepare(
+      `SELECT id
+       FROM projects
+       WHERE slug IN (
+         'mission-control-orchestration',
+         'weather-trading',
+         'crypto-trading',
+         'stock-trading',
+         'boardrunner',
+         'insight-website',
+         'signalforge',
+         'ideas-pipeline',
+         'snapaudit'
+       )`
+    )
     .all() as Array<{ id: string }>;
   const taskRows = db
     .prepare("SELECT id FROM tasks ORDER BY created_at DESC LIMIT 5")

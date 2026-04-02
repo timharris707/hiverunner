@@ -1,385 +1,310 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { FolderOpen, LayoutGrid, List, ExternalLink, Calendar } from "lucide-react";
-import { AgentAvatar } from "@/components/AgentAvatar";
-import { PaperclipStatusWidget } from "@/components/PaperclipStatusWidget";
+import { useEffect, useMemo, useState } from "react";
+import type { ReactNode } from "react";
+import {
+  Activity,
+  ArrowRight,
+  BriefcaseBusiness,
+  CheckCircle2,
+  Search,
+  Sparkles,
+  Users,
+} from "lucide-react";
+import { classifyProjectState } from "@/components/orchestration/ui";
+import { listCompanies, listProjects } from "@/lib/orchestration/client";
+import type { OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 
-interface Project {
-  id: string;
-  name: string;
-  emoji: string;
-  color: string;
-  description: string;
-  status: "active" | "completed" | "on-hold";
-  owner: string;
-  repo: string;
-  created: string;
-  taskCount: number;
-  inProgress: number;
-  completed: number;
-  backlog: number;
-  review: number;
-}
-
-const STATUS_STYLES: Record<string, { bg: string; text: string; label: string }> = {
-  active: { bg: "#10B98120", text: "#10B981", label: "Active" },
-  inactive: { bg: "#6B728020", text: "#9CA3AF", label: "Inactive" },
-  completed: { bg: "#3B82F620", text: "#3B82F6", label: "Completed" },
-  archived: { bg: "#52525B20", text: "#71717A", label: "Archived" },
-  "on-hold": { bg: "#F59E0B20", text: "#F59E0B", label: "On Hold" },
-};
-
-function formatDate(dateStr: string) {
-  try {
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  } catch {
-    return "";
-  }
-}
-
-function ProjectCard({ project }: { project: Project }) {
-  const statusStyle = STATUS_STYLES[project.status] || STATUS_STYLES.active;
-  const progressPct = project.taskCount > 0 ? Math.round((project.completed / project.taskCount) * 100) : 0;
-
-  return (
-    <Link
-      href={`/projects/${project.id}`}
-      className="block transition-all hover:scale-[1.01]"
-      style={{
-        backgroundColor: "var(--card)",
-        border: "1px solid var(--border)",
-        borderLeft: `4px solid ${project.color}`,
-        borderRadius: "12px",
-        padding: "1.5rem",
-        textDecoration: "none",
-        cursor: "pointer",
-      }}
-    >
-      {/* Header */}
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex items-center gap-3">
-          <span style={{ fontSize: "2rem", lineHeight: 1 }}>{project.emoji}</span>
-          <div>
-            <h3
-              className="text-lg font-bold"
-              style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-0.5px" }}
-            >
-              {project.name}
-            </h3>
-            <span
-              className="text-xs font-semibold px-2 py-0.5 rounded-full inline-block mt-1"
-              style={{ backgroundColor: statusStyle.bg, color: statusStyle.text }}
-            >
-              {statusStyle.label}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Description */}
-      <p className="text-sm mb-4 line-clamp-2" style={{ color: "var(--text-secondary)", lineHeight: 1.5 }}>
-        {project.description}
-      </p>
-
-      {/* Owner */}
-      <div className="flex items-center gap-2 mb-4">
-        <AgentAvatar agentId={project.owner} size={24} borderWidth={1} />
-        <span className="text-xs font-medium" style={{ color: "var(--text-secondary)" }}>
-          {project.owner.charAt(0).toUpperCase() + project.owner.slice(1)}
-        </span>
-      </div>
-
-      {/* Stats row */}
-      <div className="flex items-center gap-4 text-xs mb-3" style={{ color: "var(--text-muted)" }}>
-        <span>
-          <strong style={{ color: "var(--text-secondary)" }}>{project.taskCount}</strong> tasks
-        </span>
-        <span>
-          <strong style={{ color: "#F59E0B" }}>{project.inProgress}</strong> active
-        </span>
-        <span>
-          <strong style={{ color: "#4ade80" }}>{project.completed}</strong> done
-        </span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="mb-3">
-        <div
-          style={{
-            height: "6px",
-            borderRadius: "3px",
-            backgroundColor: "var(--surface-elevated)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${progressPct}%`,
-              borderRadius: "3px",
-              backgroundColor: project.color,
-              transition: "width 0.5s ease",
-            }}
-          />
-        </div>
-        <div className="flex items-center justify-between mt-1">
-          <span className="text-xs" style={{ color: "var(--text-muted)" }}>{progressPct}% complete</span>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
-          <Calendar size={12} />
-          {formatDate(project.created)}
-        </div>
-        {project.repo && (
-          <span className="flex items-center gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
-            <ExternalLink size={12} />
-            Repo
-          </span>
-        )}
-      </div>
-    </Link>
-  );
-}
-
-function ProjectRow({ project }: { project: Project }) {
-  const statusStyle = STATUS_STYLES[project.status] || STATUS_STYLES.active;
-  const progressPct = project.taskCount > 0 ? Math.round((project.completed / project.taskCount) * 100) : 0;
-
-  return (
-    <Link
-      href={`/projects/${project.id}`}
-      className="flex items-center gap-4 transition-all hover:scale-[1.005]"
-      style={{
-        backgroundColor: "var(--card)",
-        border: "1px solid var(--border)",
-        borderLeft: `4px solid ${project.color}`,
-        borderRadius: "10px",
-        padding: "1rem 1.25rem",
-        textDecoration: "none",
-        cursor: "pointer",
-      }}
-    >
-      <span style={{ fontSize: "1.5rem", lineHeight: 1, flexShrink: 0 }}>{project.emoji}</span>
-
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <h3
-            className="text-sm font-bold truncate"
-            style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)" }}
-          >
-            {project.name}
-          </h3>
-          <span
-            className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0"
-            style={{ backgroundColor: statusStyle.bg, color: statusStyle.text }}
-          >
-            {statusStyle.label}
-          </span>
-        </div>
-        <p className="text-xs truncate mt-0.5" style={{ color: "var(--text-muted)" }}>
-          {project.description}
-        </p>
-      </div>
-
-      <div className="flex items-center gap-2 flex-shrink-0">
-        <AgentAvatar agentId={project.owner} size={24} borderWidth={1} />
-      </div>
-
-      <div className="flex items-center gap-4 text-xs flex-shrink-0" style={{ color: "var(--text-muted)", minWidth: "180px" }}>
-        <span><strong style={{ color: "var(--text-secondary)" }}>{project.taskCount}</strong> tasks</span>
-        <span><strong style={{ color: "#F59E0B" }}>{project.inProgress}</strong> active</span>
-        <span><strong style={{ color: "#4ade80" }}>{project.completed}</strong> done</span>
-      </div>
-
-      <div className="flex-shrink-0" style={{ width: "100px" }}>
-        <div
-          style={{
-            height: "6px",
-            borderRadius: "3px",
-            backgroundColor: "var(--surface-elevated)",
-            overflow: "hidden",
-          }}
-        >
-          <div
-            style={{
-              height: "100%",
-              width: `${progressPct}%`,
-              borderRadius: "3px",
-              backgroundColor: project.color,
-            }}
-          />
-        </div>
-        <span className="text-xs" style={{ color: "var(--text-muted)" }}>{progressPct}%</span>
-      </div>
-    </Link>
-  );
-}
+type ProjectTab = "active" | "paused" | "archived";
 
 export default function ProjectsPage() {
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [projects, setProjects] = useState<OrchestrationProject[]>([]);
+  const [companies, setCompanies] = useState<OrchestrationCompany[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [tab, setTab] = useState<ProjectTab>("active");
+  const [query, setQuery] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/projects")
-      .then((r) => r.json())
-      .then((data) => setProjects(data.projects || []))
-      .catch(console.error)
-      .finally(() => setLoading(false));
+    let cancelled = false;
+
+    const load = async () => {
+      try {
+        const [projectRows, companyRows] = await Promise.all([listProjects(), listCompanies()]);
+        if (cancelled) return;
+        setProjects(projectRows);
+        setCompanies(companyRows);
+      } catch {
+        if (!cancelled) setError("Could not load projects right now.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  const filtered = projects.filter((p) => {
-    if (statusFilter !== "all" && p.status !== statusFilter) return false;
-    if (typeFilter !== "all" && (p as any).type !== typeFilter) return false;
-    return true;
-  });
+  const companyMap = useMemo(
+    () =>
+      new Map(
+        companies.map((company) => [
+          company.id,
+          { slug: company.slug, name: company.name, status: company.status },
+        ])
+      ),
+    [companies]
+  );
 
-  if (loading) {
-    return (
-      <div className="p-8 flex items-center justify-center min-h-[400px]">
-        <div className="animate-pulse text-lg" style={{ color: "var(--text-muted)" }}>Loading projects...</div>
-      </div>
-    );
-  }
+  const visibleProjects = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return projects.filter((project) => {
+      const state = classifyProjectState(project.status);
+      if (state !== tab) return false;
+      if (companyFilter !== "all" && project.companyId !== companyFilter) return false;
+      if (!needle) return true;
+      const companyName = project.companyId ? companyMap.get(project.companyId)?.name ?? "" : "";
+      return `${project.name} ${project.description} ${project.slug} ${project.owner ?? ""} ${companyName}`
+        .toLowerCase()
+        .includes(needle);
+    });
+  }, [companyFilter, companyMap, projects, query, tab]);
+
+  const totals = useMemo(
+    () =>
+      projects.reduce(
+        (acc, project) => {
+          acc[classifyProjectState(project.status)] += 1;
+          acc.tasks += project.taskCount;
+          acc.inProgress += project.inProgress;
+          acc.review += project.review;
+          acc.agents += project.activeAgents ?? 0;
+          return acc;
+        },
+        { active: 0, paused: 0, archived: 0, tasks: 0, inProgress: 0, review: 0, agents: 0 }
+      ),
+    [projects]
+  );
 
   return (
-    <div className="p-4 md:p-8">
-      {/* Paperclip status widget */}
-      <PaperclipStatusWidget />
-
-      {/* Header */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
+    <main className="orchestra-screen px-4 pb-12 pt-4 md:px-6">
+      <section className="orchestra-glass relative overflow-hidden rounded-3xl p-5 md:p-7">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-amber-300/70 to-transparent" />
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <h1
-              className="text-3xl font-bold mb-2"
-              style={{ fontFamily: "var(--font-heading)", color: "var(--text-primary)", letterSpacing: "-1.5px" }}
-            >
-              <FolderOpen className="inline-block w-8 h-8 mr-2 mb-1" />
-              Projects
-            </h1>
-            <p style={{ color: "var(--text-secondary)", fontSize: "14px" }}>
-              {projects.length} projects · {projects.reduce((s, p) => s + p.taskCount, 0)} total tasks
+            <p className="inline-flex items-center gap-1.5 text-[11px] uppercase tracking-[0.2em] text-amber-100/75">
+              <Sparkles className="h-3.5 w-3.5" />
+              Project Hub
+            </p>
+            <h1 className="mt-2 text-2xl font-semibold text-white md:text-3xl">Mission Control Projects</h1>
+            <p className="mt-2 max-w-3xl text-sm text-slate-300">
+              Cross-company orchestration view for board flow, ownership, and execution health.
             </p>
           </div>
-
-          {/* View toggle */}
-          <div
-            className="flex items-center rounded-lg overflow-hidden"
-            style={{ border: "1px solid var(--border)", backgroundColor: "var(--card)" }}
-          >
-            <button
-              onClick={() => setView("grid")}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all"
-              style={{
-                backgroundColor: view === "grid" ? "var(--accent)" : "transparent",
-                color: view === "grid" ? "#000" : "var(--text-secondary)",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              <LayoutGrid size={14} /> Grid
-            </button>
-            <button
-              onClick={() => setView("list")}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-all"
-              style={{
-                backgroundColor: view === "list" ? "var(--accent)" : "transparent",
-                color: view === "list" ? "#000" : "var(--text-secondary)",
-                border: "none",
-                cursor: "pointer",
-              }}
-            >
-              <List size={14} /> List
-            </button>
+          <div className="inline-flex rounded-xl border border-white/15 bg-slate-950/70 p-1 backdrop-blur-xl">
+            {(["active", "paused", "archived"] as ProjectTab[]).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setTab(item)}
+                className="rounded-lg px-3 py-1.5 text-xs font-medium uppercase tracking-[0.12em] transition"
+                style={{
+                  color: tab === item ? "#fffbeb" : "#94a3b8",
+                  background:
+                    tab === item
+                      ? "linear-gradient(135deg, rgba(217,119,6,0.28), rgba(120,53,15,0.2))"
+                      : "transparent",
+                  boxShadow: tab === item ? "0 0 0 1px rgba(217,119,6,0.24)" : "none",
+                }}
+              >
+                {item}
+              </button>
+            ))}
           </div>
         </div>
 
-        {/* Status filter */}
-        <div className="flex gap-2 mt-4 flex-wrap">
-          {[
-            { key: "all", label: "All" },
-            { key: "active", label: "Active" },
-            { key: "inactive", label: "Inactive" },
-            { key: "archived", label: "Archived" },
-          ].map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setStatusFilter(f.key)}
-              className="text-sm px-3 py-1 rounded-full font-medium transition-all"
-              style={{
-                backgroundColor: statusFilter === f.key ? "var(--accent)" : "var(--card)",
-                color: statusFilter === f.key ? "var(--background)" : "var(--text-secondary)",
-                border: `1px solid ${statusFilter === f.key ? "var(--accent)" : "var(--border)"}`,
-                cursor: "pointer",
-              }}
-            >
-              {f.label}
-              {f.key !== "all" && (
-                <span className="ml-1.5 opacity-70">
-                  {projects.filter((p) => f.key === "all" || p.status === f.key).length}
-                </span>
-              )}
-            </button>
-          ))}
-
-          <span style={{ color: "var(--border)", margin: "0 4px" }}>|</span>
-
-          {[
-            { key: "all", label: "All Types" },
-            { key: "product", label: "🚀 Product" },
-            { key: "infrastructure", label: "⚙️ Infrastructure" },
-            { key: "research", label: "🔬 Research" },
-          ].map((f) => (
-            <button
-              key={`type-${f.key}`}
-              onClick={() => setTypeFilter(f.key)}
-              className="text-sm px-3 py-1 rounded-full font-medium transition-all"
-              style={{
-                backgroundColor: typeFilter === f.key ? "var(--accent)" : "var(--card)",
-                color: typeFilter === f.key ? "var(--background)" : "var(--text-secondary)",
-                border: `1px solid ${typeFilter === f.key ? "var(--accent)" : "var(--border)"}`,
-                cursor: "pointer",
-              }}
-            >
-              {f.label}
-              {f.key !== "all" && (
-                <span className="ml-1.5 opacity-70">
-                  {projects.filter((p) => (p as any).type === f.key).length}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+          <StatTile label="Active Projects" value={totals.active} icon={<BriefcaseBusiness className="h-4 w-4" />} />
+          <StatTile label="In Progress" value={totals.inProgress} icon={<Activity className="h-4 w-4" />} />
+          <StatTile label="Review Queue" value={totals.review} icon={<CheckCircle2 className="h-4 w-4" />} />
+          <StatTile label="Open Tasks" value={totals.tasks} icon={<ArrowRight className="h-4 w-4" />} />
+          <StatTile label="Active Agents" value={totals.agents} icon={<Users className="h-4 w-4" />} />
         </div>
+      </section>
+
+      <section className="mt-5 rounded-2xl border border-white/10 bg-[linear-gradient(165deg,rgba(15,23,42,0.88),rgba(2,6,23,0.95))] p-4 backdrop-blur-xl md:p-5">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="relative min-w-[230px] flex-1">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search by project, owner, slug, or company"
+              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-slate-100 outline-none transition placeholder:text-slate-500 focus:border-amber-300/55"
+            />
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-300">
+            Company
+            <select
+              value={companyFilter}
+              onChange={(event) => setCompanyFilter(event.target.value)}
+              className="rounded-md border border-white/10 bg-slate-950 px-2 py-1 text-xs text-slate-100 outline-none focus:border-amber-300/55"
+            >
+              <option value="all">All Companies</option>
+              {companies.map((company) => (
+                <option key={company.id} value={company.id}>
+                  {company.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      </section>
+
+      {error ? (
+        <section className="mt-5 rounded-2xl border border-rose-400/25 bg-rose-500/10 p-4 text-sm text-rose-100">{error}</section>
+      ) : null}
+
+      <section className="mt-5 grid gap-4 lg:grid-cols-2">
+        {loading
+          ? Array.from({ length: 6 }).map((_, index) => <ProjectSkeleton key={`project-skeleton-${index}`} />)
+          : visibleProjects.map((project) => {
+              const company = project.companyId ? companyMap.get(project.companyId) : undefined;
+              const laneTotal = project.backlog + project.inProgress + project.review + project.completed;
+              const completion = laneTotal > 0 ? Math.round((project.completed / laneTotal) * 100) : 0;
+              const projectSlug = project.slug || project.id;
+              const boardHref = `/projects/${encodeURIComponent(projectSlug)}/board`;
+              const companyHref = company ? `/companies/${encodeURIComponent(company.slug)}` : null;
+              const teamHref = company ? `/companies/${encodeURIComponent(company.slug)}/team` : boardHref;
+
+              return (
+                <article
+                  key={project.id}
+                  className="group rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_0_0,rgba(217,119,6,0.12),transparent_28%),linear-gradient(168deg,rgba(15,23,42,0.95),rgba(2,6,23,0.96))] p-5 shadow-[0_16px_40px_rgba(2,6,23,0.45)] transition duration-200 hover:-translate-y-0.5 hover:border-amber-300/45"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-amber-100/70">{project.slug}</p>
+                      <h2 className="mt-1 text-xl font-semibold text-white">
+                        <span className="mr-2">{project.emoji}</span>
+                        {project.name}
+                      </h2>
+                      <p className="mt-2 text-sm text-slate-400">{project.description}</p>
+                    </div>
+                    <div
+                      className="h-10 w-10 shrink-0 rounded-2xl border"
+                      style={{
+                        borderColor: `${project.color}70`,
+                        background: `linear-gradient(160deg, ${project.color}44, rgba(15,23,42,0.88))`,
+                      }}
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
+                    <LaneMetric label="Backlog" value={project.backlog} />
+                    <LaneMetric label="In Progress" value={project.inProgress} />
+                    <LaneMetric label="Review" value={project.review} />
+                    <LaneMetric label="Done" value={project.completed} />
+                  </div>
+
+                  <div className="mt-4">
+                    <div className="mb-1 flex items-center justify-between text-[11px] uppercase tracking-[0.12em] text-slate-400">
+                      <span>Completion</span>
+                      <span>{completion}%</span>
+                    </div>
+                    <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+                      <div
+                        className="h-full rounded-full transition-all"
+                        style={{
+                          width: `${completion}%`,
+                          background: `linear-gradient(90deg, ${project.color}, color-mix(in srgb, ${project.color} 65%, white))`,
+                        }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                    <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">
+                      {company?.name ?? "Unscoped Company"}
+                    </span>
+                    {project.owner ? (
+                      <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">Owner: {project.owner}</span>
+                    ) : null}
+                    <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">
+                      {(project.activeAgents ?? 0).toLocaleString()} active agents
+                    </span>
+                    <span className="rounded-md border border-white/10 bg-white/[0.03] px-2 py-1">
+                      {project.taskCount.toLocaleString()} open tasks
+                    </span>
+                  </div>
+
+                  <div className="mt-5 flex flex-wrap items-center gap-2">
+                    <Link href={boardHref} className="orchestra-cta inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-amber-100">
+                      Open Board
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </Link>
+                    <Link href={teamHref} className="orchestra-ghost-btn inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                      Team Roster
+                    </Link>
+                    {companyHref ? (
+                      <Link href={companyHref} className="orchestra-ghost-btn inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs text-slate-200">
+                        Company Hub
+                      </Link>
+                    ) : null}
+                  </div>
+                </article>
+              );
+            })}
+      </section>
+
+      {!loading && visibleProjects.length === 0 ? (
+        <section className="mt-5 rounded-2xl border border-dashed border-white/15 bg-slate-950/65 p-8 text-center">
+          <p className="text-sm text-slate-300">No projects matched this filter set.</p>
+          <p className="mt-1 text-xs text-slate-500">Try another company scope or clear the search query.</p>
+        </section>
+      ) : null}
+    </main>
+  );
+}
+
+function StatTile({ label, value, icon }: { label: string; value: string | number; icon: ReactNode }) {
+  return (
+    <article className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2.5">
+      <div className="flex items-center gap-2 text-slate-300">
+        {icon}
+        <span className="text-xs uppercase tracking-[0.1em]">{label}</span>
       </div>
+      <p className="mt-2 text-2xl font-semibold text-white">{value}</p>
+    </article>
+  );
+}
 
-      {/* Project grid / list */}
-      {view === "grid" ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-          {filtered.map((p) => (
-            <ProjectCard key={p.id} project={p} />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2">
-          {filtered.map((p) => (
-            <ProjectRow key={p.id} project={p} />
-          ))}
-        </div>
-      )}
-
-      {filtered.length === 0 && (
-        <div className="text-center py-16" style={{ color: "var(--text-muted)" }}>
-          No projects found for this filter.
-        </div>
-      )}
+function LaneMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1.5">
+      <p className="truncate text-[11px] uppercase tracking-[0.09em] text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
     </div>
+  );
+}
+
+function ProjectSkeleton() {
+  return (
+    <article className="rounded-2xl border border-white/10 bg-slate-900/70 p-5">
+      <div className="h-4 w-24 animate-pulse rounded bg-slate-700/70" />
+      <div className="mt-3 h-7 w-56 animate-pulse rounded bg-slate-700/70" />
+      <div className="mt-3 h-4 w-full animate-pulse rounded bg-slate-800/80" />
+      <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-slate-800/80" />
+      <div className="mt-5 grid grid-cols-4 gap-2">
+        <div className="h-14 animate-pulse rounded bg-slate-800/80" />
+        <div className="h-14 animate-pulse rounded bg-slate-800/80" />
+        <div className="h-14 animate-pulse rounded bg-slate-800/80" />
+        <div className="h-14 animate-pulse rounded bg-slate-800/80" />
+      </div>
+    </article>
   );
 }
