@@ -1174,7 +1174,7 @@ export default function AdvisoryPage() {
                       {activeSession.mode === "competitive" && (() => {
                         const phase = (sessionData?.competitive as { phase?: string } | undefined)?.phase;
                         const phaseMap: Record<string, { label: string; color: string; bg: string; border: string }> = {
-                          pitch: { label: "⚔️ PITCH", color: "#a78bfa", bg: "rgba(167,139,250,0.12)", border: "rgba(167,139,250,0.3)" },
+                          pitch: { label: "⚔️ PITCH", color: "#f59e0b", bg: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.3)" },
                           critique: { label: "🔥 CRITIQUE", color: "#fb923c", bg: "rgba(251,146,60,0.12)", border: "rgba(251,146,60,0.3)" },
                           vote: { label: "🗳️ VOTE", color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
                           complete: { label: "🏆 DONE", color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
@@ -1193,15 +1193,15 @@ export default function AdvisoryPage() {
                         </span>
                       )}
                       {sessionData?.rounds === "persistent" && !sessionData?.specialist && (
-                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#a78bfa", backgroundColor: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>∞ PERSISTENT</span>
+                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>∞ PERSISTENT</span>
                       )}
                       {!!sessionData?.forkedFrom && (
-                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#60a5fa", backgroundColor: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <GitBranch size={9} /> FORKED
                         </span>
                       )}
                       {!!sessionData?.referenceContext && (
-                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#a78bfa", backgroundColor: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "4px" }}>
+                        <span style={{ fontSize: "9px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)", padding: "2px 7px", borderRadius: "4px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "4px" }}>
                           <Paperclip size={9} /> REF MATERIAL
                         </span>
                       )}
@@ -1279,19 +1279,19 @@ export default function AdvisoryPage() {
                       {activeSession.status === "completed" && (
                         <>
                           <button onClick={handleCopyToClipboard} title="Copy as Markdown"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: `1px solid ${copiedToast ? "rgba(74,222,128,0.4)" : "rgba(96,165,250,0.4)"}`, backgroundColor: copiedToast ? "rgba(74,222,128,0.1)" : "rgba(96,165,250,0.1)", color: copiedToast ? "#4ade80" : "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: `1px solid ${copiedToast ? "rgba(74,222,128,0.4)" : "rgba(245,158,11,0.4)"}`, backgroundColor: copiedToast ? "rgba(74,222,128,0.1)" : "rgba(245,158,11,0.1)", color: copiedToast ? "#4ade80" : "#f59e0b", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", transition: "all 150ms ease", fontWeight: 600 }}>
                             <Copy size={12} /> {copiedToast ? "Copied!" : "Copy"}
                           </button>
                           <button onClick={handleExportMarkdown} title="Export as plain text file"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.1)", color: "#f59e0b", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                             <Download size={12} /> Export
                           </button>
                           <button onClick={handleExportMD} title="Export as Markdown file"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.1)", color: "#f59e0b", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                             <FileDown size={12} /> Export MD
                           </button>
                           <button onClick={handleExportPDF} disabled={exportingPDF} title="Print / Save PDF"
-                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.1)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.7 : 1, transition: "all 150ms ease" }}>
+                            style={{ padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(217,119,6,0.4)", backgroundColor: exportingPDF ? "rgba(217,119,6,0.2)" : "rgba(217,119,6,0.1)", color: "#f59e0b", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.7 : 1, transition: "all 150ms ease" }}>
                             {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
                             {exportingPDF ? "Opening..." : "Print / PDF"}
                           </button>
@@ -1317,7 +1317,7 @@ export default function AdvisoryPage() {
                   {activeSession?.status === "active" && activeSession.mode === "competitive" && events.length > 0 && (() => {
                     const phase = (sessionData?.competitive as { phase?: string } | undefined)?.phase || "pitch";
                     const phases = [
-                      { id: "pitch", icon: "🎯", label: "Pitch", color: "#a78bfa" },
+                      { id: "pitch", icon: "🎯", label: "Pitch", color: "#f59e0b" },
                       { id: "critique", icon: "🔥", label: "Critique", color: "#fb923c" },
                       { id: "vote", icon: "🗳️", label: "Vote", color: "#34d399" },
                       { id: "complete", icon: "🏆", label: "Done", color: "#fbbf24" },
@@ -1622,9 +1622,9 @@ export default function AdvisoryPage() {
                         }}
                         style={{
                           padding: "6px 14px", borderRadius: "6px",
-                          border: `1px solid ${autoPlay ? "rgba(74,222,128,0.5)" : "rgba(139,92,246,0.5)"}`,
-                          backgroundColor: autoPlay ? "rgba(74,222,128,0.12)" : "rgba(139,92,246,0.12)",
-                          color: autoPlay ? "#4ade80" : "#a78bfa",
+                          border: `1px solid ${autoPlay ? "rgba(74,222,128,0.5)" : "rgba(217,119,6,0.5)"}`,
+                          backgroundColor: autoPlay ? "rgba(74,222,128,0.12)" : "rgba(217,119,6,0.12)",
+                          color: autoPlay ? "#4ade80" : "#f59e0b",
                           cursor: "pointer", fontSize: "11px", fontWeight: 700,
                           display: "flex", alignItems: "center", gap: "5px",
                           transition: "all 150ms ease",
@@ -1676,12 +1676,12 @@ export default function AdvisoryPage() {
 
                   {/* Persistent session - Request Full Round button */}
                   {activeSession.status === "active" && sessionData?.rounds === "persistent" && (
-                    <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(139,92,246,0.2)", backgroundColor: "rgba(139,92,246,0.04)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
+                    <div style={{ padding: "10px 24px", borderTop: "1px solid rgba(217,119,6,0.2)", backgroundColor: "rgba(217,119,6,0.04)", display: "flex", alignItems: "center", gap: "10px", flexShrink: 0 }}>
                       <span style={{ fontSize: "11px", color: "var(--text-muted)", flex: 1 }}>
                         {sessionData?.specialist ? `Deep dive with ${sessionData?.specialistAgent || activeSession.agents[0]} — ask anything` : "Persistent session — agents wait for your input"}
                       </span>
                       <button onClick={handleFullRound} disabled={requestingFullRound || isGenerating}
-                        style={{ padding: "7px 14px", borderRadius: "7px", border: "1px solid rgba(139,92,246,0.5)", backgroundColor: "rgba(139,92,246,0.12)", color: "#a78bfa", cursor: requestingFullRound || isGenerating ? "not-allowed" : "pointer", fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: requestingFullRound || isGenerating ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
+                        style={{ padding: "7px 14px", borderRadius: "7px", border: "1px solid rgba(217,119,6,0.5)", backgroundColor: "rgba(217,119,6,0.12)", color: "#f59e0b", cursor: requestingFullRound || isGenerating ? "not-allowed" : "pointer", fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center", gap: "6px", opacity: requestingFullRound || isGenerating ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
                         {requestingFullRound ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
                         Request Full Round
                       </button>
@@ -1702,16 +1702,16 @@ export default function AdvisoryPage() {
                         </div>
                       </div>
                       <button onClick={handleContinueDiscussion} disabled={continuing} title="Reopen session for additional rounds"
-                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.5)", backgroundColor: continuing ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.12)", color: "#a78bfa", cursor: continuing ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 700, opacity: continuing ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
+                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(217,119,6,0.5)", backgroundColor: continuing ? "rgba(217,119,6,0.2)" : "rgba(217,119,6,0.12)", color: "#f59e0b", cursor: continuing ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 700, opacity: continuing ? 0.6 : 1, fontFamily: "var(--font-heading)", transition: "all 150ms ease" }}>
                         {continuing ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} />}
                         Continue Discussion
                       </button>
                       <button onClick={handleExportMD} title="Export as Markdown file"
-                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.4)", backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
+                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(245,158,11,0.4)", backgroundColor: "rgba(245,158,11,0.1)", color: "#f59e0b", cursor: "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600 }}>
                         <FileDown size={12} /> Export MD
                       </button>
                       <button onClick={handleExportPDF} disabled={exportingPDF} title="Export as PDF"
-                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(139,92,246,0.4)", backgroundColor: exportingPDF ? "rgba(139,92,246,0.2)" : "rgba(139,92,246,0.08)", color: "#a78bfa", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.6 : 1 }}>
+                        style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid rgba(217,119,6,0.4)", backgroundColor: exportingPDF ? "rgba(217,119,6,0.2)" : "rgba(217,119,6,0.08)", color: "#f59e0b", cursor: exportingPDF ? "not-allowed" : "pointer", fontSize: "11px", display: "flex", alignItems: "center", gap: "5px", fontWeight: 600, opacity: exportingPDF ? 0.6 : 1 }}>
                         {exportingPDF ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
                         {exportingPDF ? "Generating..." : "Export PDF"}
                       </button>
@@ -1727,7 +1727,7 @@ export default function AdvisoryPage() {
             </>
           ) : (
             /* Landing page — hero + agent showcase */
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", overflow: "auto", background: "radial-gradient(ellipse at 50% 0%, rgba(139,92,246,0.08) 0%, transparent 60%)" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "40px 24px", overflow: "auto", background: "radial-gradient(ellipse at 50% 0%, rgba(217,119,6,0.08) 0%, transparent 60%)" }}>
               {/* Hero */}
               <div style={{ textAlign: "center", maxWidth: "520px", marginBottom: "36px" }}>
                 <div style={{ fontSize: "28px", fontWeight: 800, color: "var(--text-primary)", marginBottom: "12px", fontFamily: "var(--font-heading)", lineHeight: 1.2 }}>
@@ -1751,11 +1751,11 @@ export default function AdvisoryPage() {
                     alignItems: "center",
                     gap: "8px",
                     fontFamily: "var(--font-heading)",
-                    boxShadow: "0 4px 16px rgba(139,92,246,0.3)",
+                    boxShadow: "0 4px 16px rgba(217,119,6,0.3)",
                     transition: "transform 150ms ease, box-shadow 150ms ease",
                   }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 20px rgba(139,92,246,0.4)"; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(139,92,246,0.3)"; }}
+                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 6px 20px rgba(217,119,6,0.4)"; }}
+                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.transform = "translateY(0)"; (e.currentTarget as HTMLElement).style.boxShadow = "0 4px 16px rgba(217,119,6,0.3)"; }}
                 >
                   <Plus size={16} /> Start New Session
                 </button>
@@ -1787,7 +1787,7 @@ export default function AdvisoryPage() {
                     }}
                     onMouseEnter={(e) => {
                       (e.currentTarget as HTMLElement).style.transform = "translateY(-3px)";
-                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(139,92,246,0.4)";
+                      (e.currentTarget as HTMLElement).style.borderColor = "rgba(217,119,6,0.4)";
                       (e.currentTarget as HTMLElement).style.boxShadow = "0 8px 24px rgba(0,0,0,0.15)";
                     }}
                     onMouseLeave={(e) => {

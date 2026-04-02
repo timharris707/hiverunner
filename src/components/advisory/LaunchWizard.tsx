@@ -459,8 +459,8 @@ function OverlayCatalogModal({
                   width: "100%",
                   padding: "10px 12px",
                   borderRadius: "8px",
-                  border: `1px solid ${isSelected ? "#a78bfa" : "var(--border)"}`,
-                  backgroundColor: isSelected ? "rgba(167,139,250,0.12)" : "var(--surface-elevated)",
+                  border: `1px solid ${isSelected ? "#f59e0b" : "var(--border)"}`,
+                  backgroundColor: isSelected ? "rgba(245,158,11,0.12)" : "var(--surface-elevated)",
                   cursor: atMax && !isSelected ? "not-allowed" : "pointer",
                   textAlign: "left",
                   marginBottom: "6px",
@@ -474,7 +474,7 @@ function OverlayCatalogModal({
                 <span style={{ fontSize: "18px", lineHeight: 1, marginTop: "2px" }}>{overlay.emoji}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
-                    <span style={{ fontSize: "12px", fontWeight: 700, color: isSelected ? "#a78bfa" : "var(--text-primary)" }}>{overlay.name}</span>
+                    <span style={{ fontSize: "12px", fontWeight: 700, color: isSelected ? "#f59e0b" : "var(--text-primary)" }}>{overlay.name}</span>
                     {isRec && (
                       <span style={{ fontSize: "8px", fontWeight: 700, color: "#4ade80", backgroundColor: "rgba(74,222,128,0.12)", border: "1px solid rgba(74,222,128,0.3)", padding: "1px 5px", borderRadius: "3px" }}>
                         RECOMMENDED
@@ -483,7 +483,7 @@ function OverlayCatalogModal({
                   </div>
                   <div style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>{overlay.desc}</div>
                 </div>
-                {isSelected && <span style={{ fontSize: "14px", color: "#a78bfa", fontWeight: 700, marginTop: "2px" }}>✓</span>}
+                {isSelected && <span style={{ fontSize: "14px", color: "#f59e0b", fontWeight: 700, marginTop: "2px" }}>✓</span>}
               </button>
             );
           })}
@@ -1005,7 +1005,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                   width: "100%",
                   padding: "10px 12px",
                   backgroundColor: "var(--surface-elevated)",
-                  border: `1px solid ${referenceContext ? "rgba(139,92,246,0.4)" : "var(--border)"}`,
+                  border: `1px solid ${referenceContext ? "rgba(217,119,6,0.4)" : "var(--border)"}`,
                   borderRadius: "8px",
                   color: "var(--text-primary)",
                   fontSize: "12px",
@@ -1148,7 +1148,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                     {/* Worker */}
                     <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
                       <div style={{ width: "90px", flexShrink: 0 }}>
-                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#60a5fa", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>WORKER</span>
+                        <span style={{ fontSize: "10px", fontWeight: 700, color: "#f59e0b", fontFamily: "var(--font-mono)", letterSpacing: "0.04em" }}>WORKER</span>
                         <div style={{ fontSize: "9px", color: "var(--text-muted)", marginTop: "1px" }}>Executes tasks</div>
                       </div>
                       <AgentDropdown
@@ -1156,7 +1156,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         onChange={setWorkerAgent}
                         agents={AGENTS}
                         placeholder="Select worker agent..."
-                        accentColor="rgba(96,165,250,0.5)"
+                        accentColor="rgba(245,158,11,0.5)"
                       />
                     </div>
                     {/* Reviewer */}
@@ -1285,8 +1285,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       style={{
                         padding: "8px 10px",
                         borderRadius: "8px",
-                        border: `1px solid ${sel ? "var(--accent)" : "rgba(167,139,250,0.3)"}`,
-                        backgroundColor: sel ? "var(--accent-soft)" : "rgba(167,139,250,0.06)",
+                        border: `1px solid ${sel ? "var(--accent)" : "rgba(245,158,11,0.3)"}`,
+                        backgroundColor: sel ? "var(--accent-soft)" : "rgba(245,158,11,0.06)",
                         cursor: "pointer",
                         textAlign: "left",
                         transition: "all 150ms ease",
@@ -1300,8 +1300,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                         width: 28,
                         height: 28,
                         borderRadius: "50%",
-                        backgroundColor: "rgba(167,139,250,0.15)",
-                        border: "2px solid rgba(167,139,250,0.4)",
+                        backgroundColor: "rgba(245,158,11,0.15)",
+                        border: "2px solid rgba(245,158,11,0.4)",
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -1352,7 +1352,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                   style={{
                     padding: "8px 10px",
                     borderRadius: "8px",
-                    border: "1px dashed rgba(167,139,250,0.4)",
+                    border: "1px dashed rgba(245,158,11,0.4)",
                     backgroundColor: "transparent",
                     cursor: "pointer",
                     textAlign: "left",
@@ -1366,17 +1366,17 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                     width: 28,
                     height: 28,
                     borderRadius: "50%",
-                    backgroundColor: "rgba(167,139,250,0.1)",
-                    border: "2px dashed rgba(167,139,250,0.3)",
+                    backgroundColor: "rgba(245,158,11,0.1)",
+                    border: "2px dashed rgba(245,158,11,0.3)",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     flexShrink: 0,
                   }}>
-                    <UserPlus size={13} color="#a78bfa" />
+                    <UserPlus size={13} color="#f59e0b" />
                   </div>
                   <div>
-                    <div style={{ fontSize: "11px", fontWeight: 600, color: "#a78bfa" }}>Create Custom</div>
+                    <div style={{ fontSize: "11px", fontWeight: 600, color: "#f59e0b" }}>Create Custom</div>
                     <div style={{ fontSize: "9px", color: "var(--text-muted)", lineHeight: 1.3, marginTop: "2px" }}>Add your own agent</div>
                   </div>
                 </button>
@@ -1535,8 +1535,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                   width: "100%",
                   padding: "10px 12px",
                   borderRadius: "8px",
-                  border: `1px solid ${extendedThinking ? "rgba(139,92,246,0.5)" : "var(--border)"}`,
-                  backgroundColor: extendedThinking ? "rgba(139,92,246,0.1)" : "var(--surface-elevated)",
+                  border: `1px solid ${extendedThinking ? "rgba(217,119,6,0.5)" : "var(--border)"}`,
+                  backgroundColor: extendedThinking ? "rgba(217,119,6,0.1)" : "var(--surface-elevated)",
                   cursor: "pointer",
                   textAlign: "left",
                   transition: "all 150ms ease",
@@ -1649,7 +1649,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "2px" }}>
                         <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "var(--accent)" : "var(--text-primary)" }}>{opt.label}</div>
                         {opt.default && (
-                          <span style={{ fontSize: "8px", fontWeight: 700, color: "#a78bfa", backgroundColor: "rgba(167,139,250,0.15)", border: "1px solid rgba(167,139,250,0.3)", padding: "1px 4px", borderRadius: "3px" }}>DEFAULT</span>
+                          <span style={{ fontSize: "8px", fontWeight: 700, color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.15)", border: "1px solid rgba(245,158,11,0.3)", padding: "1px 4px", borderRadius: "3px" }}>DEFAULT</span>
                         )}
                       </div>
                       <div style={{ fontSize: "10px", color: "var(--text-muted)", lineHeight: 1.3 }}>{opt.desc}</div>
@@ -1713,18 +1713,18 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       style={{
                         padding: "8px 10px",
                         borderRadius: "8px",
-                        border: `1px solid ${sel ? "#a855f7" : "var(--border)"}`,
-                        backgroundColor: sel ? "rgba(168,85,247,0.12)" : "var(--surface-elevated)",
+                        border: `1px solid ${sel ? "#d97706" : "var(--border)"}`,
+                        backgroundColor: sel ? "rgba(217,119,6,0.12)" : "var(--surface-elevated)",
                         cursor: "pointer",
                         textAlign: "center",
                         transition: "all 150ms ease",
                       }}
                     >
-                      <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "#a855f7" : "var(--text-primary)" }}>
+                      <div style={{ fontSize: "11px", fontWeight: 700, color: sel ? "#d97706" : "var(--text-primary)" }}>
                         {agent?.emoji || "🤖"} {agentId}
                       </div>
                       {isHenry && (
-                        <div style={{ fontSize: "8px", color: "#a855f7", marginTop: "2px", fontWeight: 600 }}>DEFAULT</div>
+                        <div style={{ fontSize: "8px", color: "#d97706", marginTop: "2px", fontWeight: 600 }}>DEFAULT</div>
                       )}
                     </button>
                   );
@@ -1787,8 +1787,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                   style={{
                     padding: "20px",
                     borderRadius: "12px",
-                    border: "1px solid rgba(168,85,247,0.3)",
-                    background: "linear-gradient(135deg, rgba(168,85,247,0.06) 0%, rgba(139,92,246,0.04) 100%)",
+                    border: "1px solid rgba(217,119,6,0.3)",
+                    background: "linear-gradient(135deg, rgba(217,119,6,0.06) 0%, rgba(217,119,6,0.04) 100%)",
                     marginBottom: "20px",
                     display: "flex",
                     alignItems: "center",
@@ -1803,14 +1803,14 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                           width: "8px",
                           height: "8px",
                           borderRadius: "50%",
-                          backgroundColor: "#a855f7",
+                          backgroundColor: "#d97706",
                           opacity: 0.4,
                           animation: `pulse 1.2s ease-in-out ${i * 0.2}s infinite`,
                         }}
                       />
                     ))}
                   </div>
-                  <span style={{ fontSize: "12px", color: "#c084fc", fontWeight: 600 }}>
+                  <span style={{ fontSize: "12px", color: "#fbbf24", fontWeight: 600 }}>
                     <Sparkles size={12} style={{ display: "inline", verticalAlign: "text-bottom", marginRight: "4px" }} />
                     Generating expert recommendations for your topic...
                   </span>
@@ -1821,8 +1821,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
               {aiPersonas.length > 0 && !aiPersonasLoading && (
                 <div style={{ marginBottom: "20px", animation: "fadeInUp 0.4s ease-out" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "10px" }}>
-                    <Sparkles size={14} style={{ color: "#a855f7" }} />
-                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#c084fc", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
+                    <Sparkles size={14} style={{ color: "#d97706" }} />
+                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#fbbf24", letterSpacing: "0.06em", fontFamily: "var(--font-mono)" }}>
                       AI GENERATED FOR YOUR TOPIC
                     </span>
                   </div>
@@ -1831,10 +1831,10 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       padding: "8px 12px",
                       marginBottom: "8px",
                       borderRadius: "8px",
-                      backgroundColor: "rgba(168,85,247,0.1)",
-                      border: "1px solid rgba(168,85,247,0.3)",
+                      backgroundColor: "rgba(217,119,6,0.1)",
+                      border: "1px solid rgba(217,119,6,0.3)",
                       fontSize: "11px",
-                      color: "#c084fc",
+                      color: "#fbbf24",
                       fontWeight: 600,
                       display: "flex",
                       alignItems: "center",
@@ -1843,7 +1843,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       <span>Click an agent below to assign &quot;{aiPersonas.find(p => p.id === selectedPersonaId)?.name ?? PERSONA_OVERLAYS_EXTENDED.find(o => o.id === selectedPersonaId)?.name ?? selectedPersonaId}&quot;</span>
                       <button
                         onClick={() => setSelectedPersonaId(null)}
-                        style={{ background: "none", border: "none", cursor: "pointer", color: "#c084fc", fontSize: "10px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "rgba(168,85,247,0.15)" }}
+                        style={{ background: "none", border: "none", cursor: "pointer", color: "#fbbf24", fontSize: "10px", padding: "2px 6px", borderRadius: "4px", backgroundColor: "rgba(217,119,6,0.15)" }}
                       >
                         Cancel
                       </button>
@@ -1875,18 +1875,18 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                           style={{
                             padding: "12px",
                             borderRadius: "10px",
-                            border: `1px solid ${isHighlighted ? "#a855f7" : isUsed ? "rgba(168,85,247,0.5)" : "rgba(168,85,247,0.2)"}`,
+                            border: `1px solid ${isHighlighted ? "#d97706" : isUsed ? "rgba(217,119,6,0.5)" : "rgba(217,119,6,0.2)"}`,
                             background: isHighlighted
-                              ? "linear-gradient(135deg, rgba(168,85,247,0.25) 0%, rgba(139,92,246,0.18) 100%)"
+                              ? "linear-gradient(135deg, rgba(217,119,6,0.25) 0%, rgba(217,119,6,0.18) 100%)"
                               : isUsed
-                                ? "linear-gradient(135deg, rgba(168,85,247,0.15) 0%, rgba(139,92,246,0.1) 100%)"
-                                : "linear-gradient(135deg, rgba(168,85,247,0.05) 0%, rgba(139,92,246,0.02) 100%)",
+                                ? "linear-gradient(135deg, rgba(217,119,6,0.15) 0%, rgba(217,119,6,0.1) 100%)"
+                                : "linear-gradient(135deg, rgba(217,119,6,0.05) 0%, rgba(217,119,6,0.02) 100%)",
                             cursor: draggingPersonaId ? "grabbing" : "grab",
                             textAlign: "left",
                             transition: "all 200ms ease",
                             position: "relative",
                             overflow: "hidden",
-                            boxShadow: isHighlighted ? "0 0 12px rgba(168,85,247,0.3)" : "none",
+                            boxShadow: isHighlighted ? "0 0 12px rgba(217,119,6,0.3)" : "none",
                             transform: isHighlighted ? "scale(1.02)" : "none",
                           }}
                         >
@@ -1897,22 +1897,22 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                             left: 0,
                             right: 0,
                             height: "2px",
-                            background: "linear-gradient(90deg, #a855f7, #7c3aed, #a855f7)",
+                            background: "linear-gradient(90deg, #d97706, #b45309, #d97706)",
                             opacity: isHighlighted ? 1 : isUsed ? 1 : 0.4,
                           }} />
                           <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
                             <span style={{ fontSize: "22px", lineHeight: 1 }}>{persona.emoji}</span>
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "3px" }}>
-                                <span style={{ fontSize: "11px", fontWeight: 700, color: isHighlighted || isUsed ? "#c084fc" : "var(--text-primary)" }}>
+                                <span style={{ fontSize: "11px", fontWeight: 700, color: isHighlighted || isUsed ? "#fbbf24" : "var(--text-primary)" }}>
                                   {persona.name}
                                 </span>
                                 <span style={{
                                   fontSize: "7px",
                                   fontWeight: 700,
-                                  color: "#a855f7",
-                                  backgroundColor: "rgba(168,85,247,0.15)",
-                                  border: "1px solid rgba(168,85,247,0.3)",
+                                  color: "#d97706",
+                                  backgroundColor: "rgba(217,119,6,0.15)",
+                                  border: "1px solid rgba(217,119,6,0.3)",
                                   padding: "1px 4px",
                                   borderRadius: "3px",
                                   letterSpacing: "0.04em",
@@ -1924,8 +1924,8 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                                 {persona.description}
                               </div>
                             </div>
-                            {isHighlighted && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>⎋</span>}
-                            {!isHighlighted && isUsed && <span style={{ fontSize: "12px", color: "#a855f7", fontWeight: 700 }}>✓</span>}
+                            {isHighlighted && <span style={{ fontSize: "12px", color: "#d97706", fontWeight: 700 }}>⎋</span>}
+                            {!isHighlighted && isUsed && <span style={{ fontSize: "12px", color: "#d97706", fontWeight: 700 }}>✓</span>}
                           </div>
                         </button>
                       );
@@ -1980,11 +1980,11 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                       style={{
                         padding: "12px",
                         borderRadius: "10px",
-                        border: `1px solid ${isDragOver && canReceive ? "#a855f7" : isClickTarget && canReceive ? "rgba(168,85,247,0.5)" : "var(--border)"}`,
-                        backgroundColor: isDragOver && canReceive ? "rgba(168,85,247,0.08)" : "var(--surface-elevated)",
+                        border: `1px solid ${isDragOver && canReceive ? "#d97706" : isClickTarget && canReceive ? "rgba(217,119,6,0.5)" : "var(--border)"}`,
+                        backgroundColor: isDragOver && canReceive ? "rgba(217,119,6,0.08)" : "var(--surface-elevated)",
                         cursor: isClickTarget && canReceive ? "pointer" : "default",
                         transition: "all 200ms ease",
-                        boxShadow: isDragOver && canReceive ? "0 0 16px rgba(168,85,247,0.2)" : "none",
+                        boxShadow: isDragOver && canReceive ? "0 0 16px rgba(217,119,6,0.2)" : "none",
                       }}
                     >
                       {/* Agent header */}
@@ -2013,9 +2013,9 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                             style={{
                               padding: "4px 8px",
                               borderRadius: "6px",
-                              border: `1px solid ${agentModelOverrides[agentId] ? "rgba(139,92,246,0.5)" : "var(--border)"}`,
-                              backgroundColor: agentModelOverrides[agentId] ? "rgba(139,92,246,0.08)" : "var(--surface)",
-                              color: agentModelOverrides[agentId] ? "#a78bfa" : "var(--text-muted)",
+                              border: `1px solid ${agentModelOverrides[agentId] ? "rgba(217,119,6,0.5)" : "var(--border)"}`,
+                              backgroundColor: agentModelOverrides[agentId] ? "rgba(217,119,6,0.08)" : "var(--surface)",
+                              color: agentModelOverrides[agentId] ? "#f59e0b" : "var(--text-muted)",
                               fontSize: "10px",
                               fontWeight: agentModelOverrides[agentId] ? 700 : 500,
                               fontFamily: "var(--font-mono)",
@@ -2050,18 +2050,18 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                                   gap: "4px",
                                   padding: "3px 10px",
                                   borderRadius: "12px",
-                                  backgroundColor: isAi ? "rgba(168,85,247,0.15)" : "rgba(167,139,250,0.15)",
-                                  border: `1px solid ${isAi ? "rgba(168,85,247,0.4)" : "rgba(167,139,250,0.4)"}`,
+                                  backgroundColor: isAi ? "rgba(217,119,6,0.15)" : "rgba(245,158,11,0.15)",
+                                  border: `1px solid ${isAi ? "rgba(217,119,6,0.4)" : "rgba(245,158,11,0.4)"}`,
                                   fontSize: "10px",
                                   fontWeight: 700,
-                                  color: isAi ? "#c084fc" : "#a78bfa",
+                                  color: isAi ? "#fbbf24" : "#f59e0b",
                                 }}
                               >
                                 {displayEmoji} {displayName}
                                 {isAi && <span style={{ fontSize: "7px", opacity: 0.7 }}>AI</span>}
                                 <button
                                   onClick={() => toggleAgentOverlay(agentId, oId)}
-                                  style={{ background: "none", border: "none", cursor: "pointer", color: isAi ? "#c084fc" : "#a78bfa", padding: "0 0 0 2px", fontSize: "10px", lineHeight: 1 }}
+                                  style={{ background: "none", border: "none", cursor: "pointer", color: isAi ? "#fbbf24" : "#f59e0b", padding: "0 0 0 2px", fontSize: "10px", lineHeight: 1 }}
                                 >
                                   ✕
                                 </button>
@@ -2078,9 +2078,9 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
                           style={{
                             padding: "6px 12px",
                             borderRadius: "20px",
-                            border: "1px dashed rgba(167,139,250,0.4)",
+                            border: "1px dashed rgba(245,158,11,0.4)",
                             backgroundColor: "transparent",
-                            color: "#a78bfa",
+                            color: "#f59e0b",
                             cursor: "pointer",
                             fontSize: "10px",
                             fontWeight: 600,

@@ -6,8 +6,9 @@ function hasProcessingTaskForReview(reviewId: string) {
   const tasks = readTasks();
   return tasks.some(
     (task) =>
-      task.reviewId === reviewId ||
-      String(task.description || "").includes(`**Review ID:** ${reviewId}`)
+      (task.reviewId === reviewId ||
+        String(task.description || "").includes(`**Review ID:** ${reviewId}`)) &&
+      !["done", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
   );
 }
 
@@ -37,7 +38,7 @@ async function enqueueProcessingTaskForReview(review: {
       `2. Generate a comprehensive summary (2-3 paragraphs) describing the video content`,
       `3. Write an assessment of its relevance and value to the project`,
       `4. Extract 3-8 actionable takeaways with video timestamps, priority (high/medium/low), and effort (small/medium/large)`,
-      `5. Update the review entry in ~/.openclaw/workspace/projects/idea-intake/reviews.json:`,
+      `5. Update the review entry in the Mission Control Ideas store (SQLite-backed via APIs):`,
       `   - Set \`summary\` to the generated summary`,
       `   - Set \`assessment\` to the generated assessment`,
       `   - Set \`rating\` to a score from 1-5 based on relevance`,
@@ -61,11 +62,27 @@ async function enqueueProcessingTaskForReview(review: {
 }
 
 async function backfillProcessingTasksForExistingReviews(data: { reviews?: Array<Record<string, unknown>> }) {
+  const reviewNeedsTimestampBackfill = (review: Record<string, unknown>) => {
+    if (review.type !== "youtube") return false;
+    const takeaways = Array.isArray(review.takeaways) ? (review.takeaways as Array<Record<string, unknown>>) : [];
+    if (takeaways.length === 0) return true;
+
+    return takeaways.some((takeaway) => {
+      const timestamp = String(takeaway.video_timestamp ?? "").trim();
+      if (!timestamp) return true;
+      const videoUrl = String(takeaway.video_url ?? "").trim();
+      return !/[?&](?:t|start|time_continue)=/i.test(videoUrl);
+    });
+  };
+
   const unprocessedYouTubeReviews = (data.reviews ?? []).filter((review) => {
     const takeaways = Array.isArray(review.takeaways) ? review.takeaways : [];
     const hasSummary = Boolean(review.summary);
     const hasAssessment = Boolean(review.assessment);
-    return review.type === "youtube" && (!hasSummary || !hasAssessment || takeaways.length === 0);
+    return (
+      review.type === "youtube" &&
+      (!hasSummary || !hasAssessment || takeaways.length === 0 || reviewNeedsTimestampBackfill(review))
+    );
   });
 
   for (const review of unprocessedYouTubeReviews) {

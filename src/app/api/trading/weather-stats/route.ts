@@ -1,6 +1,17 @@
 import { NextResponse } from "next/server";
 import { existsSync, readFileSync } from "fs";
 import { join } from "path";
+import {
+  FILLED_LIVE_TRADE_COST_EXPR,
+  FILLED_LIVE_TRADE_COUNT_EXPR,
+  REAL_OPEN_LIVE_TRADE_COST_EXPR,
+  REAL_OPEN_LIVE_TRADE_COUNT_EXPR,
+  REAL_OPEN_LIVE_TRADE_WHERE,
+  TRUE_RESTING_LIVE_TRADE_COST_EXPR,
+  TRUE_RESTING_LIVE_TRADE_COUNT_EXPR,
+  normalizeLiveTradeLifecycleStatus,
+  type RealizedPerformanceTruth,
+} from "@/lib/live-trade-status";
 
 const WEATHER_TRADING_DIR =
   process.env.WEATHER_TRADING_DIR ||
@@ -169,11 +180,15 @@ export async function GET() {
           .prepare(
             `SELECT
               COUNT(*) as total_trades,
-              SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open_trades,
+              SUM(${REAL_OPEN_LIVE_TRADE_COUNT_EXPR}) as open_trades,
+              SUM(${TRUE_RESTING_LIVE_TRADE_COUNT_EXPR}) as true_resting_trades,
+              SUM(${FILLED_LIVE_TRADE_COUNT_EXPR}) as filled_open_trades,
               SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
               SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
               SUM(pnl) as total_pnl,
-              SUM(CASE WHEN status IN ('pending','filled','resting') THEN cost ELSE 0 END) as open_exposure
+              SUM(${REAL_OPEN_LIVE_TRADE_COST_EXPR}) as open_exposure,
+              SUM(${TRUE_RESTING_LIVE_TRADE_COST_EXPR}) as true_resting_exposure,
+              SUM(${FILLED_LIVE_TRADE_COST_EXPR}) as filled_open_exposure
             FROM live_trades
             WHERE status != 'failed'`
           )
@@ -182,9 +197,9 @@ export async function GET() {
         let recentLiveTrades = liveDb
           .prepare(
             `SELECT trade_id, contract_id as ticker, side, quantity,
-                    COALESCE(fill_price, price) as price, cost, edge,
+                    COALESCE(fill_price, price) as price, cost, edge, fill_quantity, status as raw_status,
                     CASE
-                      WHEN status IN ('pending','filled','resting') THEN 'open'
+                      WHEN ${REAL_OPEN_LIVE_TRADE_WHERE} THEN 'open'
                       WHEN status='settled_won' THEN 'won'
                       WHEN status='settled_lost' THEN 'lost'
                       ELSE status
@@ -238,6 +253,11 @@ export async function GET() {
           const isSettled = trade.status === "won" || trade.status === "lost";
           return {
             ...trade,
+            raw_status: normalizeLiveTradeLifecycleStatus(
+              String((trade as Record<string, unknown>).raw_status || trade.status || ""),
+              Number((trade as Record<string, unknown>).fill_quantity || 0),
+              Number(trade.quantity || 0)
+            ),
             city,
             target_date: targetDate,
             settlement_scheduled_at: market?.close_time || String(trade.close_time || computeWeatherSettlementAt(targetDate, city) || ""),
@@ -247,14 +267,17 @@ export async function GET() {
           };
         });
 
-        // Compute Kalshi bankroll from initial deposit + settled P&L
+        // Realized-only bankroll proxy: initial deposit + settled P&L.
+        // This intentionally excludes still-open / settlement-window positions.
         const kalshiBankroll = liveDb
           .prepare(
-            `SELECT SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as settled_pnl
+            `SELECT
+               SUM(CASE WHEN status IN ('settled_won','settled_lost') THEN pnl ELSE 0 END) as settled_pnl,
+               SUM(CASE WHEN status IN ('settled_won','settled_lost') AND settled_at > datetime('now', '-24 hours') THEN pnl ELSE 0 END) as pnl_24h
              FROM live_trades WHERE status != 'failed'`
           )
-          .get() as { settled_pnl: number } | undefined;
-        
+          .get() as { settled_pnl: number; pnl_24h: number } | undefined;
+
         // Read initial deposit from bankroll.json
         const bankrollPath = join(WEATHER_TRADING_DIR, "data", "bankroll.json");
         let initialDeposit = 1000;
@@ -271,7 +294,7 @@ export async function GET() {
           .prepare(
             `SELECT strategy_version,
                     COUNT(*) as total,
-                    SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open,
+                    SUM(CASE WHEN status IN ('pending','filled') OR (status = 'resting' AND COALESCE(fill_quantity, 0) < quantity) THEN 1 ELSE 0 END) as open,
                     SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
                     SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost,
                     SUM(pnl) as pnl
@@ -282,17 +305,40 @@ export async function GET() {
 
         liveDb.close();
 
+        // --- Truth Layer 3: Realized Performance (settled trades only) ---
+        // This is NOT current account value — it is settled-only performance.
+        const realizedPnl = kalshiBankroll?.settled_pnl || 0;
+        const realized: RealizedPerformanceTruth = {
+          pnl: Math.round(realizedPnl * 100) / 100,
+          bankroll: Math.round(computedBankroll * 100) / 100,
+          won: liveTradeStats.won || 0,
+          lost: liveTradeStats.lost || 0,
+          pnl24h: kalshiBankroll?.pnl_24h != null ? Math.round(kalshiBankroll.pnl_24h * 100) / 100 : null,
+          source: "settled",
+        };
+
         const liveResolved = (liveTradeStats.won || 0) + (liveTradeStats.lost || 0);
         kalshiStats = {
+          // --- Realized Performance Truth Layer (preferred) ---
+          realized,
+
           totalTrades: liveTradeStats.total_trades || 0,
           openTrades: liveTradeStats.open_trades || 0,
-          awaitingSettlement: 0,
+          awaitingSettlement: liveTradeStats.filled_open_trades || 0,
+          openBreakdown: {
+            trueRestingTrades: liveTradeStats.true_resting_trades || 0,
+            trueRestingExposure: liveTradeStats.true_resting_exposure || 0,
+            filledOpenTrades: liveTradeStats.filled_open_trades || 0,
+            filledOpenExposure: liveTradeStats.filled_open_exposure || 0,
+          },
           won: liveTradeStats.won || 0,
           lost: liveTradeStats.lost || 0,
           winRate: liveResolved > 0 ? ((liveTradeStats.won || 0) / liveResolved) * 100 : 0,
           totalPnl: liveTradeStats.total_pnl || 0,
           openExposure: liveTradeStats.open_exposure || 0,
+          // @deprecated Use realized.bankroll instead — this is realized-only, NOT current account value
           bankroll: computedBankroll,
+          realizedBankroll: computedBankroll,
           initialDeposit,
           recentTrades: recentLiveTrades,
           resolvedTrades: recentLiveTrades.filter(

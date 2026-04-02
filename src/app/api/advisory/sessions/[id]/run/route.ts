@@ -92,9 +92,9 @@ function setActiveSessionId(sessionId: string) {
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  _modelStr: string,
+  modelStr: string,
   thinking = false,
-  _maxTokensOverride?: number,
+  maxTokensOverride?: number,
   agentId?: string
 ): Promise<string> {
   const result = await spawnAdvisoryAgentWithRetry({
@@ -104,6 +104,8 @@ async function callClaude(
     userPrompt,
     timeoutSeconds: 120,
     thinkingLevel: thinking ? "medium" : undefined,
+    model: modelStr,
+    maxTokens: maxTokensOverride,
   });
   return result.text;
 }

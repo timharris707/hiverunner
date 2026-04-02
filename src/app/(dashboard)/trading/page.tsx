@@ -43,7 +43,7 @@ const TRADERS = [
     id: "t2",
     name: "Nimbus — Weather Prediction Trading",
     emoji: "\u{1F324}\uFE0F",
-    color: "#60a5fa",
+    color: "#f59e0b",
     status: "not-deployed",
     description: "Weather data ingestion, correlation analysis, and Polymarket/Kalshi signals",
     tools: ["Open-Meteo", "NOAA", "Kalshi API", "Polymarket API", "Custom models"],
@@ -76,7 +76,7 @@ const TRADERS = [
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
   "not-deployed": { label: "Not Deployed", color: "#6b7280" },
   building: { label: "In Progress", color: "#f59e0b" },
-  "paper-trading": { label: "Paper Trading", color: "#60a5fa" },
+  "paper-trading": { label: "Paper Trading", color: "#f59e0b" },
   live: { label: "Live", color: "#4ade80" },
   error: { label: "Error", color: "#ef4444" },
 };
@@ -101,8 +101,8 @@ interface CryptoPrices {
 
 const CRYPTO_COINS = [
   { id: "bitcoin", symbol: "BTC", name: "Bitcoin", color: "#f59e0b", icon: "\u20BF" },
-  { id: "ethereum", symbol: "ETH", name: "Ethereum", color: "#60a5fa", icon: "\u039E" },
-  { id: "solana", symbol: "SOL", name: "Solana", color: "#a78bfa", icon: "\u25CE" },
+  { id: "ethereum", symbol: "ETH", name: "Ethereum", color: "#f59e0b", icon: "\u039E" },
+  { id: "solana", symbol: "SOL", name: "Solana", color: "#f59e0b", icon: "\u25CE" },
 ];
 
 function formatPrice(price: number): string {
@@ -255,22 +255,26 @@ function parseBetDescription(ticker: string, side: string, threshold?: number | 
     const lo = base;
     const hi = base + 2;
     if (side.toLowerCase() === "yes") {
-      return `${metric} ${lo}\u2013${hi}\u00B0F`;
+      return `${metric} ${lo}\u2013${hi}`;
     }
-    return `${metric} outside ${lo}\u2013${hi}\u00B0F`;
+    return `${metric} outside ${lo}\u2013${hi}`;
   }
 
   // Threshold market: ticker contains -T followed by a number
   const threshMatch = ticker.match(/-T([\d.]+)$/);
   const t = threshMatch ? parseFloat(threshMatch[1]) : threshold;
   if (t != null) {
-    if (side.toLowerCase() === "yes") {
-      return `${metric} \u2265 ${t}\u00B0F`;
+    if (isHigh) {
+      return side.toLowerCase() === "yes"
+        ? `High ${t} or below`
+        : `High above ${t}`;
     }
-    return `${metric} < ${t}\u00B0F`;
+    return side.toLowerCase() === "yes"
+      ? `Low ${t} or above`
+      : `Low below ${t}`;
   }
 
-  return `${metric} ${side.toUpperCase()}`;
+  return metric;
 }
 
 function shortTime(dateStr: string | null | undefined): string {
@@ -637,7 +641,7 @@ export default function TradingPage() {
       {/* Weather Trading Section — Live Data */}
       <div
         className="rounded-xl overflow-hidden mb-6"
-        style={{ backgroundColor: "var(--card)", border: "1px solid #60a5fa30" }}
+        style={{ backgroundColor: "var(--card)", border: "1px solid #f59e0b30" }}
       >
         <div
           className="flex items-center justify-between px-5 py-4"
@@ -667,17 +671,17 @@ export default function TradingPage() {
                 onClick={() => setShowPaperTrades((v) => !v)}
                 className="text-xs px-2 py-1 rounded"
                 style={{
-                  backgroundColor: showPaperTrades ? "#a78bfa20" : "var(--card-elevated)",
-                  border: `1px solid ${showPaperTrades ? "#a78bfa40" : "var(--border)"}`,
-                  color: showPaperTrades ? "#a78bfa" : "var(--text-secondary)",
+                  backgroundColor: showPaperTrades ? "#f59e0b20" : "var(--card-elevated)",
+                  border: `1px solid ${showPaperTrades ? "#f59e0b40" : "var(--border)"}`,
+                  color: showPaperTrades ? "#f59e0b" : "var(--text-secondary)",
                 }}
               >
                 {showPaperTrades ? "Hide Paper Trades" : "Show Paper Trades"}
               </button>
             )}
             <span className="text-xs px-2 py-1 rounded" style={{
-              backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#60a5fa20" : "#60a5fa20",
-              color: hasLiveTrades ? "#4ade80" : ls ? "#60a5fa" : "#60a5fa",
+              backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#f59e0b20" : "#f59e0b20",
+              color: hasLiveTrades ? "#4ade80" : ls ? "#f59e0b" : "#f59e0b",
             }}>
               {hasLiveTrades ? "Live on Kalshi" : ls ? "Paper Trading" : "Research Phase"}
             </span>
@@ -688,11 +692,11 @@ export default function TradingPage() {
           {ls && (
             <div
               className="flex flex-wrap items-center gap-4 p-4 rounded-xl mb-4"
-              style={{ backgroundColor: "#60a5fa08", border: "1px solid #60a5fa25" }}
+              style={{ backgroundColor: "#f59e0b08", border: "1px solid #f59e0b25" }}
             >
               <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4" style={{ color: "#60a5fa" }} />
-                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "#60a5fa" }}>Portfolio</span>
+                <DollarSign className="w-4 h-4" style={{ color: "#f59e0b" }} />
+                <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "#f59e0b" }}>Portfolio</span>
               </div>
               <div className="flex flex-wrap items-center gap-6">
                 <div>
@@ -703,7 +707,7 @@ export default function TradingPage() {
                 </div>
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Positions</div>
-                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
+                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#f59e0b" }}>
                     {$(ls.openExposure)}
                   </div>
                 </div>
@@ -738,7 +742,7 @@ export default function TradingPage() {
                 </div>
                 <div>
                   <div className="text-xs" style={{ color: "var(--text-muted)" }}>Open</div>
-                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#60a5fa" }}>
+                  <div className="text-sm font-bold" style={{ fontFamily: "var(--font-heading)", color: "#f59e0b" }}>
                     {ls.openTrades}
                   </div>
                 </div>
@@ -761,8 +765,8 @@ export default function TradingPage() {
               </div>
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-xs px-2 py-0.5 rounded font-medium" style={{
-                  backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#60a5fa20" : "#6b728020",
-                  color: hasLiveTrades ? "#4ade80" : ls ? "#60a5fa" : "#9ca3af",
+                  backgroundColor: hasLiveTrades ? "#4ade8020" : ls ? "#f59e0b20" : "#6b728020",
+                  color: hasLiveTrades ? "#4ade80" : ls ? "#f59e0b" : "#9ca3af",
                 }}>
                   {hasLiveTrades ? "Live on Kalshi" : ls ? "Paper Trading" : "Not Deployed"}
                 </span>
@@ -774,7 +778,7 @@ export default function TradingPage() {
             <Link
               href="/files?path=/Users/timharris/.openclaw/workspace/projects/weather-trading"
               className="text-sm flex items-center gap-1.5 px-3 py-2 rounded-lg"
-              style={{ backgroundColor: "#60a5fa15", color: "#60a5fa", border: "1px solid #60a5fa30" }}
+              style={{ backgroundColor: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b30" }}
             >
               <FolderOpen className="w-3.5 h-3.5" />
               Project Files
@@ -784,7 +788,7 @@ export default function TradingPage() {
           {/* Filter bar */}
           <div className="flex items-center gap-3 mb-4 flex-wrap">
             {showPaperTrades && hasLiveTrades && (
-              <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+              <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b30" }}>
                 Showing all trades — including paper
               </span>
             )}
@@ -843,7 +847,7 @@ export default function TradingPage() {
             </div>
             <div className="p-4 rounded-xl text-center" style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}>
               <div className="text-xs font-medium mb-1" style={{ color: "var(--text-muted)" }}>Open Positions</div>
-              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: ls?.openTrades ? "#60a5fa" : "var(--text-primary)" }}>
+              <div className="text-xl font-bold" style={{ fontFamily: "var(--font-heading)", color: ls?.openTrades ? "#f59e0b" : "var(--text-primary)" }}>
                 {ls?.openTrades ?? "\u2014"}
               </div>
             </div>
@@ -873,9 +877,9 @@ export default function TradingPage() {
               { label: "Version", key: "version" },
             ];
             return (
-            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #60a5fa20" }}>
-              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#60a5fa08", borderBottom: "1px solid #60a5fa20" }}>
-                <Target className="w-4 h-4" style={{ color: "#60a5fa" }} />
+            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #f59e0b20" }}>
+              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#f59e0b08", borderBottom: "1px solid #f59e0b20" }}>
+                <Target className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   Open Positions ({positions.length}){showPaperTrades && hasLiveTrades && " — including paper"}
                 </span>
@@ -889,7 +893,7 @@ export default function TradingPage() {
                           key={col.label || `empty-${i}`}
                           className="text-xs font-bold uppercase tracking-wider px-3 py-2.5 text-left"
                           style={{
-                            color: sortKey === col.key ? "#60a5fa" : "var(--text-muted)",
+                            color: sortKey === col.key ? "#f59e0b" : "var(--text-muted)",
                             backgroundColor: "var(--card-elevated)",
                             cursor: col.key ? "pointer" : "default",
                             userSelect: "none",
@@ -921,7 +925,7 @@ export default function TradingPage() {
                         {showPaperTrades && (
                           <td className="px-3 py-2">
                             {pos.trade_type === "paper" ? (
-                              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+                              <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b30" }}>
                                 PAPER
                               </span>
                             ) : (
@@ -942,7 +946,7 @@ export default function TradingPage() {
                           </span>
                         </td>
                         <td className="px-3 py-2">
-                          <span className="text-xs font-medium" style={{ color: "#60a5fa" }}>
+                          <span className="text-xs font-medium" style={{ color: "#f59e0b" }}>
                             {parseBetDescription(pos.ticker, pos.side, pos.threshold)}
                           </span>
                         </td>
@@ -1031,9 +1035,9 @@ export default function TradingPage() {
 
           {/* Settled Trades */}
           {resolvedPositions.length > 0 && (
-            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #a78bfa20" }}>
-              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#a78bfa08", borderBottom: "1px solid #a78bfa20" }}>
-                <CheckCircle className="w-4 h-4" style={{ color: "#a78bfa" }} />
+            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #f59e0b20" }}>
+              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#f59e0b08", borderBottom: "1px solid #f59e0b20" }}>
+                <CheckCircle className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   Settled Trades ({resolvedPositions.length})
                 </span>
@@ -1076,7 +1080,7 @@ export default function TradingPage() {
                           {showPaperTrades && (
                             <td className="px-3 py-2">
                               {rp.trade_type === "paper" ? (
-                                <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#a78bfa15", color: "#a78bfa", border: "1px solid #a78bfa30" }}>
+                                <span className="text-xs font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: "#f59e0b15", color: "#f59e0b", border: "1px solid #f59e0b30" }}>
                                   PAPER
                                 </span>
                               ) : (
@@ -1092,7 +1096,7 @@ export default function TradingPage() {
                             </span>
                           </td>
                           <td className="px-3 py-2">
-                            <span className="text-xs font-medium" style={{ color: "#60a5fa" }}>
+                            <span className="text-xs font-medium" style={{ color: "#f59e0b" }}>
                               {parseBetDescription(rp.ticker, rp.side, rp.threshold)}
                             </span>
                           </td>
@@ -1147,9 +1151,9 @@ export default function TradingPage() {
 
           {/* City Breakdown */}
           {cityBreakdown.length > 0 && (
-            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #60a5fa20" }}>
-              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#60a5fa08", borderBottom: "1px solid #60a5fa20" }}>
-                <MapPin className="w-4 h-4" style={{ color: "#60a5fa" }} />
+            <div className="rounded-xl mb-4 overflow-hidden" style={{ border: "1px solid #f59e0b20" }}>
+              <div className="flex items-center gap-2 px-4 py-3" style={{ backgroundColor: "#f59e0b08", borderBottom: "1px solid #f59e0b20" }}>
+                <MapPin className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   City Breakdown
                 </span>
@@ -1168,7 +1172,7 @@ export default function TradingPage() {
                       <div
                         className="absolute inset-0 opacity-10"
                         style={{
-                          background: `linear-gradient(90deg, #60a5fa ${barPct}%, transparent ${barPct}%)`,
+                          background: `linear-gradient(90deg, #f59e0b ${barPct}%, transparent ${barPct}%)`,
                         }}
                       />
                       <div className="relative flex items-center justify-between">
@@ -1179,7 +1183,7 @@ export default function TradingPage() {
                           <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>
                             {city.trade_count} trade{city.trade_count !== 1 ? "s" : ""}
                             {city.open_count > 0 && (
-                              <span style={{ color: "#60a5fa" }}>, {city.open_count} open</span>
+                              <span style={{ color: "#f59e0b" }}>, {city.open_count} open</span>
                             )}
                           </div>
                         </div>
@@ -1209,14 +1213,14 @@ export default function TradingPage() {
 
           {/* Backtest Results (from summary.json) */}
           {weatherStats?.summary && (
-            <div className="rounded-xl p-4 mb-4" style={{ backgroundColor: "#60a5fa08", border: "1px solid #60a5fa20" }}>
+            <div className="rounded-xl p-4 mb-4" style={{ backgroundColor: "#f59e0b08", border: "1px solid #f59e0b20" }}>
               <div className="flex items-center gap-2 mb-3">
-                <BarChart3 className="w-4 h-4" style={{ color: "#60a5fa" }} />
+                <BarChart3 className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>
                   Backtest Results
                 </span>
                 {weatherStats.backtestPeriod && (
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#60a5fa15", color: "#60a5fa" }}>
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#f59e0b15", color: "#f59e0b" }}>
                     {weatherStats.backtestPeriod.days}d, {weatherStats.backtestPeriod.start} to {weatherStats.backtestPeriod.end}
                   </span>
                 )}
@@ -1253,17 +1257,17 @@ export default function TradingPage() {
               style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
               <div className="flex items-center gap-2 mb-3">
-                <Link2 className="w-4 h-4" style={{ color: "#60a5fa" }} />
+                <Link2 className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Open Exposure</span>
               </div>
               <div className="text-center py-4">
-                <div className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: ls?.openExposure ? "#60a5fa" : "var(--text-muted)" }}>
+                <div className="text-2xl font-bold mb-1" style={{ fontFamily: "var(--font-heading)", color: ls?.openExposure ? "#f59e0b" : "var(--text-muted)" }}>
                   {$(ls?.openExposure)}
                 </div>
                 <div className="text-xs" style={{ color: "var(--text-muted)" }}>
                   {ls?.openTrades ?? 0} open position{(ls?.openTrades ?? 0) !== 1 ? "s" : ""}
                 </div>
-                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#60a5fa10", color: "#60a5fa" }}>
+                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#f59e0b10", color: "#f59e0b" }}>
                   Kalshi + Polymarket
                 </div>
               </div>
@@ -1275,7 +1279,7 @@ export default function TradingPage() {
               style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)" }}
             >
               <div className="flex items-center gap-2 mb-3">
-                <Activity className="w-4 h-4" style={{ color: "#a78bfa" }} />
+                <Activity className="w-4 h-4" style={{ color: "#f59e0b" }} />
                 <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Record</span>
               </div>
               <div className="text-center py-4">
@@ -1296,7 +1300,7 @@ export default function TradingPage() {
                     <div className="text-xs" style={{ color: "var(--text-muted)" }}>Awaiting deployment</div>
                   </>
                 )}
-                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#a78bfa10", color: "#a78bfa" }}>
+                <div className="text-xs mt-2 px-2 py-1 rounded" style={{ backgroundColor: "#f59e0b10", color: "#f59e0b" }}>
                   Weather-informed market edge
                 </div>
               </div>
@@ -1353,8 +1357,8 @@ export default function TradingPage() {
                     <div className="flex items-center gap-3">
                       <span style={{ color: "var(--text-secondary)" }}>{$(trade.cost)}</span>
                       <span className="font-medium px-1.5 py-0.5 rounded" style={{
-                        backgroundColor: trade.status === "open" ? "#60a5fa15" : trade.status === "won" ? "#4ade8015" : "#ef444415",
-                        color: trade.status === "open" ? "#60a5fa" : trade.status === "won" ? "#4ade80" : "#ef4444",
+                        backgroundColor: trade.status === "open" ? "#f59e0b15" : trade.status === "won" ? "#4ade8015" : "#ef444415",
+                        color: trade.status === "open" ? "#f59e0b" : trade.status === "won" ? "#4ade80" : "#ef4444",
                       }}>
                         {trade.status}
                       </span>
@@ -1597,7 +1601,7 @@ export default function TradingPage() {
                 name: "Nimbus — Weather Trading",
                 agentId: "t2",
                 emoji: "\u{1F324}\uFE0F",
-                color: "#60a5fa",
+                color: "#f59e0b",
                 path: "/Users/timharris/.openclaw/workspace/projects/weather-trading",
                 status: ls ? "Paper Trading" : "Research",
               },
@@ -1605,7 +1609,7 @@ export default function TradingPage() {
                 name: "Karpathy Loop",
                 agentId: null,
                 emoji: "\u{1F52C}",
-                color: "#a78bfa",
+                color: "#f59e0b",
                 path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop",
                 status: "Design",
               },

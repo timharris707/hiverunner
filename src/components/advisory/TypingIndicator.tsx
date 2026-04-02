@@ -25,8 +25,8 @@ export default function TypingIndicator({ agentId, overrideLabel }: TypingIndica
         gap: "10px",
         padding: "12px 16px",
         borderRadius: "12px",
-        border: "1px solid rgba(139, 92, 246, 0.25)",
-        backgroundColor: "rgba(139, 92, 246, 0.06)",
+        border: "1px solid rgba(217, 119, 6, 0.25)",
+        backgroundColor: "rgba(217, 119, 6, 0.06)",
         marginBottom: "12px",
         animation: "msg-fadein 0.2s ease-out",
       }}
@@ -40,7 +40,7 @@ export default function TypingIndicator({ agentId, overrideLabel }: TypingIndica
                 position: "absolute",
                 inset: "-4px",
                 borderRadius: "50%",
-                border: "2px solid rgba(139,92,246,0.5)",
+                border: "2px solid rgba(217,119,6,0.5)",
                 animation: "thinking-pulse 1.2s ease-in-out infinite",
               }}
             />
@@ -52,8 +52,8 @@ export default function TypingIndicator({ agentId, overrideLabel }: TypingIndica
               width: 32,
               height: 32,
               borderRadius: "50%",
-              backgroundColor: "rgba(139,92,246,0.15)",
-              border: "2px solid rgba(139,92,246,0.4)",
+              backgroundColor: "rgba(217,119,6,0.15)",
+              border: "2px solid rgba(217,119,6,0.4)",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
@@ -66,7 +66,7 @@ export default function TypingIndicator({ agentId, overrideLabel }: TypingIndica
       </div>
 
       <div style={{ flex: 1 }}>
-        <div style={{ fontSize: "12px", color: "#a78bfa", fontWeight: 600, marginBottom: "5px" }}>
+        <div style={{ fontSize: "12px", color: "#f59e0b", fontWeight: 600, marginBottom: "5px" }}>
           {label}
         </div>
         {/* Animated dots */}
@@ -78,7 +78,7 @@ export default function TypingIndicator({ agentId, overrideLabel }: TypingIndica
                 width: "6px",
                 height: "6px",
                 borderRadius: "50%",
-                backgroundColor: "#8b5cf6",
+                backgroundColor: "#d97706",
                 animation: `typing-dot 1.2s ease-in-out infinite`,
                 animationDelay: `${i * 0.2}s`,
               }}

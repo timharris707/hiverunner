@@ -51,7 +51,7 @@ export default function SessionComparison({ sessions, onClose }: SessionComparis
           flexShrink: 0,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <Columns2 size={18} color="#60a5fa" />
+            <Columns2 size={18} color="#f59e0b" />
             <h2 style={{ fontSize: "16px", fontWeight: 700, color: "var(--text-primary)", margin: 0, fontFamily: "var(--font-heading)" }}>
               Session Comparison
             </h2>
@@ -81,7 +81,7 @@ export default function SessionComparison({ sessions, onClose }: SessionComparis
                 <div style={{
                   padding: "12px 16px",
                   borderBottom: "1px solid var(--border)",
-                  backgroundColor: idx === 0 ? "rgba(96,165,250,0.04)" : "rgba(167,139,250,0.04)",
+                  backgroundColor: idx === 0 ? "rgba(245,158,11,0.04)" : "rgba(245,158,11,0.04)",
                   flexShrink: 0,
                 }}>
                   <div style={{ fontSize: "12px", fontWeight: 700, color: "var(--text-primary)", marginBottom: "6px", lineHeight: 1.4 }}>
@@ -90,8 +90,8 @@ export default function SessionComparison({ sessions, onClose }: SessionComparis
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "6px" }}>
                     <span style={{
                       fontSize: "8px", fontWeight: 700, letterSpacing: "0.06em",
-                      color: "#60a5fa", backgroundColor: "rgba(96,165,250,0.12)",
-                      border: "1px solid rgba(96,165,250,0.3)", padding: "2px 5px",
+                      color: "#f59e0b", backgroundColor: "rgba(245,158,11,0.12)",
+                      border: "1px solid rgba(245,158,11,0.3)", padding: "2px 5px",
                       borderRadius: "3px", fontFamily: "var(--font-mono)",
                     }}>{sess.mode}</span>
                     {sess.model && (

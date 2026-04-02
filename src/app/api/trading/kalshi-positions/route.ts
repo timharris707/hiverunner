@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { join } from "path";
+import { REAL_OPEN_LIVE_TRADE_WHERE, normalizeLiveTradeLifecycleStatus } from "@/lib/live-trade-status";
 
 const WEATHER_TRADING_DIR =
   process.env.WEATHER_TRADING_DIR ||
@@ -24,9 +25,9 @@ export async function GET() {
       `SELECT trade_id, order_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
-              status, created_at, strategy_version, our_probability, market_probability
+              status, fill_quantity, created_at, strategy_version, our_probability, market_probability
        FROM live_trades
-       WHERE status IN ('pending', 'filled', 'resting')
+       WHERE ${REAL_OPEN_LIVE_TRADE_WHERE}
        ORDER BY created_at DESC`
     ).all() as Record<string, unknown>[];
 
@@ -160,7 +161,15 @@ export async function GET() {
         const localEndUtcMs = Date.UTC((y || 2026), (m || 1) - 1, d || 1, 23, 59 + 5, 0) - offsetMinutes * 60_000;
         settlement_scheduled_at = new Date(localEndUtcMs).toISOString();
       }
-      return { ...trade, settlement_scheduled_at };
+      return {
+        ...trade,
+        status: normalizeLiveTradeLifecycleStatus(
+          String(trade.status || ""),
+          Number(trade.fill_quantity || 0),
+          Number(trade.quantity || 0)
+        ),
+        settlement_scheduled_at,
+      };
     };
 
     const positions = openTrades.map(enrichWithSettlement);

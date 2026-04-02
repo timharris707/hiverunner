@@ -1,101 +1,221 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { NextRequest, NextResponse } from "next/server";
-import { readFileSync } from "fs";
-import { join } from "path";
-import { queueOrStartBuild, readTasks, writeTasks } from "@/lib/build-queue";
+import { z } from "zod";
+
 import { readReviews, writeReviews } from "@/lib/ideas-store";
+import {
+  createTask,
+  listTasks,
+  lookupAgentByName,
+  lookupProjectByName,
+} from "@/lib/orchestration/service";
+import {
+  OrchestrationApiError,
+  errorResponse,
+  handleRouteError,
+} from "@/lib/orchestration/api";
+import {
+  appendTakeawayTaskNote,
+  mapActionToTaskStatus,
+  mapTakeawayPriority,
+} from "@/lib/ideas-build-bridge";
 
-const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
-
-function legacyReadTasks() {
-  try {
-    return JSON.parse(readFileSync(TASKS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-}
+const buildTakeawayTaskSchema = z.object({
+  action: z.enum(["build-now", "add-to-queue"]).optional().default("add-to-queue"),
+  companyId: z.string().trim().min(1).optional(),
+  projectId: z.string().trim().min(1).optional(),
+  project: z.string().trim().min(1).optional(),
+  assignee: z.string().trim().min(1).optional(),
+  sprintId: z.string().trim().min(1).optional(),
+});
 
 interface Takeaway {
   id: string;
-  title: string;
-  description: string;
-  priority: string;
-  assigned_to: string;
-  status: string;
-  github_issue: string;
+  title?: string;
+  description?: string;
+  priority?: string;
+  effort?: string;
+  assigned_to?: string;
+  status?: string;
+  github_issue?: string;
+  video_timestamp?: string;
+  video_url?: string;
+  video_context?: string;
+  notes?: string;
   [key: string]: unknown;
 }
 
-const AGENT_MAP: Record<string, string> = {
-  henry: "Henry ⚡",
-  scout: "Scout 🔭",
-  forge: "Forge 🔧",
-  pixel: "Pixel 💻",
-  quill: "Quill ✍️",
-  cipher: "Cipher ₿",
-  nimbus: "Nimbus 🌤️",
-  atlas: "Atlas 📈",
-  quant: "Quant 📊",
-  counsel: "Counsel ⚖️",
-};
+interface ReviewsStore {
+  reviews: Array<{
+    id: string;
+    takeaways: Takeaway[];
+  }>;
+  meta?: {
+    last_updated?: string;
+    [key: string]: unknown;
+  };
+}
 
-const PRIORITY_MAP: Record<string, string> = {
-  high: "P0",
-  medium: "P1",
-  low: "P2",
-};
+function toTaskDescription(takeaway: Takeaway): string {
+  const base = String(takeaway.description ?? "").trim();
+  const context = String(takeaway.video_context ?? "").trim();
+  const videoUrl = String(takeaway.video_url ?? "").trim();
+  const timestamp = String(takeaway.video_timestamp ?? "").trim();
+
+  const sections = [base];
+
+  if (context) {
+    sections.push(`## Source Context\n${context}`);
+  }
+
+  if (videoUrl) {
+    sections.push(`## Source Video\n- URL: ${videoUrl}${timestamp ? `\n- Timestamp: ${timestamp}` : ""}`);
+  }
+
+  return sections.filter(Boolean).join("\n\n").trim();
+}
+
+function toEffortLabel(effort: unknown): string | null {
+  const normalized = String(effort ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  return `effort:${normalized}`;
+}
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ reviewId: string; takeawayId: string }> }
 ) {
-  const { reviewId, takeawayId } = await params;
-  const body = await req.json();
-  const action = body.action || "add-to-queue";
-  const project = body.project || "mission-control";
+  try {
+    const { reviewId, takeawayId } = await params;
+    const body = buildTakeawayTaskSchema.parse(await req.json());
+    const action = body.action;
 
-  const data = await readReviews();
-  const review = data.reviews.find((r: { id: string }) => r.id === reviewId);
-  if (!review) {
-    return NextResponse.json({ error: "Review not found" }, { status: 404 });
+    const data = (await readReviews()) as ReviewsStore;
+    const review = data.reviews.find((candidate: { id: string }) => candidate.id === reviewId);
+    if (!review) {
+      return errorResponse(404, "review_not_found", "Review not found");
+    }
+
+    const takeaway = review.takeaways.find((candidate: Takeaway) => candidate.id === takeawayId) as
+      | Takeaway
+      | undefined;
+    if (!takeaway) {
+      return errorResponse(404, "takeaway_not_found", "Takeaway not found");
+    }
+
+    const effortLabel = toEffortLabel(takeaway.effort);
+    const fallbackAssignee = String(takeaway.assigned_to ?? "").trim();
+    const requestedProjectRef = body.projectId ?? body.project ?? "mission-control";
+    const requestedAssignee = body.assignee ?? (fallbackAssignee || undefined);
+
+    let project: { id: string; slug: string; companyId: string };
+    try {
+      project = lookupProjectByName({
+        name: requestedProjectRef,
+        companyId: body.companyId,
+      }).project;
+    } catch (error) {
+      if (error instanceof OrchestrationApiError && error.code === "project_not_found") {
+        return errorResponse(
+          404,
+          "project_not_found",
+          "Project not found for orchestration bridge",
+          { requestedProject: requestedProjectRef }
+        );
+      }
+      throw error;
+    }
+
+    let assignee: { id: string; name: string } | null = null;
+    if (requestedAssignee) {
+      try {
+        assignee = lookupAgentByName({
+          name: requestedAssignee,
+          companyId: project.companyId,
+        }).agent;
+      } catch (error) {
+        if (error instanceof OrchestrationApiError && error.code === "agent_not_found") {
+          return errorResponse(
+            400,
+            "assignee_not_found",
+            "Assignee not found for project's company",
+            { requestedAssignee, companyId: project.companyId, projectId: project.id }
+          );
+        }
+        throw error;
+      }
+    }
+
+    const title = String(takeaway.title ?? "Idea Takeaway Task").trim() || "Idea Takeaway Task";
+    const description = toTaskDescription(takeaway);
+    const labels = ["from-idea", `idea-${takeaway.id}`, ...(effortLabel ? [effortLabel] : [])];
+    const priority = mapTakeawayPriority(takeaway.priority);
+    const status = mapActionToTaskStatus(action);
+
+    const existingTask = listTasks({
+      projectId: project.id,
+      sourceReviewId: reviewId,
+      sourceTakeawayId: takeawayId,
+    }).tasks[0];
+
+    if (existingTask) {
+      takeaway.status = action === "build-now" ? "building" : "approved";
+      takeaway.notes = appendTakeawayTaskNote({
+        currentNotes: takeaway.notes,
+        taskId: existingTask.id,
+        action,
+      });
+      data.meta = data.meta ?? {};
+      data.meta.last_updated = new Date().toISOString();
+      await writeReviews(data);
+
+      return NextResponse.json({
+        task: existingTask,
+        takeaway,
+        bridge: {
+          mode: "orchestration",
+          deduplicated: true,
+          reason: "source_takeaway_task_exists",
+        },
+      });
+    }
+
+    const taskPayload = createTask({
+      projectId: project.id,
+      title,
+      description,
+      priority,
+      type: "feature",
+      status,
+      assignee: assignee?.id,
+      sprintId: body.sprintId,
+      labels,
+      createdBy: "ideas-pipeline",
+      sourceReviewId: reviewId,
+      sourceTakeawayId: takeawayId,
+    }).task as unknown as Record<string, unknown>;
+
+    takeaway.status = action === "build-now" ? "building" : "approved";
+    takeaway.notes = appendTakeawayTaskNote({
+      currentNotes: takeaway.notes,
+      taskId: String(taskPayload.id),
+      action,
+    });
+    data.meta = data.meta ?? {};
+    data.meta.last_updated = new Date().toISOString();
+    await writeReviews(data);
+
+    return NextResponse.json({
+      task: taskPayload,
+      takeaway,
+      bridge: {
+        mode: "orchestration",
+        deduplicated: false,
+      },
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return errorResponse(400, "validation_error", "Invalid takeaway build payload", error.flatten());
+    }
+    return handleRouteError(error, "ideas:takeaway-build:post");
   }
-
-  const tw = review.takeaways.find((t: Takeaway) => t.id === takeawayId);
-  if (!tw) {
-    return NextResponse.json({ error: "Takeaway not found" }, { status: 404 });
-  }
-
-  const tasks = readTasks() || legacyReadTasks();
-  const newTask = {
-    id: `TASK-${Date.now()}`,
-    title: tw.title,
-    description: tw.description,
-    status: action === "build-now" ? "in-progress" : "backlog",
-    priority: PRIORITY_MAP[tw.priority] || "P1",
-    assignee: AGENT_MAP[tw.assigned_to] || tw.assigned_to,
-    project,
-    type: "feature",
-    tags: ["from-idea", `idea-${tw.id}`],
-    created: new Date().toISOString(),
-    updated: new Date().toISOString(),
-    source_review: reviewId,
-    source_takeaway: takeawayId,
-    source_url: tw.video_url || "",
-    github_issue: tw.github_issue || "",
-    ...(body.scheduledDate ? { scheduled_date: body.scheduledDate } : {}),
-  };
-
-  tasks.unshift(newTask);
-  writeTasks(tasks);
-
-  if (action === "build-now") {
-    await queueOrStartBuild(newTask.id, { source: "ideas-build-now" });
-  }
-
-  tw.status = action === "build-now" ? "building" : "approved";
-  tw.notes = (tw.notes || "") + `\nTask created: ${newTask.id} (${action})`;
-  data.meta.last_updated = new Date().toISOString();
-  await writeReviews(data);
-
-  return NextResponse.json({ task: readTasks().find((t: any) => t.id === newTask.id) || newTask, takeaway: tw });
 }

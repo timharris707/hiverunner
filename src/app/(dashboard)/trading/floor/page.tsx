@@ -90,22 +90,22 @@ function parseBetDescription(ticker: string, side: string, threshold?: number | 
   if (bracketMatch) {
     const base = parseFloat(bracketMatch[1]);
     return side.toLowerCase() === "yes"
-      ? `${base}–${base + 2}°F`
-      : `Outside ${base}–${base + 2}°F`;
+      ? `${metric} ${base}–${base + 2}`
+      : `${metric} outside ${base}–${base + 2}`;
   }
   const threshMatch = ticker.match(/-T([\d.]+)$/);
   const t = threshMatch ? parseFloat(threshMatch[1]) : threshold;
   if (t != null) {
     if (isHigh) {
       return side.toLowerCase() === "yes"
-        ? `High ≥ ${t}°F`
-        : `High < ${t}°F`;
+        ? `High ${t} or below`
+        : `High above ${t}`;
     }
     return side.toLowerCase() === "yes"
-      ? `Low < ${t}°F`
-      : `Low ≥ ${t}°F`;
+      ? `Low ${t} or above`
+      : `Low below ${t}`;
   }
-  return `${metric} ${side.toUpperCase()}`;
+  return metric;
 }
 
 function friendlyDatetime(dateStr: string | null | undefined): string {
@@ -174,12 +174,12 @@ function evaluateContractFromActual(ticker: string, side: string, actual: Actual
   if (threshold == null) return null;
 
   if (isHigh) {
-    const eventOccurs = metric >= threshold;
+    const eventOccurs = metric <= threshold;
     return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
   }
 
   if (isLow) {
-    const eventOccurs = metric < threshold;
+    const eventOccurs = metric >= threshold;
     return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
   }
 
@@ -200,12 +200,12 @@ function getLockedIntradayOutcome(ticker: string, side: string, actual: ActualTe
   if (threshold == null) return null;
 
   if (isHigh) {
-    if (actual.high >= threshold) return side.toLowerCase() === "yes";
+    if (actual.high > threshold) return side.toLowerCase() !== "yes";
     return null;
   }
 
   if (isLow) {
-    if (actual.low < threshold) return side.toLowerCase() === "yes";
+    if (actual.low < threshold) return side.toLowerCase() !== "yes";
     return null;
   }
 
@@ -597,7 +597,7 @@ export default function TradingFloorPage() {
   const hasFilters = versionFilter !== "all" || dateFilter !== "all" || statusFilter !== "all";
 
   return (
-    <div className="p-4 md:p-8 max-w-[1200px] mx-auto">
+    <div className="p-2 md:p-4 w-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -747,7 +747,7 @@ export default function TradingFloorPage() {
         <div className="flex items-center gap-2 mb-2">
           <span
             className="text-xs font-bold px-2 py-0.5 rounded tracking-widest"
-            style={{ backgroundColor: "#60a5fa18", color: "#60a5fa", border: "1px solid #60a5fa35" }}
+            style={{ backgroundColor: "#f59e0b18", color: "#f59e0b", border: "1px solid #f59e0b35" }}
           >
             LOCAL AUDIT
           </span>
@@ -880,7 +880,7 @@ export default function TradingFloorPage() {
             style={{ backgroundColor: "var(--card)", borderBottom: versionBreakdownOpen ? "1px solid var(--border)" : undefined }}
           >
             <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4" style={{ color: "#a78bfa" }} />
+              <Filter className="w-4 h-4" style={{ color: "#f59e0b" }} />
               <span className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Strategy Version Breakdown</span>
               <span className="text-xs" style={{ color: "var(--text-muted)" }}>({kp.versionBreakdown.length} versions)</span>
             </div>
@@ -977,7 +977,7 @@ export default function TradingFloorPage() {
                 }}
                 className="text-xs px-4 py-2 font-semibold"
                 style={{
-                  backgroundColor: isActive ? "#60a5fa" : "var(--card)",
+                  backgroundColor: isActive ? "#f59e0b" : "var(--card)",
                   color: isActive ? "#fff" : "var(--text-muted)",
                   borderRight: mode !== "city" ? "1px solid var(--border)" : undefined,
                   transition: "all 0.15s",
@@ -1056,9 +1056,9 @@ export default function TradingFloorPage() {
                   >
                     <div
                       className="w-11 h-11 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
+                      style={{ backgroundColor: "#f59e0b15", border: "1px solid #f59e0b25" }}
                     >
-                      <span className="text-[11px] font-black tracking-wider" style={{ color: "#60a5fa" }}>
+                      <span className="text-[11px] font-black tracking-wider" style={{ color: "#f59e0b" }}>
                         {cityCode(g.city)}
                       </span>
                     </div>
@@ -1152,7 +1152,7 @@ export default function TradingFloorPage() {
 
                     <div className="min-w-0 pr-1">
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
-                      <div className="text-sm font-bold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}%</div>
+                      <div className="text-sm font-bold whitespace-nowrap" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}% chance</div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}</div>
                     </div>
 
@@ -1261,9 +1261,9 @@ export default function TradingFloorPage() {
                   <div className="lg:hidden flex items-start gap-3">
                     <div
                       className="w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0"
-                      style={{ backgroundColor: "#60a5fa15", border: "1px solid #60a5fa25" }}
+                      style={{ backgroundColor: "#f59e0b15", border: "1px solid #f59e0b25" }}
                     >
-                      <span className="text-xs font-black tracking-wider" style={{ color: "#60a5fa" }}>
+                      <span className="text-xs font-black tracking-wider" style={{ color: "#f59e0b" }}>
                         {cityCode(g.city)}
                       </span>
                     </div>
@@ -1358,7 +1358,7 @@ export default function TradingFloorPage() {
                     </div>
                     <div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>Bought</div>
-                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}%</div>
+                      <div className="text-sm font-bold" style={{ color: "var(--text-primary)" }}>{boughtPct.toFixed(0)}% chance</div>
                       <div className="text-xs" style={{ color: "var(--text-muted)" }}>{g.edge > 0.005 ? `Edge ${(g.edge * 100).toFixed(0)}%` : "—"}</div>
                     </div>
                     <div>
@@ -1463,7 +1463,7 @@ export default function TradingFloorPage() {
                     </div>
                     <div>
                       <span className="text-xs" style={{ color: "var(--text-muted)" }}>Contracts</span>
-                      <div className="text-sm font-bold" style={{ color: "#60a5fa" }}>
+                      <div className="text-sm font-bold" style={{ color: "#f59e0b" }}>
                         {g.totalQuantity} {g.side.toUpperCase()}
                       </div>
                     </div>

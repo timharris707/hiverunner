@@ -85,7 +85,7 @@ export default function ReviewLoopPanel({
   const getPhaseColor = () => {
     if (!currentTask) return "#4ade80";
     switch (currentTask.status) {
-      case "in-progress": return "#60a5fa";
+      case "in-progress": return "#d97706";
       case "in-review": return "#fbbf24";
       case "retrying": return "#fb923c";
       case "rejected": return "#ef4444";
@@ -134,7 +134,7 @@ export default function ReviewLoopPanel({
 
   const statusConfig: Record<string, { emoji: string; color: string; label: string }> = {
     "pending": { emoji: "\u2B1C", color: "#64748b", label: "Pending" },
-    "in-progress": { emoji: "\uD83D\uDD04", color: "#60a5fa", label: "Working" },
+    "in-progress": { emoji: "\uD83D\uDD04", color: "#d97706", label: "Working" },
     "in-review": { emoji: "\uD83D\uDC40", color: "#fbbf24", label: "Reviewing" },
     "approved": { emoji: "\u2705", color: "#4ade80", label: "Approved" },
     "rejected": { emoji: "\u274C", color: "#ef4444", label: "Rejected" },
@@ -159,7 +159,7 @@ export default function ReviewLoopPanel({
         padding: "12px 16px",
         borderBottom: "1px solid var(--border)",
         background: isRunning
-          ? "linear-gradient(135deg, rgba(96,165,250,0.08), rgba(139,92,246,0.06))"
+          ? "linear-gradient(135deg, rgba(217,119,6,0.08), rgba(217,119,6,0.06))"
           : pct === 100
             ? "rgba(74,222,128,0.06)"
             : "var(--surface)",
@@ -218,7 +218,7 @@ export default function ReviewLoopPanel({
             width: `${pct}%`,
             height: "100%",
             borderRadius: "3px",
-            backgroundColor: pct === 100 ? "#4ade80" : "#60a5fa",
+            backgroundColor: pct === 100 ? "#4ade80" : "#d97706",
             transition: "width 500ms ease",
           }} />
         </div>
@@ -238,10 +238,10 @@ export default function ReviewLoopPanel({
           <div style={{
             marginTop: "8px", padding: "4px 8px",
             borderRadius: "4px",
-            backgroundColor: "rgba(96,165,250,0.1)",
-            border: "1px solid rgba(96,165,250,0.25)",
+            backgroundColor: "rgba(217,119,6,0.1)",
+            border: "1px solid rgba(217,119,6,0.25)",
             fontSize: "10px", fontWeight: 600,
-            color: "#60a5fa", fontFamily: "var(--font-mono)",
+            color: "#d97706", fontFamily: "var(--font-mono)",
             textAlign: "center",
           }}>
             Auto-advancing in {autoCountdown}s...
@@ -253,7 +253,7 @@ export default function ReviewLoopPanel({
           display: "flex", gap: "8px", marginTop: "8px",
           alignItems: "center", flexWrap: "wrap",
         }}>
-          <span style={{ fontSize: "9px", color: "#60a5fa", fontFamily: "var(--font-mono)" }}>
+          <span style={{ fontSize: "9px", color: "#d97706", fontFamily: "var(--font-mono)" }}>
             W:{loop.workerAgent}
           </span>
           <span style={{ fontSize: "9px", color: "#fbbf24", fontFamily: "var(--font-mono)" }}>
@@ -499,11 +499,11 @@ export default function ReviewLoopPanel({
               style={{
                 padding: "10px 12px",
                 borderRadius: "8px",
-                border: `1px solid ${isSelected ? "var(--accent)" : isCurrent ? "rgba(96,165,250,0.4)" : "transparent"}`,
+                border: `1px solid ${isSelected ? "var(--accent)" : isCurrent ? "rgba(217,119,6,0.4)" : "transparent"}`,
                 backgroundColor: isSelected
                   ? "var(--accent-soft)"
                   : isCurrent
-                    ? "rgba(96,165,250,0.06)"
+                    ? "rgba(217,119,6,0.06)"
                     : "transparent",
                 cursor: "pointer",
                 marginBottom: "4px",
@@ -600,8 +600,8 @@ export default function ReviewLoopPanel({
                         onClick={(e) => { e.stopPropagation(); onOverride(task.id, "pending"); }}
                         style={{
                           padding: "4px 8px", borderRadius: "4px",
-                          border: "1px solid rgba(96,165,250,0.5)",
-                          backgroundColor: "rgba(96,165,250,0.1)", color: "#60a5fa",
+                          border: "1px solid rgba(217,119,6,0.5)",
+                          backgroundColor: "rgba(217,119,6,0.1)", color: "#d97706",
                           cursor: "pointer", fontSize: "9px", fontWeight: 700,
                         }}
                       >

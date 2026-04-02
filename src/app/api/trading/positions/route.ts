@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { join } from "path";
+import {
+  REAL_OPEN_LIVE_TRADE_COUNT_EXPR,
+  REAL_OPEN_LIVE_TRADE_WHERE,
+  normalizeLiveTradeLifecycleStatus,
+} from "@/lib/live-trade-status";
 
 const WEATHER_TRADING_DIR =
   process.env.WEATHER_TRADING_DIR ||
@@ -155,10 +160,11 @@ export async function GET() {
                   COALESCE(fill_price, price) as price, cost, edge, composite_score,
                   city, target_date,
                   forecast_mean, NULL as forecast_std, NULL as n_models,
-                  status as raw_status, 'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
+                  status as raw_status, fill_quantity,
+                  'open' as status, created_at, 'live' as trade_type, 'open' as lifecycle_status,
                   strategy_version, our_probability, market_probability, threshold
            FROM live_trades
-           WHERE status IN ('pending', 'filled', 'resting')
+           WHERE ${REAL_OPEN_LIVE_TRADE_WHERE}
            ORDER BY created_at DESC`
         )
         .all()
@@ -169,6 +175,11 @@ export async function GET() {
           const targetDate = parsedTargetDate || String(row.target_date || "");
           return {
             ...row,
+            raw_status: normalizeLiveTradeLifecycleStatus(
+              String(row.raw_status || ""),
+              Number(row.fill_quantity || 0),
+              Number(row.original_quantity || row.quantity || 0)
+            ),
             city,
             target_date: targetDate,
             settlement_scheduled_at: computeWeatherSettlementAt(targetDate, city),
@@ -181,7 +192,7 @@ export async function GET() {
                   COUNT(*) as trade_count,
                   SUM(cost) as total_deployed,
                   SUM(CASE WHEN status='settled_won' THEN pnl WHEN status='settled_lost' THEN pnl ELSE 0 END) as realized_pnl,
-                  SUM(CASE WHEN status IN ('pending','filled','resting') THEN 1 ELSE 0 END) as open_count,
+                  SUM(${REAL_OPEN_LIVE_TRADE_COUNT_EXPR}) as open_count,
                   SUM(CASE WHEN status='settled_won' THEN 1 ELSE 0 END) as won,
                   SUM(CASE WHEN status='settled_lost' THEN 1 ELSE 0 END) as lost
            FROM live_trades

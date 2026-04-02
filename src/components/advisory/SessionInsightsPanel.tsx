@@ -151,8 +151,8 @@ export default function SessionInsightsPanel({
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 {insights.openQuestions.map((q, idx) => (
-                  <div key={idx} style={{ fontSize: "12px", color: "var(--text-primary)", lineHeight: 1.5, padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(96,165,250,0.2)", backgroundColor: "rgba(96,165,250,0.04)", display: "flex", alignItems: "flex-start", gap: "6px" }}>
-                    <Clock size={12} color="#60a5fa" style={{ flexShrink: 0, marginTop: "2px" }} />
+                  <div key={idx} style={{ fontSize: "12px", color: "var(--text-primary)", lineHeight: 1.5, padding: "6px 10px", borderRadius: "6px", border: "1px solid rgba(217,119,6,0.2)", backgroundColor: "rgba(217,119,6,0.04)", display: "flex", alignItems: "flex-start", gap: "6px" }}>
+                    <Clock size={12} color="#d97706" style={{ flexShrink: 0, marginTop: "2px" }} />
                     {q}
                   </div>
                 ))}

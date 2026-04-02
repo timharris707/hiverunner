@@ -48,8 +48,8 @@ function SessionListItem({
         textAlign: "left",
         padding: "12px 14px",
         borderRadius: "10px",
-        border: `1px solid ${compareSelected ? "rgba(96,165,250,0.5)" : active ? "var(--accent)" : "var(--border)"}`,
-        backgroundColor: compareSelected ? "rgba(96,165,250,0.08)" : active ? "var(--accent-soft)" : "transparent",
+        border: `1px solid ${compareSelected ? "rgba(217,119,6,0.5)" : active ? "var(--accent)" : "var(--border)"}`,
+        backgroundColor: compareSelected ? "rgba(217,119,6,0.08)" : active ? "var(--accent-soft)" : "transparent",
         cursor: "pointer",
         transition: "all 150ms ease",
         marginBottom: "6px",
@@ -60,8 +60,8 @@ function SessionListItem({
         {compareMode && (
           <div style={{
             width: 16, height: 16, borderRadius: "4px", marginRight: "6px", flexShrink: 0,
-            border: `2px solid ${compareSelected ? "#60a5fa" : "var(--border)"}`,
-            backgroundColor: compareSelected ? "#60a5fa" : "transparent",
+            border: `2px solid ${compareSelected ? "#d97706" : "var(--border)"}`,
+            backgroundColor: compareSelected ? "#d97706" : "transparent",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
             {compareSelected && <span style={{ color: "#fff", fontSize: "10px", fontWeight: 700 }}>✓</span>}
@@ -111,8 +111,8 @@ function SessionListItem({
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           {!!(session as unknown as Record<string, unknown>).forkedFrom && (
             <span style={{
-              fontSize: "8px", fontWeight: 700, color: "#60a5fa",
-              backgroundColor: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.25)",
+              fontSize: "8px", fontWeight: 700, color: "#d97706",
+              backgroundColor: "rgba(217,119,6,0.12)", border: "1px solid rgba(217,119,6,0.25)",
               padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)",
               letterSpacing: "0.04em", display: "inline-flex", alignItems: "center", gap: "2px",
             }}>
@@ -127,8 +127,8 @@ function SessionListItem({
             }}>1:1</span>
           ) : (session as unknown as Record<string, unknown>).rounds === "persistent" && (
             <span style={{
-              fontSize: "8px", fontWeight: 700, color: "#a78bfa",
-              backgroundColor: "rgba(167,139,250,0.12)", border: "1px solid rgba(167,139,250,0.25)",
+              fontSize: "8px", fontWeight: 700, color: "#d97706",
+              backgroundColor: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.25)",
               padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)", letterSpacing: "0.04em",
             }}>∞</span>
           )}
@@ -148,8 +148,8 @@ function SessionListItem({
           <div style={{ display: "flex", alignItems: "center", gap: "4px", marginTop: "5px", flexWrap: "wrap" }}>
             {model && (
               <span title={model} style={{
-                fontSize: "8px", fontWeight: 700, color: "#818cf8",
-                backgroundColor: "rgba(129,140,248,0.1)", border: "1px solid rgba(129,140,248,0.2)",
+                fontSize: "8px", fontWeight: 700, color: "#fbbf24",
+                backgroundColor: "rgba(245,158,11,0.1)", border: "1px solid rgba(245,158,11,0.2)",
                 padding: "1px 5px", borderRadius: "3px", fontFamily: "var(--font-mono)",
               }}>
                 {MODEL_SHORT[model] ?? model}
@@ -294,9 +294,9 @@ export default function SessionSidebar({
           onClick={onCompareModeToggle}
           style={{
             width: "100%", padding: "7px", borderRadius: "8px",
-            border: `1px solid ${compareMode ? "rgba(96,165,250,0.5)" : "var(--border)"}`,
-            backgroundColor: compareMode ? "rgba(96,165,250,0.1)" : "transparent",
-            color: compareMode ? "#60a5fa" : "var(--text-muted)",
+            border: `1px solid ${compareMode ? "rgba(217,119,6,0.5)" : "var(--border)"}`,
+            backgroundColor: compareMode ? "rgba(217,119,6,0.1)" : "transparent",
+            color: compareMode ? "#d97706" : "var(--text-muted)",
             cursor: "pointer", fontSize: "11px", fontWeight: 600,
             display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
             fontFamily: "var(--font-body)", marginTop: "6px", transition: "all 150ms ease",
@@ -310,7 +310,7 @@ export default function SessionSidebar({
             onClick={onOpenCompare}
             style={{
               width: "100%", padding: "8px", borderRadius: "8px", border: "none",
-              backgroundColor: "#60a5fa", color: "#fff", cursor: "pointer",
+              backgroundColor: "#d97706", color: "#fff", cursor: "pointer",
               fontSize: "11px", fontWeight: 700, display: "flex", alignItems: "center",
               justifyContent: "center", gap: "6px", fontFamily: "var(--font-heading)", marginTop: "4px",
             }}
