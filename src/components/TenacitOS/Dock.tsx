@@ -402,7 +402,7 @@ function isProjectPaused(project: OrchestrationProject): boolean {
 function operationsItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Tasks":
-      return buildCanonicalIssuesPath(code);
+      return `/${code}/tasks`;
     case "Dashboard":
       return buildCanonicalDashboardPath(code);
     case "Inbox":

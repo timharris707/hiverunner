@@ -262,7 +262,7 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(12,10,9,0.7)", backdropFilter: "blur(6px)" }} onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose(); }}>
-      <div className="w-full max-w-4xl" style={{ maxHeight: "90vh", overflowY: "auto", padding: "16px" }}>
+      <div className="w-full max-w-xl" style={{ maxHeight: "90vh", overflowY: "auto", padding: "16px" }}>
         <div className="mb-6 flex items-start justify-between gap-4">
           <div className="flex-1 text-center">
             <p className="text-[11px] uppercase tracking-[0.22em] text-stone-400">Create Company</p>
