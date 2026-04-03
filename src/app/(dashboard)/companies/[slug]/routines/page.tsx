@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
-  Clock,
   MoreHorizontal,
   Plus,
   Search,
@@ -21,7 +20,6 @@ import type {
   OrchestrationProject,
 } from "@/lib/orchestration/types";
 
-/* ── placeholder routine type (will be replaced when wired to real API) ── */
 interface Routine {
   id: string;
   name: string;
@@ -30,12 +28,11 @@ interface Routine {
   agentId: string;
   agentName: string;
   enabled: boolean;
-  schedule: string;          // cron expression or human-readable
-  lastRun: string | null;    // ISO timestamp
+  schedule: string;
+  lastRun: string | null;
   lastRunStatus: "success" | "failed" | "running" | null;
 }
 
-/* ── sample data so the page isn't blank ── */
 const SAMPLE_ROUTINES: Routine[] = [];
 
 export default function CompanyRoutinesPage() {
@@ -51,7 +48,6 @@ export default function CompanyRoutinesPage() {
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
 
-  /* ── form state ── */
   const [formName, setFormName] = useState("");
   const [formProjectId, setFormProjectId] = useState("");
   const [formAgentId, setFormAgentId] = useState("");
@@ -132,19 +128,42 @@ export default function CompanyRoutinesPage() {
       eyebrow="Routines"
       title="Routines"
       description="Recurring work definitions that materialize into auditable execution issues."
-      accentColor="#f59e0b"
+      accentColor="#a8a29e"
     >
       {activeProjectRecord ? (
         <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
       ) : null}
 
-      {/* header row with create button */}
+      {/* header row */}
       <div className="flex items-center justify-between">
         <div />
         <button
           type="button"
           onClick={() => setCreating((c) => !c)}
-          className="inline-flex items-center gap-2 rounded-xl border border-white/12 bg-stone-900/70 px-4 py-2.5 text-sm font-medium text-white transition hover:border-amber-400/40 hover:bg-amber-900/20"
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            padding: "8px 16px",
+            borderRadius: "10px",
+            border: "1px solid rgba(120,113,108,0.4)",
+            background: "rgba(41,37,36,0.55)",
+            color: "#d6d3d1",
+            fontSize: "13px",
+            fontWeight: 500,
+            cursor: "pointer",
+            transition: "all 120ms ease",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.border = "1px solid rgba(168,162,158,0.5)";
+            e.currentTarget.style.background = "rgba(68,64,60,0.6)";
+            e.currentTarget.style.color = "#f5f5f4";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+            e.currentTarget.style.background = "rgba(41,37,36,0.55)";
+            e.currentTarget.style.color = "#d6d3d1";
+          }}
         >
           <Plus size={14} strokeWidth={2.2} />
           Create routine
@@ -153,19 +172,46 @@ export default function CompanyRoutinesPage() {
 
       {/* create form */}
       {creating ? (
-        <div className="rounded-2xl border border-amber-400/25 bg-amber-900/10 p-5">
-          <h3 className="mb-4 text-sm font-semibold text-white">New Routine</h3>
+        <div
+          style={{
+            borderRadius: "14px",
+            border: "1px solid rgba(120,113,108,0.3)",
+            background: "rgba(28,25,23,0.7)",
+            padding: "20px",
+          }}
+        >
+          <h3 style={{ marginBottom: "16px", fontSize: "13px", fontWeight: 600, color: "#f5f5f4" }}>
+            New Routine
+          </h3>
           <div className="grid gap-3 lg:grid-cols-12">
             <input
               value={formName}
               onChange={(e) => setFormName(e.target.value)}
               placeholder="Routine name"
-              className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400/60 lg:col-span-4"
+              className="lg:col-span-4"
+              style={{
+                borderRadius: "10px",
+                border: "1px solid rgba(120,113,108,0.3)",
+                background: "rgba(41,37,36,0.5)",
+                padding: "8px 12px",
+                fontSize: "13px",
+                color: "#f5f5f4",
+                outline: "none",
+              }}
             />
             <select
               value={formProjectId}
               onChange={(e) => setFormProjectId(e.target.value)}
-              className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none lg:col-span-3"
+              className="lg:col-span-3"
+              style={{
+                borderRadius: "10px",
+                border: "1px solid rgba(120,113,108,0.3)",
+                background: "rgba(41,37,36,0.5)",
+                padding: "8px 12px",
+                fontSize: "13px",
+                color: "#d6d3d1",
+                outline: "none",
+              }}
             >
               <option value="">Select project</option>
               {projects.map((p) => (
@@ -175,7 +221,16 @@ export default function CompanyRoutinesPage() {
             <select
               value={formAgentId}
               onChange={(e) => setFormAgentId(e.target.value)}
-              className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none lg:col-span-3"
+              className="lg:col-span-3"
+              style={{
+                borderRadius: "10px",
+                border: "1px solid rgba(120,113,108,0.3)",
+                background: "rgba(41,37,36,0.5)",
+                padding: "8px 12px",
+                fontSize: "13px",
+                color: "#d6d3d1",
+                outline: "none",
+              }}
             >
               <option value="">Select agent</option>
               {agents.map((a) => (
@@ -186,20 +241,47 @@ export default function CompanyRoutinesPage() {
               value={formSchedule}
               onChange={(e) => setFormSchedule(e.target.value)}
               placeholder="Schedule (e.g. every day at 7am)"
-              className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none focus:border-amber-400/60 lg:col-span-8"
+              className="lg:col-span-8"
+              style={{
+                borderRadius: "10px",
+                border: "1px solid rgba(120,113,108,0.3)",
+                background: "rgba(41,37,36,0.5)",
+                padding: "8px 12px",
+                fontSize: "13px",
+                color: "#f5f5f4",
+                outline: "none",
+              }}
             />
             <div className="flex gap-2 lg:col-span-4">
               <button
                 type="button"
                 onClick={handleCreate}
-                className="flex-1 rounded-xl border border-emerald-400/30 bg-emerald-500/15 px-3 py-2.5 text-sm font-medium text-emerald-100 transition hover:border-emerald-300/50 hover:bg-emerald-500/25"
+                style={{
+                  flex: 1,
+                  borderRadius: "10px",
+                  border: "1px solid rgba(120,113,108,0.4)",
+                  background: "rgba(68,64,60,0.5)",
+                  padding: "8px 12px",
+                  fontSize: "13px",
+                  fontWeight: 500,
+                  color: "#f5f5f4",
+                  cursor: "pointer",
+                }}
               >
                 Save
               </button>
               <button
                 type="button"
                 onClick={() => setCreating(false)}
-                className="rounded-xl border border-white/10 bg-slate-900/60 px-3 py-2.5 text-sm text-slate-300 transition hover:bg-slate-800/60"
+                style={{
+                  borderRadius: "10px",
+                  border: "1px solid rgba(120,113,108,0.25)",
+                  background: "rgba(41,37,36,0.4)",
+                  padding: "8px 12px",
+                  fontSize: "13px",
+                  color: "#a8a29e",
+                  cursor: "pointer",
+                }}
               >
                 Cancel
               </button>
@@ -209,103 +291,143 @@ export default function CompanyRoutinesPage() {
       ) : null}
 
       {/* routines table */}
-      <section className="rounded-2xl border border-white/10 bg-slate-950/65 backdrop-blur-xl overflow-hidden">
-        {/* search bar */}
-        <div className="border-b border-white/8 p-4">
-          <div className="relative max-w-md">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      <div
+        style={{
+          borderRadius: "14px",
+          border: "1px solid rgba(120,113,108,0.25)",
+          background: "rgba(28,25,23,0.65)",
+          overflow: "hidden",
+        }}
+      >
+        {/* search */}
+        <div style={{ padding: "14px 16px", borderBottom: "1px solid rgba(120,113,108,0.18)" }}>
+          <div style={{ position: "relative", maxWidth: "320px" }}>
+            <Search
+              size={14}
+              style={{
+                position: "absolute",
+                left: "10px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                color: "#78716c",
+                pointerEvents: "none",
+              }}
+            />
             <input
-              className="w-full rounded-xl border border-white/10 bg-slate-900/85 px-10 py-2.5 text-sm text-white outline-none focus:border-amber-400/60"
-              placeholder="Search routines"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search routines"
+              style={{
+                width: "100%",
+                borderRadius: "10px",
+                border: "1px solid rgba(120,113,108,0.3)",
+                background: "rgba(41,37,36,0.5)",
+                padding: "8px 12px 8px 32px",
+                fontSize: "13px",
+                color: "#f5f5f4",
+                outline: "none",
+              }}
             />
           </div>
         </div>
 
         {/* column headers */}
         <div
-          className="grid items-center border-b border-white/8 px-5 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500"
-          style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 80px 40px" }}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "2fr 1fr 1fr 1fr 80px 40px",
+            alignItems: "center",
+            padding: "10px 20px",
+            borderBottom: "1px solid rgba(120,113,108,0.18)",
+          }}
         >
-          <span>Name</span>
-          <span>Project</span>
-          <span>Agent</span>
-          <span>Last run</span>
-          <span>Enabled</span>
-          <span />
+          {["Name", "Project", "Agent", "Last run", "Enabled", ""].map((h) => (
+            <span
+              key={h || "actions"}
+              style={{
+                fontSize: "10px",
+                fontWeight: 700,
+                letterSpacing: "0.14em",
+                textTransform: "uppercase",
+                color: "#78716c",
+              }}
+            >
+              {h}
+            </span>
+          ))}
         </div>
 
         {/* rows */}
         {filteredRoutines.length === 0 ? (
-          <div className="p-8 text-center">
+          <div style={{ padding: "48px 20px", textAlign: "center" }}>
             {loading ? (
-              <p className="text-sm text-slate-500">Loading...</p>
+              <p style={{ fontSize: "13px", color: "#78716c" }}>Loading...</p>
             ) : routines.length === 0 ? (
-              <div className="flex flex-col items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-dashed border-amber-400/30 bg-amber-900/10">
-                  <Workflow size={20} className="text-amber-400/60" />
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "12px" }}>
+                <div
+                  style={{
+                    width: "48px",
+                    height: "48px",
+                    borderRadius: "14px",
+                    border: "1px dashed rgba(120,113,108,0.4)",
+                    background: "rgba(41,37,36,0.3)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Workflow size={20} color="#78716c" />
                 </div>
-                <p className="text-sm font-medium text-white">No routines yet</p>
-                <p className="text-xs text-slate-400">
+                <p style={{ fontSize: "13px", fontWeight: 500, color: "#d6d3d1" }}>No routines yet</p>
+                <p style={{ fontSize: "12px", color: "#78716c" }}>
                   Create your first routine to schedule recurring work for your agents.
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-slate-400">No routines matched this filter.</p>
+              <p style={{ fontSize: "13px", color: "#78716c" }}>No routines matched this filter.</p>
             )}
           </div>
         ) : (
           filteredRoutines.map((routine) => (
             <div
               key={routine.id}
-              className="grid items-center border-b border-white/5 px-5 py-4 transition hover:bg-white/[0.02]"
-              style={{ gridTemplateColumns: "2fr 1fr 1fr 1fr 80px 40px" }}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "2fr 1fr 1fr 1fr 80px 40px",
+                alignItems: "center",
+                padding: "14px 20px",
+                borderBottom: "1px solid rgba(120,113,108,0.1)",
+                transition: "background 120ms ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               {/* name */}
-              <div>
-                <p className="text-sm font-medium text-white">{routine.name}</p>
-              </div>
+              <span style={{ fontSize: "13px", fontWeight: 500, color: "#f5f5f4" }}>{routine.name}</span>
 
               {/* project */}
-              <div className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-amber-400/60" />
-                <span className="text-sm text-slate-300 truncate">{routine.projectName}</span>
-              </div>
+              <span style={{ fontSize: "13px", color: "#a8a29e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {routine.projectName}
+              </span>
 
               {/* agent */}
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-slate-300 truncate">{routine.agentName}</span>
-              </div>
+              <span style={{ fontSize: "13px", color: "#a8a29e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {routine.agentName}
+              </span>
 
               {/* last run */}
               <div>
                 {routine.lastRun ? (
-                  <div>
-                    <p className="text-sm text-slate-300">
-                      {new Date(routine.lastRun).toLocaleString()}
-                    </p>
-                    <p
-                      className="text-xs"
-                      style={{
-                        color:
-                          routine.lastRunStatus === "success"
-                            ? "#86efac"
-                            : routine.lastRunStatus === "failed"
-                            ? "#fca5a5"
-                            : "#fbbf24",
-                      }}
-                    >
-                      {routine.lastRunStatus}
-                    </p>
-                  </div>
+                  <span style={{ fontSize: "12px", color: "#a8a29e" }}>
+                    {new Date(routine.lastRun).toLocaleString()}
+                  </span>
                 ) : (
-                  <span className="text-xs text-slate-600">Never run</span>
+                  <span style={{ fontSize: "12px", color: "#57534e" }}>Never run</span>
                 )}
               </div>
 
-              {/* enabled toggle */}
-              <div>
+              {/* toggle */}
+              <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
                 <button
                   type="button"
                   onClick={() => {
@@ -315,32 +437,64 @@ export default function CompanyRoutinesPage() {
                       )
                     );
                   }}
-                  className="relative h-6 w-11 rounded-full transition-colors"
-                  style={{
-                    backgroundColor: routine.enabled
-                      ? "rgba(245,158,11,0.5)"
-                      : "rgba(120,113,108,0.3)",
-                  }}
                   aria-label={routine.enabled ? "Disable routine" : "Enable routine"}
+                  style={{
+                    position: "relative",
+                    width: "36px",
+                    height: "20px",
+                    borderRadius: "999px",
+                    border: "none",
+                    background: routine.enabled
+                      ? "rgba(168,162,158,0.45)"
+                      : "rgba(68,64,60,0.4)",
+                    cursor: "pointer",
+                    transition: "background 120ms ease",
+                  }}
                 >
                   <span
-                    className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform"
                     style={{
-                      transform: routine.enabled ? "translateX(22px)" : "translateX(2px)",
+                      position: "absolute",
+                      top: "2px",
+                      width: "16px",
+                      height: "16px",
+                      borderRadius: "999px",
+                      background: routine.enabled ? "#f5f5f4" : "#78716c",
+                      transition: "transform 120ms ease",
+                      transform: routine.enabled ? "translateX(18px)" : "translateX(2px)",
                     }}
                   />
                 </button>
-                <span className="ml-2 text-xs text-slate-400">
+                <span style={{ fontSize: "11px", color: "#78716c" }}>
                   {routine.enabled ? "On" : "Off"}
                 </span>
               </div>
 
-              {/* more menu */}
-              <div className="flex justify-end">
+              {/* more */}
+              <div style={{ display: "flex", justifyContent: "flex-end" }}>
                 <button
                   type="button"
-                  className="flex h-7 w-7 items-center justify-center rounded-lg border border-white/8 bg-transparent text-slate-400 transition hover:border-white/16 hover:text-white"
                   aria-label="More options"
+                  style={{
+                    width: "28px",
+                    height: "28px",
+                    borderRadius: "8px",
+                    border: "1px solid rgba(120,113,108,0.25)",
+                    background: "transparent",
+                    color: "#78716c",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    transition: "all 120ms ease",
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+                    e.currentTarget.style.color = "#d6d3d1";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.border = "1px solid rgba(120,113,108,0.25)";
+                    e.currentTarget.style.color = "#78716c";
+                  }}
                 >
                   <MoreHorizontal size={14} />
                 </button>
@@ -348,7 +502,7 @@ export default function CompanyRoutinesPage() {
             </div>
           ))
         )}
-      </section>
+      </div>
     </CompanyShell>
   );
 }
