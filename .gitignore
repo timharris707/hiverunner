@@ -76,3 +76,4 @@ next-env.d.ts
 projects/panely-app/node_modules/
 projects/panely-app/.next/
 projects/panely-app/.agents/
+/data/locks/

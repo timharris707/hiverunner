@@ -38,4 +38,9 @@ if [ -n "$LISTEN_PID" ]; then
   stop_pid "$LISTEN_PID"
 fi
 
+if [ -f "$APP_DIR/.next/dev/lock" ]; then
+  echo "[mc-dev] clearing stale next.js dev lockfile"
+  rm -f "$APP_DIR/.next/dev/lock"
+fi
+
 echo "[mc-dev] stopped"
