@@ -40,6 +40,8 @@ import {
 
 import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects, updateProjectSettings } from "@/lib/orchestration/client";
 import { CreateProjectModal } from "@/components/orchestration/CreateProjectModal";
+import { CreateAgentModal } from "@/components/orchestration/CreateAgentModal";
+import { CreateCompanyModal } from "@/components/orchestration/CreateCompanyModal";
 import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
 import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
@@ -461,6 +463,8 @@ export function Dock() {
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
   const [projectStatusBusyId, setProjectStatusBusyId] = useState<string | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
 
   const activeProjectForCompany =
     activeProject && activeProject.companySlug === company.slug ? activeProject : null;
@@ -1198,7 +1202,7 @@ export function Dock() {
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
         onCreate={() => {
-          router.push(buildCanonicalNewAgentPath(cc));
+          setCreateAgentOpen(true);
         }}
         createAriaLabel="Create agent"
       />
@@ -1234,7 +1238,7 @@ export function Dock() {
         label="Company"
         collapsed={!companyOpen}
         onToggle={() => setCompanyOpen((prev) => !prev)}
-        onCreate={() => { router.push("/companies/new"); }} // stays legacy — unique top-level create flow
+        onCreate={() => { setCreateCompanyOpen(true); }}
         createAriaLabel="Create company"
       />
       {companyOpen && (
@@ -1496,6 +1500,22 @@ export function Dock() {
         companyId={company.id ?? ""}
         companyCode={cc}
         companySlug={company.slug}
+      />
+      <CreateAgentModal
+        open={createAgentOpen}
+        onClose={() => setCreateAgentOpen(false)}
+        companySlug={company.slug}
+        companyCode={cc}
+        onCreated={() => {
+          router.refresh();
+        }}
+      />
+      <CreateCompanyModal
+        open={createCompanyOpen}
+        onClose={() => setCreateCompanyOpen(false)}
+        onCreated={() => {
+          router.refresh();
+        }}
       />
     </>
   );

@@ -223,62 +223,7 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
             }}
           />
 
-          <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px", display: "grid", gap: "14px" }}>
-            {/* repo url */}
-            <div>
-              <label style={labelStyle}>
-                Repo URL <span style={{ color: "#57534e" }}>optional</span>
-              </label>
-              <input
-                value={repoUrl}
-                onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/org/repo"
-                style={inputStyle}
-              />
-            </div>
 
-            {/* local folder (read-only, auto-computed) */}
-            <div>
-              <label style={labelStyle}>
-                Local folder
-              </label>
-              <input
-                value={localFolder}
-                readOnly
-                placeholder="Auto-generated from project name"
-                style={{ ...inputStyle, color: "#78716c", cursor: "default" }}
-              />
-            </div>
-
-            {/* status */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {(["active", "paused", "archived"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  style={{
-                    padding: "5px 14px",
-                    borderRadius: "999px",
-                    border: status === s
-                      ? "1px solid rgba(214,211,209,0.4)"
-                      : "1px solid rgba(120,113,108,0.3)",
-                    background: status === s
-                      ? "rgba(120,113,108,0.25)"
-                      : "rgba(41,37,36,0.4)",
-                    fontSize: "12px",
-                    fontWeight: status === s ? 600 : 400,
-                    color: status === s ? "#f5f5f4" : "#78716c",
-                    cursor: "pointer",
-                    transition: "all 120ms ease",
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
 
           {/* error */}
           {error ? (
