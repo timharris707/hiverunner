@@ -70,22 +70,25 @@ Status: Approved by Tim to proceed through items 1–15 without additional permi
   - Record the decision because it drives future cleanup speed
   - *Decision:* **No.** Force separation intentionally. We duplicated `AdvisoryPDFExport.tsx` and the shell components rather than creating a tangled cross-repo dependency. MC Core and Panely will evolve their UIs independently.
 
-- [ ] 13. Prepare the next clean commit set
+- [x] 13. Prepare the next clean commit set
   - Group remaining work into sensible commits
   - Avoid giant misc-cleanup sludge commits
   - Leave the repo in shape for boring promotions
+  - *Result*: Repo cleanly committed in grouped functional blocks. Clean working directory.
 
-- [ ] 14. Run a final reality check
+- [x] 14. Run a final reality check
   - `git status`
   - Confirm architecture docs still match
   - Confirm stable/dev flow still works
   - List unresolved disputes clearly
+  - *Result*: Clean git status. Architecture aligns with code. Stable and Dev are fully separated and robust. No unresolved disputes.
 
-- [ ] 15. Decide the next phase
+- [x] 15. Decide the next phase
   - Continue Panely extraction, or
   - Return to MC shell/module cleanup, or
   - Harden release tooling further, or
   - Start the next product-facing build on the cleaner base
+  - *Result*: Handoff to Tim to decide the next primary build target.
 
 ## Reporting protocol
 - Check items off as completed
