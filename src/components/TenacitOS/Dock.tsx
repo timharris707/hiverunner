@@ -76,6 +76,7 @@ interface NavItem {
   statusDotColor?: string;
   highlight?: boolean;
   trailingAction?: ReactNode;
+  accentBar?: boolean;
 }
 
 interface CompanyNavState {
@@ -256,13 +257,16 @@ function SectionHeader({
 
 function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void }) {
   const Icon = item.icon;
+  const hasAccent = Boolean(item.accentBar);
   const highlighted = item.highlight && !active;
-  const iconColor = active ? "#f5f5f4" : highlighted ? "#f5f5f4" : "#a8a29e";
-  const labelColor = active ? "#fafaf9" : highlighted ? "#f5f5f4" : "#d6d3d1";
-  const background = active ? "rgba(255,255,255,0.08)" : "transparent";
-  const border = active ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent";
-  const hoverBackground = active ? background : "rgba(255,255,255,0.04)";
-  const hoverBorder = active ? border : "1px solid rgba(255,255,255,0.08)";
+  const iconColor = hasAccent ? "#f5f5f4" : active ? "#f5f5f4" : highlighted ? "#f5f5f4" : "#a8a29e";
+  const labelColor = hasAccent ? "#fafaf9" : active ? "#fafaf9" : highlighted ? "#f5f5f4" : "#d6d3d1";
+  const background = hasAccent ? "rgba(255,255,255,0.05)" : active ? "rgba(255,255,255,0.12)" : "transparent";
+  const border = hasAccent ? "1px solid rgba(255,255,255,0.08)" : active ? "1px solid rgba(255,255,255,0.18)" : "1px solid transparent";
+  const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.04)";
+  const hoverBorder = active || hasAccent ? border : "1px solid rgba(255,255,255,0.08)";
+  // Accent bar uses inset box-shadow so it doesn't affect layout or get wiped by hover border resets
+  const accentShadow = hasAccent ? "inset 3px 0 0 0 rgba(214,211,209,0.6)" : undefined;
   const hasInlineAction = Boolean(item.trailingAction);
 
   return (
@@ -276,10 +280,11 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
         alignItems: "center",
         gap: hasInlineAction ? "4px" : "7px",
         padding: item.indent ? "4px 8px 4px 18px" : "4px 8px 4px 10px",
-        borderRadius: "8px",
+        borderRadius: hasAccent ? "0" : "8px",
         textDecoration: "none",
         background,
         border,
+        boxShadow: accentShadow,
         transition: "all 120ms ease",
         cursor: "pointer",
         position: "relative",
@@ -302,7 +307,7 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
         style={{
           fontFamily: "var(--font-body)",
           fontSize: "11px",
-          fontWeight: active || highlighted ? 600 : 500,
+          fontWeight: hasAccent ? 500 : (active || highlighted ? 600 : 500),
           color: labelColor,
           whiteSpace: "nowrap",
           overflow: "hidden",
@@ -343,6 +348,8 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
             textAlign: "center",
             lineHeight: "13px",
             flexShrink: 0,
+            marginLeft: "auto",
+            marginRight: "-2px",
           }}
         >
           {item.badge}
@@ -615,6 +622,8 @@ export function Dock() {
         if (mode === "poll" && sorted.length === 0 && previous.length > 0) {
           return previous;
         }
+        // Skip re-render if data hasn't changed
+        if (JSON.stringify(previous) === JSON.stringify(sorted)) return previous;
         return sorted;
       });
       setProjectsLoading(false);
@@ -696,7 +705,8 @@ export function Dock() {
         limit: 1,
       });
       if (cancelled || !inbox) return;
-      setInboxUnreadCount(Math.max(0, inbox.unreadCount));
+      const count = Math.max(0, inbox.unreadCount);
+      setInboxUnreadCount((prev) => prev === count ? prev : count);
     };
 
     void loadInboxCount();
@@ -718,18 +728,22 @@ export function Dock() {
   useEffect(() => {
     let cancelled = false;
 
-    const loadAgents = async () => {
-      setAgentsLoading(true);
+    const loadAgents = async (mode: "initial" | "poll") => {
+      if (mode === "initial") setAgentsLoading(true);
       const rows = await listCompanyAgents(company.slug);
       if (cancelled) return;
-      setAgents(rows.sort((a, b) => a.name.localeCompare(b.name)));
+      const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
+      setAgents((prev) => {
+        if (JSON.stringify(prev) === JSON.stringify(sorted)) return prev;
+        return sorted;
+      });
       setAgentsLoading(false);
     };
 
-    void loadAgents();
+    void loadAgents("initial");
 
     const interval = window.setInterval(() => {
-      void loadAgents();
+      void loadAgents("poll");
     }, 30_000);
 
     return () => {
@@ -934,15 +948,15 @@ export function Dock() {
             const projectPageActive = false;
             return (
               <div key={project.id} style={{ display: "grid", gap: "4px" }}>
-                <div>
+                <div style={{ margin: "0 -6px" }}>
                   <NavRow
                     item={{
                       href: projectHref,
-                      label: project.name.length > 16 ? `${project.name.slice(0, 16)}…` : project.name,
+                      label: project.name.length > 18 ? `${project.name.slice(0, 18)}…` : project.name,
                       indent: true,
+                      accentBar: true,
                       trailingAction: (
-                        <div style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: "3px", zIndex: 2 }}>
-                          <Check size={12} color="#f5f5f4" style={{ flexShrink: 0 }} />
+                        <div style={{ position: "absolute", right: "11px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: "3px", zIndex: 2 }}>
                           <button
                             type="button"
                             onClick={(event) => {
@@ -1139,7 +1153,6 @@ export function Dock() {
                     href: buildCanonicalProjectsPath(cc),
                     label: "Manage",
                     icon: ListChecks,
-                    indent: true,
                   }}
                   active={pathname === buildCanonicalProjectsPath(cc)}
                 />
@@ -1148,7 +1161,6 @@ export function Dock() {
                     href: projectHref,
                     label: "Overview",
                     icon: FolderOpen,
-                    indent: true,
                   }}
                   active={pathname === projectHref}
                 />
@@ -1157,7 +1169,6 @@ export function Dock() {
                     href: buildCanonicalProjectSettingsPath(cc, pSlug),
                     label: "Configuration",
                     icon: Settings2,
-                    indent: true,
                   }}
                   active={checkActive(buildCanonicalProjectSettingsPath(cc, pSlug))}
                 />
@@ -1166,7 +1177,6 @@ export function Dock() {
                     href: buildCanonicalProjectAgentsPath(cc, pSlug),
                     label: "Budget",
                     icon: Wallet,
-                    indent: true,
                   }}
                   active={checkActive(buildCanonicalProjectAgentsPath(cc, pSlug))}
                 />
@@ -1205,7 +1215,6 @@ export function Dock() {
                 href,
                 label: agent.name,
                 icon: Bot,
-                indent: true,
                 statusDotColor: isAgentActive(agent) ? "#22c55e" : "#78716c",
               }}
               active={checkActive(href)}
@@ -1225,17 +1234,13 @@ export function Dock() {
       />
       {companyOpen && (
         <>
-          <div style={{ position: "relative" }}>
+          <div style={{ position: "relative", margin: "0 -6px" }}>
             <NavRow
               item={{
                 href: buildCanonicalDashboardPath(cc),
                 label: company.name,
                 indent: true,
-                trailingAction: (
-                  <div style={{ marginLeft: "auto", marginRight: companies.length > 1 ? "28px" : "0", display: "inline-flex", alignItems: "center" }}>
-                    <Check size={12} color="#f5f5f4" />
-                  </div>
-                ),
+                accentBar: true,
               }}
               active={checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalTeamPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
             />
@@ -1251,7 +1256,7 @@ export function Dock() {
                 title="Switch company"
                 style={{
                   position: "absolute",
-                  right: "6px",
+                  right: "12px",
                   top: "50%",
                   transform: "translateY(-50%)",
                   width: "18px",
@@ -1359,7 +1364,7 @@ export function Dock() {
           </div>
           {COMPANY_ITEMS.map((entry) => {
             const href = companyItemHref(cc, entry.label);
-            return <NavRow key={entry.label} item={{ ...entry, href, indent: true }} active={checkActive(href)} />;
+            return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
           })}
         </>
       )}
@@ -1374,7 +1379,7 @@ export function Dock() {
       <SectionDivider />
 
       <SectionHeader label="Systems" collapsed={!systemsOpen} onToggle={() => setSystemsOpen((prev) => !prev)} />
-      {systemsOpen && SYSTEM_ITEMS.map((item) => <NavRow key={item.href} item={{ ...item, indent: true }} active={checkActive(item.href)} />)}
+      {systemsOpen && SYSTEM_ITEMS.map((item) => <NavRow key={item.href} item={item} active={checkActive(item.href)} />)}
 
       {/* collapse toggle */}
       <div style={{ flex: 1, minHeight: 18 }} />
