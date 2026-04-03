@@ -42,6 +42,7 @@ export async function PATCH(
       updateProjectSettings({
         projectIdOrSlug: id,
         emoji: parsed.emoji,
+        status: parsed.status,
         staleAlertThresholdsHours: parsed.staleAlertThresholdsHours,
       })
     );

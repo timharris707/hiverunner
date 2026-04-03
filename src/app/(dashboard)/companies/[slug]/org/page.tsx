@@ -61,7 +61,7 @@ export default function CompanyOrgPage() {
     <CompanyShell
       eyebrow="Company Workspace"
       title={company ? `${company.name} Org` : "Org"}
-      description="Team hierarchy from orchestration roster. Reporting lines are resolved from company agent data with config fallbacks when missing."
+      description="Team hierarchy from orchestration roster. Reporting lines are resolved from real company agent relationships first, with config fallbacks only when no DB link exists."
       accentColor="#f59e0b"
     >
       <section className="grid gap-3 md:grid-cols-4">
@@ -177,9 +177,13 @@ function buildOrg(agents: OrchestrationAgent[]) {
     const configuredManager = config?.reportsTo;
     const managerId = resolveManagerId(agent.reportingTo, keyToId) ?? resolveManagerId(configuredManager, keyToId);
 
+    if (agent.reportingToName) {
+      node.managerLabel = agent.reportingToName;
+    }
+
     if (managerId && managerId !== node.id) {
       node.managerId = managerId;
-      node.managerLabel = nodeById.get(managerId)?.name ?? "Unknown";
+      node.managerLabel = agent.reportingToName ?? nodeById.get(managerId)?.name ?? "Unknown";
       continue;
     }
 

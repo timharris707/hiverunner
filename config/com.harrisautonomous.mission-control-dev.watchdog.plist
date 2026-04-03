@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.harrisautonomous.mission-control-dev.watchdog</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/bin/sh</string>
+      <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/mission_control_watchdog.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PORT</key>
+      <string>3000</string>
+      <key>PATH</key>
+      <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>MC_WATCHDOG_INTERVAL</key>
+      <string>15</string>
+    </dict>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-dev-watchdog.out.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-dev-watchdog.err.log</string>
+  </dict>
+</plist>

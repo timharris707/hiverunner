@@ -7,6 +7,15 @@ import { getProjects } from "@/lib/projects";
 import { getSystemStats, type SystemStats } from "@/lib/system-stats";
 import { readTasks } from "@/lib/build-queue";
 
+function readTasksSafely(): any[] {
+  try {
+    return readTasks();
+  } catch (error) {
+    console.error("[realtime-snapshot] Falling back to empty tasks after readTasks failure:", error);
+    return [];
+  }
+}
+
 export interface MissionControlRealtimeSnapshot {
   generatedAt: string;
   dashStats: DashboardStats;
@@ -38,7 +47,7 @@ export async function getMissionControlRealtimeSnapshot(now = Date.now()): Promi
     generatedAt: new Date(now).toISOString(),
     dashStats: getDashboardStats(now),
     highlights: getDashboardHighlights(now),
-    tasks: readTasks(),
+    tasks: readTasksSafely(),
     projects: getProjects(),
     advisorySessions: getAdvisorySessionsList().slice(0, 10),
     agentStatuses,

@@ -27,6 +27,7 @@ import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
 type CompanyRow = {
   id: string;
   slug: string;
+  company_code: string | null;
   name: string;
   description: string;
   status: CompanyStatusInput;
@@ -135,6 +136,7 @@ export type CompanyThemeView = {
 
 function slugify(input: string): string {
   return input
+    .replace(/'/g, "")
     .toLowerCase()
     .trim()
     .replace(/[^a-z0-9]+/g, "-")
@@ -231,6 +233,7 @@ function getCompanyRowBySlug(slug: string): CompanyRow | undefined {
       `SELECT
         c.id,
         c.slug,
+        c.company_code,
         c.name,
         c.description,
         c.status,
@@ -264,6 +267,7 @@ function getCompanyRowById(companyId: string): CompanyRow | undefined {
       `SELECT
         c.id,
         c.slug,
+        c.company_code,
         c.name,
         c.description,
         c.status,
@@ -423,6 +427,7 @@ function companyFromRow(row: CompanyRow): OrchestrationCompany {
   return {
     id: row.id,
     slug: row.slug,
+    code: row.company_code?.trim() || row.slug.slice(0, 3).toUpperCase(),
     name: row.name,
     description: row.description,
     status: row.status,
@@ -461,6 +466,7 @@ export function listCompanies(input?: {
       `SELECT
         c.id,
         c.slug,
+        c.company_code,
         c.name,
         c.description,
         c.status,
@@ -529,6 +535,18 @@ export function createCompany(input: {
   }
 
   const companyId = randomUUID();
+  const baseCompanyCode = (input.name || slug)
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .slice(0, 3)
+    .toUpperCase() || "CMP";
+
+  let companyCode = baseCompanyCode;
+  let companyCodeIndex = 1;
+  while (db.prepare("SELECT 1 FROM companies WHERE company_code = ? LIMIT 1").get(companyCode)) {
+    companyCodeIndex += 1;
+    companyCode = `${baseCompanyCode}${companyCodeIndex}`;
+  }
+
   const workspaceRoot =
     slug === NEVERIDLE_CORE_SLUG
       ? OPENCLAW_WORKSPACE_ROOT
@@ -537,12 +555,13 @@ export function createCompany(input: {
 
   db.prepare(
     `INSERT INTO companies
-      (id, slug, name, description, status, workspace_root, workspace_source, theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url, created_at, updated_at)
+      (id, slug, company_code, name, description, status, workspace_root, workspace_source, theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url, created_at, updated_at)
      VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     companyId,
     slug,
+    companyCode,
     input.name,
     input.description,
     input.status,
@@ -561,6 +580,7 @@ export function createCompany(input: {
       `SELECT
         c.id,
         c.slug,
+        c.company_code,
         c.name,
         c.description,
         c.status,
@@ -631,24 +651,32 @@ export function updateCompany(input: {
     );
   }
 
+  const nextStatus = input.status ?? current.status;
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE companies
-     SET
-      slug = ?,
-      name = ?,
-      description = ?,
-      status = ?,
-      updated_at = ?
-     WHERE id = ?`
-  ).run(
-    nextSlug,
-    input.name ?? current.name,
-    input.description ?? current.description,
-    input.status ?? current.status,
-    now,
-    current.id
-  );
+  db.transaction(() => {
+    db.prepare(
+      `UPDATE companies
+       SET
+        slug = ?,
+        name = ?,
+        description = ?,
+        status = ?,
+        updated_at = ?
+       WHERE id = ?`
+    ).run(
+      nextSlug,
+      input.name ?? current.name,
+      input.description ?? current.description,
+      nextStatus,
+      now,
+      current.id
+    );
+
+    if (input.status && input.status !== current.status && (input.status === "paused" || input.status === "active")) {
+      db.prepare(`UPDATE projects SET status = ?, updated_at = ? WHERE company_id = ? AND status != 'archived'`).run(input.status, now, current.id);
+      db.prepare(`UPDATE agents SET status = ?, updated_at = ? WHERE company_id = ? AND status != 'offline'`).run(input.status === "paused" ? "paused" : "idle", now, current.id);
+    }
+  })();
 
   const row = getCompanyRowById(current.id);
   if (!row) {

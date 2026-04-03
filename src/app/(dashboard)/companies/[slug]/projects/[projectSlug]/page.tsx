@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
 
+import { buildCanonicalProjectIssuesRoute } from "@/lib/orchestration/routes";
+
 export default async function CompanyProjectPage({
   params,
 }: {
   params: Promise<{ slug: string; projectSlug: string }>;
 }) {
   const { slug, projectSlug } = await params;
-  redirect(`/companies/${encodeURIComponent(slug)}/projects/${encodeURIComponent(projectSlug)}/board`);
+  redirect(buildCanonicalProjectIssuesRoute(slug, projectSlug));
 }

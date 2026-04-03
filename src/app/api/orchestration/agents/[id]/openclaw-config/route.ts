@@ -183,8 +183,8 @@ export async function PATCH(
   // --- Update orchestration DB for MC-only fields ---
   const dbFields: Record<string, string> = {
     name: "name",
+    emoji: "emoji",
     title: "role",
-    reportsTo: "reporting_to",
     personality: "personality",
     model: "model",
   };
@@ -206,20 +206,65 @@ export async function PATCH(
 
   let updatedAgent: Record<string, unknown> | undefined;
 
-  if (dbUpdates.length > 0) {
+  if (dbUpdates.length > 0 || "reportsTo" in body) {
     try {
       const db = getOrchestrationDb();
-      dbUpdates.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
-      const sql = `UPDATE agents SET ${dbUpdates.join(", ")} WHERE openclaw_agent_id = @agentId`;
-      dbValues["@agentId"] = agentId;
-      db.prepare(sql).run(dbValues);
+      const existingAgent = db
+        .prepare(
+          `SELECT id, company_id, name, openclaw_agent_id
+           FROM agents
+           WHERE archived_at IS NULL
+             AND (openclaw_agent_id = @agentId OR lower(name) = lower(@agentId) OR id = @agentId)
+           LIMIT 1`,
+        )
+        .get({ "@agentId": agentId }) as { id: string; company_id: string; name: string; openclaw_agent_id: string | null } | undefined;
+
+      if (!existingAgent) {
+        return NextResponse.json({ error: `Agent "${agentId}" not found in orchestration DB` }, { status: 404 });
+      }
+
+      if (!existingAgent.openclaw_agent_id) {
+        dbUpdates.push("openclaw_agent_id = @resolvedOpenClawAgentId");
+        dbValues["@resolvedOpenClawAgentId"] = agentId;
+      }
+
+      if ("reportsTo" in body) {
+        const requestedReportsTo = typeof body.reportsTo === "string" ? body.reportsTo.trim() : "";
+        if (requestedReportsTo) {
+          const reportingAgent = db
+            .prepare(
+              `SELECT id
+               FROM agents
+               WHERE company_id = @companyId
+                 AND archived_at IS NULL
+                 AND (id = @reportsTo OR lower(name) = lower(@reportsTo) OR openclaw_agent_id = @reportsTo)
+               LIMIT 1`,
+            )
+            .get({
+              "@companyId": existingAgent.company_id,
+              "@reportsTo": requestedReportsTo,
+            }) as { id: string } | undefined;
+
+          dbUpdates.push("reporting_to = @reporting_to");
+          dbValues["@reporting_to"] = reportingAgent?.id ?? null;
+        } else {
+          dbUpdates.push("reporting_to = NULL");
+        }
+      }
+
+      if (dbUpdates.length > 0) {
+        dbUpdates.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
+        const sql = `UPDATE agents SET ${dbUpdates.join(", ")} WHERE id = @rowId`;
+        dbValues["@rowId"] = existingAgent.id;
+        db.prepare(sql).run(dbValues);
+      }
 
       updatedAgent = db
         .prepare(
-          `SELECT id, name, role, personality, model, skills_json, reporting_to, openclaw_agent_id
-           FROM agents WHERE openclaw_agent_id = @agentId`,
+          `SELECT id, name, emoji, role, personality, model, skills_json, reporting_to, openclaw_agent_id
+           FROM agents WHERE id = @rowId`,
         )
-        .get({ "@agentId": agentId }) as Record<string, unknown> | undefined;
+        .get({ "@rowId": existingAgent.id }) as Record<string, unknown> | undefined;
     } catch (err) {
       return NextResponse.json({ error: `DB update failed: ${err}` }, { status: 500 });
     }
@@ -233,6 +278,7 @@ export async function PATCH(
       ? {
           id: updatedAgent.id,
           name: updatedAgent.name,
+          emoji: updatedAgent.emoji,
           role: updatedAgent.role,
           personality: updatedAgent.personality,
           model: updatedAgent.model,

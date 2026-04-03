@@ -17,12 +17,12 @@ export async function GET() {
       return NextResponse.json({ positions: [], resolved: [] });
     }
 
-    const Database = require("better-sqlite3");
+    const Database = (await import("better-sqlite3")).default;
     const db = new Database(LIVE_TRADING_DB, { readonly: true });
 
     // Open positions
     const openTrades = db.prepare(
-      `SELECT trade_id, order_id, contract_id as ticker, side, quantity,
+      `SELECT trade_id, order_id, contract_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
               status, fill_quantity, created_at, strategy_version, our_probability, market_probability
@@ -33,7 +33,7 @@ export async function GET() {
 
     // Settled positions
     const settledTrades = db.prepare(
-      `SELECT trade_id, order_id, contract_id as ticker, side, quantity,
+      `SELECT trade_id, order_id, contract_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
               CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
@@ -95,7 +95,7 @@ export async function GET() {
       return null;
     };
 
-    const enrichWithSettlement = (trade: Record<string, unknown>) => {
+    const enrichWithSettlement = (trade: Record<string, unknown>): Record<string, unknown> => {
       const ticker = String(trade.ticker || "");
 
       // Fill in missing city from ticker

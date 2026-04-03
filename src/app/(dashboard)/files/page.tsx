@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
 import { List, Grid3X3 } from "lucide-react";
 import { Breadcrumbs } from "@/components/Breadcrumbs";
 import { FileBrowser } from "@/components/FileBrowser";
@@ -14,22 +15,28 @@ interface Workspace {
 }
 
 export default function FilesPage() {
+  const pathname = usePathname();
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
   const [currentPath, setCurrentPath] = useState("");
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
   useEffect(() => {
-    fetch("/api/files/workspaces")
+    const companyMatch = pathname.match(/^\/companies\/([^/]+)/);
+    const companySlug = companyMatch ? companyMatch[1] : null;
+    const query = companySlug ? `?company=${encodeURIComponent(companySlug)}` : "";
+
+    fetch(`/api/files/workspaces${query}`)
       .then((res) => res.json())
       .then((data) => {
-        setWorkspaces(data.workspaces || []);
-        if (data.workspaces.length > 0) {
-          setSelectedWorkspace(data.workspaces[0].id);
+        const rows = data.workspaces || [];
+        setWorkspaces(rows);
+        if (rows.length > 0) {
+          setSelectedWorkspace(rows[0].id);
         }
       })
       .catch(() => setWorkspaces([]));
-  }, []);
+  }, [pathname]);
 
   const handleWorkspaceSelect = (workspaceId: string) => {
     setSelectedWorkspace(workspaceId);

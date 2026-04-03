@@ -1,6 +1,160 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
+import { COMPANY_CODE_TO_SLUG, COMPANY_SLUG_TO_CODE, PROJECT_ID_TO_SLUG_BY_COMPANY } from "@/lib/orchestration/edge-route-maps";
 import { updateSession } from "@/lib/supabase/middleware";
+
+const APP_ROOT_PREFIXES = new Set([
+  "api", "auth", "_next", "login", "companies", "projects", "ideas",
+  "advisory", "marketing", "voice", "trading", "terminal", "sessions",
+  "logs", "search", "settings", "skills", "workflows", "system",
+  "office", "monitoring", "reliability", "reports", "memory", "files",
+  "git", "cron", "factory", "org", "tasks", "agents",
+]);
+
+const COMPANY_SUB_PATHS = new Set([
+  "dashboard", "inbox", "issues", "team", "org", "skills", "costs",
+  "activity", "files", "settings", "projects", "goals", "agents",
+]);
+
+function copyQuery(target: URL, source: URLSearchParams) {
+  for (const [key, value] of source) {
+    target.searchParams.set(key, value);
+  }
+}
+
+function tryCanonicalRewrite(pathname: string, searchParams: URLSearchParams, origin: string): URL | null {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return null;
+
+  const root = segments[0];
+  if (APP_ROOT_PREFIXES.has(root.toLowerCase())) return null;
+
+  const companySlug = COMPANY_CODE_TO_SLUG[root.toUpperCase()];
+  if (!companySlug) return null;
+
+  if (segments.length === 1) {
+    return new URL(`/companies/${encodeURIComponent(companySlug)}/dashboard`, origin);
+  }
+
+  const sub = segments[1];
+
+  if (sub === "projects") {
+    if (segments.length === 2) {
+      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects`, origin);
+      copyQuery(url, searchParams);
+      return url;
+    }
+
+    const projectSlug = segments[2];
+    if (segments.length === 3) {
+      return new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}`, origin);
+    }
+
+    const projectSub = segments[3];
+    if (projectSub === "issues") {
+      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/issues`, origin);
+      url.searchParams.set("project", projectSlug);
+      for (const [key, value] of searchParams) {
+        if (key !== "project" && key !== "projectId") url.searchParams.set(key, value);
+      }
+      return url;
+    }
+
+    if (projectSub === "board" || projectSub === "settings" || projectSub === "agents") {
+      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}/${projectSub}`, origin);
+      copyQuery(url, searchParams);
+      return url;
+    }
+  }
+
+  if (sub === "agents") {
+    if (segments.length === 3 && segments[2] === "new") {
+      return new URL(`/companies/${encodeURIComponent(companySlug)}/agents/new`, origin);
+    }
+
+    if (segments.length >= 3) {
+      const agentSlug = segments[2];
+      const agentSub = segments[3] || "dashboard";
+      const supported = new Set(["dashboard", "configuration", "budget", "instructions", "runs", "skills"]);
+      if (supported.has(agentSub)) {
+        const url = new URL(`/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agentSlug)}/${agentSub}`, origin);
+        copyQuery(url, searchParams);
+        return url;
+      }
+      const fallback = new URL(`/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agentSlug)}`, origin);
+      copyQuery(fallback, searchParams);
+      return fallback;
+    }
+  }
+
+  if (sub === "issues" && segments[2] === "new") {
+    const url = new URL(`/companies/${encodeURIComponent(companySlug)}/issues/new`, origin);
+    copyQuery(url, searchParams);
+    return url;
+  }
+
+  if (COMPANY_SUB_PATHS.has(sub)) {
+    const rest = segments.slice(1).map(encodeURIComponent).join("/");
+    const url = new URL(`/companies/${encodeURIComponent(companySlug)}/${rest}`, origin);
+    copyQuery(url, searchParams);
+    return url;
+  }
+
+  return null;
+}
+
+function tryLegacyRedirect(pathname: string, searchParams: URLSearchParams, origin: string): URL | null {
+  const match = pathname.match(/^\/companies\/([^/]+)(\/.*)?$/);
+  if (!match) return null;
+
+  const companySlug = decodeURIComponent(match[1]);
+  if (companySlug === "new") return null;
+
+  const companyCode = COMPANY_SLUG_TO_CODE[companySlug];
+  if (!companyCode) return null;
+
+  const rest = match[2] || "";
+  const qs = new URLSearchParams(searchParams);
+
+  if (!rest || rest === "/") {
+    const url = new URL(`/${companyCode}`, origin);
+    copyQuery(url, qs);
+    return url;
+  }
+
+  const projectParam = searchParams.get("project") || searchParams.get("projectId");
+  if (rest === "/issues" && projectParam) {
+    const projectSlug = PROJECT_ID_TO_SLUG_BY_COMPANY[companySlug]?.[projectParam] ?? projectParam;
+    qs.delete("project");
+    qs.delete("projectId");
+    const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}/issues`, origin);
+    copyQuery(url, qs);
+    return url;
+  }
+
+  const projectMatch = rest.match(/^\/projects\/([^/]+)(\/.*)?$/);
+  if (projectMatch) {
+    const projectSlug = decodeURIComponent(projectMatch[1]);
+    const projectRest = projectMatch[2] || "";
+    const suffix = projectRest || "/issues";
+    const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}${suffix}`, origin);
+    copyQuery(url, qs);
+    return url;
+  }
+
+  const agentMatch = rest.match(/^\/agents\/([^/]+)(\/.*)?$/);
+  if (agentMatch) {
+    const agentSlug = decodeURIComponent(agentMatch[1]);
+    const agentRest = agentMatch[2] || "/dashboard";
+    const url = new URL(`/${companyCode}/agents/${encodeURIComponent(agentSlug)}${agentRest}`, origin);
+    copyQuery(url, qs);
+    return url;
+  }
+
+  const url = new URL(`/${companyCode}${rest}`, origin);
+  copyQuery(url, qs);
+  return url;
+}
 
 // Pages that don't require authentication
 const PUBLIC_PAGES = new Set(["/login"]);
@@ -90,6 +244,19 @@ export async function middleware(request: NextRequest) {
 
     return response;
   };
+
+  if (!pathname.startsWith("/api/") && !pathname.startsWith("/_next/")) {
+    const origin = request.nextUrl.origin;
+    const rewriteTarget = tryCanonicalRewrite(pathname, request.nextUrl.searchParams, origin);
+    if (rewriteTarget) {
+      return finalize(NextResponse.rewrite(rewriteTarget));
+    }
+
+    const legacyTarget = tryLegacyRedirect(pathname, request.nextUrl.searchParams, origin);
+    if (legacyTarget) {
+      return finalize(NextResponse.redirect(legacyTarget, 308));
+    }
+  }
 
   // Skip auth entirely on localhost (development)
   if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {

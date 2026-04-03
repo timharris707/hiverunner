@@ -115,6 +115,7 @@ export type AgentRow = {
   company_id: string;
   project_id: string | null;
   name: string;
+  slug: string | null;
   emoji: string | null;
   role: string;
   personality: string;
@@ -126,6 +127,7 @@ export type AgentRow = {
   paperclip_agent_id: string | null;
   openclaw_agent_id: string | null;
   reporting_to: string | null;
+  reporting_to_name?: string | null;
   skills_json: string;
   tasks_completed: number;
   total_runtime_minutes: number;

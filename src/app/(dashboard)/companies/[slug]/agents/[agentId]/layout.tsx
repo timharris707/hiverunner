@@ -118,7 +118,9 @@ export default function AgentDetailLayout({
     return TABS.find((t) => t.id === last)?.id ?? "dashboard";
   }, [pathname]);
 
-  const basePath = `/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agentId)}`;
+  // Use the loaded agent slug for canonical links; fall back to URL param
+  const agentSlugResolved = profile?.agent?.slug || agentId;
+  const basePath = `/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agentSlugResolved)}`;
 
   const handleHeartbeat = async () => {
     if (!profile) return;

@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+
+async function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
+  return await Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(`Timeout after ${ms}ms`)), ms);
+    }),
+  ]);
+}
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -13,6 +22,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { formatAge, statusTheme } from "@/components/orchestration/ui";
 import {
   getProjectBoard,
@@ -22,6 +32,8 @@ import {
   listProjects,
   pollTaskExecutionStatus,
 } from "@/lib/orchestration/client";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
@@ -66,6 +78,7 @@ export default function CompanyDashboardPage() {
   const slug = params?.slug ?? "";
 
   const [loading, setLoading] = useState(true);
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -79,10 +92,10 @@ export default function CompanyDashboardPage() {
 
       try {
         const [companies, projects, agents, activityFeed] = await Promise.all([
-          listCompanies(),
-          listProjects(),
-          listCompanyAgents(slug),
-          listActivityFeed({ limit: 80 }),
+          withTimeout(listCompanies(), 5000),
+          withTimeout(listProjects(), 5000),
+          withTimeout(listCompanyAgents(slug), 5000),
+          withTimeout(listActivityFeed({ limit: 80 }), 5000),
         ]);
 
         const company = companies.find((c) => c.slug === slug);
@@ -98,7 +111,7 @@ export default function CompanyDashboardPage() {
         const boardRows = await Promise.all(
           companyProjects.map(async (project) => ({
             project,
-            board: await getProjectBoard(project.id),
+            board: await withTimeout(getProjectBoard(project.id), 5000).catch(() => ({ tasks: [] })),
           }))
         );
 
@@ -122,7 +135,7 @@ export default function CompanyDashboardPage() {
 
         const sessionRows = await Promise.all(
           sessionCandidates.map(async (task) => {
-            const execution = await pollTaskExecutionStatus(task.id);
+            const execution = await withTimeout(pollTaskExecutionStatus(task.id), 3000).catch(() => null);
             if (!execution) return null;
             return {
               taskId: task.id,
@@ -149,8 +162,12 @@ export default function CompanyDashboardPage() {
           sessions: sessionRows.filter((row): row is LiveSession => Boolean(row)),
         });
         setError(null);
-      } catch {
-        if (!cancelled) setError("Unable to load company dashboard right now.");
+      } catch (err) {
+        if (!cancelled) {
+          console.error("[company-dashboard] load failed", err);
+          setError("Unable to load company dashboard right now.");
+          setLoading(false);
+        }
       } finally {
         if (!cancelled) {
           if (mode === "initial") setLoading(false);
@@ -163,6 +180,11 @@ export default function CompanyDashboardPage() {
     const timer = window.setInterval(() => void load("poll"), REFRESH_MS);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [slug, refreshNonce]);
+
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(snapshot?.projects ?? [], activeProject, slug),
+    [activeProject, slug, snapshot]
+  );
 
   const metrics = useMemo(() => {
     if (!snapshot) return { open: 0, inProgress: 0, blocked: 0, done: 0, review: 0, totalTasks: 0 };
@@ -207,6 +229,10 @@ export default function CompanyDashboardPage() {
           </button>
         </div>
       </header>
+
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
+      ) : null}
 
       {/* Stats row */}
       <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-5">
@@ -288,13 +314,21 @@ export default function CompanyDashboardPage() {
               <FolderKanban className="mr-1 inline h-3 w-3" />
               Projects
             </h2>
-            <Link href={`/companies/${slug}/projects`} className="text-[10px] text-stone-500 hover:text-amber-400">
-              All →
-            </Link>
+            <div className="flex items-center gap-3 text-[10px]">
+              <Link href="/projects" className="text-stone-500 hover:text-amber-400">
+                Global →
+              </Link>
+              <Link href={`/companies/${slug}/projects`} className="text-stone-500 hover:text-amber-400">
+                Company →
+              </Link>
+            </div>
           </div>
           <div className="divide-y divide-stone-800/60">
-            {snapshot?.projects.map((project) => {
-              const pTasks = snapshot.tasks.filter((t) => t.project === project.id);
+            {(activeProjectRecord
+              ? (snapshot?.projects ?? []).filter((project) => project.id === activeProjectRecord.id)
+              : (snapshot?.projects ?? [])
+            ).map((project) => {
+              const pTasks = (snapshot?.tasks ?? []).filter((t) => t.project === project.id);
               const pDone = pTasks.filter((t) => t.status === "done").length;
               const pActive = pTasks.filter((t) => t.status === "in-progress").length;
               const pBlocked = pTasks.filter((t) => t.status === "blocked").length;

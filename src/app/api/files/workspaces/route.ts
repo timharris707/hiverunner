@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { shouldIncludeWorkspaceInOperatorRails } from '@/lib/workspace-visibility';
+import { getOrchestrationDb } from '@/lib/orchestration/db';
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
 
@@ -42,9 +43,28 @@ function getAgentInfo(workspacePath: string): { name: string; emoji: string } | 
   }
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const companySlug = req.nextUrl.searchParams.get('company');
     const workspaces: Workspace[] = [];
+
+    if (companySlug) {
+      const db = getOrchestrationDb();
+      const company = db
+        .prepare('SELECT name, workspace_root FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1')
+        .get(companySlug) as { name: string; workspace_root: string } | undefined;
+
+      if (company?.workspace_root && fs.existsSync(company.workspace_root)) {
+        workspaces.push({
+          id: companySlug,
+          name: company.name,
+          emoji: '🏢',
+          path: company.workspace_root,
+        });
+      }
+
+      return NextResponse.json({ workspaces });
+    }
     
     // Main workspace
     const mainWorkspace = path.join(OPENCLAW_DIR, 'workspace');

@@ -15,6 +15,7 @@ import {
   Loader2,
   X,
 } from "lucide-react";
+import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { useAgentProfile, A } from "../layout";
 import { listCompanyAgents } from "@/lib/orchestration/client";
 
@@ -35,6 +36,7 @@ interface OpenClawConfig {
 interface PeerAgent {
   id: string;
   name: string;
+  openclawAgentId?: string;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -60,7 +62,6 @@ export default function AgentConfigurationPage() {
   const openclawId = agent.openclawAgentId || agent.id;
 
   useEffect(() => {
-    setOcLoading(true);
     fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
       .then((r) => {
         if (!r.ok) throw new Error(`${r.status}`);
@@ -76,7 +77,7 @@ export default function AgentConfigurationPage() {
       setPeers(
         agents
           .filter((a) => a.id !== agent.id)
-          .map((a) => ({ id: a.id, name: a.name })),
+          .map((a) => ({ id: a.id, name: a.name, openclawAgentId: a.openclawAgentId })),
       );
     }).catch(() => {});
   }, [slug, agent.id]);
@@ -98,6 +99,11 @@ export default function AgentConfigurationPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ── Identity ── */}
       <Section icon={<Settings size={13} />} title="Identity">
+        <EditableIcon
+          label="Icon / Avatar"
+          value={agent.emoji}
+          onSave={(v) => patchConfig({ emoji: v })}
+        />
         <EditableText
           label="Name"
           value={agent.name}
@@ -111,8 +117,12 @@ export default function AgentConfigurationPage() {
         <EditableSelect
           label="Reports to"
           value={agent.reportingTo ?? ""}
-          options={[{ value: "", label: "\u2014 None \u2014" }, ...peers.map((p) => ({ value: p.id, label: p.name }))]}
+          options={[
+            { value: "", label: "\u2014 None \u2014" },
+            ...peers.map((p) => ({ value: p.openclawAgentId || p.id, label: p.name })),
+          ]}
           onSave={(v) => patchConfig({ reportsTo: v || null })}
+          helpText={agent.reportingToName ? `Resolved manager: ${agent.reportingToName}` : "No manager linked"}
         />
         <EditableTextarea
           label="Capabilities"
@@ -257,7 +267,41 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
   );
 }
 
-/* ── Editable text input ── */
+/* ── Editable icon picker ── */
+function EditableIcon({
+  label,
+  value,
+  onSave,
+}: {
+  label: string;
+  value: string;
+  onSave: (v: string) => Promise<unknown>;
+}) {
+  const { status, trigger } = useSaveStatus();
+
+  const handleSelect = (next: string) => {
+    if (next !== value) {
+      void trigger(() => onSave(next));
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
+      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
+      <div style={{ flex: 1, minWidth: 0, maxWidth: 360 }}>
+        <MissionIconPicker
+          value={value || "🤖"}
+          onChange={handleSelect}
+          ariaLabel={`${label} icon`}
+        />
+      </div>
+      <div style={{ minWidth: 64 }}>
+        <SaveIndicator status={status} />
+      </div>
+    </div>
+  );
+}
+
 function EditableText({
   label,
   value,
@@ -379,12 +423,14 @@ function EditableSelect({
   options,
   onSave,
   mono,
+  helpText,
 }: {
   label: string;
   value: string;
   options: { value: string; label: string }[];
   onSave: (v: string) => Promise<unknown>;
   mono?: boolean;
+  helpText?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -404,39 +450,47 @@ function EditableSelect({
   const displayLabel = options.find((o) => o.value === value)?.label || value || "\u2014";
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
-      {editing ? (
-        <select
-          ref={ref}
-          value={draft}
-          onChange={(e) => { setDraft(e.target.value); commit(e.target.value); }}
-          onBlur={() => setEditing(false)}
-          style={{
-            ...inputStyle(mono),
-            cursor: "pointer",
-            appearance: "auto" as const,
-          }}
-        >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      ) : (
-        <span
-          onClick={() => setEditing(true)}
-          style={displayStyle(mono)}
-          title="Click to edit"
-        >
-          {displayLabel}
-        </span>
-      )}
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
+      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0, paddingTop: 4 }}>{label}</span>
+      <div style={{ flex: 1 }}>
+        {editing ? (
+          <select
+            ref={ref}
+            value={draft}
+            onChange={(e) => { setDraft(e.target.value); commit(e.target.value); }}
+            onBlur={() => setEditing(false)}
+            style={{
+              ...inputStyle(mono),
+              cursor: "pointer",
+              appearance: "auto" as const,
+            }}
+          >
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        ) : (
+          <span
+            onClick={() => setEditing(true)}
+            style={displayStyle(mono)}
+            title="Click to edit"
+          >
+            {displayLabel}
+          </span>
+        )}
+        {helpText ? (
+          <div style={{ marginTop: 4, fontSize: 11, color: A.muted }}>
+            {helpText}
+          </div>
+        ) : null}
+      </div>
       <SaveIndicator status={status} />
     </div>
   );
 }
 
 /* ── Editable tag input ── */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function EditableTags({
   label,
   value,

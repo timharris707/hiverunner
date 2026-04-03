@@ -3,6 +3,15 @@ import { join } from "path";
 
 import { readTasks } from "@/lib/build-queue";
 
+function readTasksSafely() {
+  try {
+    return readTasks();
+  } catch (error) {
+    console.error("[projects] Falling back to empty tasks after readTasks failure:", error);
+    return [];
+  }
+}
+
 const PROJECTS_FILE = join(process.cwd(), "data", "projects.json");
 
 function readJSON(path: string) {
@@ -15,7 +24,7 @@ function readJSON(path: string) {
 
 export function getProjects() {
   const projects = readJSON(PROJECTS_FILE);
-  const tasks = readTasks();
+  const tasks = readTasksSafely();
 
   const INACTIVE_DAYS = 7;
   const now = new Date();

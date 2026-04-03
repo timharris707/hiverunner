@@ -9,6 +9,7 @@ import {
   Filter,
   X,
 } from "lucide-react";
+import Link from "next/link";
 import { useDemoMode, maskDollar } from "@/lib/demo-mode";
 import { actualTempKey, formatLocalDate, TRADING_STATIONS } from "@/lib/trading-weather";
 
@@ -18,6 +19,7 @@ import { actualTempKey, formatLocalDate, TRADING_STATIONS } from "@/lib/trading-
 
 interface Position {
   trade_id: string;
+  contract_id?: string;
   ticker: string;
   side: string;
   quantity: number;
@@ -452,7 +454,7 @@ export default function TradingFloorPage() {
     return () => clearTimeout(timeoutId);
   }, [fetchData]);
   useEffect(() => {
-    intervalRef.current = setInterval(fetchData, 60000);
+    intervalRef.current = setInterval(fetchData, 15000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [fetchData]);
 
@@ -587,12 +589,36 @@ export default function TradingFloorPage() {
     const outcome = getGroupedSettledOutcome(g, actualHighs);
     return outcome != null ? !outcome : g.trades.some((t) => t.status === "lost" || (t.pnl ?? 0) < 0);
   });
-  const filteredSettledPnl = filteredSettledGroups.reduce(
-    (sum, g) => sum + g.trades.reduce((s, t) => s + (!isOpenStatus(t.status) ? (t.pnl ?? 0) : 0), 0),
-    0,
-  );
-  const filteredCost = filtered.reduce((s, t) => s + t.cost, 0);
   const summaryCountText = `${groups.length} positions · ${filteredOpenGroups.length} open · ${filteredSettledGroups.length} settled · ${filteredWonGroups.length}W/${filteredLostGroups.length}L`;
+  const openExposureTotal = filteredOpenGroups.reduce((sum, g) => sum + g.totalCost, 0);
+  const marketExposureMap = new Map<string, { ticker: string; title: string; cost: number; contracts: number }>();
+  for (const g of filteredOpenGroups) {
+    const marketKey = String(g.trades[0]?.contract_id || g.ticker);
+    const existing = marketExposureMap.get(marketKey);
+    const title = g.trades.find((t) => t.market_title)?.market_title || `${capitalize(g.city)} ${g.marketLabel}`;
+    if (existing) {
+      existing.cost += g.totalCost;
+      existing.contracts += g.totalQuantity;
+    } else {
+      marketExposureMap.set(marketKey, {
+        ticker: marketKey,
+        title,
+        cost: g.totalCost,
+        contracts: g.totalQuantity,
+      });
+    }
+  }
+  const marketExposureRows = Array.from(marketExposureMap.values())
+    .map((row) => {
+      const share = openExposureTotal > 0 ? row.cost / openExposureTotal : 0;
+      const riskLevel = share >= 0.3 ? "high" : share >= 0.2 ? "elevated" : "normal";
+      return { ...row, share, riskLevel };
+    })
+    .sort((a, b) => b.cost - a.cost);
+  const recentFills = allTrades
+    .flatMap((trade) => (trade.fills || []).map((fill) => ({ ...fill, trade_id: trade.trade_id, contract_id: trade.contract_id || trade.ticker })))
+    .sort((a, b) => new Date(String(b.filled_at || "")).getTime() - new Date(String(a.filled_at || "")).getTime())
+    .slice(0, 12);
 
   const hasFilters = versionFilter !== "all" || dateFilter !== "all" || statusFilter !== "all";
 
@@ -612,6 +638,20 @@ export default function TradingFloorPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/logs"
+            className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          >
+            Trade Logs
+          </Link>
+          <a
+            href="#recent-fills"
+            className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          >
+            Recent Fills
+          </a>
           {lastRefresh && (
             <span className="text-xs" style={{ color: "var(--text-muted)" }}>
               {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -795,6 +835,67 @@ export default function TradingFloorPage() {
               {(sub || tooltip) && (
                 <div className="text-xs mt-0.5" style={{ color: "var(--text-muted)" }}>{sub ?? tooltip}</div>
               )}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-4">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2">
+            <span
+              className="text-xs font-bold px-2 py-0.5 rounded tracking-widest"
+              style={{ backgroundColor: "#06b6d418", color: "#06b6d4", border: "1px solid #06b6d435" }}
+            >
+              MARKET RISK
+            </span>
+            <span className="text-xs" style={{ color: "var(--text-muted)" }}>Per-market exposure across open positions</span>
+          </div>
+          <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+            Open exposure: {$(openExposureTotal)}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {marketExposureRows.length === 0 && (
+            <div className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)", color: "var(--text-muted)" }}>
+              No open market exposure.
+            </div>
+          )}
+          {marketExposureRows.map((row) => (
+            <div
+              key={row.ticker}
+              className="p-4 rounded-xl"
+              style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-semibold truncate" style={{ color: "var(--text-primary)" }}>
+                  {row.title}
+                </div>
+                <span
+                  className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider"
+                  style={{
+                    backgroundColor: row.riskLevel === "high" ? "#ef444420" : row.riskLevel === "elevated" ? "#f59e0b20" : "#4ade8020",
+                    color: row.riskLevel === "high" ? "#ef4444" : row.riskLevel === "elevated" ? "#f59e0b" : "#4ade80",
+                  }}
+                >
+                  {row.riskLevel}
+                </span>
+              </div>
+              <div className="text-lg font-bold mt-1" style={{ color: "var(--text-primary)" }}>
+                {$(row.cost)}
+              </div>
+              <div className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
+                {(row.share * 100).toFixed(1)}% of open exposure · {row.contracts} contracts
+              </div>
+              <div className="mt-2 h-1.5 rounded-full" style={{ backgroundColor: "var(--border)" }}>
+                <div
+                  className="h-full rounded-full"
+                  style={{
+                    width: `${Math.min(100, row.share * 100)}%`,
+                    backgroundColor: row.riskLevel === "high" ? "#ef4444" : row.riskLevel === "elevated" ? "#f59e0b" : "#4ade80",
+                  }}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -1397,7 +1498,7 @@ export default function TradingFloorPage() {
                               return (
                                 <>
                                   <div className="text-sm font-bold" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>{lockedOutcome ? "Locked win" : "Locked loss"}</div>
-                                  <div className="text-xs" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>From today's recorded {(/HIGH/i.test(g.ticker) ? "high" : /LOW/i.test(g.ticker) ? "low" : "actual")}</div>
+                                  <div className="text-xs" style={{ color: lockedOutcome ? "#4ade80" : "#ef4444" }}>From today&apos;s recorded {(/HIGH/i.test(g.ticker) ? "high" : /LOW/i.test(g.ticker) ? "low" : "actual")}</div>
                                 </>
                               );
                             }
@@ -1594,6 +1695,79 @@ export default function TradingFloorPage() {
             </div>
           );
         })}
+      </div>
+
+      <div id="recent-fills" className="mt-6 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
+        <div className="px-4 py-3 flex items-center justify-between" style={{ backgroundColor: "var(--card)" }}>
+          <div>
+            <div className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>Recent Fills</div>
+            <div className="text-xs" style={{ color: "var(--text-muted)" }}>Latest execution events across live positions</div>
+          </div>
+          <Link
+            href="/logs"
+            className="text-xs px-3 py-1.5 rounded-lg"
+            style={{ backgroundColor: "var(--card-elevated)", border: "1px solid var(--border)", color: "var(--text-secondary)" }}
+          >
+            Open Logs
+          </Link>
+        </div>
+        <div className="overflow-x-auto">
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
+            <thead>
+              <tr style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
+                {["Filled", "Ticker", "Side", "Qty", "Price", "Fee", "Trade ID"].map((h) => (
+                  <th
+                    key={h}
+                    className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
+                    style={{ color: "var(--text-muted)", backgroundColor: "var(--card-elevated)" }}
+                  >
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {recentFills.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-4 py-4 text-sm" style={{ color: "var(--text-muted)" }}>
+                    No fills available yet.
+                  </td>
+                </tr>
+              )}
+              {recentFills.map((fill, idx) => {
+                const side = String(fill.side || "").toLowerCase();
+                const yesPrice = Number(fill.yes_price || 0);
+                const noPrice = Number(fill.no_price || 0);
+                const price = side === "yes" ? yesPrice : noPrice;
+                return (
+                  <tr key={`${fill.fill_id}-${idx}`} style={{ borderBottom: "1px solid var(--border)" }}>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                      {friendlyDatetime(String(fill.filled_at || ""))}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs font-mono" style={{ color: "var(--text-primary)" }}>
+                      {String(fill.contract_id || fill.ticker || "—")}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs font-semibold" style={{ color: side === "yes" ? "#4ade80" : "#ef4444" }}>
+                      {side ? side.toUpperCase() : "—"}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-primary)" }}>
+                      {Number(fill.quantity || 0)}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-primary)" }}>
+                      {(price * 100).toFixed(1)}¢
+                    </td>
+                    <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-primary)" }}>
+                      ${Number(fill.fee || 0).toFixed(2)}
+                    </td>
+                    <td className="px-4 py-2.5 text-xs font-mono" style={{ color: "var(--text-muted)" }}>
+                      {fill.trade_id}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

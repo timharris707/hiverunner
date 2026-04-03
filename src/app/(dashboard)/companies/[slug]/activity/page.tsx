@@ -6,8 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, Loader2, RefreshCw } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { formatAge } from "@/components/orchestration/ui";
 import { listActivityFeed, listCompanies, listProjects } from "@/lib/orchestration/client";
+import { canonicalProjectBoardHref } from "@/lib/orchestration/company-routes";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type { OrchestrationActivityEvent, OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 
 const PAGE_LIMIT = 40;
@@ -42,11 +46,10 @@ function eventStyle(eventType: OrchestrationActivityEvent["eventType"]) {
   return { label: "Sprint Created", color: "#fb923c" };
 }
 
-function buildEventHref(companySlug: string, event: OrchestrationActivityEvent): string {
+function buildEventHref(company: OrchestrationCompany | null, companySlug: string, event: OrchestrationActivityEvent): string {
   const projectKey = event.projectSlug || event.projectId;
   if (!projectKey) return `/companies/${encodeURIComponent(companySlug)}`;
-  const taskQuery = event.taskId ? `?task=${encodeURIComponent(event.taskId)}` : "";
-  return `/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectKey)}/board${taskQuery}`;
+  return canonicalProjectBoardHref(company, projectKey, event.taskId);
 }
 
 async function readActivitySlice(
@@ -90,6 +93,7 @@ export default function CompanyActivityPage() {
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [events, setEvents] = useState<OrchestrationActivityEvent[]>([]);
   const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
@@ -100,6 +104,11 @@ export default function CompanyActivityPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -232,6 +241,10 @@ export default function CompanyActivityPage() {
         </button>
       </div>
 
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
+      ) : null}
+
       {/* ── stat pills ── */}
       <div className="flex flex-wrap gap-2">
         <StatPill label="Events" value={events.length} />
@@ -274,12 +287,14 @@ export default function CompanyActivityPage() {
           </div>
         ) : (
           <div className="space-y-1">
-            {events.map((event) => {
+            {events
+              .filter((event) => !activeProjectRecord || event.projectId === activeProjectRecord.id)
+              .map((event) => {
               const meta = eventStyle(event.eventType);
               return (
                 <Link
                   key={`${event.id}-${event.timestamp}`}
-                  href={buildEventHref(slug, event)}
+                  href={buildEventHref(company, slug, event)}
                   className="group flex items-start gap-2.5 rounded-lg border px-3 py-2 transition"
                   style={{
                     borderColor: "rgba(255,255,255,0.06)",

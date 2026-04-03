@@ -2,59 +2,93 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
   Activity,
   Bot,
   Building2,
+  Check,
   ChevronRight,
+  X,
   Compass,
   FolderOpen,
   Goal,
   Inbox,
-  Kanban,
   Lightbulb,
   ListChecks,
   Logs,
   Megaphone,
+  Mic,
   Monitor,
+  Pause,
+  Play,
   Plus,
+  Repeat,
+  Settings2,
   SquarePen,
   Search,
   Sparkles,
   Terminal,
   TrendingUp,
   Users,
+  Wallet,
   Workflow,
   Wrench,
 } from "lucide-react";
 
-import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
+import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects, updateProjectSettings } from "@/lib/orchestration/client";
 import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
 import { useDockCollapsed } from "@/lib/dock-state";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { useHiddenProjects } from "@/lib/hidden-project-state";
+import {
+  buildCanonicalCompanyPath,
+  buildCanonicalDashboardPath,
+  buildCanonicalInboxPath,
+  buildCanonicalIssuesPath,
+  buildCanonicalGoalsPath,
+  buildCanonicalTeamPath,
+  buildCanonicalOrgPath,
+  buildCanonicalSkillsPath,
+  buildCanonicalCostsPath,
+  buildCanonicalActivityPath,
+  buildCanonicalFilesPath,
+  buildCanonicalSettingsPath,
+  buildCanonicalProjectsPath,
+  buildCanonicalNewIssuePath,
+  buildCanonicalNewAgentPath,
+  buildCanonicalAgentPath,
+  buildCanonicalProjectIssuesPath,
+  buildCanonicalProjectSettingsPath,
+  buildCanonicalProjectAgentsPath,
+} from "@/lib/orchestration/route-paths";
 
 interface NavItem {
   href: string;
   label: string;
-  icon: LucideIcon;
+  icon?: LucideIcon;
   ariaLabel?: string;
   badge?: number;
   badgeText?: string;
   indent?: boolean;
   statusDotColor?: string;
   highlight?: boolean;
+  trailingAction?: ReactNode;
 }
 
 interface CompanyNavState {
   id?: string;
   slug: string;
   name: string;
+  code: string;
 }
 
 const DOCK_WIDTH = 204;
 const DOCK_COLLAPSED_WIDTH = 44;
 const FALLBACK_COMPANY_SLUG = "neveridle-core";
+const FALLBACK_COMPANY_CODE = "NEV";
 
 const WORK_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Tasks", icon: ListChecks },
@@ -66,10 +100,10 @@ const APPS_ITEMS: NavItem[] = [
   { href: "/ideas", label: "Ideas", icon: Lightbulb },
   { href: "/advisory", label: "Advisory Board", icon: Users },
   { href: "/marketing", label: "Marketing", icon: Megaphone },
+  { href: "/voice", label: "Henry Voice", icon: Mic },
   { href: "/trading", label: "Trading", icon: TrendingUp },
   { href: "/trading/floor", label: "Trading Floor", icon: TrendingUp },
   { href: "/trading/terminal", label: "Trading Terminal", icon: TrendingUp },
-  { href: "/terminal", label: "Terminal", icon: Terminal },
 ];
 
 const COMPANY_ITEMS: Omit<NavItem, "href">[] = [
@@ -77,13 +111,14 @@ const COMPANY_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Skills", icon: Sparkles },
   { label: "Costs", icon: Compass },
   { label: "Activity", icon: Activity },
+  { label: "Files", icon: FolderOpen },
   { label: "Settings", icon: Wrench },
 ];
 
 const SYSTEM_ITEMS: NavItem[] = [
+  { href: "/terminal", label: "Terminal", icon: Terminal },
   { href: "/sessions", label: "Sessions", icon: Monitor },
   { href: "/logs", label: "Logs", icon: Logs },
-  { href: "/files", label: "Files", icon: FolderOpen },
 ];
 
 function SectionDivider() {
@@ -105,12 +140,14 @@ function SectionHeader({
   createAriaLabel,
   collapsed,
   onToggle,
+  action,
 }: {
   label: string;
   onCreate?: () => void;
   createAriaLabel?: string;
   collapsed?: boolean;
   onToggle?: () => void;
+  action?: React.ReactNode;
 }) {
   const isCollapsible = collapsed != null && onToggle != null;
 
@@ -173,6 +210,7 @@ function SectionHeader({
           {label}
         </span>
       </div>
+      {action ? <div style={{ marginRight: "6px", display: "inline-flex", alignItems: "center" }}>{action}</div> : null}
       {onCreate ? (
         <button
           type="button"
@@ -215,31 +253,27 @@ function SectionHeader({
   );
 }
 
-function NavRow({ item, active }: { item: NavItem; active: boolean }) {
+function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onClick?: (event: React.MouseEvent<HTMLAnchorElement>) => void }) {
   const Icon = item.icon;
   const highlighted = item.highlight && !active;
-  const iconColor = active ? "#fbbf24" : highlighted ? "#fbbf24" : "#a8a29e";
-  const labelColor = active ? "#fafaf9" : highlighted ? "#fffbeb" : "#d6d3d1";
-  const background = active
-    ? "linear-gradient(180deg, rgba(217,119,6,0.2) 0%, rgba(180,83,9,0.16) 100%)"
-    : highlighted
-      ? "rgba(120,53,15,0.22)"
-      : "transparent";
-  const border = active
-    ? "1px solid rgba(245,158,11,0.38)"
-    : highlighted
-      ? "1px solid rgba(245,158,11,0.26)"
-      : "1px solid transparent";
+  const iconColor = active ? "#f5f5f4" : highlighted ? "#f5f5f4" : "#a8a29e";
+  const labelColor = active ? "#fafaf9" : highlighted ? "#f5f5f4" : "#d6d3d1";
+  const background = active ? "rgba(255,255,255,0.08)" : "transparent";
+  const border = active ? "1px solid rgba(255,255,255,0.12)" : "1px solid transparent";
+  const hoverBackground = active ? background : "rgba(255,255,255,0.04)";
+  const hoverBorder = active ? border : "1px solid rgba(255,255,255,0.08)";
+  const hasInlineAction = Boolean(item.trailingAction);
 
   return (
     <Link
       href={item.href}
       aria-label={item.ariaLabel ?? item.label}
       className="dock-nav-row"
+      onClick={onClick}
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "7px",
+        gap: hasInlineAction ? "4px" : "7px",
         padding: item.indent ? "4px 8px 4px 18px" : "4px 8px 4px 10px",
         borderRadius: "8px",
         textDecoration: "none",
@@ -247,13 +281,12 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
         border,
         transition: "all 120ms ease",
         cursor: "pointer",
+        position: "relative",
       }}
       onMouseEnter={(event) => {
         if (!active) {
-          event.currentTarget.style.background = highlighted ? "rgba(146,64,14,0.3)" : "rgba(41,37,36,0.75)";
-          event.currentTarget.style.border = highlighted
-            ? "1px solid rgba(245,158,11,0.34)"
-            : "1px solid rgba(120,113,108,0.26)";
+          event.currentTarget.style.background = hoverBackground;
+          event.currentTarget.style.border = hoverBorder;
         }
       }}
       onMouseLeave={(event) => {
@@ -263,7 +296,7 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
         }
       }}
     >
-      <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} />
+      {Icon ? <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} /> : null}
       <span
         style={{
           fontFamily: "var(--font-body)",
@@ -274,11 +307,12 @@ function NavRow({ item, active }: { item: NavItem; active: boolean }) {
           overflow: "hidden",
           textOverflow: "ellipsis",
           lineHeight: 1.15,
-          flex: 1,
+          flex: hasInlineAction ? "0 1 auto" : 1,
         }}
       >
         {item.label}
       </span>
+      {item.trailingAction ? <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: "1px" }}>{item.trailingAction}</span> : null}
       {item.statusDotColor ? (
         <span
           aria-hidden
@@ -347,33 +381,39 @@ function isAgentActive(agent: OrchestrationAgent): boolean {
   return agent.status === "working";
 }
 
-function workItemHref(companySlug: string, itemLabel: string): string {
+function isProjectPaused(project: OrchestrationProject): boolean {
+  return project.status === "paused" || project.status === "on-hold" || project.status === "inactive";
+}
+
+function workItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Tasks":
-      return `/companies/${companySlug}/issues`;
+      return buildCanonicalIssuesPath(code);
     case "Routines":
       return "/workflows";
     case "Goals":
-      return `/companies/${companySlug}/goals`;
+      return buildCanonicalGoalsPath(code);
     default:
-      return `/companies/${companySlug}`;
+      return buildCanonicalCompanyPath(code);
   }
 }
 
-function companyItemHref(companySlug: string, itemLabel: string): string {
+function companyItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Org":
-      return `/companies/${companySlug}/team`;
+      return buildCanonicalTeamPath(code);
     case "Skills":
-      return `/companies/${companySlug}/skills`;
+      return buildCanonicalSkillsPath(code);
     case "Costs":
-      return `/companies/${companySlug}/costs`;
+      return buildCanonicalCostsPath(code);
     case "Activity":
-      return `/companies/${companySlug}/activity`;
+      return buildCanonicalActivityPath(code);
+    case "Files":
+      return buildCanonicalFilesPath(code);
     case "Settings":
-      return `/companies/${companySlug}/settings`;
+      return buildCanonicalSettingsPath(code);
     default:
-      return `/companies/${companySlug}`;
+      return buildCanonicalCompanyPath(code);
   }
 }
 
@@ -381,6 +421,7 @@ export function Dock() {
   const pathname = usePathname();
   const router = useRouter();
   const { collapsed, toggle: toggleDock } = useDockCollapsed();
+  const { activeProject, setActiveProject, clearActiveProject } = useActiveProjectState();
 
   const [isMobile, setIsMobile] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -391,12 +432,56 @@ export function Dock() {
   const [company, setCompany] = useState<CompanyNavState>({
     slug: FALLBACK_COMPANY_SLUG,
     name: "NeverIdle Core",
+    code: FALLBACK_COMPANY_CODE,
   });
+  const [companies, setCompanies] = useState<(CompanyNavState & { code: string })[]>([]);
+  const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
+  const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
+  const lastProjectSelectionKeyRef = useRef<string | null>(null);
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+  const [projectStatusBusyId, setProjectStatusBusyId] = useState<string | null>(null);
+
+  const activeProjectForCompany =
+    activeProject && activeProject.companySlug === company.slug ? activeProject : null;
+  const { hiddenProjects } = useHiddenProjects(company.slug);
+
+  const visibleProjects = useMemo(
+    () => projects.filter((project) => !hiddenProjects[project.id]),
+    [hiddenProjects, projects]
+  );
+
+  const setActiveProjectIfChanged = useCallback(
+    (next: {
+      companySlug: string;
+      projectId: string;
+      projectSlug?: string;
+      projectName?: string;
+    } | null) => {
+      const nextKey = next ? `${next.companySlug}:${next.projectId}:${next.projectSlug ?? ""}` : null;
+      if (lastProjectSelectionKeyRef.current === nextKey) return;
+
+      const currentKey = activeProject
+        ? `${activeProject.companySlug}:${activeProject.projectId}:${activeProject.projectSlug ?? ""}`
+        : null;
+
+      if (currentKey === nextKey) {
+        lastProjectSelectionKeyRef.current = nextKey;
+        return;
+      }
+
+      lastProjectSelectionKeyRef.current = nextKey;
+      if (next) {
+        setActiveProject(next);
+      } else {
+        clearActiveProject();
+      }
+    },
+    [activeProject, clearActiveProject, setActiveProject]
+  );
 
   const checkActive = useCallback(
     (href: string, exact?: boolean) => {
@@ -436,6 +521,7 @@ export function Dock() {
     const resolveCompany = async () => {
       const companies = await listCompanies();
       if (cancelled || companies.length === 0) return;
+      setCompanies(companies.map((c) => ({ id: c.id, slug: c.slug, name: c.name, code: c.code || c.slug.slice(0, 3).toUpperCase() })));
 
       const segments = pathname.split("/").filter(Boolean);
       const root = segments[0];
@@ -447,6 +533,23 @@ export function Dock() {
             id: current.id,
             slug: current.slug,
             name: current.name,
+            code: current.code || current.slug.slice(0, 3).toUpperCase(),
+          });
+          return;
+        }
+      }
+
+      // Detect canonical /{companyCode}/... URLs
+      if (root && root !== "companies" && root !== "projects") {
+        const byCode = companies.find(
+          (candidate) => (candidate.code || "").toUpperCase() === root.toUpperCase()
+        );
+        if (byCode) {
+          setCompany({
+            id: byCode.id,
+            slug: byCode.slug,
+            name: byCode.name,
+            code: byCode.code || byCode.slug.slice(0, 3).toUpperCase(),
           });
           return;
         }
@@ -465,10 +568,15 @@ export function Dock() {
             id: currentCompany.id,
             slug: currentCompany.slug,
             name: currentCompany.name,
+            code: currentCompany.code || currentCompany.slug.slice(0, 3).toUpperCase(),
           });
           return;
         }
       }
+
+      // URL doesn't contain a company code — keep the current selection if we have one.
+      // Only fall back to default on first load (company.id is undefined).
+      if (company.id) return;
 
       const fallback =
         companies.find((candidate) => candidate.slug === FALLBACK_COMPANY_SLUG) ?? companies[0];
@@ -476,6 +584,7 @@ export function Dock() {
         id: fallback?.id,
         slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
         name: fallback?.name ?? "NeverIdle Core",
+        code: fallback?.code || (fallback?.slug ?? FALLBACK_COMPANY_SLUG).slice(0, 3).toUpperCase(),
       });
     };
 
@@ -495,6 +604,7 @@ export function Dock() {
       const rows = await listProjects({ company: company.slug });
       if (cancelled) return;
       const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
+      const visibleSorted = sorted.filter((project) => !hiddenProjects[project.id]);
       setProjects((previous) => {
         // Preserve the last known non-empty list if a poll cycle returns empty.
         if (mode === "poll" && sorted.length === 0 && previous.length > 0) {
@@ -503,6 +613,60 @@ export function Dock() {
         return sorted;
       });
       setProjectsLoading(false);
+
+      const pathProjectId = typeof window !== "undefined"
+        ? new URLSearchParams(window.location.search).get("projectId")
+        : null;
+
+      const inferredFromPath = visibleSorted.find(
+        (project) =>
+          pathname.includes(`/${cc}/projects/${project.slug || project.id}`) ||
+          pathname.includes(`/companies/${company.slug}/projects/${project.slug || project.id}`) ||
+          pathname.includes(`/projects/${project.id}`) ||
+          pathProjectId === project.id ||
+          pathProjectId === project.slug
+      );
+
+      if (inferredFromPath) {
+        setActiveProjectIfChanged({
+          companySlug: company.slug,
+          projectId: inferredFromPath.id,
+          projectSlug: inferredFromPath.slug,
+          projectName: inferredFromPath.name,
+        });
+        return;
+      }
+
+      const stillValid = activeProject && activeProject.companySlug === company.slug
+        ? visibleSorted.find((project) => project.id === activeProject.projectId || project.slug === activeProject.projectSlug)
+        : null;
+
+      if (stillValid) {
+        if (stillValid.name !== activeProject?.projectName || stillValid.slug !== activeProject?.projectSlug) {
+          setActiveProjectIfChanged({
+            companySlug: company.slug,
+            projectId: stillValid.id,
+            projectSlug: stillValid.slug,
+            projectName: stillValid.name,
+          });
+        }
+        return;
+      }
+
+      if (visibleSorted.length === 0 && activeProject && activeProject.companySlug === company.slug) {
+        setActiveProjectIfChanged(null);
+        return;
+      }
+
+      if (!stillValid && visibleSorted.length > 0) {
+        const fallbackProject = visibleSorted[0];
+        setActiveProjectIfChanged({
+          companySlug: company.slug,
+          projectId: fallbackProject.id,
+          projectSlug: fallbackProject.slug,
+          projectName: fallbackProject.name,
+        });
+      }
     };
 
     void loadProjects("initial");
@@ -515,7 +679,7 @@ export function Dock() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [company.slug]);
+  }, [company.slug, pathname, activeProject, hiddenProjects, setActiveProjectIfChanged]);
 
   useEffect(() => {
     let cancelled = false;
@@ -569,15 +733,17 @@ export function Dock() {
     };
   }, [company.slug]);
 
+  const cc = company.code;
+
   const mobileItems: NavItem[] = useMemo(
     () => [
-      { href: `/companies/${company.slug}/dashboard`, label: "Dashboard", icon: Building2 },
-      { href: `/companies/${company.slug}/issues`, label: "Tasks", icon: ListChecks },
-      { href: `/companies/${company.slug}/projects`, label: "Projects", icon: FolderOpen },
-      { href: `/companies/${company.slug}/team`, label: "Agents", icon: Bot },
+      { href: buildCanonicalDashboardPath(cc), label: "Dashboard", icon: Building2 },
+      { href: buildCanonicalIssuesPath(cc), label: "Tasks", icon: ListChecks },
+      { href: buildCanonicalProjectsPath(cc), label: "Projects", icon: FolderOpen },
+      { href: buildCanonicalTeamPath(cc), label: "Agents", icon: Bot },
       { href: "/search", label: "Search", icon: Search },
     ],
-    [company.slug]
+    [cc]
   );
 
   if (isMobile) {
@@ -636,7 +802,7 @@ export function Dock() {
         position: "fixed",
         left: 0,
         top: 0,
-        bottom: "32px",
+        bottom: 0,
         width: `${DOCK_WIDTH}px`,
         borderRight: "1px solid rgba(120,113,108,0.36)",
         background:
@@ -652,11 +818,11 @@ export function Dock() {
         overflowX: "hidden",
       }}
     >
-      <div style={{ margin: "1px 4px 2px", padding: "1px 2px" }}>
+      <div style={{ margin: "2px 4px 8px", padding: "2px 2px 6px", borderBottom: "1px solid rgba(120,113,108,0.28)" }}>
         <p
           style={{
             margin: 0,
-            fontSize: "10px",
+            fontSize: "11px",
             letterSpacing: "0.16em",
             textTransform: "uppercase",
             color: "#e7e5e4",
@@ -669,37 +835,37 @@ export function Dock() {
 
       <NavRow
         item={{
-          href: `/companies/${company.slug}/issues/new`,
+          href: buildCanonicalNewIssuePath(cc),
           label: "New Task",
           icon: SquarePen,
         }}
-        active={checkActive(`/companies/${company.slug}/issues/new`)}
+        active={checkActive(buildCanonicalNewIssuePath(cc))}
       />
 
       <NavRow
         item={{
-          href: `/companies/${company.slug}/dashboard`,
+          href: buildCanonicalDashboardPath(cc),
           label: "Dashboard",
           icon: Building2,
-          badgeText: `● ${activeAgentCount} live`,
+          badgeText: activeAgentCount > 0 ? `${activeAgentCount} live` : undefined,
         }}
-        active={checkActive(`/companies/${company.slug}/dashboard`)}
+        active={checkActive(buildCanonicalDashboardPath(cc))}
       />
       <NavRow
         item={{
-          href: `/companies/${company.slug}/inbox`,
+          href: buildCanonicalInboxPath(cc),
           label: "Inbox",
           icon: Inbox,
           badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined,
         }}
-        active={checkActive(`/companies/${company.slug}/inbox`)}
+        active={checkActive(buildCanonicalInboxPath(cc))}
       />
 
       <SectionDivider />
 
       <SectionHeader label="Work" />
       {WORK_ITEMS.map((entry) => {
-        const href = workItemHref(company.slug, entry.label);
+        const href = workItemHref(cc, entry.label);
         return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
       })}
 
@@ -710,7 +876,7 @@ export function Dock() {
         collapsed={!projectsOpen}
         onToggle={() => setProjectsOpen((prev) => !prev)}
         onCreate={() => {
-          router.push(`/companies/${company.slug}?tab=projects&createProject=1`);
+          router.push(buildCanonicalProjectsPath(cc));
         }}
         createAriaLabel="Create project"
       />
@@ -718,27 +884,263 @@ export function Dock() {
         <div style={{ display: "grid", gap: "3px", padding: "0 4px" }}>
           <div style={shimmerStyle()} />
           <div style={shimmerStyle()} />
-          <div style={shimmerStyle()} />
         </div>
       ) : projects.length === 0 ? (
         <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No projects found.</p>
       ) : (
-        projects.map((project) => {
-          const href = `/companies/${company.slug}/projects/${project.slug || project.id}/board`;
-          return (
-            <NavRow
-              key={project.id}
-              item={{
-                href,
-                label: project.name,
-                icon: Kanban,
-                badge: project.taskCount,
-                indent: true,
-              }}
-              active={checkActive(href)}
-            />
-          );
-        })
+        <>
+          <Link
+            href={buildCanonicalProjectsPath(cc)}
+            style={{
+              display: "block",
+              margin: "0 8px 6px 18px",
+              fontSize: "10px",
+              color: "#a8a29e",
+              textDecoration: "none",
+              textTransform: "uppercase",
+              letterSpacing: "0.12em",
+            }}
+          >
+            Manage projects →
+          </Link>
+          {(activeProjectForCompany
+            ? visibleProjects.filter((project) => project.id === activeProjectForCompany.projectId || project.slug === activeProjectForCompany.projectSlug)
+            : visibleProjects.slice(0, 1)
+          ).map((project) => {
+            const pSlug = project.slug || project.id;
+            const projectHref = buildCanonicalProjectIssuesPath(cc, pSlug);
+            const projectPaused = isProjectPaused(project);
+            const projectPageActive =
+              checkActive(buildCanonicalIssuesPath(cc)) ||
+              pathname === buildCanonicalProjectIssuesPath(cc, pSlug) ||
+              checkActive(buildCanonicalProjectSettingsPath(cc, pSlug)) ||
+              checkActive(buildCanonicalProjectAgentsPath(cc, pSlug));
+            return (
+              <div key={project.id} style={{ display: "grid", gap: "4px" }}>
+                <NavRow
+                  item={{
+                    href: projectHref,
+                    label: project.name,
+                    badge: project.taskCount > 0 ? project.taskCount : undefined,
+                    indent: true,
+                    trailingAction: (
+                      <>
+                        <div style={{ marginLeft: "auto", marginRight: "48px", display: "inline-flex", alignItems: "center" }}>
+                          <Check size={12} color="#f5f5f4" />
+                        </div>
+                        <div style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
+                          <button
+                            type="button"
+                            disabled={projectStatusBusyId === project.id}
+                            onClick={async (event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              setProjectStatusBusyId(project.id);
+                              const nextStatus = projectPaused ? "active" : "paused";
+                              const updated = await updateProjectSettings({
+                                projectIdOrSlug: project.id,
+                                status: nextStatus,
+                              });
+                              if (updated) {
+                                setProjects((previous) =>
+                                  previous.map((candidate) => (candidate.id === project.id ? updated : candidate))
+                                );
+                              }
+                              setProjectStatusBusyId(null);
+                            }}
+                            aria-label={projectPaused ? `Resume ${project.name}` : `Pause ${project.name}`}
+                            title={projectPaused ? `Resume ${project.name}` : `Pause ${project.name}`}
+                            style={{
+                              width: "18px",
+                              height: "18px",
+                              borderRadius: "6px",
+                              border: "1px solid rgba(255,255,255,0.16)",
+                              background: "rgba(255,255,255,0.04)",
+                              color: "#f5f5f4",
+                              opacity: projectStatusBusyId === project.id ? 0.55 : 1,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: projectStatusBusyId === project.id ? "wait" : "pointer",
+                              transition: "all 120ms ease",
+                              zIndex: 2,
+                            }}
+                          >
+                            {projectPaused ? <Play size={10} strokeWidth={2.2} /> : <Pause size={10} strokeWidth={2.2} />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              if (visibleProjects.length <= 1) return;
+                              setProjectPickerOpen((prev) => !prev);
+                            }}
+                            aria-label={`Switch project from ${project.name}`}
+                            title="Switch project"
+                            style={{
+                              width: "18px",
+                              height: "18px",
+                              borderRadius: "6px",
+                              border: "1px solid rgba(255,255,255,0.16)",
+                              background: "rgba(255,255,255,0.04)",
+                              color: "#f5f5f4",
+                              opacity: visibleProjects.length <= 1 ? 0.45 : 1,
+                              display: "inline-flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              cursor: visibleProjects.length <= 1 ? "default" : "pointer",
+                              transition: "all 120ms ease",
+                              zIndex: 2,
+                            }}
+                          >
+                            <Repeat size={11} strokeWidth={2.2} />
+                          </button>
+                        </div>
+                      </>
+                    ),
+                  }}
+                  active={projectPageActive}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    setProjectPickerOpen(false);
+                    setActiveProjectIfChanged({
+                      companySlug: company.slug,
+                      projectId: project.id,
+                      projectSlug: project.slug,
+                      projectName: project.name,
+                    });
+                    router.push(projectHref);
+                  }}
+                />
+                {projectPickerOpen && visibleProjects.length > 1 ? (
+                  <div
+                    style={{
+                      margin: "0 6px 2px 18px",
+                      maxWidth: "calc(100% - 24px)",
+                      background: "rgba(28,25,23,0.98)",
+                      border: "1px solid rgba(120,113,108,0.35)",
+                      borderRadius: "10px",
+                      boxShadow: "0 12px 30px rgba(0,0,0,0.35)",
+                      padding: "8px 6px 6px",
+                      position: "relative",
+                      zIndex: 40,
+                      overflow: "hidden",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        setProjectPickerOpen(false);
+                      }}
+                      aria-label="Close project picker"
+                      title="Close"
+                      style={{
+                        position: "absolute",
+                        top: "6px",
+                        right: "6px",
+                        width: "18px",
+                        height: "18px",
+                        borderRadius: "6px",
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        background: "rgba(255,255,255,0.04)",
+                        color: "#d6d3d1",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <X size={10} strokeWidth={2.2} />
+                    </button>
+                    <div style={{ padding: "0 28px 8px 6px", marginBottom: "4px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                      <span style={{ fontSize: "13px", fontWeight: 700, color: "#f5f5f4", letterSpacing: "0.01em" }}>
+                        Select Project
+                      </span>
+                    </div>
+                    {visibleProjects.map((candidate) => {
+                      const isActiveProject = candidate.id === project.id;
+                      return (
+                        <button
+                          key={candidate.id}
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setProjectPickerOpen(false);
+                            setActiveProjectIfChanged({
+                              companySlug: company.slug,
+                              projectId: candidate.id,
+                              projectSlug: candidate.slug,
+                              projectName: candidate.name,
+                            });
+                            router.push(buildCanonicalProjectIssuesPath(cc, candidate.slug || candidate.id));
+                          }}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "space-between",
+                            gap: "8px",
+                            padding: "4px 6px",
+                            borderRadius: "8px",
+                            border: "none",
+                            background: isActiveProject ? "rgba(255,255,255,0.08)" : "transparent",
+                            color: isActiveProject ? "#fafaf9" : "#d6d3d1",
+                            cursor: "pointer",
+                            textAlign: "left",
+                          }}
+                        >
+                          <span style={{ fontSize: "12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                            {candidate.name}
+                          </span>
+                          {isActiveProject ? <Check size={13} color="#f5f5f4" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                <NavRow
+                  item={{
+                    href: buildCanonicalProjectIssuesPath(cc, pSlug),
+                    label: "Tasks",
+                    icon: ListChecks,
+                    indent: true,
+                  }}
+                  active={checkActive(buildCanonicalIssuesPath(cc)) && !!activeProjectForCompany}
+                />
+                <NavRow
+                  item={{
+                    href: projectHref,
+                    label: "Overview",
+                    icon: FolderOpen,
+                    indent: true,
+                  }}
+                  active={pathname === projectHref}
+                />
+                <NavRow
+                  item={{
+                    href: buildCanonicalProjectSettingsPath(cc, pSlug),
+                    label: "Configuration",
+                    icon: Settings2,
+                    indent: true,
+                  }}
+                  active={checkActive(buildCanonicalProjectSettingsPath(cc, pSlug))}
+                />
+                <NavRow
+                  item={{
+                    href: buildCanonicalProjectAgentsPath(cc, pSlug),
+                    label: "Budget",
+                    icon: Wallet,
+                    indent: true,
+                  }}
+                  active={checkActive(buildCanonicalProjectAgentsPath(cc, pSlug))}
+                />
+              </div>
+            );
+          })}
+        </>
       ))}
 
       <SectionDivider />
@@ -748,7 +1150,7 @@ export function Dock() {
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
         onCreate={() => {
-          router.push(`/companies/${company.slug}/team?createAgent=1`);
+          router.push(buildCanonicalNewAgentPath(cc));
         }}
         createAriaLabel="Create agent"
       />
@@ -762,7 +1164,7 @@ export function Dock() {
         <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No agents registered.</p>
       ) : (
         agents.map((agent) => {
-          const href = `/companies/${company.slug}/agents/${agent.id}`;
+          const href = buildCanonicalAgentPath(cc, agent.slug || agent.id);
           return (
             <NavRow
               key={agent.id}
@@ -785,13 +1187,149 @@ export function Dock() {
         label="Company"
         collapsed={!companyOpen}
         onToggle={() => setCompanyOpen((prev) => !prev)}
-        onCreate={() => { router.push("/companies/new"); }}
+        onCreate={() => { router.push("/companies/new"); }} // stays legacy — unique top-level create flow
         createAriaLabel="Create company"
       />
-      {companyOpen && COMPANY_ITEMS.map((entry) => {
-        const href = companyItemHref(company.slug, entry.label);
-        return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
-      })}
+      {companyOpen && (
+        <>
+          <div style={{ position: "relative" }}>
+            <NavRow
+              item={{
+                href: buildCanonicalDashboardPath(cc),
+                label: company.name,
+                indent: true,
+                trailingAction: (
+                  <div style={{ marginLeft: "auto", marginRight: companies.length > 1 ? "28px" : "0", display: "inline-flex", alignItems: "center" }}>
+                    <Check size={12} color="#f5f5f4" />
+                  </div>
+                ),
+              }}
+              active={checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalTeamPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
+            />
+            {companies.length > 1 ? (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  setCompanyPickerOpen((prev) => !prev);
+                }}
+                aria-label="Switch company"
+                title="Switch company"
+                style={{
+                  position: "absolute",
+                  right: "6px",
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: "18px",
+                  height: "18px",
+                  borderRadius: "6px",
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "rgba(255,255,255,0.04)",
+                  color: "#f5f5f4",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  transition: "all 120ms ease",
+                  zIndex: 2,
+                }}
+              >
+                <Repeat size={11} strokeWidth={2.2} />
+              </button>
+            ) : null}
+            {companyPickerOpen ? (
+              <div
+                style={{
+                  margin: "4px 6px 6px 18px",
+                  maxWidth: "calc(100% - 24px)",
+                  background: "rgba(28,25,23,0.98)",
+                  border: "1px solid rgba(120,113,108,0.35)",
+                  borderRadius: "10px",
+                  boxShadow: "0 12px 30px rgba(0,0,0,0.35)",
+                  padding: "8px 6px 6px",
+                  position: "relative",
+                  zIndex: 40,
+                  overflow: "hidden",
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCompanyPickerOpen(false);
+                  }}
+                  aria-label="Close company picker"
+                  title="Close"
+                  style={{
+                    position: "absolute",
+                    top: "6px",
+                    right: "6px",
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "6px",
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    background: "rgba(255,255,255,0.04)",
+                    color: "#d6d3d1",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                  }}
+                >
+                  <X size={10} strokeWidth={2.2} />
+                </button>
+                <div style={{ padding: "0 28px 8px 6px", marginBottom: "4px", borderBottom: "1px solid rgba(255,255,255,0.08)" }}>
+                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#f5f5f4", letterSpacing: "0.01em" }}>
+                    Select Company
+                  </span>
+                </div>
+                {companies.map((candidate) => {
+                  const active = candidate.slug === company.slug;
+                  return (
+                    <button
+                      key={candidate.slug}
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setCompanyPickerOpen(false);
+                        if (activeProject && activeProject.companySlug !== candidate.slug) {
+                          setActiveProjectIfChanged(null);
+                        }
+                        if (!active) window.location.href = buildCanonicalDashboardPath(candidate.code);
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        gap: "8px",
+                        padding: "4px 6px",
+                        borderRadius: "8px",
+                        border: "none",
+                        background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                        color: active ? "#fafaf9" : "#d6d3d1",
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span style={{ fontSize: "12px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {candidate.name}
+                      </span>
+                      {active ? <Check size={13} color="#f5f5f4" /> : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+          {COMPANY_ITEMS.map((entry) => {
+            const href = companyItemHref(cc, entry.label);
+            return <NavRow key={entry.label} item={{ ...entry, href, indent: true }} active={checkActive(href)} />;
+          })}
+        </>
+      )}
 
       <SectionDivider />
 
@@ -806,14 +1344,14 @@ export function Dock() {
       {systemsOpen && SYSTEM_ITEMS.map((item) => <NavRow key={item.href} item={{ ...item, indent: true }} active={checkActive(item.href)} />)}
 
       {/* collapse toggle */}
-      <div style={{ flex: 1 }} />
+      <div style={{ flex: 1, minHeight: 18 }} />
       <button
         onClick={toggleDock}
         title="Collapse sidebar"
         style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           width: 32, height: 32, margin: "4px 4px 0 auto",
-          borderRadius: 6, border: "1px solid rgba(120,113,108,0.25)",
+          borderRadius: 8, border: "1px solid rgba(120,113,108,0.25)",
           background: "rgba(41,37,36,0.5)", color: "#a8a29e",
           cursor: "pointer", transition: "all 120ms ease",
         }}
@@ -828,11 +1366,11 @@ export function Dock() {
   // When collapsed, show icon-only sidebar
   if (collapsed && !isMobile) {
     const collapsedItems: { href: string; icon: LucideIcon; label: string; dividerAfter?: boolean }[] = [
-      { href: `/companies/${company.slug}/issues/new`, icon: SquarePen, label: "New Task" },
-      { href: `/companies/${company.slug}/dashboard`, icon: Building2, label: "Dashboard" },
-      { href: `/companies/${company.slug}/inbox`, icon: Inbox, label: "Inbox", dividerAfter: true },
-      ...WORK_ITEMS.map((w, i) => ({ href: workItemHref(company.slug, w.label), icon: w.icon, label: w.label, dividerAfter: i === WORK_ITEMS.length - 1 })),
-      ...COMPANY_ITEMS.map((c, i) => ({ href: companyItemHref(company.slug, c.label), icon: c.icon, label: c.label, dividerAfter: i === COMPANY_ITEMS.length - 1 })),
+      { href: buildCanonicalNewIssuePath(cc), icon: SquarePen, label: "New Task" },
+      { href: buildCanonicalDashboardPath(cc), icon: Building2, label: "Dashboard" },
+      { href: buildCanonicalInboxPath(cc), icon: Inbox, label: "Inbox", dividerAfter: true },
+      ...WORK_ITEMS.map((w, i) => ({ href: workItemHref(cc, w.label), icon: w.icon, label: w.label, dividerAfter: i === WORK_ITEMS.length - 1 })),
+      ...COMPANY_ITEMS.map((c, i) => ({ href: companyItemHref(cc, c.label), icon: c.icon, label: c.label, dividerAfter: i === COMPANY_ITEMS.length - 1 })),
       ...APPS_ITEMS.map((a, i) => ({ href: a.href, icon: a.icon, label: a.label, dividerAfter: i === APPS_ITEMS.length - 1 })),
       ...SYSTEM_ITEMS.map((s) => ({ href: s.href, icon: s.icon, label: s.label })),
     ];
@@ -841,7 +1379,7 @@ export function Dock() {
       <nav
         aria-label="Primary (collapsed)"
         style={{
-          position: "fixed", left: 0, top: 0, bottom: "32px",
+          position: "fixed", left: 0, top: 0, bottom: 0,
           width: `${DOCK_COLLAPSED_WIDTH}px`,
           background: "linear-gradient(180deg, rgba(28,25,23,0.98) 0%, rgba(41,37,36,0.98) 100%)",
           borderRight: "1px solid rgba(120,113,108,0.25)",
@@ -877,13 +1415,13 @@ export function Dock() {
           );
         })}
 
-        <div style={{ flex: 1 }} />
+        <div style={{ flex: 1, minHeight: 18 }} />
         <button
           onClick={toggleDock}
           title="Expand sidebar"
           style={{
             display: "flex", alignItems: "center", justifyContent: "center",
-            width: 32, height: 32, borderRadius: 6,
+            width: 32, height: 32, borderRadius: 8,
             border: "1px solid rgba(120,113,108,0.25)",
             background: "rgba(41,37,36,0.5)", color: "#a8a29e",
             cursor: "pointer", transition: "all 120ms ease",

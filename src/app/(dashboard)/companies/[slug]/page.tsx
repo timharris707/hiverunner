@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import {
   Activity,
   AlertTriangle,
@@ -20,7 +20,9 @@ import {
   WifiOff,
 } from "lucide-react";
 
-import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { CompanyErrorState, CompanyShell, StatCard, DeleteCompanyModal } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
+import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { classifyProjectState, formatAge } from "@/components/orchestration/ui";
 import {
   createProject,
@@ -29,6 +31,8 @@ import {
   listProjectSprints,
   listProjects,
 } from "@/lib/orchestration/client";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -60,7 +64,9 @@ const shellTabs: Array<{ id: CompanyTab; label: string }> = [
 export default function CompanyDetailPage() {
   const params = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
+  const router = useRouter();
   const slug = params?.slug ?? "";
+  const { activeProject, clearActiveProject, setActiveProject } = useActiveProjectState();
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
@@ -71,6 +77,8 @@ export default function CompanyDetailPage() {
   const [projectStateTab, setProjectStateTab] = useState<ProjectStateTab>("active");
   const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const [roster, setRoster] = useState<CompanyRosterAgent[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
@@ -186,9 +194,15 @@ export default function CompanyDetailPage() {
     };
   }, [company, projects]);
 
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug]
+  );
+
   const filteredProjects = useMemo(() => {
     const q = query.toLowerCase();
     return projects.filter((project) => {
+      if (activeProjectRecord && project.id !== activeProjectRecord.id) return false;
       if (classifyProjectState(project.status) !== projectStateTab) return false;
       return `${project.name} ${project.description}`.toLowerCase().includes(q);
     });
@@ -255,9 +269,34 @@ export default function CompanyDetailPage() {
     }
 
     setProjects((prev) => [created, ...prev]);
+    setActiveProject({
+      companySlug: slug,
+      projectId: created.id,
+      projectSlug: created.slug,
+      projectName: created.name,
+    });
     setProjectStateTab("active");
     setCreateOpen(false);
     return true;
+  };
+
+  const handleDeleteCompany = async () => {
+    if (!company) return;
+    setDeleteBusy(true);
+    try {
+      const response = await fetch(`/api/orchestration/companies/${company.slug}?hard=true`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to delete company");
+      }
+      setDeleteOpen(false);
+      router.push("/companies");
+    } catch {
+      setError("Could not delete company.");
+      setDeleteBusy(false);
+      setDeleteOpen(false);
+    }
   };
 
   if (!loading && !company) {
@@ -280,6 +319,10 @@ export default function CompanyDetailPage() {
       }
       accentColor={company?.theme?.sampleUrl ? "#d97706" : "#14b8a6"}
     >
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} />
+      ) : null}
+
       <section className="rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_10%_5%,rgba(45,212,191,0.2),transparent_38%),radial-gradient(circle_at_90%_0%,rgba(180,83,9,0.22),transparent_35%),linear-gradient(150deg,rgba(2,6,23,0.95),rgba(15,23,42,0.9))] p-5 shadow-[0_16px_46px_rgba(2,6,23,0.5)] backdrop-blur-2xl md:p-8">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2 text-xs text-slate-300">
@@ -439,6 +482,14 @@ export default function CompanyDetailPage() {
                     key={project.id}
                     href={`/companies/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project.slug)}`}
                     className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(217,119,6,0.12),transparent_28%),linear-gradient(165deg,rgba(30,41,59,0.95),rgba(2,6,23,0.92))] p-4 shadow-[0_16px_35px_rgba(2,6,23,0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300/50"
+                    onClick={() =>
+                      setActiveProject({
+                        companySlug: slug,
+                        projectId: project.id,
+                        projectSlug: project.slug,
+                        projectName: project.name,
+                      })
+                    }
                   >
                     <div className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent opacity-0 transition group-hover:opacity-100" />
                     <div className="mb-3 flex items-start justify-between gap-3">
@@ -447,7 +498,14 @@ export default function CompanyDetailPage() {
                           {project.emoji}
                         </span>
                         <div>
-                          <h2 className="text-sm font-semibold text-white">{project.name}</h2>
+                          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
+                            <span>{project.name}</span>
+                            {activeProjectRecord?.id === project.id ? (
+                              <span className="rounded-full border border-amber-300/35 bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-amber-100">
+                                Active
+                              </span>
+                            ) : null}
+                          </h2>
                           <p className="line-clamp-1 text-xs text-slate-400">{project.description || "No description yet."}</p>
                         </div>
                       </div>
@@ -567,7 +625,7 @@ export default function CompanyDetailPage() {
               {filteredRoster.map((agent) => (
                 <Link
                   key={agent.id}
-                  href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.id)}`}
+                  href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.slug || agent.id)}`}
                   className="group rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.12),transparent_30%),linear-gradient(160deg,rgba(30,41,59,0.85),rgba(2,6,23,0.9))] p-4 transition hover:border-amber-300/35"
                 >
                   <div className="mb-3 flex items-start justify-between gap-2">
@@ -657,15 +715,16 @@ export default function CompanyDetailPage() {
           <section className="rounded-2xl border border-rose-300/30 bg-rose-500/10 p-4 backdrop-blur-xl">
             <div className="mb-3 inline-flex items-center gap-2 text-rose-200">
               <AlertTriangle className="h-4 w-4" />
-              <h2 className="text-sm font-semibold text-rose-100">Danger Zone</h2>
+              <h2 className="text-sm font-semibold text-slate-100">Danger Zone</h2>
             </div>
-            <p className="text-sm text-rose-100/90">Archive and delete actions remain disabled in scaffolding mode to prevent accidental company loss.</p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" className="rounded-lg border border-rose-300/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-200">
-                Archive Company (Disabled)
-              </button>
-              <button type="button" className="rounded-lg border border-rose-300/35 bg-rose-500/10 px-3 py-1.5 text-xs text-rose-200">
-                Delete Company (Disabled)
+            <p className="text-sm text-slate-300">Permanently delete this company, all of its projects, agents, tasks, and file workspaces. This action cannot be undone.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button 
+                type="button" 
+                onClick={() => setDeleteOpen(true)}
+                className="rounded-lg border border-rose-400/50 bg-rose-500/20 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-rose-500/30"
+              >
+                Delete Company
               </button>
             </div>
           </section>
@@ -676,6 +735,14 @@ export default function CompanyDetailPage() {
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onSubmit={handleCreateProject}
+      />
+
+      <DeleteCompanyModal
+        open={deleteOpen}
+        onClose={() => setDeleteOpen(false)}
+        onConfirm={handleDeleteCompany}
+        companyName={company?.name ?? slug}
+        busy={deleteBusy}
       />
     </CompanyShell>
   );
@@ -863,7 +930,7 @@ function CreateProjectModal({
             }
           }}
         >
-          <div className="grid gap-3 md:grid-cols-[1fr,104px,124px]">
+          <div className="grid gap-3 md:grid-cols-[1fr,240px,124px]">
             <label className="space-y-1">
               <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Name</span>
               <input
@@ -876,12 +943,11 @@ function CreateProjectModal({
               />
             </label>
             <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Emoji</span>
-              <input
+              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Icon</span>
+              <MissionIconPicker
                 value={emoji}
-                onChange={(event) => setEmoji(event.target.value)}
-                maxLength={4}
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-amber-400/60"
+                onChange={setEmoji}
+                ariaLabel="Project icon"
               />
             </label>
             <label className="space-y-1">

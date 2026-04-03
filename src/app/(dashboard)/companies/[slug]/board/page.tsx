@@ -5,7 +5,11 @@ import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { Search } from "lucide-react";
 import { CompanyErrorState, StatCard } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { getCompanyInbox, listCompanies, listProjects } from "@/lib/orchestration/client";
+import { canonicalProjectBoardHref } from "@/lib/orchestration/company-routes";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import { ORCHESTRATION_COLUMNS, type OrchestrationCompany, type OrchestrationCompanyInboxTask, type OrchestrationProject, type TaskStatus } from "@/lib/orchestration/types";
 
 type CompanyTask = OrchestrationCompanyInboxTask;
@@ -13,6 +17,7 @@ type CompanyTask = OrchestrationCompanyInboxTask;
 export default function CompanyBoardPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [tasks, setTasks] = useState<CompanyTask[]>([]);
@@ -57,10 +62,16 @@ export default function CompanyBoardPage() {
     };
   }, [slug]);
 
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug]
+  );
+
   const filteredTasks = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return tasks.filter((task) => {
-      if (projectFilter !== "all" && task.projectId !== projectFilter) return false;
+      const effectiveProjectFilter = activeProjectRecord?.id ?? projectFilter;
+      if (effectiveProjectFilter !== "all" && task.projectId !== effectiveProjectFilter) return false;
       if (!needle) return true;
       return `${task.title} ${task.description ?? ""} ${task.assignee ?? ""} ${task.projectName}`.toLowerCase().includes(needle);
     });
@@ -80,6 +91,10 @@ export default function CompanyBoardPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
+      ) : null}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
         {ORCHESTRATION_COLUMNS.map((column) => (
           <StatCard key={column.id} label={column.label} value={totals[column.id] ?? 0} accentColor="#d97706" />
@@ -124,7 +139,7 @@ export default function CompanyBoardPage() {
                   {columnTasks.map((task) => (
                     <Link
                       key={task.id}
-                      href={`/companies/${slug}/projects/${task.projectId}/board?task=${encodeURIComponent(task.id)}`}
+                      href={canonicalProjectBoardHref(company, task.projectSlug || task.projectId, task.id)}
                       className="block rounded-xl border border-white/10 bg-slate-950/80 p-3 transition hover:border-amber-300/30 hover:bg-slate-950"
                     >
                       <div className="mb-2 flex items-center justify-between gap-3">

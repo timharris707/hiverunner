@@ -2,12 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Search, Plus, ChevronDown } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { formatAge, priorityTheme, typeIcon } from "@/components/orchestration/ui";
 import { listCompanies, listCompanyAgents, listProjects, listTasks } from "@/lib/orchestration/client";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type { OrchestrationAgent, OrchestrationCompany, OrchestrationProject, OrchestrationTask, TaskPriority, TaskStatus, TaskType } from "@/lib/orchestration/types";
 
 type SortMode = "updated-desc" | "created-desc" | "priority-asc";
@@ -53,9 +56,11 @@ const PRI_COLOR: Record<TaskPriority, string> = {
 
 export default function CompanyIssuesPage() {
   const params = useParams<{ slug: string }>();
+  const searchParams = useSearchParams();
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [issues, setIssues] = useState<CompanyIssue[]>([]);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
@@ -65,6 +70,13 @@ export default function CompanyIssuesPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
   const [projectFilter, setProjectFilter] = useState<string>("all");
   const [sortMode, setSortMode] = useState<SortMode>("updated-desc");
+
+  useEffect(() => {
+    const queryProject = searchParams.get("projectId") ?? searchParams.get("project");
+    if (queryProject) {
+      setProjectFilter(queryProject);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,6 +131,17 @@ export default function CompanyIssuesPage() {
     return () => { cancelled = true; };
   }, [slug]);
 
+  const activeProjectRecord = useMemo(() => {
+    const queryProject = searchParams.get("projectId") ?? searchParams.get("project");
+    if (queryProject) {
+      return (
+        projects.find((project) => project.id === queryProject || project.slug === queryProject) ??
+        resolveActiveProject(projects, activeProject, slug)
+      );
+    }
+    return resolveActiveProject(projects, activeProject, slug);
+  }, [activeProject, projects, searchParams, slug]);
+
   const assigneeLookup = useMemo(() => {
     const entries = new Map<string, OrchestrationAgent>();
     for (const agent of agents) {
@@ -133,7 +156,8 @@ export default function CompanyIssuesPage() {
 
     const filtered = issues.filter((issue) => {
       if (statusFilter !== "all" && issue.status !== statusFilter) return false;
-      if (projectFilter !== "all" && issue.projectId !== projectFilter) return false;
+      const effectiveProjectFilter = activeProjectRecord?.id ?? projectFilter;
+      if (effectiveProjectFilter !== "all" && issue.projectId !== effectiveProjectFilter) return false;
       if (!lowerQuery) return true;
       const haystack = `${issue.title} ${issue.description ?? ""} ${issue.assignee ?? ""} ${issue.projectName} ${issue.type} ${issue.priority}`.toLowerCase();
       return haystack.includes(lowerQuery);
@@ -144,7 +168,7 @@ export default function CompanyIssuesPage() {
       if (sortMode === "priority-asc") return PRIORITY_WEIGHT[a.priority] - PRIORITY_WEIGHT[b.priority];
       return new Date(b.updated).getTime() - new Date(a.updated).getTime();
     });
-  }, [issues, query, statusFilter, projectFilter, sortMode]);
+  }, [activeProjectRecord, issues, query, statusFilter, projectFilter, sortMode]);
 
   /* ── counts for inline summary ── */
   const counts = useMemo(() => {
@@ -163,6 +187,12 @@ export default function CompanyIssuesPage() {
 
   return (
     <div className="flex h-full flex-col" style={{ background: "linear-gradient(180deg, #0c0a09 0%, #1c1917 100%)" }}>
+      {activeProjectRecord ? (
+        <div className="px-4 pt-4">
+          <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} compact onClear={clearActiveProject} />
+        </div>
+      ) : null}
+
       {/* ── top bar: title + inline counts + new button ── */}
       <div className="flex items-center justify-between border-b px-4 py-2" style={{ borderColor: "rgba(217,119,6,0.15)", background: "rgba(12,10,9,0.9)" }}>
         <div className="flex items-center gap-4">

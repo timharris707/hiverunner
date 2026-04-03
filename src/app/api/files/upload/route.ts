@@ -2,21 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { logActivity } from '@/lib/activities-db';
-
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
-
-const WORKSPACE_MAP: Record<string, string> = {
-  workspace: path.join(OPENCLAW_DIR, 'workspace'),
-  'mission-control': path.join(OPENCLAW_DIR, 'workspace', 'mission-control'),
-};
-
-function resolvePath(workspace: string, filePath: string): string | null {
-  const base = WORKSPACE_MAP[workspace];
-  if (!base) return null;
-  const full = path.resolve(base, filePath);
-  if (!full.startsWith(base)) return null; // path traversal check
-  return full;
-}
+import { resolveWorkspaceBase } from '@/lib/files/workspace-resolver';
 
 export async function POST(request: NextRequest) {
   try {
@@ -29,7 +15,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    const base = WORKSPACE_MAP[workspace];
+    const base = resolveWorkspaceBase(workspace);
     if (!base) {
       return NextResponse.json({ error: 'Unknown workspace' }, { status: 400 });
     }

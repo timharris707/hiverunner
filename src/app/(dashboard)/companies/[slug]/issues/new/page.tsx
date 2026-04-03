@@ -2,10 +2,13 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 import { CompanyErrorState, CompanyShell } from "@/components/company/company-ui";
 import { createTask, listCompanies, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -22,7 +25,9 @@ const TYPE_OPTIONS: TaskType[] = ["feature", "bug", "maintenance", "research", "
 export default function CompanyNewIssuePage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const slug = params?.slug ?? "";
+  const { activeProject, clearActiveProject } = useActiveProjectState();
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
@@ -58,8 +63,19 @@ export default function CompanyNewIssuePage() {
         setProjects(projectRows);
         setAgents(companyAgents);
 
-        if (projectRows.length > 0) {
-          setProjectId(projectRows[0].id);
+        const requestedProjectId = searchParams.get("projectId");
+        const requestedProject = requestedProjectId
+          ? projectRows.find((project) => project.id === requestedProjectId || project.slug === requestedProjectId)
+          : null;
+        const activeProjectForCompany = activeProject && activeProject.companySlug === slug
+          ? projectRows.find(
+              (project) => project.id === activeProject.projectId || project.slug === activeProject.projectSlug
+            )
+          : null;
+        const nextProject = requestedProject ?? activeProjectForCompany ?? projectRows[0] ?? null;
+
+        if (nextProject) {
+          setProjectId(nextProject.id);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -71,11 +87,16 @@ export default function CompanyNewIssuePage() {
     return () => {
       cancelled = true;
     };
-  }, [slug]);
+  }, [activeProject, searchParams, slug]);
 
   const assigneeOptions = useMemo(
     () => agents.slice().sort((a, b) => a.name.localeCompare(b.name)),
     [agents]
+  );
+
+  const selectedProject = useMemo(
+    () => projects.find((project) => project.id === projectId) ?? resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projectId, projects, slug]
   );
 
   const canSubmit = title.trim().length >= 2 && projectId.trim().length > 0 && !submitting;
@@ -118,6 +139,22 @@ export default function CompanyNewIssuePage() {
       description="Company-scoped task intake. This route creates real orchestration tasks with validated fields and immediately routes back to the task registry."
       accentColor="#d97706"
     >
+      {selectedProject ? (
+        <ActiveProjectBanner
+          companySlug={slug}
+          project={selectedProject}
+          compact
+          onClear={
+            activeProject && activeProject.companySlug === slug
+              ? () => {
+                  clearActiveProject();
+                  setProjectId(projects[0]?.id ?? "");
+                }
+              : undefined
+          }
+        />
+      ) : null}
+
       <section className="rounded-2xl border border-white/10 bg-slate-950/65 p-4 backdrop-blur-xl md:p-6">
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div>

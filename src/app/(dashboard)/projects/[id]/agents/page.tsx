@@ -218,8 +218,8 @@ export default function ProjectAgentsPage({ params }: { params: Promise<{ id: st
                   <Link
                     href={
                       companySlug
-                        ? `/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agent.id)}`
-                        : `/agents/${encodeURIComponent(agent.id)}?projectId=${encodeURIComponent(id)}`
+                        ? `/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agent.slug || agent.id)}`
+                        : `/agents/${encodeURIComponent(agent.slug || agent.id)}?projectId=${encodeURIComponent(id)}`
                     }
                     className="text-[11px] text-emerald-200 hover:text-emerald-100"
                   >

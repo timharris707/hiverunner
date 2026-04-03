@@ -16,6 +16,7 @@ const HOME = process.env.HOME || "/Users/timharris";
 
 function slugify(s: string) {
   return s
+    .replace(/'/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
@@ -141,9 +142,14 @@ function generateHeartbeatMd(
 ## On Every Wake
 1. Read recent memory files
 2. Check project status
-3. Review any open tasks
+3. Review any open tasks by running: \`./scripts/mc-tool tasks list\`
 4. Take action on highest priority item
 5. Write notes about what you did
+6. Mark tasks complete: \`./scripts/mc-tool tasks complete <id> --message "Done"\`
+
+## Managing the Team
+When you need to hire an agent, use:
+\`./scripts/mc-tool agents hire --name "Name" --role "Role" --model "anthropic/claude-sonnet-4-6"\`
 
 ## Priorities
 ${focus}
@@ -212,7 +218,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ---------- 1. Create workspace directory ----------
-    const workspacePath = path.join(HOME, ".openclaw", `workspace-${companySlug}`);
+    const workspacePath = path.join(HOME, ".openclaw", "workspaces", companySlug);
     fs.mkdirSync(path.join(workspacePath, "projects"), { recursive: true });
     fs.mkdirSync(path.join(workspacePath, "memory"), { recursive: true });
     fs.mkdirSync(path.join(workspacePath, "scripts"), { recursive: true });
@@ -251,12 +257,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ---------- 4. Register CEO agent in OpenClaw ----------
-    const ceoNameLower = ceo.name.trim().toLowerCase();
+    const ceoSlug = slugify(ceo.name.trim());
+    const ceoWorkspacePath = path.join(workspacePath, "agents", ceoSlug);
+    fs.mkdirSync(ceoWorkspacePath, { recursive: true });
     const model = ceo.model || "anthropic/claude-sonnet-4-6";
     let openclawAgentId: string | null = null;
 
     try {
-      const cmd = `openclaw agents add ${ceoNameLower} --workspace "${workspacePath}" --model "${model}" --non-interactive --json`;
+      const cmd = `openclaw agents add ${ceoSlug} --workspace "${ceoWorkspacePath}" --model "${model}" --non-interactive --json`;
       const output = execSync(cmd, { encoding: "utf-8", timeout: 30000 });
       try {
         const parsed = JSON.parse(output);
@@ -291,8 +299,7 @@ export async function POST(req: NextRequest) {
     );
 
     // ---------- 6. Generate CEO instruction files ----------
-    const agentDir = path.join(HOME, ".openclaw", "agents", ceoNameLower, "agent");
-    fs.mkdirSync(agentDir, { recursive: true });
+    const agentDir = ceoWorkspacePath;
 
     const companyDesc = company.description?.trim() || "";
     const guidance = ceo.guidance?.trim() || "";
@@ -322,6 +329,15 @@ export async function POST(req: NextRequest) {
       path.join(workspacePath, "AGENTS.md"),
       generateWorkspaceAgentsMd(company.name.trim(), companyDesc, ceo.name.trim()),
     );
+    
+    // Create mc-tool CLI shortcut for agents
+    const mcToolTarget = path.join(workspacePath, "scripts", "mc-tool");
+    const mcToolSource = path.join(HOME, ".openclaw", "workspace", "projects", "mission-control-app", "scripts", "mc-tool.js");
+    fs.writeFileSync(
+      mcToolTarget,
+      `#!/bin/sh\nexec node "${mcToolSource}" "$@"\n`
+    );
+    fs.chmodSync(mcToolTarget, "755");
 
     // ---------- 8. Create first task ----------
     const taskId = randomUUID();

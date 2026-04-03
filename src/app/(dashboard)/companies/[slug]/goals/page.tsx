@@ -6,7 +6,10 @@ import { useParams } from "next/navigation";
 import { Search } from "lucide-react";
 
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { createCompanyGoal, listCompanies, listCompanyGoals, listProjects } from "@/lib/orchestration/client";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
   OrchestrationCompany,
   OrchestrationCompanyGoal,
@@ -19,6 +22,7 @@ export default function CompanyGoalsPage() {
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [goals, setGoals] = useState<OrchestrationCompanyGoal[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,11 +68,17 @@ export default function CompanyGoalsPage() {
     };
   }, [slug]);
 
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug]
+  );
+
   const filteredGoals = useMemo(() => {
     const needle = query.trim().toLowerCase();
 
     return goals.filter((goal) => {
-      if (projectFilter !== "all" && goal.projectId !== projectFilter) return false;
+      const effectiveProjectFilter = activeProjectRecord?.id ?? projectFilter;
+      if (effectiveProjectFilter !== "all" && goal.projectId !== effectiveProjectFilter) return false;
       if (statusFilter !== "all" && goal.sprint.status !== statusFilter) return false;
       if (!needle) return true;
 
@@ -142,6 +152,10 @@ export default function CompanyGoalsPage() {
       description="Company-scoped sprint and goal tracker. Use this lane to review active objectives and completion health before routing execution work."
       accentColor="#f59e0b"
     >
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
+      ) : null}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <StatCard label="Goals" value={summary.total} accentColor="#f59e0b" />
         <StatCard label="Active" value={summary.active} accentColor="#d97706" />

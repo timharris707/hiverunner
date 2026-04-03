@@ -15,6 +15,7 @@ import {
   Loader2,
   Sparkles,
   AlertCircle,
+  X,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -35,13 +36,6 @@ const MODEL_OPTIONS = [
   { value: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
 ];
 
-const PRIORITY_OPTIONS = [
-  { value: "P0", label: "P0 — Critical" },
-  { value: "P1", label: "P1 — High" },
-  { value: "P2", label: "P2 — Medium" },
-  { value: "P3", label: "P3 — Low" },
-];
-
 const STEPS = [
   { num: 1, label: "Company", icon: Building2 },
   { num: 2, label: "Project", icon: FolderGit2 },
@@ -56,6 +50,7 @@ const STEPS = [
 
 function slugify(s: string) {
   return s
+    .replace(/'/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
@@ -77,9 +72,9 @@ function Field({
 }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-sm font-medium text-stone-300">
+      <span className="text-[11px] uppercase tracking-[0.16em] text-stone-400">
         {label}
-        {required && <span className="text-amber-500 ml-0.5">*</span>}
+        {required && <span className="ml-1 text-amber-400">*</span>}
       </span>
       {children}
     </label>
@@ -87,9 +82,9 @@ function Field({
 }
 
 const inputClass =
-  "w-full rounded-lg border border-stone-700 bg-[#1c1917] px-3 py-2 text-sm text-white placeholder:text-stone-500 focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600/40 transition-colors";
+  "w-full rounded-xl border border-stone-700/80 bg-[rgba(28,25,23,0.92)] px-3 py-2.5 text-sm text-stone-100 placeholder:text-stone-500 focus:border-amber-500/70 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-colors";
 const selectClass =
-  "w-full rounded-lg border border-stone-700 bg-[#1c1917] px-3 py-2 text-sm text-white focus:border-amber-600 focus:outline-none focus:ring-1 focus:ring-amber-600/40 transition-colors appearance-none";
+  "w-full rounded-xl border border-stone-700/80 bg-[rgba(28,25,23,0.92)] px-3 py-2.5 text-sm text-stone-100 focus:border-amber-500/70 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-colors appearance-none";
 
 /* ------------------------------------------------------------------ */
 /*  Step indicator                                                     */
@@ -165,9 +160,9 @@ function StepCompany({
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Building2 size={20} className="text-amber-500" /> Company Details
+          <Building2 size={20} className="text-amber-400" /> Company Details
         </h2>
-        <p className="text-sm text-stone-400 mt-1">
+        <p className="mt-1 text-sm text-stone-400">
           Name your company and describe its mission.
         </p>
       </div>
@@ -196,7 +191,7 @@ function StepCompany({
           onChange={(e) => setField("slug", slugify(e.target.value))}
         />
         <p className="text-xs text-stone-500 mt-1">
-          Leave blank to auto-generate from the company name. Workspace: ~/.openclaw/workspace-{data.slug || slugify(data.name) || "..."}
+          Leave blank to auto-generate from the company name. Workspace: ~/.openclaw/workspaces/{data.slug || slugify(data.name) || "..."}
         </p>
       </Field>
     </div>
@@ -220,9 +215,9 @@ function StepProject({
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <FolderGit2 size={20} className="text-amber-500" /> Create a Project
+          <FolderGit2 size={20} className="text-amber-400" /> Create a Project
         </h2>
-        <p className="text-sm text-stone-400 mt-1">
+        <p className="mt-1 text-sm text-stone-400">
           Optional. You can always add projects later.
         </p>
       </div>
@@ -271,9 +266,9 @@ function StepCEO({
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Crown size={20} className="text-amber-500" /> Appoint your CEO
+          <Crown size={20} className="text-amber-400" /> Appoint your CEO
         </h2>
-        <p className="text-sm text-stone-400 mt-1">
+        <p className="mt-1 text-sm text-stone-400">
           Your CEO will lead this company, manage the team, and execute on the mission.
         </p>
       </div>
@@ -307,9 +302,9 @@ function StepCEO({
           onChange={(e) => setField("guidance", e.target.value)}
         />
       </Field>
-      <div className="rounded-lg border border-stone-700/60 bg-stone-800/40 p-3 flex items-start gap-2.5">
-        <Sparkles size={16} className="text-amber-500 mt-0.5 shrink-0" />
-        <p className="text-xs text-stone-400 leading-relaxed">
+      <div className="flex items-start gap-2.5 rounded-xl border border-amber-800/40 bg-amber-950/20 p-3">
+        <Sparkles size={16} className="mt-0.5 shrink-0 text-amber-400" />
+        <p className="text-xs leading-relaxed text-stone-400">
           Role, capabilities, SOUL.md, AGENTS.md, and HEARTBEAT.md will be <strong className="text-stone-300">AI-generated</strong> from
           your company mission. You don&apos;t need to write them.
         </p>
@@ -334,9 +329,9 @@ function StepTask({
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <ClipboardList size={20} className="text-amber-500" /> First Task
+          <ClipboardList size={20} className="text-amber-400" /> First Task
         </h2>
-        <p className="text-sm text-stone-400 mt-1">
+        <p className="mt-1 text-sm text-stone-400">
           Give your CEO their first assignment.
         </p>
       </div>
@@ -347,26 +342,13 @@ function StepTask({
           onChange={(e) => setField("title", e.target.value)}
         />
       </Field>
-      <Field label="Description">
+      <Field label="Description (Optional)">
         <textarea
           className={inputClass}
           rows={4}
           value={data.description}
           onChange={(e) => setField("description", e.target.value)}
         />
-      </Field>
-      <Field label="Priority">
-        <select
-          className={selectClass}
-          value={data.priority}
-          onChange={(e) => setField("priority", e.target.value)}
-        >
-          {PRIORITY_OPTIONS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </select>
       </Field>
     </div>
   );
@@ -386,11 +368,11 @@ function SummaryCard({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-stone-700/60 bg-stone-800/30 p-4 space-y-2">
-      <h3 className="text-sm font-semibold text-stone-200 flex items-center gap-2">
-        <Icon size={15} className="text-amber-500" /> {title}
+    <div className="space-y-2 rounded-xl border border-stone-800/80 bg-[rgba(28,25,23,0.84)] p-4">
+      <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-200">
+        <Icon size={15} className="text-amber-400" /> {title}
       </h3>
-      <div className="text-xs text-stone-400 space-y-0.5">{children}</div>
+      <div className="space-y-0.5 text-xs text-stone-400">{children}</div>
     </div>
   );
 }
@@ -400,9 +382,9 @@ function StepReview({ data }: { data: WizardData }) {
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Rocket size={20} className="text-amber-500" /> Review &amp; Launch
+          <Rocket size={20} className="text-amber-400" /> Review &amp; Launch
         </h2>
-        <p className="text-sm text-stone-400 mt-1">
+        <p className="mt-1 text-sm text-stone-400">
           Everything looks good? Hit Launch to create your company.
         </p>
       </div>
@@ -541,105 +523,116 @@ export default function CompanyOnboardingWizard() {
   }, [data, router]);
 
   return (
-    <div className="min-h-[calc(100vh-120px)] flex items-start justify-center pt-8 px-4">
-      <div className="w-full max-w-2xl">
-        {/* Header */}
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-white tracking-tight">
-            Launch a New Company
-          </h1>
-          <p className="text-sm text-stone-400 mt-1">
-            Create a fully operational AI company in five steps.
-          </p>
-        </div>
+    <div className="relative min-h-screen overflow-hidden bg-[linear-gradient(180deg,rgba(28,25,23,0.98),rgba(12,10,9,1))]">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(217,119,6,0.16),transparent_30%),radial-gradient(circle_at_80%_12%,rgba(120,53,15,0.18),transparent_24%),rgba(12,10,9,0.72)] backdrop-blur-[8px]" />
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(12,10,9,0.22),rgba(12,10,9,0.7))]" />
 
-        {/* Step indicator */}
-        <StepIndicator current={step} completed={completed} />
-
-        {/* Card */}
-        <div className="orchestra-glass rounded-xl border border-stone-700/50 p-6">
-          {step === 1 && (
-            <StepCompany
-              data={data.company}
-              onChange={(c) => setData((d) => ({ ...d, company: c }))}
-            />
-          )}
-          {step === 2 && (
-            <StepProject
-              data={data.project}
-              onChange={(p) => setData((d) => ({ ...d, project: p }))}
-            />
-          )}
-          {step === 3 && (
-            <StepCEO
-              data={data.ceo}
-              onChange={(c) => setData((d) => ({ ...d, ceo: c }))}
-            />
-          )}
-          {step === 4 && (
-            <StepTask
-              data={data.task}
-              onChange={(t) => setData((d) => ({ ...d, task: t }))}
-            />
-          )}
-          {step === 5 && <StepReview data={data} />}
-
-          {/* Error */}
-          {error && (
-            <div className="mt-4 rounded-lg border border-red-800/60 bg-red-900/20 p-3 flex items-start gap-2 text-sm text-red-400">
-              <AlertCircle size={16} className="mt-0.5 shrink-0" />
-              {error}
+      <div className="relative z-10 flex min-h-screen w-full items-center justify-center px-4 py-8 md:px-6">
+        <div className="w-full max-w-4xl">
+          <div className="mb-6 flex items-start justify-between gap-4">
+            <div className="flex-1 text-center">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-amber-300/70">Create Company</p>
+              <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">
+                Launch a New Company
+              </h1>
+              <p className="mt-2 text-sm text-stone-400">
+                Build a fully operational AI company in five steps.
+              </p>
             </div>
-          )}
+            <button
+              type="button"
+              onClick={() => router.push("/")}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-stone-700/80 bg-[rgba(28,25,23,0.82)] text-stone-300 transition hover:border-amber-400/40 hover:text-white"
+              aria-label="Close company wizard"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-          {/* Navigation buttons */}
-          <div className="flex items-center justify-between mt-8 pt-4 border-t border-stone-800">
-            <div>
-              {step > 1 && (
-                <button
-                  onClick={back}
-                  disabled={launching}
-                  className="flex items-center gap-1.5 text-sm text-stone-400 hover:text-white transition-colors disabled:opacity-40"
-                >
-                  <ChevronLeft size={16} /> Back
-                </button>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {step === 2 && (
-                <button
-                  onClick={skipProject}
-                  className="flex items-center gap-1.5 text-sm text-stone-500 hover:text-stone-300 transition-colors"
-                >
-                  <SkipForward size={14} /> Skip
-                </button>
-              )}
-              {step < 5 && (
-                <button
-                  onClick={next}
-                  disabled={!canAdvance}
-                  className="flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500 px-5 py-2 text-sm font-medium text-white transition-colors"
-                >
-                  Next <ChevronRight size={16} />
-                </button>
-              )}
-              {step === 5 && (
-                <button
-                  onClick={launch}
-                  disabled={launching || !completed.has(1) || !completed.has(3) || !completed.has(4)}
-                  className="flex items-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500 px-6 py-2.5 text-sm font-semibold text-white transition-colors"
-                >
-                  {launching ? (
-                    <>
-                      <Loader2 size={16} className="animate-spin" /> Creating company...
-                    </>
-                  ) : (
-                    <>
-                      <Rocket size={16} /> Launch Company
-                    </>
-                  )}
-                </button>
-              )}
+          <StepIndicator current={step} completed={completed} />
+
+          <div className="rounded-[32px] border border-stone-600/45 bg-[radial-gradient(circle_at_top,rgba(217,119,6,0.14),transparent_34%),linear-gradient(165deg,rgba(41,37,36,0.96),rgba(12,10,9,0.99))] p-6 shadow-[0_30px_80px_rgba(12,10,9,0.65)] backdrop-blur-2xl md:p-8">
+            {step === 1 && (
+              <StepCompany
+                data={data.company}
+                onChange={(c) => setData((d) => ({ ...d, company: c }))}
+              />
+            )}
+            {step === 2 && (
+              <StepProject
+                data={data.project}
+                onChange={(p) => setData((d) => ({ ...d, project: p }))}
+              />
+            )}
+            {step === 3 && (
+              <StepCEO
+                data={data.ceo}
+                onChange={(c) => setData((d) => ({ ...d, ceo: c }))}
+              />
+            )}
+            {step === 4 && (
+              <StepTask
+                data={data.task}
+                onChange={(t) => setData((d) => ({ ...d, task: t }))}
+              />
+            )}
+            {step === 5 && <StepReview data={data} />}
+
+            {error && (
+              <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-800/60 bg-red-900/20 p-3 text-sm text-red-300">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                {error}
+              </div>
+            )}
+
+            <div className="mt-8 flex items-center justify-between border-t border-stone-800/80 pt-5">
+              <div>
+                {step > 1 && (
+                  <button
+                    onClick={back}
+                    disabled={launching}
+                    className="flex items-center gap-1.5 text-sm text-stone-400 transition-colors hover:text-white disabled:opacity-40"
+                  >
+                    <ChevronLeft size={16} /> Back
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                {step === 2 && (
+                  <button
+                    onClick={skipProject}
+                    className="flex items-center gap-1.5 text-sm text-stone-500 transition-colors hover:text-stone-300"
+                  >
+                    <SkipForward size={14} /> Skip
+                  </button>
+                )}
+                {step < 5 && (
+                  <button
+                    onClick={next}
+                    disabled={!canAdvance}
+                    className="flex items-center gap-1.5 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500"
+                  >
+                    Next <ChevronRight size={16} />
+                  </button>
+                )}
+                {step === 5 && (
+                  <button
+                    onClick={launch}
+                    disabled={launching || !completed.has(1) || !completed.has(3) || !completed.has(4)}
+                    className="flex items-center gap-2 rounded-xl bg-amber-600 px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500"
+                  >
+                    {launching ? (
+                      <>
+                        <Loader2 size={16} className="animate-spin" /> Creating company...
+                      </>
+                    ) : (
+                      <>
+                        <Rocket size={16} /> Launch Company
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>

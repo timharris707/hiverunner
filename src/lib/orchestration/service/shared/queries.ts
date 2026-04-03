@@ -381,6 +381,7 @@ function agentFromRow(row: AgentRow): OrchestrationAgent {
   return {
     id: row.id,
     companyId: row.company_id,
+    slug: row.slug || row.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
     projectId: row.project_id ?? undefined,
     name: row.name,
     emoji: row.emoji ?? "🤖",
@@ -393,6 +394,7 @@ function agentFromRow(row: AgentRow): OrchestrationAgent {
     paperclipAgentId: row.paperclip_agent_id ?? undefined,
     openclawAgentId: row.openclaw_agent_id ?? undefined,
     reportingTo: row.reporting_to ?? undefined,
+    reportingToName: row.reporting_to_name ?? undefined,
     skills: parseJsonArray(row.skills_json),
     tasksCompleted: Number(row.tasks_completed ?? 0),
     totalRuntimeMinutes: Number(row.total_runtime_minutes ?? 0),
@@ -410,6 +412,7 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
         a.company_id,
         a.project_id,
         a.name,
+        a.slug,
         a.emoji,
         a.role,
         a.personality,
@@ -421,6 +424,7 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
+        mgr.name AS reporting_to_name,
         a.skills_json,
         a.tasks_completed,
         a.total_runtime_minutes,
@@ -429,6 +433,7 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
         a.updated_at
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
+       LEFT JOIN agents mgr ON mgr.id = a.reporting_to
        WHERE a.id = ? AND a.archived_at IS NULL`
     )
     .get(agentId) as AgentRow | undefined;

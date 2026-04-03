@@ -46,6 +46,7 @@ export interface OrchestrationProject {
 export interface OrchestrationCompany {
   id: string;
   slug: string;
+  code: string;
   name: string;
   description: string;
   status: CompanyStatus;
@@ -161,6 +162,7 @@ export interface OrchestrationCompanyGoal {
 export interface OrchestrationAgent {
   id: string;
   companyId?: string;
+  slug: string;
   name: string;
   emoji: string;
   role: string;
@@ -173,6 +175,7 @@ export interface OrchestrationAgent {
   paperclipAgentId?: string;
   openclawAgentId?: string;
   reportingTo?: string;
+  reportingToName?: string;
   skills?: string[];
   tasksCompleted?: number;
   totalRuntimeMinutes?: number;

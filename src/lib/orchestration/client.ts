@@ -60,9 +60,11 @@ function normalizeCompany(raw: JsonRecord): OrchestrationCompany {
   const stats = (raw.stats ?? {}) as JsonRecord;
   const workspace = (raw.workspace ?? {}) as JsonRecord;
 
+  const slug = String(raw.slug ?? raw.id ?? "");
   return {
     id: String(raw.id ?? ""),
-    slug: String(raw.slug ?? raw.id ?? ""),
+    slug,
+    code: String(raw.code ?? slug.slice(0, 3).toUpperCase()),
     name: String(raw.name ?? "Untitled Company"),
     description: String(raw.description ?? ""),
     status: (String(raw.status ?? "active") as OrchestrationCompany["status"]) ?? "active",
@@ -638,6 +640,34 @@ export async function createProject(input: {
   return normalizeProject(json.project);
 }
 
+export async function updateProjectSettings(input: {
+  projectIdOrSlug: string;
+  emoji?: string;
+  status?: "active" | "paused" | "archived";
+  staleAlertThresholdsHours?: {
+    review?: number;
+    inProgress?: number;
+    blocked?: number;
+  };
+}): Promise<OrchestrationProject | null> {
+  const response = await fetch(`/api/orchestration/projects/${encodeURIComponent(input.projectIdOrSlug)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(input.emoji !== undefined ? { emoji: input.emoji } : {}),
+      ...(input.status !== undefined ? { status: input.status } : {}),
+      ...(input.staleAlertThresholdsHours !== undefined
+        ? { staleAlertThresholdsHours: input.staleAlertThresholdsHours }
+        : {}),
+    }),
+  }).catch(() => null);
+
+  if (!response?.ok) return null;
+  const json = (await response.json()) as { project?: JsonRecord };
+  if (!json.project) return null;
+  return normalizeProject(json.project);
+}
+
 export async function getProjectBoard(projectId: string): Promise<BoardState | null> {
   const orchestrationBoard = await fetchJson<{
     project: JsonRecord;
@@ -766,11 +796,13 @@ export async function listCompanyAgents(companySlug: string): Promise<Orchestrat
 
   return data.agents.map((raw) => {
     const a = raw as JsonRecord;
+    const name = String(a.name ?? "Unknown");
     return {
       id: String(a.id ?? "unknown"),
+      slug: String(a.slug ?? name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")),
       companyId: a.companyId ? String(a.companyId) : undefined,
       projectId: a.projectId ? String(a.projectId) : a.project_id ? String(a.project_id) : undefined,
-      name: String(a.name ?? "Unknown"),
+      name,
       emoji: String(a.emoji ?? "🤖"),
       role: String(a.role ?? "Agent"),
       avatar: a.avatar ? String(a.avatar) : undefined,
@@ -781,6 +813,7 @@ export async function listCompanyAgents(companySlug: string): Promise<Orchestrat
       paperclipAgentId: a.paperclipAgentId ? String(a.paperclipAgentId) : undefined,
       openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
       reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
+      reportingToName: a.reportingToName ? String(a.reportingToName) : undefined,
       skills: Array.isArray(a.skills) ? a.skills.map((skill) => String(skill)) : undefined,
       tasksCompleted: a.tasksCompleted ? Number(a.tasksCompleted) : undefined,
       totalRuntimeMinutes: a.totalRuntimeMinutes ? Number(a.totalRuntimeMinutes) : undefined,

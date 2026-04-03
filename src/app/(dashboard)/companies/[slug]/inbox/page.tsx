@@ -6,8 +6,12 @@ import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Loader2, MessageSquareText, PlayCircle, Search, Target, XCircle } from "lucide-react";
 
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { formatAge, statusTheme } from "@/components/orchestration/ui";
 import { getCompanyInbox, listCompanies, listProjects } from "@/lib/orchestration/client";
+import { canonicalProjectBoardHref } from "@/lib/orchestration/company-routes";
+import { useActiveProjectState } from "@/lib/active-project-state";
+import { resolveActiveProject } from "@/lib/active-project-utils";
 import type { OrchestrationCompany, OrchestrationCompanyInboxEvent, OrchestrationCompanyInboxTask, OrchestrationProject, TaskStatus } from "@/lib/orchestration/types";
 
 type StatusFilter = "all" | TaskStatus;
@@ -55,11 +59,10 @@ function eventAccent(event: OrchestrationCompanyInboxEvent) {
   return "#d97706";
 }
 
-function eventTargetHref(companySlug: string, event: OrchestrationCompanyInboxEvent) {
-  if (!event.projectSlug && !event.projectId) return `/companies/${encodeURIComponent(companySlug)}`;
+function eventTargetHref(company: OrchestrationCompany | null, event: OrchestrationCompanyInboxEvent) {
+  if (!event.projectSlug && !event.projectId) return company ? `/companies/${encodeURIComponent(company.slug)}` : "/companies";
   const projectKey = event.projectSlug || event.projectId;
-  const taskQuery = event.taskId ? `?task=${encodeURIComponent(event.taskId)}` : "";
-  return `/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectKey)}/board${taskQuery}`;
+  return canonicalProjectBoardHref(company, projectKey, event.taskId);
 }
 
 export default function CompanyInboxPage() {
@@ -67,6 +70,7 @@ export default function CompanyInboxPage() {
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [snapshot, setSnapshot] = useState<InboxSnapshot>(INITIAL_SNAPSHOT);
   const [loading, setLoading] = useState(true);
@@ -78,6 +82,11 @@ export default function CompanyInboxPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [includeDone, setIncludeDone] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug]
+  );
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -99,7 +108,7 @@ export default function CompanyInboxPage() {
           listProjects({ company: slug }),
           getCompanyInbox({
             companySlug: slug,
-            projectId: projectFilter === "all" ? undefined : projectFilter,
+            projectId: activeProjectRecord?.id ?? (projectFilter === "all" ? undefined : projectFilter),
             status: statusFilter === "all" ? undefined : statusFilter,
             search: search || undefined,
             includeDone,
@@ -152,7 +161,7 @@ export default function CompanyInboxPage() {
     return () => {
       cancelled = true;
     };
-  }, [includeDone, projectFilter, search, slug, statusFilter]);
+  }, [activeProjectRecord, includeDone, projectFilter, search, slug, statusFilter]);
 
   const loadMore = async () => {
     if (!snapshot.hasMore || !snapshot.nextCursor || loadingMore) return;
@@ -161,7 +170,7 @@ export default function CompanyInboxPage() {
     try {
       const next = await getCompanyInbox({
         companySlug: slug,
-        projectId: projectFilter === "all" ? undefined : projectFilter,
+        projectId: activeProjectRecord?.id ?? (projectFilter === "all" ? undefined : projectFilter),
         status: statusFilter === "all" ? undefined : statusFilter,
         search: search || undefined,
         includeDone,
@@ -206,6 +215,10 @@ export default function CompanyInboxPage() {
       description="Chronological company activity with task updates, execution runs, and comments across projects."
       accentColor="#f59e0b"
     >
+      {activeProjectRecord ? (
+        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
+      ) : null}
+
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Unread" value={snapshot.unreadCount} detail="Events newer than current marker" accentColor="#f59e0b" />
         <StatCard label="Active Tasks" value={activeCount} detail="Open work across the company" accentColor="#d97706" />
@@ -291,7 +304,7 @@ export default function CompanyInboxPage() {
                 snapshot.events.map((event) => {
                   const Icon = eventIcon(event);
                   const accent = eventAccent(event);
-                  const targetHref = eventTargetHref(slug, event);
+                  const targetHref = eventTargetHref(company, event);
 
                   return (
                     <Link
@@ -375,7 +388,7 @@ export default function CompanyInboxPage() {
                   </div>
                 ) : (
                   openTasks.map((task) => {
-                    const taskHref = `/companies/${encodeURIComponent(slug)}/projects/${encodeURIComponent(task.projectSlug || task.projectId)}/board?task=${encodeURIComponent(task.id)}`;
+                    const taskHref = canonicalProjectBoardHref(company, task.projectSlug || task.projectId, task.id);
                     return (
                       <Link
                         key={task.id}

@@ -188,12 +188,13 @@ export function getAgentProfile(input: {
          AND (
            a.id = ?
            OR lower(a.name) = lower(?)
+           OR lower(a.slug) = lower(?)
          )
        ORDER BY
          CASE WHEN a.id = ? THEN 0 ELSE 1 END,
          a.updated_at DESC`
     )
-    .all(agentIdOrName, agentIdOrName, agentIdOrName) as Array<{
+    .all(agentIdOrName, agentIdOrName, agentIdOrName, agentIdOrName) as Array<{
     id: string;
     company_id: string;
   }>;
@@ -251,6 +252,7 @@ export function listProjectAgents(
         a.company_id,
         a.project_id,
         a.name,
+        a.slug,
         a.emoji,
         a.role,
         a.personality,
@@ -312,6 +314,7 @@ export function listCompanyAgents(
         a.company_id,
         a.project_id,
         a.name,
+        a.slug,
         a.emoji,
         a.role,
         a.personality,
@@ -323,6 +326,7 @@ export function listCompanyAgents(
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
+        mgr.name AS reporting_to_name,
         a.skills_json,
         a.tasks_completed,
         a.total_runtime_minutes,
@@ -331,6 +335,7 @@ export function listCompanyAgents(
         a.updated_at
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
+       LEFT JOIN agents mgr ON mgr.id = a.reporting_to
        WHERE a.company_id = ?
          AND a.archived_at IS NULL
        ORDER BY a.name ASC`
@@ -400,9 +405,9 @@ export function syncCompanyAgentsFromOpenClaw(input: {
 
     const insertAgent = db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, emoji, role, personality, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
+        (id, company_id, project_id, name, slug, emoji, role, personality, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
        VALUES
-        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
+        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
     );
 
     const updateAgent = db.prepare(
@@ -471,6 +476,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         randomUUID(),
         companyRow.id,
         normalizedName,
+        normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
         emoji,
         role,
         personality,
@@ -531,6 +537,7 @@ export function getCompanyAgentProfile(input: {
         a.company_id,
         a.project_id,
         a.name,
+        a.slug,
         a.emoji,
         a.role,
         a.personality,
@@ -552,11 +559,12 @@ export function getCompanyAgentProfile(input: {
        LEFT JOIN tasks t ON t.id = a.current_task_id
        WHERE a.archived_at IS NULL
          AND a.company_id = ?
-         AND (a.id = ? OR lower(a.name) = lower(?))
+         AND (a.id = ? OR lower(a.name) = lower(?) OR lower(a.slug) = lower(?))
+
        ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.updated_at DESC
        LIMIT 1`
     )
-    .get(companyRow.id, input.agentId, input.agentId, input.agentId) as AgentRow | undefined;
+    .get(companyRow.id, input.agentId, input.agentId, input.agentId, input.agentId) as AgentRow | undefined;
 
   if (!agentRow) {
     throw new OrchestrationApiError(404, "agent_not_found", "Agent not found");
@@ -964,18 +972,20 @@ export function createProjectAgent(input: {
     });
 
   const createAgentTx = db.transaction(() => {
+    const agentSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, emoji, role, personality, avatar_url, status, current_task_id, model,
+        (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, status, current_task_id, model,
          openclaw_agent_id, paperclip_agent_id, reporting_to, skills_json, tasks_completed, total_runtime_minutes,
          last_heartbeat, created_at, updated_at, archived_at)
        VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, NULL)`
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, NULL)`
     ).run(
       agentId,
       project.company_id,
       project.id,
       input.name,
+      agentSlug,
       input.emoji || "🤖",
       input.role,
       input.personality,

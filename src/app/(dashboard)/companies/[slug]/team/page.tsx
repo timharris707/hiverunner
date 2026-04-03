@@ -3,8 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { Activity, BriefcaseBusiness, Search, Users, Wifi, WifiOff, X } from "lucide-react";
+import { useParams } from "next/navigation";
+import { Activity, BriefcaseBusiness, Search, UserPlus, Users, Wifi, WifiOff } from "lucide-react";
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
 import { formatAge } from "@/components/orchestration/ui";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
@@ -21,8 +21,6 @@ type TeamAgent = OrchestrationAgent & {
 
 export default function CompanyTeamPage() {
   const params = useParams<{ slug: string }>();
-  const searchParams = useSearchParams();
-  const router = useRouter();
   const slug = params?.slug ?? "";
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
@@ -30,13 +28,6 @@ export default function CompanyTeamPage() {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OrchestrationAgent["status"]>("all");
-  const [createAgentOpen, setCreateAgentOpen] = useState(false);
-
-  useEffect(() => {
-    if (searchParams.get("createAgent") === "1") {
-      setCreateAgentOpen(true);
-    }
-  }, [searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -164,6 +155,13 @@ export default function CompanyTeamPage() {
             {projects.length} projects in company
           </div>
           <Link
+            href={`/companies/${encodeURIComponent(slug)}/agents/new`}
+            className="inline-flex items-center gap-2 rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-400/15"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            Add Agent
+          </Link>
+          <Link
             href={`/companies/${encodeURIComponent(slug)}/org`}
             className="rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-400/15"
           >
@@ -193,7 +191,7 @@ export default function CompanyTeamPage() {
                 {group.agents.map((agent) => (
                   <Link
                     key={agent.id}
-                    href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.id)}`}
+                    href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.slug || agent.id)}`}
                     className="block rounded-xl border border-white/10 bg-slate-950/80 p-3 transition hover:border-amber-300/30"
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -229,94 +227,7 @@ export default function CompanyTeamPage() {
           </div>
         ) : null}
       </section>
-      <CreateAgentStubModal
-        open={createAgentOpen}
-        companySlug={slug}
-        onClose={() => {
-          setCreateAgentOpen(false);
-          router.replace(`/companies/${encodeURIComponent(slug)}/team`);
-        }}
-      />
     </CompanyShell>
-  );
-}
-
-function CreateAgentStubModal({
-  open,
-  companySlug,
-  onClose,
-}: {
-  open: boolean;
-  companySlug: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    if (!open) return;
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose]);
-
-  if (!open) return null;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-3 backdrop-blur-md md:items-center"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create agent"
-        className="w-full max-w-lg rounded-3xl border border-white/15 bg-[linear-gradient(165deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_24px_60px_rgba(2,6,23,0.65)] md:p-6"
-      >
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-amber-100/70">Create Agent</p>
-            <h2 className="mt-1 text-xl font-semibold text-white">Agent Intake</h2>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-white/5 text-slate-200 hover:bg-white/10"
-            aria-label="Close create agent dialog"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <p className="text-sm text-slate-300">
-          Company-level create-agent intake is being wired. Use the project agent roster flow while this modal contract is finalized.
-        </p>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <Link
-            href={`/companies/${encodeURIComponent(companySlug)}/projects`}
-            className="rounded-xl border border-amber-300/45 bg-amber-400/15 px-3 py-2 text-sm text-amber-100"
-          >
-            Open Projects
-          </Link>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -334,7 +245,7 @@ function enrichAgent(
     department: division,
     departmentLabel: divisionMeta.label,
     departmentColor: divisionMeta.color,
-    reportsToName: agent.reportingTo ?? config?.reportsTo ?? "Henry",
+    reportsToName: agent.reportingToName ?? config?.reportsTo ?? "Unassigned",
   };
 }
 

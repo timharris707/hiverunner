@@ -3,6 +3,7 @@
 import { use, useEffect, useMemo, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { AlertOctagon, Loader2, Palette, Save, ShieldCheck, Sparkles, Zap } from "lucide-react";
+import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { ProjectShellNav } from "@/components/orchestration/ProjectShellNav";
 import { getProjectBoard, listCompanies, listStaleTaskAlerts } from "@/lib/orchestration/client";
 
@@ -17,8 +18,6 @@ const DEFAULT_THRESHOLDS: StaleThresholdDraft = {
   inProgress: 4,
   blocked: 2,
 };
-
-const EMOJI_PRESETS = ["🛰️", "🌃", "🧠", "🚀", "⚙️", "🛡️", "🧪", "🎯"];
 
 function clampThreshold(value: number): number {
   if (!Number.isFinite(value)) return 0;
@@ -211,38 +210,23 @@ export default function ProjectSettingsPage({ params }: { params: Promise<{ id: 
           </Panel>
 
           <Panel title="Project Identity" icon={<Sparkles className="h-4 w-4" />}>
-            <p className="mb-3 text-xs text-slate-400">Update the project emoji used across board cards and navigation surfaces.</p>
-            <label className="mb-2 block text-[11px] uppercase tracking-[0.12em] text-slate-500">Project Emoji</label>
-            <div className="mb-3 flex items-center gap-2">
-              <input
+            <p className="mb-3 text-xs text-slate-400">Update the project icon used across board cards and navigation surfaces.</p>
+            <label className="mb-2 block text-[11px] uppercase tracking-[0.12em] text-slate-500">Project Icon</label>
+            <div className="mb-3 flex flex-col gap-3">
+              <MissionIconPicker
                 value={emojiDraft}
-                onChange={(event) => setEmojiDraft(event.target.value)}
-                maxLength={8}
-                className="w-20 rounded-lg border border-white/10 bg-slate-900/85 px-3 py-2 text-center text-xl text-white outline-none focus:border-amber-400/60"
-                aria-label="Project emoji"
+                onChange={setEmojiDraft}
+                ariaLabel="Project icon"
               />
               <button
                 type="button"
                 onClick={() => void saveEmoji()}
                 disabled={savingEmoji || !emojiDirty}
-                className="inline-flex items-center gap-1 rounded-lg border border-amber-300/40 bg-amber-400/12 px-3 py-2 text-xs text-amber-100 disabled:opacity-60"
+                className="inline-flex w-fit items-center gap-1 rounded-lg border border-amber-300/40 bg-amber-400/12 px-3 py-2 text-xs text-amber-100 disabled:opacity-60"
               >
                 {savingEmoji ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                Save Emoji
+                Save Icon
               </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              {EMOJI_PRESETS.map((emoji) => (
-                <button
-                  key={emoji}
-                  type="button"
-                  onClick={() => setEmojiDraft(emoji)}
-                  className="rounded-lg border border-white/10 bg-slate-900/70 px-2 py-1 text-base transition hover:border-amber-300/45"
-                >
-                  {emoji}
-                </button>
-              ))}
             </div>
           </Panel>
 

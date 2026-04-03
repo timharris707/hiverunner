@@ -301,6 +301,7 @@ export function lookupProjectByName(input: {
 export function updateProjectSettings(input: {
   projectIdOrSlug: string;
   emoji?: string;
+  status?: ProjectStatusInput;
   staleAlertThresholdsHours?: {
     review?: number;
     inProgress?: number;
@@ -333,9 +334,9 @@ export function updateProjectSettings(input: {
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE projects
-     SET settings_json = ?, updated_at = ?
+     SET settings_json = ?, status = ?, updated_at = ?
      WHERE id = ?`
-  ).run(JSON.stringify(nextSettings), now, current.id);
+  ).run(JSON.stringify(nextSettings), input.status ?? current.status, now, current.id);
 
   const row = getProjectRow(db, current.id);
   if (!row) {

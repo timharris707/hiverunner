@@ -726,6 +726,42 @@ const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys = ON;
     `,
   },
+  {
+    version: 15,
+    name: "companies_add_company_code",
+    sql: `
+      ALTER TABLE companies ADD COLUMN company_code TEXT;
+
+      UPDATE companies
+      SET company_code = CASE
+        WHEN id = '${DEFAULT_COMPANY_ID}' THEN 'NEV'
+        ELSE UPPER(SUBSTR(REPLACE(REPLACE(REPLACE(name, ' ', ''), '-', ''), '_', ''), 1, 3))
+      END
+      WHERE company_code IS NULL OR TRIM(company_code) = '';
+
+      CREATE UNIQUE INDEX idx_companies_company_code_unique
+        ON companies(company_code)
+        WHERE company_code IS NOT NULL AND TRIM(company_code) <> '';
+    `,
+  },
+  {
+    version: 16,
+    name: "agents_add_slug",
+    sql: `
+      ALTER TABLE agents ADD COLUMN slug TEXT;
+
+      UPDATE agents
+      SET slug = LOWER(
+        REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(name),
+          ' ', '-'), '_', '-'), '.', '-'), '''', ''), '"', '')
+      )
+      WHERE slug IS NULL OR TRIM(slug) = '';
+
+      CREATE UNIQUE INDEX idx_agents_company_slug_unique
+        ON agents(company_id, slug)
+        WHERE slug IS NOT NULL AND TRIM(slug) <> '';
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
