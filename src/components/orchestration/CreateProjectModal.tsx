@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { FolderOpen, X } from "lucide-react";
 import { createProject } from "@/lib/orchestration/client";
 
 interface Props {
@@ -21,6 +21,37 @@ function slugify(name: string): string {
     .slice(0, 48);
 }
 
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
+  return (
+    <label className="block space-y-1.5">
+      <span
+        style={{
+          fontSize: "11px",
+          textTransform: "uppercase",
+          letterSpacing: "0.16em",
+          color: "#a8a29e",
+        }}
+      >
+        {label}
+        {required ? <span style={{ marginLeft: "4px", color: "#d6d3d1" }}>*</span> : null}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  borderRadius: "12px",
+  border: "1px solid rgba(120,113,108,0.35)",
+  background: "rgba(28,25,23,0.92)",
+  padding: "10px 14px",
+  fontSize: "14px",
+  color: "#f5f5f4",
+  outline: "none",
+  transition: "border-color 120ms ease",
+};
+
 export function CreateProjectModal({ open, onClose, onCreated, companyId, companyCode, companySlug }: Props) {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -30,9 +61,9 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
   const [error, setError] = useState<string | null>(null);
 
   const slug = slugify(name);
-  const localFolder = slug ? `/projects/${companySlug}/${slug}` : "";
+  const localFolder = slug ? `~/.openclaw/workspace/projects/${slug}` : "";
+  const canSubmit = useMemo(() => name.trim().length >= 2, [name]);
 
-  // Lock body scroll when open
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -40,13 +71,12 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
     return () => { document.body.style.overflow = prev; };
   }, [open]);
 
-  // ESC to close
   useEffect(() => {
     if (!open) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !submitting) onClose(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !submitting) handleClose(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, submitting]);
+  }, [open, submitting]);
 
   const reset = () => {
     setName("");
@@ -56,19 +86,20 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
     setError(null);
   };
 
+  const handleClose = () => {
+    reset();
+    onClose();
+  };
+
   const handleCreate = async () => {
-    const trimmed = name.trim();
-    if (trimmed.length < 2) {
-      setError("Project name must be at least 2 characters.");
-      return;
-    }
+    if (!canSubmit || submitting) return;
 
     setSubmitting(true);
     setError(null);
 
     const project = await createProject({
       companyId,
-      name: trimmed,
+      name: name.trim(),
       slug: slug || undefined,
       description: description.trim() || undefined,
       status,
@@ -88,26 +119,6 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
 
   if (!open) return null;
 
-  const inputStyle: React.CSSProperties = {
-    width: "100%",
-    borderRadius: "10px",
-    border: "1px solid rgba(120,113,108,0.3)",
-    background: "rgba(41,37,36,0.5)",
-    padding: "10px 14px",
-    fontSize: "13px",
-    color: "#f5f5f4",
-    outline: "none",
-  };
-
-  const labelStyle: React.CSSProperties = {
-    fontSize: "12px",
-    color: "#78716c",
-    marginBottom: "6px",
-    display: "flex",
-    alignItems: "center",
-    gap: "4px",
-  };
-
   return (
     <div
       style={{
@@ -117,201 +128,219 @@ export function CreateProjectModal({ open, onClose, onCreated, companyId, compan
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "rgba(12,10,9,0.7)",
-        backdropFilter: "blur(6px)",
+        padding: "32px 16px",
+        background: "rgba(12,10,9,0.72)",
+        backdropFilter: "blur(8px)",
       }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget && !submitting) { reset(); onClose(); } }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !submitting) handleClose(); }}
     >
+      {/* subtle gradient overlay */}
       <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Create new project"
         style={{
-          width: "100%",
-          maxWidth: "560px",
-          borderRadius: "16px",
-          border: "1px solid rgba(120,113,108,0.3)",
-          background: "linear-gradient(180deg, rgba(41,37,36,0.95), rgba(20,17,15,0.98))",
-          boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
-          overflow: "hidden",
+          position: "absolute",
+          inset: 0,
+          background: "linear-gradient(180deg, rgba(12,10,9,0.22), rgba(12,10,9,0.7))",
+          pointerEvents: "none",
         }}
-      >
-        {/* header */}
-        <div style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: "14px 20px",
-          borderBottom: "1px solid rgba(120,113,108,0.2)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span style={{
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: "3px 8px",
-              borderRadius: "6px",
-              border: "1px solid rgba(120,113,108,0.35)",
-              background: "rgba(41,37,36,0.6)",
-              fontSize: "11px",
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              color: "#a8a29e",
-            }}>
-              {companyCode}
-            </span>
-            <span style={{ fontSize: "13px", color: "#78716c" }}>›</span>
-            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>New project</span>
+      />
+
+      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "640px" }}>
+        {/* header — outside the card, matching agent creation layout */}
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", marginBottom: "24px" }}>
+          <div>
+            <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.22em", color: "#78716c" }}>
+              {companyCode} · New Project
+            </p>
+            <h1 style={{ marginTop: "8px", fontSize: "28px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4" }}>
+              Create a Project
+            </h1>
+            <p style={{ marginTop: "8px", maxWidth: "480px", fontSize: "14px", color: "#78716c" }}>
+              Set up a new project workspace with its own tasks, agents, and configuration.
+            </p>
           </div>
           <button
             type="button"
-            onClick={() => { if (!submitting) { reset(); onClose(); } }}
+            onClick={() => { if (!submitting) handleClose(); }}
             style={{
-              width: "28px",
-              height: "28px",
-              borderRadius: "8px",
-              border: "1px solid rgba(120,113,108,0.25)",
-              background: "transparent",
-              color: "#78716c",
+              width: "40px",
+              height: "40px",
+              borderRadius: "12px",
+              border: "1px solid rgba(120,113,108,0.35)",
+              background: "rgba(28,25,23,0.82)",
+              color: "#a8a29e",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               cursor: "pointer",
+              transition: "all 120ms ease",
+              flexShrink: 0,
             }}
+            onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(168,162,158,0.5)"; e.currentTarget.style.color = "#f5f5f4"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(120,113,108,0.35)"; e.currentTarget.style.color = "#a8a29e"; }}
           >
-            <X size={14} />
+            <X size={18} />
           </button>
         </div>
 
-        {/* body */}
-        <div style={{ padding: "20px" }}>
-          {/* name */}
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Project name"
-            autoFocus
-            style={{
-              ...inputStyle,
-              fontSize: "20px",
-              fontWeight: 500,
-              border: "none",
-              background: "transparent",
-              padding: "0 0 8px",
-              borderBottom: "1px solid rgba(120,113,108,0.2)",
-              borderRadius: 0,
-              color: name ? "#f5f5f4" : undefined,
-            }}
-          />
+        {/* card */}
+        <div
+          style={{
+            borderRadius: "24px",
+            border: "1px solid rgba(120,113,108,0.25)",
+            background: "linear-gradient(165deg, rgba(41,37,36,0.96), rgba(12,10,9,0.99))",
+            padding: "24px",
+            boxShadow: "0 30px 80px rgba(12,10,9,0.65)",
+          }}
+        >
+          {/* project name */}
+          <Field label="Project Name" required>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="e.g. Weather Trading"
+              autoFocus
+              style={inputStyle}
+            />
+          </Field>
 
           {/* description */}
-          <textarea
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Add description..."
-            rows={4}
-            style={{
-              ...inputStyle,
-              marginTop: "12px",
-              border: "none",
-              background: "transparent",
-              padding: "0",
-              resize: "vertical",
-              minHeight: "80px",
-              fontSize: "14px",
-              color: description ? "#d6d3d1" : undefined,
-            }}
-          />
+          <div style={{ marginTop: "16px" }}>
+            <Field label="Description">
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder="What is this project about?"
+                rows={3}
+                style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }}
+              />
+            </Field>
+          </div>
 
-          <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px", display: "grid", gap: "14px" }}>
-            {/* repo url */}
-            <div>
-              <label style={labelStyle}>
-                Repo URL <span style={{ color: "#57534e" }}>optional</span>
-              </label>
+          {/* repo url + local folder — two column */}
+          <div style={{ marginTop: "16px", display: "grid", gap: "16px", gridTemplateColumns: "1fr 1fr" }}>
+            <Field label="Repo URL">
               <input
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
                 placeholder="https://github.com/org/repo"
                 style={inputStyle}
               />
-            </div>
+            </Field>
 
-            {/* local folder (read-only, auto-computed) */}
-            <div>
-              <label style={labelStyle}>
-                Local folder
-              </label>
+            <Field label="Local Folder">
               <input
                 value={localFolder}
                 readOnly
-                placeholder="Auto-generated from project name"
+                placeholder="Auto-generated from name"
                 style={{ ...inputStyle, color: "#78716c", cursor: "default" }}
               />
-            </div>
+            </Field>
+          </div>
 
-            {/* status */}
-            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-              {(["active", "paused", "archived"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  style={{
-                    padding: "5px 14px",
-                    borderRadius: "999px",
-                    border: status === s
-                      ? "1px solid rgba(214,211,209,0.4)"
-                      : "1px solid rgba(120,113,108,0.3)",
-                    background: status === s
-                      ? "rgba(120,113,108,0.25)"
-                      : "rgba(41,37,36,0.4)",
-                    fontSize: "12px",
-                    fontWeight: status === s ? 600 : 400,
-                    color: status === s ? "#f5f5f4" : "#78716c",
-                    cursor: "pointer",
-                    transition: "all 120ms ease",
-                    textTransform: "capitalize",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
+          {/* status */}
+          <div style={{ marginTop: "16px" }}>
+            <Field label="Status">
+              <div style={{ display: "flex", gap: "8px", marginTop: "2px" }}>
+                {(["active", "paused", "archived"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setStatus(s)}
+                    style={{
+                      padding: "8px 18px",
+                      borderRadius: "12px",
+                      border: status === s
+                        ? "1px solid rgba(214,211,209,0.4)"
+                        : "1px solid rgba(120,113,108,0.35)",
+                      background: status === s
+                        ? "rgba(120,113,108,0.2)"
+                        : "rgba(28,25,23,0.92)",
+                      fontSize: "13px",
+                      fontWeight: status === s ? 600 : 400,
+                      color: status === s ? "#f5f5f4" : "#78716c",
+                      cursor: "pointer",
+                      transition: "all 120ms ease",
+                      textTransform: "capitalize",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </Field>
           </div>
 
           {/* error */}
           {error ? (
-            <p style={{ marginTop: "12px", fontSize: "13px", color: "#d6d3d1" }}>{error}</p>
-          ) : null}
-        </div>
-
-        {/* footer */}
-        <div style={{
-          display: "flex",
-          justifyContent: "flex-end",
-          padding: "14px 20px",
-          borderTop: "1px solid rgba(120,113,108,0.2)",
-        }}>
-          <button
-            type="button"
-            onClick={() => void handleCreate()}
-            disabled={submitting || name.trim().length < 2}
-            style={{
-              padding: "8px 20px",
-              borderRadius: "10px",
-              border: "1px solid rgba(120,113,108,0.4)",
-              background: name.trim().length >= 2 ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.4)",
+            <div style={{
+              marginTop: "16px",
+              borderRadius: "12px",
+              border: "1px solid rgba(120,113,108,0.3)",
+              background: "rgba(28,25,23,0.8)",
+              padding: "12px 14px",
               fontSize: "13px",
-              fontWeight: 600,
-              color: name.trim().length >= 2 ? "#f5f5f4" : "#57534e",
-              cursor: name.trim().length >= 2 ? "pointer" : "default",
-              transition: "all 120ms ease",
-              opacity: submitting ? 0.6 : 1,
-            }}
-          >
-            {submitting ? "Creating..." : "Create project"}
-          </button>
+              color: "#d6d3d1",
+            }}>
+              {error}
+            </div>
+          ) : null}
+
+          {/* footer */}
+          <div style={{
+            marginTop: "24px",
+            paddingTop: "20px",
+            borderTop: "1px solid rgba(120,113,108,0.2)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}>
+            <button
+              type="button"
+              onClick={() => { if (!submitting) handleClose(); }}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                fontSize: "13px",
+                color: "#78716c",
+                background: "none",
+                border: "none",
+                cursor: "pointer",
+                transition: "color 120ms ease",
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.color = "#f5f5f4"; }}
+              onMouseLeave={(e) => { e.currentTarget.style.color = "#78716c"; }}
+            >
+              <FolderOpen size={14} />
+              Back to Projects
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void handleCreate()}
+              disabled={!canSubmit || submitting}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "8px",
+                padding: "10px 20px",
+                borderRadius: "12px",
+                border: "none",
+                background: canSubmit ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.5)",
+                fontSize: "13px",
+                fontWeight: 600,
+                color: canSubmit ? "#f5f5f4" : "#57534e",
+                cursor: canSubmit ? "pointer" : "default",
+                transition: "all 120ms ease",
+                opacity: submitting ? 0.6 : 1,
+              }}
+              onMouseEnter={(e) => { if (canSubmit) e.currentTarget.style.background = "rgba(168,162,158,0.3)"; }}
+              onMouseLeave={(e) => { if (canSubmit) e.currentTarget.style.background = "rgba(168,162,158,0.2)"; }}
+            >
+              <FolderOpen size={14} />
+              {submitting ? "Creating..." : "Create Project"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
