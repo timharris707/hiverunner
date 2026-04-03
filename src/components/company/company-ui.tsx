@@ -91,7 +91,7 @@ export function CompanyShell({
   eyebrow,
   title,
   description,
-  accentColor = "#d97706",
+  accentColor: _accentColor,
   children,
 }: {
   eyebrow: string;
@@ -103,15 +103,18 @@ export function CompanyShell({
   return (
     <div className="space-y-6 p-4 md:p-8">
       <section
-        className="overflow-hidden rounded-3xl border p-5 shadow-[0_20px_50px_rgba(2,6,23,0.55)] backdrop-blur-2xl md:p-8"
         style={{
-          borderColor: "rgba(120,113,108,0.28)",
-          background: `radial-gradient(circle at 12% 18%, ${withAlpha(accentColor, 0.24)}, transparent 30%), radial-gradient(circle at 88% 0%, rgba(146,64,14,0.18), transparent 34%), linear-gradient(145deg, rgba(41,37,36,0.92), rgba(12,10,9,0.97))`,
+          overflow: "hidden",
+          borderRadius: "20px",
+          border: "1px solid rgba(120,113,108,0.25)",
+          padding: "24px 28px",
+          background: "linear-gradient(145deg, rgba(41,37,36,0.88), rgba(20,17,15,0.95))",
+          boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
         }}
       >
-        <p className="text-[11px] uppercase tracking-[0.24em] text-stone-300/70">{eyebrow}</p>
-        <h1 className="mt-1 text-3xl font-semibold tracking-tight text-stone-50">{title}</h1>
-        <p className="mt-2 max-w-3xl text-sm text-stone-300">{description}</p>
+        <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.22em", color: "#78716c" }}>{eyebrow}</p>
+        <h1 style={{ marginTop: "4px", fontSize: "28px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4" }}>{title}</h1>
+        <p style={{ marginTop: "8px", maxWidth: "640px", fontSize: "13px", color: "#a8a29e" }}>{description}</p>
       </section>
       {children}
     </div>
@@ -153,7 +156,7 @@ export function StatCard({
   label,
   value,
   detail,
-  accentColor = "#d97706",
+  accentColor: _accentColor,
 }: {
   label: string;
   value: string | number;
@@ -162,15 +165,16 @@ export function StatCard({
 }) {
   return (
     <div
-      className="rounded-2xl border p-4 backdrop-blur-xl"
       style={{
-        borderColor: withAlpha(accentColor, 0.24),
-        background: `linear-gradient(180deg, ${withAlpha(accentColor, 0.14)}, rgba(28,25,23,0.84))`,
+        borderRadius: "14px",
+        border: "1px solid rgba(120,113,108,0.25)",
+        padding: "16px",
+        background: "rgba(28,25,23,0.7)",
       }}
     >
-      <p className="text-[11px] uppercase tracking-[0.2em] text-stone-400">{label}</p>
-      <p className="mt-3 text-2xl font-semibold text-stone-50">{value}</p>
-      {detail ? <p className="mt-2 text-sm text-stone-400">{detail}</p> : null}
+      <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.18em", color: "#78716c" }}>{label}</p>
+      <p style={{ marginTop: "12px", fontSize: "24px", fontWeight: 600, color: "#f5f5f4" }}>{value}</p>
+      {detail ? <p style={{ marginTop: "8px", fontSize: "13px", color: "#78716c" }}>{detail}</p> : null}
     </div>
   );
 }

@@ -14,64 +14,105 @@ type Props = {
 };
 
 export function ActiveProjectBanner({ companySlug, project, onClear, compact = false }: Props) {
+  const btnStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "4px",
+    borderRadius: "10px",
+    border: "1px solid rgba(120,113,108,0.35)",
+    background: "rgba(41,37,36,0.5)",
+    padding: "6px 12px",
+    fontSize: "12px",
+    color: "#d6d3d1",
+    textDecoration: "none",
+    cursor: "pointer",
+    transition: "all 120ms ease",
+  };
+
   return (
     <section
-      className="rounded-2xl border px-4 py-3 backdrop-blur-xl"
       style={{
-        borderColor: `${project.color}55`,
-        background: `linear-gradient(135deg, ${project.color}18, rgba(28,25,23,0.88))`,
+        borderRadius: "14px",
+        border: "1px solid rgba(120,113,108,0.25)",
+        background: "rgba(28,25,23,0.65)",
+        padding: "12px 16px",
       }}
     >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", minWidth: 0 }}>
           <span
-            className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border"
             style={{
-              borderColor: `${project.color}66`,
-              backgroundColor: `${project.color}22`,
-              color: project.color,
+              display: "inline-flex",
+              width: "36px",
+              height: "36px",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "10px",
+              border: "1px solid rgba(120,113,108,0.3)",
+              background: "rgba(41,37,36,0.5)",
+              color: "#a8a29e",
+              flexShrink: 0,
             }}
           >
-            <FolderKanban className="h-4 w-4" />
+            <FolderKanban size={16} />
           </span>
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/25 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.14em] text-amber-100">
-                <Check className="h-3 w-3" />
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(120,113,108,0.3)",
+                  background: "rgba(41,37,36,0.5)",
+                  padding: "2px 8px",
+                  fontSize: "10px",
+                  fontWeight: 600,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.12em",
+                  color: "#a8a29e",
+                }}
+              >
+                <Check size={10} />
                 Active project
               </span>
-              <span className="text-[11px] uppercase tracking-[0.16em] text-stone-400">{project.slug}</span>
+              <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.14em", color: "#57534e" }}>
+                {project.slug}
+              </span>
             </div>
-            <p className="mt-1 truncate text-sm font-semibold text-stone-100">{project.name}</p>
+            <p style={{ marginTop: "4px", fontSize: "13px", fontWeight: 600, color: "#f5f5f4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {project.name}
+            </p>
             {!compact ? (
-              <p className="mt-0.5 line-clamp-2 text-xs text-stone-400">
+              <p style={{ marginTop: "2px", fontSize: "12px", color: "#78716c" }}>
                 {project.description || "Global project context is pinned across this company workspace."}
               </p>
             ) : null}
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 text-xs">
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
           <Link
             href={buildCompanyPath(companySlug, `/projects/${encodeURIComponent(project.slug || project.id)}/board`)}
-            className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-stone-200 transition hover:bg-white/10"
+            style={btnStyle}
           >
             Open board
           </Link>
           <Link
             href={`/companies/${encodeURIComponent(companySlug)}/issues/new?projectId=${encodeURIComponent(project.id)}`}
-            className="inline-flex items-center gap-1 rounded-xl border border-amber-300/35 bg-amber-500/15 px-3 py-2 text-amber-100 transition hover:bg-amber-500/25"
+            style={btnStyle}
           >
-            <Plus className="h-3.5 w-3.5" />
+            <Plus size={12} />
             New task in project
           </Link>
           {onClear ? (
             <button
               type="button"
               onClick={onClear}
-              className="inline-flex items-center gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-stone-300 transition hover:bg-white/10"
+              style={{ ...btnStyle, border: "1px solid rgba(120,113,108,0.25)" }}
             >
-              <X className="h-3.5 w-3.5" />
+              <X size={12} />
               Clear
             </button>
           ) : null}
