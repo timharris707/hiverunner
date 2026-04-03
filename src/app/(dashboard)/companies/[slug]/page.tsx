@@ -94,7 +94,7 @@ export default function CompanyDetailPage() {
   useEffect(() => {
     let mounted = true;
 
-    Promise.all([listCompanies(), listProjects({ company: slug })])
+    Promise.all([listCompanies(), listProjects({ company: slug, includeNonProduction: true })])
       .then(([companies, rows]) => {
         if (!mounted) return;
         const current = companies.find((item) => item.slug === slug) ?? null;
