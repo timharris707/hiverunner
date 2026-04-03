@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Paperclip, X } from "lucide-react";
 import { createTask, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { resolveActiveProject } from "@/lib/active-project-utils";
@@ -41,6 +41,15 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
   const [status, setStatus] = useState<TaskStatus>("backlog");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [files, setFiles] = useState<File[]>([]);
+  const [dragOver, setDragOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const addFiles = useCallback((newFiles: FileList | File[]) => {
+    setFiles((prev) => [...prev, ...Array.from(newFiles)]);
+  }, []);
+
+  const removeFile = (idx: number) => setFiles((prev) => prev.filter((_, i) => i !== idx));
 
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
@@ -88,6 +97,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
     setPriority("P2");
     setStatus("backlog");
     setError(null);
+    setFiles([]);
   };
 
   const handleClose = () => { if (!submitting) { reset(); onClose(); } };
@@ -127,7 +137,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
           <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
             <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 8px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.6)", fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "#a8a29e" }}>{companyCode}</span>
             <span style={{ fontSize: "13px", color: "#78716c" }}>›</span>
-            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>New Issue</span>
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>New Task</span>
           </div>
           <button type="button" onClick={handleClose} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid rgba(120,113,108,0.25)", background: "transparent", color: "#78716c", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X size={14} />
@@ -140,7 +150,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Issue title"
+            placeholder="Task title"
             autoFocus
             style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0 }}
           />
@@ -166,6 +176,42 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
             rows={3}
             style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "60px", fontSize: "14px", color: description ? "#d6d3d1" : undefined }}
           />
+
+          {/* file attachments */}
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) addFiles(e.dataTransfer.files); }}
+            onClick={() => fileInputRef.current?.click()}
+            style={{
+              marginTop: "12px",
+              borderRadius: "10px",
+              border: dragOver ? "1px dashed rgba(168,162,158,0.5)" : "1px dashed rgba(120,113,108,0.25)",
+              background: dragOver ? "rgba(41,37,36,0.3)" : "transparent",
+              padding: files.length > 0 ? "8px 12px" : "12px",
+              cursor: "pointer",
+              transition: "all 120ms ease",
+            }}
+          >
+            <input ref={fileInputRef} type="file" multiple hidden onChange={(e) => { if (e.target.files?.length) { addFiles(e.target.files); e.target.value = ""; } }} />
+            {files.length === 0 ? (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "6px" }}>
+                <Paperclip size={12} style={{ color: "#57534e" }} />
+                <span style={{ fontSize: "12px", color: "#57534e" }}>Drop files here or click to attach</span>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                {files.map((f, i) => (
+                  <span key={`${f.name}-${i}`} style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "3px 8px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)", fontSize: "11px", color: "#a8a29e" }}>
+                    <Paperclip size={10} />
+                    {f.name.length > 24 ? `${f.name.slice(0, 22)}…` : f.name}
+                    <button type="button" onClick={(e) => { e.stopPropagation(); removeFile(i); }} style={{ background: "none", border: "none", color: "#78716c", cursor: "pointer", padding: 0, display: "flex" }}><X size={10} /></button>
+                  </span>
+                ))}
+                <span style={{ fontSize: "11px", color: "#57534e", alignSelf: "center" }}>+ more</span>
+              </div>
+            )}
+          </div>
 
           {/* bottom pills: status + priority */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "16px", paddingTop: "12px", borderTop: "1px solid rgba(120,113,108,0.12)" }}>
@@ -197,7 +243,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
             disabled={submitting || !canSubmit}
             style={{ padding: "8px 20px", borderRadius: "10px", border: "1px solid rgba(120,113,108,0.4)", background: canSubmit ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.4)", fontSize: "13px", fontWeight: 600, color: canSubmit ? "#f5f5f4" : "#57534e", cursor: canSubmit ? "pointer" : "default", transition: "all 120ms ease", opacity: submitting ? 0.6 : 1 }}
           >
-            {submitting ? "Creating..." : "Create Issue"}
+            {submitting ? "Creating..." : "Create Task"}
           </button>
         </div>
       </div>

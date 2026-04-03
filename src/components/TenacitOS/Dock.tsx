@@ -42,6 +42,7 @@ import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects, update
 import { CreateProjectModal } from "@/components/orchestration/CreateProjectModal";
 import { CreateAgentModal } from "@/components/orchestration/CreateAgentModal";
 import { CreateCompanyModal } from "@/components/orchestration/CreateCompanyModal";
+import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
 import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
@@ -465,6 +466,7 @@ export function Dock() {
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
 
   const activeProjectForCompany =
     activeProject && activeProject.companySlug === company.slug ? activeProject : null;
@@ -886,7 +888,7 @@ export function Dock() {
                       onClick={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
-                        router.push(buildCanonicalNewIssuePath(cc));
+                        setCreateTaskOpen(true);
                       }}
                       aria-label="Create task"
                       title="Create task"
@@ -1516,6 +1518,15 @@ export function Dock() {
         onCreated={() => {
           router.refresh();
         }}
+      />
+      <CreateTaskModal
+        open={createTaskOpen}
+        onClose={() => setCreateTaskOpen(false)}
+        onCreated={() => {
+          router.refresh();
+        }}
+        companySlug={company.slug}
+        companyCode={cc}
       />
     </>
   );
