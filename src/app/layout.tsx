@@ -35,7 +35,21 @@ export default function RootLayout({
         }}
       >
         <Script id="register-service-worker" strategy="afterInteractive">
-          {`if("serviceWorker"in navigator)navigator.serviceWorker.register("/sw.js")`}
+          {`
+            if ("serviceWorker" in navigator) {
+              const isLocalDev = ["localhost", "127.0.0.1"].includes(location.hostname);
+              if (isLocalDev) {
+                navigator.serviceWorker.getRegistrations().then((regs) => {
+                  regs.forEach((reg) => reg.unregister());
+                });
+                if (window.caches) {
+                  caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));
+                }
+              } else {
+                navigator.serviceWorker.register("/sw.js");
+              }
+            }
+          `}
         </Script>
         {children}
       </body>

@@ -226,14 +226,14 @@ export function ZeldaWhiteboard({ x, y }: FurnitureProps) {
         {/* Board surface */}
         <rect x="6" y="6" width="52" height="36" fill="#f0f0f0" />
         {/* Written content (scribbles) */}
-        <path d="M 12 12 L 20 16 L 28 12 L 36 18" stroke="#3b82f6" strokeWidth="2" fill="none" />
+        <path d="M 12 12 L 20 16 L 28 12 L 36 18" stroke="#d97706" strokeWidth="2" fill="none" />
         <circle cx="44" cy="14" r="4" stroke="#ef4444" strokeWidth="2" fill="none" />
         <line x1="12" y1="24" x2="48" y2="24" stroke="#000" strokeWidth="1" />
         <line x1="12" y1="28" x2="40" y2="28" stroke="#000" strokeWidth="1" />
         <line x1="12" y1="32" x2="44" y2="32" stroke="#000" strokeWidth="1" />
         {/* Marker tray */}
         <rect x="8" y="44" width="48" height="4" fill="#666" />
-        <rect x="12" y="46" width="4" height="2" fill="#3b82f6" />
+        <rect x="12" y="46" width="4" height="2" fill="#d97706" />
         <rect x="18" y="46" width="4" height="2" fill="#ef4444" />
         <rect x="24" y="46" width="4" height="2" fill="#22c55e" />
       </svg>
@@ -263,7 +263,7 @@ export function ZeldaCamera({ x, y }: FurnitureProps) {
         <rect x="14" y="10" width="20" height="12" fill="#34495e" />
         {/* Lens */}
         <circle cx="24" cy="16" r="8" fill="#1a1a1a" />
-        <circle cx="24" cy="16" r="6" fill="#3b82f6" opacity="0.6" />
+        <circle cx="24" cy="16" r="6" fill="#d97706" opacity="0.6" />
         <circle cx="24" cy="16" r="3" fill="#000" />
         {/* Details */}
         <circle cx="36" cy="12" r="2" fill="#ef4444" />

@@ -22,6 +22,10 @@ export interface SpawnAdvisoryAgentOptions {
   timeoutSeconds?: number;
   /** Optional thinking level for extended thinking */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
+  /** Model to use */
+  model?: string;
+  /** Max tokens */
+  maxTokens?: number;
 }
 
 export interface SpawnAdvisoryAgentResult {
@@ -42,7 +46,7 @@ export interface SpawnAdvisoryAgentResult {
  * override block, since the `openclaw agent` CLI uses the default agent's
  * system prompt (Henry). The override is structured to take priority.
  */
-export function spawnAdvisoryAgent(
+export async function spawnAdvisoryAgent(
   options: SpawnAdvisoryAgentOptions
 ): Promise<SpawnAdvisoryAgentResult> {
   const {
@@ -52,16 +56,68 @@ export function spawnAdvisoryAgent(
     userPrompt,
     timeoutSeconds = 120,
     thinkingLevel,
+    model = "anthropic/claude-sonnet-4-6",
+    maxTokens = 4096,
   } = options;
 
-  // H-7 fix: Use ephemeral sessions per turn to avoid context accumulation.
-  // Previously used persistent sessions (`advisory-{sessionId}-{agentId}`) which
-  // accumulated all prior messages, creating duplicate/conflicting context with
-  // the history injected in the prompt. Now each turn gets a unique session.
   const turnId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const openclawSessionId = `advisory-${sessionId}-${agentId}-${turnId}`;
 
-  // Compose a combined message with role override + task
+  // If GATEWAY_URL is provided (e.g. Vercel production or local proxy mode), route through the HTTP gateway
+  if (process.env.GATEWAY_URL) {
+    const startTime = Date.now();
+    const gatewayUrl = `${process.env.GATEWAY_URL.replace(/\/$/, '')}/v1/chat/completions`;
+    const gatewayToken = process.env.GATEWAY_TOKEN || "unused";
+    
+    // We pass the role override directly in the system message
+    const messages = [
+      {
+        role: "system",
+        content: `IMPORTANT: You must fully adopt the following identity and respond ONLY as this character. Do not break character.\n\n${systemPrompt}`
+      },
+      {
+        role: "user",
+        content: userPrompt
+      }
+    ];
+
+    try {
+      const response = await fetch(gatewayUrl, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${gatewayToken}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model, // Gateway model mapping
+          messages,
+          max_tokens: maxTokens,
+          temperature: 0.7,
+        }),
+        signal: AbortSignal.timeout(timeoutSeconds * 1000)
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Gateway returned ${response.status}: ${errText}`);
+      }
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      const modelUsed = data.model || "unknown";
+
+      return {
+        text,
+        model: modelUsed,
+        durationMs: Date.now() - startTime,
+        openclawSessionId
+      };
+    } catch (err) {
+      throw new Error(`Gateway HTTP call failed for ${agentId}: ${String(err)}`);
+    }
+  }
+
+  // Fallback: Local CLI execution
   const combinedMessage = `=== ADVISORY BOARD: ROLE OVERRIDE ===
 IMPORTANT: For this response, you are NOT Henry. You must fully adopt the following identity and respond ONLY as this character. Do not mention Henry or break character.
 

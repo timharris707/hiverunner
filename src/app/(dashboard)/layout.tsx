@@ -7,6 +7,8 @@ import { QuickActionBar } from "@/components/QuickActionBar";
 import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { MissionControlRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
 import { DemoModeProvider } from "@/lib/demo-mode";
+import { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH } from "@/components/TenacitOS/Dock";
+import { useDockCollapsed } from "@/lib/dock-state";
 
 export default function DashboardLayout({
   children,
@@ -14,6 +16,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const [isMobile, setIsMobile] = useState(false);
+  const { collapsed: dockCollapsed } = useDockCollapsed();
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -32,11 +35,11 @@ export default function DashboardLayout({
 
           <main
             style={{
-              marginLeft: isMobile ? 0 : "168px", // dock is side on desktop, bottom on mobile
+              marginLeft: isMobile ? 0 : `${dockCollapsed ? DOCK_COLLAPSED_WIDTH : DOCK_WIDTH}px`,
               marginTop: "48px", // Height of top bar
               marginBottom: isMobile ? "56px" : "32px", // mobile bottom nav vs status bar
               minHeight: "calc(100vh - 48px - 32px)",
-              padding: isMobile ? "16px" : "24px",
+              padding: isMobile ? "16px" : "12px 16px",
               overflow: "hidden", // contain children that use negative margins
             }}
           >

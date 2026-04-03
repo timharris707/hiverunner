@@ -25,8 +25,8 @@ const typeConfig: Record<
 > = {
   info: {
     icon: Info,
-    colorVar: "#60a5fa",
-    bgVar: "rgba(59, 130, 246, 0.12)",
+    colorVar: "#d97706",
+    bgVar: "rgba(217, 119, 6, 0.12)",
   },
   success: {
     icon: CheckCircle,
@@ -367,7 +367,7 @@ export function NotificationDropdown() {
                     gap: "12px",
                     padding: "16px 20px",
                     borderBottom: index < notifications.length - 1 ? "1px solid var(--border)" : "none",
-                    backgroundColor: notification.read ? "transparent" : "rgba(96, 165, 250, 0.05)",
+                    backgroundColor: notification.read ? "transparent" : "rgba(245, 158, 11, 0.05)",
                     cursor: notification.link ? "pointer" : "default",
                     transition: "background-color 0.2s",
                     position: "relative",
@@ -380,7 +380,7 @@ export function NotificationDropdown() {
                   onMouseLeave={(e) => {
                     e.currentTarget.style.backgroundColor = notification.read
                       ? "transparent"
-                      : "rgba(96, 165, 250, 0.05)";
+                      : "rgba(245, 158, 11, 0.05)";
                   }}
                 >
                   {/* Type Icon */}
@@ -419,7 +419,7 @@ export function NotificationDropdown() {
                             width: "8px",
                             height: "8px",
                             borderRadius: "50%",
-                            backgroundColor: "#60a5fa",
+                            backgroundColor: "#d97706",
                             flexShrink: 0,
                             marginLeft: "8px",
                           }}

@@ -318,7 +318,7 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
   const statusConfig = {
     running: { color: "#22c55e", label: "building...", pulse: true },
     queued: { color: "#f59e0b", label: "queued...", pulse: false },
-    spawning: { color: "#3b82f6", label: "spawning...", pulse: true },
+    spawning: { color: "#d97706", label: "spawning...", pulse: true },
   };
   const cfg = sprite.isStale
     ? { color: "#f97316", label: `stale ${sprite.staleMins}m`, pulse: true }
@@ -335,7 +335,7 @@ function AgentSpriteComponent({ sprite }: { sprite: AgentSprite }) {
       </div>
       <div className="mt-1.5" style={{ fontSize: 11, fontWeight: 700, color: "#e2e8f0", fontFamily: "var(--font-heading, var(--font-body))", textAlign: "center", whiteSpace: "nowrap" }}>{sprite.agentName}</div>
       <div style={{ fontSize: 9, color: "rgba(148,163,184,0.7)", fontFamily: "var(--font-mono)", textAlign: "center", marginTop: 1, maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{sprite.productName}</div>
-      <div style={{ fontSize: 8, fontWeight: 600, color: "rgba(167,139,250,0.9)", fontFamily: "var(--font-mono)", textAlign: "center", whiteSpace: "nowrap", marginTop: 3, padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.2)", letterSpacing: "0.5px", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }}>{sprite.model}</div>
+      <div style={{ fontSize: 8, fontWeight: 600, color: "rgba(245,158,11,0.9)", fontFamily: "var(--font-mono)", textAlign: "center", whiteSpace: "nowrap", marginTop: 3, padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(217,119,6,0.12)", border: "1px solid rgba(217,119,6,0.2)", letterSpacing: "0.5px", maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis" }}>{sprite.model}</div>
       {sprite.isStale && (
         <div style={{ marginTop: 4, fontSize: 8, fontWeight: 700, color: "#f97316", fontFamily: "var(--font-mono)", padding: "1px 6px", borderRadius: 4, backgroundColor: "rgba(249,115,22,0.12)", border: "1px solid rgba(249,115,22,0.35)", letterSpacing: "0.5px", whiteSpace: "nowrap" }}>
           ⚠ CLIFF
@@ -409,9 +409,9 @@ function ProductCard({ product }: { product: Product }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 8, marginBottom: 12 }}>
         <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>active tasks: <span style={{ color: "var(--text-primary)" }}>{product.activeTaskCount}</span></div>
-        <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>review: <span style={{ color: "#93c5fd" }}>{product.reviewTaskCount}</span></div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>review: <span style={{ color: "#fbbf24" }}>{product.reviewTaskCount}</span></div>
         <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>done: <span style={{ color: "#4ade80" }}>{product.completedTaskCount}</span></div>
-        <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>backlog: <span style={{ color: "#c4b5fd" }}>{product.backlogTaskCount}</span></div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>backlog: <span style={{ color: "#fbbf24" }}>{product.backlogTaskCount}</span></div>
       </div>
 
       <div className="flex items-center gap-2 mt-auto">
@@ -419,7 +419,7 @@ function ProductCard({ product }: { product: Product }) {
           {product.github && <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)" }}>repo</span>}
           {product.isLive && <span className="rounded-full inline-block" style={{ width: 8, height: 8, backgroundColor: "#10b981", boxShadow: "0 0 6px #10b98188", animation: "pulse-glow 2s ease-in-out infinite" }} title="Live" />}
         </div>
-        <span style={{ fontSize: 10, color: "rgba(167,139,250,0.9)", fontFamily: "var(--font-mono)", padding: "2px 6px", borderRadius: 4, backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.2)" }}>{product.currentModel}</span>
+        <span style={{ fontSize: 10, color: "rgba(245,158,11,0.9)", fontFamily: "var(--font-mono)", padding: "2px 6px", borderRadius: 4, backgroundColor: "rgba(217,119,6,0.12)", border: "1px solid rgba(217,119,6,0.2)" }}>{product.currentModel}</span>
         <span style={{ fontSize: 10, color: "var(--text-muted)", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>{product.timeInStage}</span>
         <AgentAvatar agentId={product.agentId} size={24} borderWidth={1.5} />
       </div>
@@ -448,8 +448,8 @@ function KanbanColumn({ column, products }: { column: { id: PipelineStatus; labe
 
 const TIER_COLORS: Record<string, string> = {
   opus: "#f59e0b",
-  sonnet: "#60a5fa",
-  haiku: "#a78bfa",
+  sonnet: "#f59e0b",
+  haiku: "#f59e0b",
   "gemini-pro": "#34d399",
   "gemini-flash": "#6ee7b7",
 };
@@ -656,9 +656,9 @@ export default function SoftwareFactoryPage() {
               fontSize: 11,
               fontWeight: 600,
               fontFamily: "var(--font-mono)",
-              backgroundColor: "rgba(139,92,246,0.15)",
-              border: "1px solid rgba(139,92,246,0.35)",
-              color: "#a78bfa",
+              backgroundColor: "rgba(217,119,6,0.15)",
+              border: "1px solid rgba(217,119,6,0.35)",
+              color: "#f59e0b",
               textDecoration: "none",
             }}
           >
@@ -670,7 +670,7 @@ export default function SoftwareFactoryPage() {
               {loading ? "Syncing factory state..." : `Factory synced \u2022 ${builds.length} builds \u2022 ${tasks.length} tasks \u2022 ${projects.length} projects`}
             </div>
             {agentModels?.defaultModel && (
-              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(139,92,246,0.12)", border: "1px solid rgba(139,92,246,0.25)", color: "#c4b5fd", fontSize: 11, fontFamily: "var(--font-mono)" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "6px 10px", borderRadius: 9999, backgroundColor: "rgba(217,119,6,0.12)", border: "1px solid rgba(217,119,6,0.25)", color: "#fbbf24", fontSize: 11, fontFamily: "var(--font-mono)" }}>
                 <span>{"⚡"}</span>
                 {`OpenClaw default: ${agentModels.defaultModel.modelName}`}
               </div>

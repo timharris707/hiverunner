@@ -14,7 +14,7 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
   const getStatusColor = () => {
     switch (state.status) {
       case 'working': return 'text-green-500';
-      case 'thinking': return 'text-blue-500 animate-pulse';
+      case 'thinking': return 'text-amber-500 animate-pulse';
       case 'error': return 'text-red-500';
       case 'idle':
       default: return 'text-gray-500';
@@ -24,7 +24,7 @@ export default function AgentPanel({ agent, state, onClose }: AgentPanelProps) {
   const getStatusBgColor = () => {
     switch (state.status) {
       case 'working': return 'bg-green-500/20';
-      case 'thinking': return 'bg-blue-500/20';
+      case 'thinking': return 'bg-amber-500/20';
       case 'error': return 'bg-red-500/20';
       case 'idle':
       default: return 'bg-gray-500/20';

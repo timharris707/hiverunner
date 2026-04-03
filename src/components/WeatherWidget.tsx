@@ -100,7 +100,7 @@ export function WeatherWidget() {
           Feels {weather.feels_like}°F
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>
-          <Droplets className="w-3.5 h-3.5" style={{ color: "#60a5fa" }} />
+          <Droplets className="w-3.5 h-3.5" style={{ color: "#f59e0b" }} />
           {weather.humidity}%
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "0.375rem", fontSize: "0.8rem", color: "var(--text-secondary)" }}>

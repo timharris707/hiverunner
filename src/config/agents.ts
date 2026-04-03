@@ -195,7 +195,7 @@ Your communication style is precise, measured, and occasionally pedantic in a wa
     emoji: "🔧",
     role: "Backend Engineer",
     division: "Engineering",
-    divisionColor: "#3b82f6",
+    divisionColor: "#d97706",
     avatar: "/avatars/backend.jpg",
     description:
       "Infrastructure, databases, APIs. System reliability and monitoring. CI/CD pipelines, cost management and optimization. Circuit breakers and error recovery systems.",
@@ -223,7 +223,7 @@ Your communication style is methodical and systems-oriented. You always ask: "Wh
     emoji: "💻",
     role: "Senior Full-Stack Engineer",
     division: "Engineering",
-    divisionColor: "#3b82f6",
+    divisionColor: "#d97706",
     avatar: "/avatars/fullstack.jpg",
     description:
       "Web application development (frontend + backend). Dashboard and UI builds like Mission Control. API integrations. Rapid prototyping and shipping. Stack: Next.js, React, TypeScript, Tailwind.",
@@ -251,7 +251,7 @@ Your communication style is practical and visual — you describe UX with specif
     emoji: "🔭",
     role: "Research & Intelligence Agent",
     division: "Research",
-    divisionColor: "#8b5cf6",
+    divisionColor: "#d97706",
     avatar: "/avatars/scout.jpg",
     description:
       "Market research and opportunity identification. Tech trend monitoring, competitive intelligence. Data gathering for trading strategies. New project ideation and feasibility analysis.",
@@ -514,8 +514,8 @@ export const AGENT_MD_FILENAMES: Record<string, string> = Object.fromEntries(
 export const DIVISIONS: Record<string, { label: string; color: string; icon: string }> = {
   Leadership: { label: "Leadership", color: "#f59e0b", icon: "⚡" },
   Trading: { label: "Trading Desk", color: "#10b981", icon: "📈" },
-  Engineering: { label: "Engineering", color: "#3b82f6", icon: "⚙️" },
-  Research: { label: "Research", color: "#8b5cf6", icon: "🔭" },
+  Engineering: { label: "Engineering", color: "#d97706", icon: "⚙️" },
+  Research: { label: "Research", color: "#d97706", icon: "🔭" },
   Creative: { label: "Creative", color: "#ec4899", icon: "✍️" },
   Legal: { label: "Legal", color: "#64748b", icon: "⚖️" },
   QA: { label: "Quality Control", color: "#f43f5e", icon: "🛡️" },

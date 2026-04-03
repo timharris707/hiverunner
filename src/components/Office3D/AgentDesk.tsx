@@ -37,7 +37,7 @@ export default function AgentDesk({ agent, state: rawState, onClick, isSelected 
       case 'working':
         return '#22c55e'; // green-500
       case 'thinking':
-        return '#3b82f6'; // blue-500
+        return '#d97706'; // amber-500
       case 'error':
         return '#ef4444'; // red-500
       case 'idle':

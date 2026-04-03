@@ -5,6 +5,11 @@ import { updateSession } from "@/lib/supabase/middleware";
 // Pages that don't require authentication
 const PUBLIC_PAGES = new Set(["/login"]);
 
+const ORCHESTRATION_API_PREFIX = "/api/orchestration/";
+const ORCHESTRATION_HEALTH_PATHS = new Set<string>([
+  "/api/orchestration/bridge/status",
+]);
+
 // API routes that are always public
 const PUBLIC_API_PREFIXES = [
   "/api/auth/",
@@ -44,30 +49,102 @@ const INTERNAL_API_PREFIXES = [
   "/api/media/",
   "/api/settings",
   "/api/admin/",
+  "/api/orchestration/",
 ];
+
+type OrchestrationAuthDecisionInput = {
+  expectedApiKey?: string | null;
+  providedApiKey?: string | null;
+  hasSupabaseUser: boolean;
+};
+
+export function isValidOrchestrationApiKey(expectedApiKey?: string | null, providedApiKey?: string | null): boolean {
+  const expected = expectedApiKey?.trim();
+  const provided = providedApiKey?.trim();
+  return Boolean(expected && provided && expected === provided);
+}
+
+export function canAccessOrchestrationApi(input: OrchestrationAuthDecisionInput): boolean {
+  return isValidOrchestrationApiKey(input.expectedApiKey, input.providedApiKey) || input.hasSupabaseUser;
+}
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const host = request.headers.get("host") || "";
+  const requestId = request.headers.get("x-request-id")?.trim() || crypto.randomUUID();
+  const startedAt = Date.now();
+
+  const finalize = (response: NextResponse): NextResponse => {
+    response.headers.set("x-request-id", requestId);
+
+    if (pathname.startsWith("/api/")) {
+      const payload = {
+        requestId,
+        method: request.method,
+        path: pathname,
+        status: response.status,
+        durationMs: Date.now() - startedAt,
+      };
+      console.info(`[api] ${JSON.stringify(payload)}`);
+    }
+
+    return response;
+  };
 
   // Skip auth entirely on localhost (development)
   if (host.startsWith("localhost") || host.startsWith("127.0.0.1")) {
-    return NextResponse.next();
+    return finalize(NextResponse.next());
+  }
+
+  // Orchestration API uses a shared-secret header and skips user-session auth.
+  // Exempt health checks. For protected orchestration routes, allow:
+  // - valid x-mc-api-key, OR
+  // - valid Supabase browser session
+  if (pathname.startsWith(ORCHESTRATION_API_PREFIX) && !ORCHESTRATION_HEALTH_PATHS.has(pathname)) {
+    const expectedApiKey = process.env.MC_API_KEY;
+    const providedApiKey = request.headers.get("x-mc-api-key");
+
+    if (isValidOrchestrationApiKey(expectedApiKey, providedApiKey)) {
+      return finalize(NextResponse.next());
+    }
+
+    try {
+      const { user, supabaseResponse } = await updateSession(request);
+      if (canAccessOrchestrationApi({ expectedApiKey, providedApiKey, hasSupabaseUser: Boolean(user) })) {
+        return finalize(supabaseResponse);
+      }
+    } catch {
+      const authCookie = request.cookies.get("mc_auth");
+      const hasLegacyAuth = Boolean(authCookie && authCookie.value === process.env.AUTH_SECRET);
+      if (canAccessOrchestrationApi({ expectedApiKey, providedApiKey, hasSupabaseUser: hasLegacyAuth })) {
+        return finalize(NextResponse.next());
+      }
+    }
+
+    return finalize(NextResponse.json(
+      {
+        error: {
+          code: "unauthorized",
+          message: "Authentication required: valid Supabase session or X-MC-API-Key header",
+        },
+      },
+      { status: 401 }
+    ));
   }
 
   // Always allow public pages
   if (PUBLIC_PAGES.has(pathname)) {
-    return NextResponse.next();
+    return finalize(NextResponse.next());
   }
 
   // Always allow public API routes
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return NextResponse.next();
+    return finalize(NextResponse.next());
   }
 
   // Allow internal API routes through (they handle their own auth if needed)
   if (INTERNAL_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
-    return NextResponse.next();
+    return finalize(NextResponse.next());
   }
 
   // Check Supabase session for all other routes (pages)
@@ -77,36 +154,36 @@ export async function middleware(request: NextRequest) {
     if (!user) {
       // Not authenticated — redirect pages to login
       if (pathname.startsWith("/api/")) {
-        return NextResponse.json(
+        return finalize(NextResponse.json(
           { error: "Unauthorized", message: "Authentication required" },
           { status: 401 }
-        );
+        ));
       }
 
       const loginUrl = new URL("/login", request.url);
       loginUrl.searchParams.set("from", pathname);
-      return NextResponse.redirect(loginUrl);
+      return finalize(NextResponse.redirect(loginUrl));
     }
 
-    return supabaseResponse;
-  } catch (error) {
+    return finalize(supabaseResponse);
+  } catch {
     // If Supabase is unavailable, fall back to old cookie auth
     const authCookie = request.cookies.get("mc_auth");
     if (authCookie && authCookie.value === process.env.AUTH_SECRET) {
-      return NextResponse.next();
+      return finalize(NextResponse.next());
     }
 
     // No valid session of any kind
     if (pathname.startsWith("/api/")) {
-      return NextResponse.json(
+      return finalize(NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
-      );
+      ));
     }
 
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("from", pathname);
-    return NextResponse.redirect(loginUrl);
+    return finalize(NextResponse.redirect(loginUrl));
   }
 }
 

@@ -101,13 +101,13 @@ function InsightsSection({ insights }: { insights: SessionInsights }) {
 
       {insights.keyDecisions.length > 0 && (
         <div className="mb-3">
-          <div className="text-xs font-semibold mb-1.5" style={{ color: "#60a5fa" }}>
+          <div className="text-xs font-semibold mb-1.5" style={{ color: "#d97706" }}>
             Key Decisions
           </div>
           <ul className="space-y-1">
             {insights.keyDecisions.map((d, i) => (
               <li key={i} className="flex items-start gap-1.5">
-                <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: "#60a5fa" }} />
+                <CheckCircle2 className="w-3 h-3 mt-0.5 flex-shrink-0" style={{ color: "#d97706" }} />
                 <span className="text-xs" style={{ color: "var(--text-secondary)" }}>{d}</span>
               </li>
             ))}
@@ -162,7 +162,7 @@ function InsightsSection({ insights }: { insights: SessionInsights }) {
 
       {insights.openQuestions.length > 0 && (
         <div>
-          <div className="text-xs font-semibold mb-1.5" style={{ color: "#a78bfa" }}>
+          <div className="text-xs font-semibold mb-1.5" style={{ color: "#d97706" }}>
             Open Questions
           </div>
           <ul className="space-y-1">
@@ -197,7 +197,7 @@ export function AdvisorySessionDrawer({ sessionId, onClose }: AdvisorySessionDra
 
   const statusColor =
     session?.status === "active" ? "#4ade80" :
-    session?.status === "completed" ? "#60a5fa" :
+    session?.status === "completed" ? "#d97706" :
     "#6b7280";
 
   const statusLabel =

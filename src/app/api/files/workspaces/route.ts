@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
+import { shouldIncludeWorkspaceInOperatorRails } from '@/lib/workspace-visibility';
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
 
@@ -65,6 +66,15 @@ export async function GET() {
       if (entry.isDirectory() && entry.name.startsWith('workspace-')) {
         const workspacePath = path.join(OPENCLAW_DIR, entry.name);
         const agentInfo = getAgentInfo(workspacePath);
+
+        if (
+          !shouldIncludeWorkspaceInOperatorRails({
+            workspaceId: entry.name,
+            hasIdentityFile: Boolean(agentInfo),
+          })
+        ) {
+          continue;
+        }
         
         const agentId = entry.name.replace('workspace-', '');
         // Friendly workspace name: capitalize the directory id (e.g. "academic" → "Academic")

@@ -188,7 +188,7 @@ export default function TerminalPage() {
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.25rem" }}>
                 <span style={{ color: "#4ade80" }}>henry@harris</span>
                 <span style={{ color: "#8b949e" }}>:</span>
-                <span style={{ color: "#60a5fa" }}>~</span>
+                <span style={{ color: "#f59e0b" }}>~</span>
                 <span style={{ color: "#c9d1d9" }}>$ {entry.command}</span>
                 {entry.duration != null && (
                   <span style={{ color: "#484f58", fontSize: "0.7rem" }}>({entry.duration}ms)</span>

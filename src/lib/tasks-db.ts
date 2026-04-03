@@ -37,6 +37,53 @@ const DB_PATH = path.join(DATA_DIR, 'tasks.db');
 const TASKS_JSON_PATH = path.join(process.cwd(), 'data', 'tasks.json');
 
 let _db: Database.Database | null = null;
+let _transitionIdUsesIntegerPk: boolean | null = null;
+const VALID_TASK_STATUSES = new Set([
+  "backlog",
+  "on-deck",
+  "in-progress",
+  "review",
+  "blocked",
+  "done",
+]);
+
+function normalizeTaskStatus(rawStatus: unknown): string {
+  const normalized = String(rawStatus || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+
+  if (!normalized) return "backlog";
+
+  if (normalized === "on_deck" || normalized === "ondeck" || normalized === "todo" || normalized === "queued") {
+    return "on-deck";
+  }
+  if (normalized === "in_progress" || normalized === "inprogress" || normalized === "active" || normalized === "working") {
+    return "in-progress";
+  }
+  if (normalized === "completed" || normalized === "complete" || normalized === "closed") {
+    return "done";
+  }
+
+  const asApiStatus = normalized.replace(/_/g, "-");
+  if (VALID_TASK_STATUSES.has(asApiStatus)) {
+    return asApiStatus;
+  }
+
+  return "backlog";
+}
+
+function normalizeTaskRecord(task: any, fallbackStatus?: unknown): { task: any; status: string; changed: boolean } {
+  const normalizedStatus = normalizeTaskStatus(task?.status ?? fallbackStatus);
+  const nextTask = task && typeof task === "object" ? { ...task } : {};
+  const changed = nextTask.status !== normalizedStatus;
+  nextTask.status = normalizedStatus;
+  if (!nextTask.updated) {
+    nextTask.updated = new Date().toISOString();
+  }
+  return { task: nextTask, status: normalizedStatus, changed };
+}
 
 export function getDb(): Database.Database {
   if (_db) return _db;
@@ -53,6 +100,9 @@ export function getDb(): Database.Database {
   _db.pragma('journal_mode = WAL');
   _db.pragma('synchronous = NORMAL');
   _db.pragma('foreign_keys = ON');
+  // Reduce transient SQLITE_BUSY failures when API routes and background
+  // reconciler writes overlap under e2e load.
+  _db.pragma('busy_timeout = 5000');
 
   _db.exec(`
     CREATE TABLE IF NOT EXISTS tasks (
@@ -101,6 +151,7 @@ export function getDb(): Database.Database {
 
   // Crash replay: detect transitions journaled but not yet reflected in tasks.
   _replayCheck(_db);
+  _normalizeStoredTaskStatuses(_db);
 
   return _db;
 }
@@ -121,12 +172,13 @@ function _migrateFromJson(db: Database.Database): void {
     db.transaction((tasks: any[]) => {
       for (const t of tasks) {
         if (!t.id) continue;
+        const normalized = normalizeTaskRecord(t, t.status || "backlog");
         insert.run({
           id:      t.id,
-          data:    JSON.stringify(t),
-          status:  t.status  || 'backlog',
+          data:    JSON.stringify(normalized.task),
+          status:  normalized.status,
           project: t.project || null,
-          updated: t.updated || t.created || new Date().toISOString(),
+          updated: normalized.task.updated || t.created || new Date().toISOString(),
         });
       }
     })(data);
@@ -204,6 +256,51 @@ function _replayCheck(db: Database.Database): void {
   }
 }
 
+function _normalizeStoredTaskStatuses(db: Database.Database): void {
+  try {
+    const rows = db.prepare("SELECT id, data, status FROM tasks").all() as Array<{
+      id: string;
+      data: string;
+      status: string;
+    }>;
+    if (rows.length === 0) return;
+
+    const update = db.prepare("UPDATE tasks SET data = ?, status = ?, updated = ? WHERE id = ?");
+    let normalizedCount = 0;
+
+    db.transaction((items: typeof rows) => {
+      for (const row of items) {
+        let parsed: any;
+        try {
+          parsed = JSON.parse(row.data);
+        } catch {
+          parsed = { id: row.id };
+        }
+
+        const normalized = normalizeTaskRecord(parsed, row.status);
+        const shouldPersist =
+          row.status !== normalized.status ||
+          parsed?.status !== normalized.status ||
+          JSON.stringify(parsed) !== JSON.stringify(normalized.task);
+
+        if (!shouldPersist) continue;
+
+        normalizedCount++;
+        const updatedAt = typeof normalized.task.updated === "string"
+          ? normalized.task.updated
+          : new Date().toISOString();
+        update.run(JSON.stringify(normalized.task), normalized.status, updatedAt, row.id);
+      }
+    })(rows);
+
+    if (normalizedCount > 0) {
+      console.warn(`[tasks-db] Normalized ${normalizedCount} task status value(s) to canonical API statuses`);
+    }
+  } catch (error) {
+    console.warn("[tasks-db] Task status normalization failed:", error);
+  }
+}
+
 // ── Read / Write ───────────────────────────────────────────────────────────────
 
 /**
@@ -215,7 +312,10 @@ export function dbReadTasks(): any[] {
   const rows = db.prepare(
     'SELECT data FROM tasks ORDER BY updated DESC'
   ).all() as Array<{ data: string }>;
-  return rows.map(r => JSON.parse(r.data));
+  return rows.map((row) => {
+    const parsed = JSON.parse(row.data);
+    return normalizeTaskRecord(parsed, parsed?.status).task;
+  });
 }
 
 /**
@@ -239,12 +339,13 @@ export function dbWriteTasks(tasks: any[]): void {
   db.transaction((items: any[]) => {
     for (const t of items) {
       if (!t.id) continue;
+      const normalized = normalizeTaskRecord(t, t.status || "backlog");
       upsert.run({
-        id:      t.id,
-        data:    JSON.stringify(t),
-        status:  t.status  || 'backlog',
-        project: t.project || null,
-        updated: t.updated || new Date().toISOString(),
+        id:      normalized.task.id,
+        data:    JSON.stringify(normalized.task),
+        status:  normalized.status,
+        project: normalized.task.project || null,
+        updated: normalized.task.updated || new Date().toISOString(),
       });
     }
   })(tasks);
@@ -273,10 +374,30 @@ export function dbJournalTransition(
   reason?: string
 ): void {
   const db = getDb();
+
+  if (_transitionIdUsesIntegerPk === null) {
+    const cols = db.prepare("PRAGMA table_info(task_transitions)").all() as Array<{
+      name: string;
+      type: string;
+      pk: number;
+    }>;
+    const idCol = cols.find((col) => col.name === "id");
+    _transitionIdUsesIntegerPk = Boolean(idCol && idCol.pk === 1 && /INT/i.test(idCol.type || ""));
+  }
+
+  const ts = new Date().toISOString();
+  if (_transitionIdUsesIntegerPk) {
+    db.prepare(`
+      INSERT INTO task_transitions (task_id, from_status, to_status, actor, reason, ts)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(taskId, fromStatus, toStatus, actor, reason ?? null, ts);
+    return;
+  }
+
   db.prepare(`
     INSERT INTO task_transitions (id, task_id, from_status, to_status, actor, reason, ts)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(randomUUID(), taskId, fromStatus, toStatus, actor, reason ?? null, new Date().toISOString());
+  `).run(randomUUID(), taskId, fromStatus, toStatus, actor, reason ?? null, ts);
 }
 
 /**

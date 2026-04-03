@@ -1,5 +1,5 @@
 import { registerHooks } from "node:module";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -18,7 +18,7 @@ function tryResolve(basePath) {
   ];
 
   for (const candidate of candidates) {
-    if (existsSync(candidate)) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
       return pathToFileURL(candidate).href;
     }
   }
@@ -28,6 +28,16 @@ function tryResolve(basePath) {
 
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (!path.extname(specifier) && !specifier.startsWith(".") && !specifier.startsWith("/") && specifier.includes("/")) {
+      const resolved = tryResolve(path.join(projectRoot, "node_modules", specifier));
+      if (resolved) {
+        return {
+          shortCircuit: true,
+          url: resolved,
+        };
+      }
+    }
+
     if (specifier.startsWith("@/")) {
       const resolved = tryResolve(path.join(projectRoot, "src", specifier.slice(2)));
       if (resolved) {

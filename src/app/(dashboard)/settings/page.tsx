@@ -78,7 +78,7 @@ function JsonTree({ data, depth = 0 }: { data: unknown; depth?: number }) {
       <span style={{ color: "#f59e0b" }}>{data ? "true" : "false"}</span>
     );
   if (typeof data === "number")
-    return <span style={{ color: "#60a5fa" }}>{data}</span>;
+    return <span style={{ color: "#f59e0b" }}>{data}</span>;
   if (typeof data === "string") {
     if (data === "***redacted***")
       return (
@@ -351,8 +351,8 @@ export default function SettingsPage() {
                     <span
                       className="text-xs px-2 py-0.5 rounded"
                       style={{
-                        backgroundColor: provider.billing === "subscription" ? "rgba(96,165,250,0.15)" : "rgba(245,158,11,0.15)",
-                        color: provider.billing === "subscription" ? "#60a5fa" : "#f59e0b",
+                        backgroundColor: provider.billing === "subscription" ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.15)",
+                        color: provider.billing === "subscription" ? "#f59e0b" : "#f59e0b",
                       }}
                     >
                       {provider.billing === "subscription" ? "📋 Subscription" : "💳 Metered"}

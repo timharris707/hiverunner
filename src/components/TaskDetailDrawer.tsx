@@ -106,9 +106,9 @@ export interface ProjectInfo {
 
 export const COLUMNS: { id: Task["status"]; label: string; icon: React.ComponentType<{ className?: string }>; color: string }[] = [
   { id: "backlog", label: "Backlog", icon: Inbox, color: "#6b7280" },
-  { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#c084fc" },
+  { id: "on-deck", label: "On Deck", icon: ListOrdered, color: "#fbbf24" },
   { id: "in-progress", label: "In Progress", icon: Play, color: "#f59e0b" },
-  { id: "review", label: "Review", icon: CheckCircle2, color: "#60a5fa" },
+  { id: "review", label: "Review", icon: CheckCircle2, color: "#d97706" },
   { id: "done", label: "Done", icon: CheckCircle2, color: "#4ade80" },
 ];
 
@@ -322,7 +322,7 @@ function AttachmentDropZone({
 
 const COMMENT_TYPE_STYLES: Record<string, { bg: string; border: string; color: string; label: string }> = {
   note: { bg: "rgba(107,114,128,0.1)", border: "rgba(107,114,128,0.25)", color: "#9ca3af", label: "Note" },
-  review: { bg: "rgba(96,165,250,0.1)", border: "rgba(96,165,250,0.25)", color: "#60a5fa", label: "Review" },
+  review: { bg: "rgba(217,119,6,0.1)", border: "rgba(217,119,6,0.25)", color: "#d97706", label: "Review" },
   rejection: { bg: "rgba(239,68,68,0.1)", border: "rgba(239,68,68,0.25)", color: "#f87171", label: "Rejection" },
   resolution: { bg: "rgba(74,222,128,0.1)", border: "rgba(74,222,128,0.25)", color: "#4ade80", label: "Resolution" },
 };
@@ -894,9 +894,9 @@ export function TaskDetailDrawer({
                     rel="noopener noreferrer"
                     style={{
                       display: "inline-flex", alignItems: "center", gap: "0.375rem",
-                      fontSize: "0.8rem", color: "#60a5fa", textDecoration: "none",
+                      fontSize: "0.8rem", color: "#d97706", textDecoration: "none",
                       padding: "0.375rem 0.625rem", borderRadius: "0.375rem",
-                      backgroundColor: "rgba(96,165,250,0.08)", border: "1px solid rgba(96,165,250,0.2)",
+                      backgroundColor: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.2)",
                       width: "fit-content",
                     }}
                   >
@@ -910,9 +910,9 @@ export function TaskDetailDrawer({
                     rel="noopener noreferrer"
                     style={{
                       display: "inline-flex", alignItems: "center", gap: "0.375rem",
-                      fontSize: "0.8rem", color: "#a78bfa", textDecoration: "none",
+                      fontSize: "0.8rem", color: "#d97706", textDecoration: "none",
                       padding: "0.375rem 0.625rem", borderRadius: "0.375rem",
-                      backgroundColor: "rgba(167,139,250,0.08)", border: "1px solid rgba(167,139,250,0.2)",
+                      backgroundColor: "rgba(245,158,11,0.08)", border: "1px solid rgba(245,158,11,0.2)",
                       width: "fit-content",
                     }}
                   >
@@ -1002,7 +1002,7 @@ export function TaskDetailDrawer({
 
           {/* LLM Router recommendation */}
           {routing && (
-            <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "rgba(59,130,246,0.06)", border: "1px solid rgba(59,130,246,0.15)" }}>
+            <div style={{ padding: "0.75rem", borderRadius: "0.5rem", backgroundColor: "rgba(180,83,9,0.06)", border: "1px solid rgba(180,83,9,0.15)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "0.5rem" }}>
                 <label style={{ ...DRAWER_LABEL, marginBottom: 0, display: "flex", alignItems: "center", gap: "0.375rem" }}>
                   <span style={{ fontSize: "0.8rem" }}>{"🧠"}</span> Smart Router
@@ -1020,7 +1020,7 @@ export function TaskDetailDrawer({
               <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.375rem" }}>
                 <span style={{
                   fontSize: "0.75rem", fontWeight: 700,
-                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "sonnet" ? "#60a5fa" : routing.tier === "haiku" ? "#a78bfa" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
+                  color: routing.tier === "opus" ? "#f59e0b" : routing.tier === "sonnet" ? "#d97706" : routing.tier === "haiku" ? "#d97706" : routing.tier === "gemini-pro" ? "#34d399" : "#6ee7b7",
                 }}>
                   {routing.modelName}
                 </span>
@@ -1056,7 +1056,7 @@ export function TaskDetailDrawer({
                   color:
                     task.buildState === "failed" ? "#f87171" :
                     task.buildState === "completed" ? "#4ade80" :
-                    task.buildState === "queued" ? "#c084fc" :
+                    task.buildState === "queued" ? "#fbbf24" :
                     task.buildState === "blocked" ? "#fb923c" :
                     "#fbbf24",
                 }}>
@@ -1113,7 +1113,7 @@ export function TaskDetailDrawer({
                 {task.buildState === "completed" && task.status === "done" && (
                   <button
                     onClick={() => patchTask({ status: "review", reviewStatus: "pending", reviewRequired: true })}
-                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(96,165,250,0.3)", backgroundColor: "rgba(96,165,250,0.12)", color: "#93c5fd", fontWeight: 700, cursor: "pointer" }}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(217,119,6,0.3)", backgroundColor: "rgba(217,119,6,0.12)", color: "#f59e0b", fontWeight: 700, cursor: "pointer" }}
                   >
                     Send to review
                   </button>
@@ -1124,7 +1124,7 @@ export function TaskDetailDrawer({
 
           {/* Visual QC */}
           {(visualReviewRequired || task.status === "review") && (
-            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(168,85,247,0.08)", border: "1px solid rgba(168,85,247,0.2)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
+            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.2)", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
                 <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>Visual QC</label>
                 <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: screenshotEvidenceCount > 0 ? "rgba(74,222,128,0.12)" : "rgba(251,191,36,0.12)", color: screenshotEvidenceCount > 0 ? "#4ade80" : "#fbbf24" }}>
@@ -1161,7 +1161,7 @@ export function TaskDetailDrawer({
                 <button
                   onClick={handleVisualCapture}
                   disabled={capturingVisual || (!capturePath.trim() && !captureUrl.trim() && !visualReview?.targetUrl)}
-                  style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#a855f7", color: "white", fontWeight: 700, cursor: capturingVisual ? "not-allowed" : "pointer", opacity: capturingVisual ? 0.7 : 1 }}
+                  style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "none", backgroundColor: "#d97706", color: "white", fontWeight: 700, cursor: capturingVisual ? "not-allowed" : "pointer", opacity: capturingVisual ? 0.7 : 1 }}
                 >
                   {capturingVisual ? "Capturing..." : screenshotEvidenceCount > 0 ? "Recapture screenshot" : "Capture screenshot"}
                 </button>
@@ -1179,7 +1179,7 @@ export function TaskDetailDrawer({
                       reviewStatus: task.reviewStatus || "pending",
                       status: task.status === "done" ? "review" : task.status,
                     })}
-                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(168,85,247,0.3)", backgroundColor: "rgba(168,85,247,0.12)", color: "#d8b4fe", fontWeight: 700, cursor: "pointer" }}
+                    style={{ padding: "0.5rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(217,119,6,0.3)", backgroundColor: "rgba(217,119,6,0.12)", color: "#fcd34d", fontWeight: 700, cursor: "pointer" }}
                   >
                     Mark visual review required
                   </button>
@@ -1199,7 +1199,7 @@ export function TaskDetailDrawer({
                       key={capture.id}
                       type="button"
                       onClick={() => setLightboxSrc(`/api/tasks/attachments?path=${encodeURIComponent(capture.path)}`)}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", textAlign: "left", padding: "0.6rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(168,85,247,0.18)", backgroundColor: "rgba(24,24,27,0.6)", color: "var(--text-primary)", cursor: "pointer" }}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.75rem", textAlign: "left", padding: "0.6rem 0.75rem", borderRadius: "0.5rem", border: "1px solid rgba(217,119,6,0.18)", backgroundColor: "rgba(24,24,27,0.6)", color: "var(--text-primary)", cursor: "pointer" }}
                     >
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1210,7 +1210,7 @@ export function TaskDetailDrawer({
                           {capture.browser ? ` • ${capture.browser}` : ""}
                         </div>
                       </div>
-                      <span style={{ fontSize: "0.68rem", color: "#d8b4fe" }}>Open</span>
+                      <span style={{ fontSize: "0.68rem", color: "#fcd34d" }}>Open</span>
                     </button>
                   ))}
                 </div>
@@ -1220,10 +1220,10 @@ export function TaskDetailDrawer({
 
           {/* Review loop */}
           {(task.status === "review" || task.reviewRequired) && (
-            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(96,165,250,0.06)", border: "1px solid rgba(96,165,250,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
+            <div style={{ padding: "0.85rem", borderRadius: "0.5rem", backgroundColor: "rgba(217,119,6,0.06)", border: "1px solid rgba(217,119,6,0.18)", display: "flex", flexDirection: "column", gap: "0.6rem" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "0.5rem", flexWrap: "wrap" }}>
                 <label style={{ ...DRAWER_LABEL, marginBottom: 0 }}>QC / review</label>
-                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(96,165,250,0.12)", color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#93c5fd" }}>
+                <span style={{ fontSize: "0.65rem", fontWeight: 700, padding: "0.15rem 0.5rem", borderRadius: "9999px", backgroundColor: task.reviewStatus === "approved" ? "rgba(74,222,128,0.12)" : task.reviewStatus === "changes-requested" ? "rgba(239,68,68,0.12)" : "rgba(217,119,6,0.12)", color: task.reviewStatus === "approved" ? "#4ade80" : task.reviewStatus === "changes-requested" ? "#f87171" : "#f59e0b" }}>
                   {task.reviewStatus || "pending"}
                 </span>
               </div>
@@ -1272,7 +1272,7 @@ export function TaskDetailDrawer({
                 <span style={{
                   fontSize: "0.75rem",
                   fontWeight: 600,
-                  color: task.created_by === "tim" ? "#60a5fa" : task.created_by === "ideas-pipeline" ? "#fbbf24" : "#a78bfa",
+                  color: task.created_by === "tim" ? "#d97706" : task.created_by === "ideas-pipeline" ? "#fbbf24" : "#d97706",
                 }}>
                   {task.created_by === "tim" ? "👤 Tim" : task.created_by === "ideas-pipeline" ? "💡 Ideas Pipeline" : "⚡ Henry"}
                 </span>

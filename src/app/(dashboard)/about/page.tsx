@@ -174,12 +174,12 @@ export default function AboutPage() {
         >
           <div
             className="px-5 py-4"
-            style={{ borderBottom: "1px solid var(--border)", background: "linear-gradient(135deg, #60a5fa15, transparent)" }}
+            style={{ borderBottom: "1px solid var(--border)", background: "linear-gradient(135deg, #f59e0b15, transparent)" }}
           >
             <div className="flex items-center gap-4">
               <div
                 className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl flex-shrink-0"
-                style={{ backgroundColor: "#60a5fa20", border: "2px solid #60a5fa" }}
+                style={{ backgroundColor: "#f59e0b20", border: "2px solid #f59e0b" }}
               >
                 👨‍💻
               </div>
@@ -193,7 +193,7 @@ export default function AboutPage() {
                 </div>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {TIM.roles.map((r) => (
-                    <span key={r} className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#60a5fa20", color: "#60a5fa" }}>{r}</span>
+                    <span key={r} className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: "#f59e0b20", color: "#f59e0b" }}>{r}</span>
                   ))}
                 </div>
               </div>
@@ -375,10 +375,10 @@ export default function AboutPage() {
           {[
             { label: "SOUL.md", path: "/Users/timharris/.openclaw/workspace/SOUL.md", color: "#f59e0b" },
             { label: "IDENTITY.md", path: "/Users/timharris/.openclaw/workspace/IDENTITY.md", color: "#f59e0b" },
-            { label: "USER.md", path: "/Users/timharris/.openclaw/workspace/USER.md", color: "#60a5fa" },
+            { label: "USER.md", path: "/Users/timharris/.openclaw/workspace/USER.md", color: "#f59e0b" },
             { label: "AUTONOMOUS.md", path: "/Users/timharris/.openclaw/workspace/AUTONOMOUS.md", color: "#4ade80" },
             { label: "Mission Spec", path: "/Users/timharris/.openclaw/workspace/projects/mission-control/SPEC.md", color: "var(--accent)" },
-            { label: "Karpathy Design", path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop/DESIGN.md", color: "#a78bfa" },
+            { label: "Karpathy Design", path: "/Users/timharris/.openclaw/workspace/projects/karpathy-loop/DESIGN.md", color: "#f59e0b" },
           ].map((ref) => (
             <Link
               key={ref.label}

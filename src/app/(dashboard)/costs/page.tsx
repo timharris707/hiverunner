@@ -330,7 +330,7 @@ export default function CostsPage() {
       <div
         className="p-6 rounded-xl"
         style={{
-          background: "linear-gradient(135deg, rgba(74,222,128,0.10), rgba(96,165,250,0.07))",
+          background: "linear-gradient(135deg, rgba(74,222,128,0.10), rgba(245,158,11,0.07))",
           border: "1px solid rgba(74,222,128,0.25)",
         }}
       >
@@ -760,7 +760,7 @@ export default function CostsPage() {
               monthlyCost: 20,
               apiEquivalent: Math.round(costData.thisMonth * 0.65 * 100) / 100,
               note: "Claude Max subscription · Unlimited usage",
-              color: "#60a5fa",
+              color: "#f59e0b",
             },
             {
               name: "OpenAI Codex",
@@ -790,7 +790,7 @@ export default function CostsPage() {
               monthlyCost: Math.round(costData.thisMonth * 0.03 * 100) / 100,
               apiEquivalent: null,
               note: "Fallback router · Metered per token",
-              color: "#a78bfa",
+              color: "#f59e0b",
             },
           ].map((provider) => (
             <div
@@ -808,8 +808,8 @@ export default function CostsPage() {
                   <span
                     className="text-xs px-2 py-0.5 rounded"
                     style={{
-                      backgroundColor: provider.billing === "subscription" ? "rgba(96,165,250,0.15)" : "rgba(245,158,11,0.15)",
-                      color: provider.billing === "subscription" ? "#60a5fa" : "#f59e0b",
+                      backgroundColor: provider.billing === "subscription" ? "rgba(245,158,11,0.15)" : "rgba(245,158,11,0.15)",
+                      color: provider.billing === "subscription" ? "#f59e0b" : "#f59e0b",
                     }}
                   >
                     {provider.billing === "subscription" ? "📋 Subscription" : "💳 Metered"}

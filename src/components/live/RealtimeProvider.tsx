@@ -175,10 +175,14 @@ export function RealtimeStatusBanner() {
   }
 
   const liveUpdatesUnavailable = connectionStatus === "disconnected";
-  const detail = lastMessageAt
+  // Suppress SSR to avoid hydration mismatch on time-dependent text
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+
+  const detail = lastMessageAt && mounted
     ? `Showing last-known state from ${relativeAgeLabel(lastMessageAt)} while the socket reconnects.`
     : "Live data is temporarily unavailable. The dashboard stays usable and will resume live updates automatically.";
-  const staleLabel = staleSince ? relativeAgeLabel(staleSince) : "waiting";
+  const staleLabel = staleSince && mounted ? relativeAgeLabel(staleSince) : "waiting";
 
   return (
     <div

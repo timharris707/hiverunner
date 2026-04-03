@@ -236,6 +236,209 @@ code, pre, .font-mono {
   background-color: rgba(255, 69, 58, 0.2);
 }
 
+/* Orchestration UI layer */
+.orchestra-glass {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(217, 119, 6, 0.10), transparent 40%),
+    radial-gradient(circle at 88% 0%, rgba(180, 83, 9, 0.08), transparent 38%),
+    linear-gradient(165deg, rgba(28, 25, 23, 0.82), rgba(12, 10, 9, 0.9));
+  border: 1px solid rgba(120, 113, 108, 0.22);
+  box-shadow: 0 18px 42px rgba(12, 10, 9, 0.45);
+  backdrop-filter: blur(16px);
+}
+
+.orchestra-card {
+  border: 1px solid rgba(120, 113, 108, 0.2);
+  background:
+    linear-gradient(170deg, rgba(41, 37, 36, 0.72), rgba(12, 10, 9, 0.8));
+  box-shadow: 0 14px 34px rgba(12, 10, 9, 0.38);
+}
+
+.orchestra-chip {
+  border: 1px solid rgba(120, 113, 108, 0.24);
+  background: rgba(28, 25, 23, 0.74);
+  color: #d6d3d1;
+}
+
+.orchestra-enter {
+  animation: orchestra-fade-up 360ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.orchestra-pulse {
+  animation: orchestra-pulse 2.8s ease-in-out infinite;
+}
+
+.orchestra-shell {
+  position: relative;
+  isolation: isolate;
+}
+
+.orchestra-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% -10%, rgba(34, 211, 238, 0.16), transparent 42%),
+    radial-gradient(circle at 82% 0%, rgba(249, 115, 22, 0.12), transparent 38%);
+  z-index: -1;
+}
+
+.orchestra-grid-bg {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  background-position: center;
+  mask-image: radial-gradient(circle at center, black 42%, transparent 100%);
+  opacity: 0.55;
+}
+
+.orchestra-panel {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background:
+    linear-gradient(170deg, rgba(15, 23, 42, 0.82), rgba(2, 6, 23, 0.88));
+  box-shadow: 0 16px 34px rgba(2, 6, 23, 0.42);
+}
+
+.orchestra-cta {
+  border: 1px solid rgba(103, 232, 249, 0.42);
+  background: linear-gradient(135deg, rgba(34, 211, 238, 0.28), rgba(14, 116, 144, 0.12));
+  box-shadow: 0 8px 28px rgba(34, 211, 238, 0.2);
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.orchestra-cta:hover {
+  transform: translateY(-1px);
+  border-color: rgba(103, 232, 249, 0.58);
+  box-shadow: 0 14px 36px rgba(34, 211, 238, 0.26);
+}
+
+.orchestra-ghost-btn {
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.58);
+  transition: border-color 180ms ease, background-color 180ms ease;
+}
+
+.orchestra-ghost-btn:hover {
+  border-color: rgba(148, 163, 184, 0.38);
+  background: rgba(15, 23, 42, 0.72);
+}
+
+.orchestra-badge {
+  border: 1px solid rgba(148, 163, 184, 0.26);
+  background: rgba(15, 23, 42, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.orchestra-skeleton {
+  position: relative;
+  overflow: hidden;
+}
+
+.orchestra-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(148, 163, 184, 0.18), transparent);
+  animation: orchestra-sheen 1.8s ease-in-out infinite;
+}
+
+.orchestra-live-avatar {
+  position: relative;
+}
+
+.orchestra-live-avatar::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 1px solid rgba(52, 211, 153, 0.5);
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.22);
+  animation: orchestra-live-ring 2.2s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.orchestra-live-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  height: 9px;
+  width: 9px;
+  border-radius: 9999px;
+  border: 1px solid rgba(2, 6, 23, 0.82);
+  background: linear-gradient(145deg, #34d399, #10b981);
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+}
+
+.orchestra-live-dot::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1px solid rgba(52, 211, 153, 0.42);
+  animation: orchestra-live-dot 1.8s ease-out infinite;
+}
+
+@keyframes orchestra-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes orchestra-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.22);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 211, 238, 0);
+  }
+}
+
+@keyframes orchestra-sheen {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes orchestra-live-ring {
+  0%, 100% {
+    opacity: 0.55;
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.2);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 0 10px rgba(52, 211, 153, 0);
+  }
+}
+
+@keyframes orchestra-live-dot {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.6);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .orchestra-enter,
+  .orchestra-pulse,
+  .orchestra-live-avatar::after,
+  .orchestra-live-dot::after,
+  .orchestra-skeleton::after {
+    animation: none;
+  }
+}
+
 /* Input styles */
 .input {
   background-color: var(--surface-elevated);

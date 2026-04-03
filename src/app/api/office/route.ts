@@ -38,13 +38,13 @@ const AGENT_CONFIG = {
   },
   devclaw: {
     emoji: "👨‍💻",
-    color: "#8b5cf6",
+    color: "#d97706",
     name: "DevClaw",
     role: "Developer",
   },
   freelance: {
     emoji: "👨‍💻",
-    color: "#8b5cf6",
+    color: "#d97706",
     name: "DevClaw",
     role: "Developer",
   },

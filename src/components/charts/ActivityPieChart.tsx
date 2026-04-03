@@ -29,8 +29,8 @@ const THEME = {
 // Palette based on accent and semantic colors
 const COLORS: Record<string, string> = {
   heartbeat: "#FF3B30",   // accent
-  email: "#60a5fa",       // info
-  telegram: "#a78bfa",    // purple variant
+  email: "#f59e0b",       // info
+  telegram: "#f59e0b",    // amber variant
   cron: "#facc15",        // warning
   calendar: "#f472b6",    // pink
   search: "#34d399",      // success

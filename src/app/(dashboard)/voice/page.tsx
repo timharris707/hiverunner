@@ -31,8 +31,8 @@ function StateIndicator({ state }: { state: VoiceState }) {
     idle: { label: "Ready", color: "#64748b", pulse: false },
     connecting: { label: "Connecting...", color: "#f59e0b", pulse: true },
     connected: { label: "Connected", color: "#10b981", pulse: false },
-    listening: { label: "Listening", color: "#3b82f6", pulse: true },
-    speaking: { label: "Henry is speaking", color: "#8b5cf6", pulse: true },
+    listening: { label: "Listening", color: "#d97706", pulse: true },
+    speaking: { label: "Henry is speaking", color: "#d97706", pulse: true },
     error: { label: "Error", color: "#ef4444", pulse: false },
   };
 
@@ -63,7 +63,7 @@ function StateIndicator({ state }: { state: VoiceState }) {
 
 function VoiceVisualizer({ state }: { state: VoiceState }) {
   const isActive = state === "listening" || state === "speaking";
-  const color = state === "speaking" ? "#8b5cf6" : "#3b82f6";
+  const color = state === "speaking" ? "#d97706" : "#d97706";
 
   return (
     <div className="relative flex items-center justify-center w-48 h-48 mx-auto my-8">
@@ -131,8 +131,8 @@ function TranscriptPanel({
           <div
             className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
               entry.role === "user"
-                ? "bg-blue-600/20 text-blue-100 border border-blue-500/30"
-                : "bg-purple-600/20 text-purple-100 border border-purple-500/30"
+                ? "bg-amber-600/20 text-amber-100 border border-amber-500/30"
+                : "bg-amber-600/20 text-amber-100 border border-amber-500/30"
             }`}
           >
             <div className="text-xs opacity-50 mb-1">
@@ -360,7 +360,7 @@ export default function VoiceHenryPage() {
           <div className="flex items-center gap-6 mt-6 text-xs text-zinc-500">
             <div className="flex items-center gap-1.5">
               {state === "listening" ? (
-                <Mic size={14} className="text-blue-400" />
+                <Mic size={14} className="text-amber-400" />
               ) : (
                 <MicOff size={14} />
               )}
@@ -369,7 +369,7 @@ export default function VoiceHenryPage() {
             <div className="flex items-center gap-1.5">
               <Volume2
                 size={14}
-                className={state === "speaking" ? "text-purple-400" : ""}
+                className={state === "speaking" ? "text-amber-400" : ""}
               />
               Speaker {state === "speaking" ? "active" : "standby"}
             </div>
@@ -385,12 +385,12 @@ export default function VoiceHenryPage() {
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendText()}
                   placeholder="Or type a message..."
-                  className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-blue-500"
+                  className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
                 />
                 <button
                   onClick={handleSendText}
                   disabled={!textInput.trim()}
-                  className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
+                  className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
                 >
                   <Send size={16} />
                 </button>
@@ -453,7 +453,7 @@ export default function VoiceHenryPage() {
             </ul>
           </div>
           <div className="space-y-1">
-            <div className="text-blue-400 font-medium">BoardRunner Path</div>
+            <div className="text-amber-400 font-medium">BoardRunner Path</div>
             <ul className="text-zinc-400 space-y-0.5">
               <li>Phase 1: Voice Henry (this prototype)</li>
               <li>Phase 2: Henry as voice moderator for advisory</li>

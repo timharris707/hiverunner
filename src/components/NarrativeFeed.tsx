@@ -34,15 +34,15 @@ const TYPE_CONFIG: Record<
 > = {
   task_started: {
     icon: Play,
-    color: "#60a5fa",
-    bg: "#60a5fa18",
-    dot: "#60a5fa",
+    color: "#d97706",
+    bg: "#d9770618",
+    dot: "#d97706",
   },
   task_review: {
     icon: Eye,
-    color: "#a78bfa",
-    bg: "#a78bfa18",
-    dot: "#a78bfa",
+    color: "#d97706",
+    bg: "#d9770618",
+    dot: "#d97706",
   },
   task_done: {
     icon: CheckCircle2,

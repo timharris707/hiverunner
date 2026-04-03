@@ -449,7 +449,7 @@ export default function ReliabilityPage() {
             style={{ borderBottom: "1px solid var(--border)" }}
           >
             <h2 className="font-semibold text-lg flex items-center gap-2" style={{ color: "var(--text-primary)" }}>
-              <Clock className="w-5 h-5" style={{ color: "#60a5fa" }} />
+              <Clock className="w-5 h-5" style={{ color: "#f59e0b" }} />
               Cron Run History
             </h2>
             <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
@@ -603,7 +603,7 @@ export default function ReliabilityPage() {
             className="font-semibold text-lg flex items-center gap-2"
             style={{ color: "var(--text-primary)" }}
           >
-            <Activity className="w-5 h-5" style={{ color: "#8b5cf6" }} />
+            <Activity className="w-5 h-5" style={{ color: "#d97706" }} />
             Agent Health
           </h2>
           <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>

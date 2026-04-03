@@ -1,159 +1,427 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Home,
-  Monitor,
-  FolderOpen,
-  Brain,
+  Activity,
   Bot,
-  Clock,
-  DollarSign,
-  History,
-  Kanban,
-  TrendingUp,
   Building2,
-  CalendarDays,
-  Workflow,
-  Terminal,
-  Search,
+  ChevronRight,
+  Compass,
+  FolderOpen,
+  Goal,
+  Inbox,
+  Kanban,
   Lightbulb,
-  Shield,
-  FileBarChart,
-  Users,
-  Factory,
-  Mic,
-  Network,
+  ListChecks,
+  Logs,
   Megaphone,
-  Blocks,
+  Monitor,
+  Plus,
+  SquarePen,
+  Search,
+  Sparkles,
+  Terminal,
+  TrendingUp,
+  Users,
+  Workflow,
+  Wrench,
 } from "lucide-react";
-import { useMissionControlRealtime } from "@/components/live/RealtimeProvider";
+
+import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
+import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
+import { useDockCollapsed } from "@/lib/dock-state";
 
 interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
-  shortcutKey?: string;
+  ariaLabel?: string;
+  badge?: number;
+  badgeText?: string;
+  indent?: boolean;
+  statusDotColor?: string;
+  highlight?: boolean;
 }
 
-// Flat ordered list with null = separator
-const navItems: (NavItem | null)[] = [
-  { href: "/", label: "Dashboard", icon: Home, shortcutKey: "1" },
-  { href: "/projects", label: "Projects", icon: FolderOpen, shortcutKey: "2" },
-  { href: "/tasks", label: "Task Board", icon: Kanban, shortcutKey: "3" },
-  { href: "/agents", label: "Agents", icon: Bot, shortcutKey: "4" },
-  { href: "/advisory", label: "Advisory Board", icon: Users, shortcutKey: "4" },
-  { href: "/office", label: "3D Office", icon: Building2 },
-  { href: "/factory", label: "Factory Floor", icon: Factory },
-  { href: "/org", label: "Org Chart", icon: Network },
-  null, // separator
-  { href: "/trading", label: "Trading Desk", icon: TrendingUp, shortcutKey: "5" },
-  { href: "/calendar", label: "Calendar", icon: CalendarDays },
-  { href: "/workflows", label: "Workflows", icon: Workflow, shortcutKey: "6" },
-  { href: "/cron", label: "Cron Jobs", icon: Clock },
-  null, // separator
-  { href: "/memory", label: "Memory", icon: Brain },
-  { href: "/files", label: "Files", icon: FolderOpen },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/ideas", label: "Ideas", icon: Lightbulb },
-  { href: "/reports", label: "Reports", icon: FileBarChart },
-  null, // separator
-  { href: "/sessions", label: "Sessions", icon: History },
-  { href: "/logs", label: "Logs", icon: Terminal },
-  { href: "/system", label: "System", icon: Monitor },
-  { href: "/costs", label: "Costs", icon: DollarSign },
-  { href: "/reliability", label: "Reliability", icon: Shield },
-  null, // separator
-  { href: "/paperclip", label: "Paperclip", icon: Blocks },
-  { href: "/marketing", label: "Marketing", icon: Megaphone },
-  { href: "/voice", label: "Voice Henry", icon: Mic },
+interface CompanyNavState {
+  id?: string;
+  slug: string;
+  name: string;
+}
+
+const DOCK_WIDTH = 204;
+const DOCK_COLLAPSED_WIDTH = 44;
+const FALLBACK_COMPANY_SLUG = "neveridle-core";
+
+const WORK_ITEMS: Omit<NavItem, "href">[] = [
+  { label: "Tasks", icon: ListChecks },
+  { label: "Routines", icon: Workflow },
+  { label: "Goals", icon: Goal },
 ];
 
-const DOCK_WIDTH = 168;
+const APPS_ITEMS: NavItem[] = [
+  { href: "/ideas", label: "Ideas", icon: Lightbulb },
+  { href: "/advisory", label: "Advisory Board", icon: Users },
+  { href: "/marketing", label: "Marketing", icon: Megaphone },
+  { href: "/trading", label: "Trading", icon: TrendingUp },
+  { href: "/trading/floor", label: "Trading Floor", icon: TrendingUp },
+  { href: "/trading/terminal", label: "Trading Terminal", icon: TrendingUp },
+  { href: "/terminal", label: "Terminal", icon: Terminal },
+];
 
-function NavRow({ item, active, badge }: { item: NavItem; active: boolean; badge?: number }) {
+const COMPANY_ITEMS: Omit<NavItem, "href">[] = [
+  { label: "Org", icon: Building2 },
+  { label: "Skills", icon: Sparkles },
+  { label: "Costs", icon: Compass },
+  { label: "Activity", icon: Activity },
+  { label: "Settings", icon: Wrench },
+];
+
+const SYSTEM_ITEMS: NavItem[] = [
+  { href: "/sessions", label: "Sessions", icon: Monitor },
+  { href: "/logs", label: "Logs", icon: Logs },
+  { href: "/files", label: "Files", icon: FolderOpen },
+];
+
+function SectionDivider() {
+  return (
+    <div
+      style={{
+        height: "1px",
+        margin: "4px 6px",
+        background:
+          "linear-gradient(90deg, rgba(68,64,60,0.02) 0%, rgba(120,113,108,0.35) 50%, rgba(68,64,60,0.02) 100%)",
+      }}
+    />
+  );
+}
+
+function SectionHeader({
+  label,
+  onCreate,
+  createAriaLabel,
+  collapsed,
+  onToggle,
+}: {
+  label: string;
+  onCreate?: () => void;
+  createAriaLabel?: string;
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
+  const isCollapsible = collapsed != null && onToggle != null;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: "4px",
+        width: "100%",
+        margin: "2px 0 3px",
+      }}
+    >
+      <div
+        role={isCollapsible ? "button" : undefined}
+        tabIndex={isCollapsible ? 0 : undefined}
+        aria-expanded={isCollapsible ? !collapsed : undefined}
+        onClick={onToggle}
+        onKeyDown={
+          isCollapsible
+            ? (event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onToggle();
+                }
+              }
+            : undefined
+        }
+        style={{
+          display: "flex",
+          alignItems: "center",
+          flex: 1,
+          padding: "2px 8px",
+          cursor: isCollapsible ? "pointer" : undefined,
+          userSelect: isCollapsible ? "none" : undefined,
+        }}
+      >
+        {isCollapsible ? (
+          <ChevronRight
+            size={11}
+            strokeWidth={2.2}
+            color="#a8a29e"
+            style={{
+              flexShrink: 0,
+              marginRight: "3px",
+              transform: collapsed ? "rotate(0deg)" : "rotate(90deg)",
+              transition: "transform 120ms ease",
+            }}
+          />
+        ) : null}
+        <span
+          style={{
+            fontSize: "10px",
+            fontWeight: 700,
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "#a8a29e",
+          }}
+        >
+          {label}
+        </span>
+      </div>
+      {onCreate ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onCreate();
+          }}
+          aria-label={createAriaLabel ?? `Create ${label}`}
+          title={createAriaLabel ?? `Create ${label}`}
+          style={{
+            width: "18px",
+            height: "18px",
+            borderRadius: "6px",
+            border: "1px solid rgba(120,113,108,0.4)",
+            background: "rgba(41,37,36,0.55)",
+            color: "#d6d3d1",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            transition: "all 120ms ease",
+            flexShrink: 0,
+            marginRight: "6px",
+          }}
+          onMouseEnter={(event) => {
+            event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
+            event.currentTarget.style.background = "rgba(120,53,15,0.4)";
+            event.currentTarget.style.color = "#fde68a";
+          }}
+          onMouseLeave={(event) => {
+            event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+            event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+            event.currentTarget.style.color = "#d6d3d1";
+          }}
+        >
+          <Plus size={11} strokeWidth={2.2} />
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function NavRow({ item, active }: { item: NavItem; active: boolean }) {
   const Icon = item.icon;
+  const highlighted = item.highlight && !active;
+  const iconColor = active ? "#fbbf24" : highlighted ? "#fbbf24" : "#a8a29e";
+  const labelColor = active ? "#fafaf9" : highlighted ? "#fffbeb" : "#d6d3d1";
+  const background = active
+    ? "linear-gradient(180deg, rgba(217,119,6,0.2) 0%, rgba(180,83,9,0.16) 100%)"
+    : highlighted
+      ? "rgba(120,53,15,0.22)"
+      : "transparent";
+  const border = active
+    ? "1px solid rgba(245,158,11,0.38)"
+    : highlighted
+      ? "1px solid rgba(245,158,11,0.26)"
+      : "1px solid transparent";
+
   return (
     <Link
       href={item.href}
-      title={item.shortcutKey ? `${item.label} (⌘${item.shortcutKey})` : item.label}
+      aria-label={item.ariaLabel ?? item.label}
       className="dock-nav-row"
       style={{
         display: "flex",
         alignItems: "center",
-        gap: "8px",
-        padding: "6px 12px 6px 14px",
-        borderRadius: "6px",
+        gap: "7px",
+        padding: item.indent ? "4px 8px 4px 18px" : "4px 8px 4px 10px",
+        borderRadius: "8px",
         textDecoration: "none",
-        backgroundColor: active ? "var(--accent-soft)" : "transparent",
-        borderLeft: active ? "2px solid var(--accent)" : "2px solid transparent",
-        transition: "background-color 120ms ease, border-color 120ms ease",
+        background,
+        border,
+        transition: "all 120ms ease",
         cursor: "pointer",
-        position: "relative",
       }}
-      onMouseEnter={(e) => {
+      onMouseEnter={(event) => {
         if (!active) {
-          (e.currentTarget as HTMLAnchorElement).style.backgroundColor = "var(--surface-hover)";
+          event.currentTarget.style.background = highlighted ? "rgba(146,64,14,0.3)" : "rgba(41,37,36,0.75)";
+          event.currentTarget.style.border = highlighted
+            ? "1px solid rgba(245,158,11,0.34)"
+            : "1px solid rgba(120,113,108,0.26)";
         }
       }}
-      onMouseLeave={(e) => {
+      onMouseLeave={(event) => {
         if (!active) {
-          (e.currentTarget as HTMLAnchorElement).style.backgroundColor = "transparent";
+          event.currentTarget.style.background = background;
+          event.currentTarget.style.border = border;
         }
       }}
     >
-      <Icon
-        size={14}
-        strokeWidth={active ? 2.5 : 2}
-        color={active ? "var(--accent)" : "var(--text-secondary)"}
-        style={{ flexShrink: 0 }}
-      />
+      <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} />
       <span
         style={{
           fontFamily: "var(--font-body)",
-          fontSize: "12px",
-          fontWeight: active ? 600 : 400,
-          color: active ? "var(--accent)" : "var(--text-secondary)",
+          fontSize: "11px",
+          fontWeight: active || highlighted ? 600 : 500,
+          color: labelColor,
           whiteSpace: "nowrap",
           overflow: "hidden",
           textOverflow: "ellipsis",
-          lineHeight: 1.2,
+          lineHeight: 1.15,
           flex: 1,
         }}
       >
         {item.label}
       </span>
-      {badge != null && badge > 0 && (
+      {item.statusDotColor ? (
+        <span
+          aria-hidden
+          style={{
+            width: "6px",
+            height: "6px",
+            borderRadius: "999px",
+            backgroundColor: item.statusDotColor,
+            boxShadow: `0 0 6px ${item.statusDotColor}`,
+            flexShrink: 0,
+          }}
+        />
+      ) : null}
+      {item.badge != null ? (
         <span
           style={{
-            backgroundColor: "var(--accent)",
-            color: "#fff",
+            background: "rgba(68,64,60,0.78)",
+            color: "#f5f5f4",
+            border: "1px solid rgba(120,113,108,0.4)",
             fontSize: "10px",
             fontWeight: 700,
             borderRadius: "9999px",
-            padding: "1px 5px",
+            padding: "0px 5px",
             minWidth: "16px",
             textAlign: "center",
-            lineHeight: "14px",
+            lineHeight: "13px",
             flexShrink: 0,
           }}
         >
-          {badge}
+          {item.badge}
         </span>
-      )}
+      ) : null}
+      {item.badgeText ? (
+        <span
+          style={{
+            background: "rgba(6,95,70,0.18)",
+            color: "#6ee7b7",
+            border: "1px solid rgba(16,185,129,0.4)",
+            fontSize: "10px",
+            fontWeight: 700,
+            borderRadius: "9999px",
+            padding: "0px 6px",
+            lineHeight: "13px",
+            flexShrink: 0,
+            textTransform: "lowercase",
+          }}
+        >
+          {item.badgeText}
+        </span>
+      ) : null}
     </Link>
   );
 }
 
+function shimmerStyle() {
+  return {
+    height: "18px",
+    borderRadius: "7px",
+    border: "1px solid rgba(120,113,108,0.18)",
+    background: "linear-gradient(90deg, rgba(41,37,36,0.5) 0%, rgba(68,64,60,0.65) 50%, rgba(41,37,36,0.5) 100%)",
+    animation: "pulse 1.8s ease-in-out infinite",
+  } as const;
+}
+
+function isAgentActive(agent: OrchestrationAgent): boolean {
+  return agent.status === "working";
+}
+
+function workItemHref(companySlug: string, itemLabel: string): string {
+  switch (itemLabel) {
+    case "Tasks":
+      return `/companies/${companySlug}/issues`;
+    case "Routines":
+      return "/workflows";
+    case "Goals":
+      return `/companies/${companySlug}/goals`;
+    default:
+      return `/companies/${companySlug}`;
+  }
+}
+
+function companyItemHref(companySlug: string, itemLabel: string): string {
+  switch (itemLabel) {
+    case "Org":
+      return `/companies/${companySlug}/team`;
+    case "Skills":
+      return `/companies/${companySlug}/skills`;
+    case "Costs":
+      return `/companies/${companySlug}/costs`;
+    case "Activity":
+      return `/companies/${companySlug}/activity`;
+    case "Settings":
+      return `/companies/${companySlug}/settings`;
+    default:
+      return `/companies/${companySlug}`;
+  }
+}
+
 export function Dock() {
   const pathname = usePathname();
-  const realtime = useMissionControlRealtime();
+  const router = useRouter();
+  const { collapsed, toggle: toggleDock } = useDockCollapsed();
+
   const [isMobile, setIsMobile] = useState(false);
-  const [unprocessedIdeasCount, setUnprocessedIdeasCount] = useState(0);
-  const liveIdeasCount = realtime?.snapshot?.ideas.unprocessedCount;
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
+  const [companyOpen, setCompanyOpen] = useState(false);
+  const [systemsOpen, setSystemsOpen] = useState(false);
+  const [appsOpen, setAppsOpen] = useState(false);
+  const [company, setCompany] = useState<CompanyNavState>({
+    slug: FALLBACK_COMPANY_SLUG,
+    name: "NeverIdle Core",
+  });
+  const [projects, setProjects] = useState<OrchestrationProject[]>([]);
+  const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [agentsLoading, setAgentsLoading] = useState(true);
+  const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+
+  const checkActive = useCallback(
+    (href: string, exact?: boolean) => {
+      if (pathname === href) return true;
+      if (exact) return false;
+      // Only match children if no sibling nav item owns a more specific prefix
+      return pathname.startsWith(`${href}/`);
+    },
+    [pathname]
+  );
+
+  // For items that share a prefix (e.g. /trading vs /trading/floor),
+  // use exact matching to avoid double-highlighting.
+  const checkActiveExact = useCallback(
+    (href: string, allHrefs: string[]) => {
+      if (pathname === href) return true;
+      // If another nav item has a longer prefix that also matches, don't highlight this one
+      const hasMoreSpecificSibling = allHrefs.some(
+        (other) => other !== href && other.startsWith(`${href}/`) && (pathname === other || pathname.startsWith(`${other}/`))
+      );
+      if (hasMoreSpecificSibling) return false;
+      return pathname.startsWith(`${href}/`);
+    },
+    [pathname]
+  );
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -162,83 +430,168 @@ export function Dock() {
     return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const checkActive = useCallback(
-    (item: NavItem) =>
-      item.href === "/"
-        ? pathname === "/"
-        : pathname === item.href || pathname.startsWith(item.href + "/"),
-    [pathname]
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveCompany = async () => {
+      const companies = await listCompanies();
+      if (cancelled || companies.length === 0) return;
+
+      const segments = pathname.split("/").filter(Boolean);
+      const root = segments[0];
+
+      if (root === "companies" && segments[1]) {
+        const current = companies.find((candidate) => candidate.slug === segments[1]);
+        if (current) {
+          setCompany({
+            id: current.id,
+            slug: current.slug,
+            name: current.name,
+          });
+          return;
+        }
+      }
+
+      if (root === "projects" && segments[1]) {
+        const projects = await listProjects();
+        if (cancelled) return;
+        const currentProject = projects.find((project) => project.id === segments[1] || project.slug === segments[1]);
+        const currentCompany = currentProject?.companyId
+          ? companies.find((candidate) => candidate.id === currentProject.companyId)
+          : null;
+
+        if (currentCompany) {
+          setCompany({
+            id: currentCompany.id,
+            slug: currentCompany.slug,
+            name: currentCompany.name,
+          });
+          return;
+        }
+      }
+
+      const fallback =
+        companies.find((candidate) => candidate.slug === FALLBACK_COMPANY_SLUG) ?? companies[0];
+      setCompany({
+        id: fallback?.id,
+        slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
+        name: fallback?.name ?? "NeverIdle Core",
+      });
+    };
+
+    void resolveCompany();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProjects = async (mode: "initial" | "poll") => {
+      if (mode === "initial") {
+        setProjectsLoading(true);
+      }
+      const rows = await listProjects({ company: company.slug });
+      if (cancelled) return;
+      const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
+      setProjects((previous) => {
+        // Preserve the last known non-empty list if a poll cycle returns empty.
+        if (mode === "poll" && sorted.length === 0 && previous.length > 0) {
+          return previous;
+        }
+        return sorted;
+      });
+      setProjectsLoading(false);
+    };
+
+    void loadProjects("initial");
+
+    const interval = window.setInterval(() => {
+      void loadProjects("poll");
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [company.slug]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadInboxCount = async () => {
+      const inbox = await getCompanyInbox({
+        companySlug: company.slug,
+        includeTaskSnapshot: false,
+        limit: 1,
+      });
+      if (cancelled || !inbox) return;
+      setInboxUnreadCount(Math.max(0, inbox.unreadCount));
+    };
+
+    void loadInboxCount();
+    const interval = window.setInterval(() => {
+      void loadInboxCount();
+    }, 30_000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [company.slug]);
+
+  const activeAgentCount = useMemo(
+    () => agents.filter((agent) => isAgentActive(agent)).length,
+    [agents]
   );
 
-  const fetchUnprocessedIdeasCount = useCallback(async () => {
-    try {
-      const res = await fetch("/api/ideas/processed-ids");
-      if (!res.ok) return;
-      const { unprocessedCount } = await res.json() as { unprocessedCount?: number };
-      setUnprocessedIdeasCount(Math.max(0, unprocessedCount ?? 0));
-    } catch {
-      // silently fail
-    }
-  }, []);
-
   useEffect(() => {
-    if (typeof liveIdeasCount === "number") {
-      setUnprocessedIdeasCount(Math.max(0, liveIdeasCount));
-    }
-  }, [liveIdeasCount]);
+    let cancelled = false;
 
-  useEffect(() => {
-    if (typeof liveIdeasCount === "number") {
-      return;
-    }
-    const initialFetch = window.setTimeout(() => {
-      void fetchUnprocessedIdeasCount();
-    }, 0);
-    const interval = setInterval(fetchUnprocessedIdeasCount, 60_000);
+    const loadAgents = async () => {
+      setAgentsLoading(true);
+      const rows = await listCompanyAgents(company.slug);
+      if (cancelled) return;
+      setAgents(rows.sort((a, b) => a.name.localeCompare(b.name)));
+      setAgentsLoading(false);
+    };
+
+    void loadAgents();
+
+    const interval = window.setInterval(() => {
+      void loadAgents();
+    }, 30_000);
+
     return () => {
-      window.clearTimeout(initialFetch);
-      clearInterval(interval);
+      cancelled = true;
+      window.clearInterval(interval);
     };
-  }, [fetchUnprocessedIdeasCount, liveIdeasCount]);
+  }, [company.slug]);
 
-  useEffect(() => {
-    if (typeof liveIdeasCount === "number") {
-      return;
-    }
-    const refresh = window.setTimeout(() => {
-      void fetchUnprocessedIdeasCount();
-    }, 0);
-    return () => window.clearTimeout(refresh);
-  }, [pathname, fetchUnprocessedIdeasCount, liveIdeasCount]);
+  const mobileItems: NavItem[] = useMemo(
+    () => [
+      { href: `/companies/${company.slug}/dashboard`, label: "Dashboard", icon: Building2 },
+      { href: `/companies/${company.slug}/issues`, label: "Tasks", icon: ListChecks },
+      { href: `/companies/${company.slug}/projects`, label: "Projects", icon: FolderOpen },
+      { href: `/companies/${company.slug}/team`, label: "Agents", icon: Bot },
+      { href: "/search", label: "Search", icon: Search },
+    ],
+    [company.slug]
+  );
 
-  useEffect(() => {
-    const handleIdeasUpdated = () => {
-      fetchUnprocessedIdeasCount();
-    };
-
-    window.addEventListener("ideas:updated", handleIdeasUpdated);
-    return () => window.removeEventListener("ideas:updated", handleIdeasUpdated);
-  }, [fetchUnprocessedIdeasCount]);
-
-  // Mobile: bottom tab bar with key pages
   if (isMobile) {
-    const mobileItems: NavItem[] = [
-      { href: "/", label: "Home", icon: Home },
-      { href: "/tasks", label: "Tasks", icon: Kanban },
-      { href: "/agents", label: "Agents", icon: Bot },
-      { href: "/trading", label: "Trading", icon: TrendingUp },
-      { href: "/workflows", label: "Flows", icon: Workflow },
-    ];
     return (
       <nav
+        aria-label="Mobile Primary"
         style={{
           position: "fixed",
           bottom: 0,
           left: 0,
           right: 0,
           height: "56px",
-          backgroundColor: "var(--surface)",
-          borderTop: "1px solid var(--border)",
+          borderTop: "1px solid rgba(120,113,108,0.58)",
+          background: "linear-gradient(180deg, rgba(28,25,23,0.96) 0%, rgba(41,37,36,0.96) 100%)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-around",
@@ -248,26 +601,26 @@ export function Dock() {
       >
         {mobileItems.map((item) => {
           const Icon = item.icon;
-          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          const active = checkActive(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
+              aria-label={item.ariaLabel}
               style={{
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
-                gap: "3px",
-                padding: "4px 12px",
+                gap: "2px",
+                padding: "3px 10px",
                 borderRadius: "8px",
                 textDecoration: "none",
-                backgroundColor: active ? "var(--accent-soft)" : "transparent",
+                color: active ? "#f59e0b" : "#a8a29e",
+                background: active ? "rgba(180,83,9,0.18)" : "transparent",
               }}
             >
-              <Icon size={20} color={active ? "var(--accent)" : "var(--text-muted)"} strokeWidth={active ? 2.5 : 2} />
-              <span style={{ fontSize: "9px", fontWeight: active ? 700 : 500, color: active ? "var(--accent)" : "var(--text-muted)" }}>
-                {item.label}
-              </span>
+              <Icon size={18} strokeWidth={active ? 2.4 : 2} />
+              <span style={{ fontSize: "9px", fontWeight: active ? 700 : 500 }}>{item.label}</span>
             </Link>
           );
         })}
@@ -275,53 +628,276 @@ export function Dock() {
     );
   }
 
-  return (
-    <aside
+  const dockContent = (
+    <nav
       className="dock"
+      aria-label="Primary"
       style={{
         position: "fixed",
         left: 0,
         top: 0,
         bottom: "32px",
         width: `${DOCK_WIDTH}px`,
-        backgroundColor: "var(--surface)",
-        borderRight: "1px solid var(--border)",
+        borderRight: "1px solid rgba(120,113,108,0.36)",
+        background:
+          "radial-gradient(125% 88% at 0% 0%, rgba(180,83,9,0.11) 0%, rgba(28,25,23,0.94) 40%), linear-gradient(180deg, rgba(28,25,23,0.98) 0%, rgba(41,37,36,0.98) 100%)",
+        boxShadow: "inset -1px 0 0 rgba(214,211,209,0.08)",
+        backdropFilter: "blur(14px)",
         display: "flex",
         flexDirection: "column",
-        padding: "8px 6px",
-        paddingBottom: "8px",
+        padding: "6px 6px 10px",
+        gap: "1px",
         zIndex: 50,
         overflowY: "auto",
         overflowX: "hidden",
       }}
     >
-      <nav style={{ display: "flex", flexDirection: "column", gap: "1px" }}>
-        {navItems.map((item, idx) => {
-          if (item === null) {
-            return (
-              <div
-                key={`sep-${idx}`}
-                style={{
-                  height: "1px",
-                  backgroundColor: "var(--border)",
-                  margin: "4px 8px",
-                  opacity: 0.5,
-                }}
-              />
-            );
-          }
+      <div style={{ margin: "1px 4px 2px", padding: "1px 2px" }}>
+        <p
+          style={{
+            margin: 0,
+            fontSize: "10px",
+            letterSpacing: "0.16em",
+            textTransform: "uppercase",
+            color: "#e7e5e4",
+            fontWeight: 700,
+          }}
+        >
+          {company.name}
+        </p>
+      </div>
+
+      <NavRow
+        item={{
+          href: `/companies/${company.slug}/issues/new`,
+          label: "New Task",
+          icon: SquarePen,
+        }}
+        active={checkActive(`/companies/${company.slug}/issues/new`)}
+      />
+
+      <NavRow
+        item={{
+          href: `/companies/${company.slug}/dashboard`,
+          label: "Dashboard",
+          icon: Building2,
+          badgeText: `● ${activeAgentCount} live`,
+        }}
+        active={checkActive(`/companies/${company.slug}/dashboard`)}
+      />
+      <NavRow
+        item={{
+          href: `/companies/${company.slug}/inbox`,
+          label: "Inbox",
+          icon: Inbox,
+          badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined,
+        }}
+        active={checkActive(`/companies/${company.slug}/inbox`)}
+      />
+
+      <SectionDivider />
+
+      <SectionHeader label="Work" />
+      {WORK_ITEMS.map((entry) => {
+        const href = workItemHref(company.slug, entry.label);
+        return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
+      })}
+
+      <SectionDivider />
+
+      <SectionHeader
+        label="Projects"
+        collapsed={!projectsOpen}
+        onToggle={() => setProjectsOpen((prev) => !prev)}
+        onCreate={() => {
+          router.push(`/companies/${company.slug}?tab=projects&createProject=1`);
+        }}
+        createAriaLabel="Create project"
+      />
+      {projectsOpen && (projectsLoading ? (
+        <div style={{ display: "grid", gap: "3px", padding: "0 4px" }}>
+          <div style={shimmerStyle()} />
+          <div style={shimmerStyle()} />
+          <div style={shimmerStyle()} />
+        </div>
+      ) : projects.length === 0 ? (
+        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No projects found.</p>
+      ) : (
+        projects.map((project) => {
+          const href = `/companies/${company.slug}/projects/${project.slug || project.id}/board`;
           return (
             <NavRow
-              key={item.href}
-              item={item}
-              active={checkActive(item)}
-              badge={item.href === "/ideas" ? unprocessedIdeasCount : undefined}
+              key={project.id}
+              item={{
+                href,
+                label: project.name,
+                icon: Kanban,
+                badge: project.taskCount,
+                indent: true,
+              }}
+              active={checkActive(href)}
             />
           );
-        })}
-      </nav>
-    </aside>
+        })
+      ))}
+
+      <SectionDivider />
+
+      <SectionHeader
+        label="Agents"
+        collapsed={!agentsOpen}
+        onToggle={() => setAgentsOpen((prev) => !prev)}
+        onCreate={() => {
+          router.push(`/companies/${company.slug}/team?createAgent=1`);
+        }}
+        createAriaLabel="Create agent"
+      />
+      {agentsOpen && (agentsLoading ? (
+        <div style={{ display: "grid", gap: "3px", padding: "0 4px" }}>
+          <div style={shimmerStyle()} />
+          <div style={shimmerStyle()} />
+          <div style={shimmerStyle()} />
+        </div>
+      ) : agents.length === 0 ? (
+        <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No agents registered.</p>
+      ) : (
+        agents.map((agent) => {
+          const href = `/companies/${company.slug}/agents/${agent.id}`;
+          return (
+            <NavRow
+              key={agent.id}
+              item={{
+                href,
+                label: agent.name,
+                icon: Bot,
+                indent: true,
+                statusDotColor: isAgentActive(agent) ? "#22c55e" : "#78716c",
+              }}
+              active={checkActive(href)}
+            />
+          );
+        })
+      ))}
+
+      <SectionDivider />
+
+      <SectionHeader
+        label="Company"
+        collapsed={!companyOpen}
+        onToggle={() => setCompanyOpen((prev) => !prev)}
+        onCreate={() => { router.push("/companies/new"); }}
+        createAriaLabel="Create company"
+      />
+      {companyOpen && COMPANY_ITEMS.map((entry) => {
+        const href = companyItemHref(company.slug, entry.label);
+        return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
+      })}
+
+      <SectionDivider />
+
+      <SectionHeader label="Apps" collapsed={!appsOpen} onToggle={() => setAppsOpen((prev) => !prev)} />
+      {appsOpen && APPS_ITEMS.map((item) => (
+        <NavRow key={item.href} item={item} active={checkActiveExact(item.href, APPS_ITEMS.map((i) => i.href))} />
+      ))}
+
+      <SectionDivider />
+
+      <SectionHeader label="Systems" collapsed={!systemsOpen} onToggle={() => setSystemsOpen((prev) => !prev)} />
+      {systemsOpen && SYSTEM_ITEMS.map((item) => <NavRow key={item.href} item={{ ...item, indent: true }} active={checkActive(item.href)} />)}
+
+      {/* collapse toggle */}
+      <div style={{ flex: 1 }} />
+      <button
+        onClick={toggleDock}
+        title="Collapse sidebar"
+        style={{
+          display: "flex", alignItems: "center", justifyContent: "center",
+          width: 32, height: 32, margin: "4px 4px 0 auto",
+          borderRadius: 6, border: "1px solid rgba(120,113,108,0.25)",
+          background: "rgba(41,37,36,0.5)", color: "#a8a29e",
+          cursor: "pointer", transition: "all 120ms ease",
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,53,15,0.3)"; e.currentTarget.style.color = "#fde68a"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(41,37,36,0.5)"; e.currentTarget.style.color = "#a8a29e"; }}
+      >
+        <ChevronRight size={14} style={{ transform: "rotate(180deg)" }} />
+      </button>
+    </nav>
   );
+
+  // When collapsed, show icon-only sidebar
+  if (collapsed && !isMobile) {
+    const collapsedItems: { href: string; icon: LucideIcon; label: string; dividerAfter?: boolean }[] = [
+      { href: `/companies/${company.slug}/issues/new`, icon: SquarePen, label: "New Task" },
+      { href: `/companies/${company.slug}/dashboard`, icon: Building2, label: "Dashboard" },
+      { href: `/companies/${company.slug}/inbox`, icon: Inbox, label: "Inbox", dividerAfter: true },
+      ...WORK_ITEMS.map((w, i) => ({ href: workItemHref(company.slug, w.label), icon: w.icon, label: w.label, dividerAfter: i === WORK_ITEMS.length - 1 })),
+      ...COMPANY_ITEMS.map((c, i) => ({ href: companyItemHref(company.slug, c.label), icon: c.icon, label: c.label, dividerAfter: i === COMPANY_ITEMS.length - 1 })),
+      ...APPS_ITEMS.map((a, i) => ({ href: a.href, icon: a.icon, label: a.label, dividerAfter: i === APPS_ITEMS.length - 1 })),
+      ...SYSTEM_ITEMS.map((s) => ({ href: s.href, icon: s.icon, label: s.label })),
+    ];
+
+    return (
+      <nav
+        aria-label="Primary (collapsed)"
+        style={{
+          position: "fixed", left: 0, top: 0, bottom: "32px",
+          width: `${DOCK_COLLAPSED_WIDTH}px`,
+          background: "linear-gradient(180deg, rgba(28,25,23,0.98) 0%, rgba(41,37,36,0.98) 100%)",
+          borderRight: "1px solid rgba(120,113,108,0.25)",
+          display: "flex", flexDirection: "column", alignItems: "center",
+          padding: "8px 4px", gap: 2, zIndex: 50,
+          overflowY: "auto", overflowX: "hidden",
+        }}
+      >
+        {collapsedItems.map((item) => {
+          const Icon = item.icon;
+          const allHrefs = collapsedItems.map((i) => i.href);
+          const active = checkActiveExact(item.href, allHrefs);
+          return (
+            <div key={item.href + item.label}>
+              <Link
+                href={item.href}
+                title={item.label}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  width: 32, height: 32, borderRadius: 6,
+                  background: active ? "rgba(217,119,6,0.2)" : "transparent",
+                  border: active ? "1px solid rgba(245,158,11,0.38)" : "1px solid transparent",
+                  color: active ? "#fbbf24" : "#a8a29e",
+                  textDecoration: "none", transition: "all 120ms ease",
+                }}
+              >
+                <Icon size={15} strokeWidth={active ? 2.25 : 2} />
+              </Link>
+              {item.dividerAfter && (
+                <div style={{ height: 1, width: 24, margin: "3px auto", background: "rgba(120,113,108,0.3)" }} />
+              )}
+            </div>
+          );
+        })}
+
+        <div style={{ flex: 1 }} />
+        <button
+          onClick={toggleDock}
+          title="Expand sidebar"
+          style={{
+            display: "flex", alignItems: "center", justifyContent: "center",
+            width: 32, height: 32, borderRadius: 6,
+            border: "1px solid rgba(120,113,108,0.25)",
+            background: "rgba(41,37,36,0.5)", color: "#a8a29e",
+            cursor: "pointer", transition: "all 120ms ease",
+          }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,53,15,0.3)"; e.currentTarget.style.color = "#fde68a"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(41,37,36,0.5)"; e.currentTarget.style.color = "#a8a29e"; }}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </nav>
+    );
+  }
+
+  return dockContent;
 }
 
-export { DOCK_WIDTH };
+export { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH };

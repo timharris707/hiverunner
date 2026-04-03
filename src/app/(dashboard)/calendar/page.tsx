@@ -27,8 +27,8 @@ interface DaySlot {
 
 const JOB_COLORS: Record<string, { color: string; emoji: string }> = {
   "Morning Brief": { color: "#f59e0b", emoji: "🌅" },
-  "Evening Brief": { color: "#a78bfa", emoji: "🌙" },
-  "Overnight Employee": { color: "#60a5fa", emoji: "🤖" },
+  "Evening Brief": { color: "#f59e0b", emoji: "🌙" },
+  "Overnight Employee": { color: "#f59e0b", emoji: "🤖" },
   "Git Backup": { color: "#4ade80", emoji: "🔄" },
 };
 

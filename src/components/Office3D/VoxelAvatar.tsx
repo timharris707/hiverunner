@@ -105,15 +105,15 @@ export default function VoxelAvatar({
           <>
             <mesh position={[-0.15, 0.15, 0]}>
               <sphereGeometry args={[0.02]} />
-              <meshBasicMaterial color="#3b82f6" transparent opacity={0.6} />
+              <meshBasicMaterial color="#d97706" transparent opacity={0.6} />
             </mesh>
             <mesh position={[-0.18, 0.2, 0]}>
               <sphereGeometry args={[0.03]} />
-              <meshBasicMaterial color="#3b82f6" transparent opacity={0.5} />
+              <meshBasicMaterial color="#d97706" transparent opacity={0.5} />
             </mesh>
             <mesh position={[-0.22, 0.26, 0]}>
               <sphereGeometry args={[0.04]} />
-              <meshBasicMaterial color="#3b82f6" transparent opacity={0.4} />
+              <meshBasicMaterial color="#d97706" transparent opacity={0.4} />
             </mesh>
           </>
         )}

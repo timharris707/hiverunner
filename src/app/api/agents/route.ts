@@ -55,6 +55,19 @@ function getAgentDisplayInfo(agentId: string, agentConfig: any): { emoji: string
   };
 }
 
+function resolveAgentWorkspace(agent: any, openclawDir: string, config: any): string {
+  if (typeof agent?.workspace === "string" && agent.workspace.trim().length > 0) {
+    return agent.workspace;
+  }
+
+  const defaultWorkspace = config?.agents?.defaults?.workspace;
+  if (typeof defaultWorkspace === "string" && defaultWorkspace.trim().length > 0) {
+    return defaultWorkspace;
+  }
+
+  return join(openclawDir, "workspace");
+}
+
 export async function GET() {
   try {
     // Read openclaw config
@@ -75,6 +88,7 @@ export async function GET() {
     // Get agents from config
     const agents: Agent[] = agentList.map((agent: any) => {
       const agentInfo = getAgentDisplayInfo(agent.id, agent);
+      const workspace = resolveAgentWorkspace(agent, OPENCLAW_DIR, config);
 
       // Get telegram account info
       const telegramAccount =
@@ -82,7 +96,7 @@ export async function GET() {
       const botToken = telegramAccount?.botToken;
 
       // Check if agent has recent activity
-      const memoryPath = join(agent.workspace, "memory");
+      const memoryPath = join(workspace, "memory");
       let lastActivity = undefined;
       let status: "online" | "offline" = "offline";
 
@@ -133,7 +147,7 @@ export async function GET() {
         color: agentInfo.color,
         model:
           agent.model?.primary || config.agents.defaults.model.primary,
-        workspace: agent.workspace,
+        workspace,
         dmPolicy:
           telegramAccount?.dmPolicy ||
           config.channels?.telegram?.dmPolicy ||

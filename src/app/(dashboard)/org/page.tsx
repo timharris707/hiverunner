@@ -51,7 +51,7 @@ const AGENTS: OrgAgent[] = AGENT_CONFIGS.map((a) => ({
 const STATUS_CONFIG: Record<string, { color: string; bg: string; label: string; dot: string }> = {
   ONLINE: { color: "#4ade80", bg: "#4ade8018", label: "Online", dot: "#4ade80" },
   BUILDING: { color: "#f59e0b", bg: "#f59e0b18", label: "Building", dot: "#f59e0b" },
-  ACTIVE: { color: "#60a5fa", bg: "#60a5fa18", label: "Active", dot: "#60a5fa" },
+  ACTIVE: { color: "#f59e0b", bg: "#f59e0b18", label: "Active", dot: "#f59e0b" },
   "NOT DEPLOYED": { color: "#6b7280", bg: "#6b728018", label: "Idle", dot: "#6b7280" },
   OFFLINE: { color: "#ef4444", bg: "#ef444418", label: "Offline", dot: "#ef4444" },
 };
@@ -115,8 +115,8 @@ export default function OrgChartPage() {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
           <StatPill value={totalOnline} label="agents active" color="#4ade80" />
           <StatPill value={AGENTS.length} label="total agents" color="#f59e0b" />
-          <StatPill value={totalCrons} label="cron jobs" color="#8b5cf6" />
-          <StatPill value={grouped.length} label="departments" color="#60a5fa" />
+          <StatPill value={totalCrons} label="cron jobs" color="#d97706" />
+          <StatPill value={grouped.length} label="departments" color="#f59e0b" />
         </div>
       </div>
 
@@ -410,7 +410,7 @@ function DepartmentGroup({
             </span>
           )}
           {totalCrons > 0 && (
-            <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600, background: "#8b5cf615", padding: "1px 6px", borderRadius: 10, border: "1px solid #8b5cf625" }}>
+            <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600, background: "#d9770615", padding: "1px 6px", borderRadius: 10, border: "1px solid #d9770625" }}>
               {totalCrons} cron{totalCrons !== 1 ? "s" : ""}
             </span>
           )}
@@ -547,7 +547,7 @@ function AgentCard({
           </span>
         )}
         {agent.cronCount > 0 && (
-          <span style={{ fontSize: 9, color: "#8b5cf6", fontWeight: 600, marginLeft: "auto" }}>
+          <span style={{ fontSize: 9, color: "#d97706", fontWeight: 600, marginLeft: "auto" }}>
             {agent.cronCount} cron{agent.cronCount !== 1 ? "s" : ""}
           </span>
         )}
@@ -561,7 +561,7 @@ function AgentCard({
 function ModelBadge({ model, small }: { model: string; small?: boolean }) {
   const isOpus = model.includes("Opus");
   const isSonnet = model.includes("Sonnet");
-  const color = isOpus ? "#a78bfa" : isSonnet ? "#60a5fa" : "#6b7280";
+  const color = isOpus ? "#f59e0b" : isSonnet ? "#f59e0b" : "#6b7280";
   return (
     <span
       style={{

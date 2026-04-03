@@ -290,7 +290,7 @@ export default function SystemMonitorPage() {
           <div className="p-6 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 rounded-lg" style={{ backgroundColor: "var(--card-elevated)" }}>
-                <Network className="w-5 h-5" style={{ color: "var(--info, #3b82f6)" }} />
+                <Network className="w-5 h-5" style={{ color: "var(--info, #d97706)" }} />
               </div>
               <div>
                 <h3 className="font-semibold" style={{ color: "var(--text-primary)" }}>Network</h3>
@@ -383,7 +383,7 @@ export default function SystemMonitorPage() {
                               style={{
                                 backgroundColor:
                                   svc.status === "active" ? "var(--success)" :
-                                  svc.status === "not_deployed" ? "var(--info, #3b82f6)" :
+                                  svc.status === "not_deployed" ? "var(--info, #d97706)" :
                                   svc.status === "failed" ? "var(--error)" : "var(--text-muted)",
                               }}
                             />
@@ -392,11 +392,11 @@ export default function SystemMonitorPage() {
                               style={{
                                 backgroundColor:
                                   svc.status === "active" ? "var(--success-bg)" :
-                                  svc.status === "not_deployed" ? "rgba(59,130,246,0.12)" :
+                                  svc.status === "not_deployed" ? "rgba(217,119,6,0.12)" :
                                   svc.status === "failed" ? "var(--error-bg)" : "var(--card-elevated)",
                                 color:
                                   svc.status === "active" ? "var(--success)" :
-                                  svc.status === "not_deployed" ? "#60a5fa" :
+                                  svc.status === "not_deployed" ? "#f59e0b" :
                                   svc.status === "failed" ? "var(--error)" : "var(--text-muted)",
                               }}
                             >

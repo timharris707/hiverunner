@@ -37,8 +37,8 @@ const AGENT_COLORS = ["#FF3B30", "#FF9500", "#FFCC00", "#34C759", "#00C7BE", "#3
 const STATUS_COLORS: Record<string, string> = {
   active: "#4ade80",
   building: "#f59e0b",
-  design: "#60a5fa",
-  complete: "#a78bfa",
+  design: "#f59e0b",
+  complete: "#f59e0b",
 };
 
 function formatSize(bytes: number): string {
@@ -202,7 +202,7 @@ export default function ReportsPage() {
                   { label: "Total Tasks", value: analytics.summary.totalTasks, icon: <Zap className="w-5 h-5" />, color: "var(--accent)" },
                   { label: "Completed", value: analytics.summary.completedTasks, icon: <CheckCircle className="w-5 h-5" />, color: "#4ade80" },
                   { label: "Completion Rate", value: `${analytics.summary.completionRate}%`, icon: <TrendingUp className="w-5 h-5" />, color: "#f59e0b" },
-                  { label: "Active Days", value: analytics.summary.activeDays, icon: <Calendar className="w-5 h-5" />, color: "#60a5fa" },
+                  { label: "Active Days", value: analytics.summary.activeDays, icon: <Calendar className="w-5 h-5" />, color: "#f59e0b" },
                 ].map((stat) => (
                   <div key={stat.label} className="p-4 rounded-xl" style={{ backgroundColor: "var(--card)", border: "1px solid var(--border)" }}>
                     <div className="flex items-center justify-between mb-2">

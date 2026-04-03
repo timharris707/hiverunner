@@ -55,7 +55,7 @@ function GatewayLogsModal({ onClose }: { onClose: () => void }) {
     switch (level.toUpperCase()) {
       case "ERROR": return "#f87171";
       case "WARN": case "WARNING": return "#fbbf24";
-      case "INFO": return "#60a5fa";
+      case "INFO": return "#d97706";
       case "DEBUG": return "#94a3b8";
       default: return "#c9d1d9";
     }
@@ -138,7 +138,7 @@ function GatewayLogsModal({ onClose }: { onClose: () => void }) {
                   {l.ts ? new Date(l.ts).toLocaleTimeString() : ""}
                 </span>
                 <span style={{ color: getLevelColor(l.level), wordBreak: "break-all" }}>
-                  {l.module && <span style={{ color: "#c084fc" }}>[{l.module}] </span>}
+                  {l.module && <span style={{ color: "#fbbf24" }}>[{l.module}] </span>}
                   {l.message}
                 </span>
               </div>
@@ -235,7 +235,7 @@ export function QuickActions({ onActionComplete }: QuickActionsProps) {
   const colorClasses: Record<string, string> = {
     emerald:
       "bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20",
-    blue: "bg-blue-500/10 text-blue-400 border-blue-500/30 hover:bg-blue-500/20",
+    blue: "bg-amber-600/10 text-amber-500 border-amber-600/30 hover:bg-amber-600/20",
     yellow:
       "bg-yellow-500/10 text-yellow-400 border-yellow-500/30 hover:bg-yellow-500/20",
     red: "bg-red-500/10 text-red-400 border-red-500/30 hover:bg-red-500/20",

@@ -6,7 +6,7 @@ import { FileText, Brain, FolderOpen, Activity } from "lucide-react";
 export const dynamic = "force-dynamic";
 
 const sources = [
-  { icon: Brain, label: "Memory Files", desc: "memory/*.md + MEMORY.md", color: "#3b82f6" },
+  { icon: Brain, label: "Memory Files", desc: "memory/*.md + MEMORY.md", color: "#d97706" },
   { icon: FileText, label: "Workspace Docs", desc: "AUTONOMOUS.md, AGENTS.md, SOUL.md", color: "#f59e0b" },
   { icon: FolderOpen, label: "Project Files", desc: "projects/**/*.md", color: "#10b981" },
   { icon: Activity, label: "Activity & Tasks", desc: "activity feed + task board", color: "#a855f7" },

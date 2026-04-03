@@ -49,7 +49,7 @@ export default function CoffeeMachine({ position, onClick }: CoffeeMachineProps)
         castShadow
       >
         <meshStandardMaterial
-          color="#93c5fd"
+          color="#fbbf24"
           transparent
           opacity={0.4}
           metalness={0.1}

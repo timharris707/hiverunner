@@ -99,8 +99,8 @@ const STAGES: {
   description: string;
 }[] = [
   { id: "idea", label: "Idea", emoji: "💡", color: "#f59e0b", description: "Problem & market signal" },
-  { id: "architecture", label: "Architecture", emoji: "📐", color: "#8b5cf6", description: "Tech stack & design" },
-  { id: "build", label: "Build", emoji: "🔨", color: "#3b82f6", description: "Autonomous MVP build" },
+  { id: "architecture", label: "Architecture", emoji: "📐", color: "#d97706", description: "Tech stack & design" },
+  { id: "build", label: "Build", emoji: "🔨", color: "#d97706", description: "Autonomous MVP build" },
   { id: "test", label: "Test", emoji: "🧪", color: "#06b6d4", description: "Automated testing" },
   { id: "deploy", label: "Deploy", emoji: "🚀", color: "#10b981", description: "Ship to production" },
 ];
@@ -358,9 +358,9 @@ function PipelineCard({
                       style={{
                         fontSize: 9,
                         padding: "1px 6px",
-                        backgroundColor: "rgba(139,92,246,0.12)",
-                        border: "1px solid rgba(139,92,246,0.2)",
-                        color: "rgba(167,139,250,0.9)",
+                        backgroundColor: "rgba(217,119,6,0.12)",
+                        border: "1px solid rgba(217,119,6,0.2)",
+                        color: "rgba(245,158,11,0.9)",
                         fontFamily: "var(--font-mono)",
                       }}
                     >
@@ -397,9 +397,9 @@ function PipelineCard({
                     style={{
                       fontSize: 9,
                       padding: "2px 8px",
-                      backgroundColor: "rgba(59,130,246,0.12)",
-                      border: "1px solid rgba(59,130,246,0.25)",
-                      color: "#93c5fd",
+                      backgroundColor: "rgba(217,119,6,0.12)",
+                      border: "1px solid rgba(217,119,6,0.25)",
+                      color: "#fbbf24",
                       fontFamily: "var(--font-mono)",
                     }}
                   >
@@ -498,7 +498,7 @@ function PipelineCard({
                     target="_blank"
                     rel="noopener noreferrer"
                     className="ml-2"
-                    style={{ color: "#60a5fa", textDecoration: "underline" }}
+                    style={{ color: "#f59e0b", textDecoration: "underline" }}
                   >
                     {pipeline.deploy.url}
                   </a>
@@ -868,9 +868,9 @@ function ScanModal({
                         style={{
                           fontSize: 8,
                           padding: "1px 5px",
-                          backgroundColor: "rgba(139,92,246,0.1)",
-                          border: "1px solid rgba(139,92,246,0.2)",
-                          color: "rgba(167,139,250,0.8)",
+                          backgroundColor: "rgba(217,119,6,0.1)",
+                          border: "1px solid rgba(217,119,6,0.2)",
+                          color: "rgba(245,158,11,0.8)",
                           fontFamily: "var(--font-mono)",
                         }}
                       >
@@ -1177,7 +1177,7 @@ export default function PipelinePage() {
         className="px-6 pt-6 pb-5"
         style={{
           background: "linear-gradient(135deg, #1a0f2e 0%, #2d1b4e 30%, #1e1b4b 60%, #0f172a 100%)",
-          borderBottom: "1px solid rgba(139,92,246,0.2)",
+          borderBottom: "1px solid rgba(217,119,6,0.2)",
         }}
       >
         <div className="flex items-start justify-between gap-4 mb-4">
@@ -1192,7 +1192,7 @@ export default function PipelinePage() {
                 letterSpacing: "-0.02em",
               }}
             >
-              <Rocket size={26} style={{ color: "#8b5cf6" }} />
+              <Rocket size={26} style={{ color: "#d97706" }} />
               Software Factory Pipeline
             </h1>
             <p

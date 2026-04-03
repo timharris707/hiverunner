@@ -103,8 +103,8 @@ export const PIPELINE_STAGES: {
   description: string;
 }[] = [
   { id: "idea", label: "Idea", emoji: "💡", color: "#f59e0b", description: "Problem identification & market signal" },
-  { id: "architecture", label: "Architecture", emoji: "📐", color: "#8b5cf6", description: "Tech stack, components & API design" },
-  { id: "build", label: "Build", emoji: "🔨", color: "#3b82f6", description: "Autonomous MVP construction" },
+  { id: "architecture", label: "Architecture", emoji: "📐", color: "#d97706", description: "Tech stack, components & API design" },
+  { id: "build", label: "Build", emoji: "🔨", color: "#d97706", description: "Autonomous MVP construction" },
   { id: "test", label: "Test", emoji: "🧪", color: "#06b6d4", description: "Automated test suite execution" },
   { id: "deploy", label: "Deploy", emoji: "🚀", color: "#10b981", description: "Ship to production" },
 ];

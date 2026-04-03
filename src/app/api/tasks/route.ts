@@ -5,11 +5,29 @@ import { appendTaskToLog } from "@/lib/tasks-log";
 
 export const dynamic = "force-dynamic";
 
+function serializeTask(task: any) {
+  if (!task || typeof task !== "object") return task;
+  if (task.buildState !== undefined) return task;
+
+  if (task.status === "done") {
+    return { ...task, buildState: "completed" };
+  }
+  if (task.status === "blocked") {
+    return { ...task, buildState: "blocked" };
+  }
+
+  return { ...task, buildState: null };
+}
+
+function serializeTasks(tasks: any[]) {
+  return tasks.map((task) => serializeTask(task));
+}
+
 export async function GET() {
   try {
     await reconcileBuildQueue({ source: "tasks-get" });
     const tasks = readTasks();
-    return NextResponse.json({ tasks });
+    return NextResponse.json({ tasks: serializeTasks(tasks) });
   } catch (error) {
     console.error("Error reading tasks:", error);
     return NextResponse.json({ error: "Failed to load tasks" }, { status: 500 });
@@ -52,7 +70,7 @@ export async function POST(req: NextRequest) {
       await queueOrStartBuild(newTask.id, { source: "tasks-post" });
     }
 
-    return NextResponse.json({ task: readTasks().find((t: any) => t.id === newTask.id) || newTask });
+    return NextResponse.json({ task: serializeTask(readTasks().find((t: any) => t.id === newTask.id) || newTask) });
   } catch (error) {
     console.error("Error creating task:", error);
     return NextResponse.json({ error: "Failed to create task" }, { status: 500 });
@@ -246,7 +264,7 @@ export async function PATCH(req: NextRequest) {
       await reconcileBuildQueue({ source: "tasks-patch-advance", force: true });
     }
 
-    return NextResponse.json({ task: readTasks().find((t: any) => t.id === id) || tasks[idx] });
+    return NextResponse.json({ task: serializeTask(readTasks().find((t: any) => t.id === id) || tasks[idx]) });
   } catch (error) {
     console.error("Error updating task:", error);
     return NextResponse.json({ error: "Failed to update task" }, { status: 500 });

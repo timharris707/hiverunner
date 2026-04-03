@@ -46,7 +46,7 @@ export default function Whiteboard({ position, rotation = [0, 0, 0], onClick }: 
         <group key={i} position={[x, 0.75, 0.1]}>
           <Box args={[0.08, 0.3, 0.08]} castShadow>
             <meshStandardMaterial
-              color={['#ef4444', '#3b82f6', '#22c55e', '#eab308'][i]}
+              color={['#ef4444', '#d97706', '#22c55e', '#eab308'][i]}
             />
           </Box>
           {/* Cap */}

@@ -19,9 +19,9 @@ function getLineColor(line: string): string {
   const lower = line.toLowerCase();
   if (lower.includes("error") || lower.includes("err]") || lower.includes("exception")) return "#f87171";
   if (lower.includes("warn") || lower.includes("warning")) return "#fbbf24";
-  if (lower.includes("info") || lower.includes("[info]")) return "#60a5fa";
+  if (lower.includes("info") || lower.includes("[info]")) return "#f59e0b";
   if (lower.includes("success") || lower.includes("✓") || lower.includes("ready")) return "#4ade80";
-  if (lower.startsWith("[stream]")) return "#a78bfa";
+  if (lower.startsWith("[stream]")) return "#f59e0b";
   return "#c9d1d9";
 }
 

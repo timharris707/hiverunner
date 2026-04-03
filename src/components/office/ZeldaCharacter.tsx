@@ -71,9 +71,9 @@ const AgentSprites: Record<string, React.ReactElement> = {
       <rect x="27" y="20" width="3" height="3" fill="#000" />
       <rect x="34" y="20" width="3" height="3" fill="#000" />
       {/* Headphones */}
-      <rect x="14" y="14" width="6" height="12" fill="#7c3aed" />
-      <rect x="44" y="14" width="6" height="12" fill="#7c3aed" />
-      <rect x="20" y="11" width="24" height="3" fill="#7c3aed" />
+      <rect x="14" y="14" width="6" height="12" fill="#b45309" />
+      <rect x="44" y="14" width="6" height="12" fill="#b45309" />
+      <rect x="20" y="11" width="24" height="3" fill="#b45309" />
       <circle cx="17" cy="20" r="4" fill="#6366f1" />
       <circle cx="47" cy="20" r="4" fill="#6366f1" />
       {/* Legs */}
@@ -86,7 +86,7 @@ const AgentSprites: Record<string, React.ReactElement> = {
       {/* LinkedIn Pro - Azul con corbata/traje */}
       {/* Body (suit) */}
       <rect x="20" y="26" width="24" height="24" fill="#0a66c2" />
-      <rect x="22" y="28" width="20" height="20" fill="#2563eb" />
+      <rect x="22" y="28" width="20" height="20" fill="#b45309" />
       {/* Tie */}
       <rect x="30" y="26" width="4" height="18" fill="#1e40af" />
       <rect x="28" y="26" width="8" height="3" fill="#1e40af" />

@@ -1,18 +1,43 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Bell, User, Command, Search, Settings, LogOut, ChevronDown, Eye, EyeOff } from "lucide-react";
+import { Settings, LogOut, ChevronDown, Eye, EyeOff } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
 import { useDemoMode } from "@/lib/demo-mode";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { listCompanies, listProjects } from "@/lib/orchestration/client";
+import type { OrchestrationCompany } from "@/lib/orchestration/types";
+import { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH } from "./Dock";
+import { useDockCollapsed } from "@/lib/dock-state";
+
+type ActiveCompany = {
+  name: string;
+  prefix: string;
+};
+
+function companyPrefix(company: OrchestrationCompany): string {
+  const initials = company.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join("")
+    .slice(0, 4)
+    .toUpperCase();
+  if (initials.length >= 2) return initials;
+  return company.slug.replace(/[^a-z0-9]/gi, "").slice(0, 4).toUpperCase() || "ORG";
+}
 
 export function TopBar() {
   const [showSearch, setShowSearch] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const { collapsed: dockCollapsed } = useDockCollapsed();
+  const [activeCompany, setActiveCompany] = useState<ActiveCompany | null>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
   const { isDemoMode, toggleDemoMode } = useDemoMode();
+  const pathname = usePathname();
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
@@ -50,6 +75,64 @@ export function TopBar() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [showSearch]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const segments = pathname.split("/").filter(Boolean);
+    const root = segments[0];
+
+    const resolveActiveCompany = async () => {
+      if (root !== "companies" && root !== "projects") {
+        setActiveCompany(null);
+        return;
+      }
+
+      const companies = await listCompanies();
+      if (cancelled) return;
+
+      if (root === "companies" && segments[1]) {
+        const current = companies.find((company) => company.slug === segments[1]);
+        if (!current) {
+          setActiveCompany(null);
+          return;
+        }
+        setActiveCompany({
+          name: current.name,
+          prefix: companyPrefix(current),
+        });
+        return;
+      }
+
+      if (root === "projects" && segments[1]) {
+        const projects = await listProjects();
+        if (cancelled) return;
+        const project = projects.find(
+          (row) => row.id === segments[1] || row.slug === segments[1]
+        );
+        if (!project?.companyId) {
+          setActiveCompany(null);
+          return;
+        }
+        const current = companies.find((company) => company.id === project.companyId);
+        if (!current) {
+          setActiveCompany(null);
+          return;
+        }
+        setActiveCompany({
+          name: current.name,
+          prefix: companyPrefix(current),
+        });
+        return;
+      }
+
+      setActiveCompany(null);
+    };
+
+    void resolveActiveCompany();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
   return (
     <>
       <div
@@ -57,7 +140,7 @@ export function TopBar() {
         style={{
           position: "fixed",
           top: 0,
-          left: isMobile ? 0 : "168px", // Width of dock/sidebar (0 on mobile)
+          left: isMobile ? 0 : `${dockCollapsed ? DOCK_COLLAPSED_WIDTH : DOCK_WIDTH}px`,
           right: 0,
           height: "48px",
           backgroundColor: "var(--surface)",
@@ -108,6 +191,45 @@ export function TopBar() {
           >
             &ldquo;Build an autonomous organization that produces value 24/7&rdquo;
           </span>
+          {activeCompany ? (
+            <>
+              <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 4px" }}>|</span>
+              <div
+                className="hidden md:inline-flex"
+                style={{
+                  alignItems: "center",
+                  gap: "6px",
+                  borderRadius: "999px",
+                  border: "1px solid rgba(56,189,248,0.35)",
+                  background: "rgba(8,47,73,0.5)",
+                  padding: "2px 10px",
+                }}
+              >
+                <span
+                  style={{
+                    color: "#a5f3fc",
+                    fontSize: "10px",
+                    letterSpacing: "0.12em",
+                    textTransform: "uppercase",
+                    fontWeight: 700,
+                  }}
+                >
+                  Active Company
+                </span>
+                <span style={{ color: "#e2e8f0", fontSize: "12px", fontWeight: 600 }}>{activeCompany.name}</span>
+                <span
+                  style={{
+                    color: "#67e8f9",
+                    fontSize: "10px",
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {activeCompany.prefix}
+                </span>
+              </div>
+            </>
+          ) : null}
         </div>
 
         {/* Right: Demo Toggle + Notifications + User */}

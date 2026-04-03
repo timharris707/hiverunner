@@ -280,7 +280,7 @@ export default function Office3D() {
                     </div>
                     <div>
                       <p className="text-sm text-gray-400">System uptime:</p>
-                      <p className="text-2xl font-bold text-blue-400">12h 34m</p>
+                      <p className="text-2xl font-bold text-amber-400">12h 34m</p>
                     </div>
                   </div>
                   <p className="text-sm text-gray-500 italic">
@@ -347,7 +347,7 @@ export default function Office3D() {
             <span>Working</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-blue-500 rounded-full animate-pulse"></div>
+            <div className="w-3 h-3 bg-amber-500 rounded-full animate-pulse"></div>
             <span>Thinking</span>
           </div>
           <div className="flex items-center gap-2">

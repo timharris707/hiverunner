@@ -38,9 +38,9 @@ const statusConfig = {
   },
   configured: {
     icon: CheckCircle,
-    color: "text-blue-400",
-    bg: "bg-blue-500/10",
-    border: "border-blue-500/30",
+    color: "text-amber-500",
+    bg: "bg-amber-600/10",
+    border: "border-amber-600/30",
     label: "Configured",
   },
   not_configured: {

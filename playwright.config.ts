@@ -1,5 +1,9 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// Set once per test run before any workers start; all module evaluations
+// in the same worker process will read the same value via process.env.
+process.env.PLAYWRIGHT_RUN_ID ??= String(Date.now());
+
 /**
  * Playwright E2E smoke suite — Mission Control
  * Runs against the local dev server on both Chromium and WebKit.
@@ -15,6 +19,9 @@ export default defineConfig({
   // Serial execution avoids data races on the shared tasks.json file
   fullyParallel: false,
   workers: 1,
+
+  // 60 s per test — board has a 5 s polling loop that can slow click-stability checks
+  timeout: 60_000,
 
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

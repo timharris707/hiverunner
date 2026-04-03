@@ -40,23 +40,30 @@ export async function getSystemStats(now = Date.now()): Promise<SystemStats> {
   let diskUsed = 0;
   let diskTotal = 100;
   try {
-    const { stdout } = await execAsync("df -BG / | tail -1");
+    const dfCommand = process.platform === "darwin" ? "df -g / | tail -1" : "df -BG / | tail -1";
+    const { stdout } = await execAsync(dfCommand);
     const parts = stdout.trim().split(/\s+/);
-    diskTotal = parseInt(parts[1].replace("G", ""), 10);
-    diskUsed = parseInt(parts[2].replace("G", ""), 10);
+    const totalToken = parts[1] ?? "";
+    const usedToken = parts[2] ?? "";
+    const totalParsed = parseInt(totalToken.replace(/[^0-9]/g, ""), 10);
+    const usedParsed = parseInt(usedToken.replace(/[^0-9]/g, ""), 10);
+    if (Number.isFinite(totalParsed) && totalParsed > 0) diskTotal = totalParsed;
+    if (Number.isFinite(usedParsed) && usedParsed >= 0) diskUsed = usedParsed;
   } catch (error) {
     console.error("Failed to get disk stats:", error);
   }
 
   let activeServices = 0;
   const totalServices = SYSTEMD_SERVICES.length;
-  try {
-    for (const name of SYSTEMD_SERVICES) {
-      const { stdout } = await execAsync(`systemctl is-active ${name} 2>/dev/null || true`);
-      if (stdout.trim() === "active") activeServices++;
+  if (process.platform !== "darwin") {
+    try {
+      for (const name of SYSTEMD_SERVICES) {
+        const { stdout } = await execAsync(`systemctl is-active ${name} 2>/dev/null || true`);
+        if (stdout.trim() === "active") activeServices++;
+      }
+    } catch (error) {
+      console.error("Failed to get systemd stats:", error);
     }
-  } catch (error) {
-    console.error("Failed to get systemd stats:", error);
   }
 
   let vpnActive = false;
@@ -69,8 +76,13 @@ export async function getSystemStats(now = Date.now()): Promise<SystemStats> {
 
   let firewallActive = true;
   try {
-    const { stdout } = await execAsync("ufw status 2>/dev/null | head -1 || true");
-    firewallActive = stdout.includes("active");
+    if (process.platform === "darwin") {
+      const { stdout } = await execAsync("/usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate 2>/dev/null || true");
+      firewallActive = /enabled/i.test(stdout);
+    } else {
+      const { stdout } = await execAsync("ufw status 2>/dev/null | head -1 || true");
+      firewallActive = stdout.includes("active");
+    }
   } catch {
     firewallActive = true;
   }

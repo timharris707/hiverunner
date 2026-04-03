@@ -3,11 +3,13 @@
 import { useEffect, useState } from "react";
 import { Cpu, HardDrive, MemoryStick, Shield, ShieldCheck, Clock } from "lucide-react";
 import { useMissionControlRealtime } from "@/components/live/RealtimeProvider";
-import { DOCK_WIDTH } from "./Dock";
+import { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH } from "./Dock";
+import { useDockCollapsed } from "@/lib/dock-state";
 
 import type { SystemStats } from "@/lib/system-stats";
 
 export function StatusBar() {
+  const { collapsed: dockCollapsed } = useDockCollapsed();
   const realtime = useMissionControlRealtime();
   const [stats, setStats] = useState<SystemStats>({
     cpu: 0,
@@ -110,7 +112,7 @@ export function StatusBar() {
       style={{
         position: "fixed",
         bottom: 0,
-        left: `${DOCK_WIDTH}px`,
+        left: `${dockCollapsed ? DOCK_COLLAPSED_WIDTH : DOCK_WIDTH}px`,
         right: 0,
         height: "32px",
         backgroundColor: "var(--surface)",

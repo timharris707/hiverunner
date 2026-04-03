@@ -128,7 +128,7 @@ function getPrintCSS(): string {
       font-size: 9px;
       font-weight: 700;
       letter-spacing: 2.5px;
-      color: #6d28d9;
+      color: #b45309;
       text-transform: uppercase;
       margin-bottom: 8px;
     }
@@ -307,9 +307,9 @@ function getPrintCSS(): string {
       font-family: "SF Mono", "Fira Code", "Consolas", monospace;
     }
 
-    .pdf-badge-worker { color: #6d28d9; background: #f3e8ff; }
+    .pdf-badge-worker { color: #b45309; background: #fffbeb; }
     .pdf-badge-supervisor { color: #c2410c; background: #fff7ed; }
-    .pdf-badge-reviewer { color: #1d4ed8; background: #eff6ff; }
+    .pdf-badge-reviewer { color: #92400e; background: #fffbeb; }
     .pdf-badge-approve { color: #15803d; background: #f0fdf4; }
     .pdf-badge-reject { color: #dc2626; background: #fef2f2; }
     .pdf-badge-human { color: #92400e; background: #fffbeb; }

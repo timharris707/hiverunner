@@ -33,7 +33,7 @@ const ACTIONS = [
     shortcut: "J",
     icon: Terminal,
     href: "/terminal",
-    color: "#a78bfa",
+    color: "#d97706",
   },
 ];
 

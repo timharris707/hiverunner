@@ -146,7 +146,7 @@ const PIPELINES: Pipeline[] = [
     emoji: "🔨",
     name: "Build Pipeline",
     description: "Structured approach to shipping features and products from idea to production.",
-    color: "#60a5fa",
+    color: "#f59e0b",
     stages: [
       { label: "Spec", description: "Define requirements, user stories, and acceptance criteria", status: "done" },
       { label: "Build", description: "Implement the feature, write tests, iterate on design", status: "active" },
@@ -298,14 +298,14 @@ function TriggerBadge({ trigger }: { trigger: "cron" | "demand" }) {
     <div style={{
       padding: "2px 7px",
       backgroundColor: trigger === "cron"
-        ? "rgba(59, 130, 246, 0.12)"
+        ? "rgba(217, 119, 6, 0.12)"
         : "rgba(168, 85, 247, 0.12)",
-      border: `1px solid ${trigger === "cron" ? "rgba(59, 130, 246, 0.25)" : "rgba(168, 85, 247, 0.25)"}`,
+      border: `1px solid ${trigger === "cron" ? "rgba(217, 119, 6, 0.25)" : "rgba(168, 85, 247, 0.25)"}`,
       borderRadius: "5px",
       fontFamily: "var(--font-body)",
       fontSize: "10px",
       fontWeight: 600,
-      color: trigger === "cron" ? "#60a5fa" : "var(--accent)",
+      color: trigger === "cron" ? "#f59e0b" : "var(--accent)",
       letterSpacing: "0.4px",
       textTransform: "uppercase" as const,
     }}>
@@ -338,7 +338,7 @@ export default function WorkflowsPage() {
       <div style={{ display: "flex", gap: "12px", marginBottom: "32px", flexWrap: "wrap" }}>
         {[
           { label: "Total Workflows", value: WORKFLOWS.length, color: "var(--text-primary)" },
-          { label: "Active Crons", value: WORKFLOWS.filter(w => w.trigger === "cron" && w.status === "active").length, color: "#60a5fa" },
+          { label: "Active Crons", value: WORKFLOWS.filter(w => w.trigger === "cron" && w.status === "active").length, color: "#f59e0b" },
           { label: "On Demand", value: WORKFLOWS.filter(w => w.trigger === "demand").length, color: "var(--accent)" },
         ].map((stat) => (
           <div key={stat.label} style={{

@@ -76,8 +76,8 @@ function shortModel(model: string): string {
 function typeColor(type: Session["type"]): string {
   switch (type) {
     case "main": return "var(--accent)";
-    case "cron": return "#a78bfa";
-    case "subagent": return "#60a5fa";
+    case "cron": return "#f59e0b";
+    case "subagent": return "#f59e0b";
     case "direct": return "#4ade80";
     default: return "var(--text-muted)";
   }
@@ -100,15 +100,15 @@ function MessageBubble({ msg }: { msg: Message }) {
           gap: "0.5rem",
           padding: "0.5rem 0.75rem",
           borderRadius: "0.5rem",
-          backgroundColor: "rgba(96,165,250,0.08)",
-          border: "1px solid rgba(96,165,250,0.2)",
+          backgroundColor: "rgba(245,158,11,0.08)",
+          border: "1px solid rgba(245,158,11,0.2)",
           marginBottom: "0.5rem",
           fontSize: "0.78rem",
           fontFamily: "monospace",
         }}
       >
-        <Wrench style={{ width: "13px", height: "13px", color: "#60a5fa", flexShrink: 0, marginTop: "2px" }} />
-        <span style={{ color: "#60a5fa", fontWeight: 600, flexShrink: 0 }}>
+        <Wrench style={{ width: "13px", height: "13px", color: "#f59e0b", flexShrink: 0, marginTop: "2px" }} />
+        <span style={{ color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
           {msg.toolName}
         </span>
         <span style={{ color: "var(--text-muted)", wordBreak: "break-all" }}>
@@ -330,7 +330,7 @@ function SessionDetail({
           {/* Stats row */}
           <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
             {[
-              { icon: Cpu, label: shortModel(session.model), color: "#a78bfa" },
+              { icon: Cpu, label: shortModel(session.model), color: "#f59e0b" },
               { icon: Hash, label: `${formatTokens(session.totalTokens)} tokens`, color: "var(--accent)" },
               {
                 icon: TrendingUp,
@@ -367,7 +367,7 @@ function SessionDetail({
           >
             {[
               { label: `${userCount} user`, color: "var(--accent)" },
-              { label: `${assistantCount} assistant`, color: "#60a5fa" },
+              { label: `${assistantCount} assistant`, color: "#f59e0b" },
               { label: `${toolCount} tool calls`, color: "#4ade80" },
             ].map(({ label, color }) => (
               <span key={label} style={{ fontSize: "0.72rem", color }}>
@@ -538,7 +538,7 @@ function SessionRow({
 
       {/* Model */}
       <div style={{ display: "none", flexDirection: "column", alignItems: "flex-end", minWidth: "80px" }} className="sm-flex">
-        <span style={{ fontSize: "0.7rem", color: "#a78bfa", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.7rem", color: "#f59e0b", whiteSpace: "nowrap" }}>
           {shortModel(session.model)}
         </span>
       </div>
@@ -688,13 +688,13 @@ export default function SessionsPage() {
               label: "Total Tokens",
               value: formatTokens(totalTokens),
               icon: Hash,
-              color: "#60a5fa",
+              color: "#f59e0b",
             },
             {
               label: "Cron Runs",
               value: counts.cron || 0,
               icon: Clock,
-              color: "#a78bfa",
+              color: "#f59e0b",
             },
             {
               label: "Models Used",
