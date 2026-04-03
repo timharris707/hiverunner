@@ -186,6 +186,26 @@ prepare_build_runtime() {
   fi
 }
 
+read_release_env_field() {
+  ENV_FILE="$1"
+  ENV_KEY="$2"
+
+  if [ ! -f "$ENV_FILE" ]; then
+    return 0
+  fi
+
+  env -i sh -c '
+    FILE="$1"
+    KEY="$2"
+    # shellcheck disable=SC1090
+    . "$FILE"
+    eval "VALUE=\${$KEY-}"
+    if [ -n "$VALUE" ]; then
+      printf "%s" "$VALUE"
+    fi
+  ' sh "$ENV_FILE" "$ENV_KEY"
+}
+
 load_current_release() {
   PREVIOUS_RELEASE_ID=""
   PREVIOUS_RELEASE_TAG=""
@@ -195,14 +215,12 @@ load_current_release() {
   PREVIOUS_RELEASE_REASON=""
 
   if [ -f "$CURRENT_RELEASE_FILE" ]; then
-    # shellcheck disable=SC1090
-    . "$CURRENT_RELEASE_FILE"
-    PREVIOUS_RELEASE_ID="${RELEASE_ID:-}"
-    PREVIOUS_RELEASE_TAG="${RELEASE_TAG:-}"
-    PREVIOUS_RELEASE_COMMIT="${RELEASE_COMMIT:-}"
-    PREVIOUS_RELEASE_BRANCH="${RELEASE_BRANCH:-}"
-    PREVIOUS_RELEASE_PROMOTED_AT="${RELEASE_PROMOTED_AT:-}"
-    PREVIOUS_RELEASE_REASON="${RELEASE_REASON:-}"
+    PREVIOUS_RELEASE_ID="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_ID)"
+    PREVIOUS_RELEASE_TAG="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_TAG)"
+    PREVIOUS_RELEASE_COMMIT="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_COMMIT)"
+    PREVIOUS_RELEASE_BRANCH="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_BRANCH)"
+    PREVIOUS_RELEASE_PROMOTED_AT="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_PROMOTED_AT)"
+    PREVIOUS_RELEASE_REASON="$(read_release_env_field "$CURRENT_RELEASE_FILE" RELEASE_REASON)"
   fi
 }
 
