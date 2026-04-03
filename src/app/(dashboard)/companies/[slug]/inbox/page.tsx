@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Loader2, MessageSquareText, PlayCircle, Search, Target, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, MessageSquareText, PlayCircle, Search, Target, XCircle } from "lucide-react";
 
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
 import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
@@ -29,14 +29,7 @@ type InboxSnapshot = {
 const INITIAL_SNAPSHOT: InboxSnapshot = {
   events: [],
   tasks: [],
-  totals: {
-    backlog: 0,
-    "on-deck": 0,
-    "in-progress": 0,
-    review: 0,
-    done: 0,
-    blocked: 0,
-  },
+  totals: { backlog: 0, "on-deck": 0, "in-progress": 0, review: 0, done: 0, blocked: 0 },
   unreadCount: 0,
   hasMore: false,
 };
@@ -48,15 +41,6 @@ function eventIcon(event: OrchestrationCompanyInboxEvent) {
   if (event.eventType === "execution.failed" || event.eventType === "execution.cancelled") return XCircle;
   if (event.eventType === "execution.pending" || event.eventType === "execution.running") return PlayCircle;
   return event.kind === "execution" ? PlayCircle : Target;
-}
-
-function eventAccent(event: OrchestrationCompanyInboxEvent) {
-  if (event.eventType === "execution.completed") return "#34d399";
-  if (event.eventType === "execution.failed" || event.eventType === "execution.cancelled") return "#f87171";
-  if (event.eventType === "execution.pending" || event.eventType === "execution.running") return "#d97706";
-  if (event.eventType === "task.comment_added") return "#f59e0b";
-  if (event.eventType === "task.status_changed") return "#f59e0b";
-  return "#d97706";
 }
 
 function eventTargetHref(company: OrchestrationCompany | null, event: OrchestrationCompanyInboxEvent) {
@@ -95,6 +79,7 @@ export default function CompanyInboxPage() {
     return () => window.clearTimeout(timeout);
   }, [searchDraft]);
 
+  // Load once, no auto-refresh loop
   useEffect(() => {
     let cancelled = false;
 
@@ -150,18 +135,13 @@ export default function CompanyInboxPage() {
           setSnapshot(INITIAL_SNAPSHOT);
         }
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     };
 
     void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeProjectRecord, includeDone, projectFilter, search, slug, statusFilter]);
+    return () => { cancelled = true; };
+  }, [slug, activeProjectRecord?.id, projectFilter, statusFilter, search, includeDone]);
 
   const loadMore = async () => {
     if (!snapshot.hasMore || !snapshot.nextCursor || loadingMore) return;
@@ -199,69 +179,57 @@ export default function CompanyInboxPage() {
   const openTasks = useMemo(() => snapshot.tasks.filter((task) => task.status !== "done").slice(0, 8), [snapshot.tasks]);
 
   if (!loading && !company) {
-    return (
-      <CompanyErrorState
-        title="Company not found"
-        detail="This company could not be resolved from orchestration data."
-        href="/companies"
-      />
-    );
+    return <CompanyErrorState title="Company not found" detail="This company could not be resolved from orchestration data." href="/companies" />;
   }
 
+  const inputStyle: React.CSSProperties = {
+    borderRadius: "10px",
+    border: "1px solid rgba(120,113,108,0.3)",
+    background: "rgba(41,37,36,0.5)",
+    padding: "8px 12px",
+    fontSize: "13px",
+    color: "#f5f5f4",
+    outline: "none",
+  };
+
   return (
-    <CompanyShell
-      eyebrow="Company Inbox"
-      title={loading ? "Loading Inbox..." : `${company?.name ?? "Company"} Inbox`}
-      description="Chronological company activity with task updates, execution runs, and comments across projects."
-      accentColor="#f59e0b"
-    >
+    <CompanyShell eyebrow="Company Inbox" title={loading ? "Loading Inbox..." : `${company?.name ?? "Company"} Inbox`} description="Chronological company activity with task updates, execution runs, and comments across projects.">
       {activeProjectRecord ? (
         <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
       ) : null}
 
+      {/* stat cards */}
       <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Unread" value={snapshot.unreadCount} detail="Events newer than current marker" accentColor="#f59e0b" />
-        <StatCard label="Active Tasks" value={activeCount} detail="Open work across the company" accentColor="#d97706" />
-        <StatCard label="Blocked" value={snapshot.totals.blocked} detail="Tasks needing intervention" accentColor="#f87171" />
-        <StatCard label="Done" value={snapshot.totals.done} detail="Completed tasks in current filter" accentColor="#34d399" />
+        <StatCard label="Unread" value={snapshot.unreadCount} detail="Events newer than current marker" />
+        <StatCard label="Active Tasks" value={activeCount} detail="Open work across the company" />
+        <StatCard label="Blocked" value={snapshot.totals.blocked} detail="Tasks needing intervention" />
+        <StatCard label="Done" value={snapshot.totals.done} detail="Completed tasks in current filter" />
       </section>
 
       {error ? (
-        <section className="rounded-2xl border border-rose-400/35 bg-rose-500/10 p-3 text-sm text-rose-100">
+        <section style={{ borderRadius: "14px", border: "1px solid rgba(120,113,108,0.3)", background: "rgba(28,25,23,0.7)", padding: "12px 16px", fontSize: "13px", color: "#d6d3d1" }}>
           {error}
         </section>
       ) : null}
 
-      <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl md:p-5">
-        <div className="mb-4 flex flex-wrap items-center gap-3">
-          <div className="relative min-w-[220px] flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+      {/* main content */}
+      <section style={{ borderRadius: "14px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(28,25,23,0.65)", padding: "20px" }}>
+        {/* filters */}
+        <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "12px", marginBottom: "16px" }}>
+          <div style={{ position: "relative", flex: "1 1 220px", minWidth: "220px" }}>
+            <Search size={14} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: "#78716c", pointerEvents: "none" }} />
             <input
               value={searchDraft}
-              onChange={(event) => setSearchDraft(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-white outline-none focus:border-amber-400/60"
+              onChange={(e) => setSearchDraft(e.target.value)}
               placeholder="Search events, projects, tasks"
+              style={{ ...inputStyle, width: "100%", paddingLeft: "32px" }}
             />
           </div>
-
-          <select
-            className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none"
-            value={projectFilter}
-            onChange={(event) => setProjectFilter(event.target.value)}
-          >
+          <select value={projectFilter} onChange={(e) => setProjectFilter(e.target.value)} style={inputStyle}>
             <option value="all">All projects</option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
+            {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-
-          <select
-            className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}
-          >
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as StatusFilter)} style={inputStyle}>
             <option value="all">All statuses</option>
             <option value="backlog">Backlog</option>
             <option value="on-deck">On Deck</option>
@@ -270,87 +238,89 @@ export default function CompanyInboxPage() {
             <option value="blocked">Blocked</option>
             <option value="done">Done</option>
           </select>
-
-          <label className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-xs text-slate-300">
-            <input
-              type="checkbox"
-              checked={includeDone}
-              onChange={(event) => setIncludeDone(event.target.checked)}
-              className="h-3.5 w-3.5 accent-amber-400"
-            />
+          <label style={{ display: "inline-flex", alignItems: "center", gap: "6px", ...inputStyle, padding: "6px 12px", fontSize: "12px", color: "#a8a29e" }}>
+            <input type="checkbox" checked={includeDone} onChange={(e) => setIncludeDone(e.target.checked)} />
             Include done
           </label>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1.6fr),minmax(300px,1fr)]">
-          <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-3">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-white">Activity Feed</h2>
+          {/* activity feed */}
+          <section style={{ borderRadius: "14px", border: "1px solid rgba(120,113,108,0.2)", background: "rgba(28,25,23,0.5)", padding: "16px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
+              <h2 style={{ fontSize: "13px", fontWeight: 600, color: "#f5f5f4" }}>Activity Feed</h2>
               {snapshot.unreadSince ? (
-                <span className="text-[11px] text-slate-400">Unread since {new Date(snapshot.unreadSince).toLocaleString()}</span>
+                <span style={{ fontSize: "11px", color: "#78716c" }}>Unread since {new Date(snapshot.unreadSince).toLocaleString()}</span>
               ) : null}
             </div>
 
-            <div className="space-y-3">
+            <div style={{ display: "grid", gap: "8px" }}>
               {loading ? (
-                Array.from({ length: 7 }).map((_, idx) => (
-                  <div key={idx} className="h-20 animate-pulse rounded-xl border border-white/10 bg-slate-950/70" />
-                ))
+                <div style={{ padding: "32px 0", textAlign: "center" }}>
+                  <p style={{ fontSize: "13px", color: "#78716c" }}>Loading activity...</p>
+                </div>
               ) : snapshot.events.length === 0 ? (
-                <div className="rounded-xl border border-dashed border-white/10 px-3 py-8 text-center text-sm text-slate-400">
+                <div style={{ borderRadius: "10px", border: "1px dashed rgba(120,113,108,0.3)", padding: "32px 12px", textAlign: "center", fontSize: "13px", color: "#78716c" }}>
                   No activity events match this filter.
                 </div>
               ) : (
                 snapshot.events.map((event) => {
                   const Icon = eventIcon(event);
-                  const accent = eventAccent(event);
                   const targetHref = eventTargetHref(company, event);
 
                   return (
                     <Link
                       key={event.id}
                       href={targetHref}
-                      className="block rounded-xl border border-white/10 bg-slate-950/80 p-3 transition hover:border-amber-300/35"
+                      style={{
+                        display: "block",
+                        borderRadius: "10px",
+                        border: "1px solid rgba(120,113,108,0.18)",
+                        background: "rgba(41,37,36,0.35)",
+                        padding: "12px",
+                        textDecoration: "none",
+                        transition: "border-color 120ms ease",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(168,162,158,0.4)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(120,113,108,0.18)"; }}
                     >
-                      <div className="mb-2 flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-2">
-                          <span
-                            className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg border"
-                            style={{
-                              borderColor: `${accent}66`,
-                              backgroundColor: `${accent}1e`,
-                              color: accent,
-                            }}
-                          >
-                            <Icon className="h-3.5 w-3.5" />
+                      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "12px", marginBottom: "8px" }}>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: "8px" }}>
+                          <span style={{
+                            marginTop: "2px",
+                            display: "inline-flex",
+                            width: "28px",
+                            height: "28px",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            borderRadius: "8px",
+                            border: "1px solid rgba(120,113,108,0.3)",
+                            background: "rgba(41,37,36,0.5)",
+                            color: "#a8a29e",
+                            flexShrink: 0,
+                          }}>
+                            <Icon size={14} />
                           </span>
                           <div>
-                            <p className="text-sm text-slate-100">{event.message}</p>
-                            <p className="mt-1 text-xs text-slate-400">
+                            <p style={{ fontSize: "13px", color: "#d6d3d1" }}>{event.message}</p>
+                            <p style={{ marginTop: "4px", fontSize: "12px", color: "#78716c" }}>
                               {event.projectName}
                               {event.taskTitle ? ` · ${event.taskTitle}` : ""}
                               {event.agentName ? ` · ${event.agentName}` : ""}
                             </p>
                           </div>
                         </div>
-                        <div className="text-right text-[11px] text-slate-500">
+                        <div style={{ textAlign: "right", fontSize: "11px", color: "#57534e", flexShrink: 0 }}>
                           <p>{formatAge(event.timestamp)} ago</p>
-                          <p>{new Date(event.timestamp).toLocaleString()}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.12em]">
-                        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-slate-400">{event.kind}</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                        <span style={{ borderRadius: "999px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)", padding: "2px 8px", color: "#78716c" }}>{event.kind}</span>
                         {event.status ? (
-                          <span
-                            className="rounded-full px-2 py-1 text-slate-200"
-                            style={{ boxShadow: statusTheme[event.status].glow }}
-                          >
-                            {statusTheme[event.status].label}
+                          <span style={{ borderRadius: "999px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)", padding: "2px 8px", color: "#a8a29e" }}>
+                            {statusTheme[event.status]?.label ?? event.status}
                           </span>
-                        ) : null}
-                        {event.provider ? (
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-slate-400">{event.provider}</span>
                         ) : null}
                       </div>
                     </Link>
@@ -360,30 +330,39 @@ export default function CompanyInboxPage() {
             </div>
 
             {!loading && snapshot.hasMore ? (
-              <div className="mt-3 flex justify-center">
+              <div style={{ marginTop: "12px", display: "flex", justifyContent: "center" }}>
                 <button
                   type="button"
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
-                  className="inline-flex items-center gap-2 rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 disabled:opacity-60"
+                  style={{
+                    borderRadius: "10px",
+                    border: "1px solid rgba(120,113,108,0.35)",
+                    background: "rgba(41,37,36,0.5)",
+                    padding: "8px 16px",
+                    fontSize: "12px",
+                    color: "#d6d3d1",
+                    cursor: "pointer",
+                    opacity: loadingMore ? 0.6 : 1,
+                  }}
                 >
-                  {loadingMore ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
                   {loadingMore ? "Loading..." : "Load more events"}
                 </button>
               </div>
             ) : null}
           </section>
 
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-3">
-              <h2 className="mb-3 text-sm font-semibold text-white">Open Tasks Snapshot</h2>
-              <div className="space-y-2">
+          {/* sidebar */}
+          <aside style={{ display: "grid", gap: "16px", alignContent: "start" }}>
+            <section style={{ borderRadius: "14px", border: "1px solid rgba(120,113,108,0.2)", background: "rgba(28,25,23,0.5)", padding: "16px" }}>
+              <h2 style={{ marginBottom: "12px", fontSize: "13px", fontWeight: 600, color: "#f5f5f4" }}>Open Tasks Snapshot</h2>
+              <div style={{ display: "grid", gap: "8px" }}>
                 {loading ? (
-                  Array.from({ length: 6 }).map((_, idx) => (
-                    <div key={idx} className="h-14 animate-pulse rounded-xl border border-white/10 bg-slate-950/70" />
-                  ))
+                  <div style={{ padding: "24px 0", textAlign: "center" }}>
+                    <p style={{ fontSize: "13px", color: "#78716c" }}>Loading tasks...</p>
+                  </div>
                 ) : openTasks.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-white/10 px-3 py-6 text-center text-xs text-slate-500">
+                  <div style={{ borderRadius: "10px", border: "1px dashed rgba(120,113,108,0.3)", padding: "24px 12px", textAlign: "center", fontSize: "12px", color: "#57534e" }}>
                     No open tasks in this view.
                   </div>
                 ) : (
@@ -393,32 +372,32 @@ export default function CompanyInboxPage() {
                       <Link
                         key={task.id}
                         href={taskHref}
-                        className="block rounded-xl border border-white/10 bg-slate-950/80 p-3 transition hover:border-amber-300/35"
+                        style={{
+                          display: "block",
+                          borderRadius: "10px",
+                          border: "1px solid rgba(120,113,108,0.18)",
+                          background: "rgba(41,37,36,0.35)",
+                          padding: "12px",
+                          textDecoration: "none",
+                          transition: "border-color 120ms ease",
+                        }}
+                        onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(168,162,158,0.4)"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.borderColor = "rgba(120,113,108,0.18)"; }}
                       >
-                        <div className="mb-1 flex items-center justify-between gap-2">
-                          <span className="truncate text-xs text-amber-100">{task.projectName}</span>
-                          <span className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{task.priority}</span>
+                        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px", marginBottom: "4px" }}>
+                          <span style={{ fontSize: "11px", color: "#a8a29e", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.projectName}</span>
+                          <span style={{ fontSize: "10px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#57534e" }}>{task.priority}</span>
                         </div>
-                        <p className="line-clamp-2 text-sm text-slate-100">{task.title}</p>
-                        <div className="mt-2 flex items-center justify-between text-xs text-slate-500">
+                        <p style={{ fontSize: "13px", color: "#d6d3d1", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</p>
+                        <div style={{ marginTop: "8px", display: "flex", alignItems: "center", justifyContent: "space-between", fontSize: "11px", color: "#57534e" }}>
                           <span>{task.assignee ?? "Unassigned"}</span>
-                          <span>{statusTheme[task.status].label}</span>
+                          <span>{statusTheme[task.status]?.label ?? task.status}</span>
                         </div>
                       </Link>
                     );
                   })
                 )}
               </div>
-            </section>
-
-            <section className="rounded-2xl border border-amber-300/20 bg-amber-500/10 p-3 text-xs text-amber-100">
-              <p className="inline-flex items-center gap-2 font-medium">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Inbox notes
-              </p>
-              <p className="mt-2 text-amber-100/85">
-                Events are ordered newest-first across task and execution streams. Use project/status filters to narrow triage scope.
-              </p>
             </section>
           </aside>
         </div>
