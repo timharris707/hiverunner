@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 
 import { getCompanyInbox, listCompanies, listCompanyAgents, listProjects, updateProjectSettings } from "@/lib/orchestration/client";
+import { CreateProjectModal } from "@/components/orchestration/CreateProjectModal";
 import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
 import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
@@ -459,6 +460,7 @@ export function Dock() {
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
   const [projectStatusBusyId, setProjectStatusBusyId] = useState<string | null>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
 
   const activeProjectForCompany =
     activeProject && activeProject.companySlug === company.slug ? activeProject : null;
@@ -928,7 +930,7 @@ export function Dock() {
         collapsed={!projectsOpen}
         onToggle={() => setProjectsOpen((prev) => !prev)}
         onCreate={() => {
-          router.push(buildCanonicalProjectsPath(cc));
+          setCreateProjectOpen(true);
         }}
         createAriaLabel="Create project"
       />
@@ -1476,7 +1478,27 @@ export function Dock() {
     );
   }
 
-  return dockContent;
+  return (
+    <>
+      {dockContent}
+      <CreateProjectModal
+        open={createProjectOpen}
+        onClose={() => setCreateProjectOpen(false)}
+        onCreated={(project) => {
+          setActiveProjectIfChanged({
+            companySlug: company.slug,
+            projectId: project.id,
+            projectSlug: project.slug,
+            projectName: project.name,
+          });
+          router.push(buildCanonicalProjectIssuesPath(cc, project.slug));
+        }}
+        companyId={company.id ?? ""}
+        companyCode={cc}
+        companySlug={company.slug}
+      />
+    </>
+  );
 }
 
 export { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH };
