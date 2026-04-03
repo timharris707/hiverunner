@@ -102,7 +102,7 @@ function normalizeThemePreset(raw: JsonRecord): AvatarThemePreset {
 }
 
 export async function listCompanies(): Promise<OrchestrationCompany[]> {
-  const data = await fetchJson<{ companies: JsonRecord[] }>("/api/orchestration/companies");
+  const data = await fetchJson<{ companies: JsonRecord[] }>("/api/orchestration/companies?includeNonProduction=true");
   return (data?.companies ?? []).map(normalizeCompany);
 }
 
