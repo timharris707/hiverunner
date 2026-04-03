@@ -6,6 +6,7 @@ import { useParams, useSearchParams } from "next/navigation";
 import { ChevronDown, List, LayoutGrid, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import { formatAge } from "@/components/orchestration/ui";
 import { listCompanies, listCompanyAgents, listProjects, listTasks } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
@@ -42,6 +43,7 @@ export default function CompanyTasksPage() {
   const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
   const [groupMode, setGroupMode] = useState<GroupMode>("status");
   const [sortMode, setSortMode] = useState<SortMode>("updated");
+  const [createOpen, setCreateOpen] = useState(false);
 
   const activeProjectRecord = useMemo(() => {
     const qp = searchParams.get("projectId") ?? searchParams.get("project");
@@ -137,12 +139,13 @@ export default function CompanyTasksPage() {
       {/* toolbar */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid rgba(120,113,108,0.15)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <Link
-            href={`/companies/${encodeURIComponent(slug)}/issues/new`}
-            style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "5px 12px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.5)", fontSize: "12px", fontWeight: 600, color: "#f5f5f4", textDecoration: "none", cursor: "pointer" }}
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "5px 12px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.5)", fontSize: "12px", fontWeight: 600, color: "#f5f5f4", cursor: "pointer" }}
           >
             <Plus size={12} /> New Task
-          </Link>
+          </button>
 
           <div style={{ position: "relative" }}>
             <Search size={12} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: "#57534e", pointerEvents: "none" }} />
@@ -242,6 +245,13 @@ export default function CompanyTasksPage() {
           ))
         )}
       </div>
+      <CreateTaskModal
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        onCreated={() => { window.location.reload(); }}
+        companySlug={slug}
+        companyCode={company?.code ?? slug.slice(0, 3).toUpperCase()}
+      />
     </div>
   );
 }
