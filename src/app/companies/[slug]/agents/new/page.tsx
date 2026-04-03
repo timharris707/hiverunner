@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { AlertCircle, Loader2, UserPlus, X } from "lucide-react";
+import { X } from "lucide-react";
 
 const MODEL_OPTIONS = [
   { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
@@ -14,33 +13,29 @@ const MODEL_OPTIONS = [
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  borderRadius: "12px",
-  border: "1px solid rgba(120,113,108,0.35)",
-  background: "rgba(28,25,23,0.92)",
+  borderRadius: "10px",
+  border: "1px solid rgba(120,113,108,0.3)",
+  background: "rgba(41,37,36,0.5)",
   padding: "10px 14px",
-  fontSize: "14px",
+  fontSize: "13px",
   color: "#f5f5f4",
   outline: "none",
-  transition: "border-color 120ms ease",
 };
 
-function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "block", marginTop: "16px" }}>
-      <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.16em", color: "#a8a29e" }}>
-        {label}
-        {required ? <span style={{ marginLeft: "4px", color: "#d6d3d1" }}>*</span> : null}
-      </span>
-      <div style={{ marginTop: "6px" }}>{children}</div>
-      {hint ? <p style={{ marginTop: "4px", fontSize: "12px", color: "#57534e" }}>{hint}</p> : null}
-    </label>
-  );
-}
+const labelStyle: React.CSSProperties = {
+  fontSize: "12px",
+  color: "#78716c",
+  marginBottom: "6px",
+  display: "flex",
+  alignItems: "center",
+  gap: "4px",
+};
 
 export default function CreateCompanyAgentPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const slug = params?.slug ?? "";
+  const code = slug.slice(0, 3).toUpperCase();
 
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
@@ -53,20 +48,31 @@ export default function CreateCompanyAgentPage() {
   const [rosterOptions, setRosterOptions] = useState<Array<{ id: string; name: string; openclawAgentId?: string }>>([]);
 
   const canSubmit = useMemo(() => name.trim().length > 0 && role.trim().length > 0, [name, role]);
-  const closeHref = `/companies/${encodeURIComponent(slug)}/team`;
+
+  useEffect(() => {
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = ""; };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !saving) router.back(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [saving, router]);
 
   useEffect(() => {
     let cancelled = false;
     const loadRoster = async () => {
       try {
-        const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents?syncOpenClaw=false`, { cache: "no-store" });
-        const json = (await response.json().catch(() => ({}))) as { agents?: Array<{ id?: string; name?: string; openclawAgentId?: string }> };
-        if (!response.ok || cancelled) return;
-        const options = (json.agents ?? [])
-          .map((a) => ({ id: String(a.id ?? ""), name: String(a.name ?? ""), openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined }))
-          .filter((a) => a.id && a.name)
-          .sort((a, b) => a.name.localeCompare(b.name));
-        setRosterOptions(options);
+        const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents?syncOpenClaw=false`, { cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as { agents?: Array<{ id?: string; name?: string; openclawAgentId?: string }> };
+        if (!res.ok || cancelled) return;
+        setRosterOptions(
+          (json.agents ?? [])
+            .map((a) => ({ id: String(a.id ?? ""), name: String(a.name ?? ""), openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined }))
+            .filter((a) => a.id && a.name)
+            .sort((a, b) => a.name.localeCompare(b.name))
+        );
       } catch { if (!cancelled) setRosterOptions([]); }
     };
     if (slug) void loadRoster();
@@ -78,18 +84,14 @@ export default function CreateCompanyAgentPage() {
     setSaving(true);
     setError(null);
     try {
-      const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents/hire`, {
+      const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents/hire`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: name.trim(), role: role.trim(), model,
-          reportsTo: reportsTo.trim() || "Henry",
-          personality: personality.trim(), mission: mission.trim(),
-        }),
+        body: JSON.stringify({ name: name.trim(), role: role.trim(), model, reportsTo: reportsTo.trim() || "Henry", personality: personality.trim(), mission: mission.trim() }),
       });
-      const json = (await response.json().catch(() => ({}))) as { error?: string };
-      if (!response.ok) throw new Error(json.error || "Failed to create agent");
-      router.push(closeHref);
+      const json = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(json.error || "Failed to create agent");
+      router.push(`/companies/${encodeURIComponent(slug)}/team`);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create agent");
@@ -99,96 +101,70 @@ export default function CreateCompanyAgentPage() {
   };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 16px", background: "rgba(12,10,9,0.72)", backdropFilter: "blur(8px)" }}>
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(12,10,9,0.22), rgba(12,10,9,0.7))", pointerEvents: "none" }} />
-
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "640px" }}>
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(12,10,9,0.7)", backdropFilter: "blur(6px)" }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) router.back(); }}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Create new agent" style={{ width: "100%", maxWidth: "560px", borderRadius: "16px", border: "1px solid rgba(120,113,108,0.3)", background: "linear-gradient(180deg, rgba(41,37,36,0.95), rgba(20,17,15,0.98))", boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }}>
         {/* header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", marginBottom: "24px" }}>
-          <div>
-            <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.22em", color: "#78716c" }}>
-              {slug.toUpperCase().slice(0, 3)} · New Agent
-            </p>
-            <h1 style={{ marginTop: "8px", fontSize: "28px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4" }}>
-              Add a New Agent
-            </h1>
-            <p style={{ marginTop: "8px", maxWidth: "480px", fontSize: "14px", color: "#78716c" }}>
-              Create a runtime-backed company agent with its own workspace, identity files, and orchestration record.
-            </p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid rgba(120,113,108,0.2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 8px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.6)", fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "#a8a29e" }}>
+              {code}
+            </span>
+            <span style={{ fontSize: "13px", color: "#78716c" }}>›</span>
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>New agent</span>
           </div>
-          <Link
-            href={closeHref}
-            style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(28,25,23,0.82)", color: "#a8a29e", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}
-          >
-            <X size={18} />
-          </Link>
+          <button type="button" onClick={() => { if (!saving) router.back(); }} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid rgba(120,113,108,0.25)", background: "transparent", color: "#78716c", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={14} />
+          </button>
         </div>
 
-        {/* card */}
-        <div style={{ borderRadius: "24px", border: "1px solid rgba(120,113,108,0.25)", background: "linear-gradient(165deg, rgba(41,37,36,0.96), rgba(12,10,9,0.99))", padding: "24px", boxShadow: "0 30px 80px rgba(12,10,9,0.65)" }}>
-          <Field label="Agent Name" required>
-            <input style={inputStyle} placeholder="e.g. Pixel" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
-          </Field>
+        {/* body */}
+        <div style={{ padding: "20px" }}>
+          {/* name — large, like project name */}
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Agent name" autoFocus style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0, color: name ? "#f5f5f4" : undefined }} />
 
-          <div style={{ display: "grid", gap: "16px", gridTemplateColumns: "1fr 1fr", marginTop: "0" }}>
-            <Field label="Role" required>
-              <input style={inputStyle} placeholder="e.g. Full-Stack Engineer" value={role} onChange={(e) => setRole(e.target.value)} />
-            </Field>
-            <Field label="Reports To" hint="Select from the company roster.">
-              <select style={inputStyle} value={reportsTo} onChange={(e) => setReportsTo(e.target.value)}>
-                <option value="">Unassigned</option>
-                <option value="Henry">Henry</option>
-                {rosterOptions.map((a) => <option key={a.id} value={a.openclawAgentId || a.id}>{a.name}</option>)}
-              </select>
-            </Field>
-          </div>
+          {/* role */}
+          <input value={role} onChange={(e) => setRole(e.target.value)} placeholder="Role (e.g. Full-Stack Engineer)" style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.15)", borderRadius: 0, fontSize: "14px", color: role ? "#d6d3d1" : undefined }} />
 
-          <div style={{ display: "grid", gap: "16px", gridTemplateColumns: "1fr 1fr", marginTop: "0" }}>
-            <Field label="Model">
-              <select style={inputStyle} value={model} onChange={(e) => setModel(e.target.value)}>
-                {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-              </select>
-            </Field>
-            <Field label="Agent Focus">
-              <input style={inputStyle} placeholder="UI, frontend, polishing, product feel" value={personality} onChange={(e) => setPersonality(e.target.value)} />
-            </Field>
-          </div>
+          {/* mission */}
+          <textarea value={mission} onChange={(e) => setMission(e.target.value)} placeholder="Mission / operating notes..." rows={3} style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "60px", fontSize: "14px", color: mission ? "#d6d3d1" : undefined }} />
 
-          <Field label="Mission / Operating Notes">
-            <textarea style={{ ...inputStyle, minHeight: "120px", resize: "vertical" }} placeholder="What should this agent own? What kind of work should they do?" value={mission} onChange={(e) => setMission(e.target.value)} />
-          </Field>
-
-          {error ? (
-            <div style={{ marginTop: "16px", borderRadius: "12px", border: "1px solid rgba(120,113,108,0.3)", background: "rgba(28,25,23,0.8)", padding: "12px 14px", fontSize: "13px", color: "#d6d3d1", display: "flex", alignItems: "flex-start", gap: "8px" }}>
-              <AlertCircle size={16} style={{ marginTop: "2px", flexShrink: 0 }} />
-              {error}
+          <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px", display: "grid", gap: "14px" }}>
+            {/* model + reports to side by side */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px" }}>
+              <div>
+                <label style={labelStyle}>Model</label>
+                <select value={model} onChange={(e) => setModel(e.target.value)} style={inputStyle}>
+                  {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>Reports to</label>
+                <select value={reportsTo} onChange={(e) => setReportsTo(e.target.value)} style={inputStyle}>
+                  <option value="">Unassigned</option>
+                  <option value="Henry">Henry</option>
+                  {rosterOptions.map((a) => <option key={a.id} value={a.openclawAgentId || a.id}>{a.name}</option>)}
+                </select>
+              </div>
             </div>
-          ) : null}
 
-          {/* footer */}
-          <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid rgba(120,113,108,0.2)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <Link href={closeHref} style={{ display: "inline-flex", alignItems: "center", gap: "8px", fontSize: "13px", color: "#78716c", textDecoration: "none" }}>
-              <UserPlus size={14} /> Back to Team
-            </Link>
-            <button
-              type="button"
-              onClick={() => void onSubmit()}
-              disabled={!canSubmit || saving}
-              style={{
-                display: "inline-flex", alignItems: "center", gap: "8px",
-                padding: "10px 20px", borderRadius: "12px", border: "none",
-                background: canSubmit ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.5)",
-                fontSize: "13px", fontWeight: 600,
-                color: canSubmit ? "#f5f5f4" : "#57534e",
-                cursor: canSubmit ? "pointer" : "default",
-                opacity: saving ? 0.6 : 1,
-                transition: "all 120ms ease",
-              }}
-            >
-              {saving ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : <UserPlus size={14} />}
-              {saving ? "Creating..." : "Create Agent"}
-            </button>
+            {/* focus */}
+            <div>
+              <label style={labelStyle}>Focus <span style={{ color: "#57534e" }}>optional</span></label>
+              <input value={personality} onChange={(e) => setPersonality(e.target.value)} placeholder="UI, frontend, polishing, product feel" style={inputStyle} />
+            </div>
           </div>
+
+          {error ? <p style={{ marginTop: "12px", fontSize: "13px", color: "#d6d3d1" }}>{error}</p> : null}
+        </div>
+
+        {/* footer */}
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "14px 20px", borderTop: "1px solid rgba(120,113,108,0.2)" }}>
+          <button type="button" onClick={() => void onSubmit()} disabled={saving || !canSubmit} style={{ padding: "8px 20px", borderRadius: "10px", border: "1px solid rgba(120,113,108,0.4)", background: canSubmit ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.4)", fontSize: "13px", fontWeight: 600, color: canSubmit ? "#f5f5f4" : "#57534e", cursor: canSubmit ? "pointer" : "default", transition: "all 120ms ease", opacity: saving ? 0.6 : 1 }}>
+            {saving ? "Creating..." : "Create agent"}
+          </button>
         </div>
       </div>
     </div>

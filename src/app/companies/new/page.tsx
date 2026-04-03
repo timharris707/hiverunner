@@ -2,20 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Building2,
-  FolderGit2,
-  Crown,
-  ClipboardList,
-  Rocket,
-  Check,
-  ChevronRight,
-  ChevronLeft,
-  SkipForward,
-  Loader2,
-  AlertCircle,
-  X,
-} from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Rocket, SkipForward, X } from "lucide-react";
 
 interface WizardData {
   company: { name: string; description: string; slug: string };
@@ -31,214 +18,37 @@ const MODEL_OPTIONS = [
   { value: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro" },
 ];
 
-const STEPS = [
-  { num: 1, label: "Company", icon: Building2 },
-  { num: 2, label: "Project", icon: FolderGit2 },
-  { num: 3, label: "CEO", icon: Crown },
-  { num: 4, label: "First Task", icon: ClipboardList },
-  { num: 5, label: "Launch", icon: Rocket },
-];
-
 function slugify(s: string) {
   return s.replace(/'/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 48);
 }
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
-  borderRadius: "12px",
-  border: "1px solid rgba(120,113,108,0.35)",
-  background: "rgba(28,25,23,0.92)",
+  borderRadius: "10px",
+  border: "1px solid rgba(120,113,108,0.3)",
+  background: "rgba(41,37,36,0.5)",
   padding: "10px 14px",
-  fontSize: "14px",
+  fontSize: "13px",
   color: "#f5f5f4",
   outline: "none",
-  transition: "border-color 120ms ease",
 };
 
-function Field({ label, required, hint, children }: { label: string; required?: boolean; hint?: string; children: React.ReactNode }) {
-  return (
-    <label style={{ display: "block", marginTop: "16px" }}>
-      <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.16em", color: "#a8a29e" }}>
-        {label}
-        {required ? <span style={{ marginLeft: "4px", color: "#d6d3d1" }}>*</span> : null}
-      </span>
-      <div style={{ marginTop: "6px" }}>{children}</div>
-      {hint ? <p style={{ marginTop: "4px", fontSize: "12px", color: "#57534e" }}>{hint}</p> : null}
-    </label>
-  );
-}
+const labelStyle: React.CSSProperties = {
+  fontSize: "12px",
+  color: "#78716c",
+  marginBottom: "6px",
+  display: "flex",
+  alignItems: "center",
+  gap: "4px",
+};
 
-function StepIndicator({ current, completed }: { current: number; completed: Set<number> }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 0, marginBottom: "28px", userSelect: "none" }}>
-      {STEPS.map((step, i) => {
-        const done = completed.has(step.num);
-        const active = step.num === current;
-        const Icon = step.icon;
-        return (
-          <div key={step.num} style={{ display: "flex", alignItems: "center" }}>
-            {i > 0 && (
-              <div style={{
-                width: "40px", height: "2px",
-                background: done ? "rgba(168,162,158,0.5)" : active ? "rgba(168,162,158,0.25)" : "rgba(68,64,60,0.5)",
-                transition: "background 120ms ease",
-              }} />
-            )}
-            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "4px" }}>
-              <div style={{
-                width: "36px", height: "36px", borderRadius: "999px",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                border: done ? "2px solid rgba(168,162,158,0.4)" : active ? "2px solid rgba(168,162,158,0.5)" : "1px solid rgba(120,113,108,0.3)",
-                background: done ? "rgba(168,162,158,0.12)" : active ? "rgba(168,162,158,0.08)" : "rgba(41,37,36,0.5)",
-                color: done ? "#d6d3d1" : active ? "#f5f5f4" : "#57534e",
-                fontSize: "12px", fontWeight: 700, transition: "all 120ms ease",
-              }}>
-                {done ? <Check size={16} /> : <Icon size={16} />}
-              </div>
-              <span style={{ fontSize: "10px", color: done ? "#a8a29e" : active ? "#d6d3d1" : "#57534e" }}>
-                {step.label}
-              </span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function StepCompany({ data, onChange }: { data: WizardData["company"]; onChange: (d: WizardData["company"]) => void }) {
-  const setField = (k: keyof WizardData["company"], v: string) => {
-    const next = { ...data, [k]: v };
-    if (k === "name" && data.slug === slugify(data.name)) next.slug = slugify(v);
-    onChange(next);
-  };
-  return (
-    <div>
-      <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#f5f5f4" }}>Company Details</h2>
-      <p style={{ marginTop: "4px", fontSize: "14px", color: "#78716c" }}>Name your company and describe its mission.</p>
-      <Field label="Company Name" required>
-        <input style={inputStyle} placeholder="e.g. NeverIdle Labs" value={data.name} onChange={(e) => setField("name", e.target.value)} />
-      </Field>
-      <Field label="Description / Mission">
-        <textarea style={{ ...inputStyle, minHeight: "100px", resize: "vertical" }} placeholder="What does this company do? What are its goals?" value={data.description} onChange={(e) => setField("description", e.target.value)} />
-      </Field>
-      <Field label="Slug" hint={`Workspace: ~/.openclaw/workspaces/${data.slug || slugify(data.name) || "..."}`}>
-        <input style={inputStyle} placeholder="auto-generated from company name" value={data.slug} onChange={(e) => setField("slug", slugify(e.target.value))} />
-      </Field>
-    </div>
-  );
-}
-
-function StepProject({ data, onChange }: { data: WizardData["project"]; onChange: (d: WizardData["project"]) => void }) {
-  const project = data ?? { name: "", description: "", repoUrl: "" };
-  const setField = (k: string, v: string) => onChange({ ...project, [k]: v });
-  return (
-    <div>
-      <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#f5f5f4" }}>Create a Project</h2>
-      <p style={{ marginTop: "4px", fontSize: "14px", color: "#78716c" }}>Optional. You can always add projects later.</p>
-      <Field label="Project Name">
-        <input style={inputStyle} placeholder="e.g. Weather Edge" value={project.name} onChange={(e) => setField("name", e.target.value)} />
-      </Field>
-      <Field label="Description">
-        <textarea style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }} placeholder="What is this project about?" value={project.description} onChange={(e) => setField("description", e.target.value)} />
-      </Field>
-      <Field label="Repo URL">
-        <input style={inputStyle} placeholder="https://github.com/org/repo (optional)" value={project.repoUrl} onChange={(e) => setField("repoUrl", e.target.value)} />
-      </Field>
-    </div>
-  );
-}
-
-function StepCEO({ data, onChange }: { data: WizardData["ceo"]; onChange: (d: WizardData["ceo"]) => void }) {
-  const setField = (k: keyof WizardData["ceo"], v: string) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#f5f5f4" }}>Appoint your CEO</h2>
-      <p style={{ marginTop: "4px", fontSize: "14px", color: "#78716c" }}>Your CEO will lead this company, manage the team, and execute on the mission.</p>
-      <Field label="CEO Name" required>
-        <input style={inputStyle} placeholder='e.g. "Ridge", "Atlas", "Nova"' value={data.name} onChange={(e) => setField("name", e.target.value)} />
-      </Field>
-      <Field label="Model">
-        <select style={inputStyle} value={data.model} onChange={(e) => setField("model", e.target.value)}>
-          {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-        </select>
-      </Field>
-      <Field label="Additional Guidance">
-        <textarea style={{ ...inputStyle, minHeight: "80px", resize: "vertical" }} placeholder="Any specific instructions, personality traits, or leadership style notes..." value={data.guidance} onChange={(e) => setField("guidance", e.target.value)} />
-      </Field>
-      <div style={{ marginTop: "16px", borderRadius: "12px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(28,25,23,0.6)", padding: "12px 14px", display: "flex", alignItems: "flex-start", gap: "10px" }}>
-        <span style={{ color: "#a8a29e", marginTop: "2px", flexShrink: 0 }}>✦</span>
-        <p style={{ fontSize: "12px", color: "#78716c", lineHeight: 1.5 }}>
-          Role, capabilities, SOUL.md, AGENTS.md, and HEARTBEAT.md will be <strong style={{ color: "#a8a29e" }}>AI-generated</strong> from your company mission.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function StepTask({ data, onChange }: { data: WizardData["task"]; onChange: (d: WizardData["task"]) => void }) {
-  const setField = (k: keyof WizardData["task"], v: string) => onChange({ ...data, [k]: v });
-  return (
-    <div>
-      <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#f5f5f4" }}>First Task</h2>
-      <p style={{ marginTop: "4px", fontSize: "14px", color: "#78716c" }}>Give your CEO their first assignment.</p>
-      <Field label="Task Title" required>
-        <input style={inputStyle} value={data.title} onChange={(e) => setField("title", e.target.value)} />
-      </Field>
-      <Field label="Description">
-        <textarea style={{ ...inputStyle, minHeight: "100px", resize: "vertical" }} value={data.description} onChange={(e) => setField("description", e.target.value)} />
-      </Field>
-    </div>
-  );
-}
-
-function SummaryCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ borderRadius: "12px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(28,25,23,0.7)", padding: "16px" }}>
-      <h3 style={{ fontSize: "13px", fontWeight: 600, color: "#d6d3d1", marginBottom: "8px" }}>{title}</h3>
-      <div style={{ fontSize: "12px", color: "#78716c", display: "grid", gap: "2px" }}>{children}</div>
-    </div>
-  );
-}
-
-function StepReview({ data }: { data: WizardData }) {
-  return (
-    <div>
-      <h2 style={{ fontSize: "18px", fontWeight: 600, color: "#f5f5f4" }}>Review &amp; Launch</h2>
-      <p style={{ marginTop: "4px", fontSize: "14px", color: "#78716c" }}>Everything looks good? Hit Launch to create your company.</p>
-      <div style={{ marginTop: "16px", display: "grid", gap: "12px", gridTemplateColumns: "1fr 1fr" }}>
-        <SummaryCard title="Company">
-          <p style={{ color: "#d6d3d1", fontWeight: 500 }}>{data.company.name}</p>
-          {data.company.description && <p style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{data.company.description}</p>}
-          <p style={{ color: "#57534e" }}>slug: {data.company.slug}</p>
-        </SummaryCard>
-        {data.project ? (
-          <SummaryCard title="Project">
-            <p style={{ color: "#d6d3d1", fontWeight: 500 }}>{data.project.name}</p>
-            {data.project.description && <p style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{data.project.description}</p>}
-          </SummaryCard>
-        ) : (
-          <SummaryCard title="Project"><p style={{ fontStyle: "italic", color: "#57534e" }}>Skipped</p></SummaryCard>
-        )}
-        <SummaryCard title="CEO">
-          <p style={{ color: "#d6d3d1", fontWeight: 500 }}>{data.ceo.name}</p>
-          <p>{MODEL_OPTIONS.find((m) => m.value === data.ceo.model)?.label}</p>
-        </SummaryCard>
-        <SummaryCard title="First Task">
-          <p style={{ color: "#d6d3d1", fontWeight: 500 }}>{data.task.title}</p>
-          <p>Priority: {data.task.priority}</p>
-        </SummaryCard>
-      </div>
-    </div>
-  );
-}
+const STEP_LABELS = ["Company", "Project", "CEO", "First Task", "Review"];
 
 export default function CompanyOnboardingWizard() {
   const router = useRouter();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(0);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [highestStepVisited, setHighestStepVisited] = useState(1);
 
   const [data, setData] = useState<WizardData>({
     company: { name: "", description: "", slug: "" },
@@ -246,48 +56,50 @@ export default function CompanyOnboardingWizard() {
     ceo: { name: "", model: "anthropic/claude-sonnet-4-6", guidance: "" },
     task: {
       title: "Review company mission and create initial plan",
-      description: "Read the company mission and all available context. Understand the project (if any). Create an execution plan with clear priorities, milestones, and next steps. Write your plan to memory.",
+      description: "Read the company mission and all available context. Create an execution plan with clear priorities, milestones, and next steps.",
       priority: "P1",
     },
   });
 
-  const completed = useMemo(() => {
-    const s = new Set<number>();
-    const effectiveSlug = data.company.slug.trim() || slugify(data.company.name);
-    if (highestStepVisited > 1 && data.company.name.trim() && effectiveSlug) s.add(1);
-    if (highestStepVisited > 2 && (data.project === null || data.project.name.trim())) s.add(2);
-    if (highestStepVisited > 3 && data.ceo.name.trim()) s.add(3);
-    if (highestStepVisited > 4 && data.task.title.trim()) s.add(4);
-    return s;
-  }, [data, highestStepVisited]);
+  const effectiveSlug = data.company.slug.trim() || slugify(data.company.name);
 
   const canAdvance = useMemo(() => {
-    if (step === 1) return !!data.company.name.trim() && !!(data.company.slug.trim() || slugify(data.company.name));
-    if (step === 2) return true;
-    if (step === 3) return !!data.ceo.name.trim();
-    if (step === 4) return !!data.task.title.trim();
+    if (step === 0) return !!data.company.name.trim() && !!effectiveSlug;
+    if (step === 1) return true; // project is optional
+    if (step === 2) return !!data.ceo.name.trim();
+    if (step === 3) return !!data.task.title.trim();
     return true;
-  }, [step, data]);
+  }, [step, data, effectiveSlug]);
 
-  const next = useCallback(() => {
-    if (step < 5) {
-      const nextStep = step + 1;
-      setStep(nextStep);
-      setHighestStepVisited((prev) => Math.max(prev, nextStep));
-    }
-  }, [step]);
-  const back = useCallback(() => { if (step > 1) setStep((s) => s - 1); }, [step]);
-  const skipProject = useCallback(() => {
-    setData((d) => ({ ...d, project: null }));
-    setStep(3);
-    setHighestStepVisited((prev) => Math.max(prev, 3));
-  }, []);
+  const next = useCallback(() => { if (step < 4) setStep((s) => s + 1); }, [step]);
+  const back = useCallback(() => { if (step > 0) setStep((s) => s - 1); }, [step]);
+  const skipProject = useCallback(() => { setData((d) => ({ ...d, project: null })); setStep(2); }, []);
+
+  const setCompanyField = (k: keyof WizardData["company"], v: string) => {
+    setData((d) => {
+      const next = { ...d.company, [k]: v };
+      if (k === "name" && d.company.slug === slugify(d.company.name)) next.slug = slugify(v);
+      return { ...d, company: next };
+    });
+  };
+
+  const setProjectField = (k: string, v: string) => {
+    setData((d) => ({ ...d, project: { ...(d.project ?? { name: "", description: "", repoUrl: "" }), [k]: v } }));
+  };
+
+  const setCeoField = (k: keyof WizardData["ceo"], v: string) => {
+    setData((d) => ({ ...d, ceo: { ...d.ceo, [k]: v } }));
+  };
+
+  const setTaskField = (k: keyof WizardData["task"], v: string) => {
+    setData((d) => ({ ...d, task: { ...d.task, [k]: v } }));
+  };
 
   const launch = useCallback(async () => {
     setLaunching(true);
     setError(null);
     try {
-      const payload = { ...data, company: { ...data.company, slug: data.company.slug.trim() || slugify(data.company.name) } };
+      const payload = { ...data, company: { ...data.company, slug: effectiveSlug } };
       const res = await fetch("/api/orchestration/companies/create-full", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
@@ -297,78 +109,128 @@ export default function CompanyOnboardingWizard() {
     } finally {
       setLaunching(false);
     }
-  }, [data, router]);
+  }, [data, effectiveSlug, router]);
 
-  const btnBase: React.CSSProperties = {
-    display: "inline-flex", alignItems: "center", gap: "6px",
-    padding: "10px 20px", borderRadius: "12px", fontSize: "13px", fontWeight: 600,
-    cursor: "pointer", transition: "all 120ms ease", border: "none",
-  };
+  const project = data.project ?? { name: "", description: "", repoUrl: "" };
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: "32px 16px", background: "rgba(12,10,9,0.72)", backdropFilter: "blur(8px)" }}>
-      <div style={{ position: "absolute", inset: 0, background: "linear-gradient(180deg, rgba(12,10,9,0.22), rgba(12,10,9,0.7))", pointerEvents: "none" }} />
-
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: "720px" }}>
+    <div
+      style={{ position: "fixed", inset: 0, zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(12,10,9,0.7)", backdropFilter: "blur(6px)" }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !launching) router.push("/"); }}
+    >
+      <div role="dialog" aria-modal="true" aria-label="Create new company" style={{ width: "100%", maxWidth: "560px", borderRadius: "16px", border: "1px solid rgba(120,113,108,0.3)", background: "linear-gradient(180deg, rgba(41,37,36,0.95), rgba(20,17,15,0.98))", boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }}>
         {/* header */}
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px", marginBottom: "24px" }}>
-          <div>
-            <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.22em", color: "#78716c" }}>Create Company</p>
-            <h1 style={{ marginTop: "8px", fontSize: "28px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4" }}>Launch a New Company</h1>
-            <p style={{ marginTop: "8px", maxWidth: "480px", fontSize: "14px", color: "#78716c" }}>Build a fully operational AI company in five steps.</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid rgba(120,113,108,0.2)" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 8px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.6)", fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "#a8a29e" }}>
+              {effectiveSlug ? effectiveSlug.slice(0, 3).toUpperCase() : "NEW"}
+            </span>
+            <span style={{ fontSize: "13px", color: "#78716c" }}>›</span>
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>{STEP_LABELS[step]}</span>
+            <span style={{ fontSize: "12px", color: "#57534e" }}>{step + 1}/5</span>
           </div>
-          <button
-            type="button"
-            onClick={() => router.push("/")}
-            style={{ width: "40px", height: "40px", borderRadius: "12px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(28,25,23,0.82)", color: "#a8a29e", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}
-          >
-            <X size={18} />
+          <button type="button" onClick={() => { if (!launching) router.push("/"); }} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid rgba(120,113,108,0.25)", background: "transparent", color: "#78716c", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
+            <X size={14} />
           </button>
         </div>
 
-        <StepIndicator current={step} completed={completed} />
+        {/* body */}
+        <div style={{ padding: "20px" }}>
+          {/* Step 0: Company */}
+          {step === 0 && (
+            <>
+              <input value={data.company.name} onChange={(e) => setCompanyField("name", e.target.value)} placeholder="Company name" autoFocus style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0 }} />
+              <textarea value={data.company.description} onChange={(e) => setCompanyField("description", e.target.value)} placeholder="What does this company do?" rows={3} style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "60px", fontSize: "14px", color: data.company.description ? "#d6d3d1" : undefined }} />
+              <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px" }}>
+                <label style={labelStyle}>Slug</label>
+                <input value={data.company.slug} onChange={(e) => setCompanyField("slug", slugify(e.target.value))} placeholder={slugify(data.company.name) || "auto-generated"} style={inputStyle} />
+                <p style={{ marginTop: "4px", fontSize: "11px", color: "#57534e" }}>Workspace: ~/.openclaw/workspaces/{effectiveSlug || "..."}</p>
+              </div>
+            </>
+          )}
 
-        {/* card */}
-        <div style={{ borderRadius: "24px", border: "1px solid rgba(120,113,108,0.25)", background: "linear-gradient(165deg, rgba(41,37,36,0.96), rgba(12,10,9,0.99))", padding: "24px", boxShadow: "0 30px 80px rgba(12,10,9,0.65)" }}>
-          {step === 1 && <StepCompany data={data.company} onChange={(c) => setData((d) => ({ ...d, company: c }))} />}
-          {step === 2 && <StepProject data={data.project} onChange={(p) => setData((d) => ({ ...d, project: p }))} />}
-          {step === 3 && <StepCEO data={data.ceo} onChange={(c) => setData((d) => ({ ...d, ceo: c }))} />}
-          {step === 4 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
-          {step === 5 && <StepReview data={data} />}
+          {/* Step 1: Project (optional) */}
+          {step === 1 && (
+            <>
+              <input value={project.name} onChange={(e) => setProjectField("name", e.target.value)} placeholder="Project name (optional)" autoFocus style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0 }} />
+              <textarea value={project.description} onChange={(e) => setProjectField("description", e.target.value)} placeholder="What is this project about?" rows={3} style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "60px", fontSize: "14px", color: project.description ? "#d6d3d1" : undefined }} />
+              <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px" }}>
+                <label style={labelStyle}>Repo URL <span style={{ color: "#57534e" }}>optional</span></label>
+                <input value={project.repoUrl} onChange={(e) => setProjectField("repoUrl", e.target.value)} placeholder="https://github.com/org/repo" style={inputStyle} />
+              </div>
+            </>
+          )}
 
-          {error ? (
-            <div style={{ marginTop: "16px", borderRadius: "12px", border: "1px solid rgba(120,113,108,0.3)", background: "rgba(28,25,23,0.8)", padding: "12px 14px", fontSize: "13px", color: "#d6d3d1", display: "flex", alignItems: "flex-start", gap: "8px" }}>
-              <AlertCircle size={16} style={{ marginTop: "2px", flexShrink: 0 }} />
-              {error}
-            </div>
-          ) : null}
+          {/* Step 2: CEO */}
+          {step === 2 && (
+            <>
+              <input value={data.ceo.name} onChange={(e) => setCeoField("name", e.target.value)} placeholder="CEO name" autoFocus style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0 }} />
+              <textarea value={data.ceo.guidance} onChange={(e) => setCeoField("guidance", e.target.value)} placeholder="Leadership style, personality, special instructions..." rows={3} style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "60px", fontSize: "14px", color: data.ceo.guidance ? "#d6d3d1" : undefined }} />
+              <div style={{ marginTop: "20px", borderTop: "1px solid rgba(120,113,108,0.15)", paddingTop: "16px" }}>
+                <label style={labelStyle}>Model</label>
+                <select value={data.ceo.model} onChange={(e) => setCeoField("model", e.target.value)} style={inputStyle}>
+                  {MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+                </select>
+              </div>
+            </>
+          )}
 
-          {/* footer */}
-          <div style={{ marginTop: "24px", paddingTop: "20px", borderTop: "1px solid rgba(120,113,108,0.2)", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              {step > 1 && (
-                <button onClick={back} disabled={launching} style={{ ...btnBase, background: "none", color: "#78716c", padding: "8px 0" }}>
-                  <ChevronLeft size={16} /> Back
-                </button>
-              )}
+          {/* Step 3: First Task */}
+          {step === 3 && (
+            <>
+              <input value={data.task.title} onChange={(e) => setTaskField("title", e.target.value)} placeholder="First task title" autoFocus style={{ ...inputStyle, fontSize: "20px", fontWeight: 500, border: "none", background: "transparent", padding: "0 0 8px", borderBottom: "1px solid rgba(120,113,108,0.2)", borderRadius: 0 }} />
+              <textarea value={data.task.description} onChange={(e) => setTaskField("description", e.target.value)} placeholder="Task description..." rows={4} style={{ ...inputStyle, marginTop: "12px", border: "none", background: "transparent", padding: "0", resize: "vertical", minHeight: "80px", fontSize: "14px", color: data.task.description ? "#d6d3d1" : undefined }} />
+            </>
+          )}
+
+          {/* Step 4: Review */}
+          {step === 4 && (
+            <div style={{ display: "grid", gap: "12px" }}>
+              {[
+                { label: "Company", value: data.company.name, sub: effectiveSlug },
+                { label: "Project", value: data.project?.name || "Skipped", sub: data.project?.repoUrl || undefined },
+                { label: "CEO", value: data.ceo.name, sub: MODEL_OPTIONS.find((m) => m.value === data.ceo.model)?.label },
+                { label: "First Task", value: data.task.title },
+              ].map((item) => (
+                <div key={item.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 0", borderBottom: "1px solid rgba(120,113,108,0.1)" }}>
+                  <span style={{ fontSize: "12px", color: "#78716c", textTransform: "uppercase", letterSpacing: "0.1em" }}>{item.label}</span>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: "13px", color: "#f5f5f4" }}>{item.value}</span>
+                    {item.sub ? <span style={{ display: "block", fontSize: "11px", color: "#57534e" }}>{item.sub}</span> : null}
+                  </div>
+                </div>
+              ))}
             </div>
-            <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-              {step === 2 && (
-                <button onClick={skipProject} style={{ ...btnBase, background: "none", color: "#57534e", padding: "8px 0" }}>
-                  <SkipForward size={14} /> Skip
-                </button>
-              )}
-              {step < 5 && (
-                <button onClick={next} disabled={!canAdvance} style={{ ...btnBase, background: canAdvance ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.5)", color: canAdvance ? "#f5f5f4" : "#57534e" }}>
-                  Next <ChevronRight size={16} />
-                </button>
-              )}
-              {step === 5 && (
-                <button onClick={() => void launch()} disabled={launching || !completed.has(1) || !completed.has(3) || !completed.has(4)} style={{ ...btnBase, background: (!launching && completed.has(1)) ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.5)", color: (!launching && completed.has(1)) ? "#f5f5f4" : "#57534e" }}>
-                  {launching ? <><Loader2 size={16} /> Creating...</> : <><Rocket size={16} /> Launch Company</>}
-                </button>
-              )}
-            </div>
+          )}
+
+          {error ? <p style={{ marginTop: "12px", fontSize: "13px", color: "#d6d3d1" }}>{error}</p> : null}
+        </div>
+
+        {/* footer */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderTop: "1px solid rgba(120,113,108,0.2)" }}>
+          <div>
+            {step > 0 && (
+              <button type="button" onClick={back} disabled={launching} style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "none", border: "none", fontSize: "13px", color: "#78716c", cursor: "pointer" }}>
+                <ChevronLeft size={14} /> Back
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            {step === 1 && (
+              <button type="button" onClick={skipProject} style={{ display: "inline-flex", alignItems: "center", gap: "4px", background: "none", border: "none", fontSize: "13px", color: "#57534e", cursor: "pointer" }}>
+                <SkipForward size={12} /> Skip
+              </button>
+            )}
+            {step < 4 && (
+              <button type="button" onClick={next} disabled={!canAdvance} style={{ padding: "8px 20px", borderRadius: "10px", border: "1px solid rgba(120,113,108,0.4)", background: canAdvance ? "rgba(168,162,158,0.2)" : "rgba(41,37,36,0.4)", fontSize: "13px", fontWeight: 600, color: canAdvance ? "#f5f5f4" : "#57534e", cursor: canAdvance ? "pointer" : "default", transition: "all 120ms ease" }}>
+                Next <ChevronRight size={14} style={{ display: "inline", verticalAlign: "middle" }} />
+              </button>
+            )}
+            {step === 4 && (
+              <button type="button" onClick={() => void launch()} disabled={launching} style={{ padding: "8px 20px", borderRadius: "10px", border: "1px solid rgba(120,113,108,0.4)", background: "rgba(168,162,158,0.2)", fontSize: "13px", fontWeight: 600, color: "#f5f5f4", cursor: "pointer", transition: "all 120ms ease", opacity: launching ? 0.6 : 1, display: "inline-flex", alignItems: "center", gap: "6px" }}>
+                {launching ? <><Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Creating...</> : <><Rocket size={14} /> Launch company</>}
+              </button>
+            )}
           </div>
         </div>
       </div>
