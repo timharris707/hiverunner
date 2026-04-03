@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
-import { COMPANY_CODE_TO_SLUG, COMPANY_SLUG_TO_CODE, PROJECT_ID_TO_SLUG_BY_COMPANY } from "@/lib/orchestration/edge-route-maps";
+import { EDGE_ROUTE_MAPS_FALLBACK, withEdgeRouteMapFallback } from "@/lib/orchestration/edge-route-maps";
+import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { updateSession } from "@/lib/supabase/middleware";
 
 const APP_ROOT_PREFIXES = new Set([
@@ -16,20 +17,113 @@ const COMPANY_SUB_PATHS = new Set([
   "activity", "files", "settings", "projects", "goals", "agents",
 ]);
 
+const EDGE_ROUTE_MAP_CACHE_TTL_MS = 30_000;
+
+type EdgeRouteMapCache = {
+  maps: EdgeRouteMaps;
+  expiresAt: number;
+};
+
+function getEdgeRouteMapCacheStore(): { cache?: EdgeRouteMapCache } {
+  const scoped = globalThis as typeof globalThis & { __mcEdgeRouteMapCache?: EdgeRouteMapCache };
+  return {
+    get cache() {
+      return scoped.__mcEdgeRouteMapCache;
+    },
+    set cache(value: EdgeRouteMapCache | undefined) {
+      scoped.__mcEdgeRouteMapCache = value;
+    },
+  };
+}
+
+function hasOwnRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function isNestedStringRecord(value: unknown): value is Record<string, Record<string, string>> {
+  if (!hasOwnRecord(value)) return false;
+  return Object.values(value).every((entry) => {
+    if (!hasOwnRecord(entry)) return false;
+    return Object.values(entry).every((inner) => typeof inner === "string");
+  });
+}
+
+function isEdgeRouteMapsPayload(value: unknown): value is EdgeRouteMaps {
+  if (!hasOwnRecord(value)) return false;
+  return (
+    hasOwnRecord(value.companyCodeToSlug)
+    && Object.values(value.companyCodeToSlug).every((entry) => typeof entry === "string")
+    && hasOwnRecord(value.companySlugToCode)
+    && Object.values(value.companySlugToCode).every((entry) => typeof entry === "string")
+    && isNestedStringRecord(value.projectIdToSlugByCompany)
+  );
+}
+
+function shouldResolveEdgeRouteMaps(pathname: string): boolean {
+  if (!pathname || pathname === "/") return false;
+  if (pathname.startsWith("/companies/")) {
+    return pathname !== "/companies/new";
+  }
+
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments.length === 0) return false;
+  return !APP_ROOT_PREFIXES.has(segments[0].toLowerCase());
+}
+
+async function getEdgeRouteMaps(request: NextRequest): Promise<EdgeRouteMaps> {
+  const cacheStore = getEdgeRouteMapCacheStore();
+  const cached = cacheStore.cache;
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.maps;
+  }
+
+  try {
+    const url = new URL("/api/orchestration/edge-route-maps", request.nextUrl.origin);
+    const headers = new Headers({
+      "x-mc-internal": "edge-route-map-refresh",
+    });
+    if (process.env.MC_API_KEY) {
+      headers.set("x-mc-api-key", process.env.MC_API_KEY);
+    }
+
+    const response = await fetch(url.toString(), {
+      headers,
+      cache: "no-store",
+    });
+
+    if (response.ok) {
+      const payload = await response.json();
+      if (isEdgeRouteMapsPayload(payload)) {
+        const merged = withEdgeRouteMapFallback(payload);
+        cacheStore.cache = {
+          maps: merged,
+          expiresAt: now + EDGE_ROUTE_MAP_CACHE_TTL_MS,
+        };
+        return merged;
+      }
+    }
+  } catch {
+    // Fall back to the bundled map below.
+  }
+
+  return EDGE_ROUTE_MAPS_FALLBACK;
+}
+
 function copyQuery(target: URL, source: URLSearchParams) {
   for (const [key, value] of source) {
     target.searchParams.set(key, value);
   }
 }
 
-function tryCanonicalRewrite(pathname: string, searchParams: URLSearchParams, origin: string): URL | null {
+export function tryCanonicalRewrite(pathname: string, searchParams: URLSearchParams, origin: string, routeMaps: EdgeRouteMaps = EDGE_ROUTE_MAPS_FALLBACK): URL | null {
   const segments = pathname.split("/").filter(Boolean);
   if (segments.length === 0) return null;
 
   const root = segments[0];
   if (APP_ROOT_PREFIXES.has(root.toLowerCase())) return null;
 
-  const companySlug = COMPANY_CODE_TO_SLUG[root.toUpperCase()];
+  const companySlug = routeMaps.companyCodeToSlug[root.toUpperCase()];
   if (!companySlug) return null;
 
   if (segments.length === 1) {
@@ -103,14 +197,14 @@ function tryCanonicalRewrite(pathname: string, searchParams: URLSearchParams, or
   return null;
 }
 
-function tryLegacyRedirect(pathname: string, searchParams: URLSearchParams, origin: string): URL | null {
+export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParams, origin: string, routeMaps: EdgeRouteMaps = EDGE_ROUTE_MAPS_FALLBACK): URL | null {
   const match = pathname.match(/^\/companies\/([^/]+)(\/.*)?$/);
   if (!match) return null;
 
   const companySlug = decodeURIComponent(match[1]);
   if (companySlug === "new") return null;
 
-  const companyCode = COMPANY_SLUG_TO_CODE[companySlug];
+  const companyCode = routeMaps.companySlugToCode[companySlug];
   if (!companyCode) return null;
 
   const rest = match[2] || "";
@@ -124,7 +218,7 @@ function tryLegacyRedirect(pathname: string, searchParams: URLSearchParams, orig
 
   const projectParam = searchParams.get("project") || searchParams.get("projectId");
   if (rest === "/issues" && projectParam) {
-    const projectSlug = PROJECT_ID_TO_SLUG_BY_COMPANY[companySlug]?.[projectParam] ?? projectParam;
+    const projectSlug = routeMaps.projectIdToSlugByCompany[companySlug]?.[projectParam] ?? projectParam;
     qs.delete("project");
     qs.delete("projectId");
     const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}/issues`, origin);
@@ -247,12 +341,16 @@ export async function middleware(request: NextRequest) {
 
   if (!pathname.startsWith("/api/") && !pathname.startsWith("/_next/")) {
     const origin = request.nextUrl.origin;
-    const rewriteTarget = tryCanonicalRewrite(pathname, request.nextUrl.searchParams, origin);
+    const routeMaps = shouldResolveEdgeRouteMaps(pathname)
+      ? await getEdgeRouteMaps(request)
+      : EDGE_ROUTE_MAPS_FALLBACK;
+
+    const rewriteTarget = tryCanonicalRewrite(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (rewriteTarget) {
       return finalize(NextResponse.rewrite(rewriteTarget));
     }
 
-    const legacyTarget = tryLegacyRedirect(pathname, request.nextUrl.searchParams, origin);
+    const legacyTarget = tryLegacyRedirect(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (legacyTarget) {
       return finalize(NextResponse.redirect(legacyTarget, 308));
     }
