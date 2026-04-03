@@ -95,6 +95,7 @@ const OPERATIONS_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Tasks", icon: ListChecks },
   { label: "Dashboard", icon: Building2 },
   { label: "Inbox", icon: Inbox },
+  { label: "Routines", icon: Workflow },
   { label: "Goals", icon: Goal },
 ];
 
@@ -403,6 +404,8 @@ function operationsItemHref(code: string, itemLabel: string): string {
       return buildCanonicalDashboardPath(code);
     case "Inbox":
       return buildCanonicalInboxPath(code);
+    case "Routines":
+      return `/${code}/routines`;
     case "Goals":
       return buildCanonicalGoalsPath(code);
     default:
