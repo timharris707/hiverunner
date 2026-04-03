@@ -108,11 +108,15 @@ export default function CompanyDashboardPage() {
         }
 
         const companyProjects = projects.filter((p) => p.companyId === company.id);
-        const boardRows = await Promise.all(
+        const boardResults = await Promise.allSettled(
           companyProjects.map(async (project) => ({
             project,
             board: await withTimeout(getProjectBoard(project.id), 5000).catch(() => ({ tasks: [] })),
           }))
+        );
+
+        const boardRows = boardResults.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : []
         );
 
         if (cancelled) return;
@@ -126,7 +130,7 @@ export default function CompanyDashboardPage() {
           })
           .slice(0, 20);
 
-        const projectNameById = new Map(boardRows.map((row) => [row.project.id, row.project.name]));
+        const projectNameById = new Map(companyProjects.map((project) => [project.id, project.name]));
         const sessionCandidates = tasks
           .filter((task) => task.executionMode && task.executionMode !== "manual")
           .filter((task) => task.status === "in-progress" || task.status === "review")
@@ -166,6 +170,7 @@ export default function CompanyDashboardPage() {
         if (!cancelled) {
           console.error("[company-dashboard] load failed", err);
           setError("Unable to load company dashboard right now.");
+          setSnapshot((previous) => previous);
           setLoading(false);
         }
       } finally {

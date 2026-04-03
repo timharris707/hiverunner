@@ -90,9 +90,10 @@ const DOCK_COLLAPSED_WIDTH = 44;
 const FALLBACK_COMPANY_SLUG = "neveridle-core";
 const FALLBACK_COMPANY_CODE = "NEV";
 
-const WORK_ITEMS: Omit<NavItem, "href">[] = [
+const OPERATIONS_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Tasks", icon: ListChecks },
-  { label: "Routines", icon: Workflow },
+  { label: "Dashboard", icon: Building2 },
+  { label: "Inbox", icon: Inbox },
   { label: "Goals", icon: Goal },
 ];
 
@@ -307,7 +308,9 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
           overflow: "hidden",
           textOverflow: "ellipsis",
           lineHeight: 1.15,
-          flex: hasInlineAction ? "0 1 auto" : 1,
+          flex: hasInlineAction ? "1 1 auto" : 1,
+          minWidth: 0,
+          paddingRight: hasInlineAction ? "6px" : 0,
         }}
       >
         {item.label}
@@ -385,12 +388,14 @@ function isProjectPaused(project: OrchestrationProject): boolean {
   return project.status === "paused" || project.status === "on-hold" || project.status === "inactive";
 }
 
-function workItemHref(code: string, itemLabel: string): string {
+function operationsItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Tasks":
       return buildCanonicalIssuesPath(code);
-    case "Routines":
-      return "/workflows";
+    case "Dashboard":
+      return buildCanonicalDashboardPath(code);
+    case "Inbox":
+      return buildCanonicalInboxPath(code);
     case "Goals":
       return buildCanonicalGoalsPath(code);
     default:
@@ -833,40 +838,70 @@ export function Dock() {
         </p>
       </div>
 
-      <NavRow
-        item={{
-          href: buildCanonicalNewIssuePath(cc),
-          label: "New Task",
-          icon: SquarePen,
-        }}
-        active={checkActive(buildCanonicalNewIssuePath(cc))}
-      />
-
-      <NavRow
-        item={{
-          href: buildCanonicalDashboardPath(cc),
-          label: "Dashboard",
-          icon: Building2,
-          badgeText: activeAgentCount > 0 ? `${activeAgentCount} live` : undefined,
-        }}
-        active={checkActive(buildCanonicalDashboardPath(cc))}
-      />
-      <NavRow
-        item={{
-          href: buildCanonicalInboxPath(cc),
-          label: "Inbox",
-          icon: Inbox,
-          badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined,
-        }}
-        active={checkActive(buildCanonicalInboxPath(cc))}
-      />
-
-      <SectionDivider />
-
-      <SectionHeader label="Work" />
-      {WORK_ITEMS.map((entry) => {
-        const href = workItemHref(cc, entry.label);
-        return <NavRow key={entry.label} item={{ ...entry, href }} active={checkActive(href)} />;
+      <SectionHeader label="Operations" />
+      {OPERATIONS_ITEMS.map((entry) => {
+        const href = operationsItemHref(cc, entry.label);
+        const item =
+          entry.label === "Tasks"
+            ? {
+                ...entry,
+                href,
+                trailingAction: (
+                  <div
+                    style={{
+                      position: "absolute",
+                      right: "6px",
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      display: "inline-flex",
+                      alignItems: "center",
+                      zIndex: 2,
+                    }}
+                  >
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        router.push(buildCanonicalNewIssuePath(cc));
+                      }}
+                      aria-label="Create task"
+                      title="Create task"
+                      style={{
+                        width: "18px",
+                        height: "18px",
+                        borderRadius: "6px",
+                        border: "1px solid rgba(120,113,108,0.4)",
+                        background: "rgba(41,37,36,0.55)",
+                        color: "#d6d3d1",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        transition: "all 120ms ease",
+                      }}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
+                        event.currentTarget.style.background = "rgba(120,53,15,0.4)";
+                        event.currentTarget.style.color = "#fde68a";
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+                        event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                        event.currentTarget.style.color = "#d6d3d1";
+                      }}
+                    >
+                      <Plus size={11} strokeWidth={2.2} />
+                    </button>
+                  </div>
+                ),
+              }
+            : entry.label === "Dashboard"
+              ? { ...entry, href, badgeText: activeAgentCount > 0 ? `${activeAgentCount} live` : undefined }
+              : entry.label === "Inbox"
+                ? { ...entry, href, badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined }
+                : { ...entry, href };
+        return <NavRow key={entry.label} item={item} active={checkActive(href)} />;
       })}
 
       <SectionDivider />
@@ -889,20 +924,6 @@ export function Dock() {
         <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No projects found.</p>
       ) : (
         <>
-          <Link
-            href={buildCanonicalProjectsPath(cc)}
-            style={{
-              display: "block",
-              margin: "0 8px 6px 18px",
-              fontSize: "10px",
-              color: "#a8a29e",
-              textDecoration: "none",
-              textTransform: "uppercase",
-              letterSpacing: "0.12em",
-            }}
-          >
-            Manage projects →
-          </Link>
           {(activeProjectForCompany
             ? visibleProjects.filter((project) => project.id === activeProjectForCompany.projectId || project.slug === activeProjectForCompany.projectSlug)
             : visibleProjects.slice(0, 1)
@@ -910,109 +931,121 @@ export function Dock() {
             const pSlug = project.slug || project.id;
             const projectHref = buildCanonicalProjectIssuesPath(cc, pSlug);
             const projectPaused = isProjectPaused(project);
-            const projectPageActive =
-              checkActive(buildCanonicalIssuesPath(cc)) ||
-              pathname === buildCanonicalProjectIssuesPath(cc, pSlug) ||
-              checkActive(buildCanonicalProjectSettingsPath(cc, pSlug)) ||
-              checkActive(buildCanonicalProjectAgentsPath(cc, pSlug));
+            const projectPageActive = false;
             return (
               <div key={project.id} style={{ display: "grid", gap: "4px" }}>
-                <NavRow
-                  item={{
-                    href: projectHref,
-                    label: project.name,
-                    badge: project.taskCount > 0 ? project.taskCount : undefined,
-                    indent: true,
-                    trailingAction: (
-                      <>
-                        <div style={{ marginLeft: "auto", marginRight: "48px", display: "inline-flex", alignItems: "center" }}>
-                          <Check size={12} color="#f5f5f4" />
-                        </div>
-                        <div style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0 }}>
-                          <button
-                            type="button"
-                            disabled={projectStatusBusyId === project.id}
-                            onClick={async (event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              setProjectStatusBusyId(project.id);
-                              const nextStatus = projectPaused ? "active" : "paused";
-                              const updated = await updateProjectSettings({
-                                projectIdOrSlug: project.id,
-                                status: nextStatus,
-                              });
-                              if (updated) {
-                                setProjects((previous) =>
-                                  previous.map((candidate) => (candidate.id === project.id ? updated : candidate))
-                                );
-                              }
-                              setProjectStatusBusyId(null);
-                            }}
-                            aria-label={projectPaused ? `Resume ${project.name}` : `Pause ${project.name}`}
-                            title={projectPaused ? `Resume ${project.name}` : `Pause ${project.name}`}
-                            style={{
-                              width: "18px",
-                              height: "18px",
-                              borderRadius: "6px",
-                              border: "1px solid rgba(255,255,255,0.16)",
-                              background: "rgba(255,255,255,0.04)",
-                              color: "#f5f5f4",
-                              opacity: projectStatusBusyId === project.id ? 0.55 : 1,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              cursor: projectStatusBusyId === project.id ? "wait" : "pointer",
-                              transition: "all 120ms ease",
-                              zIndex: 2,
-                            }}
-                          >
-                            {projectPaused ? <Play size={10} strokeWidth={2.2} /> : <Pause size={10} strokeWidth={2.2} />}
-                          </button>
+                <div>
+                  <NavRow
+                    item={{
+                      href: projectHref,
+                      label: project.name.length > 16 ? `${project.name.slice(0, 16)}…` : project.name,
+                      indent: true,
+                      trailingAction: (
+                        <div style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", display: "inline-flex", alignItems: "center", gap: "3px", zIndex: 2 }}>
+                          <Check size={12} color="#f5f5f4" style={{ flexShrink: 0 }} />
                           <button
                             type="button"
                             onClick={(event) => {
                               event.preventDefault();
                               event.stopPropagation();
-                              if (visibleProjects.length <= 1) return;
-                              setProjectPickerOpen((prev) => !prev);
+                              setProjectStatusBusyId(project.id);
+                              const newStatus = projectPaused ? "active" : "paused";
+                              updateProjectSettings(project.id, { status: newStatus })
+                                .then(() => {
+                                  setProjects((prev) =>
+                                    prev.map((p) =>
+                                      p.id === project.id ? { ...p, status: newStatus } : p
+                                    )
+                                  );
+                                })
+                                .finally(() => setProjectStatusBusyId(null));
                             }}
-                            aria-label={`Switch project from ${project.name}`}
-                            title="Switch project"
+                            aria-label={projectPaused ? "Resume project" : "Pause project"}
+                            title={projectPaused ? "Resume project" : "Pause project"}
+                            disabled={projectStatusBusyId === project.id}
                             style={{
                               width: "18px",
                               height: "18px",
                               borderRadius: "6px",
-                              border: "1px solid rgba(255,255,255,0.16)",
-                              background: "rgba(255,255,255,0.04)",
-                              color: "#f5f5f4",
-                              opacity: visibleProjects.length <= 1 ? 0.45 : 1,
+                              border: "1px solid rgba(120,113,108,0.4)",
+                              background: "rgba(41,37,36,0.55)",
+                              color: projectPaused ? "#fbbf24" : "#d6d3d1",
                               display: "inline-flex",
                               alignItems: "center",
                               justifyContent: "center",
-                              cursor: visibleProjects.length <= 1 ? "default" : "pointer",
+                              cursor: "pointer",
                               transition: "all 120ms ease",
-                              zIndex: 2,
+                              opacity: projectStatusBusyId === project.id ? 0.5 : 1,
+                              flexShrink: 0,
+                            }}
+                            onMouseEnter={(event) => {
+                              event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
+                              event.currentTarget.style.background = "rgba(120,53,15,0.4)";
+                              event.currentTarget.style.color = "#fde68a";
+                            }}
+                            onMouseLeave={(event) => {
+                              event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+                              event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                              event.currentTarget.style.color = projectPaused ? "#fbbf24" : "#d6d3d1";
                             }}
                           >
-                            <Repeat size={11} strokeWidth={2.2} />
+                            {projectPaused ? <Play size={11} strokeWidth={2.2} /> : <Pause size={11} strokeWidth={2.2} />}
                           </button>
+                          {visibleProjects.length > 1 ? (
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.preventDefault();
+                                event.stopPropagation();
+                                setProjectPickerOpen((prev) => !prev);
+                              }}
+                              aria-label={`Switch project from ${project.name}`}
+                              title="Switch project"
+                              style={{
+                                width: "18px",
+                                height: "18px",
+                                borderRadius: "6px",
+                                border: "1px solid rgba(120,113,108,0.4)",
+                                background: "rgba(41,37,36,0.55)",
+                                color: "#d6d3d1",
+                                display: "inline-flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                cursor: "pointer",
+                                transition: "all 120ms ease",
+                                flexShrink: 0,
+                              }}
+                              onMouseEnter={(event) => {
+                                event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
+                                event.currentTarget.style.background = "rgba(120,53,15,0.4)";
+                                event.currentTarget.style.color = "#fde68a";
+                              }}
+                              onMouseLeave={(event) => {
+                                event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+                                event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                                event.currentTarget.style.color = "#d6d3d1";
+                              }}
+                            >
+                              <Repeat size={11} strokeWidth={2.2} />
+                            </button>
+                          ) : null}
                         </div>
-                      </>
-                    ),
-                  }}
-                  active={projectPageActive}
-                  onClick={(event) => {
-                    event.preventDefault();
-                    setProjectPickerOpen(false);
-                    setActiveProjectIfChanged({
-                      companySlug: company.slug,
-                      projectId: project.id,
-                      projectSlug: project.slug,
-                      projectName: project.name,
-                    });
-                    router.push(projectHref);
-                  }}
-                />
+                      ),
+                    }}
+                    active={projectPageActive}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setProjectPickerOpen(false);
+                      setActiveProjectIfChanged({
+                        companySlug: company.slug,
+                        projectId: project.id,
+                        projectSlug: project.slug,
+                        projectName: project.name,
+                      });
+                      router.push(projectHref);
+                    }}
+                  />
+                </div>
                 {projectPickerOpen && visibleProjects.length > 1 ? (
                   <div
                     style={{
@@ -1103,12 +1136,12 @@ export function Dock() {
                 ) : null}
                 <NavRow
                   item={{
-                    href: buildCanonicalProjectIssuesPath(cc, pSlug),
-                    label: "Tasks",
+                    href: buildCanonicalProjectsPath(cc),
+                    label: "Manage",
                     icon: ListChecks,
                     indent: true,
                   }}
-                  active={checkActive(buildCanonicalIssuesPath(cc)) && !!activeProjectForCompany}
+                  active={pathname === buildCanonicalProjectsPath(cc)}
                 />
                 <NavRow
                   item={{
@@ -1369,7 +1402,7 @@ export function Dock() {
       { href: buildCanonicalNewIssuePath(cc), icon: SquarePen, label: "New Task" },
       { href: buildCanonicalDashboardPath(cc), icon: Building2, label: "Dashboard" },
       { href: buildCanonicalInboxPath(cc), icon: Inbox, label: "Inbox", dividerAfter: true },
-      ...WORK_ITEMS.map((w, i) => ({ href: workItemHref(cc, w.label), icon: w.icon, label: w.label, dividerAfter: i === WORK_ITEMS.length - 1 })),
+      ...OPERATIONS_ITEMS.map((w, i) => ({ href: operationsItemHref(cc, w.label), icon: w.icon, label: w.label, dividerAfter: i === OPERATIONS_ITEMS.length - 1 })),
       ...COMPANY_ITEMS.map((c, i) => ({ href: companyItemHref(cc, c.label), icon: c.icon, label: c.label, dividerAfter: i === COMPANY_ITEMS.length - 1 })),
       ...APPS_ITEMS.map((a, i) => ({ href: a.href, icon: a.icon, label: a.label, dividerAfter: i === APPS_ITEMS.length - 1 })),
       ...SYSTEM_ITEMS.map((s) => ({ href: s.href, icon: s.icon, label: s.label })),

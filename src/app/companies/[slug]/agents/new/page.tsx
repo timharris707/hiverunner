@@ -146,12 +146,7 @@ export default function CreateCompanyAgentPage() {
 
             <div className="grid gap-4 md:grid-cols-[1fr,220px]">
               <Field label="Agent Name" required>
-                <input
-                  className={inputClass}
-                  placeholder="e.g. Pixel"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                />
+                <input className={inputClass} placeholder="e.g. Pixel" value={name} onChange={(event) => setName(event.target.value)} />
               </Field>
 
               <Field label="Icon Style" required>
@@ -181,12 +176,7 @@ export default function CreateCompanyAgentPage() {
 
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Field label="Role" required>
-                <input
-                  className={inputClass}
-                  placeholder="e.g. Full-Stack Engineer"
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
-                />
+                <input className={inputClass} placeholder="e.g. Full-Stack Engineer" value={role} onChange={(event) => setRole(event.target.value)} />
               </Field>
 
               <Field label="Reports To">
@@ -194,9 +184,7 @@ export default function CreateCompanyAgentPage() {
                   <option value="">Unassigned</option>
                   <option value="Henry">Henry</option>
                   {rosterOptions.map((agent) => (
-                    <option key={agent.id} value={agent.openclawAgentId || agent.id}>
-                      {agent.name}
-                    </option>
+                    <option key={agent.id} value={agent.openclawAgentId || agent.id}>{agent.name}</option>
                   ))}
                 </select>
                 <p className="mt-1 text-xs text-stone-500">This now reads from the real company roster. Workspace is the canonical home for core files; Runtime State remains the separate OpenClaw internal agent directory.</p>
@@ -207,31 +195,19 @@ export default function CreateCompanyAgentPage() {
               <Field label="Model">
                 <select className={inputClass} value={model} onChange={(event) => setModel(event.target.value)}>
                   {MODEL_OPTIONS.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
+                    <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
               </Field>
 
               <Field label="Agent Focus">
-                <input
-                  className={inputClass}
-                  placeholder="UI, frontend, polishing, product feel"
-                  value={personality}
-                  onChange={(event) => setPersonality(event.target.value)}
-                />
+                <input className={inputClass} placeholder="UI, frontend, polishing, product feel" value={personality} onChange={(event) => setPersonality(event.target.value)} />
               </Field>
             </div>
 
             <div className="mt-4 grid gap-4">
               <Field label="Mission / Operating Notes">
-                <textarea
-                  className={`${inputClass} min-h-[132px] resize-none`}
-                  placeholder="What should this agent own? What kind of work should they do?"
-                  value={mission}
-                  onChange={(event) => setMission(event.target.value)}
-                />
+                <textarea className={`${inputClass} min-h-[132px] resize-none`} placeholder="What should this agent own? What kind of work should they do?" value={mission} onChange={(event) => setMission(event.target.value)} />
               </Field>
             </div>
 
@@ -240,9 +216,7 @@ export default function CreateCompanyAgentPage() {
                 <Brain className="mt-0.5 h-4 w-4 shrink-0 text-amber-400" />
                 <div>
                   <p className="font-medium text-stone-200">Sprint 1 behavior</p>
-                  <p className="mt-1 text-xs leading-relaxed text-stone-400">
-                    This ships the real file creation and runtime registration path first. AI-generated polish and smarter rules can layer on later.
-                  </p>
+                  <p className="mt-1 text-xs leading-relaxed text-stone-400">This ships the real file creation and runtime registration path first. AI-generated polish and smarter rules can layer on later.</p>
                 </div>
               </div>
             </div>
@@ -255,19 +229,11 @@ export default function CreateCompanyAgentPage() {
             ) : null}
 
             <div className="mt-6 flex items-center justify-between border-t border-stone-800/80 pt-5">
-              <Link
-                href={closeHref}
-                className="inline-flex items-center gap-2 text-sm text-stone-400 transition hover:text-white"
-              >
+              <Link href={closeHref} className="inline-flex items-center gap-2 text-sm text-stone-400 transition hover:text-white">
                 <BriefcaseBusiness className="h-4 w-4" /> Back to Team
               </Link>
 
-              <button
-                type="button"
-                onClick={() => void onSubmit()}
-                disabled={!canSubmit || saving}
-                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500"
-              >
+              <button type="button" onClick={() => void onSubmit()} disabled={!canSubmit || saving} className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-amber-500 disabled:bg-stone-700 disabled:text-stone-500">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
                 Create Agent
               </button>
@@ -279,15 +245,7 @@ export default function CreateCompanyAgentPage() {
   );
 }
 
-function Field({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
+function Field({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) {
   return (
     <label className="block space-y-1.5">
       <span className="text-[11px] uppercase tracking-[0.16em] text-stone-400">

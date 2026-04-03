@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { exec } from "child_process";
 import { promisify } from "util";
 import os from "os";
+import { getSystemStats } from "@/lib/system-stats";
 
 const execAsync = promisify(exec);
 
@@ -83,24 +84,10 @@ export async function GET() {
     let diskUsed = 0;
     let diskFree = 100;
     try {
-      // Try macOS-style df first, then Linux style
-      let stdout = '';
-      try {
-        const result = await execAsync("df -g / 2>/dev/null | tail -1");
-        stdout = result.stdout;
-        const parts = stdout.trim().split(/\s+/);
-        // macOS: Filesystem 1G-blocks Used Avail Capacity iused ...
-        diskTotal = parseInt(parts[1]);
-        diskUsed = parseInt(parts[2]);
-        diskFree = parseInt(parts[3]);
-      } catch {
-        const result = await execAsync("df -BG / 2>/dev/null | tail -1");
-        stdout = result.stdout;
-        const parts = stdout.trim().split(/\s+/);
-        diskTotal = parseInt(parts[1].replace("G", ""));
-        diskUsed = parseInt(parts[2].replace("G", ""));
-        diskFree = parseInt(parts[3].replace("G", ""));
-      }
+      const stats = await getSystemStats();
+      diskTotal = stats.disk.total;
+      diskUsed = stats.disk.used;
+      diskFree = Math.max(0, diskTotal - diskUsed);
     } catch (error) {
       console.error("Failed to get disk stats:", error);
     }

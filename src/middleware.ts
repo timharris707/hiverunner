@@ -236,6 +236,12 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
     return url;
   }
 
+  if (rest === "/agents/new") {
+    const url = new URL(`/${companyCode}/agents/new`, origin);
+    copyQuery(url, qs);
+    return url;
+  }
+
   const agentMatch = rest.match(/^\/agents\/([^/]+)(\/.*)?$/);
   if (agentMatch) {
     const agentSlug = decodeURIComponent(agentMatch[1]);
