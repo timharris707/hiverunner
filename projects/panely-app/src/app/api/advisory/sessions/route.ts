@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { consumeSessionCredit } from "@/lib/billing";
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
@@ -27,9 +29,23 @@ function loadSessions() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 
+async function getAuthUser() {
+  const supabase = await createServerSupabaseClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  return user;
+}
+
 export async function GET() {
   try {
-    const sessions = loadSessions();
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const allSessions = loadSessions();
+    // Filter to this user's sessions (sessions without userId are legacy dev sessions)
+    const sessions = allSessions.filter((s) => !s.userId || s.userId === user.id);
+
     // Return lightweight list (no events)
     const list = sessions.map(({ events: _events, ...rest }) => ({
       ...rest,
@@ -44,9 +60,29 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const billing = consumeSessionCredit(user.id);
+    if (!billing.ok) {
+      return NextResponse.json(
+        {
+          error: billing.reason,
+          billing: {
+            freeSessionsUsedThisMonth: billing.account.freeSessionsUsedThisMonth,
+            freeSessionsPerMonth: 3,
+            credits: billing.account.credits,
+          },
+        },
+        { status: 402 }
+      );
+    }
+
     ensureDir();
     const body = await req.json();
-    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels, agentResponseLengths, moderator } = body;
+    const { topic, mode, agents, reviewStyle, model, personaOverlays, personaOverlaysList, aiPersonas, rounds, pacing, responseLength, extendedThinking, specialist, specialistAgent, forkedFrom, forkedAtEvent, referenceContext, reviewLoop, agentModelOverrides, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels, agentResponseLengths, moderator } = body;
 
     if (!topic || !mode) {
       return NextResponse.json({ error: "topic and mode are required" }, { status: 400 });
@@ -65,20 +101,21 @@ export async function POST(req: NextRequest) {
     } : undefined;
 
     const startText = mode === "review" && reviewLoop
-      ? `🚀 **Review Loop started.**\n\n**Topic:** ${topic}\n\n**Tasks:** ${reviewLoop.tasks?.length || 0} items\n**Worker:** ${reviewLoop.workerAgent} | **Reviewer:** ${reviewLoop.reviewerAgent} | **Supervisor:** ${reviewLoop.supervisorAgent}\n**Model:** ${model || "claude-opus-4-6"}\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects.`
+      ? `🚀 **Review Loop started.**\n\n**Topic:** ${topic}\n\n**Tasks:** ${reviewLoop.tasks?.length || 0} items\n**Worker:** ${reviewLoop.workerAgent} | **Reviewer:** ${reviewLoop.reviewerAgent} | **Supervisor:** ${reviewLoop.supervisorAgent}\n**Model:** ${model || "claude-sonnet"}\n\nLoop will execute tasks sequentially. Worker submits, Reviewer approves or rejects.`
       : isCompetitive
-      ? `⚔️ **Competitive Ideation started.**\n\n**Topic:** ${topic}\n\n**Mode:** Competitive Ideation | **Model:** ${model || "claude-opus-4-6"}\n\n**Competitors:** ${(agents || []).join(", ") || "TBD"}\n\n**Round 1 — PITCH:** Each agent pitches their boldest idea.\n**Round 2 — CRITIQUE:** Agents tear apart each other's pitches by name.\n**Round 3 — VOTE:** Each agent votes for the best idea (not their own) with reasoning.\n\nLet the competition begin...`
-      : `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-opus-4-6"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`;
+      ? `⚔️ **Competitive Ideation started.**\n\n**Topic:** ${topic}\n\n**Mode:** Competitive Ideation | **Model:** ${model || "claude-sonnet"}\n\n**Competitors:** ${(agents || []).join(", ") || "TBD"}\n\n**Round 1 — PITCH:** Each agent pitches their boldest idea.\n**Round 2 — CRITIQUE:** Agents tear apart each other's pitches by name.\n**Round 3 — VOTE:** Each agent votes for the best idea (not their own) with reasoning.\n\nLet the competition begin...`
+      : `🚀 **Session started.**\n\n**Topic:** ${topic}\n\n**Mode:** ${mode} | **Review style:** ${reviewStyle || "open"} | **Model:** ${model || "claude-sonnet"}\n\n**Participants:** ${(agents || []).join(", ") || "TBD"}\n\nStanding by for agent inputs...`;
 
     const session = {
       id,
+      userId: user.id,
       topic,
       mode: mode || "roundtable",
       agents: agents || [],
       status: "active",
       createdAt: now,
       reviewStyle: reviewStyle || "open",
-      model: model || "claude-opus-4-6",
+      model: model || "claude-sonnet",
       personaOverlays: personaOverlays || [],
       personaOverlaysList: personaOverlaysList || undefined,
       aiPersonas: aiPersonas || undefined,
@@ -96,6 +133,7 @@ export async function POST(req: NextRequest) {
       ...(agentCommunicationStyles && Object.keys(agentCommunicationStyles).length > 0 ? { agentCommunicationStyles } : {}),
       ...(agentIntensityLevels && Object.keys(agentIntensityLevels).length > 0 ? { agentIntensityLevels } : {}),
       ...(agentResponseLengths && Object.keys(agentResponseLengths).length > 0 ? { agentResponseLengths } : {}),
+      ...(agentModelOverrides && Object.keys(agentModelOverrides).length > 0 ? { agentModelOverrides } : {}),
       ...(reviewLoop ? { reviewLoop } : {}),
       ...(competitiveState ? { competitive: competitiveState } : {}),
       ...(moderator ? { moderator } : {}),
@@ -114,12 +152,6 @@ export async function POST(req: NextRequest) {
 
     const filePath = path.join(DATA_DIR, `${id}.json`);
     fs.writeFileSync(filePath, JSON.stringify(session, null, 2));
-
-    // TODO: Session Memory — When a session completes, write key decisions to each
-    // participating agent's memory file (memory/agents/<agentId>/sessions.md) so they
-    // retain context for future roundtables. This should be triggered from the PATCH
-    // endpoint (status → "completed") and should summarize: topic, outcome, date, and
-    // any action items the agent was assigned.
 
     return NextResponse.json({ session });
   } catch (err) {

@@ -16,6 +16,7 @@ import type {
   AdvisorySession,
 } from "@/types/advisory";
 import { getAgentByAnyId } from "@/config/agents";
+import { PROVIDERS } from "@/lib/ai/providers";
 
 // ─── Agent Definitions ───────────────────────────────────────────────────────
 
@@ -71,10 +72,16 @@ export const AGENT_RECOMMENDED_OVERLAYS: Record<string, string[]> = {
 // ─── Models ──────────────────────────────────────────────────────────────────
 
 export const MODELS: ModelOption[] = [
-  { id: "claude-sonnet-4-6", label: "Claude Sonnet (Fast)", desc: "Best speed / cost ratio. Great for most sessions." },
-  { id: "claude-opus-4-6", label: "Claude Opus (Deep)", desc: "Most capable. Slower but higher quality reasoning." },
-  { id: "gpt-5.4", label: "GPT-5.4 (Alternative)", desc: "OpenAI alternative. Different reasoning style." },
-  { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", desc: "Google's latest. Strong at analysis and code." },
+  ...PROVIDERS.map((provider) => ({
+    id: provider.id,
+    label: provider.name,
+    desc:
+      provider.provider === "anthropic"
+        ? "Default recommendation. Strong reasoning and quality."
+        : provider.provider === "openai"
+        ? "Balanced quality and speed for broad tasks."
+        : "Fast and cost-efficient for quick iterations.",
+  })),
 ];
 
 // ─── Pacing ──────────────────────────────────────────────────────────────────
@@ -251,7 +258,9 @@ export function formatDate(iso: string): string {
 
 export function formatModelName(model?: string): string {
   if (!model) return "";
-  return model.replace("gemini-", "gemini/").replace("claude-", "claude/");
+  const providerModel = PROVIDERS.find((m) => m.id === model || m.model === model || m.openclawModel === model);
+  if (providerModel) return providerModel.name;
+  return model;
 }
 
 export function getStatusBadge(status: string): { label: string; color: string; bg: string } {

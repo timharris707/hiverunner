@@ -81,7 +81,7 @@ function Nav() {
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Link
-            href="/advisory"
+            href="/auth/signin"
             style={{
               fontSize: 14,
               fontWeight: 500,
@@ -95,7 +95,7 @@ function Nav() {
             Sign in
           </Link>
           <Link
-            href="/advisory"
+            href="/auth/signup"
             className="btn-primary"
             style={{ fontSize: 14, padding: "8px 18px" }}
           >

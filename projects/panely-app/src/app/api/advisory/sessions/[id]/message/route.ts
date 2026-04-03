@@ -75,6 +75,8 @@ async function triggerFollowUp(
     topic: string;
     mode: string;
     personaOverlays?: string[];
+    model?: string;
+    agentModelOverrides?: Record<string, string>;
     events: Array<{ speaker: string; text: string; type: string }>;
   },
   humanMessage: string
@@ -109,12 +111,14 @@ Respond directly to the human's directive. Be helpful, specific, and use your ex
   const userPrompt = `Previous discussion:\n\n${historyLines}\n\nTim (Human) just said: "${humanMessage}"\n\nRespond as ${respondingAgentId} to Tim's directive. Be direct and specific.`;
 
   try {
+    const selectedModel = session.agentModelOverrides?.[respondingAgentId] || session.model;
     const result = await spawnAdvisoryAgentWithRetry({
       sessionId,
       agentId: respondingAgentId,
       systemPrompt,
       userPrompt,
       timeoutSeconds: 120,
+      model: selectedModel,
     });
 
     if (result.text) {

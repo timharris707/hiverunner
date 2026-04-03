@@ -1,11 +1,12 @@
 /**
  * POST /api/advisory/generate-personas
- * Uses AI to generate topic-specific persona overlays for the advisory board.
- * Accepts { topic: string } and returns { personas: GeneratedPersona[] }
+ * Uses direct provider SDK routing (Anthropic/OpenAI/Gemini) to generate
+ * topic-specific persona overlays for the advisory board.
+ * Accepts { topic: string, modelId?: string } and returns { personas: GeneratedPersona[] }
  */
 import { NextRequest, NextResponse } from "next/server";
-import path from "path";
-import { readFileSync } from "fs";
+import { generateText } from "@/lib/ai/router";
+import { resolveProviderModelId } from "@/lib/ai/providers";
 
 interface GeneratedPersona {
   id: string;
@@ -14,31 +15,15 @@ interface GeneratedPersona {
   description: string;
 }
 
-function getGatewayConfig(): { url: string; token: string } {
-  if (process.env.GATEWAY_URL && process.env.GATEWAY_TOKEN) {
-    return { url: process.env.GATEWAY_URL, token: process.env.GATEWAY_TOKEN };
-  }
-  try {
-    const configPath = path.join(process.env.HOME || "", ".openclaw/openclaw.json");
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
-    const port = config?.gateway?.port || 18789;
-    const token = config?.gateway?.auth?.token || "";
-    return { url: `http://127.0.0.1:${port}/v1/chat/completions`, token };
-  } catch {
-    return { url: "http://127.0.0.1:18789/v1/chat/completions", token: "" };
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const topic = body?.topic?.trim();
+    const modelId = resolveProviderModelId(body?.modelId);
 
     if (!topic) {
       return NextResponse.json({ error: "Topic is required" }, { status: 400 });
     }
-
-    const { url, token } = getGatewayConfig();
 
     const systemPrompt = `You are an expert at designing advisory board compositions. Given a discussion topic, you generate specialized expert personas that would provide the most valuable and diverse perspectives for that specific discussion.
 
@@ -58,31 +43,15 @@ No markdown, no explanation — just the JSON array.`;
 
 Return only the JSON array.`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        model: "anthropic/claude-sonnet-4-6",
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: 2048,
-        temperature: 0.7,
-      }),
+    const result = await generateText({
+      modelId,
+      systemPrompt,
+      prompt: userPrompt,
+      maxTokens: 2048,
+      temperature: 0.7,
     });
 
-    if (!response.ok) {
-      const errText = await response.text().catch(() => "Unknown error");
-      console.error("Gateway error generating personas:", response.status, errText);
-      return NextResponse.json({ error: "Failed to generate personas" }, { status: 502 });
-    }
-
-    const data = await response.json();
-    const content = data?.choices?.[0]?.message?.content ?? "";
+    const content = result.text ?? "";
 
     // Extract JSON array from response (handle possible markdown wrapping)
     const jsonMatch = content.match(/\[[\s\S]*\]/);
@@ -108,7 +77,7 @@ Return only the JSON array.`;
       return NextResponse.json({ error: "No valid personas generated" }, { status: 500 });
     }
 
-    return NextResponse.json({ personas });
+    return NextResponse.json({ personas, modelId: result.modelId, provider: result.provider });
   } catch (err) {
     console.error("Error in generate-personas:", err);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

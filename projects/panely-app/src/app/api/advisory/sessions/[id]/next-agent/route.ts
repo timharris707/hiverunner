@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
+import { resolveOpenClawModel } from "@/lib/ai/providers";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 const CUSTOM_AGENTS_FILE = path.join(DATA_DIR, "custom-agents.json");
@@ -429,6 +430,10 @@ export async function POST(
       userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nBuild on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
     }
 
+    const selectedModelId =
+      (agentModelOverrides as Record<string, string> | undefined)?.[agentId] ||
+      (session.model as string | undefined);
+
     let text = "";
     let spawnedModel = "openclaw-agent";
     try {
@@ -438,6 +443,7 @@ export async function POST(
         systemPrompt,
         userPrompt,
         timeoutSeconds: 120,
+        model: resolveOpenClawModel(selectedModelId),
       });
       text = result.text;
       spawnedModel = result.model;

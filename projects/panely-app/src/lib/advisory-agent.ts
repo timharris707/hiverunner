@@ -8,6 +8,8 @@
  * turns within the same advisory session.
  */
 import { execFile } from "child_process";
+import fs from "fs";
+import path from "path";
 
 export interface SpawnAdvisoryAgentOptions {
   /** Advisory session ID (e.g. "session-1774642757038-6e1c62a6") */
@@ -22,6 +24,8 @@ export interface SpawnAdvisoryAgentOptions {
   timeoutSeconds?: number;
   /** Optional thinking level for extended thinking */
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high";
+  /** Optional model override for this turn (e.g. "gpt-5.4", "anthropic/claude-sonnet-4-6") */
+  model?: string;
 }
 
 export interface SpawnAdvisoryAgentResult {
@@ -29,6 +33,74 @@ export interface SpawnAdvisoryAgentResult {
   model: string;
   durationMs: number;
   openclawSessionId: string;
+}
+
+const MODEL_AGENT_PREFIX = "advisory-model-";
+const MODEL_ROUTER_DIR = path.join(process.cwd(), ".agents", "model-router");
+
+function normalizeModelId(modelId?: string): string | undefined {
+  if (!modelId) return undefined;
+  if (modelId.includes("/")) return modelId;
+  if (modelId.startsWith("gpt-")) return `openai/${modelId}`;
+  if (modelId.startsWith("claude-")) return `anthropic/${modelId}`;
+  if (modelId.startsWith("gemini-")) return `google/${modelId}`;
+  return modelId;
+}
+
+function slugifyModel(modelId: string): string {
+  return modelId.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
+}
+
+function execFileAsync(cmd: string, args: string[]): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { maxBuffer: 10 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr?.trim() || error.message));
+        return;
+      }
+      resolve(stdout);
+    });
+  });
+}
+
+async function ensureModelAgent(modelId: string): Promise<string> {
+  const normalizedModel = normalizeModelId(modelId) || modelId;
+  const configuredRaw = await execFileAsync("openclaw", ["agents", "list", "--json"]);
+  const configuredAgents = JSON.parse(configuredRaw) as Array<{ id: string; model?: string }>;
+
+  const existingByModel = configuredAgents.find(
+    (a) => a.id.startsWith(MODEL_AGENT_PREFIX) && a.model === normalizedModel
+  );
+  if (existingByModel) return existingByModel.id;
+
+  const agentId = `${MODEL_AGENT_PREFIX}${slugifyModel(normalizedModel)}`;
+  if (configuredAgents.some((a) => a.id === agentId)) return agentId;
+
+  const workspaceDir = path.join(MODEL_ROUTER_DIR, agentId, "workspace");
+  const agentDir = path.join(MODEL_ROUTER_DIR, agentId, "agent");
+  fs.mkdirSync(workspaceDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
+
+  try {
+    await execFileAsync("openclaw", [
+      "agents",
+      "add",
+      agentId,
+      "--workspace",
+      workspaceDir,
+      "--agent-dir",
+      agentDir,
+      "--model",
+      normalizedModel,
+      "--non-interactive",
+      "--json",
+    ]);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (!msg.toLowerCase().includes("already exists")) throw err;
+  }
+
+  return agentId;
 }
 
 /**
@@ -42,7 +114,7 @@ export interface SpawnAdvisoryAgentResult {
  * override block, since the `openclaw agent` CLI uses the default agent's
  * system prompt (Henry). The override is structured to take priority.
  */
-export function spawnAdvisoryAgent(
+export async function spawnAdvisoryAgent(
   options: SpawnAdvisoryAgentOptions
 ): Promise<SpawnAdvisoryAgentResult> {
   const {
@@ -52,6 +124,7 @@ export function spawnAdvisoryAgent(
     userPrompt,
     timeoutSeconds = 120,
     thinkingLevel,
+    model,
   } = options;
 
   // H-7 fix: Use ephemeral sessions per turn to avoid context accumulation.
@@ -85,6 +158,11 @@ Respond as ${agentId} only. Stay fully in character.`;
     "--local",
     "--timeout", String(timeoutSeconds),
   ];
+
+  if (model) {
+    const routedAgentId = await ensureModelAgent(model);
+    args.push("--agent", routedAgentId);
+  }
 
   if (thinkingLevel && thinkingLevel !== "off") {
     args.push("--thinking", thinkingLevel);

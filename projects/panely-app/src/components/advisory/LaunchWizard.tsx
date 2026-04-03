@@ -532,7 +532,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
   const [mode, setMode] = useState<"review" | "roundtable" | "competitive">("roundtable");
   const [selectedAgents, setSelectedAgents] = useState<string[]>(["Henry"]);
   const [reviewStyle, setReviewStyle] = useState<"strict" | "flexible" | "open">("open");
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [model, setModel] = useState("claude-sonnet");
   const [rounds, setRounds] = useState<number | "persistent">(3);
   const [pacing, setPacing] = useState<string>("manual"); // default: manual for roundtable
   const [responseLength, setResponseLength] = useState<"concise" | "balanced" | "detailed" | "verbose">("balanced");
@@ -634,7 +634,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
       const res = await fetch("/api/advisory/generate-personas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic: topicText }),
+        body: JSON.stringify({ topic: topicText, modelId: model }),
       });
       if (!res.ok) throw new Error("Failed");
       const data = await res.json();
@@ -661,7 +661,7 @@ export default function LaunchWizard({ onClose, onLaunch, customAgents, onCustom
     } finally {
       setAiPersonasLoading(false);
     }
-  }, [aiPersonasCachedTopic, aiPersonas.length, selectedAgents, MAX_OVERLAYS_PER_AGENT]);
+  }, [aiPersonasCachedTopic, aiPersonas.length, model, selectedAgents, MAX_OVERLAYS_PER_AGENT]);
 
   const handleNext = () => {
     if (!topic.trim()) { setError("Mission/Topic is required."); return; }

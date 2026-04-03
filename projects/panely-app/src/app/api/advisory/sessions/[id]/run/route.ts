@@ -4,6 +4,7 @@ import path from "path";
 import { archiveSession } from "../archive/route";
 import { AGENT_CONFIGS } from "@/config/agents";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
+import { resolveOpenClawModel } from "@/lib/ai/providers";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 const MEMORY_FILE = path.join(DATA_DIR, "agent-memory.json");
@@ -127,7 +128,7 @@ const PERSONA_CONTENT: Record<string, string> = {
 
 // ─── Default fallback model ───────────────────────────────────────────────────
 
-const INFERENCE_MODEL = "anthropic/claude-sonnet-4-6";
+const INFERENCE_MODEL = resolveOpenClawModel("claude-sonnet");
 
 // ─── Resolve model from session config ───────────────────────────────────────
 
@@ -135,14 +136,16 @@ function resolveModel(sessionModel?: string): { model: string; thinking?: boolea
   if (!sessionModel) return { model: INFERENCE_MODEL };
   // Handle our internal thinking marker
   if (sessionModel.endsWith(":thinking")) {
-    return { model: sessionModel.replace(":thinking", ""), thinking: true };
+    return { model: resolveModel(sessionModel.replace(":thinking", "")).model, thinking: true };
   }
-  // If it already looks like a gateway model ID (contains "/"), use as-is
+  // Backward compatibility: explicit provider/model strings can pass through unchanged.
   if (sessionModel.includes("/")) return { model: sessionModel };
-  // GPT models → prepend openai/
+  // Backward compatibility: older raw model IDs.
   if (sessionModel.startsWith("gpt-")) return { model: `openai/${sessionModel}` };
-  // Claude / other bare model names → prepend anthropic/
-  return { model: `anthropic/${sessionModel}` };
+  if (sessionModel.startsWith("claude-")) return { model: `anthropic/${sessionModel}` };
+  if (sessionModel.startsWith("gemini-")) return { model: `google/${sessionModel}` };
+  // Preferred path: provider registry model IDs (claude-sonnet, gpt-4o, gemini-flash).
+  return { model: resolveOpenClawModel(sessionModel) };
 }
 
 // ─── Agent spawning ──────────────────────────────────────────────────────────
@@ -161,7 +164,7 @@ function setActiveSessionId(sessionId: string) {
 async function callClaude(
   systemPrompt: string,
   userPrompt: string,
-  _modelStr: string,
+  modelStr: string,
   thinking = false,
   _maxTokensOverride?: number,
   agentId?: string
@@ -173,6 +176,7 @@ async function callClaude(
     userPrompt,
     timeoutSeconds: 120,
     thinkingLevel: thinking ? "medium" : undefined,
+    model: modelStr,
   });
   return result.text;
 }
@@ -1774,7 +1778,7 @@ async function runReviewLoop(
 ) {
   // The review-loop route handles individual steps.
   // When "run" is called on a review-loop session, we auto-advance through all tasks.
-  const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const baseUrl = `http://localhost:${process.env.PORT || 3000}`;
 
   const sessionId = session.id as string;
   const loop = session.reviewLoop as {

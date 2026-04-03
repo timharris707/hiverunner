@@ -9,6 +9,7 @@ import path from "path";
 import { spawnAdvisoryAgentWithRetry } from "@/lib/advisory-agent";
 import { withSessionLock } from "@/lib/session-lock";
 import { buildHistoryString as buildHistoryStringShared } from "@/lib/advisory-history";
+import { resolveOpenClawModel } from "@/lib/ai/providers";
 
 const DATA_DIR = path.join(process.cwd(), "data", "advisory");
 
@@ -158,7 +159,7 @@ export async function POST(
     return NextResponse.json({ error: "Session is not active" }, { status: 400 });
   }
 
-  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
+  const { topic, mode, agents = [], personaOverlays, aiPersonas, agentModelOverrides, agentResponseLengths, agentPersonalityTraits, agentCommunicationStyles, agentIntensityLevels } = session;
 
   // H-5: Enforce round limit — count completed full rounds and check against configured max
   const configuredRounds = session.rounds || Infinity;
@@ -199,6 +200,9 @@ export async function POST(
         (agentIntensityLevels as Record<string, number> | undefined)?.[agentId]
       );
       const userPrompt = `Topic: ${topic}\n\nCurrent discussion:\n\n${history}\n\nThis is a new full round. Build on the current state of the discussion — advance the conversation with your freshest thinking. What's changed? What's been missed? What's the most important thing to address right now?`;
+      const selectedModelId =
+        (agentModelOverrides as Record<string, string> | undefined)?.[agentId] ||
+        (session.model as string | undefined);
 
       let text = "";
       let spawnedModel = "openclaw-agent";
@@ -209,6 +213,7 @@ export async function POST(
           systemPrompt,
           userPrompt,
           timeoutSeconds: 120,
+          model: resolveOpenClawModel(selectedModelId),
         });
         text = result.text;
         spawnedModel = result.model;

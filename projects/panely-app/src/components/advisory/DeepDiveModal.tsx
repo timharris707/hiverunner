@@ -14,7 +14,7 @@ interface DeepDiveModalProps {
 
 export default function DeepDiveModal({ agent, onClose, onLaunch }: DeepDiveModalProps) {
   const [topic, setTopic] = useState("");
-  const [model, setModel] = useState("claude-sonnet-4-6");
+  const [model, setModel] = useState("claude-sonnet");
   const [launching, setLaunching] = useState(false);
 
   const handleLaunch = async () => {
