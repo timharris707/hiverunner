@@ -53,6 +53,10 @@ yarn-error.log*
 /data/advisory/session-*.json
 /data/agent-memory/
 /data/releases/
+/data/repairs/
+/data/*.corrupt-*
+/data/*.pre-restore-*
+/data/mc-healthcheck-fail-count
 
 # vercel
 .vercel
