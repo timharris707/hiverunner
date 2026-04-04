@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import Link from "next/link";
+import { useParams, useRouter } from "next/navigation";
 import {
   ChevronRight,
   ChevronDown,
@@ -61,6 +62,57 @@ export default function CompanySkillsPage() {
   const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
   const [viewMode, setViewMode] = useState<"view" | "code">("view");
   const [refreshing, setRefreshing] = useState(false);
+
+  // Add skill state
+  const [addInput, setAddInput] = useState("");
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [showAddBar, setShowAddBar] = useState(false);
+  const router = useRouter();
+
+  const handleAddSkill = async () => {
+    const input = addInput.trim();
+    if (!input) return;
+
+    // Determine name and location from input
+    let name: string;
+    let location: string;
+
+    if (input.startsWith("/") || input.startsWith("~")) {
+      // Absolute path - use last directory segment as name
+      const segments = input.replace(/\/+$/, "").split("/");
+      name = segments[segments.length - 1];
+      location = input;
+    } else if (input.includes("/")) {
+      // Could be a relative path or a github-style ref
+      const segments = input.replace(/\/+$/, "").split("/");
+      name = segments[segments.length - 1];
+      location = input;
+    } else {
+      // Simple name - try workspace first, then system
+      name = input;
+      location = "workspace";
+    }
+
+    setAddBusy(true);
+    setAddError(null);
+
+    const res = await fetch("/api/skills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, location }),
+    }).catch(() => null);
+
+    if (res?.ok) {
+      setAddInput("");
+      setShowAddBar(false);
+      await load();
+    } else {
+      const data = await res?.json().catch(() => null);
+      setAddError(data?.error?.message || "Failed to add skill");
+    }
+    setAddBusy(false);
+  };
 
   const load = async () => {
     const [companyRows, companyAgents, registryResponse] = await Promise.all([
@@ -185,9 +237,12 @@ export default function CompanySkillsPage() {
             <button
               type="button"
               title="Add skill"
+              onClick={() => { setShowAddBar((p) => !p); setAddError(null); }}
               style={{
                 width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center",
-                background: "transparent", border: `1px solid ${P.cardBorder}`, color: P.muted, cursor: "pointer",
+                background: showAddBar ? "rgba(255,255,255,0.06)" : "transparent",
+                border: `1px solid ${showAddBar ? P.cardBorderHover : P.cardBorder}`,
+                color: showAddBar ? P.text : P.muted, cursor: "pointer",
               }}
             >
               <Plus size={13} />
@@ -209,6 +264,42 @@ export default function CompanySkillsPage() {
             }}
           />
         </div>
+
+        {/* Add/import bar */}
+        {showAddBar && (
+          <div style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                autoFocus
+                value={addInput}
+                onChange={(e) => { setAddInput(e.target.value); setAddError(null); }}
+                onKeyDown={(e) => { if (e.key === "Enter") void handleAddSkill(); if (e.key === "Escape") { setShowAddBar(false); setAddInput(""); setAddError(null); } }}
+                placeholder="Skill name, path, or workspace skill directory"
+                style={{
+                  flex: 1, padding: "7px 10px", borderRadius: 6,
+                  border: `1px solid ${P.cardBorder}`, background: "transparent",
+                  color: P.text, fontSize: 12, outline: "none",
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => void handleAddSkill()}
+                disabled={addBusy || !addInput.trim()}
+                style={{
+                  padding: "7px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600,
+                  background: "rgba(34,197,94,0.12)", border: "1px solid rgba(34,197,94,0.25)",
+                  color: "#4ade80", cursor: "pointer",
+                  opacity: addBusy || !addInput.trim() ? 0.5 : 1,
+                }}
+              >
+                {addBusy ? "Adding..." : "Add"}
+              </button>
+            </div>
+            {addError && (
+              <p style={{ margin: "4px 0 0", fontSize: 11, color: "#f87171" }}>{addError}</p>
+            )}
+          </div>
+        )}
 
         {/* Skill list */}
         <div style={{ flex: 1, overflowY: "auto" }}>
@@ -233,9 +324,17 @@ export default function CompanySkillsPage() {
                       cursor: "pointer",
                       transition: "background 0.12s",
                     }}
-                    onClick={() => {
+                    onClick={(e) => {
+                      // Ctrl/Cmd+click or middle-click: open routed detail in new tab
+                      if (e.metaKey || e.ctrlKey) {
+                        window.open(`/companies/${slug}/skills/${encodeURIComponent(skill.id)}`, "_blank");
+                        return;
+                      }
                       setSelectedSkillId(isSelected ? null : skill.id);
                       setViewMode("view");
+                    }}
+                    onDoubleClick={() => {
+                      router.push(`/companies/${slug}/skills/${encodeURIComponent(skill.id)}`);
                     }}
                     onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
                     onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
@@ -302,6 +401,7 @@ export default function CompanySkillsPage() {
       {selectedSkill && (
         <SkillDetailPanel
           skill={selectedSkill}
+          slug={slug}
           viewMode={viewMode}
           setViewMode={setViewMode}
           onClose={() => setSelectedSkillId(null)}
@@ -313,9 +413,10 @@ export default function CompanySkillsPage() {
 
 /* ─── Skill Detail Panel ─── */
 function SkillDetailPanel({
-  skill, viewMode, setViewMode, onClose,
+  skill, slug, viewMode, setViewMode, onClose,
 }: {
   skill: SkillEntry;
+  slug: string;
   viewMode: "view" | "code";
   setViewMode: (m: "view" | "code") => void;
   onClose: () => void;
@@ -331,14 +432,23 @@ function SkillDetailPanel({
       display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden",
     }}>
       <div style={{ flex: 1, padding: "16px 20px", overflowY: "auto" }}>
+        {/* Breadcrumb */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, fontSize: 12, color: P.muted }}>
+          <span>Skills</span>
+          <ChevronRight size={12} />
+          <Link href={`/companies/${slug}/skills/${encodeURIComponent(skill.id)}`} style={{ color: P.textSec, textDecoration: "none" }}>
+            Detail
+          </Link>
+        </div>
+
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <Link href={`/companies/${slug}/skills/${encodeURIComponent(skill.id)}`} style={{ display: "flex", alignItems: "center", gap: 8, textDecoration: "none" }}>
             <Paperclip size={16} style={{ color: P.muted }} />
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: P.text, fontFamily: "var(--font-heading)" }}>
               {skill.name}
             </h2>
-          </div>
+          </Link>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {isReadOnly && (
               <span style={{ fontSize: 11, color: P.muted, fontStyle: "italic" }}>

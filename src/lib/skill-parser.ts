@@ -231,6 +231,93 @@ function loadConfiguredSkills(): ConfiguredSkill[] {
 }
 
 /**
+ * Add a skill to configured-skills.json
+ */
+export function addConfiguredSkill(
+  name: string,
+  location: string
+): { ok: true; skill: SkillInfo } | { ok: false; code: string; message: string; status: number } {
+  try {
+    let config: SkillsConfig;
+    try {
+      config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    } catch {
+      config = { skills: [] };
+    }
+
+    const existing = config.skills.find(
+      (s) => s.name.toLowerCase() === name.toLowerCase()
+    );
+    if (existing) {
+      return { ok: false, code: "skill_exists", message: "A skill with this name is already configured", status: 409 };
+    }
+
+    // Resolve the actual path to verify it exists
+    const systemPath = config.systemSkillsPath || DEFAULT_SYSTEM_PATH;
+    const workspacePath = config.workspaceSkillsPath || DEFAULT_WORKSPACE_PATH;
+
+    let resolvedPath: string;
+    if (location === "system") {
+      resolvedPath = path.join(systemPath, name);
+    } else if (location === "workspace") {
+      resolvedPath = path.join(workspacePath, name);
+    } else {
+      resolvedPath = location;
+    }
+
+    if (!fs.existsSync(resolvedPath)) {
+      return { ok: false, code: "skill_not_found", message: `Skill directory not found at ${resolvedPath}`, status: 404 };
+    }
+
+    const skillMd = path.join(resolvedPath, "SKILL.md");
+    if (!fs.existsSync(skillMd)) {
+      return { ok: false, code: "no_skill_md", message: `No SKILL.md found at ${resolvedPath}`, status: 422 };
+    }
+
+    config.skills.push({ name, location });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf-8");
+
+    const skill = parseSkill(resolvedPath, name, []);
+    if (!skill) {
+      return { ok: false, code: "parse_failed", message: "Skill was added but could not be parsed", status: 500 };
+    }
+
+    return { ok: true, skill };
+  } catch (err) {
+    return { ok: false, code: "internal_error", message: String(err), status: 500 };
+  }
+}
+
+/**
+ * Remove a skill from configured-skills.json
+ */
+export function removeConfiguredSkill(
+  name: string
+): { ok: true } | { ok: false; code: string; message: string; status: number } {
+  try {
+    let config: SkillsConfig;
+    try {
+      config = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf-8"));
+    } catch {
+      return { ok: false, code: "config_not_found", message: "Skills config not found", status: 404 };
+    }
+
+    const idx = config.skills.findIndex(
+      (s) => s.name.toLowerCase() === name.toLowerCase()
+    );
+    if (idx === -1) {
+      return { ok: false, code: "skill_not_found", message: "Skill not found in configuration", status: 404 };
+    }
+
+    config.skills.splice(idx, 1);
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2) + "\n", "utf-8");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, code: "internal_error", message: String(err), status: 500 };
+  }
+}
+
+/**
  * Scan only configured skills and return parsed skills
  */
 export function scanAllSkills(): SkillInfo[] {
