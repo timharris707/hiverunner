@@ -32,7 +32,7 @@ export function listActivityFeed(input: {
   const params: unknown[] = [];
   const taskWhereParts = [
     "p.archived_at IS NULL",
-    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned')",
+    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned','task.comment_added')",
   ];
   const sprintWhereParts = ["p.archived_at IS NULL"];
 
@@ -213,18 +213,22 @@ export function listActivityFeed(input: {
           ? metadata.assignee
           : undefined;
 
+      const agentLabel = row.agent_name ?? assigneeName ?? "Someone";
+
       const message =
-        eventType === "task.status_changed" && row.from_status && row.to_status
-          ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
-          : eventType === "task.assigned"
-            ? `${taskTitle ?? "Task"} assigned${assigneeName ? ` to ${assigneeName}` : ""}`
-            : eventType === "task.unassigned"
-              ? `${taskTitle ?? "Task"} unassigned`
-              : eventType === "sprint.completed"
-                ? `${sprintName ?? "Sprint"} completed`
-                : eventType === "sprint.updated"
-                  ? `${sprintName ?? "Sprint"} updated`
-                  : `${sprintName ?? "Sprint"} created`;
+        eventType === "task.comment_added"
+          ? `${agentLabel} commented on ${taskTitle ?? "a task"}`
+          : eventType === "task.status_changed" && row.from_status && row.to_status
+            ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
+            : eventType === "task.assigned"
+              ? `${taskTitle ?? "Task"} assigned${assigneeName ? ` to ${assigneeName}` : ""}`
+              : eventType === "task.unassigned"
+                ? `${taskTitle ?? "Task"} unassigned`
+                : eventType === "sprint.completed"
+                  ? `${sprintName ?? "Sprint"} completed`
+                  : eventType === "sprint.updated"
+                    ? `${sprintName ?? "Sprint"} updated`
+                    : `${sprintName ?? "Sprint"} created`;
 
       return {
         id: row.task_event_uuid ?? deterministicEventId(row.event_id),

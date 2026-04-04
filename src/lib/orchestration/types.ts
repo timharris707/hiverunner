@@ -249,6 +249,7 @@ export interface OrchestrationActivityEvent {
     | "task.status_changed"
     | "task.assigned"
     | "task.unassigned"
+    | "task.comment_added"
     | "sprint.created"
     | "sprint.updated"
     | "sprint.completed";

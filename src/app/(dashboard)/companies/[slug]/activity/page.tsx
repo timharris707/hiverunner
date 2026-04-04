@@ -16,13 +16,36 @@ const P = {
   card: "#1e1e1e",
 };
 
+/* ─── Stable agent color palette ─── */
+const AGENT_COLORS = [
+  "#6366f1", // indigo
+  "#8b5cf6", // violet
+  "#ec4899", // pink
+  "#f43f5e", // rose
+  "#ef4444", // red
+  "#f97316", // orange
+  "#eab308", // yellow
+  "#22c55e", // green
+  "#14b8a6", // teal
+  "#06b6d4", // cyan
+  "#3b82f6", // blue
+  "#a855f7", // purple
+];
+
+function agentColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = ((hash << 5) - hash + name.charCodeAt(i)) | 0;
+  }
+  return AGENT_COLORS[Math.abs(hash) % AGENT_COLORS.length];
+}
+
 const EVENT_TYPE_OPTIONS = [
   { value: "all", label: "All types" },
   { value: "comment", label: "Comments" },
   { value: "status", label: "Status changes" },
   { value: "assignment", label: "Assignments" },
   { value: "sprint", label: "Sprints" },
-  { value: "read", label: "Read marks" },
 ];
 
 const PAGE_LIMIT = 40;
@@ -85,11 +108,10 @@ export default function CompanyActivityPage() {
   const filtered = useMemo(() => {
     if (typeFilter === "all") return events;
     return events.filter((e) => {
-      if (typeFilter === "comment") return e.message.includes("commented");
+      if (typeFilter === "comment") return e.eventType === "task.comment_added";
       if (typeFilter === "status") return e.eventType === "task.status_changed";
       if (typeFilter === "assignment") return e.eventType === "task.assigned" || e.eventType === "task.unassigned";
       if (typeFilter === "sprint") return e.eventType.startsWith("sprint.");
-      if (typeFilter === "read") return e.message.includes("read marked");
       return true;
     });
   }, [events, typeFilter]);
@@ -172,8 +194,7 @@ export default function CompanyActivityPage() {
 
 /* ─── Activity Row ─── */
 function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
-  // Parse the event message to extract agent name, action, task key, and title
-  const { initials, agentName, description } = parseEventMessage(event);
+  const { initials, agentName, description, color } = parseEventDisplay(event);
 
   return (
     <div style={{
@@ -181,12 +202,13 @@ function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
       padding: "9px 14px",
       borderBottom: `1px solid ${P.cardBorder}`,
     }}>
-      {/* Agent avatar circle */}
+      {/* Agent avatar circle with stable color */}
       <span style={{
         width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-        background: "rgba(255,255,255,0.08)",
+        background: `${color}20`,
+        border: `1px solid ${color}40`,
         display: "grid", placeItems: "center",
-        fontSize: 10, fontWeight: 700, color: P.muted,
+        fontSize: 10, fontWeight: 700, color,
         textTransform: "uppercase", letterSpacing: "0.02em",
       }}>
         {initials}
@@ -210,16 +232,18 @@ function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
   );
 }
 
-/* ─── Parse event into display components ─── */
-function parseEventMessage(event: OrchestrationActivityEvent): {
+/* ─── Parse event into display ─── */
+function parseEventDisplay(event: OrchestrationActivityEvent): {
   initials: string;
   agentName: string;
   description: React.ReactNode;
+  color: string;
 } {
   const agentName = event.agentName || "System";
   const initials = agentName.slice(0, 2).toUpperCase();
+  const color = agentColor(agentName);
 
-  // Build the task key if we have enough info
+  // Build task key reference
   const taskKey = event.taskId
     ? (event.companySlug || event.projectSlug || "").toUpperCase().slice(0, 3) + "-" + event.taskId.slice(-3)
     : "";
@@ -228,28 +252,28 @@ function parseEventMessage(event: OrchestrationActivityEvent): {
     ? <><span style={{ fontWeight: 600, color: P.text }}>{taskKey}</span>{" — "}{event.taskTitle}</>
     : event.taskTitle || "";
 
-  // Format based on event type
   switch (event.eventType) {
+    case "task.comment_added":
+      return { initials, agentName, color, description: <>commented on {taskRef}</> };
     case "task.status_changed": {
       const transition = event.oldStatus && event.newStatus
         ? `from ${event.oldStatus} to ${event.newStatus} on `
         : "on ";
-      return { initials, agentName, description: <>changed status {transition}{taskRef}</> };
+      return { initials, agentName, color, description: <>changed status {transition}{taskRef}</> };
     }
     case "task.assigned":
-      return { initials, agentName, description: <>assigned to {taskRef}</> };
+      return { initials, agentName, color, description: <>assigned to {taskRef}</> };
     case "task.unassigned":
-      return { initials, agentName, description: <>unassigned from {taskRef}</> };
+      return { initials, agentName, color, description: <>unassigned from {taskRef}</> };
     case "sprint.created":
-      return { initials, agentName, description: <>created sprint {event.sprintName || ""}</> };
+      return { initials, agentName, color, description: <>created sprint {event.sprintName || ""}</> };
     case "sprint.updated":
-      return { initials, agentName, description: <>updated sprint {event.sprintName || ""}</> };
+      return { initials, agentName, color, description: <>updated sprint {event.sprintName || ""}</> };
     case "sprint.completed":
-      return { initials, agentName, description: <>completed sprint {event.sprintName || ""}</> };
+      return { initials, agentName, color, description: <>completed sprint {event.sprintName || ""}</> };
     default: {
-      // Fall back to the raw message, trying to extract structure
       const msg = event.message || "";
-      return { initials, agentName, description: <>{msg.replace(new RegExp(`^${agentName}\\s*`, "i"), "")}</> };
+      return { initials, agentName, color, description: <>{msg.replace(new RegExp(`^${agentName}\\s*`, "i"), "")}</> };
     }
   }
 }
