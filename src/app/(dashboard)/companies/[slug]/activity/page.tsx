@@ -1,391 +1,283 @@
 "use client";
 
-import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Loader2, RefreshCw } from "lucide-react";
-
-import { CompanyErrorState } from "@/components/company/company-ui";
-import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
+import { Loader2 } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
 import { listActivityFeed, listCompanies, listProjects } from "@/lib/orchestration/client";
-import { canonicalProjectBoardHref } from "@/lib/orchestration/company-routes";
-import { useActiveProjectState } from "@/lib/active-project-state";
-import { resolveActiveProject } from "@/lib/active-project-utils";
 import type { OrchestrationActivityEvent, OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
+
+/* ─── Palette ─── */
+const P = {
+  text: "#e5e5e5",
+  textSec: "#a3a3a3",
+  muted: "#737373",
+  cardBorder: "rgba(255,255,255,0.08)",
+  card: "#1e1e1e",
+};
+
+const EVENT_TYPE_OPTIONS = [
+  { value: "all", label: "All types" },
+  { value: "comment", label: "Comments" },
+  { value: "status", label: "Status changes" },
+  { value: "assignment", label: "Assignments" },
+  { value: "sprint", label: "Sprints" },
+  { value: "read", label: "Read marks" },
+];
 
 const PAGE_LIMIT = 40;
 const API_PAGE_SIZE = 100;
-const MAX_PAGE_FETCHES_PER_BATCH = 6;
+const MAX_FETCHES = 6;
 
-/* ── amber/brown palette tokens ── */
-const amber = {
-  accent: "#d97706",
-  accentLight: "#fbbf24",
-  border: "rgba(217,119,6,0.25)",
-  borderHover: "rgba(251,191,36,0.45)",
-  bgSubtle: "rgba(217,119,6,0.06)",
-  bgPanel: "rgba(28,25,23,0.82)",
-  text: "#fde68a",
-  textMuted: "#a8a29e",
-  textDim: "#78716c",
-};
-
-type ActivitySlice = {
-  events: OrchestrationActivityEvent[];
-  nextCursor?: string;
-  hasMore: boolean;
-};
-
-function eventStyle(eventType: OrchestrationActivityEvent["eventType"]) {
-  if (eventType === "task.status_changed") return { label: "Status Change", color: "#d97706" };
-  if (eventType === "task.assigned") return { label: "Assignment", color: "#a3e635" };
-  if (eventType === "task.unassigned") return { label: "Unassigned", color: "#f59e0b" };
-  if (eventType === "sprint.completed") return { label: "Sprint Complete", color: "#fbbf24" };
-  if (eventType === "sprint.updated") return { label: "Sprint Updated", color: "#d6d3d1" };
-  return { label: "Sprint Created", color: "#fb923c" };
-}
-
-function buildEventHref(company: OrchestrationCompany | null, companySlug: string, event: OrchestrationActivityEvent): string {
-  const projectKey = event.projectSlug || event.projectId;
-  if (!projectKey) return `/companies/${encodeURIComponent(companySlug)}`;
-  return canonicalProjectBoardHref(company, projectKey, event.taskId);
-}
-
-async function readActivitySlice(
-  slug: string,
-  projectSet: Set<string>,
-  cursor?: string
-): Promise<ActivitySlice | null> {
-  let nextCursor = cursor;
-  let hasMore = true;
-  let pagesFetched = 0;
-  let collected: OrchestrationActivityEvent[] = [];
-
-  while (hasMore && collected.length < PAGE_LIMIT && pagesFetched < MAX_PAGE_FETCHES_PER_BATCH) {
-    const feed = await listActivityFeed({
-      limit: API_PAGE_SIZE,
-      cursor: nextCursor,
-    });
-
-    if (!feed) return null;
-
-    const filtered = feed.activity.filter((event) => {
-      if (event.companySlug) return event.companySlug === slug;
-      return projectSet.has(event.projectId);
-    });
-    collected = collected.concat(filtered);
-
-    nextCursor = feed.page.nextCursor;
-    hasMore = feed.page.hasMore && Boolean(nextCursor);
-    pagesFetched += 1;
-  }
-
-  return {
-    events: collected.slice(0, PAGE_LIMIT),
-    nextCursor,
-    hasMore,
-  };
-}
-
+/* ─── Page ─── */
 export default function CompanyActivityPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
-  const { activeProject, clearActiveProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [events, setEvents] = useState<OrchestrationActivityEvent[]>([]);
-  const [nextCursor, setNextCursor] = useState<string | undefined>(undefined);
+  const [nextCursor, setNextCursor] = useState<string | undefined>();
   const [hasMore, setHasMore] = useState(false);
-
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshNonce, setRefreshNonce] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-
-  const activeProjectRecord = useMemo(
-    () => resolveActiveProject(projects, activeProject, slug),
-    [activeProject, projects, slug]
-  );
+  const [typeFilter, setTypeFilter] = useState("all");
 
   useEffect(() => {
     let cancelled = false;
-
-    const loadInitial = async () => {
+    const load = async () => {
       setLoading(true);
-      setError(null);
+      const [companies, projectRows] = await Promise.all([
+        listCompanies(),
+        listProjects({ company: slug }),
+      ]);
+      if (cancelled) return;
+      const current = companies.find((r) => r.slug === slug) ?? null;
+      setCompany(current);
+      if (!current) { setLoading(false); return; }
 
-      try {
-        const [companies, projectRows] = await Promise.all([
-          listCompanies(),
-          listProjects({ company: slug }),
-        ]);
+      const companyProjects = projectRows.filter((r) => r.companyId === current.id);
+      setProjects(companyProjects);
 
-        if (cancelled) return;
-
-        const current = companies.find((row) => row.slug === slug) ?? null;
-        setCompany(current);
-
-        if (!current) {
-          setProjects([]);
-          setEvents([]);
-          setNextCursor(undefined);
-          setHasMore(false);
-          return;
-        }
-
-        const companyProjects = projectRows.filter((row) => row.companyId === current.id);
-        setProjects(companyProjects);
-
-        const projectSet = new Set(companyProjects.map((project) => project.id));
-        const slice = await readActivitySlice(slug, projectSet);
-        if (cancelled) return;
-        if (!slice) {
-          setError("Unable to load company activity right now.");
-          setEvents([]);
-          setNextCursor(undefined);
-          setHasMore(false);
-          return;
-        }
-
-        setEvents(slice.events);
-        setNextCursor(slice.nextCursor);
-        setHasMore(slice.hasMore);
-      } catch {
-        if (!cancelled) {
-          setError("Unable to load company activity right now.");
-          setEvents([]);
-          setNextCursor(undefined);
-          setHasMore(false);
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-          setRefreshing(false);
-        }
-      }
-    };
-
-    void loadInitial();
-    return () => { cancelled = true; };
-  }, [slug, refreshNonce]);
-
-  const handleLoadMore = async () => {
-    if (!hasMore || !nextCursor || loadingMore || !company) return;
-    setLoadingMore(true);
-    setError(null);
-
-    try {
-      const projectSet = new Set(projects.map((project) => project.id));
-      const slice = await readActivitySlice(slug, projectSet, nextCursor);
-      if (!slice) {
-        setError("Unable to load more activity right now.");
-        return;
-      }
-      setEvents((previous) => previous.concat(slice.events));
+      const projectSet = new Set(companyProjects.map((p) => p.id));
+      const slice = await fetchSlice(slug, projectSet);
+      if (cancelled) return;
+      setEvents(slice.events);
       setNextCursor(slice.nextCursor);
       setHasMore(slice.hasMore);
-    } finally {
-      setLoadingMore(false);
-    }
+      setLoading(false);
+    };
+    void load();
+    return () => { cancelled = true; };
+  }, [slug]);
+
+  const handleLoadMore = async () => {
+    if (!hasMore || !nextCursor || loadingMore) return;
+    setLoadingMore(true);
+    const projectSet = new Set(projects.map((p) => p.id));
+    const slice = await fetchSlice(slug, projectSet, nextCursor);
+    setEvents((prev) => [...prev, ...slice.events]);
+    setNextCursor(slice.nextCursor);
+    setHasMore(slice.hasMore);
+    setLoadingMore(false);
   };
 
-  const counters = useMemo(() => {
-    return events.reduce(
-      (acc, event) => {
-        if (event.eventType.startsWith("task.")) acc.task += 1;
-        else acc.sprint += 1;
-        if (event.eventType === "task.status_changed") acc.transitions += 1;
-        return acc;
-      },
-      { task: 0, sprint: 0, transitions: 0 }
-    );
-  }, [events]);
+  const filtered = useMemo(() => {
+    if (typeFilter === "all") return events;
+    return events.filter((e) => {
+      if (typeFilter === "comment") return e.message.includes("commented");
+      if (typeFilter === "status") return e.eventType === "task.status_changed";
+      if (typeFilter === "assignment") return e.eventType === "task.assigned" || e.eventType === "task.unassigned";
+      if (typeFilter === "sprint") return e.eventType.startsWith("sprint.");
+      if (typeFilter === "read") return e.message.includes("read marked");
+      return true;
+    });
+  }, [events, typeFilter]);
 
   if (!loading && !company) {
     return (
-      <CompanyErrorState
-        title="Company not found"
-        detail="This company could not be resolved from orchestration data."
-        href="/companies"
-      />
+      <div style={{ padding: 24 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+          Company not found.
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4 pb-8">
-      {/* ── dense header ── */}
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.2em]" style={{ color: amber.textDim }}>
-            Activity
-          </p>
-          <h1 className="text-lg font-semibold text-stone-100">
-            {loading ? "Loading…" : `${company?.name ?? "Company"} Timeline`}
-          </h1>
-          <p className="text-xs" style={{ color: amber.textMuted }}>
-            {projects.length} projects · {events.length} events loaded
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => { setRefreshing(true); setRefreshNonce((v) => v + 1); }}
-          disabled={refreshing}
-          className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] transition"
-          style={{ borderColor: amber.border, color: amber.text, background: amber.bgSubtle }}
+    <div style={{ padding: "16px 20px", color: P.text, fontSize: 13 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+        <h1 style={{
+          margin: 0, fontSize: 13, fontWeight: 700,
+          letterSpacing: "0.12em", textTransform: "uppercase",
+          color: P.textSec, fontFamily: "var(--font-heading)",
+        }}>
+          Activity
+        </h1>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{
+            padding: "6px 12px", borderRadius: 6,
+            border: `1px solid ${P.cardBorder}`, background: P.card,
+            color: P.text, fontSize: 12, outline: "none", cursor: "pointer",
+          }}
         >
-          {refreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-          {refreshing ? "Refreshing…" : "Refresh"}
-        </button>
+          {EVENT_TYPE_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
       </div>
 
-      {activeProjectRecord ? (
-        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} compact />
-      ) : null}
-
-      {/* ── stat pills ── */}
-      <div className="flex flex-wrap gap-2">
-        <StatPill label="Events" value={events.length} />
-        <StatPill label="Task" value={counters.task} />
-        <StatPill label="Sprint" value={counters.sprint} />
-        <StatPill label="Transitions" value={counters.transitions} />
-      </div>
-
-      {/* ── error banner ── */}
-      {error ? (
-        <div
-          className="rounded-lg border p-2.5 text-xs"
-          style={{ borderColor: "rgba(244,63,94,0.3)", background: "rgba(244,63,94,0.08)", color: "#fda4af" }}
-        >
-          {error}
-        </div>
-      ) : null}
-
-      {/* ── timeline ── */}
-      <div
-        className="rounded-xl border p-3"
-        style={{ borderColor: amber.border, background: amber.bgPanel }}
-      >
+      {/* Event list */}
+      <div style={{ borderRadius: 8, border: `1px solid ${P.cardBorder}` }}>
         {loading ? (
-          <div className="space-y-2">
-            {Array.from({ length: 10 }).map((_, i) => (
-              <div
-                key={i}
-                className="h-14 animate-pulse rounded-lg"
-                style={{ background: "rgba(217,119,6,0.08)", border: `1px solid ${amber.border}` }}
-              />
-            ))}
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <Loader2 size={20} style={{ color: P.muted, animation: "spin 1s linear infinite", margin: "0 auto" }} />
           </div>
-        ) : events.length === 0 ? (
-          <div
-            className="rounded-lg border border-dashed px-3 py-8 text-center text-xs"
-            style={{ borderColor: amber.border, color: amber.textMuted }}
-          >
-            No company events yet.
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: 32, textAlign: "center", color: P.muted, fontSize: 12 }}>
+            No activity events yet.
           </div>
         ) : (
-          <div className="space-y-1">
-            {events
-              .filter((event) => !activeProjectRecord || event.projectId === activeProjectRecord.id)
-              .map((event) => {
-              const meta = eventStyle(event.eventType);
-              return (
-                <Link
-                  key={`${event.id}-${event.timestamp}`}
-                  href={buildEventHref(company, slug, event)}
-                  className="group flex items-start gap-2.5 rounded-lg border px-3 py-2 transition"
-                  style={{
-                    borderColor: "rgba(255,255,255,0.06)",
-                    background: "rgba(28,25,23,0.5)",
-                  }}
-                  onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.borderColor = amber.borderHover; }}
-                  onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,255,255,0.06)"; }}
-                >
-                  {/* icon */}
-                  <span
-                    className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border"
-                    style={{
-                      borderColor: `${meta.color}55`,
-                      backgroundColor: `${meta.color}18`,
-                      color: meta.color,
-                    }}
-                  >
-                    <Activity className="h-3 w-3" />
-                  </span>
-
-                  {/* content */}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-stone-200">{event.message}</p>
-                    <p className="mt-0.5 truncate text-[11px]" style={{ color: amber.textDim }}>
-                      {event.projectName}
-                      {event.taskTitle ? ` · ${event.taskTitle}` : ""}
-                      {event.agentName ? ` · ${event.agentName}` : ""}
-                    </p>
-                  </div>
-
-                  {/* badges + time */}
-                  <div className="flex shrink-0 flex-col items-end gap-1">
-                    <span className="text-[10px]" style={{ color: amber.textDim }}>
-                      {formatAge(event.timestamp)} ago
-                    </span>
-                    <div className="flex gap-1">
-                      <span
-                        className="rounded-full border px-1.5 py-0.5 text-[9px] uppercase tracking-wider"
-                        style={{
-                          borderColor: `${meta.color}44`,
-                          color: meta.color,
-                          backgroundColor: `${meta.color}12`,
-                        }}
-                      >
-                        {meta.label}
-                      </span>
-                      {event.oldStatus && event.newStatus ? (
-                        <span
-                          className="rounded-full border px-1.5 py-0.5 text-[9px] text-stone-400"
-                          style={{ borderColor: "rgba(255,255,255,0.1)", background: "rgba(255,255,255,0.04)" }}
-                        >
-                          {event.oldStatus} → {event.newStatus}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+          filtered.map((event, i) => (
+            <ActivityRow key={`${event.id}-${event.timestamp}-${i}`} event={event} />
+          ))
         )}
-
-        {/* load more */}
-        {!loading && hasMore ? (
-          <div className="mt-3 flex justify-center">
-            <button
-              type="button"
-              onClick={() => void handleLoadMore()}
-              disabled={loadingMore}
-              className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[11px] disabled:opacity-50"
-              style={{ borderColor: amber.border, color: amber.text, background: amber.bgSubtle }}
-            >
-              {loadingMore ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-              {loadingMore ? "Loading…" : "Load more events"}
-            </button>
-          </div>
-        ) : null}
       </div>
+
+      {/* Load more */}
+      {!loading && hasMore && (
+        <div style={{ display: "flex", justifyContent: "center", marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => void handleLoadMore()}
+            disabled={loadingMore}
+            style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "6px 16px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+              background: "transparent", border: `1px solid ${P.cardBorder}`,
+              color: P.textSec, cursor: "pointer", opacity: loadingMore ? 0.5 : 1,
+            }}
+          >
+            {loadingMore && <Loader2 size={12} style={{ animation: "spin 1s linear infinite" }} />}
+            {loadingMore ? "Loading..." : "Load more"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-/* ── compact stat pill ── */
-function StatPill({ label, value }: { label: string; value: number }) {
+/* ─── Activity Row ─── */
+function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
+  // Parse the event message to extract agent name, action, task key, and title
+  const { initials, agentName, description } = parseEventMessage(event);
+
   return (
-    <div
-      className="inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[11px]"
-      style={{ borderColor: amber.border, background: amber.bgSubtle }}
-    >
-      <span style={{ color: amber.textDim }}>{label}</span>
-      <span className="font-medium" style={{ color: amber.text }}>{value}</span>
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "9px 14px",
+      borderBottom: `1px solid ${P.cardBorder}`,
+    }}>
+      {/* Agent avatar circle */}
+      <span style={{
+        width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
+        background: "rgba(255,255,255,0.08)",
+        display: "grid", placeItems: "center",
+        fontSize: 10, fontWeight: 700, color: P.muted,
+        textTransform: "uppercase", letterSpacing: "0.02em",
+      }}>
+        {initials}
+      </span>
+
+      {/* Event description */}
+      <span style={{
+        flex: 1, fontSize: 13, color: P.textSec, minWidth: 0,
+        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+      }}>
+        <span style={{ fontWeight: 600, color: P.text }}>{agentName}</span>
+        {" "}
+        {description}
+      </span>
+
+      {/* Timestamp */}
+      <span style={{ fontSize: 12, color: P.muted, flexShrink: 0, whiteSpace: "nowrap" }}>
+        {formatAge(event.timestamp)}
+      </span>
     </div>
   );
+}
+
+/* ─── Parse event into display components ─── */
+function parseEventMessage(event: OrchestrationActivityEvent): {
+  initials: string;
+  agentName: string;
+  description: React.ReactNode;
+} {
+  const agentName = event.agentName || "System";
+  const initials = agentName.slice(0, 2).toUpperCase();
+
+  // Build the task key if we have enough info
+  const taskKey = event.taskId
+    ? (event.companySlug || event.projectSlug || "").toUpperCase().slice(0, 3) + "-" + event.taskId.slice(-3)
+    : "";
+
+  const taskRef = taskKey && event.taskTitle
+    ? <><span style={{ fontWeight: 600, color: P.text }}>{taskKey}</span>{" — "}{event.taskTitle}</>
+    : event.taskTitle || "";
+
+  // Format based on event type
+  switch (event.eventType) {
+    case "task.status_changed": {
+      const transition = event.oldStatus && event.newStatus
+        ? `from ${event.oldStatus} to ${event.newStatus} on `
+        : "on ";
+      return { initials, agentName, description: <>changed status {transition}{taskRef}</> };
+    }
+    case "task.assigned":
+      return { initials, agentName, description: <>assigned to {taskRef}</> };
+    case "task.unassigned":
+      return { initials, agentName, description: <>unassigned from {taskRef}</> };
+    case "sprint.created":
+      return { initials, agentName, description: <>created sprint {event.sprintName || ""}</> };
+    case "sprint.updated":
+      return { initials, agentName, description: <>updated sprint {event.sprintName || ""}</> };
+    case "sprint.completed":
+      return { initials, agentName, description: <>completed sprint {event.sprintName || ""}</> };
+    default: {
+      // Fall back to the raw message, trying to extract structure
+      const msg = event.message || "";
+      return { initials, agentName, description: <>{msg.replace(new RegExp(`^${agentName}\\s*`, "i"), "")}</> };
+    }
+  }
+}
+
+/* ─── Fetch helper ─── */
+async function fetchSlice(
+  slug: string,
+  projectSet: Set<string>,
+  cursor?: string
+): Promise<{ events: OrchestrationActivityEvent[]; nextCursor?: string; hasMore: boolean }> {
+  let nextCursor = cursor;
+  let hasMore = true;
+  let fetches = 0;
+  let collected: OrchestrationActivityEvent[] = [];
+
+  while (hasMore && collected.length < PAGE_LIMIT && fetches < MAX_FETCHES) {
+    const feed = await listActivityFeed({ limit: API_PAGE_SIZE, cursor: nextCursor });
+    if (!feed) return { events: collected, nextCursor: undefined, hasMore: false };
+
+    const filtered = feed.activity.filter((e) => {
+      if (e.companySlug) return e.companySlug === slug;
+      return projectSet.has(e.projectId);
+    });
+    collected = [...collected, ...filtered];
+    nextCursor = feed.page.nextCursor;
+    hasMore = feed.page.hasMore && Boolean(nextCursor);
+    fetches++;
+  }
+
+  return { events: collected.slice(0, PAGE_LIMIT), nextCursor, hasMore };
 }
