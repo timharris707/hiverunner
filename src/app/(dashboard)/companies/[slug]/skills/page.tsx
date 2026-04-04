@@ -1,327 +1,540 @@
 "use client";
 
-import Link from "next/link";
-import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { BookOpen, Layers, Search, Sparkles, TriangleAlert, Users } from "lucide-react";
-
-import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { useParams } from "next/navigation";
+import {
+  ChevronRight,
+  ChevronDown,
+  Eye,
+  Code,
+  FileText,
+  FolderOpen,
+  Paperclip,
+  Plus,
+  RefreshCw,
+  Search,
+  X,
+} from "lucide-react";
 import { listCompanies, listCompanyAgents } from "@/lib/orchestration/client";
 import type { OrchestrationAgent, OrchestrationCompany } from "@/lib/orchestration/types";
 
-type SkillSource = "workspace" | "system";
+/* ─── Palette ─── */
+const P = {
+  bg: "#0f0f0f",
+  surface: "#1a1a1a",
+  card: "#1e1e1e",
+  cardBorder: "rgba(255,255,255,0.08)",
+  cardBorderHover: "rgba(255,255,255,0.16)",
+  text: "#e5e5e5",
+  textSec: "#a3a3a3",
+  muted: "#737373",
+  accent: "#d97706",
+};
 
-type RegistrySkill = {
+/* ─── Types ─── */
+type SkillSource = "workspace" | "system" | "bundled";
+
+interface SkillEntry {
   id: string;
   name: string;
   description: string;
   source: SkillSource;
   fileCount: number;
-};
-
-type CompanySkillRow = {
-  id: string;
-  name: string;
-  description: string;
-  source?: SkillSource;
-  fileCount?: number;
+  files: string[];
+  fullContent: string;
   owners: string[];
-  ownerCount: number;
-  linkedToRegistry: boolean;
-};
+  key: string;
+  mode: "read-only" | "editable";
+}
 
+/* ─── Page ─── */
 export default function CompanySkillsPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
-  const [registrySkills, setRegistrySkills] = useState<RegistrySkill[]>([]);
+  const [registrySkills, setRegistrySkills] = useState<SkillEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
   const [query, setQuery] = useState("");
-  const [sourceFilter, setSourceFilter] = useState<"all" | SkillSource | "unmapped">("all");
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [expandedSkills, setExpandedSkills] = useState<Set<string>>(new Set());
+  const [viewMode, setViewMode] = useState<"view" | "code">("view");
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = async () => {
+    const [companyRows, companyAgents, registryResponse] = await Promise.all([
+      listCompanies(),
+      listCompanyAgents(slug),
+      fetch("/api/skills", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]);
 
-    const load = async () => {
-      setLoading(true);
-      setError(null);
+    setCompany(companyRows.find((r) => r.slug === slug) ?? null);
+    setAgents(companyAgents);
 
-      try {
-        const [companyRows, companyAgents, registryResponse] = await Promise.all([
-          listCompanies(),
-          listCompanyAgents(slug),
-          fetch("/api/skills", { cache: "no-store" }).then((res) => (res.ok ? res.json() : null)).catch(() => null),
-        ]);
-
-        if (cancelled) return;
-
-        const current = companyRows.find((row) => row.slug === slug) ?? null;
-        setCompany(current);
-        setAgents(companyAgents);
-
-        const registryRows = Array.isArray((registryResponse as { skills?: unknown[] } | null)?.skills)
-          ? ((registryResponse as { skills: unknown[] }).skills as Array<Record<string, unknown>>)
-          : [];
-
-        setRegistrySkills(
-          registryRows
-            .filter((row) => typeof row.id === "string" && row.id.trim().length > 0)
-            .map((row) => ({
-              id: String(row.id),
-              name: String(row.name ?? row.id),
-              description: String(row.description ?? "No description provided."),
-              source: row.source === "system" ? "system" : "workspace",
-              fileCount: Number(row.fileCount ?? 0),
-            }))
-        );
-      } catch {
-        if (!cancelled) {
-          setError("Unable to load company skills right now.");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void load();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [slug]);
-
-  const skillRows = useMemo<CompanySkillRow[]>(() => {
+    const raw = (registryResponse as { skills?: Record<string, unknown>[] })?.skills ?? [];
     const ownerMap = new Map<string, Set<string>>();
-
-    for (const agent of agents) {
-      const ownerName = agent.name?.trim() || "Unknown agent";
+    for (const agent of companyAgents) {
       const skillIds = Array.isArray(agent.skills) ? agent.skills : [];
-      const deduped = new Set(skillIds.map((skill) => skill.trim()).filter(Boolean));
-
-      for (const skillId of deduped) {
-        const owners = ownerMap.get(skillId) ?? new Set<string>();
-        owners.add(ownerName);
-        ownerMap.set(skillId, owners);
+      for (const sid of skillIds) {
+        const trimmed = sid.trim();
+        if (!trimmed) continue;
+        const set = ownerMap.get(trimmed) ?? new Set();
+        set.add(agent.name);
+        ownerMap.set(trimmed, set);
       }
     }
 
-    const registryById = new Map(registrySkills.map((skill) => [skill.id, skill]));
+    setRegistrySkills(
+      raw
+        .filter((r) => typeof r.id === "string" && String(r.id).trim())
+        .map((r) => {
+          const id = String(r.id);
+          const owners = Array.from(ownerMap.get(id) ?? []);
+          const files = Array.isArray(r.files) ? (r.files as string[]) : [];
+          return {
+            id,
+            name: String(r.name ?? id),
+            description: String(r.description ?? ""),
+            source: r.source === "system" ? "system" : r.source === "bundled" ? "bundled" : "workspace",
+            fileCount: Number(r.fileCount ?? files.length),
+            files,
+            fullContent: String(r.fullContent ?? ""),
+            owners,
+            key: `${slug}/${id}`,
+            mode: r.source === "system" || r.source === "bundled" ? "read-only" : "editable",
+          } satisfies SkillEntry;
+        })
+    );
 
-    return Array.from(ownerMap.entries())
-      .map(([skillId, ownersSet]) => {
-        const meta = registryById.get(skillId);
-        const owners = Array.from(ownersSet).sort((a, b) => a.localeCompare(b));
+    setLoading(false);
+  };
 
-        return {
-          id: skillId,
-          name: meta?.name ?? skillId,
-          description: meta?.description ?? "Assigned to company agents but not found in local skill registry.",
-          source: meta?.source,
-          fileCount: meta?.fileCount,
-          owners,
-          ownerCount: owners.length,
-          linkedToRegistry: Boolean(meta),
-        } satisfies CompanySkillRow;
-      })
-      .sort((a, b) => {
-        if (b.ownerCount !== a.ownerCount) return b.ownerCount - a.ownerCount;
-        return a.name.localeCompare(b.name);
-      });
-  }, [agents, registrySkills]);
+  useEffect(() => { void load(); }, [slug]);
 
-  const filteredRows = useMemo(() => {
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  };
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return registrySkills;
     const needle = query.trim().toLowerCase();
+    return registrySkills.filter((s) =>
+      `${s.name} ${s.id} ${s.description} ${s.owners.join(" ")}`.toLowerCase().includes(needle)
+    );
+  }, [registrySkills, query]);
 
-    return skillRows.filter((row) => {
-      if (sourceFilter === "workspace" && row.source !== "workspace") return false;
-      if (sourceFilter === "system" && row.source !== "system") return false;
-      if (sourceFilter === "unmapped" && row.linkedToRegistry) return false;
+  const selectedSkill = useMemo(
+    () => registrySkills.find((s) => s.id === selectedSkillId) ?? null,
+    [registrySkills, selectedSkillId],
+  );
 
-      if (!needle) return true;
-      const ownerText = row.owners.join(" ").toLowerCase();
-      return (`${row.name} ${row.id} ${row.description}`.toLowerCase().includes(needle) || ownerText.includes(needle));
+  const toggleExpand = (id: string) => {
+    setExpandedSkills((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
     });
-  }, [query, skillRows, sourceFilter]);
+  };
 
-  const summary = useMemo(() => {
-    const workspace = skillRows.filter((row) => row.source === "workspace").length;
-    const system = skillRows.filter((row) => row.source === "system").length;
-    const unmapped = skillRows.filter((row) => !row.linkedToRegistry).length;
-    const skilledAgents = agents.filter((agent) => (agent.skills?.length ?? 0) > 0).length;
-
-    return {
-      total: skillRows.length,
-      workspace,
-      system,
-      unmapped,
-      skilledAgents,
-    };
-  }, [agents, skillRows]);
-
-  if (!loading && !company) {
+  if (loading) {
     return (
-      <CompanyErrorState
-        title="Company not found"
-        detail="This company could not be resolved from orchestration records."
-        href="/companies"
-      />
+      <div style={{ padding: 24 }}>
+        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+          Company not found.
+        </div>
+      </div>
     );
   }
 
   return (
-    <CompanyShell
-      eyebrow="Company Skills"
-      title={loading ? "Loading skills..." : `${company?.name ?? "Company"} Skills`}
-      description="Directory of skills actively assigned to this company team, with registry metadata when available."
-      accentColor="#f59e0b"
-    >
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Installed" value={summary.total} detail="Unique skills assigned to team" accentColor="#f59e0b" />
-        <StatCard label="Skilled Agents" value={summary.skilledAgents} detail="Agents with one or more skills" accentColor="#d97706" />
-        <StatCard label="Workspace" value={summary.workspace} detail="Resolved from workspace registry" accentColor="#34d399" />
-        <StatCard label="System" value={summary.system} detail="Resolved from system registry" accentColor="#d97706" />
-        <StatCard label="Unmapped" value={summary.unmapped} detail="Assigned but missing registry metadata" accentColor="#fb7185" />
-      </section>
-
-      {error ? (
-        <section className="rounded-2xl border border-rose-400/35 bg-rose-500/10 p-3 text-sm text-rose-100">{error}</section>
-      ) : null}
-
-      <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl md:p-5">
-        <div className="mb-4 grid gap-3 lg:grid-cols-12">
-          <div className="relative lg:col-span-7">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-white outline-none focus:border-stone-400/60"
-              placeholder="Search by skill, id, description, or agent"
-            />
+    <div style={{ padding: "16px 20px", color: P.text, fontSize: 13, display: "flex", gap: 0, height: "calc(100vh - 80px)" }}>
+      {/* ── Left: Skills list ── */}
+      <div style={{ flex: selectedSkill ? "0 0 50%" : "1 1 auto", minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: P.text, fontFamily: "var(--font-heading)" }}>
+              Skills
+            </h1>
+            <span style={{ fontSize: 11, color: P.muted }}>{filtered.length} available</span>
           </div>
-
-          <select
-            className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none lg:col-span-5"
-            value={sourceFilter}
-            onChange={(event) => setSourceFilter(event.target.value as "all" | SkillSource | "unmapped")}
-          >
-            <option value="all">All sources</option>
-            <option value="workspace">Workspace only</option>
-            <option value="system">System only</option>
-            <option value="unmapped">Unmapped only</option>
-          </select>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <button
+              type="button"
+              onClick={() => void handleRefresh()}
+              title="Refresh"
+              style={{
+                width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center",
+                background: "transparent", border: `1px solid ${P.cardBorder}`, color: P.muted, cursor: "pointer",
+              }}
+            >
+              <RefreshCw size={13} style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }} />
+            </button>
+            <button
+              type="button"
+              title="Add skill"
+              style={{
+                width: 28, height: 28, borderRadius: 6, display: "grid", placeItems: "center",
+                background: "transparent", border: `1px solid ${P.cardBorder}`, color: P.muted, cursor: "pointer",
+              }}
+            >
+              <Plus size={13} />
+            </button>
+          </div>
         </div>
 
-        {loading ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div key={index} className="h-40 animate-pulse rounded-2xl border border-white/10 bg-slate-900/80" />
-            ))}
-          </div>
-        ) : filteredRows.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/15 bg-slate-900/60 px-4 py-10 text-center text-sm text-slate-300">
-            <p className="font-medium text-slate-100">No matching skills found for this company.</p>
-            <p className="mt-2 text-slate-400">
-              Skill assignments usually come from agent configuration. Confirm with team setup in{" "}
-              <Link href={`/companies/${slug}/team`} className="text-stone-200 hover:text-stone-100">
-                company team
-              </Link>
-              .
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredRows.map((row) => {
-              const sourceBadge = row.source
-                ? row.source === "workspace"
-                  ? "Workspace"
-                  : "System"
-                : "Unmapped";
+        {/* Filter */}
+        <div style={{ position: "relative", marginBottom: 8 }}>
+          <Search size={13} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: P.muted }} />
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Filter skills"
+            style={{
+              width: "100%", padding: "7px 10px 7px 30px", borderRadius: 6,
+              border: `1px solid ${P.cardBorder}`, background: "transparent",
+              color: P.text, fontSize: 12, outline: "none",
+            }}
+          />
+        </div>
 
-              const sourceClasses = row.source
-                ? row.source === "workspace"
-                  ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-100"
-                  : "border-amber-300/25 bg-amber-400/10 text-amber-100"
-                : "border-rose-300/25 bg-rose-400/10 text-rose-100";
+        {/* Skill list */}
+        <div style={{ flex: 1, overflowY: "auto" }}>
+          {filtered.length === 0 ? (
+            <div style={{ padding: 32, textAlign: "center", color: P.muted, fontSize: 12 }}>
+              No skills found.
+            </div>
+          ) : (
+            filtered.map((skill) => {
+              const isSelected = skill.id === selectedSkillId;
+              const isExpanded = expandedSkills.has(skill.id);
+              const hasFiles = skill.files.length > 0;
 
               return (
-                <article key={row.id} className="rounded-2xl border border-white/10 bg-slate-900/75 p-4">
-                  <div className="mb-3 flex items-start justify-between gap-3">
-                    <div>
-                      <h2 className="text-sm font-semibold text-white">{row.name}</h2>
-                      <p className="mt-1 text-[11px] text-slate-400">{row.id}</p>
-                    </div>
-                    <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${sourceClasses}`}>{sourceBadge}</span>
+                <div key={skill.id}>
+                  <div
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "8px 10px",
+                      background: isSelected ? "rgba(255,255,255,0.04)" : "transparent",
+                      borderBottom: `1px solid ${P.cardBorder}`,
+                      cursor: "pointer",
+                      transition: "background 0.12s",
+                    }}
+                    onClick={() => {
+                      setSelectedSkillId(isSelected ? null : skill.id);
+                      setViewMode("view");
+                    }}
+                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    {/* Expand toggle */}
+                    {hasFiles ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); toggleExpand(skill.id); }}
+                        style={{ background: "transparent", border: "none", color: P.muted, cursor: "pointer", padding: 0, display: "grid", placeItems: "center", width: 16, flexShrink: 0 }}
+                      >
+                        {isExpanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                      </button>
+                    ) : (
+                      <div style={{ width: 16, flexShrink: 0 }} />
+                    )}
+
+                    <Paperclip size={13} style={{ color: P.muted, flexShrink: 0 }} />
+
+                    <span style={{
+                      flex: 1, fontSize: 13, color: P.text, fontWeight: 500,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {skill.name}
+                    </span>
+
+                    {skill.owners.length > 0 && (
+                      <span style={{ fontSize: 10, color: P.muted, flexShrink: 0 }}>
+                        {skill.owners.length} agent{skill.owners.length !== 1 ? "s" : ""}
+                      </span>
+                    )}
+
+                    <ChevronRight size={13} style={{ color: P.muted, flexShrink: 0, opacity: 0.5 }} />
                   </div>
 
-                  <p className="line-clamp-2 text-sm text-slate-300">{row.description}</p>
-
-                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs text-slate-300">
-                    <div className="rounded-lg border border-white/10 bg-slate-950/70 px-2.5 py-2">
-                      <p className="text-slate-500">Assigned Agents</p>
-                      <p className="mt-1 inline-flex items-center gap-1 text-sm text-slate-100">
-                        <Users className="h-3.5 w-3.5" />
-                        {row.ownerCount}
-                      </p>
+                  {/* Expanded file tree */}
+                  {isExpanded && hasFiles && (
+                    <div style={{ paddingLeft: 42, borderBottom: `1px solid ${P.cardBorder}` }}>
+                      {skill.files.map((file) => {
+                        const isDir = file.endsWith("/");
+                        return (
+                          <div
+                            key={file}
+                            style={{
+                              display: "flex", alignItems: "center", gap: 6,
+                              padding: "4px 8px", fontSize: 12, color: P.textSec,
+                            }}
+                          >
+                            {isDir ? <FolderOpen size={12} style={{ color: P.muted }} /> : <FileText size={12} style={{ color: P.muted }} />}
+                            {file}
+                          </div>
+                        );
+                      })}
                     </div>
-                    <div className="rounded-lg border border-white/10 bg-slate-950/70 px-2.5 py-2">
-                      <p className="text-slate-500">Skill Files</p>
-                      <p className="mt-1 inline-flex items-center gap-1 text-sm text-slate-100">
-                        <Layers className="h-3.5 w-3.5" />
-                        {typeof row.fileCount === "number" ? row.fileCount : "-"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/70 px-2.5 py-2 text-xs">
-                    <p className="mb-1 text-slate-500">Owners</p>
-                    <p className="line-clamp-2 text-slate-200">{row.owners.join(", ")}</p>
-                  </div>
-
-                  {!row.linkedToRegistry ? (
-                    <div className="mt-3 inline-flex items-center gap-1 rounded-lg border border-rose-300/25 bg-rose-400/10 px-2 py-1 text-[11px] text-rose-100">
-                      <TriangleAlert className="h-3.5 w-3.5" />
-                      Registry metadata unavailable
-                    </div>
-                  ) : null}
-                </article>
+                  )}
+                </div>
               );
-            })}
+            })
+          )}
+        </div>
+      </div>
+
+      {/* ── Right: Skill detail ── */}
+      {selectedSkill && (
+        <SkillDetailPanel
+          skill={selectedSkill}
+          viewMode={viewMode}
+          setViewMode={setViewMode}
+          onClose={() => setSelectedSkillId(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ─── Skill Detail Panel ─── */
+function SkillDetailPanel({
+  skill, viewMode, setViewMode, onClose,
+}: {
+  skill: SkillEntry;
+  viewMode: "view" | "code";
+  setViewMode: (m: "view" | "code") => void;
+  onClose: () => void;
+}) {
+  const isReadOnly = skill.mode === "read-only";
+  const sourceLabel = skill.source === "bundled" ? "MC bundled"
+    : skill.source === "system" ? "System"
+    : "Workspace";
+
+  return (
+    <div style={{
+      flex: "0 0 50%", borderLeft: `1px solid ${P.cardBorder}`,
+      display: "flex", flexDirection: "column", minWidth: 0, overflow: "hidden",
+    }}>
+      <div style={{ flex: 1, padding: "16px 20px", overflowY: "auto" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Paperclip size={16} style={{ color: P.muted }} />
+            <h2 style={{ margin: 0, fontSize: 18, fontWeight: 600, color: P.text, fontFamily: "var(--font-heading)" }}>
+              {skill.name}
+            </h2>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {isReadOnly && (
+              <span style={{ fontSize: 11, color: P.muted, fontStyle: "italic" }}>
+                {sourceLabel} skills are read-only.
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ width: 24, height: 24, borderRadius: 4, display: "grid", placeItems: "center", background: "transparent", border: "none", color: P.muted, cursor: "pointer" }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        </div>
+
+        {/* Description */}
+        {skill.description && (
+          <p style={{ margin: "0 0 16px", fontSize: 12, color: P.textSec, lineHeight: 1.5 }}>
+            {skill.description}
+          </p>
+        )}
+
+        {/* Metadata row */}
+        <div style={{
+          display: "flex", flexWrap: "wrap", gap: 16, marginBottom: 16,
+          fontSize: 11, color: P.muted,
+        }}>
+          <div>
+            <span style={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 6 }}>Source</span>
+            <span style={{ color: P.textSec }}>
+              <Paperclip size={10} style={{ display: "inline", verticalAlign: "middle", marginRight: 3 }} />
+              {sourceLabel}
+            </span>
+          </div>
+          <div>
+            <span style={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 6 }}>Key</span>
+            <span style={{ color: P.textSec, fontFamily: "var(--font-mono)", fontSize: 11 }}>{skill.key}</span>
+          </div>
+          <div>
+            <span style={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 6 }}>Mode</span>
+            <span style={{ color: P.textSec }}>{skill.mode === "read-only" ? "Read only" : "Editable"}</span>
+          </div>
+        </div>
+
+        {/* Used by */}
+        <div style={{ marginBottom: 20, fontSize: 11, color: P.muted }}>
+          <span style={{ fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginRight: 6 }}>Used by</span>
+          <span style={{ color: P.textSec }}>
+            {skill.owners.length > 0 ? skill.owners.join(", ") : "No agents attached"}
+          </span>
+        </div>
+
+        {/* Content area */}
+        {skill.fullContent ? (
+          <>
+            {/* SKILL.md header with view/code toggle */}
+            <div style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "8px 0", borderBottom: `1px solid ${P.cardBorder}`, marginBottom: 12,
+            }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: P.textSec, fontFamily: "var(--font-mono)" }}>
+                SKILL.md
+              </span>
+              <div style={{ display: "flex", gap: 0 }}>
+                <ToggleBtn icon={<Eye size={12} />} label="View" active={viewMode === "view"} onClick={() => setViewMode("view")} />
+                <ToggleBtn icon={<Code size={12} />} label="Code" active={viewMode === "code"} onClick={() => setViewMode("code")} />
+              </div>
+            </div>
+
+            {viewMode === "code" ? (
+              <pre style={{
+                padding: 14, borderRadius: 6,
+                background: "rgba(0,0,0,0.3)", border: `1px solid ${P.cardBorder}`,
+                fontSize: 11, color: P.textSec, fontFamily: "var(--font-mono)",
+                whiteSpace: "pre-wrap", wordBreak: "break-word",
+                lineHeight: 1.5, overflow: "auto", maxHeight: 600,
+              }}>
+                {skill.fullContent}
+              </pre>
+            ) : (
+              <div style={{
+                fontSize: 13, color: P.textSec, lineHeight: 1.7,
+                maxHeight: 600, overflow: "auto",
+              }}>
+                <MarkdownContent content={skill.fullContent} />
+              </div>
+            )}
+          </>
+        ) : (
+          <div style={{ padding: 24, textAlign: "center", color: P.muted, fontSize: 12, borderRadius: 6, border: `1px dashed ${P.cardBorder}` }}>
+            No skill content available.
           </div>
         )}
-      </section>
-
-      <section className="grid gap-3 lg:grid-cols-2">
-        <article className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-white">
-            <BookOpen className="h-4 w-4 text-stone-200" />
-            What this page shows
-          </h2>
-          <ul className="mt-3 space-y-2 text-sm text-slate-300">
-            <li>Skills are sourced from current company agent assignments.</li>
-            <li>Metadata (description/source/file count) is merged from the local skill registry at <code>/api/skills</code>.</li>
-            <li>Unmapped skills indicate an agent assignment that does not resolve to a local registry entry.</li>
-          </ul>
-        </article>
-
-        <article className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
-          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-white">
-            <Sparkles className="h-4 w-4 text-amber-200" />
-            Related routes
-          </h2>
-          <div className="mt-3 grid gap-2 text-sm text-amber-100">
-            <Link href={`/companies/${slug}/team`} className="rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 hover:border-amber-200/40">
-              Open company team
-            </Link>
-            <Link href="/skills" className="rounded-lg border border-amber-300/20 bg-amber-400/10 px-3 py-2 hover:border-amber-200/40">
-              Open global skill manager
-            </Link>
-          </div>
-        </article>
-      </section>
-    </CompanyShell>
+      </div>
+    </div>
   );
+}
+
+/* ─── Toggle button ─── */
+function ToggleBtn({ icon, label, active, onClick }: { icon: React.ReactNode; label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 4,
+        padding: "4px 10px", fontSize: 11, fontWeight: active ? 600 : 400,
+        color: active ? P.text : P.muted,
+        background: active ? "rgba(255,255,255,0.06)" : "transparent",
+        border: `1px solid ${active ? P.cardBorderHover : P.cardBorder}`,
+        borderRadius: 4, cursor: "pointer",
+      }}
+    >
+      {icon} {label}
+    </button>
+  );
+}
+
+/* ─── Simple Markdown Renderer ─── */
+function MarkdownContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+  const elements: React.ReactNode[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+
+    if (line.startsWith("# ")) {
+      elements.push(<h1 key={i} style={{ fontSize: 20, fontWeight: 700, color: P.text, margin: "16px 0 8px", fontFamily: "var(--font-heading)" }}>{line.slice(2)}</h1>);
+    } else if (line.startsWith("## ")) {
+      elements.push(<h2 key={i} style={{ fontSize: 16, fontWeight: 600, color: P.text, margin: "14px 0 6px", fontFamily: "var(--font-heading)" }}>{line.slice(3)}</h2>);
+    } else if (line.startsWith("### ")) {
+      elements.push(<h3 key={i} style={{ fontSize: 14, fontWeight: 600, color: P.text, margin: "12px 0 4px", fontFamily: "var(--font-heading)" }}>{line.slice(4)}</h3>);
+    } else if (line.startsWith("- ") || line.startsWith("* ")) {
+      elements.push(
+        <div key={i} style={{ display: "flex", gap: 8, paddingLeft: 8, margin: "2px 0" }}>
+          <span style={{ color: P.muted }}>-</span>
+          <InlineMarkdown text={line.slice(2)} />
+        </div>
+      );
+    } else if (line.startsWith("```")) {
+      // Code block
+      const endIdx = lines.indexOf("```", i + 1);
+      const codeLines = endIdx > i ? lines.slice(i + 1, endIdx) : [];
+      elements.push(
+        <pre key={i} style={{
+          padding: 10, borderRadius: 4,
+          background: "rgba(0,0,0,0.3)", border: `1px solid ${P.cardBorder}`,
+          fontSize: 11, color: P.textSec, fontFamily: "var(--font-mono)",
+          whiteSpace: "pre-wrap", margin: "8px 0", lineHeight: 1.5,
+        }}>
+          {codeLines.join("\n")}
+        </pre>
+      );
+      if (endIdx > i) i = endIdx;
+    } else if (line.trim() === "") {
+      elements.push(<div key={i} style={{ height: 8 }} />);
+    } else {
+      elements.push(<p key={i} style={{ margin: "2px 0" }}><InlineMarkdown text={line} /></p>);
+    }
+  }
+
+  return <>{elements}</>;
+}
+
+function InlineMarkdown({ text }: { text: string }) {
+  // Handle inline code (`...`) and bold (**...**)
+  const parts: React.ReactNode[] = [];
+  let remaining = text;
+  let key = 0;
+
+  while (remaining.length > 0) {
+    const codeMatch = remaining.match(/^(.*?)`([^`]+)`(.*)$/);
+    const boldMatch = remaining.match(/^(.*?)\*\*([^*]+)\*\*(.*)$/);
+
+    if (codeMatch && (!boldMatch || codeMatch.index! <= boldMatch.index!)) {
+      if (codeMatch[1]) parts.push(<span key={key++}>{codeMatch[1]}</span>);
+      parts.push(
+        <code key={key++} style={{
+          padding: "1px 5px", borderRadius: 3,
+          background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
+          fontFamily: "var(--font-mono)", fontSize: "0.9em",
+        }}>
+          {codeMatch[2]}
+        </code>
+      );
+      remaining = codeMatch[3];
+    } else if (boldMatch) {
+      if (boldMatch[1]) parts.push(<span key={key++}>{boldMatch[1]}</span>);
+      parts.push(<strong key={key++} style={{ fontWeight: 600, color: P.text }}>{boldMatch[2]}</strong>);
+      remaining = boldMatch[3];
+    } else {
+      parts.push(<span key={key++}>{remaining}</span>);
+      break;
+    }
+  }
+
+  return <>{parts}</>;
 }
