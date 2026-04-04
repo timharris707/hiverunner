@@ -14,6 +14,7 @@ export const statusTheme: Record<TaskStatus, { label: string; glow: string }> = 
   review: { label: "Review", glow: "0 0 0 1px rgba(245,158,11,0.35)" },
   done: { label: "Done", glow: "0 0 0 1px rgba(74,222,128,0.28)" },
   blocked: { label: "Blocked", glow: "0 0 0 1px rgba(248,113,113,0.35)" },
+  cancelled: { label: "Cancelled", glow: "0 0 0 1px rgba(148,163,184,0.2)" },
 };
 
 export const typeIcon: Record<TaskType, string> = {

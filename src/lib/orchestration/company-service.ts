@@ -13,7 +13,6 @@ import type {
 import { toApiPriority, toApiSprintStatus, toApiStatus, toApiType, toDbSprintStatus, toDbStatus } from "@/lib/orchestration/service/shared/mappers";
 import {
   decodeActivityCursor,
-  deterministicEventId,
   encodeActivityCursor,
   parseJsonObject,
 } from "@/lib/orchestration/service/shared";
@@ -113,6 +112,7 @@ type CompanyInboxEventRow = {
   project_name: string;
   task_id: string | null;
   task_title: string | null;
+  task_key: string | null;
   task_status: "backlog" | "on_deck" | "in_progress" | "review" | "done" | "blocked" | null;
   from_status: "backlog" | "on_deck" | "in_progress" | "review" | "done" | "blocked" | null;
   to_status: "backlog" | "on_deck" | "in_progress" | "review" | "done" | "blocked" | null;
@@ -126,6 +126,138 @@ type CompanyInboxEventRow = {
 const NEVERIDLE_CORE_SLUG = "neveridle-core";
 const OPENCLAW_WORKSPACE_ROOT =
   process.env.OPENCLAW_WORKSPACE_ROOT?.trim() || "/Users/timharris/.openclaw/workspace";
+
+/**
+ * Builds the reusable inbox feed CTE SQL and its parameter list.
+ * Every inbox operation (list, count, mark-all-read) uses this so the event
+ * identity is defined exactly once.
+ */
+function buildInboxFeedCte(
+  companyId: string,
+  opts?: {
+    beforeTimestamp?: string;
+    excludeDone?: boolean;
+    projectId?: string;
+    status?: string;
+    search?: string;
+  }
+): { sql: string; params: unknown[] } {
+  const taskWhere = ["p.company_id = ?", "p.archived_at IS NULL", "t.archived_at IS NULL"];
+  const taskParams: unknown[] = [companyId];
+  const execWhere = ["p.company_id = ?", "p.archived_at IS NULL", "t.archived_at IS NULL"];
+  const execParams: unknown[] = [companyId];
+
+  if (opts?.beforeTimestamp) {
+    taskWhere.push("te.created_at <= ?");
+    taskParams.push(opts.beforeTimestamp);
+    execWhere.push("COALESCE(er.completed_at, er.updated_at, er.created_at) <= ?");
+    execParams.push(opts.beforeTimestamp);
+  }
+
+  if (opts?.projectId) {
+    taskWhere.push("(p.id = ? OR p.slug = ?)");
+    taskParams.push(opts.projectId, opts.projectId);
+    execWhere.push("(p.id = ? OR p.slug = ?)");
+    execParams.push(opts.projectId, opts.projectId);
+  }
+
+  if (opts?.status) {
+    taskWhere.push("COALESCE(te.to_status, t.status) = ?");
+    taskParams.push(opts.status);
+    execWhere.push("t.status = ?");
+    execParams.push(opts.status);
+  } else if (opts?.excludeDone) {
+    taskWhere.push("COALESCE(te.to_status, t.status) <> 'done'");
+    execWhere.push("t.status <> 'done'");
+  }
+
+  if (opts?.search) {
+    const needle = `%${opts.search}%`;
+    taskWhere.push(
+      "(LOWER(t.title) LIKE ? OR LOWER(t.description) LIKE ? OR LOWER(COALESCE(a.name, '')) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(te.event_type) LIKE ? OR LOWER(COALESCE(te.metadata_json, '')) LIKE ?)"
+    );
+    taskParams.push(needle, needle, needle, needle, needle, needle);
+    execWhere.push(
+      "(LOWER(t.title) LIKE ? OR LOWER(t.description) LIKE ? OR LOWER(COALESCE(a.name, '')) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(COALESCE(er.error_message, '')) LIKE ?)"
+    );
+    execParams.push(needle, needle, needle, needle, needle);
+  }
+
+  const sql = `WITH feed_events AS (
+    SELECT
+      'task:' || te.id AS event_id,
+      te.event_type AS event_type,
+      'task' AS event_kind,
+      c.id AS company_id,
+      c.slug AS company_slug,
+      c.name AS company_name,
+      p.id AS project_id,
+      p.slug AS project_slug,
+      p.name AS project_name,
+      t.id AS task_id,
+      t.title AS task_title,
+      t.task_key AS task_key,
+      COALESCE(te.to_status, t.status) AS task_status,
+      te.from_status AS from_status,
+      te.to_status AS to_status,
+      te.agent_id AS agent_id,
+      a.name AS agent_name,
+      NULL AS provider,
+      te.metadata_json AS metadata_json,
+      te.created_at AS created_at
+    FROM task_events te
+    INNER JOIN tasks t ON t.id = te.task_id
+    INNER JOIN projects p ON p.id = te.project_id
+    INNER JOIN companies c ON c.id = p.company_id
+    LEFT JOIN agents a ON a.id = te.agent_id
+    WHERE ${taskWhere.join(" AND ")}
+      AND te.event_type IN (
+        'task.created', 'task.updated', 'task.archived', 'task.reordered',
+        'task.status_changed', 'task.assigned', 'task.unassigned', 'task.comment_added'
+      )
+
+    UNION ALL
+
+    SELECT
+      'execution:' || er.id AS event_id,
+      'execution.' || er.status AS event_type,
+      'execution' AS event_kind,
+      c.id AS company_id,
+      c.slug AS company_slug,
+      c.name AS company_name,
+      p.id AS project_id,
+      p.slug AS project_slug,
+      p.name AS project_name,
+      t.id AS task_id,
+      t.title AS task_title,
+      t.task_key AS task_key,
+      t.status AS task_status,
+      NULL AS from_status,
+      NULL AS to_status,
+      er.agent_id AS agent_id,
+      a.name AS agent_name,
+      er.provider AS provider,
+      json_object(
+        'sessionId', er.session_id,
+        'errorMessage', er.error_message,
+        'durationMs', er.duration_ms
+      ) AS metadata_json,
+      CASE
+        WHEN er.completed_at IS NOT NULL THEN er.completed_at
+        WHEN er.updated_at > er.created_at THEN er.updated_at
+        ELSE er.created_at
+      END AS created_at
+    FROM execution_runs er
+    INNER JOIN tasks t ON t.id = er.task_id
+    INNER JOIN projects p ON p.id = t.project_id
+    INNER JOIN companies c ON c.id = p.company_id
+    LEFT JOIN agents a ON a.id = er.agent_id
+    WHERE ${execWhere.join(" AND ")}
+      AND er.status IN ('pending', 'running', 'completed', 'failed', 'cancelled')
+  )`;
+
+  return { sql, params: [...taskParams, ...execParams] };
+}
 
 export type CompanyThemeView = {
   name: string;
@@ -366,6 +498,8 @@ function getCompanyGoalBySprintId(
         s.end_date AS sprint_end_date,
         s.created_at AS sprint_created_at,
         s.updated_at AS sprint_updated_at,
+        s.parent_id AS sprint_parent_id,
+        s.owner AS sprint_owner,
         p.id AS project_id,
         p.slug AS project_slug,
         p.name AS project_name,
@@ -406,6 +540,8 @@ function getCompanyGoalBySprintId(
       inProgressCount,
       reviewCount,
       doneCount,
+      parentId: row.sprint_parent_id ?? undefined,
+      owner: row.sprint_owner ?? undefined,
     },
     projectId: row.project_id,
     projectSlug: row.project_slug,
@@ -753,132 +889,17 @@ export function listCompanyInbox(input: {
   const search = input.search?.trim().toLowerCase();
   const unreadSince = input.unreadSince?.trim() || undefined;
 
-  const taskEventWhereParts = [
-    "p.company_id = ?",
-    "p.archived_at IS NULL",
-    "t.archived_at IS NULL",
-  ];
-  const taskEventParams: unknown[] = [companyRow.id];
-  const executionEventWhereParts = [
-    "p.company_id = ?",
-    "p.archived_at IS NULL",
-    "t.archived_at IS NULL",
-  ];
-  const executionEventParams: unknown[] = [companyRow.id];
-
-  if (input.projectId) {
-    taskEventWhereParts.push("(p.id = ? OR p.slug = ?)");
-    taskEventParams.push(input.projectId, input.projectId);
-    executionEventWhereParts.push("(p.id = ? OR p.slug = ?)");
-    executionEventParams.push(input.projectId, input.projectId);
-  }
-
-  if (dbStatus) {
-    taskEventWhereParts.push("COALESCE(te.to_status, t.status) = ?");
-    taskEventParams.push(dbStatus);
-    executionEventWhereParts.push("t.status = ?");
-    executionEventParams.push(dbStatus);
-  } else if (!input.includeDone) {
-    taskEventWhereParts.push("COALESCE(te.to_status, t.status) <> 'done'");
-    executionEventWhereParts.push("t.status <> 'done'");
-  }
-
-  if (search) {
-    taskEventWhereParts.push(
-      "(LOWER(t.title) LIKE ? OR LOWER(t.description) LIKE ? OR LOWER(COALESCE(a.name, '')) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(te.event_type) LIKE ? OR LOWER(COALESCE(te.metadata_json, '')) LIKE ?)"
-    );
-    const needle = `%${search}%`;
-    taskEventParams.push(needle, needle, needle, needle, needle, needle);
-
-    executionEventWhereParts.push(
-      "(LOWER(t.title) LIKE ? OR LOWER(t.description) LIKE ? OR LOWER(COALESCE(a.name, '')) LIKE ? OR LOWER(p.name) LIKE ? OR LOWER(COALESCE(er.error_message, '')) LIKE ?)"
-    );
-    executionEventParams.push(needle, needle, needle, needle, needle);
-  }
-
-  const eventFeedSql = `
-      WITH feed_events AS (
-        SELECT
-          'task:' || te.id AS event_id,
-          te.event_type AS event_type,
-          'task' AS event_kind,
-          c.id AS company_id,
-          c.slug AS company_slug,
-          c.name AS company_name,
-          p.id AS project_id,
-          p.slug AS project_slug,
-          p.name AS project_name,
-          t.id AS task_id,
-          t.title AS task_title,
-          COALESCE(te.to_status, t.status) AS task_status,
-          te.from_status AS from_status,
-          te.to_status AS to_status,
-          te.agent_id AS agent_id,
-          a.name AS agent_name,
-          NULL AS provider,
-          te.metadata_json AS metadata_json,
-          te.created_at AS created_at
-        FROM task_events te
-        INNER JOIN tasks t ON t.id = te.task_id
-        INNER JOIN projects p ON p.id = te.project_id
-        INNER JOIN companies c ON c.id = p.company_id
-        LEFT JOIN agents a ON a.id = te.agent_id
-        WHERE ${taskEventWhereParts.join(" AND ")}
-          AND te.event_type IN (
-            'task.created',
-            'task.updated',
-            'task.archived',
-            'task.reordered',
-            'task.status_changed',
-            'task.assigned',
-            'task.unassigned',
-            'task.comment_added'
-          )
-
-        UNION ALL
-
-        SELECT
-          'execution:' || er.id AS event_id,
-          'execution.' || er.status AS event_type,
-          'execution' AS event_kind,
-          c.id AS company_id,
-          c.slug AS company_slug,
-          c.name AS company_name,
-          p.id AS project_id,
-          p.slug AS project_slug,
-          p.name AS project_name,
-          t.id AS task_id,
-          t.title AS task_title,
-          t.status AS task_status,
-          NULL AS from_status,
-          NULL AS to_status,
-          er.agent_id AS agent_id,
-          a.name AS agent_name,
-          er.provider AS provider,
-          json_object(
-            'sessionId', er.session_id,
-            'errorMessage', er.error_message,
-            'durationMs', er.duration_ms
-          ) AS metadata_json,
-          CASE
-            WHEN er.completed_at IS NOT NULL THEN er.completed_at
-            WHEN er.updated_at > er.created_at THEN er.updated_at
-            ELSE er.created_at
-          END AS created_at
-        FROM execution_runs er
-        INNER JOIN tasks t ON t.id = er.task_id
-        INNER JOIN projects p ON p.id = t.project_id
-        INNER JOIN companies c ON c.id = p.company_id
-        LEFT JOIN agents a ON a.id = er.agent_id
-        WHERE ${executionEventWhereParts.join(" AND ")}
-          AND er.status IN ('pending', 'running', 'completed', 'failed', 'cancelled')
-      )
-  `;
+  const feedCte = buildInboxFeedCte(companyRow.id, {
+    projectId: input.projectId,
+    status: dbStatus,
+    excludeDone: !input.includeDone && !dbStatus,
+    search,
+  });
 
   const decodedCursor = input.cursor ? decodeActivityCursor(input.cursor) : undefined;
   const eventRows = db
     .prepare(
-      `${eventFeedSql}
+      `${feedCte.sql}
       SELECT
         event_id,
         event_type,
@@ -891,6 +912,7 @@ export function listCompanyInbox(input: {
         project_name,
         task_id,
         task_title,
+        task_key,
         task_status,
         from_status,
         to_status,
@@ -909,8 +931,7 @@ export function listCompanyInbox(input: {
       LIMIT ?`
     )
     .all(
-      ...taskEventParams,
-      ...executionEventParams,
+      ...feedCte.params,
       ...(decodedCursor
         ? [decodedCursor.createdAt, decodedCursor.createdAt, decodedCursor.id]
         : []),
@@ -921,12 +942,26 @@ export function listCompanyInbox(input: {
   const pageRows = hasMore ? eventRows.slice(0, limit) : eventRows;
   const lastRow = pageRows.at(-1);
 
+  // Build read-state lookup set for this page of events (single query instead of N+1)
+  const pageEventIds = pageRows.map((r) => r.event_id);
+  const readSet = new Set<string>();
+  if (pageEventIds.length > 0) {
+    const placeholders = pageEventIds.map(() => "?").join(",");
+    const readRows = db
+      .prepare(
+        `SELECT event_id FROM inbox_read_state
+         WHERE company_id = ? AND user_id = 'default' AND event_id IN (${placeholders})`
+      )
+      .all(companyRow.id, ...pageEventIds) as { event_id: string }[];
+    for (const r of readRows) readSet.add(r.event_id);
+  }
+
   const events = pageRows.map((row) => {
     const metadata = parseJsonObject(row.metadata_json);
     const eventType = toInboxEventType(row);
 
     return {
-      id: deterministicEventId(row.event_id),
+      id: row.event_id,
       eventType,
       kind: row.event_kind,
       companyId: row.company_id,
@@ -937,27 +972,34 @@ export function listCompanyInbox(input: {
       projectName: row.project_name,
       taskId: row.task_id ?? undefined,
       taskTitle: row.task_title ?? undefined,
+      taskKey: row.task_key ?? undefined,
       status: row.task_status ? toApiStatus(row.task_status) : undefined,
       agentId: row.agent_id ?? undefined,
       agentName: row.agent_name ?? undefined,
       provider: row.provider ?? undefined,
       message: inboxEventMessage(row, metadata),
       timestamp: row.created_at,
-    } satisfies OrchestrationCompanyInboxEvent;
+      isRead: readSet.has(row.event_id),
+    };
   });
 
+  // Unread count via pure SQL LEFT JOIN (raw composite keys match directly)
   const unreadCountRow = db
     .prepare(
-      `${eventFeedSql}
+      `${feedCte.sql}
       SELECT COUNT(*) AS count
-      FROM feed_events
-      ${unreadSince ? "WHERE created_at > ?" : ""}`
+      FROM feed_events fe
+      LEFT JOIN inbox_read_state irs
+        ON irs.company_id = ? AND irs.user_id = 'default' AND irs.event_id = fe.event_id
+      WHERE irs.id IS NULL
+      ${unreadSince ? "AND fe.created_at > ?" : ""}`
     )
     .get(
-      ...taskEventParams,
-      ...executionEventParams,
+      ...feedCte.params,
+      companyRow.id,
       ...(unreadSince ? [unreadSince] : [])
     ) as { count: number };
+  const unreadCount = Number(unreadCountRow.count ?? 0);
 
   const totals = {
     backlog: 0,
@@ -1020,6 +1062,7 @@ export function listCompanyInbox(input: {
         t.labels_json,
         t.source_review_id,
         t.source_takeaway_id,
+        t.task_key,
         t.created_at,
         t.updated_at
        FROM tasks t
@@ -1084,7 +1127,7 @@ export function listCompanyInbox(input: {
         ? { nextCursor: encodeActivityCursor(lastRow.created_at, lastRow.event_id) }
         : {}),
     },
-    unreadCount: Number(unreadCountRow.count ?? 0),
+    unreadCount,
     unreadSince,
     tasks,
     totals: mutableTotals,
@@ -1142,6 +1185,8 @@ export function listCompanyGoals(input: {
         s.end_date AS sprint_end_date,
         s.created_at AS sprint_created_at,
         s.updated_at AS sprint_updated_at,
+        s.parent_id AS sprint_parent_id,
+        s.owner AS sprint_owner,
         p.id AS project_id,
         p.slug AS project_slug,
         p.name AS project_name,
@@ -1194,6 +1239,8 @@ export function listCompanyGoals(input: {
         inProgressCount,
         reviewCount,
         doneCount,
+        parentId: row.sprint_parent_id ?? undefined,
+        owner: row.sprint_owner ?? undefined,
       },
       projectId: row.project_id,
       projectSlug: row.project_slug,
@@ -1227,6 +1274,8 @@ export function createCompanyGoal(input: {
   status: SprintStatusInput;
   startDate?: string;
   endDate?: string | null;
+  parentId?: string;
+  owner?: string | null;
 }): {
   company: OrchestrationCompany;
   goal: OrchestrationCompanyGoal;
@@ -1258,9 +1307,9 @@ export function createCompanyGoal(input: {
 
   db.prepare(
     `INSERT INTO sprints
-      (id, project_id, name, goal, status, start_date, end_date, completed_at, created_at, updated_at)
+      (id, project_id, name, goal, status, start_date, end_date, completed_at, parent_id, owner, created_at, updated_at)
      VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     sprintId,
     projectRow.id,
@@ -1270,6 +1319,8 @@ export function createCompanyGoal(input: {
     input.startDate ?? now,
     input.endDate ?? null,
     input.status === "done" ? now : null,
+    input.parentId ?? null,
+    input.owner ?? null,
     now,
     now
   );
@@ -1299,6 +1350,8 @@ export function updateCompanyGoal(input: {
   status?: SprintStatusInput;
   startDate?: string;
   endDate?: string | null;
+  parentId?: string | null;
+  owner?: string | null;
 }): {
   company: OrchestrationCompany;
   goal: OrchestrationCompanyGoal;
@@ -1342,6 +1395,8 @@ export function updateCompanyGoal(input: {
       start_date = ?,
       end_date = ?,
       completed_at = ?,
+      parent_id = ?,
+      owner = ?,
       updated_at = ?
      WHERE id = ?`
   ).run(
@@ -1351,6 +1406,8 @@ export function updateCompanyGoal(input: {
     input.startDate ?? current.start_date,
     input.endDate === undefined ? current.end_date : input.endDate,
     completedAt,
+    input.parentId === undefined ? (current as Record<string, unknown>).parent_id ?? null : input.parentId,
+    input.owner === undefined ? (current as Record<string, unknown>).owner ?? null : input.owner,
     now,
     current.id
   );
@@ -1476,4 +1533,114 @@ export function resetCompanyTheme(companySlug: string): {
     presetId: "corporate-noir",
     sampleUrl: null,
   });
+}
+
+/* ── Inbox Read State ── */
+
+export function markInboxEventsRead(input: {
+  companyIdOrSlug: string;
+  eventIds: string[];
+  userId?: string;
+}): { marked: number } {
+  const db = getOrchestrationDb();
+  const companyRow = getCompanyRowByIdOrSlug(input.companyIdOrSlug);
+  if (!companyRow) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+  const userId = input.userId?.trim() || "default";
+  const now = new Date().toISOString();
+  let marked = 0;
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO inbox_read_state (id, company_id, user_id, event_id, read_at)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+
+  const tx = db.transaction(() => {
+    for (const eventId of input.eventIds) {
+      const id = `${companyRow.id}:${userId}:${eventId}`;
+      const result = insert.run(id, companyRow.id, userId, eventId, now);
+      if (result.changes > 0) marked++;
+    }
+  });
+  tx();
+
+  return { marked };
+}
+
+export function markAllInboxRead(input: {
+  companyIdOrSlug: string;
+  userId?: string;
+  beforeTimestamp?: string;
+}): { marked: number } {
+  const db = getOrchestrationDb();
+  const companyRow = getCompanyRowByIdOrSlug(input.companyIdOrSlug);
+  if (!companyRow) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+  const userId = input.userId?.trim() || "default";
+  const now = new Date().toISOString();
+  const beforeTs = input.beforeTimestamp?.trim() || now;
+
+  // Use shared CTE to find all unread event IDs
+  const feedCte = buildInboxFeedCte(companyRow.id, { beforeTimestamp: beforeTs });
+  const eventRows = db.prepare(
+    `${feedCte.sql}
+    SELECT fe.event_id
+    FROM feed_events fe
+    LEFT JOIN inbox_read_state irs
+      ON irs.company_id = ? AND irs.user_id = ? AND irs.event_id = fe.event_id
+    WHERE irs.id IS NULL`
+  ).all(...feedCte.params, companyRow.id, userId) as Array<{ event_id: string }>;
+
+  if (eventRows.length === 0) return { marked: 0 };
+
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO inbox_read_state (id, company_id, user_id, event_id, read_at)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+
+  let marked = 0;
+  const tx = db.transaction(() => {
+    for (const row of eventRows) {
+      const id = `${companyRow.id}:${userId}:${row.event_id}`;
+      const result = insert.run(id, companyRow.id, userId, row.event_id, now);
+      if (result.changes > 0) marked++;
+    }
+  });
+  tx();
+
+  return { marked };
+}
+
+export function isInboxEventRead(input: {
+  companyId: string;
+  userId: string;
+  eventId: string;
+}): boolean {
+  const db = getOrchestrationDb();
+  const row = db.prepare(
+    `SELECT 1 FROM inbox_read_state WHERE company_id = ? AND user_id = ? AND event_id = ? LIMIT 1`
+  ).get(input.companyId, input.userId, input.eventId);
+  return !!row;
+}
+
+export function getInboxUnreadCount(input: {
+  companyId: string;
+  userId?: string;
+}): number {
+  const db = getOrchestrationDb();
+  const userId = input.userId?.trim() || "default";
+
+  const feedCte = buildInboxFeedCte(input.companyId);
+  const row = db.prepare(
+    `${feedCte.sql}
+    SELECT COUNT(*) AS count
+    FROM feed_events fe
+    LEFT JOIN inbox_read_state irs
+      ON irs.company_id = ? AND irs.user_id = ? AND irs.event_id = fe.event_id
+    WHERE irs.id IS NULL`
+  ).get(...feedCte.params, input.companyId, userId) as { count: number };
+
+  return row?.count ?? 0;
 }

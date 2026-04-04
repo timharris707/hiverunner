@@ -281,6 +281,8 @@ export const createSprintSchema = z.object({
   status: sprintStatusSchema.optional().default("planned"),
   startDate: z.string().datetime({ offset: true }).optional(),
   endDate: z.string().datetime({ offset: true }).nullable().optional(),
+  parentId: z.string().trim().min(1).optional(),
+  owner: z.string().trim().max(200).nullable().optional(),
 });
 
 export const updateSprintSchema = z
@@ -290,6 +292,8 @@ export const updateSprintSchema = z
     status: sprintStatusSchema.optional(),
     startDate: z.string().datetime({ offset: true }).optional(),
     endDate: z.string().datetime({ offset: true }).nullable().optional(),
+    parentId: z.string().trim().min(1).nullable().optional(),
+    owner: z.string().trim().max(200).nullable().optional(),
   })
   .refine(
     (value) =>
@@ -297,7 +301,9 @@ export const updateSprintSchema = z
       value.goal !== undefined ||
       value.status !== undefined ||
       value.startDate !== undefined ||
-      value.endDate !== undefined,
+      value.endDate !== undefined ||
+      value.parentId !== undefined ||
+      value.owner !== undefined,
     {
       message: "At least one sprint field must be provided",
       path: [],

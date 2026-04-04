@@ -1,15 +1,26 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowRight, Building2, Crown, Layers3, Users } from "lucide-react";
-import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { Download, Minus, Plus, Upload } from "lucide-react";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { listCompanies, listCompanyAgents } from "@/lib/orchestration/client";
 import type { OrchestrationAgent, OrchestrationCompany } from "@/lib/orchestration/types";
 
+/* ─── Palette ─── */
+const P = {
+  bg: "#0f0f0f",
+  surface: "#1a1a1a",
+  card: "#1e1e1e",
+  cardBorder: "rgba(255,255,255,0.08)",
+  text: "#e5e5e5",
+  textSec: "#a3a3a3",
+  muted: "#737373",
+  accent: "#d97706",
+};
+
+/* ─── Types ─── */
 type OrgNode = {
   id: string;
   name: string;
@@ -18,10 +29,11 @@ type OrgNode = {
   avatar?: string;
   status: OrchestrationAgent["status"];
   managerId?: string;
-  managerLabel: string;
+  providerLabel: string;
   departmentColor: string;
 };
 
+/* ─── Page ─── */
 export default function CompanyOrgPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -32,116 +44,367 @@ export default function CompanyOrgPage() {
 
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       try {
-        const [companies, companyAgents] = await Promise.all([listCompanies(), listCompanyAgents(slug)]);
+        const [companies, companyAgents] = await Promise.all([
+          listCompanies(),
+          listCompanyAgents(slug),
+        ]);
         if (cancelled) return;
-        setCompany(companies.find((candidate) => candidate.slug === slug) ?? null);
+        setCompany(companies.find((c) => c.slug === slug) ?? null);
         setAgents(companyAgents);
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-
     void load();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [slug]);
 
   const org = useMemo(() => buildOrg(agents), [agents]);
 
-  if (!loading && !company) {
-    return <CompanyErrorState title="Company not found" detail="This company could not be resolved from orchestration data." href="/companies" />;
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
+      </div>
+    );
+  }
+
+  if (!company) {
+    return (
+      <div style={{ padding: 24 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+          Company not found.
+        </div>
+      </div>
+    );
   }
 
   return (
-    <CompanyShell
-      eyebrow="Company Workspace"
-      title={company ? `${company.name} Org` : "Org"}
-      description="Team hierarchy from orchestration roster. Reporting lines are resolved from real company agent relationships first, with config fallbacks only when no DB link exists."
-      accentColor="#f59e0b"
-    >
-      <section className="grid gap-3 md:grid-cols-4">
-        <StatCard label="Agents" value={org.totalAgents} accentColor="#f59e0b" />
-        <StatCard label="Leads" value={org.rootCount} accentColor="#22c55e" />
-        <StatCard label="Levels" value={org.levels.length} accentColor="#d97706" />
-        <StatCard label="Relations" value={org.edgeCount} accentColor="#d97706" />
-      </section>
-
-      <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl md:p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-xs uppercase tracking-[0.18em] text-amber-100/70">Hierarchy Map</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">Reporting Structure</h2>
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.03] px-3 py-1 text-xs text-slate-300">
-            <Building2 className="h-3.5 w-3.5" />
-            /companies/{slug}/org
-          </div>
+    <div style={{ padding: "16px 20px", maxWidth: 1400, color: P.text, fontSize: 13 }}>
+      {/* Header */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+        <h1 style={{
+          margin: 0, fontSize: 13, fontWeight: 700,
+          letterSpacing: "0.12em", textTransform: "uppercase",
+          color: P.textSec, fontFamily: "var(--font-heading)",
+        }}>
+          Org Chart
+        </h1>
+        <div style={{ display: "flex", gap: 6 }}>
+          <HeaderButton icon={<Upload size={13} />} label="Import company" />
+          <HeaderButton icon={<Download size={13} />} label="Export company" />
         </div>
+      </div>
 
-        {org.levels.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/60 p-8 text-center text-sm text-slate-400">
-            No company agents found.
-          </div>
-        ) : (
-          <div className="space-y-5">
-            {org.levels.map((level, index) => (
-              <section key={`level-${index}`} className="space-y-3">
-                <div className="flex items-center gap-2 text-xs text-slate-400">
-                  <Layers3 className="h-3.5 w-3.5" />
-                  Level {index + 1}
-                </div>
-                <div className="flex flex-wrap gap-3">
-                  {level.map((node) => {
-                    const reports = org.childrenById.get(node.id)?.length ?? 0;
-                    const statusTone = toneForStatus(node.status);
-                    return (
-                      <Link
-                        key={node.id}
-                        href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(node.id)}`}
-                        className="block min-w-[220px] flex-1 rounded-2xl border border-white/10 bg-slate-900/70 p-3 transition hover:border-amber-300/30"
-                        style={{ boxShadow: `inset 3px 0 0 ${node.departmentColor}` }}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex items-center gap-2">
-                            <Avatar node={node} />
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <h3 className="text-sm font-semibold text-white">{node.name}</h3>
-                                {isCeo(node) ? <Crown className="h-3.5 w-3.5 text-amber-300" /> : null}
-                              </div>
-                              <p className="text-xs text-slate-300">{node.role}</p>
-                            </div>
-                          </div>
-                          <span
-                            className="rounded-full px-2 py-1 text-[11px] font-medium"
-                            style={{ color: statusTone.color, backgroundColor: statusTone.bg }}
-                          >
-                            {statusTone.label}
-                          </span>
-                        </div>
-
-                        <div className="mt-3 grid gap-2 text-xs text-slate-300 sm:grid-cols-2">
-                          <InfoLabel icon={<Users className="h-3.5 w-3.5" />} label="Reports" value={String(reports)} />
-                          <InfoLabel icon={<ArrowRight className="h-3.5 w-3.5" />} label="Manager" value={node.managerLabel} />
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
-      </section>
-    </CompanyShell>
+      {/* Canvas */}
+      <OrgCanvas org={org} slug={slug} />
+    </div>
   );
 }
 
+/* ─── Header button ─── */
+function HeaderButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      type="button"
+      title={label}
+      style={{
+        display: "inline-flex", alignItems: "center", gap: 6,
+        padding: "6px 14px", borderRadius: 6,
+        background: P.surface, border: `1px solid ${P.cardBorder}`,
+        color: P.text, fontSize: 12, fontWeight: 500,
+        cursor: "pointer", transition: "border-color 0.15s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.cardBorder; }}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+/* ─── Zoomable / Pannable Canvas ─── */
+const CARD_W = 180;
+const CARD_H = 100;
+const GAP_X = 24;
+const GAP_Y = 60;
+
+type LayoutNode = OrgNode & { x: number; y: number };
+
+function layoutTree(org: ReturnType<typeof buildOrg>): { nodes: LayoutNode[]; width: number; height: number } {
+  if (org.levels.length === 0) return { nodes: [], width: 0, height: 0 };
+
+  const laid: LayoutNode[] = [];
+  let maxWidth = 0;
+
+  for (let lvl = 0; lvl < org.levels.length; lvl++) {
+    const level = org.levels[lvl];
+    const totalW = level.length * CARD_W + (level.length - 1) * GAP_X;
+    if (totalW > maxWidth) maxWidth = totalW;
+    const startX = -(totalW / 2) + CARD_W / 2;
+    const y = lvl * (CARD_H + GAP_Y);
+
+    for (let i = 0; i < level.length; i++) {
+      laid.push({ ...level[i], x: startX + i * (CARD_W + GAP_X), y });
+    }
+  }
+
+  const height = org.levels.length * (CARD_H + GAP_Y) - GAP_Y;
+  return { nodes: laid, width: maxWidth, height };
+}
+
+function OrgCanvas({ org, slug }: { org: ReturnType<typeof buildOrg>; slug: string }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const dragStart = useRef({ x: 0, y: 0, tx: 0, ty: 0 });
+
+  const layout = useMemo(() => layoutTree(org), [org]);
+
+  const fitToView = useCallback(() => {
+    const el = containerRef.current;
+    if (!el || layout.nodes.length === 0) return;
+    const rect = el.getBoundingClientRect();
+    const padX = 80;
+    const padY = 80;
+    const scaleX = (rect.width - padX * 2) / (layout.width || 1);
+    const scaleY = (rect.height - padY * 2) / (layout.height || 1);
+    const fit = Math.min(scaleX, scaleY, 1.2);
+    setScale(Math.max(0.2, Math.min(fit, 2)));
+    setTranslate({ x: 0, y: 0 });
+  }, [layout]);
+
+  useEffect(() => { fitToView(); }, [fitToView]);
+
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -0.08 : 0.08;
+    setScale((s) => Math.max(0.15, Math.min(s + delta, 3)));
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    setDragging(true);
+    dragStart.current = { x: e.clientX, y: e.clientY, tx: translate.x, ty: translate.y };
+  }, [translate]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!dragging) return;
+    setTranslate({
+      x: dragStart.current.tx + (e.clientX - dragStart.current.x) / scale,
+      y: dragStart.current.ty + (e.clientY - dragStart.current.y) / scale,
+    });
+  }, [dragging, scale]);
+
+  const handleMouseUp = useCallback(() => { setDragging(false); }, []);
+
+  // Build edges
+  const nodePos = useMemo(() => {
+    const m = new Map<string, LayoutNode>();
+    for (const n of layout.nodes) m.set(n.id, n);
+    return m;
+  }, [layout.nodes]);
+
+  const edges = useMemo(() => {
+    const result: { x1: number; y1: number; x2: number; y2: number }[] = [];
+    for (const node of layout.nodes) {
+      if (!node.managerId) continue;
+      const parent = nodePos.get(node.managerId);
+      if (!parent) continue;
+      result.push({
+        x1: parent.x,
+        y1: parent.y + CARD_H / 2,
+        x2: node.x,
+        y2: node.y - CARD_H / 2,
+      });
+    }
+    return result;
+  }, [layout.nodes, nodePos]);
+
+  return (
+    <div style={{ position: "relative" }}>
+      {/* Canvas viewport */}
+      <div
+        ref={containerRef}
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+        style={{
+          width: "100%", height: "calc(100vh - 120px)", minHeight: 400,
+          borderRadius: 8, background: P.bg,
+          border: `1px solid ${P.cardBorder}`,
+          overflow: "hidden", cursor: dragging ? "grabbing" : "grab",
+          position: "relative",
+        }}
+      >
+        <div style={{
+          position: "absolute",
+          left: "50%", top: "50%",
+          transform: `translate(-50%, -50%) scale(${scale}) translate(${translate.x}px, ${translate.y}px)`,
+          transformOrigin: "center center",
+          transition: dragging ? "none" : "transform 0.15s ease",
+        }}>
+          {/* Edges */}
+          <svg
+            style={{
+              position: "absolute",
+              left: -(layout.width / 2 + 100),
+              top: -50,
+              width: layout.width + 200,
+              height: layout.height + 100,
+              pointerEvents: "none",
+            }}
+          >
+            {edges.map((edge, i) => {
+              const cx = layout.width / 2 + 100;
+              const cy = 50;
+              const x1 = edge.x1 + cx;
+              const y1 = edge.y1 + cy;
+              const x2 = edge.x2 + cx;
+              const y2 = edge.y2 + cy;
+              const midY = (y1 + y2) / 2;
+              return (
+                <path
+                  key={i}
+                  d={`M${x1},${y1} C${x1},${midY} ${x2},${midY} ${x2},${y2}`}
+                  fill="none"
+                  stroke="rgba(255,255,255,0.12)"
+                  strokeWidth={1.5}
+                />
+              );
+            })}
+          </svg>
+
+          {/* Cards */}
+          {layout.nodes.map((node) => (
+            <OrgCard key={node.id} node={node} slug={slug} />
+          ))}
+        </div>
+      </div>
+
+      {/* Zoom controls */}
+      <div style={{
+        position: "absolute", top: 12, right: 12,
+        display: "flex", flexDirection: "column", gap: 2,
+      }}>
+        <ZoomBtn label="+" onClick={() => setScale((s) => Math.min(s + 0.15, 3))} />
+        <ZoomBtn label="-" onClick={() => setScale((s) => Math.max(s - 0.15, 0.15))} />
+        <ZoomBtn label="Fit" onClick={fitToView} small />
+      </div>
+    </div>
+  );
+}
+
+function ZoomBtn({ label, onClick, small }: { label: string; onClick: () => void; small?: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={label}
+      style={{
+        width: 32, height: small ? 28 : 32,
+        borderRadius: 4, border: `1px solid ${P.cardBorder}`,
+        background: P.surface, color: P.text,
+        fontSize: small ? 10 : 14, fontWeight: 600,
+        cursor: "pointer", display: "grid", placeItems: "center",
+        transition: "border-color 0.15s",
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.2)"; }}
+      onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.cardBorder; }}
+    >
+      {label}
+    </button>
+  );
+}
+
+/* ─── Agent Card ─── */
+function OrgCard({ node, slug }: { node: LayoutNode; slug: string }) {
+  const statusColor = statusDotColor(node.status);
+
+  return (
+    <Link
+      href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(node.id)}`}
+      style={{
+        position: "absolute",
+        left: node.x - CARD_W / 2,
+        top: node.y - CARD_H / 2,
+        width: CARD_W,
+        height: CARD_H,
+        borderRadius: 8,
+        background: P.card,
+        border: `1px solid ${P.cardBorder}`,
+        padding: "12px 14px",
+        display: "flex",
+        gap: 10,
+        alignItems: "flex-start",
+        textDecoration: "none",
+        cursor: "pointer",
+        transition: "border-color 0.15s, box-shadow 0.15s",
+      }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)";
+        e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.4)";
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.borderColor = P.cardBorder;
+        e.currentTarget.style.boxShadow = "none";
+      }}
+    >
+      {/* Icon */}
+      <div style={{
+        width: 28, height: 28, borderRadius: 6, flexShrink: 0,
+        background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
+        display: "grid", placeItems: "center", fontSize: 14,
+        overflow: "hidden",
+      }}>
+        {node.avatar ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={node.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+        ) : node.emoji || ""}
+      </div>
+
+      {/* Info */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{
+          fontSize: 12, fontWeight: 600, color: P.text,
+          whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+          fontFamily: "var(--font-heading)",
+        }}>
+          {node.name}
+        </div>
+        <div style={{
+          fontSize: 10, color: P.textSec, marginTop: 2,
+          display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          overflow: "hidden", lineHeight: 1.3,
+        }}>
+          {node.role}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
+          <span style={{
+            width: 7, height: 7, borderRadius: "50%",
+            backgroundColor: statusColor,
+            boxShadow: node.status === "working" ? `0 0 6px ${statusColor}` : "none",
+            flexShrink: 0,
+          }} />
+          <span style={{
+            fontSize: 9, color: P.muted, fontWeight: 500,
+            fontFamily: "var(--font-body)",
+          }}>
+            {node.providerLabel}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+/* ─── Org Builder ─── */
 function buildOrg(agents: OrchestrationAgent[]) {
   const nodeById = new Map<string, OrgNode>();
   const keyToId = new Map<string, string>();
@@ -149,7 +412,16 @@ function buildOrg(agents: OrchestrationAgent[]) {
   for (const agent of agents) {
     const config = getAgentByAnyId(agent.id) ?? getAgentByAnyId(agent.name);
     const division = config?.division ?? "Leadership";
-    const divisionMeta = DIVISIONS[division] ?? { label: "Operations", color: "#94a3b8", icon: "•" };
+    const divisionMeta = DIVISIONS[division] ?? { label: "Operations", color: "#94a3b8", icon: "" };
+
+    // Derive provider label from model
+    let providerLabel = "Codex";
+    if (agent.model) {
+      const m = agent.model.toLowerCase();
+      if (m.includes("gateway") || m.includes("openclaw")) providerLabel = "OpenClaw Gateway";
+      else if (m.includes("process") || m.includes("orchestrat")) providerLabel = "Process";
+      else providerLabel = "Codex";
+    }
 
     const node: OrgNode = {
       id: agent.id,
@@ -158,7 +430,7 @@ function buildOrg(agents: OrchestrationAgent[]) {
       emoji: agent.emoji,
       avatar: agent.avatar,
       status: agent.status,
-      managerLabel: "None",
+      providerLabel,
       departmentColor: divisionMeta.color,
     };
 
@@ -175,21 +447,17 @@ function buildOrg(agents: OrchestrationAgent[]) {
 
     const config = getAgentByAnyId(agent.id) ?? getAgentByAnyId(agent.name);
     const configuredManager = config?.reportsTo;
-    const managerId = resolveManagerId(agent.reportingTo, keyToId) ?? resolveManagerId(configuredManager, keyToId);
-
-    if (agent.reportingToName) {
-      node.managerLabel = agent.reportingToName;
-    }
+    const managerId =
+      resolveManagerId(agent.reportingTo, keyToId) ??
+      resolveManagerId(configuredManager, keyToId);
 
     if (managerId && managerId !== node.id) {
       node.managerId = managerId;
-      node.managerLabel = agent.reportingToName ?? nodeById.get(managerId)?.name ?? "Unknown";
       continue;
     }
 
     if (!isCeo(node) && defaultLeadId && defaultLeadId !== node.id) {
       node.managerId = defaultLeadId;
-      node.managerLabel = nodeById.get(defaultLeadId)?.name ?? "CEO";
     }
   }
 
@@ -201,7 +469,9 @@ function buildOrg(agents: OrchestrationAgent[]) {
     childrenById.set(node.managerId, existing);
   }
 
-  const roots = Array.from(nodeById.values()).filter((node) => !node.managerId || !nodeById.has(node.managerId));
+  const roots = Array.from(nodeById.values()).filter(
+    (node) => !node.managerId || !nodeById.has(node.managerId)
+  );
   roots.sort(sortNodes);
 
   const levels: OrgNode[][] = [];
@@ -237,7 +507,7 @@ function buildOrg(agents: OrchestrationAgent[]) {
     levels,
     childrenById,
     rootCount: roots.length,
-    edgeCount: Array.from(nodeById.values()).filter((node) => Boolean(node.managerId)).length,
+    edgeCount: Array.from(nodeById.values()).filter((n) => Boolean(n.managerId)).length,
     totalAgents: nodeById.size,
   };
 }
@@ -249,27 +519,22 @@ function sortNodes(a: OrgNode, b: OrgNode) {
 }
 
 function isCeo(node: Pick<OrgNode, "role">) {
-  return node.role.toLowerCase().includes("ceo");
+  return node.role.toLowerCase().includes("ceo") || node.role.toLowerCase().includes("co-founder");
 }
 
 function indexNodeKeys(agent: OrchestrationAgent, keyToId: Map<string, string>) {
-  const keys = [agent.id, agent.name, trimManagerLabel(agent.name), agent.openclawAgentId, agent.paperclipAgentId]
+  const keys = [agent.id, agent.name, trimLabel(agent.name), agent.openclawAgentId, agent.paperclipAgentId]
     .filter(Boolean)
-    .map((value) => normalizeKey(String(value)));
-
-  for (const key of keys) {
-    keyToId.set(key, agent.id);
-  }
+    .map((v) => normalizeKey(String(v)));
+  for (const key of keys) keyToId.set(key, agent.id);
 }
 
 function resolveManagerId(candidate: string | undefined, keyToId: Map<string, string>) {
   if (!candidate) return undefined;
-  const direct = keyToId.get(normalizeKey(candidate));
-  if (direct) return direct;
-  return keyToId.get(normalizeKey(trimManagerLabel(candidate)));
+  return keyToId.get(normalizeKey(candidate)) ?? keyToId.get(normalizeKey(trimLabel(candidate)));
 }
 
-function trimManagerLabel(value: string) {
+function trimLabel(value: string) {
   return value.replace(/\(.*?\)/g, "").replace(/[^\x00-\x7F]/g, "").trim();
 }
 
@@ -277,45 +542,13 @@ function normalizeKey(value: string) {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function toneForStatus(status: OrchestrationAgent["status"]) {
-  const tones: Record<OrchestrationAgent["status"], { color: string; bg: string; label: string }> = {
-    working: { color: "#4ade80", bg: "rgba(74,222,128,0.16)", label: "Working" },
-    idle: { color: "#d97706", bg: "rgba(217,119,6,0.16)", label: "Idle" },
-    paused: { color: "#f59e0b", bg: "rgba(245,158,11,0.16)", label: "Paused" },
-    offline: { color: "#94a3b8", bg: "rgba(148,163,184,0.16)", label: "Offline" },
-    error: { color: "#f87171", bg: "rgba(248,113,113,0.16)", label: "Error" },
+function statusDotColor(status: OrchestrationAgent["status"]): string {
+  const map: Record<OrchestrationAgent["status"], string> = {
+    working: "#22c55e",
+    idle: "#d97706",
+    paused: "#f59e0b",
+    offline: "#57534e",
+    error: "#ef4444",
   };
-
-  return tones[status];
-}
-
-function Avatar({ node }: { node: OrgNode }) {
-  if (node.avatar) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={node.avatar}
-        alt={`${node.name} avatar`}
-        className="h-9 w-9 rounded-full border border-white/20 object-cover"
-      />
-    );
-  }
-
-  return (
-    <div className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-white/5 text-lg">
-      {node.emoji || "🤖"}
-    </div>
-  );
-}
-
-function InfoLabel({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-white/8 bg-white/[0.03] px-2.5 py-2">
-      <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
-        {icon}
-        <span>{label}</span>
-      </div>
-      <p className="mt-1 text-xs text-slate-200">{value}</p>
-    </div>
-  );
+  return map[status] ?? "#57534e";
 }

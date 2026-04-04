@@ -178,6 +178,7 @@ function normalizeTask(raw: JsonRecord): OrchestrationTask {
 
   return {
     id: String(raw.id ?? ""),
+    key: raw.key ? String(raw.key) : raw.task_key ? String(raw.task_key) : undefined,
     title: String(raw.title ?? "Untitled Task"),
     description: raw.description ? String(raw.description) : undefined,
     parentTaskId: raw.parentTaskId
@@ -244,6 +245,8 @@ function normalizeSprint(raw: JsonRecord): OrchestrationSprint {
     inProgressCount: Number(raw.inProgressCount ?? 0),
     reviewCount: Number(raw.reviewCount ?? 0),
     doneCount: Number(raw.doneCount ?? 0),
+    parentId: raw.parentId ? String(raw.parentId) : undefined,
+    owner: raw.owner ? String(raw.owner) : undefined,
   };
 }
 
@@ -273,6 +276,7 @@ function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxE
     projectName: String(raw.projectName ?? raw.project_name ?? "Unknown Project"),
     taskId: raw.taskId ? String(raw.taskId) : raw.task_id ? String(raw.task_id) : undefined,
     taskTitle: raw.taskTitle ? String(raw.taskTitle) : raw.task_title ? String(raw.task_title) : undefined,
+    taskKey: raw.taskKey ? String(raw.taskKey) : raw.task_key ? String(raw.task_key) : undefined,
     status: raw.status ? (String(raw.status) as TaskStatus) : undefined,
     agentId: raw.agentId ? String(raw.agentId) : raw.agent_id ? String(raw.agent_id) : undefined,
     agentName: raw.agentName ? String(raw.agentName) : raw.agent_name ? String(raw.agent_name) : undefined,
@@ -379,6 +383,32 @@ export async function getCompanyInbox(input: {
   };
 }
 
+export async function markInboxEventsRead(companySlug: string, eventIds: string[]): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventIds }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function markAllInboxRead(companySlug: string): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ all: true }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function listCompanyGoals(input: {
   companySlug: string;
   projectId?: string;
@@ -434,6 +464,8 @@ export async function createCompanyGoal(input: {
   status?: OrchestrationSprint["status"];
   startDate?: string;
   endDate?: string | null;
+  parentId?: string;
+  owner?: string | null;
 }): Promise<OrchestrationCompanyGoal | null> {
   const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(input.companySlug)}/goals`, {
     method: "POST",
@@ -445,6 +477,8 @@ export async function createCompanyGoal(input: {
       status: input.status ?? "planned",
       ...(input.startDate ? { startDate: input.startDate } : {}),
       ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
+      ...(input.parentId ? { parentId: input.parentId } : {}),
+      ...(input.owner !== undefined ? { owner: input.owner } : {}),
     }),
   }).catch(() => null);
 
@@ -462,6 +496,8 @@ export async function updateCompanyGoal(input: {
   status?: OrchestrationSprint["status"];
   startDate?: string;
   endDate?: string | null;
+  parentId?: string | null;
+  owner?: string | null;
 }): Promise<OrchestrationCompanyGoal | null> {
   const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(input.companySlug)}/goals`, {
     method: "PATCH",
@@ -473,6 +509,8 @@ export async function updateCompanyGoal(input: {
       ...(input.status !== undefined ? { status: input.status } : {}),
       ...(input.startDate !== undefined ? { startDate: input.startDate } : {}),
       ...(input.endDate !== undefined ? { endDate: input.endDate } : {}),
+      ...(input.parentId !== undefined ? { parentId: input.parentId } : {}),
+      ...(input.owner !== undefined ? { owner: input.owner } : {}),
     }),
   }).catch(() => null);
 
@@ -1257,6 +1295,19 @@ export async function archiveTask(taskId: string, actorUserId?: string): Promise
   }).catch(() => null);
 
   return Boolean(response?.ok);
+}
+
+export async function addTaskComment(taskId: string, body: string, authorUserId = "me"): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/orchestration/tasks/${encodeURIComponent(taskId)}/comments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ body, authorUserId }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
 export async function listTaskComments(taskId: string): Promise<NonNullable<OrchestrationTask["comments"]>> {

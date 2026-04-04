@@ -61,6 +61,8 @@ export async function POST(
         status: parsed.status,
         startDate: parsed.startDate,
         endDate: parsed.endDate,
+        parentId: parsed.parentId,
+        owner: parsed.owner,
       }),
       { status: 201 }
     );
@@ -88,6 +90,8 @@ export async function PATCH(
         status: parsed.status,
         startDate: parsed.startDate,
         endDate: parsed.endDate,
+        parentId: parsed.parentId,
+        owner: parsed.owner,
       })
     );
   } catch (error) {

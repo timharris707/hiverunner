@@ -26,6 +26,38 @@ import type {
   TaskWithProjectRow,
 } from "./types";
 
+function generateTaskKey(db: Database.Database, projectId: string): { taskNumber: number; taskKey: string } {
+  const companyRow = db
+    .prepare(
+      `SELECT c.id AS company_id, c.company_code, c.name
+       FROM projects p
+       INNER JOIN companies c ON c.id = p.company_id
+       WHERE p.id = ?`
+    )
+    .get(projectId) as { company_id: string; company_code: string | null; name: string } | undefined;
+
+  if (!companyRow) {
+    const fallbackNum = (db.prepare(`SELECT COALESCE(MAX(task_number), 0) + 1 AS n FROM tasks WHERE project_id = ?`).get(projectId) as { n: number }).n;
+    return { taskNumber: fallbackNum, taskKey: `TSK-${fallbackNum}` };
+  }
+
+  const code = companyRow.company_code
+    ?? companyRow.name.replace(/[\s\-_]/g, "").slice(0, 3).toUpperCase();
+
+  // Company-scoped sequential number
+  const row = db
+    .prepare(
+      `SELECT COALESCE(MAX(t.task_number), 0) AS max_num
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       WHERE p.company_id = ?`
+    )
+    .get(companyRow.company_id) as { max_num: number };
+
+  const taskNumber = Number(row?.max_num ?? 0) + 1;
+  return { taskNumber, taskKey: `${code}-${taskNumber}` };
+}
+
 function nextColumnOrder(db: Database.Database, projectId: string, status: DbTaskStatus): number {
   const row = db
     .prepare(
@@ -101,6 +133,7 @@ function projectFromRow(db: Database.Database, row: ProjectAggregateRow): Orches
 function taskFromRow(row: TaskRow, comments: OrchestrationTask["comments"] = []): OrchestrationTask {
   return {
     id: row.id,
+    key: row.task_key ?? undefined,
     title: row.title,
     description: row.description,
     parentTaskId: row.parent_task_id ?? undefined,
@@ -317,6 +350,7 @@ function fetchTaskRowsForProject(db: Database.Database, projectId: string): Task
         t.labels_json,
         t.source_review_id,
         t.source_takeaway_id,
+        t.task_key,
         t.created_at,
         t.updated_at,
         t.completed_at
@@ -461,21 +495,22 @@ function taskById(db: Database.Database, taskId: string): OrchestrationTask {
         t.labels_json,
         t.source_review_id,
         t.source_takeaway_id,
+        t.task_key,
         t.created_at,
         t.updated_at,
         t.completed_at
        FROM tasks t
        LEFT JOIN agents a ON a.id = t.assignee_agent_id
        LEFT JOIN sprints s ON s.id = t.sprint_id
-       WHERE t.id = ? AND t.archived_at IS NULL`
+       WHERE (t.id = ? OR t.task_key = ?) AND t.archived_at IS NULL`
     )
-    .get(taskId) as TaskRow | undefined;
+    .get(taskId, taskId) as TaskRow | undefined;
 
   if (!row) {
     throw new OrchestrationApiError(404, "task_not_found", "Task not found");
   }
 
-  const comments = commentsForTasks(db, [taskId]).get(taskId) ?? [];
+  const comments = commentsForTasks(db, [row.id]).get(row.id) ?? [];
   return taskFromRow(row, comments);
 }
 
@@ -509,6 +544,7 @@ export {
   commentsForTasks,
   commentViewFromRow,
   fetchTaskRowsForProject,
+  generateTaskKey,
   getOrchestrationDb,
   getProjectRow,
   getTaskRowForUpdate,

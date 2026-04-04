@@ -1,31 +1,55 @@
 "use client";
 
-import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { ChevronDown, List, LayoutGrid, Plus, Search, SlidersHorizontal } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
-import { formatAge } from "@/components/orchestration/ui";
-import { listCompanies, listCompanyAgents, listProjects, listTasks } from "@/lib/orchestration/client";
+import {
+  listCompanies,
+  listCompanyAgents,
+  listProjects,
+  listTasks,
+  updateTaskStatus,
+  updateTask,
+  updateTaskAssignee,
+  archiveTask,
+} from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { resolveActiveProject } from "@/lib/active-project-utils";
-import type { OrchestrationAgent, OrchestrationCompany, OrchestrationProject, OrchestrationTask, TaskPriority, TaskStatus } from "@/lib/orchestration/types";
+import type {
+  OrchestrationAgent,
+  OrchestrationCompany,
+  OrchestrationProject,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/orchestration/types";
 
-type GroupMode = "none" | "status" | "priority" | "assignee" | "project";
-type SortMode = "updated" | "created" | "priority";
+import { TasksToolbar } from "@/components/tasks/TasksToolbar";
+import { TaskListView } from "@/components/tasks/TaskListView";
+import { TaskBoardView } from "@/components/tasks/TaskBoardView";
+import { TaskTableView } from "@/components/tasks/TaskTableView";
+import { TaskContextMenu } from "@/components/tasks/TaskContextMenu";
+import { useTaskKeyboard } from "@/components/tasks/useTaskKeyboard";
+import {
+  type ViewMode,
+  type GroupMode,
+  type SortField,
+  type TaskFilters,
+  type TaskSort,
+  type TaskRow,
+  type TaskGroup,
+  type InlineEditCallbacks,
+  SURFACE,
+  STATUS_ORDER,
+  STATUS_LABEL,
+  PRI_WEIGHT,
+  getTaskIdentifier
+} from "@/components/tasks/types";
 
-type TaskRow = OrchestrationTask & {
-  projectId: string;
-  projectSlug: string;
-  projectName: string;
+const STATUS_WEIGHT: Record<TaskStatus, number> = {
+  "in-progress": 0, "on-deck": 1, review: 2, blocked: 3, backlog: 4, done: 5, cancelled: 6,
 };
-
-const STATUS_ORDER: TaskStatus[] = ["in-progress", "on-deck", "review", "blocked", "backlog", "done"];
-const STATUS_LABEL: Record<TaskStatus, string> = { backlog: "Backlog", "on-deck": "On Deck", "in-progress": "In Progress", review: "Review", done: "Done", blocked: "Blocked" };
-const STATUS_DOT: Record<TaskStatus, string> = { backlog: "#78716c", "on-deck": "#a8a29e", "in-progress": "#f5f5f4", review: "#d6d3d1", done: "#57534e", blocked: "#78716c" };
-const PRI_WEIGHT: Record<TaskPriority, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 
 export default function CompanyTasksPage() {
   const params = useParams<{ slug: string }>();
@@ -39,11 +63,17 @@ export default function CompanyTasksPage() {
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | TaskStatus>("all");
+  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [filters, setFilters] = useState<TaskFilters>({ status: "all", priority: "all", assignee: "all", type: "all", query: "" });
+  const [sort, setSort] = useState<TaskSort>({ field: "updated", dir: "desc" });
   const [groupMode, setGroupMode] = useState<GroupMode>("status");
-  const [sortMode, setSortMode] = useState<SortMode>("updated");
   const [createOpen, setCreateOpen] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(-1);
+
+  const [ctxTask, setCtxTask] = useState<TaskRow | null>(null);
+  const [ctxPos, setCtxPos] = useState({ x: 0, y: 0 });
+
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const activeProjectRecord = useMemo(() => {
     const qp = searchParams.get("projectId") ?? searchParams.get("project");
@@ -68,7 +98,7 @@ export default function CompanyTasksPage() {
         if (!current) { setProjects([]); setTasks([]); setAgents([]); return; }
 
         const pMap = new Map(projectRows.map((p) => [p.id, p] as const));
-        const rows = taskRows.filter((t) => pMap.has(t.project)).map((t) => {
+        const rows: TaskRow[] = taskRows.filter((t) => pMap.has(t.project)).map((t) => {
           const p = pMap.get(t.project)!;
           return { ...t, projectId: p.id, projectSlug: p.slug, projectName: p.name };
         });
@@ -93,20 +123,31 @@ export default function CompanyTasksPage() {
   }, [agents]);
 
   const filtered = useMemo(() => {
-    const lq = query.trim().toLowerCase();
+    const lq = filters.query.trim().toLowerCase();
     return tasks.filter((t) => {
-      if (statusFilter !== "all" && t.status !== statusFilter) return false;
+      if (filters.status !== "all" && t.status !== filters.status) return false;
+      if (filters.priority !== "all" && t.priority !== filters.priority) return false;
+      if (filters.assignee !== "all" && (t.assignee ?? "") !== filters.assignee) return false;
+      if (filters.type !== "all" && t.type !== filters.type) return false;
       if (activeProjectRecord && t.projectId !== activeProjectRecord.id) return false;
       if (!lq) return true;
       return `${t.title} ${t.description ?? ""} ${t.assignee ?? ""} ${t.projectName}`.toLowerCase().includes(lq);
     }).sort((a, b) => {
-      if (sortMode === "priority") return PRI_WEIGHT[a.priority] - PRI_WEIGHT[b.priority];
-      if (sortMode === "created") return new Date(b.created).getTime() - new Date(a.created).getTime();
-      return new Date(b.updated).getTime() - new Date(a.updated).getTime();
+      const dir = sort.dir === "asc" ? 1 : -1;
+      switch (sort.field) {
+        case "priority": return dir * (PRI_WEIGHT[a.priority] - PRI_WEIGHT[b.priority]);
+        case "created": return dir * (new Date(a.created).getTime() - new Date(b.created).getTime());
+        case "title": return dir * a.title.localeCompare(b.title);
+        case "status": return dir * (STATUS_WEIGHT[a.status] - STATUS_WEIGHT[b.status]);
+        case "id": return dir * getTaskIdentifier(a).localeCompare(getTaskIdentifier(b));
+        case "assignee": return dir * (a.assignee ?? "").localeCompare(b.assignee ?? "");
+        case "project": return dir * a.projectName.localeCompare(b.projectName);
+        default: return -1 * (new Date(a.updated).getTime() - new Date(b.updated).getTime());
+      }
     });
-  }, [tasks, query, statusFilter, activeProjectRecord, sortMode]);
+  }, [tasks, filters, activeProjectRecord, sort]);
 
-  const grouped = useMemo(() => {
+  const grouped = useMemo<TaskGroup[]>(() => {
     if (groupMode === "none") return [{ key: "all", label: null, items: filtered }];
     const groups = new Map<string, TaskRow[]>();
     for (const t of filtered) {
@@ -124,133 +165,151 @@ export default function CompanyTasksPage() {
     return Array.from(groups.entries()).map(([k, items]) => ({ key: k, label: k, items }));
   }, [filtered, groupMode]);
 
+  const flatTasks = useMemo(() => grouped.flatMap((g) => g.items.filter((t) => !t.parentTaskId)), [grouped]);
+
+  const handleStatusChange = useCallback(async (taskId: string, status: TaskStatus) => {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status, updated: new Date().toISOString() } : t));
+    await updateTaskStatus(taskId, status);
+  }, []);
+
+  const handlePriorityChange = useCallback(async (taskId: string, priority: TaskPriority) => {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, priority, updated: new Date().toISOString() } : t));
+    await updateTask({ taskId, priority });
+  }, []);
+
+  const handleAssigneeChange = useCallback(async (taskId: string, assignee: string) => {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, assignee: assignee || undefined, updated: new Date().toISOString() } : t));
+    await updateTaskAssignee(taskId, assignee);
+  }, []);
+
+  const handleArchive = useCallback(async (taskId: string) => {
+    setTasks((prev) => prev.filter((t) => t.id !== taskId));
+    await archiveTask(taskId);
+  }, []);
+
+  const callbacks: InlineEditCallbacks = useMemo(() => ({
+    onStatusChange: handleStatusChange,
+    onPriorityChange: handlePriorityChange,
+    onAssigneeChange: handleAssigneeChange,
+  }), [handleStatusChange, handlePriorityChange, handleAssigneeChange]);
+
+  const openContextMenu = useCallback((e: React.MouseEvent, task: TaskRow) => {
+    e.preventDefault();
+    setCtxTask(task);
+    setCtxPos({ x: Math.min(e.clientX, window.innerWidth - 200), y: Math.min(e.clientY, window.innerHeight - 300) });
+  }, []);
+
+  const closeContextMenu = useCallback(() => setCtxTask(null), []);
+
+  const handleTableSort = useCallback((field: SortField) => {
+    setSort((prev) => ({
+      field,
+      dir: prev.field === field && prev.dir === "asc" ? "desc" : "asc",
+    }));
+  }, []);
+
+  const companyCode = company?.code ?? slug.slice(0, 3).toUpperCase();
+
+  useTaskKeyboard({
+    taskCount: flatTasks.length,
+    selectedIndex,
+    setSelectedIndex,
+    onOpenTask: (i) => {
+      const t = flatTasks[i];
+      if (t) window.location.href = `/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(getTaskIdentifier(t))}`;
+    },
+    onOpenCreate: () => setCreateOpen(true),
+    focusSearch: () => searchRef.current?.focus(),
+    viewMode,
+    setViewMode,
+    enabled: !createOpen && !ctxTask,
+  });
+
   if (!loading && !company) {
     return <CompanyErrorState title="Company not found" detail="This company could not be resolved." href="/" />;
   }
 
-  const selectStyle: React.CSSProperties = {
-    height: "28px", appearance: "none" as const, borderRadius: "6px",
-    border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)",
-    padding: "0 24px 0 8px", fontSize: "12px", color: "#d6d3d1", outline: "none",
-  };
-
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0c0a09" }}>
-      {/* toolbar */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 16px", borderBottom: "1px solid rgba(120,113,108,0.15)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            style={{ display: "inline-flex", alignItems: "center", gap: "4px", padding: "5px 12px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.5)", fontSize: "12px", fontWeight: 600, color: "#f5f5f4", cursor: "pointer" }}
-          >
-            <Plus size={12} /> New Task
-          </button>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: SURFACE.page }}>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
-          <div style={{ position: "relative" }}>
-            <Search size={12} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: "#57534e", pointerEvents: "none" }} />
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tasks…"
-              style={{ height: "28px", width: "200px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)", padding: "0 8px 0 28px", fontSize: "12px", color: "#f5f5f4", outline: "none" }}
-            />
-          </div>
-        </div>
+      <TasksToolbar
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        filters={filters}
+        onFiltersChange={setFilters}
+        sort={sort}
+        onSortChange={setSort}
+        groupMode={groupMode}
+        onGroupModeChange={setGroupMode}
+        taskCount={filtered.length}
+        agents={agents}
+        onNewTask={() => setCreateOpen(true)}
+        searchRef={searchRef}
+      />
 
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <div style={{ position: "relative" }}>
-            <SlidersHorizontal size={11} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: "#78716c", pointerEvents: "none" }} />
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "all" | TaskStatus)} style={{ ...selectStyle, paddingLeft: "24px" }}>
-              <option value="all">All statuses</option>
-              {STATUS_ORDER.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
-            </select>
-            <ChevronDown size={10} style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", color: "#57534e", pointerEvents: "none" }} />
-          </div>
-
-          <div style={{ position: "relative" }}>
-            <select value={sortMode} onChange={(e) => setSortMode(e.target.value as SortMode)} style={selectStyle}>
-              <option value="updated">Sort: Updated</option>
-              <option value="created">Sort: Created</option>
-              <option value="priority">Sort: Priority</option>
-            </select>
-            <ChevronDown size={10} style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", color: "#57534e", pointerEvents: "none" }} />
-          </div>
-
-          <div style={{ position: "relative" }}>
-            <select value={groupMode} onChange={(e) => setGroupMode(e.target.value as GroupMode)} style={selectStyle}>
-              <option value="none">Group: None</option>
-              <option value="status">Group: Status</option>
-              <option value="priority">Group: Priority</option>
-              <option value="assignee">Group: Assignee</option>
-              <option value="project">Group: Project</option>
-            </select>
-            <ChevronDown size={10} style={{ position: "absolute", right: "6px", top: "50%", transform: "translateY(-50%)", color: "#57534e", pointerEvents: "none" }} />
-          </div>
-        </div>
-      </div>
-
-      {/* task list */}
       <div style={{ flex: 1, overflowY: "auto" }}>
         {loading ? (
-          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "13px", color: "#57534e" }}>Loading tasks…</div>
+          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "12px", color: SURFACE.textGhost }}>Loading tasks…</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "13px", color: "#57534e" }}>No tasks match filters.</div>
+          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "12px", color: SURFACE.textGhost }}>No tasks match filters.</div>
+        ) : viewMode === "list" ? (
+          <TaskListView
+            groups={grouped}
+            groupMode={groupMode}
+            agents={agents}
+            agentMap={agentMap}
+            callbacks={callbacks}
+            selectedIndex={selectedIndex}
+            onSelect={setSelectedIndex}
+            buildHref={(t) => `/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(getTaskIdentifier(t))}`}
+            onContextMenu={openContextMenu}
+            flatTasks={flatTasks}
+          />
+        ) : viewMode === "board" ? (
+          <TaskBoardView
+            tasks={filtered}
+            agents={agents}
+            agentMap={agentMap}
+            callbacks={callbacks}
+            buildHref={(t) => `/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(getTaskIdentifier(t))}`}
+            onContextMenu={openContextMenu}
+          />
         ) : (
-          grouped.map((group) => (
-            <div key={group.key}>
-              {group.label !== null && (
-                <div style={{ padding: "8px 16px 4px", display: "flex", alignItems: "center", gap: "8px", borderBottom: "1px solid rgba(120,113,108,0.08)" }}>
-                  {groupMode === "status" && <span style={{ width: "8px", height: "8px", borderRadius: "999px", background: STATUS_DOT[group.key as TaskStatus] ?? "#78716c" }} />}
-                  <span style={{ fontSize: "12px", fontWeight: 600, color: "#a8a29e" }}>{group.label}</span>
-                  <span style={{ fontSize: "11px", color: "#57534e" }}>{group.items.length}</span>
-                </div>
-              )}
-              {group.items.map((task) => {
-                const taskHref = `/companies/${encodeURIComponent(slug)}/projects/${encodeURIComponent(task.projectSlug)}/board?task=${encodeURIComponent(task.id)}`;
-                const agent = agentMap.get((task.assignee ?? "").toLowerCase());
-                return (
-                  <Link
-                    key={task.id}
-                    href={taskHref}
-                    style={{
-                      display: "flex", alignItems: "center", gap: "12px",
-                      padding: "8px 16px",
-                      borderBottom: "1px solid rgba(120,113,108,0.06)",
-                      textDecoration: "none",
-                      transition: "background 80ms ease",
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.02)"; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                  >
-                    {/* status dot */}
-                    <span style={{ width: "8px", height: "8px", borderRadius: "999px", background: STATUS_DOT[task.status], flexShrink: 0 }} />
-
-                    {/* title */}
-                    <span style={{ flex: 1, fontSize: "13px", color: "#f5f5f4", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
-
-                    {/* assignee */}
-                    <span style={{ fontSize: "12px", color: "#78716c", flexShrink: 0, width: "80px", textAlign: "right", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {agent?.name ?? task.assignee ?? ""}
-                    </span>
-
-                    {/* date */}
-                    <span style={{ fontSize: "11px", color: "#57534e", flexShrink: 0, width: "70px", textAlign: "right" }}>
-                      {formatAge(task.updated)}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
-          ))
+          <TaskTableView
+            tasks={filtered}
+            agents={agents}
+            agentMap={agentMap}
+            companyCode={companyCode}
+            selectedIndex={selectedIndex}
+            sortField={sort.field}
+            sortDir={sort.dir}
+            onSortChange={handleTableSort}
+            onContextMenu={openContextMenu}
+            callbacks={callbacks}
+          />
         )}
       </div>
+
+      {ctxTask && (
+        <TaskContextMenu
+          task={ctxTask}
+          x={ctxPos.x}
+          y={ctxPos.y}
+          agents={agents}
+          callbacks={callbacks}
+          onArchive={handleArchive}
+          onClose={closeContextMenu}
+          href={`/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(getTaskIdentifier(ctxTask))}`}
+        />
+      )}
+
       <CreateTaskModal
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         onCreated={() => { window.location.reload(); }}
         companySlug={slug}
-        companyCode={company?.code ?? slug.slice(0, 3).toUpperCase()}
+        companyCode={companyCode}
       />
     </div>
   );

@@ -264,6 +264,7 @@ export function listProjectAgents(
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
+        mgr.name AS reporting_to_name,
         a.skills_json,
         a.tasks_completed,
         a.total_runtime_minutes,
@@ -272,6 +273,7 @@ export function listProjectAgents(
         a.updated_at
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
+       LEFT JOIN agents mgr ON mgr.id = a.reporting_to
        WHERE a.company_id = ?
          AND a.archived_at IS NULL
        ORDER BY

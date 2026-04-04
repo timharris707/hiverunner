@@ -1,7 +1,7 @@
 export type ProjectStatus = "active" | "inactive" | "completed" | "archived" | "on-hold" | "paused";
 export type CompanyStatus = "active" | "paused" | "archived";
 
-export type TaskStatus = "backlog" | "on-deck" | "in-progress" | "review" | "done" | "blocked";
+export type TaskStatus = "backlog" | "on-deck" | "in-progress" | "review" | "done" | "blocked" | "cancelled";
 export type TaskPriority = "P0" | "P1" | "P2" | "P3";
 export type TaskType = "feature" | "bug" | "maintenance" | "research" | "infrastructure" | "directive";
 export type TaskExecutionMode = "openclaw" | "paperclip" | "manual";
@@ -65,6 +65,7 @@ export interface OrchestrationCompany {
 
 export interface OrchestrationTask {
   id: string;
+  key?: string;
   title: string;
   description?: string;
   parentTaskId?: string;
@@ -107,6 +108,8 @@ export interface OrchestrationSprint {
   inProgressCount: number;
   reviewCount: number;
   doneCount: number;
+  parentId?: string;
+  owner?: string;
 }
 
 export interface OrchestrationCompanyInboxTask extends OrchestrationTask {
@@ -141,12 +144,14 @@ export interface OrchestrationCompanyInboxEvent {
   projectName: string;
   taskId?: string;
   taskTitle?: string;
+  taskKey?: string;
   status?: TaskStatus;
   agentId?: string;
   agentName?: string;
   provider?: "openclaw" | "paperclip";
   message: string;
   timestamp: string;
+  isRead?: boolean;
 }
 
 export interface OrchestrationCompanyGoal {

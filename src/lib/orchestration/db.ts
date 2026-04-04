@@ -762,6 +762,65 @@ const MIGRATIONS: Migration[] = [
         WHERE slug IS NOT NULL AND TRIM(slug) <> '';
     `,
   },
+  {
+    version: 24,
+    name: "tasks_add_task_key",
+    sql: `
+      -- Add a company-scoped sequential number and human-readable key (e.g. NEV-42)
+      ALTER TABLE tasks ADD COLUMN task_number INTEGER;
+      ALTER TABLE tasks ADD COLUMN task_key TEXT;
+
+      -- Backfill: assign company-scoped sequential numbers ordered by created_at
+      -- We use a CTE to compute a row number across ALL tasks for the same company
+      WITH ranked AS (
+        SELECT
+          t.id AS task_id,
+          ROW_NUMBER() OVER (
+            PARTITION BY p.company_id
+            ORDER BY t.created_at ASC, t.id ASC
+          ) AS rn
+        FROM tasks t
+        INNER JOIN projects p ON p.id = t.project_id
+      )
+      UPDATE tasks
+      SET task_number = (SELECT rn FROM ranked WHERE ranked.task_id = tasks.id);
+
+      -- Backfill: generate human-readable keys using the company code
+      UPDATE tasks
+      SET task_key = (
+        SELECT COALESCE(c.company_code, UPPER(SUBSTR(REPLACE(REPLACE(REPLACE(c.name, ' ', ''), '-', ''), '_', ''), 1, 3)))
+          || '-' || tasks.task_number
+        FROM projects p
+        INNER JOIN companies c ON c.id = p.company_id
+        WHERE p.id = tasks.project_id
+      )
+      WHERE task_number IS NOT NULL;
+
+      CREATE UNIQUE INDEX idx_tasks_task_key
+        ON tasks(task_key)
+        WHERE task_key IS NOT NULL AND TRIM(task_key) <> '';
+    `,
+  },
+  {
+    version: 25,
+    name: "inbox_read_state_canonical_event_ids",
+    sql: `
+      -- Clear stale read-state entries that used hashed UUIDs as event_id.
+      -- The canonical format is now the raw composite key ('task:uuid' / 'execution:uuid').
+      -- Entries with hashed UUIDs will never match the feed CTE's composite keys.
+      DELETE FROM inbox_read_state
+      WHERE event_id NOT LIKE 'task:%' AND event_id NOT LIKE 'execution:%';
+    `,
+  },
+  {
+    version: 26,
+    name: "sprint_parent_id_and_owner",
+    sql: `
+      ALTER TABLE sprints ADD COLUMN parent_id TEXT REFERENCES sprints(id) ON DELETE SET NULL;
+      ALTER TABLE sprints ADD COLUMN owner TEXT DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_sprints_parent_id ON sprints(parent_id);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

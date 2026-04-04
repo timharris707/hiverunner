@@ -76,6 +76,7 @@ export type TaskRow = {
   labels_json: string;
   source_review_id: string | null;
   source_takeaway_id: string | null;
+  task_key: string | null;
   created_at: string;
   updated_at: string;
   completed_at: string | null;

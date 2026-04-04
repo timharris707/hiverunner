@@ -10,6 +10,7 @@ import {
   type TaskStatusInput,
   type TaskTypeInput,
   commentsForTasks,
+  generateTaskKey,
   getOrchestrationDb,
   getProjectRow,
   getTaskRowForUpdate,
@@ -150,6 +151,7 @@ export function listTasks(filters: {
         t.labels_json,
         t.source_review_id,
         t.source_takeaway_id,
+        t.task_key,
         t.created_at,
         t.updated_at
        FROM tasks t
@@ -235,14 +237,15 @@ export function createTask(input: {
   const now = new Date().toISOString();
   const taskId = randomUUID();
   const columnOrder = input.columnOrder ?? nextColumnOrder(db, project.id, status);
+  const { taskNumber, taskKey } = generateTaskKey(db, project.id);
 
   const tx = db.transaction(() => {
     db.prepare(
       `INSERT INTO tasks
         (id, project_id, sprint_id, parent_task_id, title, description, priority, type, status, column_order,
-         assignee_agent_id, assigned_at, created_by, labels_json, blocked_reason, source_review_id, source_takeaway_id, started_at, completed_at, created_at, updated_at)
+         assignee_agent_id, assigned_at, created_by, labels_json, blocked_reason, source_review_id, source_takeaway_id, started_at, completed_at, task_number, task_key, created_at, updated_at)
        VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       taskId,
       project.id,
@@ -263,6 +266,8 @@ export function createTask(input: {
       input.sourceTakeawayId ?? null,
       status === "in_progress" ? now : null,
       status === "done" ? now : null,
+      taskNumber,
+      taskKey,
       now,
       now
     );

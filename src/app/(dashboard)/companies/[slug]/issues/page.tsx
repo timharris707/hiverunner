@@ -35,6 +35,7 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   review: "#fbbf24",
   done: "#4ade80",
   blocked: "#ef4444",
+  cancelled: "#78716c",
 };
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -44,6 +45,7 @@ const STATUS_LABEL: Record<TaskStatus, string> = {
   review: "Review",
   done: "Done",
   blocked: "Blocked",
+  cancelled: "Cancelled",
 };
 
 /* ── priority colors (amber palette, no blue) ── */

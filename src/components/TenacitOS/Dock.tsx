@@ -420,7 +420,7 @@ function operationsItemHref(code: string, itemLabel: string): string {
 function companyItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Org":
-      return buildCanonicalTeamPath(code);
+      return buildCanonicalOrgPath(code);
     case "Skills":
       return buildCanonicalSkillsPath(code);
     case "Costs":
@@ -1253,7 +1253,7 @@ export function Dock() {
                 indent: true,
                 accentBar: true,
               }}
-              active={checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalTeamPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
+              active={checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalOrgPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
             />
             {companies.length > 1 ? (
               <button
