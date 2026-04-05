@@ -86,6 +86,13 @@ const RUN_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
 
 const REFRESH_MS = 15_000;
 
+type CostSnapshot = {
+  thisMonth: number;
+  budget: number;
+  today: number;
+  projected: number;
+} | null;
+
 type DashboardData = {
   company: OrchestrationCompany;
   projects: OrchestrationProject[];
@@ -93,6 +100,7 @@ type DashboardData = {
   tasks: OrchestrationTask[];
   activity: OrchestrationActivityEvent[];
   agentProfiles: Map<string, OrchestrationAgentProfile>;
+  costs: CostSnapshot;
 };
 
 /* ── main page ── */
@@ -155,8 +163,25 @@ export default function CompanyDashboardPage() {
           }
         }
 
+        // Fetch real cost data (non-blocking)
+        let costs: CostSnapshot = null;
+        try {
+          const costResp = await withTimeout(
+            fetch("/api/costs?timeframe=30d", { cache: "no-store" }).then(async (r) => r.ok ? r.json() : null),
+            3000,
+          );
+          if (costResp && typeof costResp.thisMonth === "number") {
+            costs = {
+              thisMonth: costResp.thisMonth,
+              budget: costResp.budget ?? 0,
+              today: costResp.today ?? 0,
+              projected: costResp.projected ?? 0,
+            };
+          }
+        } catch { /* cost fetch is non-critical */ }
+
         if (cancelled) return;
-        setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity, agentProfiles });
+        setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity, agentProfiles, costs });
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -204,17 +229,6 @@ export default function CompanyDashboardPage() {
   const pendingReview = useMemo(() => {
     if (!data) return 0;
     return data.tasks.filter((t) => t.status === "review").length;
-  }, [data]);
-
-  const totalRuntimeMinutes = useMemo(() => {
-    if (!data) return 0;
-    let total = 0;
-    for (const profile of data.agentProfiles.values()) {
-      for (const run of profile.executionHistory) {
-        if (run.durationMs) total += run.durationMs;
-      }
-    }
-    return Math.round(total / 60_000);
   }, [data]);
 
   const recentTasks = useMemo(() => {
@@ -319,16 +333,22 @@ export default function CompanyDashboardPage() {
             detail={`${taskMetrics.open} open, ${taskMetrics.blocked} blocked`}
           />
           <MetricCard
-            value={`${totalRuntimeMinutes}m`}
-            label="Agent Runtime"
+            value={data?.costs ? `$${data.costs.thisMonth.toFixed(2)}` : "—"}
+            label="Month Spend"
             icon={<DollarSign className="h-4 w-4" />}
-            detail={`${data?.agentProfiles.size ?? 0} agents tracked`}
+            detail={
+              data?.costs
+                ? data.costs.budget > 0
+                  ? `${Math.round((data.costs.thisMonth / data.costs.budget) * 100)}% of $${data.costs.budget.toFixed(0)} budget`
+                  : "No budget limit set"
+                : "Cost data unavailable"
+            }
           />
           <MetricCard
             value={pendingReview}
-            label="Pending Approvals"
+            label="Tasks In Review"
             icon={<CheckCircle2 className="h-4 w-4" />}
-            detail="Awaiting board review"
+            detail={pendingReview > 0 ? "Awaiting review" : "No tasks in review"}
           />
         </div>
 
