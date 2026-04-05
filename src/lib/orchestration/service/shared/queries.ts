@@ -411,7 +411,26 @@ function commentsForTasks(
   return map;
 }
 
+/** Maximum minutes an agent can remain "working" without a heartbeat or update
+ *  before being automatically demoted to "idle" by the read path. */
+const AGENT_WORKING_STALE_MINUTES = 30;
+
 function agentFromRow(row: AgentRow): OrchestrationAgent {
+  // Detect stale "working" agents: if status is "working" but neither
+  // last_heartbeat nor updated_at has been refreshed within the staleness
+  // window, demote to "idle" on the read path. This prevents agents that
+  // crashed or were interrupted from showing as perpetually live.
+  let effectiveStatus = row.status as OrchestrationAgent["status"];
+  if (effectiveStatus === "working") {
+    const latestSignal = row.last_heartbeat || row.updated_at;
+    if (latestSignal) {
+      const ageMinutes = (Date.now() - new Date(latestSignal).getTime()) / 60_000;
+      if (ageMinutes > AGENT_WORKING_STALE_MINUTES) {
+        effectiveStatus = "idle";
+      }
+    }
+  }
+
   return {
     id: row.id,
     companyId: row.company_id,
@@ -421,8 +440,8 @@ function agentFromRow(row: AgentRow): OrchestrationAgent {
     emoji: row.emoji ?? "🤖",
     role: row.role,
     avatar: row.avatar_url ?? undefined,
-    status: row.status,
-    currentTask: row.current_task_title ?? undefined,
+    status: effectiveStatus,
+    currentTask: effectiveStatus === "working" ? (row.current_task_title ?? undefined) : undefined,
     personality: row.personality,
     model: row.model ?? undefined,
     paperclipAgentId: row.paperclip_agent_id ?? undefined,
