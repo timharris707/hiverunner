@@ -1101,6 +1101,103 @@ function buildHeartbeatPrompt(
     sections.push("\n## Your Assigned Tasks\nNo tasks currently assigned. Check the company backlog or create new tasks based on direction.");
   }
 
+  // ── Existing work context (anti-repeat) ──
+  // Show the CEO what already exists so it does not recreate completed work.
+
+  // All recent tasks in the company (not just assigned to this agent)
+  const companyTasks = db
+    .prepare(
+      `SELECT t.task_key, t.title, t.status, t.priority, a.name AS assignee_name
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       LEFT JOIN agents a ON a.id = t.assignee_agent_id
+       WHERE p.company_id = ? AND t.archived_at IS NULL
+         AND t.status NOT IN ('done', 'cancelled')
+       ORDER BY t.created_at DESC
+       LIMIT 30`
+    )
+    .all(agent.company_id) as Array<{
+      task_key: string; title: string; status: string; priority: string; assignee_name: string | null;
+    }>;
+
+  if (companyTasks.length > 0) {
+    sections.push("\n## All Open Tasks in Company (DO NOT recreate these)\n");
+    for (const t of companyTasks) {
+      sections.push(`- [${t.task_key}] ${t.title} (${t.status}, ${t.priority}, assigned: ${t.assignee_name ?? "unassigned"})`);
+    }
+  }
+
+  // Pending approvals
+  const pendingApprovals = db
+    .prepare(
+      `SELECT a.id, a.type, a.status, a.payload_json
+       FROM approvals a
+       WHERE a.company_id = ? AND a.status IN ('pending', 'revision_requested')
+       ORDER BY a.created_at DESC
+       LIMIT 10`
+    )
+    .all(agent.company_id) as Array<{
+      id: string; type: string; status: string; payload_json: string;
+    }>;
+
+  if (pendingApprovals.length > 0) {
+    sections.push("\n## Pending Approvals (DO NOT recreate these)\n");
+    for (const a of pendingApprovals) {
+      const payload = parseJson(a.payload_json);
+      const label = a.type === "hire_agent"
+        ? `Hire: ${payload.name ?? "?"} (${payload.role ?? "?"})`
+        : `${a.type}: ${a.id.slice(0, 8)}`;
+      sections.push(`- [${a.status}] ${label}`);
+    }
+  }
+
+  // Recent completed approvals (so the agent knows what was already decided)
+  const decidedApprovals = db
+    .prepare(
+      `SELECT a.id, a.type, a.status, a.payload_json, a.decision_note
+       FROM approvals a
+       WHERE a.company_id = ? AND a.status IN ('approved', 'rejected')
+       ORDER BY a.decided_at DESC
+       LIMIT 5`
+    )
+    .all(agent.company_id) as Array<{
+      id: string; type: string; status: string; payload_json: string; decision_note: string | null;
+    }>;
+
+  if (decidedApprovals.length > 0) {
+    sections.push("\n## Recently Decided Approvals\n");
+    for (const a of decidedApprovals) {
+      const payload = parseJson(a.payload_json);
+      const label = a.type === "hire_agent"
+        ? `Hire: ${payload.name ?? "?"} (${payload.role ?? "?"})`
+        : `${a.type}: ${a.id.slice(0, 8)}`;
+      sections.push(`- [${a.status}] ${label}${a.decision_note ? ` — ${a.decision_note.slice(0, 100)}` : ""}`);
+    }
+  }
+
+  // Recent actions from prior runs (so the agent sees its own history)
+  const recentRuns = db
+    .prepare(
+      `SELECT result_json FROM heartbeat_runs
+       WHERE agent_id = ? AND status = 'succeeded' AND result_json != '{}'
+       ORDER BY finished_at DESC
+       LIMIT 3`
+    )
+    .all(agent.id) as Array<{ result_json: string }>;
+
+  const priorActions: string[] = [];
+  for (const r of recentRuns) {
+    const result = parseJson(r.result_json);
+    const tc = (result.tasksCreated as string[] | undefined) ?? [];
+    const ac = (result.approvalsCreated as string[] | undefined) ?? [];
+    if (tc.length > 0) priorActions.push(`Created ${tc.length} task(s)`);
+    if (ac.length > 0) priorActions.push(`Created ${ac.length} approval(s)`);
+  }
+  if (priorActions.length > 0) {
+    sections.push(`\n## Your Recent Actions (prior runs)\n${priorActions.join("; ")}`);
+    sections.push("Do NOT repeat actions you already took. Only create new work that does not exist yet.");
+  }
+
   // Session continuity info
   if (session.sessionParams.sessionId) {
     sections.push(`\n## Session\nResuming session: ${session.sessionDisplayId ?? session.sessionParams.sessionId}`);
@@ -1269,6 +1366,7 @@ type ActionResults = {
   messagesImported: number;
   actionsFound: number;
   actionsExecuted: number;
+  actionsSkippedDedup: number;
   tasksCreated: string[];
   approvalsCreated: string[];
   reportsImported: number;
@@ -1298,6 +1396,7 @@ async function importSessionOutputAndExecuteActions(input: {
     messagesImported: 0,
     actionsFound: 0,
     actionsExecuted: 0,
+    actionsSkippedDedup: 0,
     tasksCreated: [],
     approvalsCreated: [],
     reportsImported: 0,
@@ -1382,6 +1481,8 @@ async function importSessionOutputAndExecuteActions(input: {
             if (taskId) {
               results.tasksCreated.push(taskId);
               results.actionsExecuted++;
+            } else {
+              results.actionsSkippedDedup++;
             }
           }
           break;
@@ -1391,6 +1492,8 @@ async function importSessionOutputAndExecuteActions(input: {
             if (approvalId) {
               results.approvalsCreated.push(approvalId);
               results.actionsExecuted++;
+            } else {
+              results.actionsSkippedDedup++;
             }
           }
           break;
@@ -1571,20 +1674,38 @@ function importCommentOnTask(
   runId: string,
   db: Database.Database
 ): void {
-  const now = new Date().toISOString();
-  const commentId = randomUUID();
-  const externalRef = `engine:heartbeat:${runId}:${commentId.slice(0, 8)}`;
-
   // Check task exists (taskKey might be a task ID)
   const task = db.prepare("SELECT id FROM tasks WHERE id = ? LIMIT 1").get(taskId) as { id: string } | undefined;
-  if (!task) return; // Skip if task doesn't exist (e.g. __heartbeat__)
+  if (!task) return;
+
+  // ── Cross-run dedup: content-based fingerprint ──
+  // Hash the first 200 chars of the body to detect near-identical comments
+  const { createHash } = require("crypto");
+  const bodyFingerprint = createHash("sha1").update(body.slice(0, 200).toLowerCase().trim()).digest("hex").slice(0, 16);
+  const externalRef = `engine:comment:${taskId.slice(0, 8)}:${bodyFingerprint}`;
+
+  // Check if a comment with this fingerprint already exists
+  const existing = db
+    .prepare(
+      `SELECT id FROM comments
+       WHERE task_id = ? AND source = 'openclaw' AND external_ref = ?
+       LIMIT 1`
+    )
+    .get(taskId, externalRef) as { id: string } | undefined;
+
+  if (existing) {
+    console.log(`[engine:dedup] skipped duplicate comment on ${taskId.slice(0, 8)} (fingerprint: ${bodyFingerprint})`);
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const commentId = randomUUID();
 
   db.prepare(
     `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'openclaw', ?, ?, ?)`
   ).run(commentId, taskId, agentId, body, type, externalRef, now, now);
 
-  // Log task event
   db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
      VALUES (?, (SELECT project_id FROM tasks WHERE id = ?), ?, ?, 'task.comment_added', ?, ?)`
@@ -1596,6 +1717,25 @@ function executeCreateTask(
   input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
   db: Database.Database
 ): string | null {
+  // ── Cross-run dedup: check if a task with the same normalized title already exists ──
+  const normalizedTitle = (action.title ?? "").trim().toLowerCase().replace(/\s+/g, " ");
+  if (normalizedTitle) {
+    const existing = db
+      .prepare(
+        `SELECT t.id, t.task_key FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE p.company_id = ? AND t.archived_at IS NULL
+           AND LOWER(TRIM(REPLACE(t.title, '  ', ' '))) = ?
+         LIMIT 1`
+      )
+      .get(input.companyId, normalizedTitle) as { id: string; task_key: string } | undefined;
+
+    if (existing) {
+      console.log(`[engine:dedup] skipped duplicate task "${action.title?.slice(0, 60)}" — already exists as ${existing.task_key}`);
+      return null; // Returning null signals "skipped" to the caller
+    }
+  }
+
   const now = new Date().toISOString();
   const taskId = randomUUID();
 
@@ -1696,6 +1836,27 @@ function executeHireAgent(
   input: { agentId: string; agentName: string; companyId: string; runId: string },
   db: Database.Database
 ): string | null {
+  // ── Cross-run dedup: check for existing hire approval with same name+role ──
+  const normalizedName = (action.name ?? "").trim().toLowerCase();
+  const normalizedRole = (action.role ?? "").trim().toLowerCase();
+  if (normalizedName) {
+    const existing = db
+      .prepare(
+        `SELECT id, status FROM approvals
+         WHERE company_id = ? AND type = 'hire_agent'
+           AND status IN ('pending', 'revision_requested', 'approved')
+           AND LOWER(TRIM(json_extract(payload_json, '$.name'))) = ?
+           AND LOWER(TRIM(json_extract(payload_json, '$.role'))) = ?
+         LIMIT 1`
+      )
+      .get(input.companyId, normalizedName, normalizedRole) as { id: string; status: string } | undefined;
+
+    if (existing) {
+      console.log(`[engine:dedup] skipped duplicate hire "${action.name}" (${action.role}) — already exists as ${existing.id.slice(0, 8)} [${existing.status}]`);
+      return null;
+    }
+  }
+
   const now = new Date().toISOString();
   const approvalId = randomUUID();
 
