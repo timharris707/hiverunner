@@ -219,15 +219,19 @@ export function AvatarWizard({
     }
   }, [open, agentId, autoStart, generatePreviews, initialGender, initialStyleId, pendingSetup]);
 
-  // Close on Escape
+  // Do NOT close on Escape for this wizard — avoid accidental loss of work
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        // swallow Escape, do nothing
+        e.preventDefault();
+        e.stopPropagation();
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [open, onClose]);
+  }, [open]);
 
   // Apply selected avatar
   const applyAvatar = useCallback(async () => {
