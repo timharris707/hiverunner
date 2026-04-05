@@ -1228,17 +1228,19 @@ async function executeViaOpenClaw(
   }
 
   try {
-    // Create or resume session
+    // Session key is deterministic per agent + task key.
+    // The gateway routes by key, so we MUST only reuse a sessionId that was
+    // created under the same key.  Never fall back to a sessionId from a
+    // different task — that routes to a different (possibly empty) session.
     const sessionKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
 
-    // Session resolution order:
-    // 1. Task session's stored sessionId (from previous run on this task key)
-    // 2. Runtime state's sessionId (last known session for this agent)
-    // 3. Create a brand new session via gateway
-    let sessionId = existingSessionId ?? (runtimeState.sessionId || undefined);
+    // Only reuse the sessionId stored in THIS task's session record.
+    // runtimeState.sessionId is NOT safe to reuse here because it may
+    // belong to a different task key / session key.
+    const sessionId = existingSessionId;
 
     if (sessionId) {
-      // Reusing existing session — send directly
+      // Reusing existing session for the same task — send new turn
       const sendResult = await callGateway<{ runId?: string; status?: string }>(
         OPENCLAW_BIN,
         "sessions.send",
@@ -1255,31 +1257,31 @@ async function executeViaOpenClaw(
       };
     }
 
-    // No existing session — create new, or look up existing by key
+    // No existing session for this task — create new
     const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
       OPENCLAW_BIN,
       "sessions.create",
       { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}]` },
       execFileAsync
     );
-    sessionId = createResult?.sessionId;
+    let newSessionId = createResult?.sessionId;
 
     // If create failed (e.g. label already in use), try to look up existing session by key
-    if (!sessionId) {
+    if (!newSessionId) {
       const existing = await callGateway<{ sessionId?: string; messages?: unknown[] }>(
         OPENCLAW_BIN,
         "sessions.get",
         { key: sessionKey },
         execFileAsync
       );
-      sessionId = existing?.sessionId;
+      newSessionId = existing?.sessionId;
     }
 
-    if (!sessionId) {
+    if (!newSessionId) {
       return { error: "Failed to create or resolve OpenClaw session" };
     }
 
-    // Send the heartbeat prompt to new session
+    // Send the heartbeat prompt to the new session
     const sendResult = await callGateway<{ runId?: string; status?: string }>(
       OPENCLAW_BIN,
       "sessions.send",
@@ -1288,7 +1290,7 @@ async function executeViaOpenClaw(
     );
 
     return {
-      sessionId,
+      sessionId: newSessionId,
       usage: {
         openclawRunId: sendResult?.runId ?? null,
         openclawStatus: sendResult?.status ?? null,
@@ -1558,8 +1560,13 @@ async function waitForSessionCompletion(
   sessionKey: string,
   execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
 ): Promise<unknown> {
-  // Poll sessions.get until status is terminal (done, failed, etc.)
+  // Poll sessions.get until session is terminal or idle with new output.
+  // Terminal statuses: done, completed, failed, error, cancelled
+  // Idle heuristic: status is null/missing AND session has assistant messages
+  //   (agent finished a quick turn without the status reaching "done")
   const maxAttempts = 60; // 60 * 2s = 120s max wait
+  let sawRunning = false;
+
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const { stdout } = await execFileAsync(
@@ -1569,17 +1576,36 @@ async function waitForSessionCompletion(
       );
       const data = JSON.parse(stdout);
       const status = data?.status;
+      const messages = Array.isArray(data?.messages) ? data.messages : [];
+
+      // Explicit terminal
       if (status === "done" || status === "completed" || status === "failed" || status === "error" || status === "cancelled") {
         return data;
       }
+
+      // Track if we've seen the session enter "running" state
+      if (status === "running" || status === "started") {
+        sawRunning = true;
+      }
+
+      // Idle heuristic: if we saw running and now status is null/absent,
+      // and there are assistant messages, the turn completed
+      if (sawRunning && !status && messages.length > 0) {
+        const hasAssistantOutput = messages.some(
+          (m: { role?: string }) => m.role === "assistant"
+        );
+        if (hasAssistantOutput) {
+          return data;
+        }
+      }
+
       // Not done yet — wait 2 seconds
       await new Promise(resolve => setTimeout(resolve, 2000));
     } catch {
-      // sessions.get failed — wait and retry
       await new Promise(resolve => setTimeout(resolve, 2000));
     }
   }
-  // Timeout — try one final read
+  // Timeout — return whatever state is available
   try {
     const { stdout } = await execFileAsync(
       OPENCLAW_BIN,
