@@ -758,7 +758,7 @@ export async function executeHeartbeatRun(
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db);
 
   // Execute via OpenClaw gateway
-  let result: { sessionId?: string; error?: string; usage?: Record<string, unknown> };
+  let result: { sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> };
   try {
     result = await executeViaOpenClaw(agent, prompt, session, runtimeState);
   } catch (error) {
@@ -816,6 +816,7 @@ export async function executeHeartbeatRun(
         taskKey,
         runId,
         db,
+        messageCountBefore: result.messageCountBefore ?? 0,
       });
 
       // Store action results in heartbeat run
@@ -1213,7 +1214,7 @@ async function executeViaOpenClaw(
   prompt: string,
   session: TaskSession,
   runtimeState: RuntimeState
-): Promise<{ sessionId?: string; error?: string; usage?: Record<string, unknown> }> {
+): Promise<{ sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> }> {
   // Import the gateway call function from the existing execution module
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
@@ -1233,31 +1234,45 @@ async function executeViaOpenClaw(
     // created under the same key.  Never fall back to a sessionId from a
     // different task — that routes to a different (possibly empty) session.
     const sessionKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
+    const candidateSessionId = existingSessionId;
+    let messageCountBefore = 0;
 
-    // Only reuse the sessionId stored in THIS task's session record.
-    // runtimeState.sessionId is NOT safe to reuse here because it may
-    // belong to a different task key / session key.
-    const sessionId = existingSessionId;
+    // ── Reuse path: check live session status, record message count ──
+    if (candidateSessionId) {
+      // Read live state so we know how many messages existed BEFORE our send.
+      // This lets the output importer skip old messages and only process
+      // the fresh turn produced by this run.
+      const liveState = await callGateway<{
+        sessionId?: string; status?: string; messages?: unknown[];
+      }>(OPENCLAW_BIN, "sessions.get", { key: sessionKey }, execFileAsync);
 
-    if (sessionId) {
-      // Reusing existing session for the same task — send new turn
+      messageCountBefore = Array.isArray(liveState?.messages) ? liveState.messages.length : 0;
+
+      // Send new turn. The gateway accepts sends to done/idle sessions and
+      // starts a new agent run, so we do NOT need to check status first.
       const sendResult = await callGateway<{ runId?: string; status?: string }>(
         OPENCLAW_BIN,
         "sessions.send",
         { key: sessionKey, message: prompt },
         execFileAsync
       );
-      return {
-        sessionId,
-        usage: {
-          openclawRunId: sendResult?.runId ?? null,
-          openclawStatus: sendResult?.status ?? null,
-          sessionReused: true,
-        },
-      };
+
+      if (sendResult?.runId || sendResult?.status === "started") {
+        return {
+          sessionId: candidateSessionId,
+          messageCountBefore,
+          usage: {
+            openclawRunId: sendResult.runId ?? null,
+            openclawStatus: sendResult.status ?? null,
+            sessionReused: true,
+          },
+        };
+      }
+      // Send returned nothing — fall through to create new
+      console.log("[engine] session send returned no runId, falling through to create");
     }
 
-    // No existing session for this task — create new
+    // ── Create path: new session for this task ──
     const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
       OPENCLAW_BIN,
       "sessions.create",
@@ -1266,7 +1281,7 @@ async function executeViaOpenClaw(
     );
     let newSessionId = createResult?.sessionId;
 
-    // If create failed (e.g. label already in use), try to look up existing session by key
+    // If create failed (label collision), look up existing by key and send
     if (!newSessionId) {
       const existing = await callGateway<{ sessionId?: string; messages?: unknown[] }>(
         OPENCLAW_BIN,
@@ -1274,14 +1289,17 @@ async function executeViaOpenClaw(
         { key: sessionKey },
         execFileAsync
       );
-      newSessionId = existing?.sessionId;
+      if (existing?.sessionId) {
+        newSessionId = existing.sessionId;
+        messageCountBefore = Array.isArray(existing.messages) ? existing.messages.length : 0;
+      }
     }
 
     if (!newSessionId) {
       return { error: "Failed to create or resolve OpenClaw session" };
     }
 
-    // Send the heartbeat prompt to the new session
+    // Send prompt
     const sendResult = await callGateway<{ runId?: string; status?: string }>(
       OPENCLAW_BIN,
       "sessions.send",
@@ -1291,9 +1309,11 @@ async function executeViaOpenClaw(
 
     return {
       sessionId: newSessionId,
+      messageCountBefore,
       usage: {
         openclawRunId: sendResult?.runId ?? null,
         openclawStatus: sendResult?.status ?? null,
+        sessionReused: false,
       },
     };
   } catch (error) {
@@ -1389,6 +1409,7 @@ async function importSessionOutputAndExecuteActions(input: {
   taskKey: string;
   runId: string;
   db: Database.Database;
+  messageCountBefore: number;
 }): Promise<ActionResults> {
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
@@ -1412,9 +1433,16 @@ async function importSessionOutputAndExecuteActions(input: {
     return results;
   }
 
-  // Extract assistant text messages
-  const messages: SessionGetMessage[] = (sessionData as Record<string, unknown>).messages as SessionGetMessage[] ?? [];
+  // Extract assistant text messages — only from the NEW turn.
+  // When reusing a session, messages[0..messageCountBefore-1] are from prior
+  // runs and must be skipped to avoid re-importing old actions/reports.
+  const allMessages: SessionGetMessage[] = (sessionData as Record<string, unknown>).messages as SessionGetMessage[] ?? [];
+  const messages = allMessages.slice(input.messageCountBefore);
   const assistantTexts: string[] = [];
+
+  if (input.messageCountBefore > 0) {
+    console.log(`[engine:import] session reuse — skipping ${input.messageCountBefore} prior messages, processing ${messages.length} new`);
+  }
 
   for (const msg of messages) {
     if (msg.role !== "assistant") continue;
