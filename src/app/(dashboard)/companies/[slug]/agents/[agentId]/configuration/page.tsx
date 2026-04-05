@@ -14,10 +14,23 @@ import {
   Check,
   Loader2,
   X,
+  Radio,
+  Layers,
 } from "lucide-react";
 import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { useAgentProfile, A } from "../layout";
 import { listCompanyAgents } from "@/lib/orchestration/client";
+import {
+  ObservabilityTier,
+  capabilitiesFromTier,
+  TIER_LABELS,
+  KNOWN_PROVIDERS,
+} from "@/lib/orchestration/adapters/types";
+import type {
+  ProviderCapabilities,
+  ProviderAvailability,
+  KnownProviderDescriptor,
+} from "@/lib/orchestration/adapters/types";
 
 /* ── Types ── */
 interface OpenClawConfig {
@@ -48,18 +61,78 @@ const MODEL_OPTIONS = [
   "google/gemini-3.1-pro-preview",
 ];
 
+/* ── Provider resolution helpers ── */
+
+interface ResolvedProvider {
+  providerId: string;
+  displayName: string;
+  maxTier: ObservabilityTier;
+  tierLabel: string;
+  integrationPath: string;
+  capabilities: ProviderCapabilities;
+}
+
+function resolveAgentProvider(agent: {
+  openclawAgentId?: string;
+  paperclipAgentId?: string;
+}): ResolvedProvider {
+  // Determine which provider backs this agent
+  if (agent.openclawAgentId) {
+    const desc = KNOWN_PROVIDERS.find((p) => p.providerId === "openclaw-heartbeat")!;
+    return {
+      providerId: desc.providerId,
+      displayName: desc.displayName,
+      maxTier: desc.maxTier,
+      tierLabel: TIER_LABELS[desc.maxTier],
+      integrationPath: desc.integrationPath,
+      capabilities: capabilitiesFromTier(desc.maxTier),
+    };
+  }
+  if (agent.paperclipAgentId) {
+    const desc = KNOWN_PROVIDERS.find((p) => p.providerId === "paperclip")!;
+    return {
+      providerId: desc.providerId,
+      displayName: desc.displayName,
+      maxTier: desc.maxTier,
+      tierLabel: TIER_LABELS[desc.maxTier],
+      integrationPath: desc.integrationPath,
+      capabilities: capabilitiesFromTier(desc.maxTier),
+    };
+  }
+  // Fallback: no linked provider
+  return {
+    providerId: "none",
+    displayName: "Manual / Unlinked",
+    maxTier: ObservabilityTier.PostRun,
+    tierLabel: TIER_LABELS[ObservabilityTier.PostRun],
+    integrationPath: "No provider integration",
+    capabilities: capabilitiesFromTier(ObservabilityTier.PostRun),
+  };
+}
+
+function resolveAvailability(
+  descriptor: KnownProviderDescriptor,
+  activeProviderId: string,
+): ProviderAvailability {
+  if (descriptor.providerId === activeProviderId) return "active";
+  return descriptor.defaultAvailability;
+}
+
 /* ── Main Page ── */
 export default function AgentConfigurationPage() {
   const { profile, slug, reload } = useAgentProfile();
   const { agent } = profile;
 
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [providerDetailsOpen, setProviderDetailsOpen] = useState(false);
+  const [comparisonOpen, setComparisonOpen] = useState(true);
   const [oc, setOc] = useState<OpenClawConfig | null>(null);
   const [ocError, setOcError] = useState<string | null>(null);
   const [ocLoading, setOcLoading] = useState(true);
   const [peers, setPeers] = useState<PeerAgent[]>([]);
 
   const openclawId = agent.openclawAgentId || agent.id;
+  const resolved = resolveAgentProvider(agent);
 
   useEffect(() => {
     fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
@@ -131,11 +204,47 @@ export default function AgentConfigurationPage() {
         />
       </Section>
 
-      {/* ── Adapter ── */}
-      <Section icon={<Cpu size={13} />} title="Adapter">
-        <ReadOnlyRow label="Adapter type" value={agent.openclawAgentId ? "OpenClaw" : agent.paperclipAgentId ? "Paperclip" : "Manual"} />
-        <ReadOnlyRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
-        <ReadOnlyRow label="Agent Dir" value={oc?.agentDir || "\u2014"} mono />
+      {/* ══════════════════════════════════════════
+          RUNTIME & PROVIDER
+          ══════════════════════════════════════════ */}
+      <Section icon={<Radio size={13} />} title="Runtime & Provider">
+        {/* ── Current Provider Identity Card ── */}
+        <div style={{
+          padding: "12px 14px", borderRadius: 8, marginBottom: 12,
+          background: "rgba(217,119,6,0.04)",
+          border: "1px solid rgba(217,119,6,0.15)",
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <Shield size={14} style={{ color: A.accent }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>
+              {resolved.displayName}
+            </span>
+            <TierBadge tier={resolved.maxTier} />
+            <span style={{ fontSize: 10, color: A.muted, marginLeft: "auto" }}>
+              current provider
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: A.textSec, marginBottom: 10, lineHeight: 1.5 }}>
+            {resolved.integrationPath}
+          </div>
+
+          {/* ── Capability Matrix ── */}
+          <div style={{ marginTop: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: A.muted, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
+              Observability Capabilities
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
+              <CapabilityRow label="Live text streaming" available={resolved.capabilities.liveText} />
+              <CapabilityRow label="Action detection" available={resolved.capabilities.actionDetection} />
+              <CapabilityRow label="Structured tool events" available={resolved.capabilities.structuredTools} />
+              <CapabilityRow label="Thinking / reasoning" available={resolved.capabilities.thinking} />
+              <CapabilityRow label="Run steering" available={resolved.capabilities.runSteering} />
+              <CapabilityRow label="Persisted transcript" available={resolved.capabilities.persistedTranscript} />
+            </div>
+          </div>
+        </div>
+
+        {/* ── Model ── */}
         <EditableSelect
           label="Model"
           value={oc?.model || agent.model || ""}
@@ -143,13 +252,75 @@ export default function AgentConfigurationPage() {
           onSave={(v) => patchConfig({ model: v })}
           mono
         />
-        {agent.openclawAgentId && <ReadOnlyRow label="OpenClaw Agent ID" value={agent.openclawAgentId} mono />}
-        {agent.paperclipAgentId && <ReadOnlyRow label="Paperclip Agent ID" value={agent.paperclipAgentId} mono />}
-        {ocLoading && (
-          <div style={{ fontSize: 11, color: A.muted, marginTop: 4 }}>Loading OpenClaw config…</div>
+
+        {/* ── Provider Comparison ── */}
+        <button
+          onClick={() => setComparisonOpen(!comparisonOpen)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            marginTop: 8, padding: 0, background: "none", border: "none",
+            color: A.accent, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          {comparisonOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <Layers size={11} />
+          Provider comparison (read-only)
+        </button>
+
+        {comparisonOpen && (
+          <div style={{ marginTop: 8 }}>
+            {/* Header note */}
+            <div style={{ fontSize: 10, color: A.muted, marginBottom: 8, lineHeight: 1.5 }}>
+              Providers Mission Control can integrate with. Selection is not yet editable from this surface.
+            </div>
+            {/* Provider rows */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {KNOWN_PROVIDERS.map((desc) => {
+                const avail = resolveAvailability(desc, resolved.providerId);
+                const caps = capabilitiesFromTier(desc.maxTier);
+                return (
+                  <ProviderComparisonRow
+                    key={desc.providerId}
+                    descriptor={desc}
+                    availability={avail}
+                    capabilities={caps}
+                  />
+                );
+              })}
+            </div>
+          </div>
         )}
-        {ocError && (
-          <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>Failed to load OpenClaw config ({ocError})</div>
+
+        {/* ── Provider-Specific Details (collapsible) ── */}
+        <button
+          onClick={() => setProviderDetailsOpen(!providerDetailsOpen)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            marginTop: 12, padding: 0, background: "none", border: "none",
+            color: A.accent, fontSize: 11, fontWeight: 600, cursor: "pointer",
+          }}
+        >
+          {providerDetailsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          Provider details
+        </button>
+
+        {providerDetailsOpen && (
+          <div style={{
+            marginTop: 8, padding: "10px 12px", borderRadius: 6,
+            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
+          }}>
+            <ReadOnlyRow label="Provider ID" value={resolved.providerId} mono />
+            <ReadOnlyRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
+            <ReadOnlyRow label="Agent Dir" value={oc?.agentDir || "\u2014"} mono />
+            {agent.openclawAgentId && <ReadOnlyRow label="OpenClaw Agent ID" value={agent.openclawAgentId} mono />}
+            {agent.paperclipAgentId && <ReadOnlyRow label="Paperclip Agent ID" value={agent.paperclipAgentId} mono />}
+            {ocLoading && (
+              <div style={{ fontSize: 11, color: A.muted, marginTop: 4 }}>Loading provider config…</div>
+            )}
+            {ocError && (
+              <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>Failed to load provider config ({ocError})</div>
+            )}
+          </div>
         )}
       </Section>
 
@@ -226,6 +397,156 @@ export default function AgentConfigurationPage() {
 }
 
 /* ══════════════════════════════════════════
+   Provider display components
+   ══════════════════════════════════════════ */
+
+/** Tier badge — matches run detail surface styling */
+function TierBadge({ tier }: { tier: ObservabilityTier }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: "1px 6px", borderRadius: 3, fontWeight: 600,
+      color: A.accent, background: "rgba(217,119,6,0.1)",
+    }}>
+      T{tier}
+    </span>
+  );
+}
+
+/** Capability row — same visual as run detail CapabilityRow */
+function CapabilityRow({ label, available }: { label: string; available: boolean }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 0" }}>
+      <div style={{
+        width: 5, height: 5, borderRadius: "50%",
+        background: available ? "#22c55e" : "rgba(120,113,108,0.35)",
+      }} />
+      <span style={{ color: available ? A.textSec : A.muted, fontSize: 11 }}>
+        {label}
+      </span>
+      {!available && (
+        <span style={{ fontSize: 9, color: "rgba(120,113,108,0.45)", marginLeft: "auto" }}>
+          unavailable
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Availability badge with honest status colors */
+function AvailabilityBadge({ availability }: { availability: ProviderAvailability }) {
+  const config: Record<ProviderAvailability, { label: string; bg: string; color: string; border: string }> = {
+    active: {
+      label: "Active",
+      bg: "rgba(34,197,94,0.1)",
+      color: "#22c55e",
+      border: "rgba(34,197,94,0.25)",
+    },
+    available: {
+      label: "Available",
+      bg: "rgba(217,119,6,0.08)",
+      color: A.accentLight,
+      border: "rgba(217,119,6,0.2)",
+    },
+    limited: {
+      label: "Limited",
+      bg: "rgba(234,179,8,0.08)",
+      color: "#eab308",
+      border: "rgba(234,179,8,0.2)",
+    },
+    planned: {
+      label: "Planned",
+      bg: "rgba(120,113,108,0.08)",
+      color: A.muted,
+      border: "rgba(120,113,108,0.2)",
+    },
+  };
+  const c = config[availability];
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 600, padding: "1px 7px", borderRadius: 3,
+      background: c.bg, color: c.color, border: `1px solid ${c.border}`,
+    }}>
+      {c.label}
+    </span>
+  );
+}
+
+/** Provider comparison row — shows one provider with tier, availability, and capability summary */
+function ProviderComparisonRow({
+  descriptor,
+  availability,
+  capabilities,
+}: {
+  descriptor: KnownProviderDescriptor;
+  availability: ProviderAvailability;
+  capabilities: ProviderCapabilities;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const capCount = [
+    capabilities.liveText,
+    capabilities.actionDetection,
+    capabilities.structuredTools,
+    capabilities.thinking,
+    capabilities.runSteering,
+    capabilities.persistedTranscript,
+  ].filter(Boolean).length;
+  const isActive = availability === "active";
+  const isPlanned = availability === "planned";
+
+  return (
+    <div style={{
+      padding: "8px 10px", borderRadius: 6,
+      background: isActive ? "rgba(34,197,94,0.03)" : "rgba(255,255,255,0.015)",
+      border: `1px solid ${isActive ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)"}`,
+      opacity: isPlanned ? 0.6 : 1,
+    }}>
+      {/* Header row */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        style={{
+          display: "flex", alignItems: "center", width: "100%",
+          gap: 8, padding: 0, background: "none", border: "none",
+          cursor: "pointer", color: A.text,
+        }}
+      >
+        <span style={{ fontSize: 12, fontWeight: 500, color: isActive ? "#22c55e" : A.text }}>
+          {descriptor.displayName}
+        </span>
+        <TierBadge tier={descriptor.maxTier} />
+        <AvailabilityBadge availability={availability} />
+        <span style={{
+          fontSize: 10, color: A.muted, marginLeft: "auto",
+          display: "flex", alignItems: "center", gap: 4,
+        }}>
+          {capCount}/6 capabilities
+          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+        </span>
+      </button>
+
+      {/* Expanded detail */}
+      {expanded && (
+        <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={{ fontSize: 10, color: A.muted, marginBottom: 6, lineHeight: 1.5 }}>
+            {descriptor.integrationPath}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, marginBottom: 4 }}>
+            <CapabilityRow label="Live text streaming" available={capabilities.liveText} />
+            <CapabilityRow label="Action detection" available={capabilities.actionDetection} />
+            <CapabilityRow label="Structured tool events" available={capabilities.structuredTools} />
+            <CapabilityRow label="Thinking / reasoning" available={capabilities.thinking} />
+            <CapabilityRow label="Run steering" available={capabilities.runSteering} />
+            <CapabilityRow label="Persisted transcript" available={capabilities.persistedTranscript} />
+          </div>
+          <div style={{ fontSize: 10, color: A.muted, fontStyle: "italic", marginTop: 4 }}>
+            {descriptor.statusNote}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════
    Shared save-status hook
    ══════════════════════════════════════════ */
 
@@ -290,7 +611,7 @@ function EditableIcon({
       <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
       <div style={{ flex: 1, minWidth: 0, maxWidth: 360 }}>
         <MissionIconPicker
-          value={value || "🤖"}
+          value={value || "\u{1F916}"}
           onChange={handleSelect}
           ariaLabel={`${label} icon`}
         />

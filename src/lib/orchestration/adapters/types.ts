@@ -67,6 +67,96 @@ export function capabilitiesFromTier(
   };
 }
 
+/* ── Tier Labels ── */
+
+/**
+ * Human-readable labels for each observability tier.
+ * Used in configuration and run detail surfaces.
+ * Single source — no second copy.
+ */
+export const TIER_LABELS: Record<ObservabilityTier, string> = {
+  [ObservabilityTier.PostRun]: "Post-Run",
+  [ObservabilityTier.Milestones]: "Milestones",
+  [ObservabilityTier.LiveText]: "Live Text",
+  [ObservabilityTier.ActionDetection]: "Action Detection",
+  [ObservabilityTier.StructuredTools]: "Structured Tools",
+  [ObservabilityTier.FullParity]: "Full Parity",
+};
+
+/* ── Known Provider Descriptors ── */
+
+/**
+ * Availability state for providers in the comparison view.
+ * "active"   — Currently backing this agent's execution
+ * "available" — Registered in adapter registry, can be used
+ * "limited"  — Available but with known constraints
+ * "planned"  — Not yet integrated, on roadmap
+ */
+export type ProviderAvailability = "active" | "available" | "limited" | "planned";
+
+/**
+ * Static provider descriptor for the configuration comparison view.
+ * This is intentionally a display-side type — it does NOT replace
+ * the MCProviderAdapter interface used by live adapters.
+ *
+ * The values here describe what providers CAN do at their maximum tier,
+ * not what the current agent is using. The comparison view combines
+ * these descriptors with the agent's actual provider to derive
+ * which is "active" vs "available" vs "planned".
+ */
+export interface KnownProviderDescriptor {
+  /** Must match the adapter's providerId where applicable */
+  providerId: string;
+  displayName: string;
+  maxTier: ObservabilityTier;
+  /** Short honest description of integration approach */
+  integrationPath: string;
+  /** What this provider is today — filled by config UI based on agent context */
+  defaultAvailability: ProviderAvailability;
+  /** Short note about current state / limitations */
+  statusNote: string;
+}
+
+/**
+ * All providers Mission Control knows about, including planned ones.
+ * This is the single source of truth for the provider comparison view.
+ * Order matters: shown in this order in the UI.
+ */
+export const KNOWN_PROVIDERS: KnownProviderDescriptor[] = [
+  {
+    providerId: "openclaw-heartbeat",
+    displayName: "OpenClaw Heartbeat",
+    maxTier: ObservabilityTier.ActionDetection,
+    integrationPath: "WebSocket gateway — live event streaming",
+    defaultAvailability: "available",
+    statusNote: "Tier 3 today. Tier 4 gated on gateway scope fix.",
+  },
+  {
+    providerId: "paperclip",
+    displayName: "Paperclip",
+    maxTier: ObservabilityTier.Milestones,
+    integrationPath: "Bridge sync — poll-based lifecycle events",
+    defaultAvailability: "available",
+    statusNote: "Tier 1 via bridge sync. No live streaming.",
+  },
+  {
+    providerId: "hermes",
+    displayName: "Hermes Agent",
+    maxTier: ObservabilityTier.StructuredTools,
+    integrationPath: "Direct API — structured events",
+    defaultAvailability: "planned",
+    statusNote: "Not yet integrated. Expected Tier 4–5.",
+  },
+  {
+    providerId: "byo-webhook",
+    displayName: "BYO Webhook",
+    maxTier: ObservabilityTier.ActionDetection,
+    integrationPath: "Inbound webhook — structured payloads",
+    defaultAvailability: "planned",
+    statusNote: "Not yet integrated. Expected Tier 1–3.",
+  },
+];
+
 /* ── Provider Status ── */
 
 export interface ProviderStatus {
