@@ -30,7 +30,8 @@ import {
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
-import { useLiveRunStream, type AgentStreamState, type StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
+import { useLiveStream } from "@/components/live/LiveStreamProvider";
+import type { AgentStreamState, StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
@@ -356,11 +357,8 @@ export default function CompanyDashboardPage() {
     enabled: !!data,
   });
 
-  /* ── live run streaming (real-time gateway events via SSE) ── */
-  const { streamByAgentId } = useLiveRunStream({
-    companySlug: slug,
-    enabled: !!data && hasActiveRuns,
-  });
+  /* ── live run streaming (shared context — SSE managed at layout level) ── */
+  const { streamByAgentId } = useLiveStream();
 
   const { push: pushToast } = useNotifications();
 

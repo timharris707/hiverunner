@@ -147,11 +147,11 @@ app.prepare().then(() => {
   server.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Engine tick loop active (every 10s)`);
-    console.log(`> Gateway stream bridge initializes on first SSE connection (/api/orchestration/engine/live-stream)`);
+    console.log(`> Adapter registry initializes on first SSE connection (/api/orchestration/engine/live-stream)`);
 
-    // Pre-warm: hit the SSE endpoint once to trigger bridge initialization.
-    // This ensures the gateway WS connection is established before the
-    // operator opens the dashboard, reducing first-event latency.
+    // Pre-warm: hit the SSE endpoint once to trigger adapter registry initialization.
+    // This ensures provider adapters (including the OpenClaw gateway WS connection)
+    // are established before the operator opens the dashboard, reducing first-event latency.
     setTimeout(async () => {
       try {
         const controller = new AbortController();

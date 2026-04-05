@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -68,6 +68,7 @@ import {
   buildCanonicalProjectSettingsPath,
   buildCanonicalProjectAgentsPath,
 } from "@/lib/orchestration/route-paths";
+import { useLiveStream } from "@/components/live/LiveStreamProvider";
 
 interface NavItem {
   href: string;
@@ -458,6 +459,7 @@ export function Dock() {
   const router = useRouter();
   const { collapsed, toggle: toggleDock } = useDockCollapsed();
   const { activeProject, setActiveProject, clearActiveProject } = useActiveProjectState();
+  const { liveAgentIds } = useLiveStream();
 
   const [isMobile, setIsMobile] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
@@ -748,10 +750,12 @@ export function Dock() {
     };
   }, [company.slug]);
 
-  const activeAgentCount = useMemo(
-    () => agents.filter((agent) => isAgentActive(agent)).length,
-    [agents]
-  );
+  const activeAgentCount = useMemo(() => {
+    // Prefer real-time SSE-based liveness (shared with dashboard)
+    if (liveAgentIds.size > 0) return liveAgentIds.size;
+    // Fallback: DB-polled agent.status
+    return agents.filter((agent) => isAgentActive(agent)).length;
+  }, [liveAgentIds, agents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1011,7 +1015,7 @@ export function Dock() {
                 href,
                 label: agent.name,
                 icon: Bot,
-                statusDotColor: isAgentActive(agent) ? "#22c55e" : "#78716c",
+                statusDotColor: liveAgentIds.has(agent.id) || isAgentActive(agent) ? "#22c55e" : "#78716c",
               }}
               active={checkActive(href)}
             />

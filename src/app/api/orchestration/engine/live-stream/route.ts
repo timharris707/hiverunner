@@ -1,23 +1,25 @@
 import { NextRequest } from "next/server";
 
-import { subscribe, initGatewayStreamBridge, getBridgeStatus, type RunStreamEvent } from "@/lib/orchestration/gateway-stream-bridge";
+import { subscribe, initAdapterRegistry, getRegistryStatus } from "@/lib/orchestration/adapters/registry";
+import { toLegacyWireEvent } from "@/lib/orchestration/live-events";
+import type { MCLiveEvent } from "@/lib/orchestration/live-events";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-// Ensure the gateway bridge is initialized when this module loads.
+// Ensure the adapter registry is initialized when this module loads.
 // In dev mode, server.js can't import TypeScript directly, so this
 // is the lazy initialization path.
-initGatewayStreamBridge();
+initAdapterRegistry();
 
 /**
  * SSE endpoint: GET /api/orchestration/engine/live-stream?company=<slug>
  *
- * Streams real-time gateway events for active heartbeat runs.
- * Events include assistant text deltas, tool calls, and lifecycle transitions
- * forwarded from the OpenClaw gateway WebSocket bridge.
+ * Streams real-time canonical live events for active agent runs.
+ * Events arrive from all registered provider adapters through the
+ * adapter registry, mapped to a backward-compatible SSE wire format.
  *
- * This is TRUE streaming — events arrive within ~150ms of the gateway emitting them,
+ * This is TRUE streaming — events arrive within ~150ms of the provider emitting them,
  * not from polling completed artifacts.
  */
 export async function GET(req: NextRequest) {
@@ -25,7 +27,7 @@ export async function GET(req: NextRequest) {
 
   // Diagnostic endpoint: ?company=__status__
   if (companySlug === "__status__") {
-    return new Response(JSON.stringify(getBridgeStatus(), null, 2), {
+    return new Response(JSON.stringify(getRegistryStatus(), null, 2), {
       headers: { "Content-Type": "application/json" },
     });
   }
@@ -42,9 +44,10 @@ export async function GET(req: NextRequest) {
   try {
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
     const db = getOrchestrationDb();
+    // Accept both slug and company code (uppercased code in `company_code` column)
     const row = db
-      .prepare("SELECT id FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1")
-      .get(companySlug) as { id: string } | undefined;
+      .prepare("SELECT id FROM companies WHERE (slug = ? OR UPPER(company_code) = UPPER(?)) AND archived_at IS NULL LIMIT 1")
+      .get(companySlug, companySlug) as { id: string } | undefined;
     companyId = row?.id ?? null;
   } catch {
     // If DB fails, we still start the stream but won't filter (no events will match)
@@ -62,25 +65,16 @@ export async function GET(req: NextRequest) {
         encoder.encode(`data: ${JSON.stringify({ type: "connected", company: companySlug, ts: Date.now() })}\n\n`)
       );
 
-      // Subscribe to gateway bridge events
-      unsubscribe = subscribe((event: RunStreamEvent) => {
+      // Subscribe to canonical events from all registered adapters
+      unsubscribe = subscribe((event: MCLiveEvent) => {
         if (disposed) return;
 
         // Filter: only events for the requested company
         if (companyId && event.companyId !== companyId) return;
 
         try {
-          const payload = {
-            type: event.kind,
-            agentId: event.agentId,
-            runId: event.runId,
-            detail: event.detail,
-            text: event.text,
-            delta: event.delta,
-            toolName: event.toolName,
-            seq: event.seq,
-            ts: event.ts,
-          };
+          // Map canonical MCLiveEvent → backward-compatible wire format
+          const payload = toLegacyWireEvent(event);
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
         } catch {
           // Controller closed — clean up
