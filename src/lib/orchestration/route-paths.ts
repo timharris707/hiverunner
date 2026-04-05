@@ -13,9 +13,12 @@ export function buildCompanyPath(companySlug: string, path = ""): string {
   return `${LEGACY_COMPANY_PREFIX}/${encodeURIComponent(companySlug)}${path}`;
 }
 
-export function buildCanonicalProjectIssuesPath(companyCode: string, projectSlug: string): string {
-  return `/${encodeURIComponent(sanitizeCodeSegment(companyCode))}/projects/${encodeURIComponent(projectSlug)}/issues`;
+export function buildCanonicalProjectTasksPath(companyCode: string, projectSlug: string): string {
+  return `/${encodeURIComponent(sanitizeCodeSegment(companyCode))}/projects/${encodeURIComponent(projectSlug)}/tasks`;
 }
+
+/** @deprecated Use buildCanonicalProjectTasksPath — kept for call-site compatibility during migration. */
+export const buildCanonicalProjectIssuesPath = buildCanonicalProjectTasksPath;
 
 export function buildCanonicalProjectBoardPath(companyCode: string, projectSlug: string, taskId?: string): string {
   const taskQuery = taskId ? `?task=${encodeURIComponent(taskId)}` : "";

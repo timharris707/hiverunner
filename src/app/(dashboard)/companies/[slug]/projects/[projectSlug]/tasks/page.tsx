@@ -16,13 +16,12 @@ import {
   User,
 } from "lucide-react";
 
-import { formatAge, statusTheme, priorityTheme } from "@/components/orchestration/ui";
+import { statusTheme, priorityTheme } from "@/components/orchestration/ui";
 import {
   listCompanies,
   listCompanyAgents,
   listProjects,
   listTasks,
-  updateTask,
 } from "@/lib/orchestration/client";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
@@ -48,6 +47,54 @@ const STATUS_DOT: Record<TaskStatus, string> = {
   blocked: "#ef4444",
   cancelled: "#78716c",
 };
+
+/* ── absolute date formatter (Paperclip-style: "Apr 2, 2026") ── */
+
+function formatAbsoluteDate(timestamp: string): string {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+/* ── derive live task IDs from agent data ── */
+
+function deriveLiveTaskIds(
+  tasks: OrchestrationTask[],
+  agents: OrchestrationAgent[],
+): Set<string> {
+  const liveIds = new Set<string>();
+
+  // Build a lookup of agent name/id → agent for matching
+  const workingAgents = agents.filter((a) => a.status === "working");
+  if (workingAgents.length === 0) return liveIds;
+
+  // Map of agent key (lowercase name or id) → agent
+  const agentByKey = new Map<string, OrchestrationAgent>();
+  for (const a of workingAgents) {
+    agentByKey.set(a.id.toLowerCase(), a);
+    agentByKey.set(a.name.toLowerCase(), a);
+  }
+
+  for (const task of tasks) {
+    if (task.status !== "in-progress") continue;
+    if (!task.assignee) continue;
+
+    const agent = agentByKey.get(task.assignee.toLowerCase());
+    if (!agent) continue;
+
+    // Agent is working — check if they're on this task
+    const currentTaskKey = agent.currentTask?.toLowerCase();
+    if (
+      currentTaskKey === task.id.toLowerCase() ||
+      currentTaskKey === task.key?.toLowerCase() ||
+      !currentTaskKey // working but no specific currentTask → assume on-task
+    ) {
+      liveIds.add(task.id);
+    }
+  }
+
+  return liveIds;
+}
 
 const QUICK_FILTERS = [
   { label: "All", statuses: [] as TaskStatus[] },
@@ -226,7 +273,7 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
       <input
         value={local}
         onChange={(e) => setLocal(e.target.value)}
-        placeholder="Search issues..."
+        placeholder="Search tasks..."
         className="h-8 w-full rounded-md border bg-stone-950/60 pl-8 pr-3 text-sm text-stone-200 outline-none placeholder:text-stone-600 focus:border-amber-700/50"
         style={{ borderColor: "rgba(120,113,108,0.25)" }}
       />
@@ -385,7 +432,7 @@ function IssueRow({
         </span>
 
         {/* date */}
-        <span className="text-xs text-stone-500">{formatAge(task.updated)}</span>
+        <span className="text-xs text-stone-500">{formatAbsoluteDate(task.updated)}</span>
       </span>
     </Link>
   );
@@ -450,7 +497,7 @@ function KanbanView({
 
 /* ── main page ── */
 
-export default function ProjectIssuesPage({
+export default function ProjectTasksPage({
   params,
 }: {
   params: Promise<{ slug: string; projectSlug: string }>;
@@ -464,7 +511,7 @@ export default function ProjectIssuesPage({
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  const viewKey = `mc:project-issues-view:${projectSlug}`;
+  const viewKey = `mc:project-tasks-view:${projectSlug}`;
   const [view, setView] = useState<ViewState>(() => loadView(viewKey));
 
   const updateView = useCallback(
@@ -515,6 +562,18 @@ export default function ProjectIssuesPage({
     return () => { cancelled = true; };
   }, [slug, projectSlug]);
 
+  /* ── poll agents every 5s for live indicator updates ── */
+  useEffect(() => {
+    if (!company) return;
+    const interval = setInterval(async () => {
+      try {
+        const agentRows = await listCompanyAgents(slug);
+        setAgents(agentRows);
+      } catch { /* ignore polling errors */ }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [company, slug]);
+
   /* ── derived data ── */
   const agentLookup = useMemo(() => {
     const m = new Map<string, OrchestrationAgent>();
@@ -524,6 +583,8 @@ export default function ProjectIssuesPage({
     }
     return m;
   }, [agents]);
+
+  const liveTaskIds = useMemo(() => deriveLiveTaskIds(tasks, agents), [tasks, agents]);
 
   const searchedTasks = useMemo(() => {
     if (!search.trim()) return tasks;
@@ -541,8 +602,8 @@ export default function ProjectIssuesPage({
   const grouped = useMemo(() => groupTasks(filtered, view.groupBy, agentLookup), [filtered, view.groupBy, agentLookup]);
   const activeFilterCount = countActiveFilters(view);
 
-  /* ── new issue link ── */
-  const newIssueHref = `/companies/${encodeURIComponent(slug)}/issues/new${project ? `?projectId=${encodeURIComponent(project.id)}` : ""}`;
+  /* ── new task link ── */
+  const newTaskHref = `/companies/${encodeURIComponent(slug)}/issues/new${project ? `?projectId=${encodeURIComponent(project.id)}` : ""}`;
 
   /* ── render ── */
 
@@ -581,8 +642,8 @@ export default function ProjectIssuesPage({
       {/* ── tab bar ── */}
       <div className="mt-3 border-b px-5" style={{ borderColor: "rgba(120,113,108,0.15)" }}>
         <nav className="flex gap-0">
-          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/issues`)} active>
-            Issues
+          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/tasks`)} active>
+            Tasks
           </TabLink>
           <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/overview`)}>
             Overview
@@ -600,12 +661,12 @@ export default function ProjectIssuesPage({
       <div className="flex items-center justify-between gap-2 px-5 py-3">
         <div className="flex min-w-0 items-center gap-2">
           <Link
-            href={newIssueHref}
+            href={newTaskHref}
             className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-medium text-stone-200 no-underline transition-colors hover:bg-stone-800"
             style={{ borderColor: "rgba(120,113,108,0.3)" }}
           >
             <Plus className="h-3.5 w-3.5" />
-            <span className="hidden sm:inline">New Issue</span>
+            <span className="hidden sm:inline">New Task</span>
           </Link>
           <SearchInput value={search} onChange={setSearch} />
         </div>
@@ -847,13 +908,13 @@ export default function ProjectIssuesPage({
             >
               <List className="h-5 w-5 text-stone-500" />
             </div>
-            <p className="text-sm text-stone-400">No issues match the current filters.</p>
+            <p className="text-sm text-stone-400">No tasks match the current filters.</p>
             <Link
-              href={newIssueHref}
+              href={newTaskHref}
               className="mt-3 inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium text-stone-200 no-underline transition-colors hover:bg-stone-800"
               style={{ borderColor: "rgba(120,113,108,0.3)" }}
             >
-              <Plus className="h-3 w-3" /> Create Issue
+              <Plus className="h-3 w-3" /> Create Task
             </Link>
           </div>
         ) : (
@@ -870,7 +931,7 @@ export default function ProjectIssuesPage({
                     : [...view.collapsedGroups, group.key],
                 })
               }
-              newIssueHref={newIssueHref}
+              newTaskHref={newTaskHref}
             >
               {group.items.map((task) => (
                 <IssueRow
@@ -879,6 +940,7 @@ export default function ProjectIssuesPage({
                   companySlug={slug}
                   projectSlug={projectSlug}
                   agent={agentLookup.get((task.assignee ?? "").toLowerCase())}
+                  isLive={liveTaskIds.has(task.id)}
                 />
               ))}
             </CollapsibleGroup>
@@ -918,14 +980,14 @@ function CollapsibleGroup({
   count,
   collapsed,
   onToggle,
-  newIssueHref,
+  newTaskHref,
   children,
 }: {
   label: string | null;
   count: number;
   collapsed: boolean;
   onToggle: () => void;
-  newIssueHref: string;
+  newTaskHref: string;
   children: React.ReactNode;
 }) {
   if (!label) return <>{children}</>;
@@ -942,7 +1004,7 @@ function CollapsibleGroup({
           <span className="text-xs text-stone-600">{count}</span>
         </button>
         <Link
-          href={newIssueHref}
+          href={newTaskHref}
           className="ml-auto text-stone-600 hover:text-stone-300"
         >
           <Plus className="h-3 w-3" />

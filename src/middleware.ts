@@ -145,8 +145,8 @@ export function tryCanonicalRewrite(pathname: string, searchParams: URLSearchPar
     }
 
     const projectSub = segments[3];
-    if (projectSub === "issues") {
-      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}/issues`, origin);
+    if (projectSub === "tasks" || projectSub === "issues") {
+      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}/tasks`, origin);
       for (const [key, value] of searchParams) {
         url.searchParams.set(key, value);
       }
@@ -220,7 +220,7 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
     const projectSlug = routeMaps.projectIdToSlugByCompany[companySlug]?.[projectParam] ?? projectParam;
     qs.delete("project");
     qs.delete("projectId");
-    const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}/issues`, origin);
+    const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}/tasks`, origin);
     copyQuery(url, qs);
     return url;
   }
@@ -229,7 +229,7 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   if (projectMatch) {
     const projectSlug = decodeURIComponent(projectMatch[1]);
     const projectRest = projectMatch[2] || "";
-    const suffix = projectRest || "/issues";
+    const suffix = projectRest || "/tasks";
     const url = new URL(`/${companyCode}/projects/${encodeURIComponent(projectSlug)}${suffix}`, origin);
     copyQuery(url, qs);
     return url;
