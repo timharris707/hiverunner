@@ -327,17 +327,34 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       </span>
       {item.trailingAction ? <span style={{ display: "inline-flex", alignItems: "center", flexShrink: 0, marginLeft: "1px" }}>{item.trailingAction}</span> : null}
       {item.statusDotColor ? (
-        <span
-          aria-hidden
-          style={{
-            width: "6px",
-            height: "6px",
-            borderRadius: "999px",
-            backgroundColor: item.statusDotColor,
-            boxShadow: `0 0 6px ${item.statusDotColor}`,
-            flexShrink: 0,
-          }}
-        />
+        item.statusDotColor === "#22c55e" ? (
+          /* Active agent — pulsing green dot */
+          <span aria-hidden style={{ position: "relative", display: "inline-flex", width: "6px", height: "6px", flexShrink: 0 }}>
+            <span style={{
+              position: "absolute", inset: 0, borderRadius: "999px",
+              backgroundColor: item.statusDotColor, opacity: 0.75,
+              animation: "ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite",
+            }} />
+            <span style={{
+              position: "relative", display: "inline-flex",
+              width: "6px", height: "6px", borderRadius: "999px",
+              backgroundColor: item.statusDotColor,
+              boxShadow: `0 0 6px ${item.statusDotColor}`,
+            }} />
+          </span>
+        ) : (
+          <span
+            aria-hidden
+            style={{
+              width: "6px",
+              height: "6px",
+              borderRadius: "999px",
+              backgroundColor: item.statusDotColor,
+              boxShadow: `0 0 6px ${item.statusDotColor}`,
+              flexShrink: 0,
+            }}
+          />
+        )
       ) : null}
       {item.badge != null ? (
         <span

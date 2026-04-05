@@ -28,6 +28,8 @@ import {
   listTasks,
 } from "@/lib/orchestration/client";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { useNotifications } from "@/components/notifications/NotificationToast";
+import { useLiveRuns, type LiveRun } from "@/hooks/useLiveRuns";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
@@ -347,6 +349,52 @@ export default function CompanyDashboardPage() {
     return m;
   }, [data]);
 
+  /* ── live runs polling (3s, always active when dashboard loaded) ── */
+  const { runsByAgentId, transitions, hasActiveRuns } = useLiveRuns({
+    companySlug: slug,
+    enabled: !!data,
+  });
+
+  const { push: pushToast } = useNotifications();
+
+  // Fire toasts on run state transitions
+  useEffect(() => {
+    for (const t of transitions) {
+      if (t.toStatus === "succeeded") {
+        const actionCount = t.result?.actionsExecuted ?? 0;
+        const reportCount = t.result?.reportsImported ?? 0;
+        pushToast({
+          title: `${t.agentName} completed run`,
+          body: `${actionCount} action${actionCount !== 1 ? "s" : ""}, ${reportCount} report${reportCount !== 1 ? "s" : ""}`,
+          dotColor: "#4ade80",
+          href: buildCompanyPath(slug, `/agents/${encodeURIComponent(t.agentSlug)}/dashboard`),
+          hrefLabel: "View agent",
+          ttl: 8000,
+        });
+      } else if (t.toStatus === "failed" || t.toStatus === "timed_out") {
+        pushToast({
+          title: `${t.agentName} run ${t.toStatus === "timed_out" ? "timed out" : "failed"}`,
+          body: t.error?.slice(0, 120) ?? "Check agent detail for error info.",
+          dotColor: "#ef4444",
+          href: buildCompanyPath(slug, `/agents/${encodeURIComponent(t.agentSlug)}/dashboard`),
+          hrefLabel: "View agent",
+          ttl: 10000,
+        });
+      }
+    }
+  }, [transitions, slug, pushToast]);
+
+  // Sort agents: those with active live runs first, then by name
+  const sortedAgents = useMemo(() => {
+    if (!data) return [];
+    return [...data.agents].sort((a, b) => {
+      const aHasRun = runsByAgentId.has(a.id) && (runsByAgentId.get(a.id)!.status === "running" || runsByAgentId.get(a.id)!.status === "queued") ? 0 : 1;
+      const bHasRun = runsByAgentId.has(b.id) && (runsByAgentId.get(b.id)!.status === "running" || runsByAgentId.get(b.id)!.status === "queued") ? 0 : 1;
+      if (aHasRun !== bHasRun) return aHasRun - bHasRun;
+      return a.name.localeCompare(b.name);
+    });
+  }, [data, runsByAgentId]);
+
   /* ── render ── */
 
   if (!loading && !data) {
@@ -374,14 +422,15 @@ export default function CompanyDashboardPage() {
         {/* ── agent run cards ── */}
         <section className="mb-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">Agents</h2>
-          {data && data.agents.length > 0 ? (
+          {data && sortedAgents.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
-              {data.agents.map((agent) => (
+              {sortedAgents.map((agent) => (
                 <AgentRunCard
                   key={agent.id}
                   agent={agent}
                   profile={data.agentProfiles.get(agent.id) ?? null}
                   companySlug={slug}
+                  liveRun={runsByAgentId.get(agent.id) ?? null}
                 />
               ))}
             </div>
@@ -574,52 +623,104 @@ export default function CompanyDashboardPage() {
 
 /* ── Agent Run Card (Paperclip-style) ── */
 
+function formatElapsed(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+}
+
 function AgentRunCard({
   agent,
   profile,
   companySlug,
+  liveRun,
 }: {
   agent: OrchestrationAgent;
   profile: OrchestrationAgentProfile | null;
   companySlug: string;
+  liveRun: LiveRun | null;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const dotColor = STATUS_DOT_COLOR[agent.status];
-  const dotGlow = STATUS_DOT_GLOW[agent.status];
   const agentHref = buildCompanyPath(companySlug, `/agents/${encodeURIComponent(agent.slug ?? agent.id)}/dashboard`);
 
   const latestRun = profile?.liveSession ?? profile?.executionHistory?.[0] ?? null;
   const recentActivity = profile?.recentActivity ?? [];
   const currentTasks = profile?.currentTasks ?? [];
 
+  // Determine if this card is "live" — agent is running or has a recent live run
+  const isLive = liveRun != null && (liveRun.status === "running" || liveRun.status === "queued");
+  const justFinished = liveRun != null && (liveRun.status === "succeeded" || liveRun.status === "failed" || liveRun.status === "timed_out");
+
+  // Status dot — cyan when live, otherwise standard
+  const dotColor = isLive ? "#06b6d4" : STATUS_DOT_COLOR[agent.status];
+  const dotGlow = isLive ? "0 0 8px rgba(6,182,212,0.6)" : STATUS_DOT_GLOW[agent.status];
+
+  // Card border/background — cyan glow when live
+  const cardBorder = isLive
+    ? "rgba(6,182,212,0.25)"
+    : justFinished
+      ? "rgba(74,222,128,0.2)"
+      : "rgba(120,113,108,0.15)";
+  const cardBg = isLive
+    ? "rgba(6,182,212,0.04)"
+    : "rgba(28,25,23,0.5)";
+  const cardShadow = isLive
+    ? "0 8px 24px rgba(6,182,212,0.08)"
+    : "none";
+
   // Build the run status label
-  const runStatusLabel = latestRun
-    ? latestRun.status === "running"
-      ? "Running"
-      : `Finished ${formatAge(latestRun.completedAt ?? latestRun.createdAt)} ago`
-    : agent.status === "working"
-      ? "Running"
-      : agent.status === "paused"
-        ? "Paused"
-        : null;
+  const runStatusLabel = isLive
+    ? "Running"
+    : latestRun
+      ? latestRun.status === "running"
+        ? "Running"
+        : `Finished ${formatAge(latestRun.completedAt ?? latestRun.createdAt)} ago`
+      : agent.status === "working"
+        ? "Running"
+        : agent.status === "paused"
+          ? "Paused"
+          : null;
 
   // Latest comment from this agent (most recent activity of kind "comment")
   const latestComment = recentActivity.find((a) => a.kind === "comment");
   // Recent events (non-comment activity)
   const recentEvents = recentActivity.filter((a) => a.kind === "event").slice(0, 3);
 
+  // Best output text — prefer live run's latest output over profile comment
+  const outputText = liveRun?.latestOutput ?? latestComment?.message ?? null;
+
   return (
     <div
       className="overflow-hidden rounded-lg border"
-      style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
+      style={{
+        borderColor: cardBorder,
+        background: cardBg,
+        boxShadow: cardShadow,
+        transition: "border-color 0.3s ease, background 0.3s ease, box-shadow 0.3s ease",
+      }}
     >
       {/* ── header ── */}
       <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
-          <span
-            className="inline-block h-2 w-2 shrink-0 rounded-full"
-            style={{ background: dotColor, boxShadow: dotGlow }}
-          />
+          {/* Status dot — pulsing when live */}
+          {isLive ? (
+            <span className="relative inline-flex h-2 w-2 shrink-0">
+              <span
+                className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
+                style={{ backgroundColor: "#06b6d4" }}
+              />
+              <span
+                className="relative inline-flex h-2 w-2 rounded-full"
+                style={{ backgroundColor: "#06b6d4", boxShadow: "0 0 6px rgba(6,182,212,0.6)" }}
+              />
+            </span>
+          ) : (
+            <span
+              className="inline-block h-2 w-2 shrink-0 rounded-full"
+              style={{ background: dotColor, boxShadow: dotGlow }}
+            />
+          )}
           <span
             className="inline-flex h-6 w-6 items-center justify-center rounded text-xs"
             style={{ background: "rgba(120,113,108,0.12)", color: "#a8a29e" }}
@@ -636,13 +737,18 @@ function AgentRunCard({
       {/* ── run status line ── */}
       {runStatusLabel && (
         <div className="px-3 pb-1">
-          <span className="text-[11px] text-stone-500">{runStatusLabel}</span>
+          <span className="text-[11px]" style={{ color: isLive ? "#06b6d4" : "#78716c" }}>
+            {runStatusLabel}
+          </span>
         </div>
       )}
 
       {/* ── task context pill (latest run or current task) ── */}
       {latestRun ? (
-        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{ background: "rgba(120,113,108,0.07)" }}>
+        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{
+          background: isLive ? "rgba(6,182,212,0.06)" : "rgba(120,113,108,0.07)",
+          border: isLive ? "1px solid rgba(6,182,212,0.12)" : "none",
+        }}>
           <span className="text-xs text-stone-400">
             {latestRun.taskTitle}
           </span>
@@ -655,27 +761,60 @@ function AgentRunCard({
         </div>
       ) : null}
 
-      {/* ── latest comment / agent output ── */}
-      {latestComment ? (
+      {/* ── LIVE: progress area ── */}
+      {isLive && (
+        <div className="mx-3 mb-2 rounded-md px-2.5 py-2" style={{
+          background: "rgba(6,182,212,0.06)",
+          border: "1px solid rgba(6,182,212,0.12)",
+        }}>
+          <div className="flex items-center gap-2 text-[11px]" style={{ color: "#06b6d4" }}>
+            <LoaderCircle className="h-3 w-3 animate-spin" />
+            <span>Running… {formatElapsed(liveRun.durationMs)}</span>
+          </div>
+          {liveRun.latestOutput && (
+            <p className="mt-1.5 text-xs leading-relaxed text-stone-300">
+              {liveRun.latestOutput.length > 200
+                ? liveRun.latestOutput.slice(0, 200) + "…"
+                : liveRun.latestOutput}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ── JUST FINISHED: completion summary ── */}
+      {justFinished && liveRun.result && (
+        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{
+          background: liveRun.status === "succeeded" ? "rgba(74,222,128,0.06)" : "rgba(239,68,68,0.06)",
+          border: `1px solid ${liveRun.status === "succeeded" ? "rgba(74,222,128,0.15)" : "rgba(239,68,68,0.15)"}`,
+        }}>
+          <span className="text-[11px] font-medium" style={{
+            color: liveRun.status === "succeeded" ? "#4ade80" : "#ef4444",
+          }}>
+            {liveRun.status === "succeeded" ? "✓" : "✗"}{" "}
+            {liveRun.result.actionsExecuted} action{liveRun.result.actionsExecuted !== 1 ? "s" : ""},{" "}
+            {liveRun.result.reportsImported} report{liveRun.result.reportsImported !== 1 ? "s" : ""}
+            {liveRun.result.errors.length > 0 && ` · ${liveRun.result.errors.length} error${liveRun.result.errors.length !== 1 ? "s" : ""}`}
+          </span>
+        </div>
+      )}
+
+      {/* ── latest comment / agent output (from profile) ── */}
+      {!isLive && outputText ? (
         <div className="mx-3 mb-2">
           <p className="text-sm leading-relaxed text-stone-200">
-            {latestComment.message.length > 200
-              ? latestComment.message.slice(0, 200) + "…"
-              : latestComment.message}
+            {outputText.length > 200
+              ? outputText.slice(0, 200) + "…"
+              : outputText}
           </p>
         </div>
-      ) : agent.currentTask && !latestRun ? (
-        <div className="mx-3 mb-2">
-          <p className="text-xs text-stone-400">{agent.role}</p>
-        </div>
-      ) : !latestRun ? (
+      ) : !isLive && !outputText && !latestRun ? (
         <div className="mx-3 mb-2">
           <p className="text-xs text-stone-500">{agent.role}</p>
         </div>
       ) : null}
 
       {/* ── execution run metadata ── */}
-      {latestRun && (
+      {latestRun && !isLive && (
         <div className="mx-3 mb-2">
           <RunBadge run={latestRun} />
         </div>

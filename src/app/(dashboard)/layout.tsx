@@ -6,6 +6,7 @@ import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { QuickActionBar } from "@/components/QuickActionBar";
 import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { MissionControlRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
+import { NotificationProvider } from "@/components/notifications/NotificationToast";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH } from "@/components/TenacitOS/Dock";
 import { useDockCollapsed } from "@/lib/dock-state";
@@ -28,6 +29,7 @@ export default function DashboardLayout({
   return (
     <DemoModeProvider>
       <MissionControlRealtimeProvider>
+        <NotificationProvider>
         <div className="tenacios-shell" style={{ minHeight: "100vh" }}>
           <KeyboardShortcuts />
           <Dock />
@@ -51,6 +53,7 @@ export default function DashboardLayout({
           <QuickActionBar />
           {!isMobile && <StatusBar />}
         </div>
+      </NotificationProvider>
       </MissionControlRealtimeProvider>
     </DemoModeProvider>
   );
