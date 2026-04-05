@@ -17,7 +17,7 @@ export function readAvatarDraftCache(agentId: string, alternateKey?: string): Av
   }
   for (const key of keysToTry) {
     try {
-      const raw = window.sessionStorage.getItem(key);
+      const raw = window.sessionStorage.getItem(key) || window.localStorage.getItem(key);
       if (!raw) continue;
       const parsed = JSON.parse(raw) as Partial<AvatarDraftCache>;
       if (!parsed || typeof parsed !== "object") continue;
@@ -38,10 +38,13 @@ export function readAvatarDraftCache(agentId: string, alternateKey?: string): Av
 
 export function writeAvatarDraftCache(agentId: string, draft: AvatarDraftCache, alternateKey?: string): void {
   if (typeof window === "undefined") return;
+  const payload = JSON.stringify(draft);
+  const keys = [getKey(agentId)];
+  if (alternateKey && alternateKey !== agentId) keys.push(getKey(alternateKey));
   try {
-    window.sessionStorage.setItem(getKey(agentId), JSON.stringify(draft));
-    if (alternateKey && alternateKey !== agentId) {
-      window.sessionStorage.setItem(getKey(alternateKey), JSON.stringify(draft));
+    for (const key of keys) {
+      window.sessionStorage.setItem(key, payload);
+      window.localStorage.setItem(key, payload);
     }
   } catch {
     // best-effort cache only
@@ -50,10 +53,12 @@ export function writeAvatarDraftCache(agentId: string, draft: AvatarDraftCache, 
 
 export function clearAvatarDraftCache(agentId: string, alternateKey?: string): void {
   if (typeof window === "undefined") return;
+  const keys = [getKey(agentId)];
+  if (alternateKey && alternateKey !== agentId) keys.push(getKey(alternateKey));
   try {
-    window.sessionStorage.removeItem(getKey(agentId));
-    if (alternateKey && alternateKey !== agentId) {
-      window.sessionStorage.removeItem(getKey(alternateKey));
+    for (const key of keys) {
+      window.sessionStorage.removeItem(key);
+      window.localStorage.removeItem(key);
     }
   } catch {
     // ignore

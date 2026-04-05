@@ -196,17 +196,25 @@ export function AvatarWizard({
     const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyberpunk";
     const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];
-    const shouldResume = autoStart || pendingSetup;
+    const shouldResume = cachedPreviews.length > 0 || autoStart || pendingSetup;
 
     setSource("generated");
     setStyleId(nextStyleId);
     setGender(nextGender);
-    setPreviews(cachedPreviews);
-    setSelectedPreview(0);
+
+    if (cachedPreviews.length > 0) {
+      setPreviews(cachedPreviews);
+      setSelectedPreview(0);
+      setStep("preview");
+    } else {
+      setPreviews([]);
+      setSelectedPreview(0);
+      setStep(autoStart || pendingSetup ? "preview" : "source");
+    }
+
     setGenerating(false);
     setSaving(false);
     setError(null);
-    setStep(cachedPreviews.length > 0 || shouldResume ? "preview" : "source");
 
     fetch("/api/orchestration/avatars/status")
       .then((r) => r.ok ? r.json() : null)
