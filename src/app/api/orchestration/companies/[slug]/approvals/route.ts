@@ -11,10 +11,9 @@ const listQuerySchema = z.object({
   type: z.enum(["hire_agent", "approve_ceo_strategy", "budget_override_required"]).optional(),
 });
 
-const createSchema = z.object({
+const createBaseSchema = z.object({
   type: z.enum(["hire_agent", "approve_ceo_strategy", "budget_override_required"]),
   requestedByAgentId: z.string().trim().min(1).optional(),
-  payload: z.record(z.unknown()).optional(),
   linkedTaskId: z.string().trim().min(1).optional(),
 });
 
@@ -43,11 +42,16 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
-    const parsed = createSchema.parse(await req.json());
-    return NextResponse.json(
-      createApproval({ companyIdOrSlug: slug, ...parsed }),
-      { status: 201 }
-    );
+    const body = await req.json();
+    const base = createBaseSchema.parse(body);
+
+    // Validate payload manually — z.record(z.unknown()) crashes in Zod v4
+    const payload = typeof body.payload === "object" && body.payload !== null && !Array.isArray(body.payload)
+      ? (body.payload as Record<string, unknown>)
+      : undefined;
+
+    const result = createApproval({ companyIdOrSlug: slug, ...base, payload });
+    return NextResponse.json(result, { status: 201 });
   } catch (error) {
     if (error instanceof ZodError) {
       return errorResponse(400, "validation_error", "Invalid approval create payload", error.flatten());
