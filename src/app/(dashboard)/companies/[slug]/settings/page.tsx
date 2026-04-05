@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertTriangle, Settings } from "lucide-react";
+import { AlertTriangle, Settings, Upload, Download } from "lucide-react";
 
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
-import { listCompanies } from "@/lib/orchestration/client";
-import type { OrchestrationCompany } from "@/lib/orchestration/types";
+import { getCompanyTheme, listCompanies } from "@/lib/orchestration/client";
+import type { CompanyTheme, OrchestrationCompany } from "@/lib/orchestration/types";
 
 /* ── Palette (MC stone standard) ── */
 
@@ -22,6 +22,13 @@ const P = {
 
 const PROTECTED_COMPANY_SLUGS = new Set(["neveridle-core"]);
 
+/* ── Types for execution / heartbeat APIs ── */
+
+type ExecAgent = { agentId: string; agentName?: string; name?: string; modelId: string; timeoutSeconds: number | null; graceSeconds: number | null };
+type ExecSettings = { agents?: ExecAgent[] };
+type HbAgent = { agentId: string; agentName?: string; name?: string; heartbeatEnabled: boolean; intervalSeconds: number };
+type HbSettings = { agents?: HbAgent[] };
+
 /* ── Page ── */
 
 export default function CompanySettingsPage() {
@@ -30,12 +37,18 @@ export default function CompanySettingsPage() {
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const [theme, setTheme] = useState<CompanyTheme | null>(null);
+  const [execSettings, setExecSettings] = useState<ExecSettings | null>(null);
+  const [hbSettings, setHbSettings] = useState<HbSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
   /* profile draft */
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
+
+  /* hiring toggle */
+  const [hiringApprovalRequired, setHiringApprovalRequired] = useState(true);
 
   /* danger zone */
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -56,16 +69,26 @@ export default function CompanySettingsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const companies = await listCompanies();
+        const [companies, themeData, execResp, hbResp] = await Promise.all([
+          listCompanies(),
+          getCompanyTheme(slug),
+          fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/execution`).then((r) => r.ok ? r.json() : null),
+          fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/heartbeats`).then((r) => r.ok ? r.json() : null),
+        ]);
         if (cancelled) return;
         const c = companies.find((e) => e.slug === slug) ?? null;
         setCompany(c);
+        setTheme(themeData);
+        setExecSettings(execResp);
+        setHbSettings(hbResp);
         if (c) { setName(c.name); setDescription(c.description ?? ""); }
       } finally { if (!cancelled) setLoading(false); }
     };
     void load();
     return () => { cancelled = true; };
   }, [slug]);
+
+  /* ── handlers ── */
 
   const handleSaveProfile = async () => {
     if (!company) return;
@@ -122,6 +145,9 @@ export default function CompanySettingsPage() {
     background: P.inputBg, padding: "10px 14px", fontSize: 13, color: P.text, outline: "none",
   };
 
+  const execAgents = execSettings?.agents ?? [];
+  const hbAgents = hbSettings?.agents ?? [];
+
   return (
     <div style={{ padding: "24px 32px", maxWidth: 700 }}>
       {/* Header */}
@@ -159,6 +185,19 @@ export default function CompanySettingsPage() {
 
           {/* ── APPEARANCE ── */}
           <Section title="Appearance">
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 14 }}>
+              <div style={{
+                width: 48, height: 48, borderRadius: 10, background: "rgba(99,102,241,0.2)",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 20, fontWeight: 700, color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)",
+              }}>
+                {company?.name?.charAt(0)?.toUpperCase() ?? "C"}
+              </div>
+              <div>
+                <FieldLabel label="Logo" />
+                <p style={{ fontSize: 12, color: P.muted, margin: 0 }}>Company logo upload not yet available.</p>
+              </div>
+            </div>
             <PropRow label="Brand color">
               <span style={{ display: "inline-block", width: 20, height: 20, borderRadius: 4, background: "#6366f1", marginRight: 8, verticalAlign: "middle" }} />
               <span style={{ fontSize: 13, color: P.textSec }}>Auto</span>
@@ -169,8 +208,75 @@ export default function CompanySettingsPage() {
           <Section title="Hiring">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontSize: 13, color: P.text }}>Require board approval for new hires</span>
-              <ToggleIndicator enabled={true} />
+              <Toggle enabled={hiringApprovalRequired} onToggle={() => setHiringApprovalRequired(!hiringApprovalRequired)} />
             </div>
+          </Section>
+
+          {/* ── INVITES ── */}
+          <Section title="Invites">
+            <p style={{ fontSize: 13, color: P.textSec, marginBottom: 10 }}>Generate an OpenClaw agent invite snippet.</p>
+            <button type="button" style={{
+              padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+              border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+              color: P.text, cursor: "pointer",
+            }}>Generate OpenClaw Invite Prompt</button>
+          </Section>
+
+          {/* ── COMPANY PACKAGES ── */}
+          <Section title="Company Packages">
+            <p style={{ fontSize: 13, color: P.textSec, marginBottom: 10 }}>
+              Import and export have moved to dedicated pages accessible from the Org Chart header.
+            </p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+                color: P.text, cursor: "pointer",
+              }}><Download size={14} /> Export</button>
+              <button type="button" style={{
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+                color: P.text, cursor: "pointer",
+              }}><Upload size={14} /> Import</button>
+            </div>
+          </Section>
+
+          {/* ── EXECUTION DEFAULTS ── */}
+          <Section title="Execution Defaults">
+            {execAgents.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {execAgents.map((a) => (
+                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+                    <span style={{ fontSize: 13, color: P.text }}>{a.agentName ?? a.name ?? a.agentId}</span>
+                    <span style={{ fontSize: 11, color: P.muted, fontFamily: "var(--font-mono, monospace)" }}>
+                      {a.modelId}{a.timeoutSeconds != null ? ` · ${a.timeoutSeconds}s` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: P.muted }}>No per-agent execution overrides configured.</p>
+            )}
+          </Section>
+
+          {/* ── HEARTBEAT & GOVERNANCE ── */}
+          <Section title="Heartbeat & Governance">
+            {hbAgents.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                {hbAgents.map((a) => (
+                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+                    <span style={{ fontSize: 13, color: P.text }}>{a.agentName ?? a.name ?? a.agentId}</span>
+                    <span style={{ fontSize: 11, color: P.muted }}>
+                      {a.heartbeatEnabled ? "on" : "off"} · {Math.round(a.intervalSeconds / 60)}m interval
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={{ fontSize: 13, color: P.muted }}>No heartbeat policies configured.</p>
+            )}
           </Section>
 
           {/* ── WORKSPACE ── */}
@@ -238,16 +344,17 @@ function PropRow({ label, children }: { label: string; children: React.ReactNode
   );
 }
 
-function ToggleIndicator({ enabled }: { enabled: boolean }) {
+function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
   return (
-    <div style={{
-      width: 40, height: 22, borderRadius: 11, padding: 2, cursor: "default",
+    <button type="button" onClick={onToggle} style={{
+      width: 40, height: 22, borderRadius: 11, padding: 2, cursor: "pointer",
       background: enabled ? "rgba(34,197,94,0.5)" : "rgba(120,113,108,0.3)",
-      display: "flex", alignItems: enabled ? "center" : "center",
+      border: "none", display: "flex", alignItems: "center",
       justifyContent: enabled ? "flex-end" : "flex-start",
+      transition: "background 150ms ease",
     }}>
-      <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff" }} />
-    </div>
+      <div style={{ width: 18, height: 18, borderRadius: 9, background: "#fff", transition: "transform 150ms ease" }} />
+    </button>
   );
 }
 
