@@ -1,1 +1,256 @@
-export { default } from "@/app/(dashboard)/files/page";
+"use client";
+
+import { useState, useEffect } from "react";
+import { usePathname } from "next/navigation";
+import { List, Grid3X3 } from "lucide-react";
+import { Breadcrumbs } from "@/components/Breadcrumbs";
+import { FileBrowser } from "@/components/FileBrowser";
+
+interface Workspace {
+  id: string;
+  name: string;
+  emoji: string;
+  path: string;
+  agentName?: string;
+}
+
+export default function FilesPage() {
+  const pathname = usePathname();
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspace, setSelectedWorkspace] = useState<string | null>(null);
+  const [currentPath, setCurrentPath] = useState("");
+  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
+
+  useEffect(() => {
+    const companyMatch = pathname.match(/^\/companies\/([^/]+)/);
+    const companySlug = companyMatch ? companyMatch[1] : null;
+    const query = companySlug ? `?company=${encodeURIComponent(companySlug)}` : "";
+
+    fetch(`/api/files/workspaces${query}`)
+      .then((res) => res.json())
+      .then((data) => {
+        const rows = data.workspaces || [];
+        setWorkspaces(rows);
+        if (rows.length > 0) {
+          setSelectedWorkspace(rows[0].id);
+        }
+      })
+      .catch(() => setWorkspaces([]));
+  }, [pathname]);
+
+  const handleWorkspaceSelect = (workspaceId: string) => {
+    setSelectedWorkspace(workspaceId);
+    setCurrentPath("");
+  };
+
+  const selectedWorkspaceData = workspaces.find((w) => w.id === selectedWorkspace);
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", gap: "0" }}>
+      {/* Page header */}
+      <div style={{ padding: "24px 24px 16px 24px" }}>
+        <h1
+          style={{
+            fontFamily: "var(--font-heading)",
+            fontSize: "24px",
+            fontWeight: 700,
+            letterSpacing: "-1px",
+            color: "var(--text-primary)",
+            marginBottom: "4px",
+          }}
+        >
+          File Browser
+        </h1>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)" }}>
+          Browse workspaces and agent files
+        </p>
+      </div>
+
+      {/* Two-column layout */}
+      <div
+        style={{
+          display: "flex",
+          flex: 1,
+          overflow: "hidden",
+          borderTop: "1px solid var(--border)",
+        }}
+      >
+        {/* ── LEFT SIDEBAR: Workspace list ─────────────────────────────────── */}
+        <aside
+          style={{
+            width: "220px",
+            flexShrink: 0,
+            borderRight: "1px solid var(--border)",
+            overflowY: "auto",
+            padding: "16px 0",
+            backgroundColor: "var(--surface, var(--card))",
+          }}
+        >
+          <p
+            style={{
+              fontSize: "10px",
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              color: "var(--text-muted)",
+              padding: "0 16px 8px",
+              textTransform: "uppercase",
+            }}
+          >
+            Workspaces
+          </p>
+
+          {workspaces.map((workspace) => {
+            const isSelected = selectedWorkspace === workspace.id;
+            return (
+              <button
+                key={workspace.id}
+                onClick={() => handleWorkspaceSelect(workspace.id)}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "10px",
+                  padding: "9px 16px",
+                  background: isSelected ? "var(--accent-soft)" : "transparent",
+                  border: "none",
+                  borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
+                  cursor: "pointer",
+                  textAlign: "left",
+                  transition: "all 120ms ease",
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) e.currentTarget.style.background = "var(--surface-hover, rgba(255,255,255,0.05))";
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) e.currentTarget.style.background = "transparent";
+                }}
+              >
+                <span style={{ fontSize: "18px", lineHeight: 1, flexShrink: 0 }}>{workspace.emoji}</span>
+                <div style={{ minWidth: 0 }}>
+                  <div
+                    style={{
+                      fontFamily: "var(--font-heading)",
+                      fontSize: "13px",
+                      fontWeight: isSelected ? 600 : 400,
+                      color: isSelected ? "var(--accent)" : "var(--text-primary)",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {workspace.name}
+                  </div>
+                  {workspace.agentName && (
+                    <div
+                      style={{
+                        fontSize: "11px",
+                        color: "var(--text-muted)",
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                      }}
+                    >
+                      {workspace.agentName}
+                    </div>
+                  )}
+                </div>
+              </button>
+            );
+          })}
+        </aside>
+
+        {/* ── RIGHT PANEL: File explorer ────────────────────────────────────── */}
+        <main style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          {selectedWorkspace && selectedWorkspaceData ? (
+            <>
+              {/* Breadcrumb bar + view toggle */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  padding: "8px 16px",
+                  borderBottom: "1px solid var(--border)",
+                  backgroundColor: "var(--surface, var(--card))",
+                  flexShrink: 0,
+                  gap: "12px",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <Breadcrumbs
+                    path={currentPath}
+                    onNavigate={setCurrentPath}
+                    prefix={selectedWorkspaceData.name}
+                  />
+                </div>
+
+                {/* View mode toggle */}
+                <div style={{ display: "flex", gap: "4px", flexShrink: 0 }}>
+                  <button
+                    onClick={() => setViewMode("list")}
+                    title="List view"
+                    style={{
+                      padding: "5px 7px",
+                      borderRadius: "6px",
+                      border: "none",
+                      cursor: "pointer",
+                      backgroundColor: viewMode === "list" ? "var(--accent)" : "transparent",
+                      color: viewMode === "list" ? "var(--bg, #111)" : "var(--text-muted)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 120ms ease",
+                    }}
+                  >
+                    <List size={15} />
+                  </button>
+                  <button
+                    onClick={() => setViewMode("grid")}
+                    title="Grid view"
+                    style={{
+                      padding: "5px 7px",
+                      borderRadius: "6px",
+                      border: "none",
+                      cursor: "pointer",
+                      backgroundColor: viewMode === "grid" ? "var(--accent)" : "transparent",
+                      color: viewMode === "grid" ? "var(--bg, #111)" : "var(--text-muted)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 120ms ease",
+                    }}
+                  >
+                    <Grid3X3 size={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* File list */}
+              <div style={{ flex: 1, padding: "0" }}>
+                <FileBrowser
+                  workspace={selectedWorkspace}
+                  path={currentPath}
+                  onNavigate={setCurrentPath}
+                  viewMode={viewMode}
+                />
+              </div>
+            </>
+          ) : (
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: "var(--text-muted)",
+                fontSize: "14px",
+              }}
+            >
+              Select a workspace to explore its files
+            </div>
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}

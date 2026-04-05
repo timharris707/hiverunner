@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 
-const TOP_5_ROUTES = ["/", "/tasks", "/agents", "/trading", "/workflows"];
+const TOP_5_ROUTES = ["/", "/trading", "/trading/floor", "/ideas", "/advisory"];
 
 // Custom event for opening new task modal when on /tasks page
 export const OPEN_NEW_TASK_EVENT = "mission-control:open-new-task";
