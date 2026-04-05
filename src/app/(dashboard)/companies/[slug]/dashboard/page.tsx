@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -29,7 +29,7 @@ import {
 } from "@/lib/orchestration/client";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import { useNotifications } from "@/components/notifications/NotificationToast";
-import { useLiveRuns, type LiveRun } from "@/hooks/useLiveRuns";
+import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
@@ -384,15 +384,37 @@ export default function CompanyDashboardPage() {
     }
   }, [transitions, slug, pushToast]);
 
-  // Sort agents: those with active live runs first, then by name
+  // Persistent recency tracking — survives across render cycles
+  const agentRecencyRef = useRef<Map<string, number>>(new Map());
+
+  // Update recency timestamps when live run data changes
+  useEffect(() => {
+    for (const [agentId, run] of runsByAgentId) {
+      // Best timestamp: latest transcript entry > finishedAt > startedAt
+      const transcriptTs = run.transcript.length > 0
+        ? new Date(run.transcript[run.transcript.length - 1].ts).getTime()
+        : 0;
+      const finishedTs = run.finishedAt ? new Date(run.finishedAt).getTime() : 0;
+      const startedTs = run.startedAt ? new Date(run.startedAt).getTime() : 0;
+      const bestTs = Math.max(transcriptTs, finishedTs, startedTs);
+
+      const current = agentRecencyRef.current.get(agentId) ?? 0;
+      if (bestTs > current) {
+        agentRecencyRef.current.set(agentId, bestTs);
+      }
+    }
+  }, [runsByAgentId]);
+
+  // Sort agents: most recent activity first, then alphabetical
   const sortedAgents = useMemo(() => {
     if (!data) return [];
     return [...data.agents].sort((a, b) => {
-      const aHasRun = runsByAgentId.has(a.id) && (runsByAgentId.get(a.id)!.status === "running" || runsByAgentId.get(a.id)!.status === "queued") ? 0 : 1;
-      const bHasRun = runsByAgentId.has(b.id) && (runsByAgentId.get(b.id)!.status === "running" || runsByAgentId.get(b.id)!.status === "queued") ? 0 : 1;
-      if (aHasRun !== bHasRun) return aHasRun - bHasRun;
+      const aTs = agentRecencyRef.current.get(a.id) ?? 0;
+      const bTs = agentRecencyRef.current.get(b.id) ?? 0;
+      if (aTs !== bTs) return bTs - aTs; // higher timestamp = more recent = first
       return a.name.localeCompare(b.name);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, runsByAgentId]);
 
   /* ── render ── */
@@ -630,6 +652,121 @@ function formatElapsed(ms: number): string {
   return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
 
+/* ── Scrollable transcript inside agent card ── */
+function AgentTranscript({ entries, isLive }: { entries: LiveRunTranscriptEntry[]; isLive: boolean }) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll to bottom when new entries arrive (chronological order, newest at bottom)
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [entries.length]);
+
+  return (
+    <div
+      ref={scrollRef}
+      className="mx-3 mb-2 overflow-y-auto rounded-md"
+      style={{
+        maxHeight: "180px",
+        background: isLive ? "rgba(6,182,212,0.03)" : "rgba(28,25,23,0.3)",
+        border: isLive ? "1px solid rgba(6,182,212,0.1)" : "1px solid rgba(120,113,108,0.08)",
+      }}
+    >
+      {entries.map((entry, i) => (
+        <div
+          key={entry.id}
+          className="border-b px-2.5 py-1.5 last:border-b-0"
+          style={{
+            borderColor: "rgba(120,113,108,0.06)",
+            animation: i === entries.length - 1 && isLive ? "fadeSlideIn 0.3s ease" : undefined,
+          }}
+        >
+          {entry.kind === "comment" ? (
+            <>
+              <p className="text-xs leading-relaxed text-stone-300">
+                {entry.message.length > 200 ? entry.message.slice(0, 200) + "…" : entry.message}
+              </p>
+              <span className="mt-0.5 block text-[9px] text-stone-600">
+                {entry.type === "status_update" ? "📋 report" : "💬 comment"} · {formatAge(entry.ts)}
+              </span>
+            </>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-stone-500">→</span>
+              <span className="text-[11px] text-stone-400">{entry.message}</span>
+              <span className="ml-auto text-[9px] text-stone-600">{formatAge(entry.ts)}</span>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Action execution badge (Paperclip "EXECUTED N COMMANDS" equivalent) ── */
+function ActionBadge({ result, status }: { result: NonNullable<LiveRun["result"]>; status: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const isRunning = status === "running" || status === "queued";
+  const total = result.actionsExecuted + result.actionsSkippedDedup;
+  const label = isRunning
+    ? `Executing ${total > 0 ? total : ""} action${total !== 1 ? "s" : ""}…`
+    : `Executed ${result.actionsExecuted} action${result.actionsExecuted !== 1 ? "s" : ""}`;
+
+  return (
+    <div className="mx-3 mb-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded(!expanded)}
+        className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-[10px] text-stone-400 hover:text-stone-200"
+        style={{ background: "rgba(120,113,108,0.06)" }}
+      >
+        <div className="flex gap-0.5">
+          {Array.from({ length: Math.min(result.actionsExecuted, 4) }).map((_, i) => (
+            <span key={i} className="inline-block h-3 w-3 rounded border p-[1px]" style={{
+              borderColor: "rgba(120,113,108,0.2)",
+            }}>
+              <CheckCircle2 className="h-full w-full text-emerald-500/70" />
+            </span>
+          ))}
+          {result.errors.length > 0 && (
+            <span className="inline-block h-3 w-3 rounded border p-[1px]" style={{ borderColor: "rgba(239,68,68,0.2)" }}>
+              <AlertCircle className="h-full w-full text-red-400/70" />
+            </span>
+          )}
+        </div>
+        <span className="flex-1 text-left font-medium uppercase tracking-wider">{label}</span>
+        <ChevronRight
+          className="h-3 w-3 shrink-0 transition-transform"
+          style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+        />
+      </button>
+      {expanded && (
+        <div className="mt-1 space-y-0.5 px-1.5 text-[10px] text-stone-500">
+          {result.tasksCreated.length > 0 && (
+            <p>📋 {result.tasksCreated.length} task{result.tasksCreated.length !== 1 ? "s" : ""} created</p>
+          )}
+          {result.approvalsCreated.length > 0 && (
+            <p>🤝 {result.approvalsCreated.length} approval{result.approvalsCreated.length !== 1 ? "s" : ""} requested</p>
+          )}
+          {result.reportsImported > 0 && (
+            <p>📊 {result.reportsImported} report{result.reportsImported !== 1 ? "s" : ""} imported</p>
+          )}
+          {(result.actionsExecuted - result.tasksCreated.length - result.approvalsCreated.length - result.reportsImported) > 0 && (
+            <p>💬 {result.actionsExecuted - result.tasksCreated.length - result.approvalsCreated.length - result.reportsImported} comment{(result.actionsExecuted - result.tasksCreated.length - result.approvalsCreated.length - result.reportsImported) !== 1 ? "s" : ""} posted</p>
+          )}
+          {result.actionsSkippedDedup > 0 && (
+            <p>⏭ {result.actionsSkippedDedup} skipped (dedup)</p>
+          )}
+          {result.errors.length > 0 && (
+            <p className="text-red-400">⚠ {result.errors.length} error{result.errors.length !== 1 ? "s" : ""}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AgentRunCard({
   agent,
   profile,
@@ -761,29 +898,28 @@ function AgentRunCard({
         </div>
       ) : null}
 
-      {/* ── LIVE: progress area ── */}
+      {/* ── LIVE: progress header ── */}
       {isLive && (
-        <div className="mx-3 mb-2 rounded-md px-2.5 py-2" style={{
-          background: "rgba(6,182,212,0.06)",
-          border: "1px solid rgba(6,182,212,0.12)",
-        }}>
-          <div className="flex items-center gap-2 text-[11px]" style={{ color: "#06b6d4" }}>
-            <LoaderCircle className="h-3 w-3 animate-spin" />
-            <span>Running… {formatElapsed(liveRun.durationMs)}</span>
-          </div>
-          {liveRun.latestOutput && (
-            <p className="mt-1.5 text-xs leading-relaxed text-stone-300">
-              {liveRun.latestOutput.length > 200
-                ? liveRun.latestOutput.slice(0, 200) + "…"
-                : liveRun.latestOutput}
-            </p>
-          )}
+        <div className="mx-3 mb-1 flex items-center gap-2 text-[11px]" style={{ color: "#06b6d4" }}>
+          <LoaderCircle className="h-3 w-3 animate-spin" />
+          <span>Running… {formatElapsed(liveRun.durationMs)}</span>
+        </div>
+      )}
+
+      {/* ── Action execution badge (Paperclip "EXECUTED N COMMANDS" equivalent) ── */}
+      {liveRun?.result && (
+        <ActionBadge result={liveRun.result} status={liveRun.status} />
+      )}
+      {isLive && !liveRun.result && (
+        <div className="mx-3 mb-1.5 flex items-center gap-1.5 text-[10px] text-stone-500">
+          <Terminal className="h-3 w-3" />
+          <span>Executing actions…</span>
         </div>
       )}
 
       {/* ── JUST FINISHED: completion summary ── */}
       {justFinished && liveRun.result && (
-        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{
+        <div className="mx-3 mb-1.5 rounded-md px-2.5 py-1.5" style={{
           background: liveRun.status === "succeeded" ? "rgba(74,222,128,0.06)" : "rgba(239,68,68,0.06)",
           border: `1px solid ${liveRun.status === "succeeded" ? "rgba(74,222,128,0.15)" : "rgba(239,68,68,0.15)"}`,
         }}>
@@ -798,8 +934,10 @@ function AgentRunCard({
         </div>
       )}
 
-      {/* ── latest comment / agent output (from profile) ── */}
-      {!isLive && outputText ? (
+      {/* ── Scrollable multi-entry transcript ── */}
+      {liveRun && liveRun.transcript.length > 0 ? (
+        <AgentTranscript entries={liveRun.transcript} isLive={isLive} />
+      ) : !isLive && outputText ? (
         <div className="mx-3 mb-2">
           <p className="text-sm leading-relaxed text-stone-200">
             {outputText.length > 200

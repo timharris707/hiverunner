@@ -4,6 +4,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /* ── types ── */
 
+export interface LiveRunTranscriptEntry {
+  kind: "comment" | "event";
+  id: string;
+  message: string;
+  ts: string;
+  type?: string;
+}
+
 export interface LiveRun {
   runId: string;
   agentId: string;
@@ -26,6 +34,7 @@ export interface LiveRun {
     errors: string[];
   } | null;
   latestOutput: string | null;
+  transcript: LiveRunTranscriptEntry[];
   triggerDetail: string | null;
 }
 

@@ -69,21 +69,61 @@ export async function GET(request: NextRequest) {
         trigger_detail: string | null;
       }>;
 
-    // For each active agent, fetch their latest comment as "latest output"
+    // For each agent with runs, fetch recent transcript entries (comments + events)
     const activeAgentIds = [...new Set(runs.map((r) => r.agent_id))];
-    const latestOutputByAgent = new Map<string, string>();
+    type TranscriptEntry = { kind: "comment" | "event"; id: string; message: string; ts: string; type?: string };
+    const transcriptByAgent = new Map<string, TranscriptEntry[]>();
 
     for (const agentId of activeAgentIds) {
-      const comment = db
+      const comments = db
         .prepare(
-          `SELECT body FROM comments
-           WHERE author_agent_id = ? AND source = 'openclaw'
-           ORDER BY created_at DESC LIMIT 1`
+          `SELECT c.id, c.body, c.type, c.created_at
+           FROM comments c
+           WHERE c.author_agent_id = ? AND c.source = 'openclaw'
+           ORDER BY c.created_at DESC LIMIT 6`
         )
-        .get(agentId) as { body: string } | undefined;
-      if (comment) {
-        latestOutputByAgent.set(agentId, comment.body.slice(0, 500));
-      }
+        .all(agentId) as Array<{ id: string; body: string; type: string; created_at: string }>;
+
+      const events = db
+        .prepare(
+          `SELECT te.id, te.event_type, te.from_status, te.to_status,
+                  t.task_key, t.title AS task_title, te.created_at
+           FROM task_events te
+           INNER JOIN tasks t ON t.id = te.task_id
+           WHERE te.agent_id = ?
+           ORDER BY te.created_at DESC LIMIT 4`
+        )
+        .all(agentId) as Array<{
+          id: string; event_type: string; from_status: string | null;
+          to_status: string | null; task_key: string; task_title: string; created_at: string;
+        }>;
+
+      const entries: TranscriptEntry[] = [
+        ...comments.map((c) => ({
+          kind: "comment" as const,
+          id: c.id,
+          message: c.body.slice(0, 500),
+          ts: c.created_at,
+          type: c.type,
+        })),
+        ...events.map((e) => ({
+          kind: "event" as const,
+          id: e.id,
+          message:
+            e.event_type === "task.status_changed" && e.from_status && e.to_status
+              ? `${e.task_key} ${e.from_status} → ${e.to_status}`
+              : e.event_type === "task.assigned"
+                ? `${e.task_key} assigned`
+                : e.event_type === "task.comment_added"
+                  ? `${e.task_key} comment added`
+                  : `${e.task_key} ${e.event_type}`,
+          ts: e.created_at,
+        })),
+      ]
+        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()) // chronological (oldest first)
+        .slice(-8); // keep last 8
+
+      transcriptByAgent.set(agentId, entries);
     }
 
     const result = runs.map((r) => {
@@ -113,7 +153,8 @@ export async function GET(request: NextRequest) {
         durationMs,
         error: r.error,
         result: resultData,
-        latestOutput: latestOutputByAgent.get(r.agent_id) ?? null,
+        latestOutput: transcriptByAgent.get(r.agent_id)?.[transcriptByAgent.get(r.agent_id)!.length - 1]?.message?.slice(0, 500) ?? null,
+        transcript: transcriptByAgent.get(r.agent_id) ?? [],
         triggerDetail: r.trigger_detail,
       };
     });

@@ -765,3 +765,14 @@ code, pre, .font-mono {
   font-size: 12px;
   color: var(--warning);
 }
+
+/* Agent card transcript entry animation */
+@keyframes fadeSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Sidebar active agent dot pulse */
+@keyframes ping {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
