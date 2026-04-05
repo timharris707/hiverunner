@@ -714,6 +714,31 @@ export async function executeHeartbeatRun(
     `UPDATE heartbeat_runs SET session_id_before = ?, updated_at = ? WHERE id = ?`
   ).run(runtimeState.sessionId ?? session.sessionParams.sessionId as string ?? null, new Date().toISOString(), runId);
 
+  // If this heartbeat is for a real task (not __heartbeat__), bridge to execution_runs
+  // so the existing MC polling infrastructure can import output.
+  let executionRunId: string | null = null;
+  if (taskKey !== "__heartbeat__") {
+    const existingExecRun = db
+      .prepare(
+        `SELECT id FROM execution_runs
+         WHERE task_id = ? AND provider = 'openclaw' AND status IN ('pending', 'running')
+         ORDER BY created_at DESC LIMIT 1`
+      )
+      .get(taskKey) as { id: string } | undefined;
+
+    if (!existingExecRun) {
+      executionRunId = randomUUID();
+      const execNow = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO execution_runs
+           (id, task_id, agent_id, provider, status, started_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'openclaw', 'running', ?, ?, ?)`
+      ).run(executionRunId, taskKey, agent.id, execNow, execNow, execNow);
+    } else {
+      executionRunId = existingExecRun.id;
+    }
+  }
+
   // Build the execution prompt
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db);
 
@@ -724,6 +749,18 @@ export async function executeHeartbeatRun(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return finishRun(runId, run, "failed", message, startTime, db);
+  }
+
+  // Bridge: update execution_run with session ID so polling can find it
+  if (executionRunId && result.sessionId) {
+    db.prepare(
+      `UPDATE execution_runs SET session_id = ?, status = 'running', updated_at = ? WHERE id = ?`
+    ).run(result.sessionId, new Date().toISOString(), executionRunId);
+
+    // Also set the task's execution_session_id so poll knows which session to check
+    db.prepare(
+      `UPDATE tasks SET execution_mode = 'openclaw', execution_session_id = ?, updated_at = ? WHERE id = ?`
+    ).run(result.sessionId, new Date().toISOString(), taskKey);
   }
 
   // Persist session state
@@ -892,22 +929,44 @@ async function executeViaOpenClaw(
     // Create or resume session
     const sessionKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
 
-    let sessionId = existingSessionId;
-    if (!sessionId) {
-      const createResult = await callGateway<{ sessionId: string; key: string }>(
+    // Session resolution order:
+    // 1. Task session's stored sessionId (from previous run on this task key)
+    // 2. Runtime state's sessionId (last known session for this agent)
+    // 3. Create a brand new session via gateway
+    let sessionId = existingSessionId ?? (runtimeState.sessionId || undefined);
+
+    if (sessionId) {
+      // Reusing existing session — send directly
+      const sendResult = await callGateway<{ runId?: string; status?: string }>(
         command,
-        "sessions.create",
-        { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name}` },
+        "sessions.send",
+        { key: sessionKey, message: prompt },
         execFileAsync
       );
-      sessionId = createResult?.sessionId;
+      return {
+        sessionId,
+        usage: {
+          openclawRunId: sendResult?.runId ?? null,
+          openclawStatus: sendResult?.status ?? null,
+          sessionReused: true,
+        },
+      };
     }
+
+    // No existing session — create new
+    const createResult = await callGateway<{ sessionId: string; key: string }>(
+      command,
+      "sessions.create",
+      { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name}` },
+      execFileAsync
+    );
+    sessionId = createResult?.sessionId;
 
     if (!sessionId) {
       return { error: "Failed to create or resolve OpenClaw session" };
     }
 
-    // Send the heartbeat prompt
+    // Send the heartbeat prompt to new session
     const sendResult = await callGateway<{ runId?: string; status?: string }>(
       command,
       "sessions.send",
@@ -1013,7 +1072,23 @@ function resolveTaskKey(
   const taskKey = contextSnapshot.taskKey as string | undefined;
   if (taskKey) return taskKey;
 
-  // Fallback: use "__heartbeat__" for general timer wakes
+  // Fallback: find the agent's highest-priority active task
+  const activeTask = db
+    .prepare(
+      `SELECT id FROM tasks
+       WHERE assignee_agent_id = ? AND archived_at IS NULL
+         AND status IN ('in_progress', 'on_deck')
+       ORDER BY
+         CASE status WHEN 'in_progress' THEN 0 ELSE 1 END,
+         CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+         created_at ASC
+       LIMIT 1`
+    )
+    .get(agentId) as { id: string } | undefined;
+
+  if (activeTask) return activeTask.id;
+
+  // Last fallback: use "__heartbeat__" for general timer wakes with no tasks
   return "__heartbeat__";
 }
 
