@@ -1046,6 +1046,24 @@ const MIGRATIONS: Migration[] = [
         CHECK (instructions_mode IN ('managed','external'));
     `,
   },
+  {
+    version: 32,
+    name: "heartbeat_run_events",
+    sql: `
+      -- In-flight execution events emitted DURING a heartbeat run.
+      -- Provides real-time action-by-action visibility for the dashboard.
+      CREATE TABLE IF NOT EXISTS heartbeat_run_events (
+        id         TEXT PRIMARY KEY,
+        run_id     TEXT NOT NULL REFERENCES heartbeat_runs(id) ON DELETE CASCADE,
+        agent_id   TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        event_type TEXT NOT NULL,
+        detail     TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+      CREATE INDEX IF NOT EXISTS idx_hre_run_id
+        ON heartbeat_run_events(run_id, created_at);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

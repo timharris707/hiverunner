@@ -691,6 +691,30 @@ function AgentTranscript({ entries, isLive }: { entries: LiveRunTranscriptEntry[
                 {entry.type === "status_update" ? "📋 report" : "💬 comment"} · {formatAge(entry.ts)}
               </span>
             </>
+          ) : entry.kind === "action" ? (
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px]" style={{
+                color: entry.type === "action_error" ? "#ef4444"
+                  : entry.type === "action_skipped" ? "#ca8a04"
+                  : entry.type === "waiting" || entry.type === "session_start" ? "#06b6d4"
+                  : "#4ade80",
+              }}>
+                {entry.type === "action_executed" ? "✓"
+                  : entry.type === "action_error" ? "✗"
+                  : entry.type === "action_skipped" ? "⏭"
+                  : entry.type === "waiting" || entry.type === "session_start" ? "◉"
+                  : entry.type === "parsing_complete" ? "⎔"
+                  : entry.type === "actions_complete" ? "✓"
+                  : "→"}
+              </span>
+              <span className="flex-1 text-[11px]" style={{
+                color: entry.type === "action_error" ? "#fca5a5"
+                  : entry.type === "action_skipped" ? "#fde68a"
+                  : entry.type?.startsWith("action_") ? "#86efac"
+                  : "#a8a29e",
+              }}>{entry.message}</span>
+              <span className="shrink-0 text-[9px] text-stone-600">{formatAge(entry.ts)}</span>
+            </div>
           ) : (
             <div className="flex items-center gap-1.5">
               <span className="text-[10px] text-stone-500">→</span>

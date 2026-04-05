@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 /* ── types ── */
 
 export interface LiveRunTranscriptEntry {
-  kind: "comment" | "event";
+  kind: "comment" | "event" | "action";
   id: string;
   message: string;
   ts: string;

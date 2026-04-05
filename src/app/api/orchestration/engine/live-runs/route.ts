@@ -69,25 +69,48 @@ export async function GET(request: NextRequest) {
         trigger_detail: string | null;
       }>;
 
-    // For each agent with runs, fetch recent transcript entries (comments + events)
+    // For each agent with runs, fetch recent transcript entries from multiple sources
     const activeAgentIds = [...new Set(runs.map((r) => r.agent_id))];
-    type TranscriptEntry = { kind: "comment" | "event"; id: string; message: string; ts: string; type?: string };
+    const runIdsByAgent = new Map<string, string[]>();
+    for (const r of runs) {
+      const existing = runIdsByAgent.get(r.agent_id) ?? [];
+      existing.push(r.run_id);
+      runIdsByAgent.set(r.agent_id, existing);
+    }
+
+    type TranscriptEntry = { kind: "comment" | "event" | "action"; id: string; message: string; ts: string; type?: string };
     const transcriptByAgent = new Map<string, TranscriptEntry[]>();
 
     for (const agentId of activeAgentIds) {
+      const agentRunIds = runIdsByAgent.get(agentId) ?? [];
+
+      // Source 1: In-flight run events (from heartbeat_run_events table)
+      const runEvents = agentRunIds.length > 0
+        ? db
+            .prepare(
+              `SELECT id, event_type, detail, created_at
+               FROM heartbeat_run_events
+               WHERE run_id IN (${agentRunIds.map(() => "?").join(",")})
+               ORDER BY created_at ASC LIMIT 20`
+            )
+            .all(...agentRunIds) as Array<{ id: string; event_type: string; detail: string; created_at: string }>
+        : [];
+
+      // Source 2: Recent comments by this agent
       const comments = db
         .prepare(
           `SELECT c.id, c.body, c.type, c.created_at
            FROM comments c
            WHERE c.author_agent_id = ? AND c.source = 'openclaw'
-           ORDER BY c.created_at DESC LIMIT 6`
+           ORDER BY c.created_at DESC LIMIT 4`
         )
         .all(agentId) as Array<{ id: string; body: string; type: string; created_at: string }>;
 
-      const events = db
+      // Source 3: Recent task events by this agent
+      const taskEvents = db
         .prepare(
           `SELECT te.id, te.event_type, te.from_status, te.to_status,
-                  t.task_key, t.title AS task_title, te.created_at
+                  t.task_key, te.created_at
            FROM task_events te
            INNER JOIN tasks t ON t.id = te.task_id
            WHERE te.agent_id = ?
@@ -95,10 +118,19 @@ export async function GET(request: NextRequest) {
         )
         .all(agentId) as Array<{
           id: string; event_type: string; from_status: string | null;
-          to_status: string | null; task_key: string; task_title: string; created_at: string;
+          to_status: string | null; task_key: string; created_at: string;
         }>;
 
       const entries: TranscriptEntry[] = [
+        // In-flight run events (highest priority — these are what's NEW)
+        ...runEvents.map((e) => ({
+          kind: "action" as const,
+          id: e.id,
+          message: e.detail || e.event_type,
+          ts: e.created_at,
+          type: e.event_type,
+        })),
+        // Comments
         ...comments.map((c) => ({
           kind: "comment" as const,
           id: c.id,
@@ -106,22 +138,21 @@ export async function GET(request: NextRequest) {
           ts: c.created_at,
           type: c.type,
         })),
-        ...events.map((e) => ({
+        // Task events
+        ...taskEvents.map((e) => ({
           kind: "event" as const,
           id: e.id,
           message:
             e.event_type === "task.status_changed" && e.from_status && e.to_status
               ? `${e.task_key} ${e.from_status} → ${e.to_status}`
-              : e.event_type === "task.assigned"
-                ? `${e.task_key} assigned`
-                : e.event_type === "task.comment_added"
-                  ? `${e.task_key} comment added`
-                  : `${e.task_key} ${e.event_type}`,
+              : e.event_type === "task.comment_added"
+                ? `${e.task_key} comment added`
+                : `${e.task_key} ${e.event_type}`,
           ts: e.created_at,
         })),
       ]
-        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()) // chronological (oldest first)
-        .slice(-8); // keep last 8
+        .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime()) // chronological
+        .slice(-12); // keep last 12
 
       transcriptByAgent.set(agentId, entries);
     }

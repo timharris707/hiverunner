@@ -758,6 +758,7 @@ export async function executeHeartbeatRun(
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db);
 
   // Execute via OpenClaw gateway
+  emitRunEvent(runId, agent.id, "session_start", "Sending prompt to agent session", db);
   let result: { sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> };
   try {
     result = await executeViaOpenClaw(agent, prompt, session, runtimeState);
@@ -1427,6 +1428,7 @@ async function importSessionOutputAndExecuteActions(input: {
   };
 
   // Wait for session to reach terminal state (poll sessions.get)
+  emitRunEvent(input.runId, input.agentId, "waiting", "Waiting for agent to complete thinking", input.db);
   const sessionData = await waitForSessionCompletion(OPENCLAW_BIN, input.sessionKey, execFileAsync);
   if (!sessionData) {
     results.errors.push("Could not retrieve session data after execution");
@@ -1480,6 +1482,10 @@ async function importSessionOutputAndExecuteActions(input: {
 
   results.actionsFound = allActions.length;
 
+  emitRunEvent(input.runId, input.agentId, "parsing_complete",
+    `Parsed ${assistantTexts.length} message${assistantTexts.length !== 1 ? "s" : ""}, found ${allActions.length} action${allActions.length !== 1 ? "s" : ""}`,
+    input.db);
+
   // Import plain text as a report comment on the direction task
   if (allPlainText.length > 0) {
     try {
@@ -1511,8 +1517,12 @@ async function importSessionOutputAndExecuteActions(input: {
             if (taskId) {
               results.tasksCreated.push(taskId);
               results.actionsExecuted++;
+              emitRunEvent(input.runId, input.agentId, "action_executed",
+                `Created task: ${(action.title ?? "").slice(0, 80)}`, input.db);
             } else {
               results.actionsSkippedDedup++;
+              emitRunEvent(input.runId, input.agentId, "action_skipped",
+                `Skipped duplicate task: ${(action.title ?? "").slice(0, 60)}`, input.db);
             }
           }
           break;
@@ -1522,8 +1532,12 @@ async function importSessionOutputAndExecuteActions(input: {
             if (approvalId) {
               results.approvalsCreated.push(approvalId);
               results.actionsExecuted++;
+              emitRunEvent(input.runId, input.agentId, "action_executed",
+                `Requested hire: ${action.name} (${action.role})`, input.db);
             } else {
               results.actionsSkippedDedup++;
+              emitRunEvent(input.runId, input.agentId, "action_skipped",
+                `Skipped duplicate hire: ${action.name}`, input.db);
             }
           }
           break;
@@ -1539,18 +1553,28 @@ async function importSessionOutputAndExecuteActions(input: {
             );
             results.reportsImported++;
             results.actionsExecuted++;
+            emitRunEvent(input.runId, input.agentId, "action_executed",
+              `Imported report: ${(action.summary ?? "").slice(0, 80)}`, input.db);
           }
           break;
         case "update_task":
           {
             const updated = executeUpdateTask(action, input, input.db);
-            if (updated) results.actionsExecuted++;
+            if (updated) {
+              results.actionsExecuted++;
+              emitRunEvent(input.runId, input.agentId, "action_executed",
+                `Updated task ${action.taskKey}${action.status ? ` → ${action.status}` : ""}`, input.db);
+            }
           }
           break;
         case "add_comment":
           {
             const added = executeAddComment(action, input, input.db);
-            if (added) results.actionsExecuted++;
+            if (added) {
+              results.actionsExecuted++;
+              emitRunEvent(input.runId, input.agentId, "action_executed",
+                `Comment on ${action.taskKey}`, input.db);
+            }
           }
           break;
         default:
@@ -1559,11 +1583,34 @@ async function importSessionOutputAndExecuteActions(input: {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.errors.push(`Action ${action.action} failed: ${msg}`);
+      emitRunEvent(input.runId, input.agentId, "action_error",
+        `${action.action} failed: ${msg.slice(0, 100)}`, input.db);
       // Continue processing remaining actions
     }
   }
 
+  emitRunEvent(input.runId, input.agentId, "actions_complete",
+    `Done: ${results.actionsExecuted} executed, ${results.actionsSkippedDedup} skipped, ${results.errors.length} errors`,
+    input.db);
+
   return results;
+}
+
+/** Emit an in-flight event visible to the dashboard during execution */
+function emitRunEvent(
+  runId: string,
+  agentId: string,
+  eventType: string,
+  detail: string,
+  db: Database.Database,
+): void {
+  try {
+    db.prepare(
+      `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`
+    ).run(randomUUID(), runId, agentId, eventType, detail, new Date().toISOString());
+  } catch {
+    // Non-fatal — event emission should never break the run
+  }
 }
 
 function actionFingerprint(action: McAction): string {
