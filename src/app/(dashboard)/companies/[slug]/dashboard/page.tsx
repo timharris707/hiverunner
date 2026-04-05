@@ -86,11 +86,14 @@ const RUN_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
 
 const REFRESH_MS = 15_000;
 
+type DailyCost = { date: string; cost: number; input: number; output: number };
+
 type CostSnapshot = {
   thisMonth: number;
   budget: number;
   today: number;
   projected: number;
+  daily: DailyCost[];
 } | null;
 
 type DashboardData = {
@@ -176,6 +179,7 @@ export default function CompanyDashboardPage() {
               budget: costResp.budget ?? 0,
               today: costResp.today ?? 0,
               projected: costResp.projected ?? 0,
+              daily: Array.isArray(costResp.daily) ? costResp.daily : [],
             };
           }
         } catch { /* cost fetch is non-critical */ }
@@ -238,19 +242,72 @@ export default function CompanyDashboardPage() {
       .slice(0, 8);
   }, [data]);
 
-  const tasksByStatus = useMemo(() => {
-    if (!data) return {};
-    const counts: Record<string, number> = {};
-    for (const t of data.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
-    return counts;
-  }, [data]);
+  /* ── 14-day time-series bucketing ── */
 
-  const tasksByPriority = useMemo(() => {
-    if (!data) return {};
+  const last14Days = useMemo(() => {
+    const days: string[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      days.push(d.toISOString().split("T")[0]);
+    }
+    return days;
+  }, []);
+
+  const formatDayLabel = (iso: string) => {
+    const d = new Date(iso + "T00:00:00");
+    return `${d.getMonth() + 1}/${d.getDate()}`;
+  };
+
+  const dailyActivity = useMemo(() => {
+    if (!data) return [];
     const counts: Record<string, number> = {};
-    for (const t of data.tasks) counts[t.priority] = (counts[t.priority] ?? 0) + 1;
-    return counts;
-  }, [data]);
+    for (const event of data.activity) {
+      const day = event.timestamp?.split("T")[0];
+      if (day) counts[day] = (counts[day] ?? 0) + 1;
+    }
+    // Also count task events from tasks (created/updated)
+    for (const t of data.tasks) {
+      const day = t.created?.split("T")[0] ?? t.updated?.split("T")[0];
+      if (day) counts[day] = (counts[day] ?? 0) + 1;
+    }
+    return last14Days.map((day) => ({ day, label: formatDayLabel(day), count: counts[day] ?? 0 }));
+  }, [data, last14Days]);
+
+  const dailyTasksByStatus = useMemo(() => {
+    if (!data) return { days: [] as string[], series: {} as Record<string, number[]> };
+    // Count tasks that existed in each status by their creation date
+    const statusCounts: Record<string, Record<string, number>> = {};
+    for (const t of data.tasks) {
+      const day = t.created?.split("T")[0] ?? t.updated?.split("T")[0];
+      if (!day) continue;
+      if (!statusCounts[day]) statusCounts[day] = {};
+      const status = t.status.replace(/_/g, "-");
+      statusCounts[day][status] = (statusCounts[day][status] ?? 0) + 1;
+    }
+    const allStatuses = [...new Set(data.tasks.map((t) => t.status.replace(/_/g, "-")))];
+    const series: Record<string, number[]> = {};
+    for (const s of allStatuses) series[s] = [];
+    for (const day of last14Days) {
+      for (const s of allStatuses) {
+        series[s].push(statusCounts[day]?.[s] ?? 0);
+      }
+    }
+    return { days: last14Days.map(formatDayLabel), series };
+  }, [data, last14Days]);
+
+  const dailyCosts = useMemo(() => {
+    if (!data?.costs?.daily) return [];
+    const costByDay: Record<string, number> = {};
+    for (const d of data.costs.daily) {
+      // The API returns date as "MM-DD", convert to match our day keys
+      costByDay[d.date] = d.cost;
+    }
+    return last14Days.map((day) => {
+      const mmdd = `${day.slice(5, 7)}-${day.slice(8, 10)}`;
+      return { day, label: formatDayLabel(day), cost: costByDay[mmdd] ?? 0 };
+    });
+  }, [data, last14Days]);
 
   const agentLookup = useMemo(() => {
     const m = new Map<string, OrchestrationAgent>();
@@ -352,48 +409,38 @@ export default function CompanyDashboardPage() {
           />
         </div>
 
-        {/* ── task distribution charts ── */}
+        {/* ── time-series charts (14-day) ── */}
         <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <ChartCard title="Tasks by Status">
-            <MiniBarChart
-              data={Object.entries(tasksByStatus).map(([key, count]) => ({
-                label: statusTheme[key as keyof typeof statusTheme]?.label ?? key,
-                value: count,
-                color: TASK_STATUS_COLOR[key] ?? "#78716c",
+          <ChartCard title="Run Activity" subtitle="Last 14 days">
+            <TimeSeriesBar
+              data={dailyActivity.map((d) => ({ label: d.label, value: d.count }))}
+              color="#d97706"
+            />
+          </ChartCard>
+          <ChartCard title="Tasks by Status" subtitle="Last 14 days">
+            <StackedTimeSeriesBar
+              labels={dailyTasksByStatus.days}
+              series={Object.entries(dailyTasksByStatus.series).map(([status, values]) => ({
+                key: status,
+                values,
+                color: TASK_STATUS_COLOR[status] ?? "#78716c",
               }))}
             />
           </ChartCard>
-          <ChartCard title="Tasks by Priority">
-            <MiniBarChart
-              data={Object.entries(tasksByPriority).map(([key, count]) => ({
-                label: key,
-                value: count,
-                color: key === "P0" ? "#ef4444" : key === "P1" ? "#f59e0b" : key === "P2" ? "#d97706" : "#94a3b8",
-              }))}
+          <ChartCard title="Daily Spend" subtitle="Last 14 days">
+            <TimeSeriesBar
+              data={dailyCosts.map((d) => ({ label: d.label, value: d.cost }))}
+              color="#4ade80"
+              formatValue={(v) => v > 0 ? `$${v.toFixed(1)}` : ""}
             />
           </ChartCard>
-          <ChartCard title="Agent Status">
-            <MiniBarChart
-              data={[
-                { label: "Working", value: agentMetrics.running, color: "#4ade80" },
-                { label: "Idle", value: data ? data.agents.filter((a) => a.status === "idle").length : 0, color: "#a8a29e" },
-                { label: "Paused", value: agentMetrics.paused, color: "#ca8a04" },
-                { label: "Error", value: agentMetrics.errors, color: "#ef4444" },
-              ].filter((d) => d.value > 0)}
-            />
-          </ChartCard>
-          <ChartCard title="Project Progress">
-            <MiniBarChart
-              data={(data?.projects ?? []).slice(0, 5).map((p) => {
-                const pTasks = (data?.tasks ?? []).filter((t) => t.project === p.id);
-                const done = pTasks.filter((t) => t.status === "done").length;
-                return {
-                  label: p.name.length > 12 ? p.name.slice(0, 12) + "…" : p.name,
-                  value: pTasks.length > 0 ? Math.round((done / pTasks.length) * 100) : 0,
-                  color: p.color ?? "#d97706",
-                  suffix: "%",
-                };
+          <ChartCard title="Tasks Created" subtitle="Last 14 days">
+            <TimeSeriesBar
+              data={last14Days.map((day) => {
+                const count = (data?.tasks ?? []).filter((t) => (t.created?.split("T")[0]) === day).length;
+                return { label: formatDayLabel(day), value: count };
               })}
+              color="#f59e0b"
             />
           </ChartCard>
         </div>
@@ -700,51 +747,132 @@ function MetricCard({
 
 /* ── Chart card ── */
 
-function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
     <div
       className="rounded-lg border px-3 py-2.5"
       style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
     >
-      <p className="mb-2 text-xs font-medium text-stone-400">{title}</p>
+      <div className="mb-2">
+        <p className="text-xs font-medium text-stone-400">{title}</p>
+        {subtitle && <p className="text-[10px] text-stone-600">{subtitle}</p>}
+      </div>
       {children}
     </div>
   );
 }
 
-/* ── Mini bar chart ── */
+/* ── Time-series vertical bar chart ── */
 
-function MiniBarChart({
+function TimeSeriesBar({
   data,
+  color,
+  formatValue,
 }: {
-  data: Array<{ label: string; value: number; color: string; suffix?: string }>;
+  data: Array<{ label: string; value: number }>;
+  color: string;
+  formatValue?: (v: number) => string;
 }) {
-  if (data.length === 0) {
-    return <p className="py-3 text-center text-[10px] text-stone-600">No data</p>;
-  }
+  if (data.length === 0) return <p className="py-3 text-center text-[10px] text-stone-600">No data</p>;
 
   const maxVal = Math.max(...data.map((d) => d.value), 1);
+  const barHeight = 64;
 
   return (
-    <div className="space-y-1.5">
-      {data.map((item) => (
-        <div key={item.label} className="flex items-center gap-2">
-          <span className="w-16 shrink-0 truncate text-[10px] text-stone-500">{item.label}</span>
-          <div className="relative h-3 flex-1 overflow-hidden rounded-sm" style={{ background: "rgba(120,113,108,0.1)" }}>
+    <div>
+      <div className="flex items-end gap-px" style={{ height: barHeight }}>
+        {data.map((d, i) => {
+          const h = d.value > 0 ? Math.max((d.value / maxVal) * barHeight, 2) : 0;
+          return (
             <div
-              className="absolute inset-y-0 left-0 rounded-sm"
-              style={{
-                width: `${Math.max((item.value / maxVal) * 100, 2)}%`,
-                background: item.color,
-                opacity: 0.7,
-              }}
-            />
-          </div>
-          <span className="w-6 shrink-0 text-right text-[10px] text-stone-500">
-            {item.value}{item.suffix ?? ""}
+              key={i}
+              className="group relative flex-1"
+              style={{ height: barHeight }}
+              title={`${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}
+            >
+              <div
+                className="absolute bottom-0 left-0 right-0 rounded-t-sm transition-opacity group-hover:opacity-100"
+                style={{
+                  height: h,
+                  background: color,
+                  opacity: d.value > 0 ? 0.7 : 0,
+                }}
+              />
+            </div>
+          );
+        })}
+      </div>
+      {/* x-axis labels: first, middle, last */}
+      <div className="mt-1 flex justify-between text-[9px] text-stone-600">
+        <span>{data[0]?.label}</span>
+        {data.length > 4 && <span>{data[Math.floor(data.length / 2)]?.label}</span>}
+        <span>{data[data.length - 1]?.label}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ── Stacked time-series bar chart ── */
+
+function StackedTimeSeriesBar({
+  labels,
+  series,
+}: {
+  labels: string[];
+  series: Array<{ key: string; values: number[]; color: string }>;
+}) {
+  if (labels.length === 0) return <p className="py-3 text-center text-[10px] text-stone-600">No data</p>;
+
+  const barHeight = 64;
+  // Compute max stacked total per day
+  const totals = labels.map((_, i) => series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0));
+  const maxTotal = Math.max(...totals, 1);
+
+  return (
+    <div>
+      <div className="flex items-end gap-px" style={{ height: barHeight }}>
+        {labels.map((label, i) => {
+          const dayTotal = totals[i];
+          return (
+            <div
+              key={i}
+              className="relative flex-1"
+              style={{ height: barHeight }}
+              title={`${label}: ${dayTotal} tasks`}
+            >
+              <div className="absolute bottom-0 left-0 right-0 flex flex-col-reverse">
+                {series.map((s) => {
+                  const v = s.values[i] ?? 0;
+                  if (v === 0) return null;
+                  const h = Math.max((v / maxTotal) * barHeight, 1);
+                  return (
+                    <div
+                      key={s.key}
+                      className="rounded-t-sm"
+                      style={{ height: h, background: s.color, opacity: 0.7 }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* x-axis */}
+      <div className="mt-1 flex justify-between text-[9px] text-stone-600">
+        <span>{labels[0]}</span>
+        {labels.length > 4 && <span>{labels[Math.floor(labels.length / 2)]}</span>}
+        <span>{labels[labels.length - 1]}</span>
+      </div>
+      {/* legend */}
+      <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
+        {series.filter((s) => s.values.some((v) => v > 0)).map((s) => (
+          <span key={s.key} className="flex items-center gap-1 text-[9px] text-stone-500">
+            <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
+            {statusTheme[s.key as keyof typeof statusTheme]?.label ?? s.key}
           </span>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
