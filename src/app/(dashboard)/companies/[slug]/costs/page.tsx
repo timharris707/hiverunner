@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { AlertTriangle, DollarSign } from "lucide-react";
+import { AlertTriangle, DollarSign, TrendingUp, Activity, Layers } from "lucide-react";
 
-import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { CompanyErrorState } from "@/components/company/company-ui";
 import { listCompanies, listTasks } from "@/lib/orchestration/client";
 import type { OrchestrationCompany, OrchestrationTask } from "@/lib/orchestration/types";
 
-type Timeframe = "7d" | "30d" | "90d";
+/* ── Types ── */
+
+type Timeframe = "mtd" | "7d" | "30d" | "ytd" | "all";
 
 type CostData = {
   today: number;
@@ -18,11 +20,24 @@ type CostData = {
   lastMonth: number;
   projected: number;
   budget: number;
-  byAgent: Array<{ agent: string; cost: number; tokens: number }>;
+  avgDaily: number;
+  daysElapsed: number;
+  daysInMonth: number;
+  byAgent: Array<{ agent: string; cost: number; tokens: number; inputTokens: number; outputTokens: number }>;
+  byModel: Array<{ model: string; cost: number; tokens: number; inputTokens: number; outputTokens: number }>;
+  topSessions: Array<{ key: string; label: string; cost: number; tokens: number; model: string; date: string }>;
 };
+
+/* ── Helpers ── */
 
 function formatUsd(value: number): string {
   return `$${value.toFixed(2)}`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
 }
 
 function monthKey(value: string): string {
@@ -35,6 +50,21 @@ function taskCompletedInMonth(task: OrchestrationTask, currentMonth: string): bo
   return monthKey(completed) === currentMonth;
 }
 
+/* ── Palette (MC standard stone) ── */
+
+const P = {
+  bg: "#0f0f0f",
+  surface: "#1a1a1a",
+  card: "#1e1e1e",
+  cardBorder: "rgba(255,255,255,0.08)",
+  text: "#e5e5e5",
+  textSec: "#a3a3a3",
+  muted: "#737373",
+  accent: "#d97706",
+};
+
+/* ── Page ── */
+
 export default function CompanyCostsPage() {
   const params = useParams<{ slug: string }>();
   const slug = params?.slug ?? "";
@@ -42,232 +72,307 @@ export default function CompanyCostsPage() {
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [costData, setCostData] = useState<CostData | null>(null);
   const [tasks, setTasks] = useState<OrchestrationTask[]>([]);
-  const [timeframe, setTimeframe] = useState<Timeframe>("30d");
+  const [timeframe, setTimeframe] = useState<Timeframe>("mtd");
   const [loading, setLoading] = useState(true);
+
+  const apiTimeframe = timeframe === "mtd" || timeframe === "ytd" || timeframe === "all" ? "90d" : timeframe;
 
   useEffect(() => {
     let cancelled = false;
-
     const load = async () => {
       setLoading(true);
       try {
         const [companies, taskRows, costResponse] = await Promise.all([
           listCompanies(),
           listTasks({ company: slug }),
-          fetch(`/api/costs?timeframe=${timeframe}`, { cache: "no-store" }).then(async (response) => {
-            if (!response.ok) return null;
-            return (await response.json()) as CostData;
+          fetch(`/api/costs?timeframe=${apiTimeframe}`, { cache: "no-store" }).then(async (r) => {
+            if (!r.ok) return null;
+            return (await r.json()) as CostData;
           }),
         ]);
-
         if (cancelled) return;
-
-        const current = companies.find((entry) => entry.slug === slug) ?? null;
-        setCompany(current);
+        setCompany(companies.find((e) => e.slug === slug) ?? null);
         setTasks(taskRows);
         setCostData(costResponse);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     };
-
     void load();
+    return () => { cancelled = true; };
+  }, [slug, apiTimeframe]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, timeframe]);
+  /* ── derived data ── */
+
+  const totalTokens = useMemo(() => {
+    if (!costData?.byAgent) return 0;
+    return costData.byAgent.reduce((s, a) => s + a.tokens, 0);
+  }, [costData]);
 
   const budgetUtilization = useMemo(() => {
     if (!costData || costData.budget <= 0) return 0;
     return Math.min((costData.thisMonth / costData.budget) * 100, 999);
   }, [costData]);
 
-  const costPerTask = useMemo(() => {
-    if (!costData) return 0;
-    const currentMonth = monthKey(new Date().toISOString());
-    const completedCount = tasks.filter((task) => taskCompletedInMonth(task, currentMonth)).length;
-    if (completedCount === 0) return 0;
-    return costData.thisMonth / completedCount;
-  }, [costData, tasks]);
-
   const completedThisMonth = useMemo(() => {
-    const currentMonth = monthKey(new Date().toISOString());
-    return tasks.filter((task) => taskCompletedInMonth(task, currentMonth)).length;
+    const cm = monthKey(new Date().toISOString());
+    return tasks.filter((t) => taskCompletedInMonth(t, cm)).length;
   }, [tasks]);
 
+  const costPerTask = useMemo(() => {
+    if (!costData || completedThisMonth === 0) return 0;
+    return costData.thisMonth / completedThisMonth;
+  }, [costData, completedThisMonth]);
+
+  /* ── guards ── */
+
   if (!loading && !company) {
-    return (
-      <CompanyErrorState
-        title="Company not found"
-        detail="This company could not be resolved from orchestration records."
-        href="/companies"
-      />
-    );
+    return <CompanyErrorState title="Company not found" detail="This company could not be resolved." href="/companies" />;
+  }
+  if (!loading && !costData) {
+    return <CompanyErrorState title="Costs unavailable" detail="Cost telemetry is currently unavailable." href={`/companies/${encodeURIComponent(slug)}`} />;
   }
 
-  if (!loading && !costData) {
-    return (
-      <CompanyErrorState
-        title="Costs unavailable"
-        detail="Cost telemetry is currently unavailable for this company route."
-        href={`/companies/${encodeURIComponent(slug)}`}
-      />
-    );
-  }
+  /* ── time range buttons ── */
+
+  const RANGES: { key: Timeframe; label: string }[] = [
+    { key: "mtd", label: "Month to Date" },
+    { key: "7d", label: "Last 7 Days" },
+    { key: "30d", label: "Last 30 Days" },
+    { key: "ytd", label: "Year to Date" },
+    { key: "all", label: "All Time" },
+  ];
 
   return (
-    <CompanyShell
-      eyebrow="Costs"
-      title={company ? `${company.name} Costs` : "Company Costs"}
-      description="Company-scoped cost and budget view for orchestration work."
-      accentColor="#f59e0b"
-    >
-      <section className="rounded-2xl border border-white/10 bg-slate-950/65 p-4 backdrop-blur-xl md:p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="inline-flex items-center gap-2 text-sm text-slate-300">
-            <DollarSign className="h-4 w-4 text-amber-200" />
-            Existing spend feed + budget envelope from current runtime cost telemetry.
+    <div style={{ padding: "24px 32px", maxWidth: 1000 }}>
+      {/* ── Header ── */}
+      <div style={{ marginBottom: 24 }}>
+        <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: P.muted, marginBottom: 8 }}>
+          Costs
+        </p>
+        <h1 style={{ fontSize: 24, fontWeight: 600, color: P.text, marginBottom: 6 }}>Costs</h1>
+        <p style={{ fontSize: 13, color: P.textSec }}>
+          Inference spend, budget envelope, and agent cost breakdown.
+        </p>
+      </div>
+
+      {/* ── Time range selector ── */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 20 }}>
+        {RANGES.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => setTimeframe(r.key)}
+            style={{
+              padding: "6px 14px", borderRadius: 6, fontSize: 12, fontWeight: 500,
+              border: `1px solid ${timeframe === r.key ? "rgba(217,119,6,0.5)" : P.cardBorder}`,
+              background: timeframe === r.key ? "rgba(217,119,6,0.12)" : "transparent",
+              color: timeframe === r.key ? "#fbbf24" : P.textSec,
+              cursor: "pointer",
+            }}
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── Summary cards ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+        <SummaryCard
+          label="Inference Spend"
+          value={loading ? "..." : formatUsd(costData?.thisMonth ?? 0)}
+          detail={loading ? undefined : `${formatTokens(totalTokens)} tokens across sessions`}
+          icon={<DollarSign size={16} color={P.muted} />}
+        />
+        <SummaryCard
+          label="Budget"
+          value={loading ? "..." : costData && costData.budget > 0 ? formatUsd(costData.budget) : "Open"}
+          detail={loading ? undefined : costData && costData.budget > 0 ? `${budgetUtilization.toFixed(0)}% used` : "No monthly cap configured"}
+          icon={<Activity size={16} color={P.muted} />}
+        />
+        <SummaryCard
+          label="Avg Daily"
+          value={loading ? "..." : formatUsd(costData?.avgDaily ?? 0)}
+          detail={loading ? undefined : `${costData?.daysElapsed ?? 0} days elapsed this month`}
+          icon={<TrendingUp size={16} color={P.muted} />}
+        />
+        <SummaryCard
+          label="Projected Month"
+          value={loading ? "..." : formatUsd(costData?.projected ?? 0)}
+          detail={loading ? undefined : `${costData?.daysInMonth ?? 0} days in month`}
+          icon={<Layers size={16} color={P.muted} />}
+        />
+      </div>
+
+      {/* ── Inference ledger ── */}
+      <Section title="Inference ledger" subtitle="Request-scoped inference spend for the selected period.">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+          <div>
+            <p style={{ fontSize: 28, fontWeight: 700, color: P.text, margin: 0 }}>
+              {loading ? "..." : formatUsd(costData?.thisMonth ?? 0)}
+            </p>
+            <p style={{ fontSize: 13, color: P.muted, marginTop: 4 }}>
+              {costData && costData.budget > 0 ? `Budget: ${formatUsd(costData.budget)}` : "Unlimited budget"}
+            </p>
           </div>
-          <div className="inline-flex items-center gap-2">
-            {(["7d", "30d", "90d"] as const).map((window) => {
-              const active = timeframe === window;
+          <div style={{
+            padding: "8px 16px", borderRadius: 8,
+            border: `1px solid ${P.cardBorder}`, background: P.card,
+            textAlign: "right",
+          }}>
+            <p style={{ fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Usage</p>
+            <p style={{ fontSize: 18, fontWeight: 700, color: P.text, margin: "2px 0 0" }}>
+              {loading ? "..." : formatTokens(totalTokens)}
+            </p>
+          </div>
+        </div>
+
+        {/* Budget utilization bar */}
+        {costData && costData.budget > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: P.muted, marginBottom: 6 }}>
+              <span>Remaining</span>
+              <span>{formatUsd(Math.max(0, costData.budget - costData.thisMonth))}</span>
+            </div>
+            <div style={{ height: 6, borderRadius: 999, background: "rgba(120,113,108,0.15)", overflow: "hidden" }}>
+              <div style={{
+                height: "100%", borderRadius: 999,
+                width: `${Math.min(budgetUtilization, 100)}%`,
+                background: budgetUtilization >= 90 ? "#ef4444" : budgetUtilization >= 70 ? "#f59e0b" : "#22c55e",
+              }} />
+            </div>
+            <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 11 }}>
+              {budgetUtilization >= 85 ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#fbbf24" }}>
+                  <AlertTriangle size={12} /> Budget utilization above 85%
+                </span>
+              ) : (
+                <span style={{ padding: "2px 8px", borderRadius: 4, border: "1px solid rgba(34,197,94,0.2)", background: "rgba(34,197,94,0.06)", color: "#4ade80" }}>
+                  Budget utilization in healthy range
+                </span>
+              )}
+              <span style={{ color: P.muted }}>
+                Projected month-end: <strong style={{ color: P.textSec }}>{formatUsd(costData.projected)}</strong>
+              </span>
+            </div>
+          </div>
+        )}
+      </Section>
+
+      {/* ── By agent ── */}
+      <Section title="By agent" subtitle="What each agent consumed in the selected period.">
+        {loading ? (
+          <p style={{ fontSize: 13, color: P.muted }}>Loading...</p>
+        ) : costData?.byAgent?.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {costData.byAgent.map((row) => {
+              const share = costData.thisMonth > 0 ? (row.cost / costData.thisMonth) * 100 : 0;
               return (
-                <button
-                  key={window}
-                  type="button"
-                  onClick={() => setTimeframe(window)}
-                  className="rounded-lg border px-2.5 py-1.5 text-xs uppercase tracking-wide transition"
-                  style={{
-                    borderColor: active ? "rgba(251,191,36,0.55)" : "rgba(148,163,184,0.25)",
-                    background: active ? "rgba(146,64,14,0.25)" : "rgba(15,23,42,0.45)",
-                    color: active ? "#fef3c7" : "#cbd5e1",
-                  }}
-                >
-                  {window}
-                </button>
+                <div key={row.agent} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "10px 0", borderBottom: `1px solid ${P.cardBorder}`,
+                }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{
+                      width: 28, height: 28, borderRadius: 6, background: "rgba(120,113,108,0.15)",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase",
+                    }}>
+                      {row.agent.slice(0, 2)}
+                    </span>
+                    <span style={{ fontSize: 13, fontWeight: 500, color: P.text }}>{row.agent}</span>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: P.text }}>{formatUsd(row.cost)}</span>
+                    <div style={{ fontSize: 11, color: P.muted }}>
+                      in {formatTokens(row.inputTokens)} · out {formatTokens(row.outputTokens)}
+                    </div>
+                  </div>
+                </div>
               );
             })}
           </div>
-        </div>
-      </section>
+        ) : (
+          <p style={{ fontSize: 13, color: P.muted }}>No agent spend data available.</p>
+        )}
+      </Section>
 
-      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        <StatCard label="Today" value={loading ? "..." : formatUsd(costData?.today ?? 0)} accentColor="#22d3ee" />
-        <StatCard label="This Month" value={loading ? "..." : formatUsd(costData?.thisMonth ?? 0)} accentColor="#f59e0b" />
-        <StatCard label="Budget" value={loading ? "..." : formatUsd(costData?.budget ?? 0)} accentColor="#6366f1" />
-        <StatCard label="Budget Used" value={loading ? "..." : `${budgetUtilization.toFixed(1)}%`} accentColor="#ef4444" />
-        <StatCard
-          label="Cost / Completed Task"
-          value={loading ? "..." : completedThisMonth > 0 ? formatUsd(costPerTask) : "$0.00"}
-          detail={loading ? undefined : `${completedThisMonth} completed this month`}
-          accentColor="#34d399"
-        />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.2fr,1fr]">
-        <article className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 md:p-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Budget Utilization</h2>
-            <span className="text-xs text-slate-400">
-              {loading ? "..." : `${formatUsd(costData?.thisMonth ?? 0)} / ${formatUsd(costData?.budget ?? 0)}`}
-            </span>
-          </div>
-          <div className="h-3 overflow-hidden rounded-full border border-white/10 bg-slate-900">
-            <div
-              className="h-full transition-all"
-              style={{
-                width: `${Math.min(budgetUtilization, 100)}%`,
-                background:
-                  budgetUtilization >= 90
-                    ? "linear-gradient(90deg, #dc2626, #f97316)"
-                    : budgetUtilization >= 70
-                    ? "linear-gradient(90deg, #f59e0b, #f97316)"
-                    : "linear-gradient(90deg, #14b8a6, #22d3ee)",
-              }}
-            />
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
-            {budgetUtilization >= 85 ? (
-              <span className="inline-flex items-center gap-1 rounded-md border border-amber-300/35 bg-amber-500/12 px-2 py-1 text-amber-100">
-                <AlertTriangle className="h-3.5 w-3.5" />
-                Budget utilization above 85%
-              </span>
-            ) : (
-              <span className="rounded-md border border-emerald-300/20 bg-emerald-500/10 px-2 py-1 text-emerald-100">
-                Budget utilization in healthy range
-              </span>
-            )}
-            <span>
-              Projected month-end: <strong className="text-slate-200">{loading ? "..." : formatUsd(costData?.projected ?? 0)}</strong>
-            </span>
-          </div>
-        </article>
-
-        <article className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 md:p-5">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Task Throughput Context</h2>
-          <div className="space-y-2 text-sm text-slate-300">
-            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-              <span>Total Tasks</span>
-              <strong>{tasks.length}</strong>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-              <span>Completed This Month</span>
-              <strong>{completedThisMonth}</strong>
-            </div>
-            <div className="flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
-              <span>Cost Per Completed Task</span>
-              <strong>{completedThisMonth > 0 ? formatUsd(costPerTask) : "n/a"}</strong>
-            </div>
-          </div>
-          <p className="mt-3 text-xs text-slate-400">
-            Cost-per-task is derived from this month spend divided by company tasks completed this month.
-          </p>
-        </article>
-      </section>
-
-      <section className="rounded-2xl border border-white/10 bg-slate-950/70 p-4 md:p-5">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-300">Agent Spending</h2>
-          <Link href={`/companies/${encodeURIComponent(slug)}/team`} className="text-xs text-cyan-200 hover:text-cyan-100">
-            Open Team Roster
-          </Link>
-        </div>
-
+      {/* ── By model ── */}
+      <Section title="By model" subtitle="Spend breakdown by model provider.">
         {loading ? (
-          <p className="text-sm text-slate-400">Loading spending rows...</p>
-        ) : costData?.byAgent?.length ? (
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[560px] table-fixed text-sm">
-              <thead>
-                <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-2 py-2">Agent</th>
-                  <th className="px-2 py-2">Spend</th>
-                  <th className="px-2 py-2">Tokens</th>
-                  <th className="px-2 py-2">Share</th>
-                </tr>
-              </thead>
-              <tbody>
-                {costData.byAgent.map((row) => {
-                  const share = costData.thisMonth > 0 ? (row.cost / costData.thisMonth) * 100 : 0;
-                  return (
-                    <tr key={row.agent} className="border-t border-white/10 text-slate-200">
-                      <td className="px-2 py-2">{row.agent}</td>
-                      <td className="px-2 py-2">{formatUsd(row.cost)}</td>
-                      <td className="px-2 py-2">{row.tokens.toLocaleString()}</td>
-                      <td className="px-2 py-2">{share.toFixed(1)}%</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <p style={{ fontSize: 13, color: P.muted }}>Loading...</p>
+        ) : costData?.byModel?.length ? (
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {costData.byModel.map((row) => (
+              <div key={row.model} style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "10px 0", borderBottom: `1px solid ${P.cardBorder}`,
+              }}>
+                <span style={{ fontSize: 13, fontWeight: 500, color: P.text, fontFamily: "var(--font-mono, monospace)" }}>{row.model}</span>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: P.text }}>{formatUsd(row.cost)}</span>
+                  <div style={{ fontSize: 11, color: P.muted }}>{formatTokens(row.tokens)} tokens</div>
+                </div>
+              </div>
+            ))}
           </div>
         ) : (
-          <p className="text-sm text-slate-400">No agent spend rows available for the selected timeframe.</p>
+          <p style={{ fontSize: 13, color: P.muted }}>No model data available.</p>
         )}
-      </section>
-    </CompanyShell>
+      </Section>
+
+      {/* ── Task throughput ── */}
+      <Section title="Task throughput" subtitle="Cost-per-task derived from this month's spend divided by completed tasks.">
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+          <MetricCard label="Total Tasks" value={String(tasks.length)} />
+          <MetricCard label="Completed This Month" value={String(completedThisMonth)} />
+          <MetricCard label="Cost Per Task" value={completedThisMonth > 0 ? formatUsd(costPerTask) : "n/a"} />
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+/* ── Shared sub-components ── */
+
+function SummaryCard({ label, value, detail, icon }: { label: string; value: string; detail?: string; icon: React.ReactNode }) {
+  return (
+    <div style={{
+      padding: "16px 18px", borderRadius: 10,
+      border: `1px solid ${P.cardBorder}`, background: P.card,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+        <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p>
+        {icon}
+      </div>
+      <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: P.text }}>{value}</p>
+      {detail && <p style={{ margin: "4px 0 0", fontSize: 11, color: P.muted }}>{detail}</p>}
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div style={{
+      marginBottom: 20, padding: "20px", borderRadius: 10,
+      border: `1px solid ${P.cardBorder}`, background: P.card,
+    }}>
+      <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: P.text }}>{title}</h2>
+      {subtitle && <p style={{ margin: "4px 0 16px", fontSize: 12, color: P.muted }}>{subtitle}</p>}
+      {!subtitle && <div style={{ height: 12 }} />}
+      {children}
+    </div>
+  );
+}
+
+function MetricCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      padding: "12px 16px", borderRadius: 8,
+      border: `1px solid ${P.cardBorder}`, background: "rgba(28,25,23,0.5)",
+    }}>
+      <p style={{ margin: 0, fontSize: 11, color: P.muted }}>{label}</p>
+      <p style={{ margin: "4px 0 0", fontSize: 18, fontWeight: 600, color: P.text }}>{value}</p>
+    </div>
   );
 }
