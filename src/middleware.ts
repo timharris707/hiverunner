@@ -146,15 +146,14 @@ export function tryCanonicalRewrite(pathname: string, searchParams: URLSearchPar
 
     const projectSub = segments[3];
     if (projectSub === "issues") {
-      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/issues`, origin);
-      url.searchParams.set("project", projectSlug);
+      const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}/issues`, origin);
       for (const [key, value] of searchParams) {
-        if (key !== "project" && key !== "projectId") url.searchParams.set(key, value);
+        url.searchParams.set(key, value);
       }
       return url;
     }
 
-    if (projectSub === "board" || projectSub === "settings" || projectSub === "agents") {
+    if (projectSub === "board" || projectSub === "settings" || projectSub === "agents" || projectSub === "overview" || projectSub === "configuration" || projectSub === "budget") {
       const url = new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}/${projectSub}`, origin);
       copyQuery(url, searchParams);
       return url;
