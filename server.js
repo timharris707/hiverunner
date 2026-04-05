@@ -147,6 +147,22 @@ app.prepare().then(() => {
   server.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Engine tick loop active (every 10s)`);
+    console.log(`> Gateway stream bridge initializes on first SSE connection (/api/orchestration/engine/live-stream)`);
+
+    // Pre-warm: hit the SSE endpoint once to trigger bridge initialization.
+    // This ensures the gateway WS connection is established before the
+    // operator opens the dashboard, reducing first-event latency.
+    setTimeout(async () => {
+      try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 2000); // don't hold the connection
+        await fetch(`${origin}/api/orchestration/engine/live-stream?company=__prewarm__`, {
+          signal: controller.signal,
+        });
+      } catch {
+        // Expected: abort signal fires. Bridge is now initialized.
+      }
+    }, 3000);
   });
 
   const cleanup = () => {

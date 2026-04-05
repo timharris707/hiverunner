@@ -30,6 +30,7 @@ import {
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
+import { useLiveRunStream, type AgentStreamState, type StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
@@ -355,6 +356,12 @@ export default function CompanyDashboardPage() {
     enabled: !!data,
   });
 
+  /* ── live run streaming (real-time gateway events via SSE) ── */
+  const { streamByAgentId } = useLiveRunStream({
+    companySlug: slug,
+    enabled: !!data && hasActiveRuns,
+  });
+
   const { push: pushToast } = useNotifications();
 
   // Fire toasts on run state transitions
@@ -453,6 +460,7 @@ export default function CompanyDashboardPage() {
                   profile={data.agentProfiles.get(agent.id) ?? null}
                   companySlug={slug}
                   liveRun={runsByAgentId.get(agent.id) ?? null}
+                  agentStream={streamByAgentId.get(agent.id) ?? null}
                 />
               ))}
             </div>
@@ -652,16 +660,91 @@ function formatElapsed(ms: number): string {
   return m > 0 ? `${m}m ${sec}s` : `${sec}s`;
 }
 
-/* ── Scrollable transcript inside agent card ── */
-function AgentTranscript({ entries, isLive }: { entries: LiveRunTranscriptEntry[]; isLive: boolean }) {
+/* ── Streaming text block — shows live assistant output ── */
+function StreamingTextBlock({ text, isStreaming }: { text: string; isStreaming: boolean }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [text]);
+
+  // Show last ~400 chars for compact display
+  const displayText = text.length > 400 ? "…" + text.slice(-400) : text;
+
+  return (
+    <div
+      ref={scrollRef}
+      className="mx-3 mb-2 overflow-y-auto rounded-md px-2.5 py-2"
+      style={{
+        maxHeight: "120px",
+        background: "rgba(6,182,212,0.04)",
+        border: "1px solid rgba(6,182,212,0.12)",
+      }}
+    >
+      <p className="whitespace-pre-wrap text-xs leading-relaxed text-stone-300">
+        {displayText}
+        {isStreaming && (
+          <span
+            className="ml-0.5 inline-block h-3 w-0.5 animate-pulse"
+            style={{ backgroundColor: "#06b6d4", verticalAlign: "text-bottom" }}
+          />
+        )}
+      </p>
+    </div>
+  );
+}
+
+/* ── Scrollable transcript inside agent card ── */
+function AgentTranscript({
+  entries,
+  streamEvents = [],
+  isLive,
+}: {
+  entries: LiveRunTranscriptEntry[];
+  streamEvents?: StreamTranscriptEntry[];
+  isLive: boolean;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Merge poll-based entries with real-time stream events, dedup by content
+  const mergedEntries = useMemo(() => {
+    // Convert stream events to LiveRunTranscriptEntry format
+    const streamAsTranscript: LiveRunTranscriptEntry[] = streamEvents
+      .filter((e) => e.kind !== "assistant_delta") // text shown separately
+      .map((e) => ({
+        id: e.id,
+        kind: "action" as const,
+        message: e.message,
+        ts: e.ts,
+        type: e.kind, // map stream kind → type for icon rendering
+      }));
+
+    // Merge and sort chronologically
+    const all = [...entries, ...streamAsTranscript];
+
+    // Dedup: if a stream event has the same message and similar timestamp as a poll entry, skip it
+    const seen = new Set<string>();
+    const deduped: LiveRunTranscriptEntry[] = [];
+    for (const entry of all) {
+      const key = `${entry.message.slice(0, 60)}:${entry.ts.slice(0, 16)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(entry);
+    }
+
+    return deduped
+      .sort((a, b) => new Date(a.ts).getTime() - new Date(b.ts).getTime())
+      .slice(-16); // keep last 16
+  }, [entries, streamEvents]);
 
   // Auto-scroll to bottom when new entries arrive (chronological order, newest at bottom)
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [entries.length]);
+  }, [mergedEntries.length]);
 
   return (
     <div
@@ -673,13 +756,13 @@ function AgentTranscript({ entries, isLive }: { entries: LiveRunTranscriptEntry[
         border: isLive ? "1px solid rgba(6,182,212,0.1)" : "1px solid rgba(120,113,108,0.08)",
       }}
     >
-      {entries.map((entry, i) => (
+      {mergedEntries.map((entry, i) => (
         <div
           key={entry.id}
           className="border-b px-2.5 py-1.5 last:border-b-0"
           style={{
             borderColor: "rgba(120,113,108,0.06)",
-            animation: i === entries.length - 1 && isLive ? "fadeSlideIn 0.3s ease" : undefined,
+            animation: i === mergedEntries.length - 1 && isLive ? "fadeSlideIn 0.3s ease" : undefined,
           }}
         >
           {entry.kind === "comment" ? (
@@ -694,23 +777,30 @@ function AgentTranscript({ entries, isLive }: { entries: LiveRunTranscriptEntry[
           ) : entry.kind === "action" ? (
             <div className="flex items-center gap-1.5">
               <span className="text-[10px]" style={{
-                color: entry.type === "action_error" ? "#ef4444"
+                color: entry.type === "action_error" || entry.type === "lifecycle_error" || entry.type === "error" ? "#ef4444"
                   : entry.type === "action_skipped" ? "#ca8a04"
-                  : entry.type === "waiting" || entry.type === "session_start" ? "#06b6d4"
+                  : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "#06b6d4"
+                  : entry.type === "tool_start" || entry.type === "tool_end" ? "#a78bfa"
+                  : entry.type === "lifecycle_end" || entry.type === "assistant_final" ? "#06b6d4"
                   : "#4ade80",
               }}>
                 {entry.type === "action_executed" ? "✓"
-                  : entry.type === "action_error" ? "✗"
+                  : entry.type === "action_error" || entry.type === "lifecycle_error" || entry.type === "error" ? "✗"
                   : entry.type === "action_skipped" ? "⏭"
-                  : entry.type === "waiting" || entry.type === "session_start" ? "◉"
+                  : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "◉"
+                  : entry.type === "tool_start" ? "⚡"
+                  : entry.type === "tool_end" ? "⚡"
                   : entry.type === "parsing_complete" ? "⎔"
-                  : entry.type === "actions_complete" ? "✓"
+                  : entry.type === "actions_complete" || entry.type === "lifecycle_end" ? "✓"
+                  : entry.type === "assistant_final" ? "💬"
                   : "→"}
               </span>
               <span className="flex-1 text-[11px]" style={{
-                color: entry.type === "action_error" ? "#fca5a5"
+                color: entry.type === "action_error" || entry.type === "lifecycle_error" || entry.type === "error" ? "#fca5a5"
                   : entry.type === "action_skipped" ? "#fde68a"
+                  : entry.type === "tool_start" || entry.type === "tool_end" ? "#c4b5fd"
                   : entry.type?.startsWith("action_") ? "#86efac"
+                  : entry.type?.startsWith("lifecycle_") || entry.type === "assistant_final" ? "#67e8f9"
                   : "#a8a29e",
               }}>{entry.message}</span>
               <span className="shrink-0 text-[9px] text-stone-600">{formatAge(entry.ts)}</span>
@@ -796,11 +886,13 @@ function AgentRunCard({
   profile,
   companySlug,
   liveRun,
+  agentStream,
 }: {
   agent: OrchestrationAgent;
   profile: OrchestrationAgentProfile | null;
   companySlug: string;
   liveRun: LiveRun | null;
+  agentStream: AgentStreamState | null;
 }) {
   const [expanded, setExpanded] = useState(false);
   const agentHref = buildCompanyPath(companySlug, `/agents/${encodeURIComponent(agent.slug ?? agent.id)}/dashboard`);
@@ -930,6 +1022,11 @@ function AgentRunCard({
         </div>
       )}
 
+      {/* ── LIVE: streaming assistant text from gateway ── */}
+      {isLive && agentStream?.streamingText && (
+        <StreamingTextBlock text={agentStream.streamingText} isStreaming={agentStream.isStreaming} />
+      )}
+
       {/* ── Action execution badge (Paperclip "EXECUTED N COMMANDS" equivalent) ── */}
       {liveRun?.result && (
         <ActionBadge result={liveRun.result} status={liveRun.status} />
@@ -958,9 +1055,13 @@ function AgentRunCard({
         </div>
       )}
 
-      {/* ── Scrollable multi-entry transcript ── */}
-      {liveRun && liveRun.transcript.length > 0 ? (
-        <AgentTranscript entries={liveRun.transcript} isLive={isLive} />
+      {/* ── Scrollable multi-entry transcript (merged: poll + stream) ── */}
+      {liveRun && (liveRun.transcript.length > 0 || (agentStream?.events.length ?? 0) > 0) ? (
+        <AgentTranscript
+          entries={liveRun.transcript}
+          streamEvents={agentStream?.events ?? []}
+          isLive={isLive}
+        />
       ) : !isLive && outputText ? (
         <div className="mx-3 mb-2">
           <p className="text-sm leading-relaxed text-stone-200">
