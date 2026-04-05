@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Zap, ArrowRight } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
 import { useAgentProfile, A } from "../layout";
@@ -11,6 +11,7 @@ import type { OrchestrationAgentExecutionRun } from "@/lib/orchestration/types";
 export default function AgentRunsPage() {
   const { profile, agentId } = useAgentProfile();
   const { executionHistory } = profile;
+  const router = useRouter();
 
   // Resolve company code from the current pathname for canonical links
   const companyCode = useMemo(() => {
@@ -42,10 +43,13 @@ export default function AgentRunsPage() {
             <span style={{ width: 24 }} />
           </div>
 
-          {executionHistory.map((run) => (
-            <Link
+          {executionHistory.map((run) => {
+            const href = buildCanonicalRunDetailPath(companyCode, agentId, run.id);
+            return (
+            <a
               key={run.id}
-              href={buildCanonicalRunDetailPath(companyCode, agentId, run.id)}
+              href={href}
+              onClick={(e) => { e.preventDefault(); window.location.href = href; }}
               style={{
                 ...dataRow,
                 textDecoration: "none",
@@ -75,8 +79,9 @@ export default function AgentRunsPage() {
               <span style={{ width: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <ArrowRight size={12} style={{ color: A.muted, opacity: 0.5 }} />
               </span>
-            </Link>
-          ))}
+            </a>
+            );
+          })}
         </>
       )}
     </div>
