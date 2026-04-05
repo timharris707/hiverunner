@@ -10,6 +10,7 @@ import {
   resubmitApproval,
   addApprovalComment,
 } from "@/lib/orchestration/service/approval";
+import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
 
 export const dynamic = "force-dynamic";
 
@@ -77,6 +78,27 @@ function handleApprove(approvalId: string, body: Record<string, unknown>) {
     }
   }
 
+  // Approval feedback loop: queue wakeup for the requesting agent so they can act on the decision
+  if (approval.requestedByAgentId) {
+    try {
+      enqueueWakeup({
+        agentId: approval.requestedByAgentId,
+        companyId: approval.companyId,
+        source: "explicit",
+        reason: `Approval ${approvalId} was approved (${approval.type})`,
+        payload: {
+          approvalId,
+          approvalType: approval.type,
+          approvalStatus: "approved",
+          decisionNote: typeof body.decisionNote === "string" ? body.decisionNote : null,
+        },
+        idempotencyKey: `approval-feedback:${approvalId}:approved`,
+      }, db);
+    } catch (wakeErr) {
+      console.error("[approval] feedback wakeup failed:", wakeErr instanceof Error ? wakeErr.message : String(wakeErr));
+    }
+  }
+
   return NextResponse.json(result);
 }
 
@@ -101,6 +123,27 @@ function handleReject(approvalId: string, body: Record<string, unknown>) {
       const now = new Date().toISOString();
       db.prepare(`UPDATE agents SET status = 'offline', archived_at = ?, updated_at = ? WHERE id = ?`)
         .run(now, now, agentId);
+    }
+  }
+
+  // Approval feedback loop: queue wakeup for the requesting agent so they can adjust
+  if (approval.requestedByAgentId) {
+    try {
+      enqueueWakeup({
+        agentId: approval.requestedByAgentId,
+        companyId: approval.companyId,
+        source: "explicit",
+        reason: `Approval ${approvalId} was rejected (${approval.type})`,
+        payload: {
+          approvalId,
+          approvalType: approval.type,
+          approvalStatus: "rejected",
+          decisionNote: typeof body.decisionNote === "string" ? body.decisionNote : null,
+        },
+        idempotencyKey: `approval-feedback:${approvalId}:rejected`,
+      }, db);
+    } catch (wakeErr) {
+      console.error("[approval] feedback wakeup failed:", wakeErr instanceof Error ? wakeErr.message : String(wakeErr));
     }
   }
 

@@ -1021,8 +1021,21 @@ async function executeViaOpenClaw(
   }
 }
 
-const OPENCLAW_BIN = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim() || "/opt/homebrew/bin/openclaw";
-const GATEWAY_ENV = { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}` };
+function resolveOpenClawBin(): string {
+  const explicit = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim();
+  if (explicit) return explicit;
+  // Probe common install locations
+  for (const candidate of ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]) {
+    try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
+  }
+  return "openclaw"; // fall back to PATH lookup
+}
+
+const OPENCLAW_BIN = resolveOpenClawBin();
+const GATEWAY_ENV = {
+  ...process.env,
+  PATH: ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""].join(":"),
+} as NodeJS.ProcessEnv;
 
 async function callGateway<T>(
   _command: string,
@@ -1064,7 +1077,11 @@ async function callGateway<T>(
 type McAction =
   | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string }
   | { action: "hire_agent"; name: string; role: string; capabilities?: string; reason?: string }
-  | { action: "report"; summary: string };
+  | { action: "report"; summary: string }
+  | { action: "update_task"; taskKey: string; status?: string; comment?: string }
+  | { action: "add_comment"; taskKey: string; body: string };
+
+const VALID_ACTION_TYPES = new Set(["create_task", "hire_agent", "report", "update_task", "add_comment"]);
 
 type ActionResults = {
   messagesImported: number;
@@ -1137,29 +1154,44 @@ async function importSessionOutputAndExecuteActions(input: {
 
   results.messagesImported = assistantTexts.length;
 
-  // Parse all mc-action blocks from assistant output
+  // Parse all mc-action blocks from assistant output (single pass)
   const allActions: McAction[] = [];
   const allPlainText: string[] = [];
 
   for (const text of assistantTexts) {
-    const { actions, plainText } = parseActionsFromText(text);
+    const { actions, plainText, parseErrors } = parseActionsFromText(text);
     allActions.push(...actions);
     if (plainText.trim()) {
       allPlainText.push(plainText.trim());
     }
+    results.errors.push(...parseErrors);
   }
 
   results.actionsFound = allActions.length;
 
   // Import plain text as a report comment on the direction task
   if (allPlainText.length > 0) {
-    const reportBody = allPlainText.join("\n\n---\n\n").slice(0, 9000);
-    importCommentOnTask(input.taskKey, input.agentId, reportBody, "status_update", input.runId, input.db);
-    results.reportsImported++;
+    try {
+      const reportBody = allPlainText.join("\n\n---\n\n").slice(0, 9000);
+      importCommentOnTask(input.taskKey, input.agentId, reportBody, "status_update", input.runId, input.db);
+      results.reportsImported++;
+    } catch (err) {
+      results.errors.push(`Plain text import failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
-  // Execute each action
+  // Dedup: track action fingerprints to prevent double-execution
+  const executedFingerprints = new Set<string>();
+
+  // Execute each action — continue on failure (partial success is better than total failure)
   for (const action of allActions) {
+    const fingerprint = actionFingerprint(action);
+    if (executedFingerprints.has(fingerprint)) {
+      results.errors.push(`Duplicate action skipped: ${action.action} (${fingerprint.slice(0, 50)})`);
+      continue;
+    }
+    executedFingerprints.add(fingerprint);
+
     try {
       switch (action.action) {
         case "create_task":
@@ -1194,16 +1226,46 @@ async function importSessionOutputAndExecuteActions(input: {
             results.actionsExecuted++;
           }
           break;
+        case "update_task":
+          {
+            const updated = executeUpdateTask(action, input, input.db);
+            if (updated) results.actionsExecuted++;
+          }
+          break;
+        case "add_comment":
+          {
+            const added = executeAddComment(action, input, input.db);
+            if (added) results.actionsExecuted++;
+          }
+          break;
         default:
           results.errors.push(`Unknown action type: ${(action as Record<string, unknown>).action}`);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.errors.push(`Action ${action.action} failed: ${msg}`);
+      // Continue processing remaining actions
     }
   }
 
   return results;
+}
+
+function actionFingerprint(action: McAction): string {
+  switch (action.action) {
+    case "create_task":
+      return `create_task:${action.title?.toLowerCase().trim()}`;
+    case "hire_agent":
+      return `hire_agent:${action.name?.toLowerCase().trim()}:${action.role?.toLowerCase().trim()}`;
+    case "report":
+      return `report:${action.summary?.slice(0, 50).toLowerCase().trim()}`;
+    case "update_task":
+      return `update_task:${action.taskKey}:${action.status ?? ""}:${action.comment?.slice(0, 30) ?? ""}`;
+    case "add_comment":
+      return `add_comment:${action.taskKey}:${action.body?.slice(0, 30)}`;
+    default:
+      return `unknown:${JSON.stringify(action).slice(0, 50)}`;
+  }
 }
 
 async function waitForSessionCompletion(
@@ -1212,7 +1274,7 @@ async function waitForSessionCompletion(
   execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
 ): Promise<unknown> {
   // Poll sessions.get until status is terminal (done, failed, etc.)
-  const maxAttempts = 30; // 30 * 2s = 60s max wait
+  const maxAttempts = 60; // 60 * 2s = 120s max wait
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const { stdout } = await execFileAsync(
@@ -1245,28 +1307,78 @@ async function waitForSessionCompletion(
   }
 }
 
-function parseActionsFromText(text: string): { actions: McAction[]; plainText: string } {
+function parseActionsFromText(text: string): { actions: McAction[]; plainText: string; parseErrors: string[] } {
   const actions: McAction[] = [];
-  // Match ```mc-action ... ``` blocks
-  const pattern = /```mc-action\s*\n([\s\S]*?)```/g;
+  const parseErrors: string[] = [];
+  // Match ```mc-action ... ``` blocks (tolerant of extra whitespace and optional language tag)
+  const pattern = /```mc-action[^\n]*\n([\s\S]*?)```/g;
   let plainText = text;
   let match: RegExpExecArray | null;
 
   while ((match = pattern.exec(text)) !== null) {
     const jsonStr = match[1].trim();
+    if (!jsonStr) {
+      parseErrors.push("Empty mc-action block");
+      plainText = plainText.replace(match[0], "");
+      continue;
+    }
     try {
       const parsed = JSON.parse(jsonStr);
-      if (parsed && typeof parsed === "object" && parsed.action) {
-        actions.push(parsed as McAction);
+      if (!parsed || typeof parsed !== "object") {
+        parseErrors.push(`mc-action block is not an object: ${jsonStr.slice(0, 80)}`);
+        plainText = plainText.replace(match[0], "");
+        continue;
       }
-    } catch {
-      // Not valid JSON — skip
+      if (!parsed.action || typeof parsed.action !== "string") {
+        parseErrors.push(`mc-action block missing 'action' field: ${jsonStr.slice(0, 80)}`);
+        plainText = plainText.replace(match[0], "");
+        continue;
+      }
+      if (!VALID_ACTION_TYPES.has(parsed.action)) {
+        parseErrors.push(`Unknown action type '${parsed.action}'`);
+        plainText = plainText.replace(match[0], "");
+        continue;
+      }
+      // Validate required fields per action type
+      const validationError = validateActionFields(parsed);
+      if (validationError) {
+        parseErrors.push(validationError);
+        plainText = plainText.replace(match[0], "");
+        continue;
+      }
+      actions.push(parsed as McAction);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      parseErrors.push(`Invalid JSON in mc-action block: ${msg}`);
     }
-    // Remove the action block from plain text
     plainText = plainText.replace(match[0], "");
   }
 
-  return { actions, plainText };
+  return { actions, plainText, parseErrors };
+}
+
+function validateActionFields(parsed: Record<string, unknown>): string | null {
+  switch (parsed.action) {
+    case "create_task":
+      if (!parsed.title || typeof parsed.title !== "string") return "create_task: 'title' is required";
+      break;
+    case "hire_agent":
+      if (!parsed.name || typeof parsed.name !== "string") return "hire_agent: 'name' is required";
+      if (!parsed.role || typeof parsed.role !== "string") return "hire_agent: 'role' is required";
+      break;
+    case "report":
+      if (!parsed.summary || typeof parsed.summary !== "string") return "report: 'summary' is required";
+      break;
+    case "update_task":
+      if (!parsed.taskKey || typeof parsed.taskKey !== "string") return "update_task: 'taskKey' is required";
+      if (!parsed.status && !parsed.comment) return "update_task: must provide 'status' or 'comment'";
+      break;
+    case "add_comment":
+      if (!parsed.taskKey || typeof parsed.taskKey !== "string") return "add_comment: 'taskKey' is required";
+      if (!parsed.body || typeof parsed.body !== "string") return "add_comment: 'body' is required";
+      break;
+  }
+  return null;
 }
 
 function importCommentOnTask(
@@ -1420,6 +1532,64 @@ function executeHireAgent(
   ).run(approvalId, input.companyId, input.agentId, JSON.stringify(payload), now, now);
 
   return approvalId;
+}
+
+function executeUpdateTask(
+  action: Extract<McAction, { action: "update_task" }>,
+  input: { agentId: string; companyId: string; runId: string },
+  db: Database.Database
+): boolean {
+  const now = new Date().toISOString();
+
+  // Resolve task by task_key
+  const task = db
+    .prepare("SELECT id, project_id, status FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
+    .get(action.taskKey) as { id: string; project_id: string; status: string } | undefined;
+
+  if (!task) return false;
+
+  // Status update if requested and transition is valid
+  if (action.status) {
+    const normalized = action.status.toLowerCase().replace(/[\s-]+/g, "_");
+    const validStatuses = ["backlog", "on_deck", "in_progress", "review", "done", "blocked"];
+    if (validStatuses.includes(normalized) && normalized !== task.status) {
+      // Check transition is allowed
+      const rule = db
+        .prepare("SELECT 1 FROM status_transition_rules WHERE from_status = ? AND to_status = ?")
+        .get(task.status, normalized);
+      if (rule) {
+        db.prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run(normalized, now, task.id);
+        db.prepare(
+          `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`
+        ).run(randomUUID(), task.project_id, task.id, input.agentId, task.status, normalized,
+          JSON.stringify({ source: "engine_action", runId: input.runId }), now);
+      }
+    }
+  }
+
+  // Comment if provided
+  if (action.comment) {
+    importCommentOnTask(task.id, input.agentId, action.comment.slice(0, 9000), "status_update", input.runId, db);
+  }
+
+  return true;
+}
+
+function executeAddComment(
+  action: Extract<McAction, { action: "add_comment" }>,
+  input: { agentId: string; companyId: string; runId: string },
+  db: Database.Database
+): boolean {
+  // Resolve task by task_key
+  const task = db
+    .prepare("SELECT id FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
+    .get(action.taskKey) as { id: string } | undefined;
+
+  if (!task) return false;
+
+  importCommentOnTask(task.id, input.agentId, action.body.slice(0, 9000), "comment", input.runId, db);
+  return true;
 }
 
 /* ── Run Finalization ── */

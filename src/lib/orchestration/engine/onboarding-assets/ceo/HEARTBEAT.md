@@ -57,6 +57,22 @@ Plain text output that is NOT inside an action block will be recorded as a gener
 {"action":"hire_agent","name":"Proposed agent name","role":"Agent role title","capabilities":"What this agent should be able to do","reason":"Why this hire is needed"}
 ```
 
+## Update an existing task
+
+```mc-action
+{"action":"update_task","taskKey":"NEV-42","status":"in_progress","comment":"Started working on this."}
+```
+
+- taskKey: the task identifier (e.g. "NEV-42")
+- status: optional new status (backlog, on_deck, in_progress, review, done, blocked)
+- comment: optional status update comment
+
+## Add a comment to a task
+
+```mc-action
+{"action":"add_comment","taskKey":"NEV-42","body":"Progress update: completed the first phase."}
+```
+
 ## Report / status update
 
 ```mc-action
@@ -68,3 +84,4 @@ Plain text output that is NOT inside an action block will be recorded as a gener
 - Each block must be valid JSON inside a fenced ```mc-action code block.
 - The report action is required — always include at least one report summarizing your work.
 - Do NOT use any other system for creating tasks or hiring. These action blocks are the official interface.
+- Do NOT duplicate actions — each task should be created only once per response.
