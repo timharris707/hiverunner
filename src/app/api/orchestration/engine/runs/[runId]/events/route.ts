@@ -3,26 +3,22 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
+import { ObservabilityTier, capabilitiesFromTier } from "@/lib/orchestration/adapters/types";
 
 export const dynamic = "force-dynamic";
 
 /**
  * GET /api/orchestration/engine/runs/{runId}/events
  *
- * Returns run metadata and a persisted event timeline.
+ * Returns run metadata, task context, persisted event timeline,
+ * agent comments as transcript proxy, and provider capabilities.
  *
  * Supports two run tables:
  *  1. heartbeat_runs — engine-level runs with in-flight events
- *     (heartbeat_run_events table). Richest timeline.
- *  2. execution_runs — orchestration-level runs.
- *     No in-flight events table; timeline comes from comments only.
+ *  2. execution_runs — orchestration-level runs (fallback)
  *
- * The API tries heartbeat_runs first, then falls back to execution_runs.
- *
- * Limitations:
- *  - Streaming assistant text deltas are ephemeral and not included.
- *  - Tool call details are not available from the current provider.
- *  - The timeline may have gaps while the agent was thinking.
+ * Data provenance is explicit: each section states what it comes from
+ * and what is NOT included.
  */
 export async function GET(
   _request: NextRequest,
@@ -34,7 +30,6 @@ export async function GET(
 
     // Try heartbeat_runs first (richest event data)
     const heartbeatRun = getHeartbeatRun(runId, db);
-
     if (heartbeatRun) {
       return buildHeartbeatRunResponse(heartbeatRun, runId, db);
     }
@@ -42,7 +37,8 @@ export async function GET(
     // Fall back to execution_runs
     const execRun = db
       .prepare(
-        `SELECT r.*, t.title AS task_title, a.name AS agent_name, a.slug AS agent_slug, a.emoji AS agent_emoji
+        `SELECT r.*, t.title AS task_title, t.task_key, a.name AS agent_name,
+                a.slug AS agent_slug, a.emoji AS agent_emoji
          FROM execution_runs r
          LEFT JOIN tasks t ON r.task_id = t.id
          LEFT JOIN agents a ON r.agent_id = a.id
@@ -60,7 +56,7 @@ export async function GET(
   }
 }
 
-/* ── Heartbeat Run Response ── */
+/* ── Types ── */
 
 interface HeartbeatRunShape {
   id: string;
@@ -77,14 +73,57 @@ interface HeartbeatRunShape {
   result: Record<string, unknown>;
   exitCode: number | null;
   error: string | null;
+  contextSnapshot: Record<string, unknown>;
   createdAt: string;
 }
+
+type ExecutionRunRow = {
+  id: string;
+  task_id: string;
+  agent_id: string | null;
+  provider: string;
+  session_id: string | null;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  token_usage_json: string;
+  duration_ms: number | null;
+  created_at: string;
+  task_title: string | null;
+  task_key: string | null;
+  agent_name: string | null;
+  agent_slug: string | null;
+  agent_emoji: string | null;
+};
+
+/* ── Heartbeat Run Response ── */
 
 function buildHeartbeatRunResponse(
   run: HeartbeatRunShape,
   runId: string,
   db: ReturnType<typeof getOrchestrationDb>
 ) {
+  // Agent metadata
+  const agent = db
+    .prepare("SELECT name, slug, emoji FROM agents WHERE id = ? LIMIT 1")
+    .get(run.agentId) as { name: string; slug: string; emoji: string | null } | undefined;
+
+  // Task association via agent_task_sessions
+  const taskAssoc = db
+    .prepare(
+      `SELECT s.task_key AS task_id, t.title AS task_title, t.task_key AS task_key,
+              t.status AS task_status, t.priority AS task_priority
+       FROM agent_task_sessions s
+       LEFT JOIN tasks t ON s.task_key = t.id
+       WHERE s.agent_id = ? AND s.last_run_id = ?
+       LIMIT 1`
+    )
+    .get(run.agentId, runId) as {
+      task_id: string; task_title: string | null; task_key: string | null;
+      task_status: string | null; task_priority: string | null;
+    } | undefined;
+
   // Engine-side in-flight events
   const engineEvents = db
     .prepare(
@@ -94,36 +133,39 @@ function buildHeartbeatRunResponse(
     )
     .all(runId) as Array<{ id: string; event_type: string; detail: string; created_at: string }>;
 
-  // Comments during the run window
-  const comments = queryCommentsInWindow(db, run.startedAt, run.finishedAt);
+  // Agent-authored comments during the run window (filtered by agent_id)
+  const agentComments = queryAgentComments(db, run.agentId, run.startedAt, run.finishedAt);
 
-  // Map to canonical timeline
-  const canonicalEvents = engineEvents.map((e) => ({
+  // Map engine events to canonical timeline
+  const timelineEvents = engineEvents.map((e) => ({
     id: e.id,
     kind: mapEngineEventType(e.event_type),
     summary: e.detail,
     ts: new Date(e.created_at).getTime(),
-    source: "engine" as const,
+    source: "engine_milestone" as const,
     providerEventType: e.event_type,
   }));
 
-  const canonicalComments = comments.map((c) => ({
+  // Map comments to canonical timeline
+  const timelineComments = agentComments.map((c) => ({
     id: c.id,
     kind: "comment_written" as MCLiveEventKind,
-    summary: c.body.length > 200 ? c.body.slice(0, 197) + "..." : c.body,
+    summary: c.body.length > 300 ? c.body.slice(0, 297) + "..." : c.body,
     ts: new Date(c.created_at).getTime(),
-    source: "comment" as const,
+    source: "persisted_comment" as const,
     commentSource: c.source,
     commentType: c.type,
     authorName: c.agent_name,
   }));
 
-  const timeline = [...canonicalEvents, ...canonicalComments].sort((a, b) => a.ts - b.ts);
+  const timeline = [...timelineEvents, ...timelineComments].sort((a, b) => a.ts - b.ts);
 
-  // Agent metadata
-  const agent = db
-    .prepare("SELECT name, slug, emoji FROM agents WHERE id = ? LIMIT 1")
-    .get(run.agentId) as { name: string; slug: string; emoji: string | null } | undefined;
+  // Context snapshot — summarize, don't dump raw JSON
+  const context = buildContextSummary(run.contextSnapshot);
+
+  // Provider capabilities — derived from tier, single source of truth
+  const tier = ObservabilityTier.ActionDetection;
+  const capabilities = capabilitiesFromTier(tier);
 
   return NextResponse.json({
     run: {
@@ -146,55 +188,60 @@ function buildHeartbeatRunResponse(
       error: run.error,
       createdAt: run.createdAt,
     },
+    task: taskAssoc
+      ? {
+          id: taskAssoc.task_id,
+          title: taskAssoc.task_title,
+          key: taskAssoc.task_key,
+          status: taskAssoc.task_status,
+          priority: taskAssoc.task_priority,
+        }
+      : null,
+    context,
+    transcript: {
+      entries: agentComments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        type: c.type,
+        source: c.source,
+        authorName: c.agent_name,
+        ts: new Date(c.created_at).getTime(),
+      })),
+      provenance: {
+        label: "Persisted agent comments",
+        note: "These are comments the agent wrote during execution. They are NOT the full assistant transcript — reasoning, internal decisions, and text between actions are not persisted. This is a partial proxy for what the agent said.",
+        totalEntries: agentComments.length,
+        source: "comments",
+        fullTranscriptAvailable: false,
+      },
+    },
     timeline,
     provenance: {
-      note: "Timeline from engine milestones (heartbeat_run_events) and comments. Streaming text deltas are ephemeral and not persisted. Structured tool events not available from this provider.",
-      sources: ["heartbeat_run_events", "comments"],
+      timeline: {
+        label: "Engine milestones + persisted comments",
+        note: "Engine events record when actions started/completed. Comments capture what the agent wrote. Streaming text deltas are ephemeral and not included. Gaps between events represent agent thinking time.",
+        sources: ["heartbeat_run_events", "comments"],
+      },
       runTable: "heartbeat_runs",
     },
     provider: {
       id: "openclaw-heartbeat",
       displayName: "OpenClaw Heartbeat",
-      tier: 3,
-      tierLabel: "Action Detection",
-      capabilities: {
-        liveText: true,
-        structuredTools: false,
-        thinking: false,
-        runSteering: false,
-      },
+      tier,
+      tierLabel: tierLabel(tier),
+      capabilities,
     },
   });
 }
 
 /* ── Execution Run Response ── */
 
-type ExecutionRunRow = {
-  id: string;
-  task_id: string;
-  agent_id: string | null;
-  provider: string;
-  session_id: string | null;
-  status: string;
-  started_at: string | null;
-  completed_at: string | null;
-  error_message: string | null;
-  token_usage_json: string;
-  duration_ms: number | null;
-  created_at: string;
-  task_title: string | null;
-  agent_name: string | null;
-  agent_slug: string | null;
-  agent_emoji: string | null;
-};
-
 function buildExecutionRunResponse(
   row: ExecutionRunRow,
   runId: string,
   db: ReturnType<typeof getOrchestrationDb>
 ) {
-  // No heartbeat_run_events for execution_runs — try to find
-  // corresponding heartbeat runs by session_id for events
+  // Reconstruct timeline from linked heartbeat runs
   let timeline: Array<{
     id: string; kind: MCLiveEventKind; summary: string;
     ts: number; source: string; providerEventType?: string;
@@ -202,7 +249,6 @@ function buildExecutionRunResponse(
   }> = [];
 
   if (row.session_id) {
-    // Find heartbeat runs that share this session
     const hbRuns = db
       .prepare(
         `SELECT id FROM heartbeat_runs
@@ -226,22 +272,25 @@ function buildExecutionRunResponse(
           kind: mapEngineEventType(e.event_type),
           summary: e.detail,
           ts: new Date(e.created_at).getTime(),
-          source: "engine",
+          source: "engine_milestone",
           providerEventType: e.event_type,
         });
       }
     }
   }
 
-  // Comments during the run window
-  const comments = queryCommentsInWindow(db, row.started_at, row.completed_at);
-  for (const c of comments) {
+  // Agent-filtered comments
+  const agentComments = row.agent_id
+    ? queryAgentComments(db, row.agent_id, row.started_at, row.completed_at)
+    : [];
+
+  for (const c of agentComments) {
     timeline.push({
       id: c.id,
       kind: "comment_written",
-      summary: c.body.length > 200 ? c.body.slice(0, 197) + "..." : c.body,
+      summary: c.body.length > 300 ? c.body.slice(0, 297) + "..." : c.body,
       ts: new Date(c.created_at).getTime(),
-      source: "comment",
+      source: "persisted_comment",
       commentSource: c.source,
       commentType: c.type,
       authorName: c.agent_name,
@@ -258,12 +307,14 @@ function buildExecutionRunResponse(
     return true;
   });
 
-  // Resolve company ID
+  // Resolve company
   const companyRow = row.agent_id
     ? db.prepare("SELECT company_id FROM agents WHERE id = ? LIMIT 1").get(row.agent_id) as { company_id: string } | undefined
     : undefined;
 
   const usage = safeJsonParse(row.token_usage_json);
+  const effectiveTier = timeline.length > 0 ? ObservabilityTier.ActionDetection : ObservabilityTier.Milestones;
+  const capabilities = capabilitiesFromTier(effectiveTier);
 
   return NextResponse.json({
     run: {
@@ -286,33 +337,57 @@ function buildExecutionRunResponse(
       error: row.error_message,
       createdAt: row.created_at,
     },
+    task: row.task_title
+      ? { id: row.task_id, title: row.task_title, key: row.task_key, status: null, priority: null }
+      : null,
+    context: null,
+    transcript: {
+      entries: agentComments.map((c) => ({
+        id: c.id,
+        body: c.body,
+        type: c.type,
+        source: c.source,
+        authorName: c.agent_name,
+        ts: new Date(c.created_at).getTime(),
+      })),
+      provenance: {
+        label: "Persisted agent comments",
+        note: agentComments.length > 0
+          ? "Partial proxy for agent output. Full transcript is not persisted."
+          : "No agent comments found for this run window.",
+        totalEntries: agentComments.length,
+        source: "comments",
+        fullTranscriptAvailable: false,
+      },
+    },
     timeline,
     provenance: {
-      note: timeline.length > 0
-        ? "Timeline reconstructed from linked heartbeat run events and comments. This is a best-effort reconstruction — some events may be from adjacent heartbeat cycles sharing this session."
-        : "No in-flight events available for this execution run. Only post-run metadata is shown.",
-      sources: timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
+      timeline: {
+        label: timeline.length > 0
+          ? "Reconstructed from linked heartbeat cycles"
+          : "Post-run metadata only",
+        note: timeline.length > 0
+          ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
+          : "No in-flight events available. Only run status is known.",
+        sources: timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
+      },
       runTable: "execution_runs",
     },
     provider: {
       id: "openclaw-heartbeat",
       displayName: "OpenClaw Heartbeat",
-      tier: timeline.length > 0 ? 3 : 1,
-      tierLabel: timeline.length > 0 ? "Action Detection" : "Milestones",
-      capabilities: {
-        liveText: true,
-        structuredTools: false,
-        thinking: false,
-        runSteering: false,
-      },
+      tier: effectiveTier,
+      tierLabel: tierLabel(effectiveTier),
+      capabilities,
     },
   });
 }
 
 /* ── Shared Helpers ── */
 
-function queryCommentsInWindow(
+function queryAgentComments(
   db: ReturnType<typeof getOrchestrationDb>,
+  agentId: string,
   startedAt: string | null | undefined,
   finishedAt: string | null | undefined,
 ) {
@@ -322,26 +397,54 @@ function queryCommentsInWindow(
       `SELECT c.id, c.body, c.type, c.source, a.name AS agent_name, c.created_at
        FROM comments c
        LEFT JOIN agents a ON c.author_agent_id = a.id
-       WHERE c.created_at >= ? AND c.created_at <= ?
+       WHERE c.author_agent_id = ?
+         AND c.created_at >= ? AND c.created_at <= ?
        ORDER BY c.created_at ASC
        LIMIT 50`
     )
-    .all(startedAt, finishedAt ?? new Date().toISOString()) as Array<{
+    .all(agentId, startedAt, finishedAt ?? new Date().toISOString()) as Array<{
       id: string; body: string; type: string; source: string;
       agent_name: string | null; created_at: string;
     }>;
 }
 
+/**
+ * Maps engine event_type to canonical MCLiveEventKind.
+ * Honest mapping: engine milestones are NOT assistant text events.
+ */
 function mapEngineEventType(eventType: string): MCLiveEventKind {
   switch (eventType) {
     case "session_start": return "run_start";
-    case "waiting": return "assistant_text_delta";
-    case "parsing_complete": return "assistant_text_final";
+    case "waiting": return "run_progress";        // honestly: agent is processing, no text emitted
+    case "parsing_complete": return "assistant_text_final"; // response received and parsed
     case "action_executed": return "action_detected";
     case "actions_complete": return "run_end";
     case "error": return "run_error";
     default: return "action_detected";
   }
+}
+
+function buildContextSummary(snapshot: Record<string, unknown>): {
+  wakeSource: string | null;
+  wakeReason: string | null;
+} | null {
+  if (!snapshot || Object.keys(snapshot).length === 0) return null;
+  return {
+    wakeSource: typeof snapshot.wakeSource === "string" ? snapshot.wakeSource : null,
+    wakeReason: typeof snapshot.wakeReason === "string" ? snapshot.wakeReason : null,
+  };
+}
+
+function tierLabel(tier: ObservabilityTier): string {
+  const labels: Record<number, string> = {
+    0: "Post-Run",
+    1: "Milestones",
+    2: "Live Text",
+    3: "Action Detection",
+    4: "Structured Tools",
+    5: "Full Parity",
+  };
+  return labels[tier] ?? "Unknown";
 }
 
 function safeJsonParse(raw: string): Record<string, unknown> {

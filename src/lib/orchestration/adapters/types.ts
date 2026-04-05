@@ -25,6 +25,48 @@ export enum ObservabilityTier {
   FullParity = 5,
 }
 
+/* ── Provider Capabilities ── */
+
+/**
+ * What a provider can actually show at a given observability tier.
+ * This is the single source of truth for capability rendering.
+ * Derived from tier, consumed by API and UI. No second copy.
+ */
+export interface ProviderCapabilities {
+  /** Live assistant text streaming (Tier 2+) */
+  liveText: boolean;
+  /** Action detection from streamed text (Tier 3+) */
+  actionDetection: boolean;
+  /** Structured tool call / result events (Tier 4+) */
+  structuredTools: boolean;
+  /** Thinking / reasoning block visibility (Tier 5) */
+  thinking: boolean;
+  /** Interactive run steering: pause, resume, cancel (Tier 5) */
+  runSteering: boolean;
+  /** Full transcript persistence (not tier-gated — depends on provider) */
+  persistedTranscript: boolean;
+}
+
+/**
+ * Derive capabilities from an observability tier.
+ * Additional overrides allow providers to declare capabilities
+ * that don't follow the tier hierarchy (e.g. transcript persistence).
+ */
+export function capabilitiesFromTier(
+  tier: ObservabilityTier,
+  overrides?: Partial<ProviderCapabilities>,
+): ProviderCapabilities {
+  return {
+    liveText: tier >= ObservabilityTier.LiveText,
+    actionDetection: tier >= ObservabilityTier.ActionDetection,
+    structuredTools: tier >= ObservabilityTier.StructuredTools,
+    thinking: tier >= ObservabilityTier.FullParity,
+    runSteering: tier >= ObservabilityTier.FullParity,
+    persistedTranscript: false, // default: no provider persists full transcripts yet
+    ...overrides,
+  };
+}
+
 /* ── Provider Status ── */
 
 export interface ProviderStatus {

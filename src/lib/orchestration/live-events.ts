@@ -15,6 +15,7 @@ export type MCLiveEventKind =
   | "run_start"
   | "run_end"
   | "run_error"
+  | "run_progress"        // engine milestone: agent is processing (no text emitted yet)
   // Assistant output
   | "assistant_text_delta"
   | "assistant_text_final"
@@ -189,6 +190,7 @@ export const CANONICAL_TO_WIRE_KIND: Record<MCLiveEventKind, string> = {
   run_start: "lifecycle_start",
   run_end: "lifecycle_end",
   run_error: "lifecycle_error",
+  run_progress: "lifecycle_start",     // degrade: show as lifecycle
   assistant_text_delta: "assistant_delta",
   assistant_text_final: "assistant_final",
   thinking_delta: "assistant_delta",     // degrade: render as text
