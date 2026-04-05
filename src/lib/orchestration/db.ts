@@ -938,6 +938,114 @@ const MIGRATIONS: Migration[] = [
       SELECT 1;
     `,
   },
+  {
+    version: 31,
+    name: "engine_wakeup_requests_task_sessions_runtime_state",
+    sql: `
+      -- Agent wakeup request queue (mirrors Paperclip's agentWakeupRequests)
+      CREATE TABLE IF NOT EXISTS agent_wakeup_requests (
+        id                    TEXT PRIMARY KEY,
+        agent_id              TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        company_id            TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        source                TEXT NOT NULL CHECK (source IN ('timer','issue_assigned','routine','explicit','api','kickoff')),
+        reason                TEXT,
+        trigger_detail        TEXT,
+        payload_json          TEXT NOT NULL DEFAULT '{}',
+        status                TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','claimed','finished','failed')),
+        coalesced_count       INTEGER NOT NULL DEFAULT 0,
+        idempotency_key       TEXT,
+        run_id                TEXT,
+        requested_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        claimed_at            TEXT,
+        finished_at           TEXT,
+        requested_by_actor_type TEXT,
+        requested_by_actor_id   TEXT,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_wakeup_requests_agent_status
+        ON agent_wakeup_requests(agent_id, status);
+      CREATE INDEX IF NOT EXISTS idx_wakeup_requests_company
+        ON agent_wakeup_requests(company_id, status);
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_wakeup_requests_idempotency
+        ON agent_wakeup_requests(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      -- Agent task sessions (persistent session state per task per agent)
+      CREATE TABLE IF NOT EXISTS agent_task_sessions (
+        id                    TEXT PRIMARY KEY,
+        agent_id              TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        company_id            TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        adapter_type          TEXT NOT NULL DEFAULT 'openclaw',
+        task_key              TEXT NOT NULL,
+        session_params_json   TEXT NOT NULL DEFAULT '{}',
+        session_display_id    TEXT,
+        last_run_id           TEXT,
+        last_error            TEXT,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_task_sessions_unique
+        ON agent_task_sessions(company_id, agent_id, adapter_type, task_key);
+      CREATE INDEX IF NOT EXISTS idx_task_sessions_agent
+        ON agent_task_sessions(agent_id);
+
+      -- Agent runtime state (last known cumulative state per agent)
+      CREATE TABLE IF NOT EXISTS agent_runtime_state (
+        agent_id              TEXT PRIMARY KEY REFERENCES agents(id) ON DELETE CASCADE,
+        company_id            TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        adapter_type          TEXT NOT NULL DEFAULT 'openclaw',
+        session_id            TEXT,
+        state_json            TEXT NOT NULL DEFAULT '{}',
+        last_run_id           TEXT,
+        last_run_status       TEXT,
+        total_input_tokens    INTEGER NOT NULL DEFAULT 0,
+        total_output_tokens   INTEGER NOT NULL DEFAULT 0,
+        total_cost_cents      REAL NOT NULL DEFAULT 0,
+        last_error            TEXT,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      -- Heartbeat runs (execution records for agent wakeups)
+      CREATE TABLE IF NOT EXISTS heartbeat_runs (
+        id                    TEXT PRIMARY KEY,
+        agent_id              TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+        company_id            TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        invocation_source     TEXT NOT NULL CHECK (invocation_source IN ('on_demand','timer','issue_assigned','wakeup_request','kickoff')),
+        trigger_detail        TEXT,
+        status                TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued','running','succeeded','failed','cancelled','timed_out')),
+        started_at            TEXT,
+        finished_at           TEXT,
+        wakeup_request_id     TEXT REFERENCES agent_wakeup_requests(id) ON DELETE SET NULL,
+        session_id_before     TEXT,
+        session_id_after      TEXT,
+        usage_json            TEXT NOT NULL DEFAULT '{}',
+        result_json           TEXT NOT NULL DEFAULT '{}',
+        exit_code             INTEGER,
+        error                 TEXT,
+        context_snapshot_json TEXT NOT NULL DEFAULT '{}',
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_agent_status
+        ON heartbeat_runs(agent_id, status);
+      CREATE INDEX IF NOT EXISTS idx_heartbeat_runs_company
+        ON heartbeat_runs(company_id, created_at DESC);
+
+      -- Add adapter/runtime config fields to agents
+      ALTER TABLE agents ADD COLUMN adapter_type TEXT NOT NULL DEFAULT 'openclaw';
+      ALTER TABLE agents ADD COLUMN adapter_config_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE agents ADD COLUMN runtime_config_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE agents ADD COLUMN permissions_json TEXT NOT NULL DEFAULT '{}';
+      ALTER TABLE agents ADD COLUMN capabilities TEXT NOT NULL DEFAULT '';
+      ALTER TABLE agents ADD COLUMN instructions_mode TEXT NOT NULL DEFAULT 'managed'
+        CHECK (instructions_mode IN ('managed','external'));
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

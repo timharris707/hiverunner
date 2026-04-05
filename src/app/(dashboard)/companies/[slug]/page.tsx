@@ -30,7 +30,10 @@ import {
   listCompanyAgents,
   listProjectSprints,
   listProjects,
+  getCompanyEngineStatus,
+  kickoffCompany,
 } from "@/lib/orchestration/client";
+import type { EngineStatus, KickoffResult } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
@@ -86,6 +89,12 @@ export default function CompanyDetailPage() {
   const [rosterQuery, setRosterQuery] = useState("");
   const [rosterStatus, setRosterStatus] = useState<"all" | OrchestrationAgent["status"]>("all");
   const [sprintSummaries, setSprintSummaries] = useState<Record<string, ProjectSprintSummary>>({});
+
+  /* ── Engine state ── */
+  const [engineStatus, setEngineStatus] = useState<EngineStatus | null>(null);
+  const [kickoffBusy, setKickoffBusy] = useState(false);
+  const [kickoffDirection, setKickoffDirection] = useState("");
+  const [kickoffResult, setKickoffResult] = useState<KickoffResult | null>(null);
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -193,6 +202,33 @@ export default function CompanyDetailPage() {
       cancelled = true;
     };
   }, [company, projects]);
+
+  /* ── Engine status fetch ── */
+  useEffect(() => {
+    if (!company) return;
+    let cancelled = false;
+    getCompanyEngineStatus(company.slug).then((status) => {
+      if (!cancelled) setEngineStatus(status);
+    });
+    return () => { cancelled = true; };
+  }, [company]);
+
+  const handleKickoff = async () => {
+    if (!company || kickoffBusy) return;
+    setKickoffBusy(true);
+    setKickoffResult(null);
+    try {
+      const result = await kickoffCompany(company.slug, kickoffDirection || undefined);
+      setKickoffResult(result);
+      if (result) {
+        // Refresh engine status
+        const updated = await getCompanyEngineStatus(company.slug);
+        setEngineStatus(updated);
+      }
+    } finally {
+      setKickoffBusy(false);
+    }
+  };
 
   const activeProjectRecord = useMemo(
     () => resolveActiveProject(projects, activeProject, slug),
@@ -385,6 +421,99 @@ export default function CompanyDetailPage() {
           </div>
         ) : null}
       </section>
+
+      {/* ── Engine Control ── */}
+      {company && engineStatus ? (
+        <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl">
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-amber-400" />
+              <h3 className="text-sm font-medium text-white">Company Engine</h3>
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider"
+                style={{
+                  backgroundColor: engineStatus.ceo
+                    ? "rgba(20,184,166,0.2)"
+                    : "rgba(239,68,68,0.2)",
+                  color: engineStatus.ceo ? "#5eead4" : "#fca5a5",
+                  border: `1px solid ${engineStatus.ceo ? "rgba(20,184,166,0.3)" : "rgba(239,68,68,0.3)"}`,
+                }}
+              >
+                {engineStatus.ceo ? "Ready" : "No CEO"}
+              </span>
+            </div>
+            {engineStatus.recentHeartbeatRuns.length > 0 ? (
+              <span className="text-[11px] text-slate-400">
+                Last run: {String(engineStatus.recentHeartbeatRuns[0]?.status ?? "—")}
+              </span>
+            ) : null}
+          </div>
+
+          {engineStatus.ceo ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+              <div className="flex-1">
+                <label className="mb-1 block text-[11px] text-slate-400">Direction for CEO ({engineStatus.ceo.name})</label>
+                <input
+                  value={kickoffDirection}
+                  onChange={(e) => setKickoffDirection(e.target.value)}
+                  placeholder="e.g. Build a weather trading bot that monitors Kalshi markets"
+                  className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-400/60"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={handleKickoff}
+                disabled={kickoffBusy}
+                className="inline-flex items-center gap-2 rounded-xl border border-teal-400/40 bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-100 shadow-[0_6px_20px_rgba(20,184,166,0.2)] transition-all hover:bg-teal-500/25 disabled:opacity-50"
+              >
+                {kickoffBusy ? (
+                  <Wifi className="h-4 w-4 animate-pulse" />
+                ) : (
+                  <Sparkles className="h-4 w-4" />
+                )}
+                {kickoffBusy ? "Starting..." : "Start Company"}
+              </button>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-400">
+              No CEO agent found. Hire an agent with role &quot;ceo&quot; to enable the company engine.
+            </p>
+          )}
+
+          {kickoffResult ? (
+            <div
+              className="mt-3 rounded-xl border p-3 text-xs"
+              style={{
+                borderColor:
+                  kickoffResult.status === "queued"
+                    ? "rgba(20,184,166,0.3)"
+                    : kickoffResult.status === "already_active"
+                      ? "rgba(234,179,8,0.3)"
+                      : "rgba(239,68,68,0.3)",
+                backgroundColor:
+                  kickoffResult.status === "queued"
+                    ? "rgba(20,184,166,0.08)"
+                    : kickoffResult.status === "already_active"
+                      ? "rgba(234,179,8,0.08)"
+                      : "rgba(239,68,68,0.08)",
+                color:
+                  kickoffResult.status === "queued"
+                    ? "#5eead4"
+                    : kickoffResult.status === "already_active"
+                      ? "#fde68a"
+                      : "#fca5a5",
+              }}
+            >
+              {kickoffResult.message}
+              {kickoffResult.directionTaskId ? (
+                <span className="ml-2 text-slate-400">
+                  Task: {kickoffResult.directionTaskId.slice(0, 8)}...
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
 
       <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-3 backdrop-blur-xl">
         <div className="flex flex-wrap gap-2">

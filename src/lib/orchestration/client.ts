@@ -1891,3 +1891,93 @@ export async function addApprovalComment(approvalId: string, body: string): Prom
     return false;
   }
 }
+
+/* ── Engine API ── */
+
+export type EngineStatus = {
+  companyId: string;
+  companyName: string;
+  ceo: { id: string; name: string; role: string; runtimeState: Record<string, unknown> | null } | null;
+  recentHeartbeatRuns: Array<Record<string, unknown>>;
+  pendingWakeups: Array<Record<string, unknown>>;
+  engineStatus: "ready" | "no_ceo";
+};
+
+export type KickoffResult = {
+  companyId: string;
+  ceoAgentId: string;
+  directionTaskId: string | null;
+  wakeupRequestId: string;
+  heartbeatRunId: string;
+  status: "queued" | "no_ceo" | "already_active";
+  message: string;
+};
+
+export async function getCompanyEngineStatus(companySlug: string): Promise<EngineStatus | null> {
+  return fetchJson<EngineStatus>(
+    `/api/orchestration/companies/${encodeURIComponent(companySlug)}/engine`
+  );
+}
+
+export async function kickoffCompany(
+  companySlug: string,
+  direction?: string
+): Promise<KickoffResult | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/companies/${encodeURIComponent(companySlug)}/kickoff`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ direction: direction || undefined }),
+      }
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as KickoffResult;
+  } catch {
+    return null;
+  }
+}
+
+export async function wakeupAgent(
+  agentId: string,
+  input?: { source?: string; reason?: string; payload?: Record<string, unknown> }
+): Promise<{ wakeupRequestId: string; heartbeatRunId: string; status: string } | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/agents/${encodeURIComponent(agentId)}/wakeup`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input ?? {}),
+      }
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as { wakeupRequestId: string; heartbeatRunId: string; status: string };
+  } catch {
+    return null;
+  }
+}
+
+export async function executeHeartbeatRun(
+  runId: string
+): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/engine/heartbeat-runs/${encodeURIComponent(runId)}`,
+      { method: "POST" }
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+export async function getHeartbeatRun(
+  runId: string
+): Promise<Record<string, unknown> | null> {
+  return fetchJson<Record<string, unknown>>(
+    `/api/orchestration/engine/heartbeat-runs/${encodeURIComponent(runId)}`
+  );
+}
