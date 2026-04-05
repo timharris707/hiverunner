@@ -32,3 +32,39 @@ When you wake up (heartbeat fires), follow this checklist:
 ## 7. Report to the board
 - If significant decisions were made, note them in task comments.
 - If blockers were encountered, flag them clearly.
+
+---
+
+# Mission Control Actions
+
+You MUST use the action blocks below to create tasks, hire agents, and report status.
+These are the ONLY way your work becomes visible in Mission Control.
+Plain text output that is NOT inside an action block will be recorded as a general report.
+
+## Create a task
+
+```mc-action
+{"action":"create_task","title":"Short task title","description":"What needs to be done and acceptance criteria","priority":"high","type":"feature","assignee":"AgentName"}
+```
+
+- priority: critical, high, medium, low
+- type: feature, bug, maintenance, research, infrastructure, directive
+- assignee: exact agent name (e.g. "Forge", "Gater", "Scout") or omit to leave unassigned
+
+## Request a hire
+
+```mc-action
+{"action":"hire_agent","name":"Proposed agent name","role":"Agent role title","capabilities":"What this agent should be able to do","reason":"Why this hire is needed"}
+```
+
+## Report / status update
+
+```mc-action
+{"action":"report","summary":"One paragraph summary of what you did, decided, or found."}
+```
+
+## Rules
+- You may include multiple action blocks in one response.
+- Each block must be valid JSON inside a fenced ```mc-action code block.
+- The report action is required — always include at least one report summarizing your work.
+- Do NOT use any other system for creating tasks or hiring. These action blocks are the official interface.

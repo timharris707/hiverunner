@@ -789,6 +789,31 @@ export async function executeHeartbeatRun(
     );
   }
 
+  // ── Post-execution: read output, import reports, execute MC actions ──
+  if (result.sessionId && !result.error) {
+    try {
+      const actionResults = await importSessionOutputAndExecuteActions({
+        sessionKey: `agent:${agent.openclaw_agent_id}:heartbeat:${session.taskKey}`,
+        sessionId: result.sessionId,
+        agentId: agent.id,
+        agentName: agent.name,
+        companyId: agent.company_id,
+        taskKey,
+        runId,
+        db,
+      });
+
+      // Store action results in heartbeat run
+      db.prepare(
+        `UPDATE heartbeat_runs SET result_json = ?, updated_at = ? WHERE id = ?`
+      ).run(JSON.stringify(actionResults), new Date().toISOString(), runId);
+    } catch (importError) {
+      const msg = importError instanceof Error ? importError.message : String(importError);
+      console.error("[engine] output import failed:", msg);
+      // Non-fatal: run succeeded even if import fails
+    }
+  }
+
   // Update agent heartbeat
   db.prepare(
     `UPDATE agents SET last_heartbeat = ?, status = 'idle', updated_at = ? WHERE id = ?`
@@ -915,8 +940,6 @@ async function executeViaOpenClaw(
   const { promisify } = await import("util");
   const execFileAsync = promisify(execFile);
 
-  const command = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim() || "openclaw";
-
   // Determine if we should resume an existing session
   const existingSessionId = session.sessionParams.sessionId as string | undefined;
   const openclawAgentId = agent.openclaw_agent_id;
@@ -938,7 +961,7 @@ async function executeViaOpenClaw(
     if (sessionId) {
       // Reusing existing session — send directly
       const sendResult = await callGateway<{ runId?: string; status?: string }>(
-        command,
+        OPENCLAW_BIN,
         "sessions.send",
         { key: sessionKey, message: prompt },
         execFileAsync
@@ -953,14 +976,25 @@ async function executeViaOpenClaw(
       };
     }
 
-    // No existing session — create new
-    const createResult = await callGateway<{ sessionId: string; key: string }>(
-      command,
+    // No existing session — create new, or look up existing by key
+    const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
+      OPENCLAW_BIN,
       "sessions.create",
-      { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name}` },
+      { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}]` },
       execFileAsync
     );
     sessionId = createResult?.sessionId;
+
+    // If create failed (e.g. label already in use), try to look up existing session by key
+    if (!sessionId) {
+      const existing = await callGateway<{ sessionId?: string; messages?: unknown[] }>(
+        OPENCLAW_BIN,
+        "sessions.get",
+        { key: sessionKey },
+        execFileAsync
+      );
+      sessionId = existing?.sessionId;
+    }
 
     if (!sessionId) {
       return { error: "Failed to create or resolve OpenClaw session" };
@@ -968,7 +1002,7 @@ async function executeViaOpenClaw(
 
     // Send the heartbeat prompt to new session
     const sendResult = await callGateway<{ runId?: string; status?: string }>(
-      command,
+      OPENCLAW_BIN,
       "sessions.send",
       { key: sessionKey, message: prompt },
       execFileAsync
@@ -987,33 +1021,405 @@ async function executeViaOpenClaw(
   }
 }
 
+const OPENCLAW_BIN = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim() || "/opt/homebrew/bin/openclaw";
+const GATEWAY_ENV = { ...process.env, PATH: `/opt/homebrew/bin:/usr/local/bin:${process.env.PATH ?? ""}` };
+
 async function callGateway<T>(
-  command: string,
+  _command: string,
   method: string,
   params: Record<string, unknown>,
-  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
+  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: Record<string, string | undefined> }) => Promise<{ stdout: string }>
 ): Promise<T | undefined> {
   try {
     const { stdout } = await execFileAsync(
-      command,
+      OPENCLAW_BIN,
       ["gateway", "call", method, "--json", "--params", JSON.stringify(params)],
-      { maxBuffer: 2 * 1024 * 1024, env: process.env }
+      { maxBuffer: 2 * 1024 * 1024, env: GATEWAY_ENV }
     );
     return JSON.parse(stdout) as T;
-  } catch {
-    // Try fallback method name (underscore variant)
-    try {
-      const fallbackMethod = method.replace(".", "_");
-      const { stdout } = await execFileAsync(
-        command,
-        ["gateway", "call", fallbackMethod, "--json", "--params", JSON.stringify(params)],
-        { maxBuffer: 2 * 1024 * 1024, env: process.env }
-      );
-      return JSON.parse(stdout) as T;
-    } catch {
-      return undefined;
+  } catch (err) {
+    const primaryMsg = err instanceof Error ? err.message : String(err);
+    // Only try fallback if the primary error is about an unknown method
+    if (primaryMsg.includes("unknown method")) {
+      try {
+        const fallbackMethod = method.replace(".", "_");
+        const { stdout } = await execFileAsync(
+          OPENCLAW_BIN,
+          ["gateway", "call", fallbackMethod, "--json", "--params", JSON.stringify(params)],
+          { maxBuffer: 2 * 1024 * 1024, env: GATEWAY_ENV }
+        );
+        return JSON.parse(stdout) as T;
+      } catch (fallbackErr) {
+        console.error(`[engine] gateway call ${method} failed:`, fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
+        return undefined;
+      }
+    }
+    console.error(`[engine] gateway call ${method} failed:`, primaryMsg);
+    return undefined;
+  }
+}
+
+/* ── Post-Execution Output Import & MC Action Execution ── */
+
+type McAction =
+  | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string }
+  | { action: "hire_agent"; name: string; role: string; capabilities?: string; reason?: string }
+  | { action: "report"; summary: string };
+
+type ActionResults = {
+  messagesImported: number;
+  actionsFound: number;
+  actionsExecuted: number;
+  tasksCreated: string[];
+  approvalsCreated: string[];
+  reportsImported: number;
+  errors: string[];
+};
+
+type SessionGetMessage = {
+  role?: string;
+  content?: string | Array<{ type?: string; text?: string; name?: string; arguments?: Record<string, unknown> }>;
+};
+
+async function importSessionOutputAndExecuteActions(input: {
+  sessionKey: string;
+  sessionId: string;
+  agentId: string;
+  agentName: string;
+  companyId: string;
+  taskKey: string;
+  runId: string;
+  db: Database.Database;
+}): Promise<ActionResults> {
+  const { execFile } = await import("child_process");
+  const { promisify } = await import("util");
+  const execFileAsync = promisify(execFile);
+
+  const results: ActionResults = {
+    messagesImported: 0,
+    actionsFound: 0,
+    actionsExecuted: 0,
+    tasksCreated: [],
+    approvalsCreated: [],
+    reportsImported: 0,
+    errors: [],
+  };
+
+  // Wait for session to reach terminal state (poll sessions.get)
+  const sessionData = await waitForSessionCompletion(OPENCLAW_BIN, input.sessionKey, execFileAsync);
+  if (!sessionData) {
+    results.errors.push("Could not retrieve session data after execution");
+    return results;
+  }
+
+  // Extract assistant text messages
+  const messages: SessionGetMessage[] = (sessionData as Record<string, unknown>).messages as SessionGetMessage[] ?? [];
+  const assistantTexts: string[] = [];
+
+  for (const msg of messages) {
+    if (msg.role !== "assistant") continue;
+    const content = msg.content;
+    if (typeof content === "string") {
+      assistantTexts.push(content);
+    } else if (Array.isArray(content)) {
+      for (const block of content) {
+        if (block.type === "text" && block.text) {
+          assistantTexts.push(block.text);
+        }
+      }
     }
   }
+
+  if (assistantTexts.length === 0) {
+    results.errors.push("No assistant text output found in session");
+    return results;
+  }
+
+  results.messagesImported = assistantTexts.length;
+
+  // Parse all mc-action blocks from assistant output
+  const allActions: McAction[] = [];
+  const allPlainText: string[] = [];
+
+  for (const text of assistantTexts) {
+    const { actions, plainText } = parseActionsFromText(text);
+    allActions.push(...actions);
+    if (plainText.trim()) {
+      allPlainText.push(plainText.trim());
+    }
+  }
+
+  results.actionsFound = allActions.length;
+
+  // Import plain text as a report comment on the direction task
+  if (allPlainText.length > 0) {
+    const reportBody = allPlainText.join("\n\n---\n\n").slice(0, 9000);
+    importCommentOnTask(input.taskKey, input.agentId, reportBody, "status_update", input.runId, input.db);
+    results.reportsImported++;
+  }
+
+  // Execute each action
+  for (const action of allActions) {
+    try {
+      switch (action.action) {
+        case "create_task":
+          {
+            const taskId = executeCreateTask(action, input, input.db);
+            if (taskId) {
+              results.tasksCreated.push(taskId);
+              results.actionsExecuted++;
+            }
+          }
+          break;
+        case "hire_agent":
+          {
+            const approvalId = executeHireAgent(action, input, input.db);
+            if (approvalId) {
+              results.approvalsCreated.push(approvalId);
+              results.actionsExecuted++;
+            }
+          }
+          break;
+        case "report":
+          {
+            importCommentOnTask(
+              input.taskKey,
+              input.agentId,
+              `**CEO Report:** ${action.summary}`.slice(0, 9000),
+              "status_update",
+              input.runId,
+              input.db
+            );
+            results.reportsImported++;
+            results.actionsExecuted++;
+          }
+          break;
+        default:
+          results.errors.push(`Unknown action type: ${(action as Record<string, unknown>).action}`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      results.errors.push(`Action ${action.action} failed: ${msg}`);
+    }
+  }
+
+  return results;
+}
+
+async function waitForSessionCompletion(
+  _command: string,
+  sessionKey: string,
+  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
+): Promise<unknown> {
+  // Poll sessions.get until status is terminal (done, failed, etc.)
+  const maxAttempts = 30; // 30 * 2s = 60s max wait
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const { stdout } = await execFileAsync(
+        OPENCLAW_BIN,
+        ["gateway", "call", "sessions.get", "--json", "--params", JSON.stringify({ key: sessionKey })],
+        { maxBuffer: 4 * 1024 * 1024, env: GATEWAY_ENV }
+      );
+      const data = JSON.parse(stdout);
+      const status = data?.status;
+      if (status === "done" || status === "completed" || status === "failed" || status === "error" || status === "cancelled") {
+        return data;
+      }
+      // Not done yet — wait 2 seconds
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch {
+      // sessions.get failed — wait and retry
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  // Timeout — try one final read
+  try {
+    const { stdout } = await execFileAsync(
+      OPENCLAW_BIN,
+      ["gateway", "call", "sessions.get", "--json", "--params", JSON.stringify({ key: sessionKey })],
+      { maxBuffer: 4 * 1024 * 1024, env: GATEWAY_ENV }
+    );
+    return JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+}
+
+function parseActionsFromText(text: string): { actions: McAction[]; plainText: string } {
+  const actions: McAction[] = [];
+  // Match ```mc-action ... ``` blocks
+  const pattern = /```mc-action\s*\n([\s\S]*?)```/g;
+  let plainText = text;
+  let match: RegExpExecArray | null;
+
+  while ((match = pattern.exec(text)) !== null) {
+    const jsonStr = match[1].trim();
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (parsed && typeof parsed === "object" && parsed.action) {
+        actions.push(parsed as McAction);
+      }
+    } catch {
+      // Not valid JSON — skip
+    }
+    // Remove the action block from plain text
+    plainText = plainText.replace(match[0], "");
+  }
+
+  return { actions, plainText };
+}
+
+function importCommentOnTask(
+  taskId: string,
+  agentId: string,
+  body: string,
+  type: string,
+  runId: string,
+  db: Database.Database
+): void {
+  const now = new Date().toISOString();
+  const commentId = randomUUID();
+  const externalRef = `engine:heartbeat:${runId}:${commentId.slice(0, 8)}`;
+
+  // Check task exists (taskKey might be a task ID)
+  const task = db.prepare("SELECT id FROM tasks WHERE id = ? LIMIT 1").get(taskId) as { id: string } | undefined;
+  if (!task) return; // Skip if task doesn't exist (e.g. __heartbeat__)
+
+  db.prepare(
+    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, 'openclaw', ?, ?, ?)`
+  ).run(commentId, taskId, agentId, body, type, externalRef, now, now);
+
+  // Log task event
+  db.prepare(
+    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
+     VALUES (?, (SELECT project_id FROM tasks WHERE id = ?), ?, ?, 'task.comment_added', ?, ?)`
+  ).run(randomUUID(), taskId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId }), now);
+}
+
+function executeCreateTask(
+  action: Extract<McAction, { action: "create_task" }>,
+  input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
+  db: Database.Database
+): string | null {
+  const now = new Date().toISOString();
+  const taskId = randomUUID();
+
+  // Resolve project: use action.project slug, or fall back to the same project as the direction task
+  let projectId: string | null = null;
+
+  if (action.project) {
+    const proj = db
+      .prepare("SELECT id FROM projects WHERE (slug = ? OR name = ?) AND company_id = ? AND archived_at IS NULL LIMIT 1")
+      .get(action.project, action.project, input.companyId) as { id: string } | undefined;
+    if (proj) projectId = proj.id;
+  }
+
+  if (!projectId) {
+    // Fall back to the direction task's project
+    const dirTask = db
+      .prepare("SELECT project_id FROM tasks WHERE id = ? LIMIT 1")
+      .get(input.taskKey) as { project_id: string } | undefined;
+    if (dirTask) projectId = dirTask.project_id;
+  }
+
+  if (!projectId) {
+    // Final fallback: first active project in company
+    const proj = db
+      .prepare("SELECT id FROM projects WHERE company_id = ? AND archived_at IS NULL AND status = 'active' LIMIT 1")
+      .get(input.companyId) as { id: string } | undefined;
+    projectId = proj?.id ?? null;
+  }
+
+  if (!projectId) return null;
+
+  // Resolve assignee by name
+  let assigneeId: string | null = null;
+  if (action.assignee) {
+    const agent = db
+      .prepare("SELECT id FROM agents WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) AND company_id = ? AND archived_at IS NULL LIMIT 1")
+      .get(action.assignee, input.companyId) as { id: string } | undefined;
+    assigneeId = agent?.id ?? null;
+  }
+
+  // Get next task number
+  const maxRow = db
+    .prepare("SELECT MAX(task_number) AS max_num FROM tasks t INNER JOIN projects p ON p.id = t.project_id WHERE p.company_id = ?")
+    .get(input.companyId) as { max_num: number | null } | undefined;
+  const nextNum = (maxRow?.max_num ?? 0) + 1;
+
+  const codeRow = db.prepare("SELECT company_code FROM companies WHERE id = ? LIMIT 1").get(input.companyId) as { company_code: string | null } | undefined;
+  const code = codeRow?.company_code ?? "MC";
+  const taskKeyNew = `${code}-${nextNum}`;
+
+  // Map priority
+  const priorityMap: Record<string, string> = { critical: "critical", high: "high", medium: "medium", low: "low" };
+  const priority = priorityMap[action.priority?.toLowerCase() ?? ""] ?? "medium";
+
+  // Map type
+  const typeMap: Record<string, string> = { feature: "feature", bug: "bug", maintenance: "maintenance", research: "research", infrastructure: "infrastructure", directive: "directive" };
+  const taskType = typeMap[action.type?.toLowerCase() ?? ""] ?? "feature";
+
+  const status = assigneeId ? "on_deck" : "backlog";
+
+  db.prepare(
+    `INSERT INTO tasks
+       (id, project_id, title, description, priority, type, status,
+        assignee_agent_id, assigned_at, created_by,
+        execution_mode, task_number, task_key, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?,
+             ?, ?, ?,
+             'openclaw', ?, ?, ?, ?)`
+  ).run(
+    taskId, projectId,
+    (action.title ?? "Untitled task").slice(0, 255),
+    (action.description ?? "").slice(0, 10000),
+    priority, taskType, status,
+    assigneeId, assigneeId ? now : null,
+    `agent:${input.agentId}`,
+    nextNum, taskKeyNew,
+    now, now
+  );
+
+  // Log events
+  db.prepare(
+    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, to_status, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 'task.created', ?, ?, ?)`
+  ).run(randomUUID(), projectId, taskId, input.agentId, status, JSON.stringify({ source: "ceo_heartbeat", runId: input.runId }), now);
+
+  if (assigneeId) {
+    db.prepare(
+      `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
+       VALUES (?, ?, ?, ?, 'task.assigned', ?, ?)`
+    ).run(randomUUID(), projectId, taskId, input.agentId, JSON.stringify({ assignee: action.assignee, source: "ceo_heartbeat" }), now);
+  }
+
+  return taskId;
+}
+
+function executeHireAgent(
+  action: Extract<McAction, { action: "hire_agent" }>,
+  input: { agentId: string; agentName: string; companyId: string; runId: string },
+  db: Database.Database
+): string | null {
+  const now = new Date().toISOString();
+  const approvalId = randomUUID();
+
+  const payload = {
+    name: action.name ?? "Unnamed Agent",
+    role: action.role ?? "General",
+    capabilities: action.capabilities ?? "",
+    reason: action.reason ?? "Requested by CEO during heartbeat",
+    requestedDuring: input.runId,
+  };
+
+  db.prepare(
+    `INSERT INTO approvals
+       (id, company_id, type, status, requested_by_agent_id, payload_json, created_at, updated_at)
+     VALUES (?, ?, 'hire_agent', 'pending', ?, ?, ?, ?)`
+  ).run(approvalId, input.companyId, input.agentId, JSON.stringify(payload), now, now);
+
+  return approvalId;
 }
 
 /* ── Run Finalization ── */
