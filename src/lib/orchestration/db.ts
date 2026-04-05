@@ -821,6 +821,123 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX IF NOT EXISTS idx_sprints_parent_id ON sprints(parent_id);
     `,
   },
+  {
+    version: 27,
+    name: "routines_and_routine_runs",
+    sql: `
+      CREATE TABLE IF NOT EXISTS routines (
+        id                  TEXT PRIMARY KEY,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        project_id          TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        assignee_agent_id   TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        title               TEXT NOT NULL,
+        description         TEXT NOT NULL DEFAULT '',
+        priority            TEXT NOT NULL DEFAULT 'medium' CHECK (priority IN ('critical','high','medium','low')),
+        status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','paused','archived')),
+        concurrency_policy  TEXT NOT NULL DEFAULT 'coalesce_if_active' CHECK (concurrency_policy IN ('coalesce_if_active','always_enqueue','skip_if_active')),
+        catch_up_policy     TEXT NOT NULL DEFAULT 'skip_missed' CHECK (catch_up_policy IN ('skip_missed','enqueue_missed_with_cap')),
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE TABLE IF NOT EXISTS routine_runs (
+        id              TEXT PRIMARY KEY,
+        routine_id      TEXT NOT NULL REFERENCES routines(id) ON DELETE CASCADE,
+        company_id      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        source          TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','schedule','webhook','api')),
+        status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','running','completed','failed','cancelled')),
+        triggered_at    TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        completed_at    TEXT,
+        failure_reason  TEXT,
+        created_at      TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at      TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_routines_company_status ON routines(company_id, status);
+      CREATE INDEX IF NOT EXISTS idx_routines_company_project ON routines(company_id, project_id);
+      CREATE INDEX IF NOT EXISTS idx_routine_runs_routine ON routine_runs(routine_id, created_at DESC);
+    `,
+  },
+  {
+    version: 28,
+    name: "approvals",
+    sql: `
+      CREATE TABLE IF NOT EXISTS approvals (
+        id                      TEXT PRIMARY KEY,
+        company_id              TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        type                    TEXT NOT NULL CHECK (type IN ('hire_agent')),
+        status                  TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','rejected','cancelled')),
+        requested_by_agent_id   TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        payload_json            TEXT NOT NULL DEFAULT '{}',
+        decision_note           TEXT,
+        decided_by_user_id      TEXT,
+        decided_at              TEXT,
+        linked_task_id          TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        created_at              TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at              TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_approvals_company_status ON approvals(company_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approvals_company_type ON approvals(company_id, type);
+      CREATE INDEX IF NOT EXISTS idx_approvals_linked_task ON approvals(linked_task_id);
+    `,
+  },
+  {
+    version: 29,
+    name: "approval_comments_and_expanded_types",
+    compatibleChecksums: [
+      "4a21837797737c369483c12e941065afc8670834d6167f696b9ea7b94cd7388b",
+    ],
+    sql: `
+      CREATE TABLE IF NOT EXISTS approval_comments (
+        id                  TEXT PRIMARY KEY,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        approval_id         TEXT NOT NULL REFERENCES approvals(id) ON DELETE CASCADE,
+        author_agent_id     TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        author_user_id      TEXT,
+        body                TEXT NOT NULL,
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_approval_comments_approval ON approval_comments(approval_id, created_at);
+
+      -- Recreate approvals table with expanded CHECK constraints
+      CREATE TABLE IF NOT EXISTS approvals_new (
+        id                      TEXT PRIMARY KEY,
+        company_id              TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        type                    TEXT NOT NULL CHECK (type IN ('hire_agent','approve_ceo_strategy','budget_override_required')),
+        status                  TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','revision_requested','approved','rejected','cancelled')),
+        requested_by_agent_id   TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        payload_json            TEXT NOT NULL DEFAULT '{}',
+        decision_note           TEXT,
+        decided_by_user_id      TEXT,
+        decided_at              TEXT,
+        linked_task_id          TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        created_at              TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at              TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      INSERT OR IGNORE INTO approvals_new SELECT * FROM approvals;
+      DROP TABLE approvals;
+      ALTER TABLE approvals_new RENAME TO approvals;
+
+      CREATE INDEX IF NOT EXISTS idx_approvals_company_status ON approvals(company_id, status);
+      CREATE INDEX IF NOT EXISTS idx_approvals_company_type ON approvals(company_id, type);
+      CREATE INDEX IF NOT EXISTS idx_approvals_linked_task ON approvals(linked_task_id);
+    `,
+  },
+  {
+    version: 30,
+    name: "fix_approvals_check_constraints",
+    compatibleChecksums: ["manual"],
+    sql: `
+      -- This migration was applied manually to fix CHECK constraints.
+      -- The approvals table now allows revision_requested status and additional types.
+      -- No-op if already applied.
+      SELECT 1;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

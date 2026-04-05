@@ -254,9 +254,51 @@ function buildInboxFeedCte(
     LEFT JOIN agents a ON a.id = er.agent_id
     WHERE ${execWhere.join(" AND ")}
       AND er.status IN ('pending', 'running', 'completed', 'failed', 'cancelled')
+
+    UNION ALL
+
+    SELECT
+      'approval:' || ap.id AS event_id,
+      'approval.' || ap.status AS event_type,
+      'approval' AS event_kind,
+      c.id AS company_id,
+      c.slug AS company_slug,
+      c.name AS company_name,
+      COALESCE(p.id, '') AS project_id,
+      COALESCE(p.slug, '') AS project_slug,
+      COALESCE(p.name, '') AS project_name,
+      ap.linked_task_id AS task_id,
+      COALESCE(t.title, '') AS task_title,
+      COALESCE(t.task_key, '') AS task_key,
+      COALESCE(t.status, 'backlog') AS task_status,
+      NULL AS from_status,
+      NULL AS to_status,
+      ap.requested_by_agent_id AS agent_id,
+      ag.name AS agent_name,
+      NULL AS provider,
+      json_object(
+        'approvalId', ap.id,
+        'approvalType', ap.type,
+        'approvalStatus', ap.status,
+        'approvalLabel', CASE ap.type
+          WHEN 'hire_agent' THEN 'Hire Agent: ' || COALESCE(json_extract(ap.payload_json, '$.agentName'), 'Unknown')
+          WHEN 'approve_ceo_strategy' THEN COALESCE(json_extract(ap.payload_json, '$.title'), 'CEO Strategy Approval')
+          WHEN 'budget_override_required' THEN 'Budget Override: ' || COALESCE(json_extract(ap.payload_json, '$.scopeName'), 'Required')
+          ELSE ap.type
+        END,
+        'requestedByName', ag.name,
+        'decisionNote', ap.decision_note
+      ) AS metadata_json,
+      ap.updated_at AS created_at
+    FROM approvals ap
+    INNER JOIN companies c ON c.id = ap.company_id
+    LEFT JOIN tasks t ON t.id = ap.linked_task_id
+    LEFT JOIN projects p ON p.id = t.project_id
+    LEFT JOIN agents ag ON ag.id = ap.requested_by_agent_id
+    WHERE ap.company_id = ?
   )`;
 
-  return { sql, params: [...taskParams, ...execParams] };
+  return { sql, params: [...taskParams, ...execParams, companyId] };
 }
 
 export type CompanyThemeView = {
@@ -290,6 +332,14 @@ function parseKeywords(value: string | null | undefined): string[] {
 function toInboxEventType(
   row: CompanyInboxEventRow
 ): OrchestrationCompanyInboxEvent["eventType"] {
+  if (row.event_kind === "approval") {
+    const approvalStatus = row.event_type.replace(/^approval\./, "");
+    if (approvalStatus === "pending" || approvalStatus === "approved" || approvalStatus === "rejected" || approvalStatus === "revision_requested") {
+      return `approval.${approvalStatus}` as OrchestrationCompanyInboxEvent["eventType"];
+    }
+    return "approval.pending";
+  }
+
   if (row.event_kind === "execution") {
     const executionType = row.event_type.replace(/^execution\./, "");
     if (
@@ -327,6 +377,15 @@ function inboxEventMessage(
   const agentName =
     row.agent_name ??
     (typeof metadata.assignee === "string" ? metadata.assignee : undefined);
+
+  if (row.event_kind === "approval") {
+    const label = typeof metadata.approvalLabel === "string" ? metadata.approvalLabel : "Approval request";
+    const status = row.event_type.replace("approval.", "");
+    const requester = row.agent_name;
+    if (status === "approved") return `${label} approved${requester ? ` (requested by ${requester})` : ""}`;
+    if (status === "rejected") return `${label} rejected${requester ? ` (requested by ${requester})` : ""}`;
+    return `${label} pending${requester ? ` (requested by ${requester})` : ""}`;
+  }
 
   if (row.event_kind === "execution") {
     const provider = row.provider ?? "openclaw";
@@ -960,10 +1019,10 @@ export function listCompanyInbox(input: {
     const metadata = parseJsonObject(row.metadata_json);
     const eventType = toInboxEventType(row);
 
-    return {
+    const event: OrchestrationCompanyInboxEvent = {
       id: row.event_id,
       eventType,
-      kind: row.event_kind,
+      kind: row.event_kind as OrchestrationCompanyInboxEvent["kind"],
       companyId: row.company_id,
       companySlug: row.company_slug,
       companyName: row.company_name,
@@ -981,6 +1040,16 @@ export function listCompanyInbox(input: {
       timestamp: row.created_at,
       isRead: readSet.has(row.event_id),
     };
+
+    if (row.event_kind === "approval") {
+      event.approvalId = typeof metadata.approvalId === "string" ? metadata.approvalId : undefined;
+      event.approvalType = typeof metadata.approvalType === "string" ? metadata.approvalType as OrchestrationCompanyInboxEvent["approvalType"] : undefined;
+      event.approvalStatus = typeof metadata.approvalStatus === "string" ? metadata.approvalStatus as OrchestrationCompanyInboxEvent["approvalStatus"] : undefined;
+      event.approvalLabel = typeof metadata.approvalLabel === "string" ? metadata.approvalLabel : undefined;
+      event.requestedByName = typeof metadata.requestedByName === "string" ? metadata.requestedByName : undefined;
+    }
+
+    return event;
   });
 
   // Unread count via pure SQL LEFT JOIN (raw composite keys match directly)

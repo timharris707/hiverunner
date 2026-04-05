@@ -134,8 +134,12 @@ export interface OrchestrationCompanyInboxEvent {
     | "execution.running"
     | "execution.completed"
     | "execution.failed"
-    | "execution.cancelled";
-  kind: "task" | "execution";
+    | "execution.cancelled"
+    | "approval.pending"
+    | "approval.approved"
+    | "approval.rejected"
+    | "approval.revision_requested";
+  kind: "task" | "execution" | "approval";
   companyId: string;
   companySlug: string;
   companyName: string;
@@ -152,6 +156,11 @@ export interface OrchestrationCompanyInboxEvent {
   message: string;
   timestamp: string;
   isRead?: boolean;
+  approvalId?: string;
+  approvalType?: ApprovalType;
+  approvalStatus?: ApprovalStatus;
+  approvalLabel?: string;
+  requestedByName?: string;
 }
 
 export interface OrchestrationCompanyGoal {
@@ -293,6 +302,72 @@ export interface OrchestrationStaleAlert {
 export interface BoardState {
   project: OrchestrationProject;
   tasks: OrchestrationTask[];
+}
+
+/* ── Approvals ── */
+
+export type ApprovalType = "hire_agent" | "approve_ceo_strategy" | "budget_override_required";
+export type ApprovalStatus = "pending" | "revision_requested" | "approved" | "rejected" | "cancelled";
+
+export interface OrchestrationApproval {
+  id: string;
+  companyId: string;
+  type: ApprovalType;
+  status: ApprovalStatus;
+  requestedByAgentId: string | null;
+  requestedByAgentName: string | null;
+  payload: Record<string, unknown>;
+  decisionNote: string | null;
+  decidedByUserId: string | null;
+  decidedAt: string | null;
+  linkedTaskId: string | null;
+  createdAt: string;
+  updatedAt: string;
+  comments?: OrchestrationApprovalComment[];
+}
+
+export interface OrchestrationApprovalComment {
+  id: string;
+  approvalId: string;
+  authorAgentId: string | null;
+  authorAgentName: string | null;
+  authorUserId: string | null;
+  body: string;
+  createdAt: string;
+}
+
+/* ── Routines ── */
+
+export type RoutineStatus = "active" | "paused" | "archived";
+export type RoutinePriority = "critical" | "high" | "medium" | "low";
+export type RoutineConcurrencyPolicy = "coalesce_if_active" | "always_enqueue" | "skip_if_active";
+export type RoutineCatchUpPolicy = "skip_missed" | "enqueue_missed_with_cap";
+export type RoutineRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface OrchestrationRoutine {
+  id: string;
+  companyId: string;
+  projectId: string | null;
+  assigneeAgentId: string | null;
+  title: string;
+  description: string;
+  priority: RoutinePriority;
+  status: RoutineStatus;
+  concurrencyPolicy: RoutineConcurrencyPolicy;
+  catchUpPolicy: RoutineCatchUpPolicy;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrchestrationRoutineListItem extends OrchestrationRoutine {
+  projectName: string | null;
+  projectColor: string | null;
+  agentName: string | null;
+  agentEmoji: string | null;
+  lastRun: {
+    triggeredAt: string;
+    status: RoutineRunStatus;
+  } | null;
 }
 
 export const ORCHESTRATION_COLUMNS: Array<{ id: TaskStatus; label: string }> = [

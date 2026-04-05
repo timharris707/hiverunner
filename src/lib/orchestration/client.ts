@@ -8,6 +8,8 @@ import type {
   OrchestrationCompanyGoal,
   OrchestrationCompanyInboxEvent,
   OrchestrationCompanyInboxTask,
+  OrchestrationRoutine,
+  OrchestrationRoutineListItem,
   AvatarThemePreset,
   BoardState,
   CompanyTheme,
@@ -262,7 +264,7 @@ function normalizeCompanyInboxTask(raw: JsonRecord): OrchestrationCompanyInboxTa
 }
 
 function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxEvent {
-  return {
+  const event: OrchestrationCompanyInboxEvent = {
     id: String(raw.id ?? crypto.randomUUID()),
     eventType:
       (String(raw.eventType ?? raw.event_type ?? "task.updated") as OrchestrationCompanyInboxEvent["eventType"]) ??
@@ -286,7 +288,14 @@ function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxE
         : undefined,
     message: String(raw.message ?? ""),
     timestamp: String(raw.timestamp ?? raw.created_at ?? new Date().toISOString()),
+    isRead: typeof raw.isRead === "boolean" ? raw.isRead : undefined,
+    approvalId: raw.approvalId ? String(raw.approvalId) : undefined,
+    approvalType: raw.approvalType ? String(raw.approvalType) as OrchestrationCompanyInboxEvent["approvalType"] : undefined,
+    approvalStatus: raw.approvalStatus ? String(raw.approvalStatus) as OrchestrationCompanyInboxEvent["approvalStatus"] : undefined,
+    approvalLabel: raw.approvalLabel ? String(raw.approvalLabel) : undefined,
+    requestedByName: raw.requestedByName ? String(raw.requestedByName) : undefined,
   };
+  return event;
 }
 
 function normalizeCompanyGoal(raw: JsonRecord): OrchestrationCompanyGoal {
@@ -1712,4 +1721,173 @@ export async function triggerAgentHeartbeat(
       runtimeMinutesDelta: Number(heartbeatRaw.runtimeMinutesDelta ?? 0),
     },
   };
+}
+
+/* ── Routines ── */
+
+export async function listCompanyRoutines(
+  companySlug: string,
+  input?: { projectId?: string }
+): Promise<OrchestrationRoutineListItem[]> {
+  const params = new URLSearchParams();
+  if (input?.projectId) params.set("projectId", input.projectId);
+  const qs = params.toString();
+  const url = `/api/orchestration/companies/${encodeURIComponent(companySlug)}/routines${qs ? `?${qs}` : ""}`;
+  const data = await fetchJson<{ routines: OrchestrationRoutineListItem[] }>(url);
+  return data?.routines ?? [];
+}
+
+export async function createCompanyRoutine(
+  companySlug: string,
+  input: {
+    title: string;
+    description?: string;
+    projectId: string;
+    assigneeAgentId: string;
+    priority?: string;
+    concurrencyPolicy?: string;
+    catchUpPolicy?: string;
+  }
+): Promise<OrchestrationRoutine | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/companies/${encodeURIComponent(companySlug)}/routines`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { routine: OrchestrationRoutine };
+    return data.routine;
+  } catch {
+    return null;
+  }
+}
+
+export async function updateRoutine(
+  routineId: string,
+  input: Record<string, unknown>
+): Promise<OrchestrationRoutine | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/routines/${encodeURIComponent(routineId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }
+    );
+    if (!response.ok) return null;
+    const data = (await response.json()) as { routine: OrchestrationRoutine };
+    return data.routine;
+  } catch {
+    return null;
+  }
+}
+
+export async function runRoutineNow(routineId: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/routines/${encodeURIComponent(routineId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run" }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/* ── Approvals ── */
+
+export async function approveApproval(approvalId: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function rejectApproval(approvalId: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "reject" }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function requestApprovalRevision(approvalId: string, decisionNote?: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "request_revision", decisionNote }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function resubmitApproval(approvalId: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "resubmit" }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+export async function getApprovalDetail(approvalId: string): Promise<OrchestrationApproval | null> {
+  const data = await fetchJson<{ approval: OrchestrationApproval }>(
+    `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`
+  );
+  return data?.approval ?? null;
+}
+
+export async function addApprovalComment(approvalId: string, body: string): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/approvals/${encodeURIComponent(approvalId)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "comment", body }),
+      }
+    );
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
