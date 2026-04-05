@@ -82,12 +82,14 @@ function deriveLiveTaskIds(
     const agent = agentByKey.get(task.assignee.toLowerCase());
     if (!agent) continue;
 
-    // Agent is working — check if they're on this task
-    const currentTaskKey = agent.currentTask?.toLowerCase();
+    // Agent is working — check if they're on this task.
+    // agent.currentTask may be a task title, key, or ID depending on the API.
+    const ct = agent.currentTask?.toLowerCase();
     if (
-      currentTaskKey === task.id.toLowerCase() ||
-      currentTaskKey === task.key?.toLowerCase() ||
-      !currentTaskKey // working but no specific currentTask → assume on-task
+      !ct ||
+      ct === task.id.toLowerCase() ||
+      ct === task.key?.toLowerCase() ||
+      ct === task.title.toLowerCase()
     ) {
       liveIds.add(task.id);
     }
