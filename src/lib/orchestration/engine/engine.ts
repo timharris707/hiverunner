@@ -658,27 +658,42 @@ export async function executeHeartbeatRun(
     throw new OrchestrationApiError(404, "heartbeat_run_not_found", `Heartbeat run ${runId} not found`);
   }
 
-  if (run.status !== "queued") {
+  // Accept 'queued' (manual trigger) or 'running' (pre-claimed by tick)
+  if (run.status !== "queued" && run.status !== "running") {
     return {
       runId,
       agentId: run.agent_id,
       status: run.status as HeartbeatRunStatus,
       sessionId: null,
-      error: `Run is already in status '${run.status}', not queued`,
+      error: `Run is in status '${run.status}', expected queued or running`,
       durationMs: Date.now() - startTime,
     };
   }
 
-  // Claim the run
-  const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE heartbeat_runs SET status = 'running', started_at = ?, updated_at = ? WHERE id = ?`
-  ).run(now, now, runId);
+  // Claim the run if still queued (no-op if already claimed by tick)
+  if (run.status === "queued") {
+    const now = new Date().toISOString();
+    const claimed = db
+      .prepare(`UPDATE heartbeat_runs SET status = 'running', started_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'`)
+      .run(now, now, runId);
 
-  if (run.wakeup_request_id) {
-    db.prepare(
-      `UPDATE agent_wakeup_requests SET status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ?`
-    ).run(now, now, run.wakeup_request_id);
+    if (claimed.changes === 0) {
+      // Another process claimed it between our SELECT and UPDATE
+      return {
+        runId,
+        agentId: run.agent_id,
+        status: "running" as HeartbeatRunStatus,
+        sessionId: null,
+        error: "Run was claimed by another process",
+        durationMs: Date.now() - startTime,
+      };
+    }
+
+    if (run.wakeup_request_id) {
+      db.prepare(
+        `UPDATE agent_wakeup_requests SET status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'`
+      ).run(now, now, run.wakeup_request_id);
+    }
   }
 
   // Load agent
@@ -828,6 +843,173 @@ export async function executeHeartbeatRun(
     db,
     result.sessionId
   );
+}
+
+/* ── Automatic Execution Tick ── */
+
+const STALE_RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+
+export type TickResult = {
+  tickedAt: string;
+  claimed: boolean;
+  runId: string | null;
+  agentId: string | null;
+  status: HeartbeatRunStatus | "idle" | "stale_recovered";
+  error: string | null;
+  durationMs: number;
+  staleRunsRecovered: number;
+};
+
+/**
+ * Engine tick: claims and executes the next queued heartbeat run.
+ * Called automatically by the server loop every N seconds.
+ *
+ * Safety properties:
+ * - Atomic claim: UPDATE ... WHERE status='queued' with LIMIT 1
+ * - One run per tick: prevents pileup
+ * - Stale detection: marks runs stuck in 'running' as timed_out
+ * - Idempotent: if no queued runs, returns idle
+ */
+export async function tick(
+  db = getOrchestrationDb()
+): Promise<TickResult> {
+  const startTime = Date.now();
+  const tickedAt = new Date().toISOString();
+
+  // Step 1: Recover stale runs (stuck in 'running' for too long)
+  const staleRunsRecovered = recoverStaleRuns(db);
+
+  // Step 2: Atomically claim the oldest queued run
+  const claimed = claimNextQueuedRun(db);
+
+  if (!claimed) {
+    return {
+      tickedAt,
+      claimed: false,
+      runId: null,
+      agentId: null,
+      status: "idle",
+      error: null,
+      durationMs: Date.now() - startTime,
+      staleRunsRecovered,
+    };
+  }
+
+  // Step 3: Execute the claimed run
+  try {
+    const result = await executeHeartbeatRun(claimed.id, db);
+    return {
+      tickedAt,
+      claimed: true,
+      runId: claimed.id,
+      agentId: claimed.agent_id,
+      status: result.status,
+      error: result.error,
+      durationMs: Date.now() - startTime,
+      staleRunsRecovered,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // Mark the run as failed if execution throws
+    const now = new Date().toISOString();
+    db.prepare(
+      `UPDATE heartbeat_runs SET status = 'failed', finished_at = ?, error = ?, updated_at = ? WHERE id = ? AND status = 'running'`
+    ).run(now, msg, now, claimed.id);
+    if (claimed.wakeup_request_id) {
+      db.prepare(
+        `UPDATE agent_wakeup_requests SET status = 'failed', finished_at = ?, updated_at = ? WHERE id = ?`
+      ).run(now, now, claimed.wakeup_request_id);
+    }
+    return {
+      tickedAt,
+      claimed: true,
+      runId: claimed.id,
+      agentId: claimed.agent_id,
+      status: "failed",
+      error: msg,
+      durationMs: Date.now() - startTime,
+      staleRunsRecovered,
+    };
+  }
+}
+
+type ClaimedRun = {
+  id: string;
+  agent_id: string;
+  wakeup_request_id: string | null;
+};
+
+/**
+ * Atomically claim the oldest queued heartbeat run.
+ * Uses UPDATE ... WHERE to prevent double-claiming.
+ * Returns null if no queued runs exist.
+ */
+function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
+  const now = new Date().toISOString();
+
+  // Find the oldest queued run
+  const candidate = db
+    .prepare(
+      `SELECT id, agent_id, wakeup_request_id
+       FROM heartbeat_runs
+       WHERE status = 'queued'
+       ORDER BY created_at ASC
+       LIMIT 1`
+    )
+    .get() as ClaimedRun | undefined;
+
+  if (!candidate) return null;
+
+  // Atomic claim: only succeeds if still queued
+  const result = db
+    .prepare(
+      `UPDATE heartbeat_runs
+       SET status = 'running', started_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'queued'`
+    )
+    .run(now, now, candidate.id);
+
+  if (result.changes === 0) {
+    // Another tick already claimed it
+    return null;
+  }
+
+  // Claim the wakeup request too
+  if (candidate.wakeup_request_id) {
+    db.prepare(
+      `UPDATE agent_wakeup_requests SET status = 'claimed', claimed_at = ?, updated_at = ? WHERE id = ? AND status = 'queued'`
+    ).run(now, now, candidate.wakeup_request_id);
+  }
+
+  return candidate;
+}
+
+/**
+ * Recover runs stuck in 'running' for longer than the stale timeout.
+ * Marks them as 'timed_out' so they don't block the queue forever.
+ */
+function recoverStaleRuns(db: Database.Database): number {
+  const cutoff = new Date(Date.now() - STALE_RUN_TIMEOUT_MS).toISOString();
+  const now = new Date().toISOString();
+
+  const result = db
+    .prepare(
+      `UPDATE heartbeat_runs
+       SET status = 'timed_out', finished_at = ?, error = 'Timed out: run exceeded 5 minute limit', updated_at = ?
+       WHERE status = 'running' AND started_at < ? AND started_at IS NOT NULL`
+    )
+    .run(now, now, cutoff);
+
+  if (result.changes > 0) {
+    // Also fail the linked wakeup requests
+    db.prepare(
+      `UPDATE agent_wakeup_requests
+       SET status = 'failed', finished_at = ?, updated_at = ?
+       WHERE status = 'claimed' AND claimed_at < ?`
+    ).run(now, now, cutoff);
+  }
+
+  return result.changes;
 }
 
 /* ── Prompt Building ── */

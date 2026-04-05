@@ -108,12 +108,50 @@ app.prepare().then(() => {
     handleUpgrade(req, socket, head);
   });
 
+  // ── Engine tick loop ──
+  // Automatically claims and executes queued heartbeat runs every 10 seconds.
+  // This is the autonomous execution layer that makes queued wakeups actually fire.
+  let engineTickRunning = false;
+
+  const engineTickInterval = setInterval(async () => {
+    if (engineTickRunning) return; // Skip if previous tick is still executing
+    engineTickRunning = true;
+    try {
+      const response = await fetch(`${origin}/api/orchestration/engine/tick`, {
+        method: "POST",
+        headers: {
+          "x-engine-tick": "internal",
+          "Content-Type": "application/json",
+        },
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.claimed) {
+          console.log(
+            `[engine:tick] executed run ${result.runId?.slice(0, 8)} → ${result.status}` +
+            (result.error ? ` (${result.error.slice(0, 80)})` : "") +
+            ` [${result.durationMs}ms]`
+          );
+        }
+        if (result.staleRunsRecovered > 0) {
+          console.log(`[engine:tick] recovered ${result.staleRunsRecovered} stale run(s)`);
+        }
+      }
+    } catch {
+      // Tick failed — suppress to avoid flooding logs
+    } finally {
+      engineTickRunning = false;
+    }
+  }, 10_000);
+
   server.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
+    console.log(`> Engine tick loop active (every 10s)`);
   });
 
   const cleanup = () => {
     clearInterval(broadcastInterval);
+    clearInterval(engineTickInterval);
     for (const client of clients) {
       try {
         client.close();
