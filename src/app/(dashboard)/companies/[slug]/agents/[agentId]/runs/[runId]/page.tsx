@@ -301,6 +301,7 @@ export default function RunDetailPage({
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [providerExpanded, setProviderExpanded] = useState(false);
   const [metaExpanded, setMetaExpanded] = useState(false);
+  const [actionDetailExpanded, setActionDetailExpanded] = useState(false);
 
   const { streamByAgentId } = useLiveStream();
 
@@ -753,6 +754,77 @@ export default function RunDetailPage({
         </div>
       )}
 
+      {/* ═══════════════════════════════════════════
+          SECTION 6: TELEMETRY (when available)
+          ═══════════════════════════════════════════ */}
+
+      {run.usage && typeof run.usage === "object" && Object.keys(run.usage).length > 0 && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <Clock size={12} style={{ color: A.accent }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Run telemetry</span>
+            <span style={{ fontSize: 9, color: A.muted, fontStyle: "italic", marginLeft: "auto" }}>captured values</span>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {/* Timing */}
+            {typeof (run.usage as Record<string, unknown>).thinkingDurationMs === "number" && (
+              <TelemetryChip label="Thinking" value={formatDuration((run.usage as Record<string, unknown>).thinkingDurationMs as number)} />
+            )}
+            {typeof (run.usage as Record<string, unknown>).actionExecutionMs === "number" && (
+              <TelemetryChip label="Actions" value={formatDuration((run.usage as Record<string, unknown>).actionExecutionMs as number)} />
+            )}
+            {typeof (run.usage as Record<string, unknown>).importDurationMs === "number" && (
+              <TelemetryChip label="Import" value={formatDuration((run.usage as Record<string, unknown>).importDurationMs as number)} />
+            )}
+            {typeof (run.usage as Record<string, unknown>).promptBuildMs === "number" && (
+              <TelemetryChip label="Prompt build" value={formatDuration((run.usage as Record<string, unknown>).promptBuildMs as number)} />
+            )}
+
+            {/* Size */}
+            {typeof (run.usage as Record<string, unknown>).promptChars === "number" && (
+              <TelemetryChip label="Prompt" value={`${Math.round(((run.usage as Record<string, unknown>).promptChars as number) / 1000)}k chars`} />
+            )}
+
+            {/* Tokens (nullable — not all providers report) */}
+            {typeof (run.usage as Record<string, unknown>).inputTokens === "number" && (
+              <TelemetryChip label="Input tokens" value={((run.usage as Record<string, unknown>).inputTokens as number).toLocaleString()} />
+            )}
+            {typeof (run.usage as Record<string, unknown>).outputTokens === "number" && (
+              <TelemetryChip label="Output tokens" value={((run.usage as Record<string, unknown>).outputTokens as number).toLocaleString()} />
+            )}
+
+            {/* Session */}
+            {(run.usage as Record<string, unknown>).sessionReused === true && (
+              <TelemetryChip label="Session" value="reused" />
+            )}
+            {(run.usage as Record<string, unknown>).sessionReused === false && (
+              <TelemetryChip label="Session" value="new" />
+            )}
+          </div>
+
+          {/* Per-action detail from enriched result */}
+          {result && Array.isArray((result as Record<string, unknown>).perActionDetail) && ((result as Record<string, unknown>).perActionDetail as Array<Record<string, unknown>>).length > 0 && (
+            <DisclosureRow
+              label={`Per-action detail (${((result as Record<string, unknown>).perActionDetail as unknown[]).length})`}
+              open={actionDetailExpanded}
+              onToggle={() => setActionDetailExpanded(!actionDetailExpanded)}
+              style={{ marginTop: 8 }}
+            >
+              <div style={{ fontSize: 11, color: A.textSec, padding: "4px 0" }}>
+                {((result as Record<string, unknown>).perActionDetail as Array<{ action: string; target: string; status: string; durationMs: number }>).map((d, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, padding: "2px 0" }}>
+                    <span style={{ fontFamily: "monospace", fontSize: 10, color: A.muted, width: 40 }}>{d.durationMs}ms</span>
+                    <span style={{ color: d.status === "error" ? "#f87171" : d.status === "skipped" ? A.muted : A.text }}>{d.action}</span>
+                    <span style={{ color: A.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{d.target}</span>
+                  </div>
+                ))}
+              </div>
+            </DisclosureRow>
+          )}
+        </div>
+      )}
+
       {/* Pulse animation for live dot */}
       <style>{`
         @keyframes pulse-dot {
@@ -863,6 +935,19 @@ function ResultChip({ label, value, warn, muted }: { label: string; value: numbe
       border: `1px solid ${warn ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.05)"}`,
     }}>
       <span style={{ fontSize: 16, fontWeight: 700, color }}>{value}</span>
+      <span style={{ fontSize: 10, color: A.muted }}>{label}</span>
+    </div>
+  );
+}
+
+function TelemetryChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{
+      display: "flex", alignItems: "baseline", gap: 5,
+      padding: "4px 8px", borderRadius: 5,
+      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
+    }}>
+      <span style={{ fontSize: 11, color: A.text, fontFamily: "monospace" }}>{value}</span>
       <span style={{ fontSize: 10, color: A.muted }}>{label}</span>
     </div>
   );

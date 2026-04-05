@@ -755,10 +755,21 @@ export async function executeHeartbeatRun(
   }
 
   // Build the execution prompt
+  const promptBuildStart = Date.now();
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db);
+  const promptBuildMs = Date.now() - promptBuildStart;
+
+  // ── Telemetry accumulator (usage_json) ──
+  const telemetry: Record<string, unknown> = {
+    promptChars: prompt.length,
+    promptBuildMs,
+    sessionReused: false,
+    messageCountBefore: 0,
+  };
 
   // Execute via OpenClaw gateway
-  emitRunEvent(runId, agent.id, "session_start", "Sending prompt to agent session", db);
+  emitRunEvent(runId, agent.id, "session_start", `Sending prompt to agent session (${prompt.length} chars)`, db);
+  const sendTime = Date.now();
   let result: { sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> };
   try {
     result = await executeViaOpenClaw(agent, prompt, session, runtimeState);
@@ -766,6 +777,14 @@ export async function executeHeartbeatRun(
     const message = error instanceof Error ? error.message : String(error);
     return finishRun(runId, run, "failed", message, startTime, db);
   }
+
+  // Capture session telemetry
+  if (result.usage) {
+    telemetry.openclawRunId = result.usage.openclawRunId ?? null;
+    telemetry.openclawStatus = result.usage.openclawStatus ?? null;
+    telemetry.sessionReused = result.usage.sessionReused ?? false;
+  }
+  telemetry.messageCountBefore = result.messageCountBefore ?? 0;
 
   // Bridge: update execution_run with session ID so polling can find it
   if (executionRunId && result.sessionId) {
@@ -791,23 +810,31 @@ export async function executeHeartbeatRun(
       db
     );
 
+    const inputTokensDelta = (result.usage?.inputTokens as number) ?? 0;
+    const outputTokensDelta = (result.usage?.outputTokens as number) ?? 0;
     updateRuntimeState(
       agent.id,
       {
         sessionId: result.sessionId,
         lastRunId: runId,
         lastRunStatus: result.error ? "failed" : "succeeded",
-        inputTokensDelta: (result.usage?.inputTokens as number) ?? 0,
-        outputTokensDelta: (result.usage?.outputTokens as number) ?? 0,
+        inputTokensDelta,
+        outputTokensDelta,
         lastError: result.error ?? null,
       },
       db
     );
+    // Capture tokens in telemetry (nullable — not all providers report tokens)
+    if (inputTokensDelta > 0 || outputTokensDelta > 0) {
+      telemetry.inputTokens = inputTokensDelta;
+      telemetry.outputTokens = outputTokensDelta;
+    }
   }
 
   // ── Post-execution: read output, import reports, execute MC actions ──
   if (result.sessionId && !result.error) {
     try {
+      const importStart = Date.now();
       const actionResults = await importSessionOutputAndExecuteActions({
         sessionKey: `agent:${agent.openclaw_agent_id}:heartbeat:${session.taskKey}`,
         sessionId: result.sessionId,
@@ -818,17 +845,39 @@ export async function executeHeartbeatRun(
         runId,
         db,
         messageCountBefore: result.messageCountBefore ?? 0,
+        telemetry,  // pass telemetry accumulator for sub-phase timing
       });
+      const importDurationMs = Date.now() - importStart;
 
-      // Store action results in heartbeat run
+      // Finalize telemetry
+      telemetry.importDurationMs = importDurationMs;
+      telemetry.totalDurationMs = Date.now() - startTime;
+
+      // Store action results + usage telemetry
+      const now = new Date().toISOString();
       db.prepare(
-        `UPDATE heartbeat_runs SET result_json = ?, updated_at = ? WHERE id = ?`
-      ).run(JSON.stringify(actionResults), new Date().toISOString(), runId);
+        `UPDATE heartbeat_runs SET result_json = ?, usage_json = ?, updated_at = ? WHERE id = ?`
+      ).run(JSON.stringify(actionResults), JSON.stringify(telemetry), now, runId);
     } catch (importError) {
       const msg = importError instanceof Error ? importError.message : String(importError);
       console.error("[engine] output import failed:", msg);
-      // Non-fatal: run succeeded even if import fails
+      // Still persist whatever telemetry we have
+      telemetry.totalDurationMs = Date.now() - startTime;
+      telemetry.importError = msg;
+      try {
+        db.prepare(
+          `UPDATE heartbeat_runs SET usage_json = ?, updated_at = ? WHERE id = ?`
+        ).run(JSON.stringify(telemetry), new Date().toISOString(), runId);
+      } catch { /* non-fatal */ }
     }
+  } else {
+    // No session or error — still persist partial telemetry
+    telemetry.totalDurationMs = Date.now() - startTime;
+    try {
+      db.prepare(
+        `UPDATE heartbeat_runs SET usage_json = ?, updated_at = ? WHERE id = ?`
+      ).run(JSON.stringify(telemetry), new Date().toISOString(), runId);
+    } catch { /* non-fatal */ }
   }
 
   // Update agent heartbeat
@@ -1411,6 +1460,7 @@ async function importSessionOutputAndExecuteActions(input: {
   runId: string;
   db: Database.Database;
   messageCountBefore: number;
+  telemetry?: Record<string, unknown>;
 }): Promise<ActionResults> {
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
@@ -1428,8 +1478,13 @@ async function importSessionOutputAndExecuteActions(input: {
   };
 
   // Wait for session to reach terminal state (poll sessions.get)
+  const thinkingStart = Date.now();
   emitRunEvent(input.runId, input.agentId, "waiting", "Waiting for agent to complete thinking", input.db);
   const sessionData = await waitForSessionCompletion(OPENCLAW_BIN, input.sessionKey, execFileAsync);
+  const thinkingDurationMs = Date.now() - thinkingStart;
+  if (input.telemetry) {
+    input.telemetry.thinkingDurationMs = thinkingDurationMs;
+  }
   if (!sessionData) {
     results.errors.push("Could not retrieve session data after execution");
     return results;
@@ -1482,8 +1537,13 @@ async function importSessionOutputAndExecuteActions(input: {
 
   results.actionsFound = allActions.length;
 
+  // Capture assistant text metrics in result
+  const totalAssistantChars = assistantTexts.reduce((sum, t) => sum + t.length, 0);
+  (results as Record<string, unknown>).assistantTextLength = totalAssistantChars;
+  (results as Record<string, unknown>).plainTextLength = allPlainText.reduce((sum, t) => sum + t.length, 0);
+
   emitRunEvent(input.runId, input.agentId, "parsing_complete",
-    `Parsed ${assistantTexts.length} message${assistantTexts.length !== 1 ? "s" : ""}, found ${allActions.length} action${allActions.length !== 1 ? "s" : ""}`,
+    `Parsed ${assistantTexts.length} message${assistantTexts.length !== 1 ? "s" : ""}, found ${allActions.length} action${allActions.length !== 1 ? "s" : ""} (${totalAssistantChars} chars)`,
     input.db);
 
   // Import plain text as a report comment on the direction task
@@ -1501,6 +1561,9 @@ async function importSessionOutputAndExecuteActions(input: {
   const executedFingerprints = new Set<string>();
 
   // Execute each action — continue on failure (partial success is better than total failure)
+  const actionExecutionStart = Date.now();
+  const perActionDetail: Array<{ action: string; target: string; status: string; durationMs: number }> = [];
+
   for (const action of allActions) {
     const fingerprint = actionFingerprint(action);
     if (executedFingerprints.has(fingerprint)) {
@@ -1509,6 +1572,8 @@ async function importSessionOutputAndExecuteActions(input: {
     }
     executedFingerprints.add(fingerprint);
 
+    const actionStart = Date.now();
+    const actionTarget = getActionTarget(action);
     try {
       switch (action.action) {
         case "create_task":
@@ -1517,10 +1582,12 @@ async function importSessionOutputAndExecuteActions(input: {
             if (taskId) {
               results.tasksCreated.push(taskId);
               results.actionsExecuted++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_executed",
                 `Created task: ${(action.title ?? "").slice(0, 80)}`, input.db);
             } else {
               results.actionsSkippedDedup++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "skipped", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_skipped",
                 `Skipped duplicate task: ${(action.title ?? "").slice(0, 60)}`, input.db);
             }
@@ -1532,10 +1599,12 @@ async function importSessionOutputAndExecuteActions(input: {
             if (approvalId) {
               results.approvalsCreated.push(approvalId);
               results.actionsExecuted++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_executed",
                 `Requested hire: ${action.name} (${action.role})`, input.db);
             } else {
               results.actionsSkippedDedup++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "skipped", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_skipped",
                 `Skipped duplicate hire: ${action.name}`, input.db);
             }
@@ -1553,6 +1622,7 @@ async function importSessionOutputAndExecuteActions(input: {
             );
             results.reportsImported++;
             results.actionsExecuted++;
+            perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
             emitRunEvent(input.runId, input.agentId, "action_executed",
               `Imported report: ${(action.summary ?? "").slice(0, 80)}`, input.db);
           }
@@ -1562,6 +1632,7 @@ async function importSessionOutputAndExecuteActions(input: {
             const updated = executeUpdateTask(action, input, input.db);
             if (updated) {
               results.actionsExecuted++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_executed",
                 `Updated task ${action.taskKey}${action.status ? ` → ${action.status}` : ""}`, input.db);
             }
@@ -1572,6 +1643,7 @@ async function importSessionOutputAndExecuteActions(input: {
             const added = executeAddComment(action, input, input.db);
             if (added) {
               results.actionsExecuted++;
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_executed",
                 `Comment on ${action.taskKey}`, input.db);
             }
@@ -1583,14 +1655,22 @@ async function importSessionOutputAndExecuteActions(input: {
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       results.errors.push(`Action ${action.action} failed: ${msg}`);
+      perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
       emitRunEvent(input.runId, input.agentId, "action_error",
         `${action.action} failed: ${msg.slice(0, 100)}`, input.db);
       // Continue processing remaining actions
     }
   }
 
+  const actionExecutionMs = Date.now() - actionExecutionStart;
+  (results as Record<string, unknown>).actionExecutionMs = actionExecutionMs;
+  (results as Record<string, unknown>).perActionDetail = perActionDetail;
+  if (input.telemetry) {
+    input.telemetry.actionExecutionMs = actionExecutionMs;
+  }
+
   emitRunEvent(input.runId, input.agentId, "actions_complete",
-    `Done: ${results.actionsExecuted} executed, ${results.actionsSkippedDedup} skipped, ${results.errors.length} errors`,
+    `Done: ${results.actionsExecuted} executed, ${results.actionsSkippedDedup} skipped, ${results.errors.length} errors (${actionExecutionMs}ms)`,
     input.db);
 
   return results;
@@ -1610,6 +1690,17 @@ function emitRunEvent(
     ).run(randomUUID(), runId, agentId, eventType, detail, new Date().toISOString());
   } catch {
     // Non-fatal — event emission should never break the run
+  }
+}
+
+function getActionTarget(action: McAction): string {
+  switch (action.action) {
+    case "create_task": return (action.title ?? "").slice(0, 50);
+    case "hire_agent": return `${action.name} (${action.role})`;
+    case "report": return (action.summary ?? "").slice(0, 50);
+    case "update_task": return action.taskKey ?? "";
+    case "add_comment": return action.taskKey ?? "";
+    default: return "";
   }
 }
 
