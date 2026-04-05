@@ -1728,15 +1728,21 @@ function importCommentOnTask(
   runId: string,
   db: Database.Database
 ): void {
-  // Check task exists (taskKey might be a task ID)
-  const task = db.prepare("SELECT id FROM tasks WHERE id = ? LIMIT 1").get(taskId) as { id: string } | undefined;
-  if (!task) return;
+  // Resolve task — caller may pass either a task id or a task_key
+  const task = (
+    db.prepare("SELECT id, project_id FROM tasks WHERE id = ? LIMIT 1").get(taskId) ??
+    db.prepare("SELECT id, project_id FROM tasks WHERE task_key = ? LIMIT 1").get(taskId)
+  ) as { id: string; project_id: string } | undefined;
+  if (!task || !task.id) return;
 
   // ── Cross-run dedup: content-based fingerprint ──
   // Hash the first 200 chars of the body to detect near-identical comments
+  // Use resolved task.id for all DB operations (caller may have passed a task_key)
+  const resolvedId = task.id;
+
   const { createHash } = require("crypto");
   const bodyFingerprint = createHash("sha1").update(body.slice(0, 200).toLowerCase().trim()).digest("hex").slice(0, 16);
-  const externalRef = `engine:comment:${taskId.slice(0, 8)}:${bodyFingerprint}`;
+  const externalRef = `engine:comment:${resolvedId.slice(0, 8)}:${bodyFingerprint}`;
 
   // Check if a comment with this fingerprint already exists
   const existing = db
@@ -1745,10 +1751,10 @@ function importCommentOnTask(
        WHERE task_id = ? AND source = 'openclaw' AND external_ref = ?
        LIMIT 1`
     )
-    .get(taskId, externalRef) as { id: string } | undefined;
+    .get(resolvedId, externalRef) as { id: string } | undefined;
 
   if (existing) {
-    console.log(`[engine:dedup] skipped duplicate comment on ${taskId.slice(0, 8)} (fingerprint: ${bodyFingerprint})`);
+    console.log(`[engine:dedup] skipped duplicate comment on ${resolvedId.slice(0, 8)} (fingerprint: ${bodyFingerprint})`);
     return;
   }
 
@@ -1758,12 +1764,12 @@ function importCommentOnTask(
   db.prepare(
     `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, 'openclaw', ?, ?, ?)`
-  ).run(commentId, taskId, agentId, body, type, externalRef, now, now);
+  ).run(commentId, resolvedId, agentId, body, type, externalRef, now, now);
 
   db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
-     VALUES (?, (SELECT project_id FROM tasks WHERE id = ?), ?, ?, 'task.comment_added', ?, ?)`
-  ).run(randomUUID(), taskId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId }), now);
+     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
+  ).run(randomUUID(), task.project_id, resolvedId, agentId, JSON.stringify({ source: "engine_heartbeat", runId }), now);
 }
 
 function executeCreateTask(
@@ -1943,7 +1949,7 @@ function executeUpdateTask(
     .prepare("SELECT id, project_id, status FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
     .get(action.taskKey) as { id: string; project_id: string; status: string } | undefined;
 
-  if (!task) return false;
+  if (!task || !task.id) return false;
 
   // Status update if requested and transition is valid
   if (action.status) {
@@ -1983,7 +1989,7 @@ function executeAddComment(
     .prepare("SELECT id FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
     .get(action.taskKey) as { id: string } | undefined;
 
-  if (!task) return false;
+  if (!task || !task.id) return false;
 
   importCommentOnTask(task.id, input.agentId, action.body.slice(0, 9000), "comment", input.runId, db);
   return true;
