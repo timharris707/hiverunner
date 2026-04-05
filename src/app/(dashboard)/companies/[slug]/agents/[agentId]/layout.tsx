@@ -12,6 +12,7 @@ import {
   ListChecks,
   MoreHorizontal,
   RotateCcw,
+  Sparkles,
   Trash2,
   Wifi,
   WifiOff,
@@ -22,6 +23,7 @@ import {
   Plus,
 } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
+import { AvatarWizard } from "@/components/orchestration/AvatarWizard";
 import { getCompanyAgentProfile, triggerAgentHeartbeat } from "@/lib/orchestration/client";
 import type { OrchestrationAgentProfile } from "@/lib/orchestration/types";
 
@@ -75,6 +77,7 @@ export default function AgentDetailLayout({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<OrchestrationAgentProfile | null>(null);
+  const [avatarWizardOpen, setAvatarWizardOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -182,6 +185,18 @@ export default function AgentDetailLayout({
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <h1 style={{ margin: 0, fontSize: 18, fontWeight: 600, letterSpacing: "-0.02em", color: A.text }}>{agent.name}</h1>
+              <button
+                type="button"
+                onClick={() => setAvatarWizardOpen(true)}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: 5,
+                  padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500,
+                  border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)",
+                  color: "#a78bfa", cursor: "pointer",
+                }}
+              >
+                <Sparkles size={12} /> Edit Avatar
+              </button>
               <span
                 title={agent.status}
                 style={{
@@ -287,6 +302,22 @@ export default function AgentDetailLayout({
 
         {/* ── sub-page content ── */}
         {children}
+
+        {/* ── Avatar Wizard modal ── */}
+        {profile && (
+          <AvatarWizard
+            open={avatarWizardOpen}
+            onClose={() => setAvatarWizardOpen(false)}
+            agentName={agent.name}
+            agentRole={agent.role}
+            agentEmoji={agent.emoji}
+            agentPersonality={agent.personality}
+            currentAvatar={agent.avatar}
+            companySlug={slug}
+            agentId={agentId}
+            onSaved={() => { setAvatarWizardOpen(false); void load(); }}
+          />
+        )}
       </div>
     </AgentContext.Provider>
   );

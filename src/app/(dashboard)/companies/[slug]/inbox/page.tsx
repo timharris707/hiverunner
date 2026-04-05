@@ -16,7 +16,7 @@ import {
   approveApproval,
   rejectApproval,
 } from "@/lib/orchestration/client";
-import { canonicalProjectBoardHref } from "@/lib/orchestration/company-routes";
+import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
   OrchestrationCompany,
   OrchestrationCompanyInboxEvent,
@@ -85,16 +85,16 @@ function eventVerb(event: OrchestrationCompanyInboxEvent): string {
 }
 
 function eventTargetHref(
-  company: OrchestrationCompany | null,
+  companySlug: string,
   event: OrchestrationCompanyInboxEvent
 ): string {
-  if (!event.projectSlug && !event.projectId) {
-    return company
-      ? `/companies/${encodeURIComponent(company.slug)}`
-      : "/companies";
-  }
   const projectKey = event.projectSlug || event.projectId;
-  return canonicalProjectBoardHref(company, projectKey, event.taskId);
+  if (!projectKey) {
+    return buildCompanyPath(companySlug, "");
+  }
+  // Use the /tasks route (company-scoped) — not /board (old non-company route)
+  const taskQuery = event.taskId ? `?task=${encodeURIComponent(event.taskId)}` : "";
+  return buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectKey)}/tasks${taskQuery}`);
 }
 
 /* ------------------------------------------------------------------ */
@@ -312,7 +312,7 @@ export default function CompanyInboxPage() {
             }
 
             const isUnread = !event.isRead;
-            const href = eventTargetHref(company, event);
+            const href = eventTargetHref(company?.slug ?? slug, event);
             const verb = eventVerb(event);
             const age = formatAge(event.timestamp);
             const taskKey = event.taskKey ?? null;
