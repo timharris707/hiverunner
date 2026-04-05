@@ -274,26 +274,55 @@ export default function CompanyDashboardPage() {
     return last14Days.map((day) => ({ day, label: formatDayLabel(day), count: counts[day] ?? 0 }));
   }, [data, last14Days]);
 
-  const dailyTasksByStatus = useMemo(() => {
-    if (!data) return { days: [] as string[], series: {} as Record<string, number[]> };
-    // Count tasks that existed in each status by their creation date
-    const statusCounts: Record<string, Record<string, number>> = {};
+  const dailyTasksByPriority = useMemo(() => {
+    const PRIORITY_COLORS: Record<string, string> = {
+      critical: "#ef4444",
+      high: "#f59e0b",
+      medium: "#d97706",
+      low: "#94a3b8",
+    };
+    if (!data) return { days: [] as string[], series: {} as Record<string, number[]>, colors: PRIORITY_COLORS };
+    const PRIORITY_ORDER = ["critical", "high", "medium", "low"];
+    const buckets: Record<string, Record<string, number>> = {};
     for (const t of data.tasks) {
       const day = t.created?.split("T")[0] ?? t.updated?.split("T")[0];
       if (!day) continue;
-      if (!statusCounts[day]) statusCounts[day] = {};
-      const status = t.status.replace(/_/g, "-");
-      statusCounts[day][status] = (statusCounts[day][status] ?? 0) + 1;
+      const pri = (t.priority ?? "medium").toLowerCase().replace(/^p0$/, "critical").replace(/^p1$/, "high").replace(/^p2$/, "medium").replace(/^p3$/, "low");
+      if (!buckets[day]) buckets[day] = {};
+      buckets[day][pri] = (buckets[day][pri] ?? 0) + 1;
     }
-    const allStatuses = [...new Set(data.tasks.map((t) => t.status.replace(/_/g, "-")))];
     const series: Record<string, number[]> = {};
-    for (const s of allStatuses) series[s] = [];
+    for (const p of PRIORITY_ORDER) series[p] = [];
     for (const day of last14Days) {
-      for (const s of allStatuses) {
-        series[s].push(statusCounts[day]?.[s] ?? 0);
+      for (const p of PRIORITY_ORDER) {
+        series[p].push(buckets[day]?.[p] ?? 0);
       }
     }
-    return { days: last14Days.map(formatDayLabel), series };
+    return { days: last14Days.map(formatDayLabel), series, colors: PRIORITY_COLORS };
+  }, [data, last14Days]);
+
+  const successRateData = useMemo(() => {
+    // Derive from execution_runs via agent profiles
+    if (!data) return { total: 0, completed: 0, failed: 0, running: 0, daily: [] as Array<{ label: string; completed: number; failed: number }> };
+    const runs: Array<{ status: string; completedAt?: string; createdAt: string }> = [];
+    for (const profile of data.agentProfiles.values()) {
+      for (const run of profile.executionHistory) {
+        runs.push({ status: run.status, completedAt: run.completedAt, createdAt: run.createdAt });
+      }
+    }
+    const completed = runs.filter((r) => r.status === "completed").length;
+    const failed = runs.filter((r) => r.status === "failed" || r.status === "cancelled").length;
+    const running = runs.filter((r) => r.status === "running" || r.status === "pending").length;
+    // Daily bucketing
+    const daily = last14Days.map((day) => {
+      const dayRuns = runs.filter((r) => (r.completedAt ?? r.createdAt)?.split("T")[0] === day);
+      return {
+        label: formatDayLabel(day),
+        completed: dayRuns.filter((r) => r.status === "completed").length,
+        failed: dayRuns.filter((r) => r.status === "failed" || r.status === "cancelled").length,
+      };
+    });
+    return { total: runs.length, completed, failed, running, daily };
   }, [data, last14Days]);
 
   const dailyCosts = useMemo(() => {
@@ -417,13 +446,14 @@ export default function CompanyDashboardPage() {
               color="#d97706"
             />
           </ChartCard>
-          <ChartCard title="Tasks by Status" subtitle="Last 14 days">
+          <ChartCard title="Tasks by Priority" subtitle="Last 14 days">
             <StackedTimeSeriesBar
-              labels={dailyTasksByStatus.days}
-              series={Object.entries(dailyTasksByStatus.series).map(([status, values]) => ({
-                key: status,
-                values,
-                color: TASK_STATUS_COLOR[status] ?? "#78716c",
+              labels={dailyTasksByPriority.days}
+              series={["critical", "high", "medium", "low"].map((pri) => ({
+                key: pri,
+                label: pri.charAt(0).toUpperCase() + pri.slice(1),
+                values: dailyTasksByPriority.series[pri] ?? [],
+                color: dailyTasksByPriority.colors[pri] ?? "#78716c",
               }))}
             />
           </ChartCard>
@@ -434,14 +464,19 @@ export default function CompanyDashboardPage() {
               formatValue={(v) => v > 0 ? `$${v.toFixed(1)}` : ""}
             />
           </ChartCard>
-          <ChartCard title="Tasks Created" subtitle="Last 14 days">
-            <TimeSeriesBar
-              data={last14Days.map((day) => {
-                const count = (data?.tasks ?? []).filter((t) => (t.created?.split("T")[0]) === day).length;
-                return { label: formatDayLabel(day), value: count };
-              })}
-              color="#f59e0b"
-            />
+          <ChartCard title="Success Rate" subtitle="Last 14 days">
+            {successRateData.completed + successRateData.failed === 0 ? (
+              <div className="flex flex-col items-center justify-center py-4 text-center">
+                <p className="text-[10px] text-stone-500">No completed runs yet</p>
+                <p className="mt-0.5 text-[9px] text-stone-600">
+                  {successRateData.running > 0
+                    ? `${successRateData.running} run${successRateData.running !== 1 ? "s" : ""} in progress`
+                    : "Runs will appear as agents execute tasks"}
+                </p>
+              </div>
+            ) : (
+              <SuccessRateBar data={successRateData.daily} />
+            )}
           </ChartCard>
         </div>
 
@@ -819,12 +854,11 @@ function StackedTimeSeriesBar({
   series,
 }: {
   labels: string[];
-  series: Array<{ key: string; values: number[]; color: string }>;
+  series: Array<{ key: string; label?: string; values: number[]; color: string }>;
 }) {
   if (labels.length === 0) return <p className="py-3 text-center text-[10px] text-stone-600">No data</p>;
 
   const barHeight = 64;
-  // Compute max stacked total per day
   const totals = labels.map((_, i) => series.reduce((sum, s) => sum + (s.values[i] ?? 0), 0));
   const maxTotal = Math.max(...totals, 1);
 
@@ -834,44 +868,64 @@ function StackedTimeSeriesBar({
         {labels.map((label, i) => {
           const dayTotal = totals[i];
           return (
-            <div
-              key={i}
-              className="relative flex-1"
-              style={{ height: barHeight }}
-              title={`${label}: ${dayTotal} tasks`}
-            >
+            <div key={i} className="relative flex-1" style={{ height: barHeight }} title={`${label}: ${dayTotal}`}>
               <div className="absolute bottom-0 left-0 right-0 flex flex-col-reverse">
                 {series.map((s) => {
                   const v = s.values[i] ?? 0;
                   if (v === 0) return null;
                   const h = Math.max((v / maxTotal) * barHeight, 1);
-                  return (
-                    <div
-                      key={s.key}
-                      className="rounded-t-sm"
-                      style={{ height: h, background: s.color, opacity: 0.7 }}
-                    />
-                  );
+                  return <div key={s.key} className="rounded-t-sm" style={{ height: h, background: s.color, opacity: 0.7 }} />;
                 })}
               </div>
             </div>
           );
         })}
       </div>
-      {/* x-axis */}
       <div className="mt-1 flex justify-between text-[9px] text-stone-600">
         <span>{labels[0]}</span>
         {labels.length > 4 && <span>{labels[Math.floor(labels.length / 2)]}</span>}
         <span>{labels[labels.length - 1]}</span>
       </div>
-      {/* legend */}
       <div className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
         {series.filter((s) => s.values.some((v) => v > 0)).map((s) => (
           <span key={s.key} className="flex items-center gap-1 text-[9px] text-stone-500">
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: s.color }} />
-            {statusTheme[s.key as keyof typeof statusTheme]?.label ?? s.key}
+            {s.label ?? s.key}
           </span>
         ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Success rate bar (stacked completed vs failed) ── */
+
+function SuccessRateBar({ data }: { data: Array<{ label: string; completed: number; failed: number }> }) {
+  const barHeight = 64;
+  const maxVal = Math.max(...data.map((d) => d.completed + d.failed), 1);
+
+  return (
+    <div>
+      <div className="flex items-end gap-px" style={{ height: barHeight }}>
+        {data.map((d, i) => {
+          const total = d.completed + d.failed;
+          if (total === 0) return <div key={i} className="flex-1" style={{ height: barHeight }} />;
+          const completedH = Math.max((d.completed / maxVal) * barHeight, 1);
+          const failedH = d.failed > 0 ? Math.max((d.failed / maxVal) * barHeight, 1) : 0;
+          return (
+            <div key={i} className="relative flex-1" style={{ height: barHeight }} title={`${d.label}: ${d.completed} ok, ${d.failed} failed`}>
+              <div className="absolute bottom-0 left-0 right-0 flex flex-col-reverse">
+                {d.completed > 0 && <div className="rounded-t-sm" style={{ height: completedH, background: "#4ade80", opacity: 0.7 }} />}
+                {d.failed > 0 && <div className="rounded-t-sm" style={{ height: failedH, background: "#ef4444", opacity: 0.7 }} />}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] text-stone-600">
+        <span>{data[0]?.label}</span>
+        {data.length > 4 && <span>{data[Math.floor(data.length / 2)]?.label}</span>}
+        <span>{data[data.length - 1]?.label}</span>
       </div>
     </div>
   );
