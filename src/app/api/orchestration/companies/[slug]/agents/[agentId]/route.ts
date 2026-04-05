@@ -40,25 +40,59 @@ export async function PATCH(
   { params }: { params: Promise<{ slug: string; agentId: string }> }
 ) {
   try {
-    const { agentId } = await params;
+    const { slug, agentId } = await params;
     const body = await req.json();
     const db = getOrchestrationDb();
 
-    const agent = db.prepare("SELECT id FROM agents WHERE id = ?").get(agentId) as { id: string } | undefined;
-    if (!agent) return errorResponse(404, "agent_not_found", "Agent not found");
+    // Resolve company by id OR slug (scoped update)
+    const company = db
+      .prepare(
+        `SELECT id, slug, name
+         FROM companies
+         WHERE archived_at IS NULL
+           AND (id = ? OR slug = ?)
+         LIMIT 1`
+      )
+      .get(slug, slug) as { id: string; slug: string; name: string } | undefined;
+
+    if (!company) {
+      return errorResponse(404, "company_not_found", "Company not found");
+    }
+
+    // Resolve agent within the company by id OR slug OR exact lower(name)
+    const agent = db
+      .prepare(
+        `SELECT id
+         FROM agents
+         WHERE archived_at IS NULL
+           AND company_id = ?
+           AND (
+             id = ?
+             OR lower(slug) = lower(?)
+             OR lower(name) = lower(?)
+           )
+         LIMIT 1`
+      )
+      .get(company.id, agentId, agentId, agentId) as { id: string } | undefined;
+
+    if (!agent) {
+      return errorResponse(404, "agent_not_found", "Agent not found");
+    }
 
     const now = new Date().toISOString();
 
-    // Avatar update
+    // Avatar update (supports clearing with null/empty string)
     if ("avatarUrl" in body) {
       const avatarUrl = body.avatarUrl === null || body.avatarUrl === "" ? null : String(body.avatarUrl);
-      db.prepare("UPDATE agents SET avatar_url = ?, updated_at = ? WHERE id = ?").run(avatarUrl, now, agentId);
+      db.prepare("UPDATE agents SET avatar_url = ?, updated_at = ? WHERE id = ?").run(avatarUrl, now, agent.id);
     }
 
-    // Emoji update
+    // Optional emoji update (back-compat)
     if (typeof body.emoji === "string" && body.emoji.length > 0) {
-      db.prepare("UPDATE agents SET emoji = ?, updated_at = ? WHERE id = ?").run(body.emoji, now, agentId);
+      db.prepare("UPDATE agents SET emoji = ?, updated_at = ? WHERE id = ?").run(body.emoji, now, agent.id);
     }
+
+    // Ignore ancillary avatar wizard fields (styleId, gender, setup flags) for now
 
     return NextResponse.json({ success: true });
   } catch (error) {

@@ -297,7 +297,8 @@ export function AvatarWizard({
   return (
     <div
       ref={backdropRef}
-      onClick={(e) => { if (e.target === backdropRef.current) onClose(); }}
+      // Prevent accidental close on backdrop clicks for this wizard
+      onClick={(e) => { /* no-op to avoid losing work */ }}
       style={{
         position: "fixed",
         inset: 0,
@@ -310,6 +311,8 @@ export function AvatarWizard({
       }}
     >
       <div
+        // Stop propagation so clicks inside modal don't reach the backdrop
+        onClick={(e) => e.stopPropagation()}
         style={{
           width: 520,
           maxHeight: "85vh",

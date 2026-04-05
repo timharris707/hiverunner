@@ -83,6 +83,10 @@ export function buildCanonicalSettingsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/settings");
 }
 
+export function buildCanonicalRoutinesPath(companyCode: string): string {
+  return buildCanonicalCompanyPath(companyCode, "/routines");
+}
+
 export function buildCanonicalProjectsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/projects");
 }
@@ -93,6 +97,14 @@ export function buildCanonicalNewIssuePath(companyCode: string): string {
 
 export function buildCanonicalAgentPath(companyCode: string, agentId: string): string {
   return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}`);
+}
+
+export function buildCanonicalAgentRunsPath(companyCode: string, agentId: string): string {
+  return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}/runs`);
+}
+
+export function buildCanonicalRunDetailPath(companyCode: string, agentId: string, runId: string): string {
+  return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`);
 }
 
 export function buildCanonicalNewAgentPath(companyCode: string): string {

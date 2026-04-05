@@ -5,6 +5,7 @@ import path from "path";
 import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { createApproval } from "@/lib/orchestration/service/approval";
 
 export const dynamic = "force-dynamic";
 
@@ -85,7 +86,7 @@ export async function POST(
     db.prepare(
       `INSERT INTO agents
         (id, company_id, name, emoji, role, personality, model, status, openclaw_agent_id, reporting_to, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?, ?, '[]', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'paused', ?, ?, '[]', ?, ?)`
     ).run(
       agentId,
       company.id,
@@ -99,6 +100,20 @@ export async function POST(
       now,
       now,
     );
+
+    // Create hire approval — agent stays paused until approved
+    createApproval({
+      companyIdOrSlug: company.id,
+      type: "hire_agent",
+      requestedByAgentId: reportingToId ?? undefined,
+      payload: {
+        agentId,
+        agentName: name.trim(),
+        role: role.trim(),
+        model: agentModel,
+        emoji: resolvedEmoji,
+      },
+    });
 
     // Create instruction files
     const agentDir = agentWorkspacePath;

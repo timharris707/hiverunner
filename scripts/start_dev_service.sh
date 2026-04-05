@@ -31,7 +31,9 @@ if [ -f "$APP_DIR/.next/dev/lock" ]; then
 fi
 
 echo "[mc-dev] starting Mission Control dev server on port $PORT"
-nohup npm run dev >>"$OUT_LOG" 2>>"$ERR_LOG" &
+# Use node directly (not npm run dev) so the PID file tracks the actual
+# node process, not an npm wrapper that can exit before node is stable.
+nohup env NODE_ENV=development PORT="$PORT" node server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "[mc-dev] started PID $PID"

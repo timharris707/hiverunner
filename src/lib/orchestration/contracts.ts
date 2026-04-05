@@ -386,6 +386,58 @@ export const updateCompanyExecutionSettingsSchema = z
     }
   );
 
+/* ── Routines ── */
+
+export const routineStatusSchema = z.enum(["active", "paused", "archived"]);
+export const routinePrioritySchema = z.enum(["critical", "high", "medium", "low"]);
+export const routineConcurrencyPolicySchema = z.enum(["coalesce_if_active", "always_enqueue", "skip_if_active"]);
+export const routineCatchUpPolicySchema = z.enum(["skip_missed", "enqueue_missed_with_cap"]);
+
+export const listRoutinesQuerySchema = z.object({
+  projectId: z.string().trim().min(1).optional(),
+  status: routineStatusSchema.optional(),
+});
+
+export const createRoutineSchema = z.object({
+  title: z.string().trim().min(2).max(240),
+  description: z.string().max(10000).optional().default(""),
+  projectId: z.string().trim().min(1),
+  assigneeAgentId: z.string().trim().min(1),
+  priority: routinePrioritySchema.optional().default("medium"),
+  concurrencyPolicy: routineConcurrencyPolicySchema.optional().default("coalesce_if_active"),
+  catchUpPolicy: routineCatchUpPolicySchema.optional().default("skip_missed"),
+});
+
+export const updateRoutineSchema = z
+  .object({
+    title: z.string().trim().min(2).max(240).optional(),
+    description: z.string().max(10000).optional(),
+    projectId: z.string().trim().min(1).optional(),
+    assigneeAgentId: z.string().trim().min(1).optional(),
+    priority: routinePrioritySchema.optional(),
+    status: routineStatusSchema.optional(),
+    concurrencyPolicy: routineConcurrencyPolicySchema.optional(),
+    catchUpPolicy: routineCatchUpPolicySchema.optional(),
+  })
+  .refine(
+    (value) =>
+      value.title !== undefined ||
+      value.description !== undefined ||
+      value.projectId !== undefined ||
+      value.assigneeAgentId !== undefined ||
+      value.priority !== undefined ||
+      value.status !== undefined ||
+      value.concurrencyPolicy !== undefined ||
+      value.catchUpPolicy !== undefined,
+    {
+      message: "At least one routine field must be provided",
+      path: [],
+    }
+  );
+
+export type RoutineStatusInput = z.infer<typeof routineStatusSchema>;
+export type RoutinePriorityInput = z.infer<typeof routinePrioritySchema>;
+
 export type TaskStatusInput = z.infer<typeof taskStatusSchema>;
 export type TaskPriorityInput = z.infer<typeof taskPrioritySchema>;
 export type TaskTypeInput = z.infer<typeof taskTypeSchema>;

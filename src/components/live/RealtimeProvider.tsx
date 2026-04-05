@@ -16,10 +16,8 @@ interface RealtimeContextValue {
 const SNAPSHOT_STORAGE_KEY = "mission-control:last-live-snapshot";
 const RealtimeContext = createContext<RealtimeContextValue | undefined>(undefined);
 
-function getSocketUrl() {
-  if (typeof window === "undefined") return "";
-  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${window.location.host}/api/live`;
+function getSnapshotUrl() {
+  return "/api/live/snapshot";
 }
 
 function readStoredSnapshot() {
@@ -53,7 +51,7 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
   });
   const [staleSince, setStaleSince] = useState<number | null>(null);
 
-  const socketRef = useRef<WebSocket | null>(null);
+  const pollIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
   const hasConnectedRef = useRef(false);
@@ -72,7 +70,7 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
 
     const loadInitialSnapshot = async () => {
       try {
-        const response = await fetch("/api/live/snapshot", { cache: "no-store" });
+        const response = await fetch(getSnapshotUrl(), { cache: "no-store" });
         if (!response.ok) return;
         const data = await response.json() as MissionControlRealtimeSnapshot;
         if (cancelled) return;
@@ -99,46 +97,40 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
       }
     };
 
-    const connect = () => {
-      clearReconnectTimer();
-      const ws = new window.WebSocket(getSocketUrl());
-      socketRef.current = ws;
-      setConnectionStatus(hasConnectedRef.current ? "reconnecting" : "connecting");
+    const clearPollInterval = () => {
+      if (pollIntervalRef.current !== null) {
+        window.clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+    };
 
-      ws.onopen = () => {
+    const pollSnapshot = async () => {
+      try {
+        const response = await fetch(getSnapshotUrl(), { cache: "no-store" });
+        if (!response.ok) throw new Error(`snapshot request failed: ${response.status}`);
+        const data = await response.json() as MissionControlRealtimeSnapshot;
         if (disposed) return;
+
+        setSnapshot(data);
+        setLastMessageAt(new Date(data.generatedAt).getTime());
         reconnectAttemptRef.current = 0;
         hasConnectedRef.current = true;
         setConnectionStatus("connected");
         setStaleSince(null);
-      };
-
-      ws.onmessage = (event) => {
-        if (disposed) return;
-        try {
-          const message = JSON.parse(event.data) as { type?: string; snapshot?: MissionControlRealtimeSnapshot };
-          if (message.type === "snapshot" && message.snapshot) {
-            setSnapshot(message.snapshot);
-            setLastMessageAt(new Date(message.snapshot.generatedAt).getTime());
-          }
-        } catch {
-          // Ignore malformed frames from the server.
-        }
-      };
-
-      ws.onerror = () => {
-        ws.close();
-      };
-
-      ws.onclose = () => {
+      } catch {
         if (disposed) return;
         setStaleSince((current) => current ?? Date.now());
         setConnectionStatus(hasConnectedRef.current ? "reconnecting" : "disconnected");
-        const nextAttempt = reconnectAttemptRef.current + 1;
-        reconnectAttemptRef.current = nextAttempt;
-        const delayMs = Math.min(15_000, 1000 * 2 ** Math.min(nextAttempt - 1, 4));
-        reconnectTimeoutRef.current = window.setTimeout(connect, delayMs);
-      };
+      }
+    };
+
+    const connect = () => {
+      clearReconnectTimer();
+      void pollSnapshot();
+      clearPollInterval();
+      pollIntervalRef.current = window.setInterval(() => {
+        void pollSnapshot();
+      }, 5000);
     };
 
     connect();
@@ -146,8 +138,7 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
     return () => {
       disposed = true;
       clearReconnectTimer();
-      socketRef.current?.close();
-      socketRef.current = null;
+      clearPollInterval();
     };
   }, []);
 
