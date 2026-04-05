@@ -1,15 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { Zap, ChevronDown, ChevronRight } from "lucide-react";
+import { useMemo } from "react";
+import Link from "next/link";
+import { Zap, ArrowRight } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
 import { useAgentProfile, A } from "../layout";
+import { buildCanonicalRunDetailPath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationAgentExecutionRun } from "@/lib/orchestration/types";
 
 export default function AgentRunsPage() {
-  const { profile } = useAgentProfile();
+  const { profile, agentId } = useAgentProfile();
   const { executionHistory } = profile;
-  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  // Resolve company code from the current pathname for canonical links
+  const companyCode = useMemo(() => {
+    const segments = window.location.pathname.split("/").filter(Boolean);
+    return segments[0] ?? "";
+  }, []);
 
   return (
     <div style={cardStyle}>
@@ -32,62 +39,44 @@ export default function AgentRunsPage() {
             <span style={{ width: 80 }}>Provider</span>
             <span style={{ width: 90 }}>Started</span>
             <span style={{ width: 70 }}>Duration</span>
+            <span style={{ width: 24 }} />
           </div>
 
-          {executionHistory.map((run) => {
-            const expanded = expandedId === run.id;
-            return (
-              <div key={run.id}>
-                <button
-                  onClick={() => setExpandedId(expanded ? null : run.id)}
-                  style={{
-                    ...dataRow,
-                    cursor: "pointer", background: expanded ? "rgba(217,119,6,0.04)" : "transparent",
-                    border: "none", width: "100%", textAlign: "left",
-                  }}
-                >
-                  <span style={{ width: 100, fontFamily: "monospace", fontSize: 11, color: A.muted, display: "flex", alignItems: "center", gap: 4 }}>
-                    {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                    {run.id.slice(0, 8)}
-                  </span>
-                  <span style={{ width: 80 }}>
-                    <RunStatusBadge status={run.status} />
-                  </span>
-                  <span style={{ flex: 1, minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: A.text }}>
-                    {run.taskTitle}
-                  </span>
-                  <span style={{ width: 80, color: A.textSec }}>{run.provider}</span>
-                  <span style={{ width: 90, color: A.muted }}>{formatAge(run.startedAt ?? run.createdAt)}</span>
-                  <span style={{ width: 70, color: A.muted }}>
-                    {run.durationMs != null ? `${Math.round(run.durationMs / 1000)}s` : "\u2014"}
-                  </span>
-                </button>
-
-                {expanded && (
-                  <div style={{
-                    padding: "10px 14px 10px 28px",
-                    background: "rgba(255,255,255,0.015)",
-                    borderBottom: "1px solid rgba(255,255,255,0.05)",
-                    fontSize: 11, color: A.textSec,
-                    display: "flex", flexDirection: "column", gap: 4,
-                  }}>
-                    <DetailRow label="Run ID" value={run.id} mono />
-                    <DetailRow label="Task ID" value={run.taskId} mono />
-                    <DetailRow label="Project" value={run.projectName} />
-                    {run.sessionId && <DetailRow label="Session" value={run.sessionId} mono />}
-                    <DetailRow label="Created" value={new Date(run.createdAt).toLocaleString()} />
-                    {run.startedAt && <DetailRow label="Started" value={new Date(run.startedAt).toLocaleString()} />}
-                    {run.completedAt && <DetailRow label="Completed" value={new Date(run.completedAt).toLocaleString()} />}
-                    {run.errorMessage && (
-                      <div style={{ marginTop: 4, padding: "6px 8px", borderRadius: 4, background: "rgba(248,113,113,0.08)", border: "1px solid rgba(248,113,113,0.2)", color: "#f87171" }}>
-                        {run.errorMessage}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {executionHistory.map((run) => (
+            <Link
+              key={run.id}
+              href={buildCanonicalRunDetailPath(companyCode, agentId, run.id)}
+              style={{
+                ...dataRow,
+                textDecoration: "none",
+                display: "flex",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(217,119,6,0.04)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "transparent";
+              }}
+            >
+              <span style={{ width: 100, fontFamily: "monospace", fontSize: 11, color: A.muted }}>
+                {run.id.slice(0, 8)}
+              </span>
+              <span style={{ width: 80 }}>
+                <RunStatusBadge status={run.status} />
+              </span>
+              <span style={{ flex: 1, minWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", color: A.text }}>
+                {run.taskTitle}
+              </span>
+              <span style={{ width: 80, color: A.textSec }}>{run.provider}</span>
+              <span style={{ width: 90, color: A.muted }}>{formatAge(run.startedAt ?? run.createdAt)}</span>
+              <span style={{ width: 70, color: A.muted }}>
+                {run.durationMs != null ? `${Math.round(run.durationMs / 1000)}s` : "\u2014"}
+              </span>
+              <span style={{ width: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <ArrowRight size={12} style={{ color: A.muted, opacity: 0.5 }} />
+              </span>
+            </Link>
+          ))}
         </>
       )}
     </div>
@@ -107,15 +96,6 @@ function RunStatusBadge({ status }: { status: OrchestrationAgentExecutionRun["st
     <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 4, color: t.color, background: t.bg }}>
       {t.label}
     </span>
-  );
-}
-
-function DetailRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
-  return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <span style={{ color: A.muted, width: 80, flexShrink: 0 }}>{label}</span>
-      <span style={{ color: A.text, fontFamily: mono ? "monospace" : "inherit", wordBreak: "break-all" }}>{value}</span>
-    </div>
   );
 }
 
@@ -139,4 +119,7 @@ const dataRow: React.CSSProperties = {
   padding: "8px 10px", fontSize: 12,
   borderBottom: "1px solid rgba(255,255,255,0.03)",
   color: A.textSec,
+  cursor: "pointer",
+  borderRadius: 4,
+  transition: "background 0.15s",
 };

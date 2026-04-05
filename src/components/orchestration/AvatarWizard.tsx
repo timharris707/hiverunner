@@ -31,6 +31,8 @@ interface AvatarWizardProps {
   currentAvatar?: string;
   companySlug: string;
   agentId: string;
+  /** Optional alternate cache key (e.g., route param like slug) for draft migration */
+  alternateAgentKey?: string;
   avatarMode?: "company_theme" | "mixed";
   companyThemeName?: string;
   initialStyleId?: string;
@@ -75,6 +77,7 @@ export function AvatarWizard({
   currentAvatar,
   companySlug,
   agentId,
+  alternateAgentKey,
   avatarMode,
   companyThemeName,
   initialStyleId,
@@ -143,7 +146,7 @@ export function AvatarWizard({
       gender: nextGender,
       previews: seeded,
       updatedAt: Date.now(),
-    });
+    }, alternateAgentKey);
 
     try {
       const nextPreviews = [...seeded];
@@ -189,7 +192,7 @@ export function AvatarWizard({
   useEffect(() => {
     if (!open) return;
 
-    const cached = readAvatarDraftCache(agentId);
+    const cached = readAvatarDraftCache(agentId, alternateAgentKey);
     const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyberpunk";
     const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];

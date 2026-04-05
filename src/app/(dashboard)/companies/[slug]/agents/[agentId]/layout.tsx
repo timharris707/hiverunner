@@ -316,6 +316,7 @@ export default function AgentDetailLayout({
             companySlug={slug}
             // Prefer the canonical UUID when available to avoid slug/name ambiguity
             agentId={agent.id || agentId}
+            alternateAgentKey={agentId}
             onSaved={() => { setAvatarWizardOpen(false); void load(); }}
           />
         )}

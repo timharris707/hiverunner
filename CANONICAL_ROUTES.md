@@ -80,6 +80,7 @@
 | `/{code}/agents/{id}/budget` | Budget | `agents/[agentId]/budget/page.tsx` |
 | `/{code}/agents/{id}/instructions` | Instructions | `agents/[agentId]/instructions/page.tsx` |
 | `/{code}/agents/{id}/runs` | Runs | `agents/[agentId]/runs/page.tsx` |
+| `/{code}/agents/{id}/runs/{runId}` | Run Detail | `agents/[agentId]/runs/[runId]/page.tsx` |
 | `/{code}/agents/{id}/skills` | Skills | `agents/[agentId]/skills/page.tsx` |
 
 ### Project detail tabs (from project tab bar)

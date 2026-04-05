@@ -170,7 +170,9 @@ export function tryCanonicalRewrite(pathname: string, searchParams: URLSearchPar
       const agentSub = segments[3] || "dashboard";
       const supported = new Set(["dashboard", "configuration", "budget", "instructions", "runs", "skills"]);
       if (supported.has(agentSub)) {
-        const url = new URL(`/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agentSlug)}/${agentSub}`, origin);
+        // Forward any deeper sub-path (e.g. runs/{runId})
+        const rest = segments.slice(3).map(encodeURIComponent).join("/");
+        const url = new URL(`/companies/${encodeURIComponent(companySlug)}/agents/${encodeURIComponent(agentSlug)}/${rest}`, origin);
         copyQuery(url, searchParams);
         return url;
       }
