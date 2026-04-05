@@ -262,6 +262,7 @@ export interface OrchestrationActivityEvent {
   companyName?: string;
   taskId?: string;
   taskTitle?: string;
+  taskKey?: string;
   sprintId?: string;
   sprintName?: string;
   oldStatus?: TaskStatus;

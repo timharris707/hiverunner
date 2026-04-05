@@ -581,6 +581,7 @@ export async function listActivityFeed(input?: {
       companyName: raw.companyName ? String(raw.companyName) : undefined,
       taskId: raw.taskId ? String(raw.taskId) : undefined,
       taskTitle: raw.taskTitle ? String(raw.taskTitle) : undefined,
+      taskKey: raw.taskKey ? String(raw.taskKey) : undefined,
       sprintId: raw.sprintId ? String(raw.sprintId) : undefined,
       sprintName: raw.sprintName ? String(raw.sprintName) : undefined,
       oldStatus: raw.oldStatus

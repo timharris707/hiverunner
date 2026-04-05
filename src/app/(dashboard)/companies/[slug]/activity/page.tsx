@@ -245,14 +245,14 @@ function parseEventDisplay(event: OrchestrationActivityEvent): {
   const initials = agentName.slice(0, 2).toUpperCase();
   const color = agentColor(agentName);
 
-  // Build task key reference
-  const taskKey = event.taskId
-    ? (event.companySlug || event.projectSlug || "").toUpperCase().slice(0, 3) + "-" + event.taskId.slice(-3)
-    : "";
+  // Use real durable task_key (e.g. NEV-25) if available
+  const taskKey = event.taskKey || "";
 
   const taskRef = taskKey && event.taskTitle
     ? <><span style={{ fontWeight: 600, color: P.text }}>{taskKey}</span>{" — "}{event.taskTitle}</>
-    : event.taskTitle || "";
+    : event.taskTitle
+      ? <>{event.taskTitle}</>
+      : "";
 
   switch (event.eventType) {
     case "task.read_marked":

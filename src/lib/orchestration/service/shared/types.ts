@@ -180,6 +180,7 @@ export type ActivityEventRow = {
     | "sprint.completed";
   task_id: string | null;
   task_title: string | null;
+  task_key: string | null;
   sprint_id: string | null;
   sprint_name: string | null;
   project_id: string;
