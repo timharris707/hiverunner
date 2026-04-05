@@ -1551,16 +1551,30 @@ export function markInboxEventsRead(input: {
   const now = new Date().toISOString();
   let marked = 0;
 
-  const insert = db.prepare(
+  const insertRead = db.prepare(
     `INSERT OR IGNORE INTO inbox_read_state (id, company_id, user_id, event_id, read_at)
      VALUES (?, ?, ?, ?, ?)`
+  );
+
+  const insertReadEvent = db.prepare(
+    `INSERT OR IGNORE INTO task_events (id, project_id, task_id, agent_id, user_id, event_type, metadata_json, created_at)
+     SELECT ?, te.project_id, te.task_id, NULL, ?, 'task.read_marked', '{}', ?
+     FROM task_events te WHERE te.id = ? LIMIT 1`
   );
 
   const tx = db.transaction(() => {
     for (const eventId of input.eventIds) {
       const id = `${companyRow.id}:${userId}:${eventId}`;
-      const result = insert.run(id, companyRow.id, userId, eventId, now);
-      if (result.changes > 0) marked++;
+      const result = insertRead.run(id, companyRow.id, userId, eventId, now);
+      if (result.changes > 0) {
+        marked++;
+        // Emit a read-mark activity event for task events
+        const taskEventId = eventId.startsWith("task:") ? eventId.slice(5) : null;
+        if (taskEventId) {
+          const readEventId = randomUUID();
+          insertReadEvent.run(readEventId, userId, now, taskEventId);
+        }
+      }
     }
   });
   tx();

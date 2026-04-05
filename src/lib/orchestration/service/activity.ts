@@ -32,7 +32,7 @@ export function listActivityFeed(input: {
   const params: unknown[] = [];
   const taskWhereParts = [
     "p.archived_at IS NULL",
-    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned','task.comment_added')",
+    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned','task.comment_added','task.read_marked')",
   ];
   const sprintWhereParts = ["p.archived_at IS NULL"];
 
@@ -216,9 +216,11 @@ export function listActivityFeed(input: {
       const agentLabel = row.agent_name ?? assigneeName ?? "Someone";
 
       const message =
-        eventType === "task.comment_added"
-          ? `${agentLabel} commented on ${taskTitle ?? "a task"}`
-          : eventType === "task.status_changed" && row.from_status && row.to_status
+        eventType === "task.read_marked"
+          ? `Board issue read marked ${taskTitle ?? "a task"}`
+          : eventType === "task.comment_added"
+            ? `${agentLabel} commented on ${taskTitle ?? "a task"}`
+            : eventType === "task.status_changed" && row.from_status && row.to_status
             ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
             : eventType === "task.assigned"
               ? `${taskTitle ?? "Task"} assigned${assigneeName ? ` to ${assigneeName}` : ""}`
@@ -247,7 +249,7 @@ export function listActivityFeed(input: {
         newStatus: row.to_status ? toApiStatus(row.to_status) : undefined,
         message,
         agentId: row.agent_id ?? undefined,
-        agentName: row.agent_name ?? assigneeName,
+        agentName: eventType === "task.read_marked" ? "Board" : (row.agent_name ?? assigneeName),
         timestamp: row.created_at,
       } satisfies OrchestrationActivityEvent;
     }),

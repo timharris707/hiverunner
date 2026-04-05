@@ -46,6 +46,7 @@ const EVENT_TYPE_OPTIONS = [
   { value: "status", label: "Status changes" },
   { value: "assignment", label: "Assignments" },
   { value: "sprint", label: "Sprints" },
+  { value: "read", label: "Read marks" },
 ];
 
 const PAGE_LIMIT = 40;
@@ -112,6 +113,7 @@ export default function CompanyActivityPage() {
       if (typeFilter === "status") return e.eventType === "task.status_changed";
       if (typeFilter === "assignment") return e.eventType === "task.assigned" || e.eventType === "task.unassigned";
       if (typeFilter === "sprint") return e.eventType.startsWith("sprint.");
+      if (typeFilter === "read") return e.eventType === "task.read_marked";
       return true;
     });
   }, [events, typeFilter]);
@@ -253,6 +255,8 @@ function parseEventDisplay(event: OrchestrationActivityEvent): {
     : event.taskTitle || "";
 
   switch (event.eventType) {
+    case "task.read_marked":
+      return { initials, agentName, color, description: <>issue read marked {taskRef}</> };
     case "task.comment_added":
       return { initials, agentName, color, description: <>commented on {taskRef}</> };
     case "task.status_changed": {
