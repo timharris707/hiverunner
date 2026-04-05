@@ -38,7 +38,7 @@ export interface AgentStreamState {
 
 export interface StreamTranscriptEntry {
   id: string;
-  kind: "assistant_delta" | "assistant_final" | "tool_start" | "tool_end" | "lifecycle_start" | "lifecycle_end" | "lifecycle_error" | "error";
+  kind: "assistant_delta" | "assistant_final" | "tool_start" | "tool_end" | "lifecycle_start" | "lifecycle_end" | "lifecycle_error" | "error" | "action_detected";
   message: string;
   ts: string;
   toolName?: string;
@@ -58,6 +58,65 @@ interface UseLiveRunStreamResult {
 
 const MAX_EVENTS_PER_AGENT = 20;
 
+/* ── mc-action detection ── */
+
+const MC_ACTION_PATTERN = /```mc-action[^\n]*\n([\s\S]*?)```/g;
+
+const ACTION_LABELS: Record<string, string> = {
+  create_task: "Creating task",
+  hire_agent: "Requesting hire",
+  report: "Writing report",
+  update_task: "Updating task",
+  add_comment: "Adding comment",
+};
+
+/**
+ * Detect completed mc-action blocks in streaming text.
+ * Returns newly detected actions since lastDetectedCount.
+ */
+function detectMcActions(
+  text: string,
+  lastDetectedCount: number,
+): { actions: Array<{ action: string; summary: string }>; totalCount: number } {
+  const actions: Array<{ action: string; summary: string }> = [];
+  let match: RegExpExecArray | null;
+  let totalCount = 0;
+
+  // Reset lastIndex for global regex
+  MC_ACTION_PATTERN.lastIndex = 0;
+
+  while ((match = MC_ACTION_PATTERN.exec(text)) !== null) {
+    totalCount++;
+    if (totalCount <= lastDetectedCount) continue;
+
+    const jsonStr = match[1].trim();
+    try {
+      const parsed = JSON.parse(jsonStr);
+      const actionType = parsed.action ?? "unknown";
+      const label = ACTION_LABELS[actionType] ?? actionType;
+
+      let summary = label;
+      if (actionType === "add_comment" && parsed.taskKey) {
+        summary = `${label} on ${parsed.taskKey}`;
+      } else if (actionType === "create_task" && parsed.title) {
+        summary = `${label}: ${parsed.title.slice(0, 50)}`;
+      } else if (actionType === "hire_agent" && parsed.name) {
+        summary = `${label}: ${parsed.name}`;
+      } else if (actionType === "update_task" && parsed.taskKey) {
+        summary = `${label} ${parsed.taskKey}${parsed.status ? ` → ${parsed.status}` : ""}`;
+      } else if (actionType === "report" && parsed.summary) {
+        summary = `${label}: ${parsed.summary.slice(0, 50)}`;
+      }
+
+      actions.push({ action: actionType, summary });
+    } catch {
+      actions.push({ action: "unknown", summary: "Action block detected" });
+    }
+  }
+
+  return { actions, totalCount };
+}
+
 /* ── Hook ── */
 
 export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptions): UseLiveRunStreamResult {
@@ -66,6 +125,8 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
   const esRef = useRef<EventSource | null>(null);
   const stateRef = useRef<Map<string, AgentStreamState>>(new Map());
+  /** Track how many mc-action blocks we've already detected per agent */
+  const detectedActionCountRef = useRef<Map<string, number>>(new Map());
 
   // Batch updates: collect events and flush at animation frame rate
   const pendingUpdateRef = useRef(false);
@@ -108,14 +169,31 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
     };
 
     switch (event.type) {
-      case "assistant_delta":
+      case "assistant_delta": {
         current.streamingText = event.text ?? current.streamingText + (event.delta ?? "");
         current.isStreaming = true;
         current.lastEventTs = ts;
-        // Don't add to events array — too chatty. Text is shown via streamingText.
-        stateRef.current.set(agentId, { ...current });
+
+        // Detect completed mc-action blocks in the streaming text
+        const prevCount = detectedActionCountRef.current.get(agentId) ?? 0;
+        const { actions: newActions, totalCount } = detectMcActions(current.streamingText, prevCount);
+
+        if (newActions.length > 0) {
+          detectedActionCountRef.current.set(agentId, totalCount);
+          const actionEntries: StreamTranscriptEntry[] = newActions.map((a) => ({
+            id: `action-${ts}-${Math.random().toString(36).slice(2, 7)}`,
+            kind: "action_detected" as const,
+            message: a.summary,
+            ts: new Date(ts).toISOString(),
+          }));
+          const events = [...current.events, ...actionEntries].slice(-MAX_EVENTS_PER_AGENT);
+          stateRef.current.set(agentId, { ...current, events });
+        } else {
+          stateRef.current.set(agentId, { ...current });
+        }
         scheduleFlush();
         return;
+      }
 
       case "assistant_final":
         current.streamingText = event.text ?? current.streamingText;
@@ -138,6 +216,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
         current.streamingText = "";
         current.isStreaming = false;
         current.lastEventTs = ts;
+        detectedActionCountRef.current.set(agentId, 0);
         entry.message = event.detail ?? "Session started";
         break;
 

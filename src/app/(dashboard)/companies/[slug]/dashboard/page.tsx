@@ -670,8 +670,19 @@ function StreamingTextBlock({ text, isStreaming }: { text: string; isStreaming: 
     }
   }, [text]);
 
+  // Strip completed mc-action blocks (those are shown as structured entries in the transcript).
+  // Keep any partial/in-progress block so the operator sees it being written.
+  const cleanedText = useMemo(() => {
+    const stripped = text.replace(/```mc-action[^\n]*\n[\s\S]*?```/g, "").trim();
+    // If everything was action blocks, show a status note
+    if (!stripped && text.length > 10) return "(writing action blocks…)";
+    return stripped;
+  }, [text]);
+
   // Show last ~400 chars for compact display
-  const displayText = text.length > 400 ? "…" + text.slice(-400) : text;
+  const displayText = cleanedText.length > 400 ? "…" + cleanedText.slice(-400) : cleanedText;
+
+  if (!displayText && !isStreaming) return null;
 
   return (
     <div
@@ -781,6 +792,7 @@ function AgentTranscript({
                   : entry.type === "action_skipped" ? "#ca8a04"
                   : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "#06b6d4"
                   : entry.type === "tool_start" || entry.type === "tool_end" ? "#a78bfa"
+                  : entry.type === "action_detected" ? "#f59e0b"
                   : entry.type === "lifecycle_end" || entry.type === "assistant_final" ? "#06b6d4"
                   : "#4ade80",
               }}>
@@ -790,6 +802,7 @@ function AgentTranscript({
                   : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "◉"
                   : entry.type === "tool_start" ? "⚡"
                   : entry.type === "tool_end" ? "⚡"
+                  : entry.type === "action_detected" ? "⚙"
                   : entry.type === "parsing_complete" ? "⎔"
                   : entry.type === "actions_complete" || entry.type === "lifecycle_end" ? "✓"
                   : entry.type === "assistant_final" ? "💬"
@@ -799,6 +812,7 @@ function AgentTranscript({
                 color: entry.type === "action_error" || entry.type === "lifecycle_error" || entry.type === "error" ? "#fca5a5"
                   : entry.type === "action_skipped" ? "#fde68a"
                   : entry.type === "tool_start" || entry.type === "tool_end" ? "#c4b5fd"
+                  : entry.type === "action_detected" ? "#fcd34d"
                   : entry.type?.startsWith("action_") ? "#86efac"
                   : entry.type?.startsWith("lifecycle_") || entry.type === "assistant_final" ? "#67e8f9"
                   : "#a8a29e",
