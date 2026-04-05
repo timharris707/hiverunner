@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { AlertTriangle, ExternalLink, FolderOpen, Trash2 } from "lucide-react";
 import { listProjects, updateProjectSettings } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
+import { ProjectTabBar } from "../ProjectTabBar";
 
 const C = {
   bg: "#0c0a09",
@@ -63,10 +64,25 @@ export default function ProjectConfigurationPage({
   };
 
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 700 }}>
-      <h1 style={{ margin: "0 0 20px", fontSize: 22, fontWeight: 600, color: C.text }}>
+    <div>
+      {/* project header + tabs */}
+      <div className="px-5 pt-5">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-block h-4 w-4 shrink-0 rounded-md"
+            style={{ backgroundColor: project.color ?? "#d97706" }}
+          />
+          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
+        </div>
+        <div className="mt-3">
+          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="configuration" />
+        </div>
+      </div>
+
+      <div style={{ padding: "20px 24px", maxWidth: 700 }}>
+      <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 600, color: C.text }}>
         Configuration
-      </h1>
+      </h2>
 
       {/* Name & Description */}
       <Section title="General">
@@ -168,6 +184,7 @@ export default function ProjectConfigurationPage({
         >
           <Trash2 size={13} /> Archive project
         </button>
+      </div>
       </div>
     </div>
   );

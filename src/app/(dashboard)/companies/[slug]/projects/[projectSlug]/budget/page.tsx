@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { DollarSign } from "lucide-react";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
+import { ProjectTabBar } from "../ProjectTabBar";
 
 const C = {
   bg: "#0c0a09",
@@ -41,11 +42,22 @@ export default function ProjectBudgetPage({
   if (!project) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Project not found.</div>;
 
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 700 }}>
-      {/* header */}
-      <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600, color: C.text }}>
-        {project.name}
-      </h1>
+    <div>
+      {/* project header + tabs */}
+      <div className="px-5 pt-5">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-block h-4 w-4 shrink-0 rounded-md"
+            style={{ backgroundColor: project.color ?? "#d97706" }}
+          />
+          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
+        </div>
+        <div className="mt-3">
+          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="budget" />
+        </div>
+      </div>
+
+      <div style={{ padding: "20px 24px", maxWidth: 700 }}>
       <p style={{ margin: "0 0 20px", fontSize: 13, color: C.muted }}>Lifetime budget</p>
 
       {/* summary cards */}
@@ -141,6 +153,7 @@ export default function ProjectBudgetPage({
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

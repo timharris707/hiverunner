@@ -24,6 +24,7 @@ import {
   listTasks,
 } from "@/lib/orchestration/client";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { ProjectTabBar } from "../ProjectTabBar";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -642,21 +643,8 @@ export default function ProjectTasksPage({
       </div>
 
       {/* ── tab bar ── */}
-      <div className="mt-3 border-b px-5" style={{ borderColor: "rgba(120,113,108,0.15)" }}>
-        <nav className="flex gap-0">
-          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/tasks`)} active>
-            Tasks
-          </TabLink>
-          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/overview`)}>
-            Overview
-          </TabLink>
-          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/configuration`)}>
-            Configuration
-          </TabLink>
-          <TabLink href={buildCompanyPath(slug, `/projects/${encodeURIComponent(projectSlug)}/budget`)}>
-            Budget
-          </TabLink>
-        </nav>
+      <div className="mt-3 px-5">
+        <ProjectTabBar slug={slug} projectSlug={projectSlug} active="tasks" />
       </div>
 
       {/* ── toolbar ── */}
@@ -950,28 +938,6 @@ export default function ProjectTasksPage({
         )}
       </div>
     </div>
-  );
-}
-
-/* ── tab link ── */
-
-function TabLink({ href, active = false, children }: { href: string; active?: boolean; children: React.ReactNode }) {
-  return (
-    <Link
-      href={href}
-      className="relative px-3 py-2.5 text-sm font-medium no-underline transition-colors"
-      style={{
-        color: active ? "#f5f5f4" : "#78716c",
-      }}
-    >
-      {children}
-      {active && (
-        <span
-          className="absolute inset-x-0 bottom-0 h-0.5"
-          style={{ background: "#d97706" }}
-        />
-      )}
-    </Link>
   );
 }
 

@@ -1,9 +1,9 @@
 "use client";
 
 import { use, useEffect, useState } from "react";
-import { formatAge } from "@/components/orchestration/ui";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
+import { ProjectTabBar } from "../ProjectTabBar";
 
 const C = {
   bg: "#0c0a09",
@@ -48,49 +48,61 @@ export default function ProjectOverviewPage({
   const st = STATUS_STYLE[project.status] ?? { color: C.textSec, bg: "rgba(168,162,158,0.12)" };
 
   return (
-    <div style={{ padding: "20px 24px", maxWidth: 700 }}>
-      {/* project name */}
-      <h1 style={{ margin: "0 0 16px", fontSize: 22, fontWeight: 600, color: C.text }}>
-        {project.name}
-      </h1>
+    <div>
+      {/* project header + tabs */}
+      <div className="px-5 pt-5">
+        <div className="flex items-center gap-3">
+          <span
+            className="inline-block h-4 w-4 shrink-0 rounded-md"
+            style={{ backgroundColor: project.color ?? "#d97706" }}
+          />
+          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
+        </div>
+        <div className="mt-3">
+          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="overview" />
+        </div>
+      </div>
 
-      {/* description */}
-      <p style={{ margin: "0 0 20px", fontSize: 14, color: project.description ? C.textSec : C.muted, fontStyle: project.description ? "normal" : "italic" }}>
-        {project.description || "Add a description..."}
-      </p>
+      {/* content */}
+      <div style={{ padding: "20px 24px", maxWidth: 700 }}>
+        {/* description */}
+        <p style={{ margin: "0 0 20px", fontSize: 14, color: project.description ? C.textSec : C.muted, fontStyle: project.description ? "normal" : "italic" }}>
+          {project.description || "Add a description..."}
+        </p>
 
-      {/* properties */}
-      <div style={{
-        borderRadius: 10, border: `1px solid ${C.cardBorder}`,
-        background: C.card, padding: "16px 20px",
-        display: "flex", flexDirection: "column", gap: 14,
-      }}>
-        <PropRow label="Status">
-          <span style={{
-            fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
-            color: st.color, background: st.bg,
-          }}>
-            {project.status}
-          </span>
-        </PropRow>
+        {/* properties */}
+        <div style={{
+          borderRadius: 10, border: `1px solid ${C.cardBorder}`,
+          background: C.card, padding: "16px 20px",
+          display: "flex", flexDirection: "column", gap: 14,
+        }}>
+          <PropRow label="Status">
+            <span style={{
+              fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
+              color: st.color, background: st.bg,
+            }}>
+              {project.status}
+            </span>
+          </PropRow>
 
-        <PropRow label="Created">
-          <span style={{ fontSize: 13, color: C.textSec }}>
-            {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-          </span>
-        </PropRow>
+          <PropRow label="Created">
+            <span style={{ fontSize: 13, color: C.textSec }}>
+              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+            </span>
+          </PropRow>
 
-        <PropRow label="Updated">
-          <span style={{ fontSize: 13, color: C.textSec }}>
-            {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-          </span>
-        </PropRow>
+          <PropRow label="Updated">
+            <span style={{ fontSize: 13, color: C.textSec }}>
+              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+            </span>
+          </PropRow>
 
-        <PropRow label="Tasks">
-          <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>
-            {project.taskCount ?? 0}
-          </span>
-        </PropRow>
+          <PropRow label="Tasks">
+            <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>
+              {project.taskCount ?? 0}
+            </span>
+          </PropRow>
+        </div>
       </div>
     </div>
   );
