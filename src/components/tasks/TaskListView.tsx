@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
-import { StatusCircle } from "@/components/orchestration/StatusCircle";
+
 import { TaskRow } from "./TaskRow";
 import { SURFACE, type TaskRow as TaskRowT, type TaskGroup, type InlineEditCallbacks, type GroupMode, STATUS_LABEL, getActiveRunLabel } from "./types";
 import type { OrchestrationAgent, TaskStatus } from "@/lib/orchestration/types";
@@ -97,9 +97,8 @@ export function TaskListView({
                   ? <ChevronRight size={12} color={SURFACE.textFaint} />
                   : <ChevronDown size={12} color={SURFACE.textFaint} />
                 }
-                {groupMode === "status" && <StatusCircle status={group.key as TaskStatus} size={12} />}
                 <span style={{ fontSize: "11px", fontWeight: 600, color: SURFACE.textDim, textTransform: "uppercase", letterSpacing: "0.02em" }}>{group.label}</span>
-                <span style={{ fontSize: "11px", color: SURFACE.textGhost }}>{group.items.filter(t => !t.parentTaskId).length}</span>
+                <span style={{ fontSize: "11px", color: SURFACE.textGhost }}>({group.items.filter(t => !t.parentTaskId).length})</span>
               </button>
             </div>
           )}

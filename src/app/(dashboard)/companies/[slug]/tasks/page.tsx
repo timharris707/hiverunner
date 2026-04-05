@@ -233,6 +233,13 @@ export default function CompanyTasksPage() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: SURFACE.page }}>
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
+      {/* Page header */}
+      <div style={{ padding: "24px 24px 0" }}>
+        <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: "#737373", marginBottom: 16 }}>
+          Tasks
+        </p>
+      </div>
+
       <TasksToolbar
         viewMode={viewMode}
         onViewModeChange={setViewMode}

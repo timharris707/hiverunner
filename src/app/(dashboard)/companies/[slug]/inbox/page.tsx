@@ -88,13 +88,12 @@ function eventTargetHref(
   companySlug: string,
   event: OrchestrationCompanyInboxEvent
 ): string {
-  const projectKey = event.projectSlug || event.projectId;
-  if (!projectKey) {
-    return buildCompanyPath(companySlug, "");
+  // If we have a task key (e.g. "NEV-25"), link to the task detail route
+  if (event.taskKey) {
+    return buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(event.taskKey)}`);
   }
-  // Use the /tasks route (company-scoped) — not /board (old non-company route)
-  const taskQuery = event.taskId ? `?task=${encodeURIComponent(event.taskId)}` : "";
-  return buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectKey)}/tasks${taskQuery}`);
+  // Fallback to company root
+  return buildCompanyPath(companySlug, "");
 }
 
 /* ------------------------------------------------------------------ */

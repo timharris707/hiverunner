@@ -612,7 +612,7 @@ export default function ProjectTasksPage({
 
   if (loading) {
     return (
-      <div className="flex h-full flex-col" style={{ background: "linear-gradient(180deg, #0c0a09 0%, #1c1917 100%)" }}>
+      <div className="flex h-full flex-col" style={{ background: "#0f0f0f" }}>
         <div className="p-6 text-sm text-stone-500">Loading...</div>
       </div>
     );
@@ -620,7 +620,7 @@ export default function ProjectTasksPage({
 
   if (!company || !project) {
     return (
-      <div className="flex h-full flex-col items-center justify-center" style={{ background: "linear-gradient(180deg, #0c0a09 0%, #1c1917 100%)" }}>
+      <div className="flex h-full flex-col items-center justify-center" style={{ background: "#0f0f0f" }}>
         <p className="text-sm text-red-300">Project not found.</p>
         <Link href={buildCompanyPath(slug, "/projects")} className="mt-2 text-xs text-stone-400 hover:text-stone-200">
           Back to Projects
@@ -630,7 +630,7 @@ export default function ProjectTasksPage({
   }
 
   return (
-    <div className="flex h-full flex-col" style={{ background: "linear-gradient(180deg, #0c0a09 0%, #1c1917 100%)" }}>
+    <div className="flex h-full flex-col" style={{ background: "#0f0f0f" }}>
       {/* ── project header ── */}
       <div className="px-5 pt-5 pb-0">
         <div className="flex items-center gap-3">
