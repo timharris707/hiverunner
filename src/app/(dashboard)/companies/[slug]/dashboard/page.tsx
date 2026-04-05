@@ -5,19 +5,22 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   AlertCircle,
-  ArrowRight,
   Bot,
   CheckCircle2,
+  ChevronRight,
   Clock3,
+  DollarSign,
   ExternalLink,
   LoaderCircle,
   RefreshCw,
+  Terminal,
   Users,
 } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { formatAge, statusTheme } from "@/components/orchestration/ui";
 import {
+  getCompanyAgentProfile,
   listActivityFeed,
   listCompanies,
   listCompanyAgents,
@@ -28,6 +31,9 @@ import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
   OrchestrationActivityEvent,
   OrchestrationAgent,
+  OrchestrationAgentExecutionRun,
+  OrchestrationAgentProfile,
+  OrchestrationAgentProfileActivity,
   OrchestrationCompany,
   OrchestrationProject,
   OrchestrationTask,
@@ -70,6 +76,14 @@ const TASK_STATUS_COLOR: Record<string, string> = {
   cancelled: "#78716c",
 };
 
+const RUN_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
+  running: { color: "#4ade80", bg: "rgba(74,222,128,0.12)" },
+  completed: { color: "#a8a29e", bg: "rgba(168,162,158,0.1)" },
+  failed: { color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
+  cancelled: { color: "#ca8a04", bg: "rgba(202,138,4,0.12)" },
+  pending: { color: "#94a3b8", bg: "rgba(148,163,184,0.1)" },
+};
+
 const REFRESH_MS = 15_000;
 
 type DashboardData = {
@@ -78,6 +92,7 @@ type DashboardData = {
   agents: OrchestrationAgent[];
   tasks: OrchestrationTask[];
   activity: OrchestrationActivityEvent[];
+  agentProfiles: Map<string, OrchestrationAgentProfile>;
 };
 
 /* ── main page ── */
@@ -109,10 +124,7 @@ export default function CompanyDashboardPage() {
 
         const company = companies.find((c) => c.slug === slug);
         if (!company) {
-          if (!cancelled) {
-            setError("Company not found.");
-            setData(null);
-          }
+          if (!cancelled) { setError("Company not found."); setData(null); }
           return;
         }
 
@@ -125,8 +137,26 @@ export default function CompanyDashboardPage() {
           })
           .slice(0, 20);
 
+        // Fetch per-agent profiles for rich run cards (parallel, with timeout, non-blocking)
+        const profileResults = await Promise.allSettled(
+          agents.map((agent) =>
+            withTimeout(
+              getCompanyAgentProfile(slug, agent.slug ?? agent.id, { executionLimit: 3, activityLimit: 6 }),
+              4000,
+            )
+          )
+        );
+
+        const agentProfiles = new Map<string, OrchestrationAgentProfile>();
+        for (let i = 0; i < agents.length; i++) {
+          const result = profileResults[i];
+          if (result.status === "fulfilled" && result.value) {
+            agentProfiles.set(agents[i].id, result.value);
+          }
+        }
+
         if (cancelled) return;
-        setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity });
+        setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity, agentProfiles });
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -176,6 +206,17 @@ export default function CompanyDashboardPage() {
     return data.tasks.filter((t) => t.status === "review").length;
   }, [data]);
 
+  const totalRuntimeMinutes = useMemo(() => {
+    if (!data) return 0;
+    let total = 0;
+    for (const profile of data.agentProfiles.values()) {
+      for (const run of profile.executionHistory) {
+        if (run.durationMs) total += run.durationMs;
+      }
+    }
+    return Math.round(total / 60_000);
+  }, [data]);
+
   const recentTasks = useMemo(() => {
     if (!data) return [];
     return [...data.tasks]
@@ -186,25 +227,15 @@ export default function CompanyDashboardPage() {
   const tasksByStatus = useMemo(() => {
     if (!data) return {};
     const counts: Record<string, number> = {};
-    for (const t of data.tasks) {
-      counts[t.status] = (counts[t.status] ?? 0) + 1;
-    }
+    for (const t of data.tasks) counts[t.status] = (counts[t.status] ?? 0) + 1;
     return counts;
   }, [data]);
 
   const tasksByPriority = useMemo(() => {
     if (!data) return {};
     const counts: Record<string, number> = {};
-    for (const t of data.tasks) {
-      counts[t.priority] = (counts[t.priority] ?? 0) + 1;
-    }
+    for (const t of data.tasks) counts[t.priority] = (counts[t.priority] ?? 0) + 1;
     return counts;
-  }, [data]);
-
-  const projectLookup = useMemo(() => {
-    const m = new Map<string, OrchestrationProject>();
-    for (const p of data?.projects ?? []) m.set(p.id, p);
-    return m;
   }, [data]);
 
   const agentLookup = useMemo(() => {
@@ -240,20 +271,17 @@ export default function CompanyDashboardPage() {
           </button>
         </div>
 
-        {/* ── agents panel ── */}
+        {/* ── agent run cards ── */}
         <section className="mb-6">
           <h2 className="mb-3 text-xs font-semibold uppercase tracking-[0.15em] text-stone-500">Agents</h2>
           {data && data.agents.length > 0 ? (
             <div className="grid gap-3 sm:grid-cols-2">
               {data.agents.map((agent) => (
-                <AgentCard
+                <AgentRunCard
                   key={agent.id}
                   agent={agent}
+                  profile={data.agentProfiles.get(agent.id) ?? null}
                   companySlug={slug}
-                  recentActivity={data.activity.filter(
-                    (e) => e.agentName?.toLowerCase() === agent.name.toLowerCase() ||
-                           e.agentId?.toLowerCase() === agent.id.toLowerCase()
-                  ).slice(0, 2)}
                 />
               ))}
             </div>
@@ -291,16 +319,16 @@ export default function CompanyDashboardPage() {
             detail={`${taskMetrics.open} open, ${taskMetrics.blocked} blocked`}
           />
           <MetricCard
-            value={pendingReview}
-            label="Pending Review"
-            icon={<CheckCircle2 className="h-4 w-4" />}
-            detail="Awaiting board review"
+            value={`${totalRuntimeMinutes}m`}
+            label="Agent Runtime"
+            icon={<DollarSign className="h-4 w-4" />}
+            detail={`${data?.agentProfiles.size ?? 0} agents tracked`}
           />
           <MetricCard
-            value={data?.projects.length ?? 0}
-            label="Active Projects"
-            icon={<ArrowRight className="h-4 w-4" />}
-            detail={`${taskMetrics.total} total tasks`}
+            value={pendingReview}
+            label="Pending Approvals"
+            icon={<CheckCircle2 className="h-4 w-4" />}
+            detail="Awaiting board review"
           />
         </div>
 
@@ -359,10 +387,7 @@ export default function CompanyDashboardPage() {
           >
             <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "rgba(120,113,108,0.12)" }}>
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-500">Recent Activity</h2>
-              <Link
-                href={buildCompanyPath(slug, "/activity")}
-                className="text-[10px] text-stone-600 no-underline hover:text-stone-300"
-              >
+              <Link href={buildCompanyPath(slug, "/activity")} className="text-[10px] text-stone-600 no-underline hover:text-stone-300">
                 Full log →
               </Link>
             </div>
@@ -371,21 +396,12 @@ export default function CompanyDashboardPage() {
                 const agent = event.agentId ? agentLookup.get(event.agentId.toLowerCase()) : null;
                 return (
                   <div key={event.id} className="flex items-start gap-2.5 px-4 py-2">
-                    {agent ? (
-                      <span
-                        className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px]"
-                        style={{ background: "rgba(120,113,108,0.15)", color: "#a8a29e" }}
-                      >
-                        {agent.emoji ?? "•"}
-                      </span>
-                    ) : (
-                      <span
-                        className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px]"
-                        style={{ background: "rgba(120,113,108,0.15)", color: "#78716c" }}
-                      >
-                        BO
-                      </span>
-                    )}
+                    <span
+                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px]"
+                      style={{ background: "rgba(120,113,108,0.15)", color: agent ? "#a8a29e" : "#78716c" }}
+                    >
+                      {agent?.emoji ?? "BO"}
+                    </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs text-stone-300">{event.message}</p>
                     </div>
@@ -406,31 +422,21 @@ export default function CompanyDashboardPage() {
           >
             <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "rgba(120,113,108,0.12)" }}>
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-500">Recent Tasks</h2>
-              <Link
-                href={buildCompanyPath(slug, "/issues")}
-                className="text-[10px] text-stone-600 no-underline hover:text-stone-300"
-              >
+              <Link href={buildCompanyPath(slug, "/issues")} className="text-[10px] text-stone-600 no-underline hover:text-stone-300">
                 All tasks →
               </Link>
             </div>
             <div className="max-h-[400px] divide-y overflow-y-auto" style={{ borderColor: "rgba(120,113,108,0.08)" }}>
               {recentTasks.map((task) => {
-                const project = projectLookup.get(task.project);
                 const assigneeAgent = task.assignee ? agentLookup.get(task.assignee.toLowerCase()) : null;
                 const identifier = task.key ?? task.id.slice(0, 8);
                 const dotColor = TASK_STATUS_COLOR[task.status] ?? "#78716c";
                 return (
                   <div key={task.id} className="flex items-center gap-2 px-4 py-2">
-                    <span
-                      className="inline-block h-[12px] w-[12px] shrink-0 rounded-full border-2"
-                      style={{ borderColor: dotColor }}
-                    />
+                    <span className="inline-block h-[12px] w-[12px] shrink-0 rounded-full border-2" style={{ borderColor: dotColor }} />
                     <span className="shrink-0 font-mono text-[11px] text-stone-500">{identifier}</span>
                     {assigneeAgent && (
-                      <span
-                        className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px]"
-                        style={{ background: "rgba(120,113,108,0.15)", color: "#a8a29e" }}
-                      >
+                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: "rgba(120,113,108,0.15)", color: "#a8a29e" }}>
                         {assigneeAgent.emoji ?? "•"}
                       </span>
                     )}
@@ -464,61 +470,180 @@ export default function CompanyDashboardPage() {
   );
 }
 
-/* ── Agent card ── */
+/* ── Agent Run Card (Paperclip-style) ── */
 
-function AgentCard({
+function AgentRunCard({
   agent,
+  profile,
   companySlug,
-  recentActivity,
 }: {
   agent: OrchestrationAgent;
+  profile: OrchestrationAgentProfile | null;
   companySlug: string;
-  recentActivity: OrchestrationActivityEvent[];
 }) {
+  const [expanded, setExpanded] = useState(false);
   const dotColor = STATUS_DOT_COLOR[agent.status];
   const dotGlow = STATUS_DOT_GLOW[agent.status];
-  const statusLabel = agent.status === "working" ? "Running" : agent.status.charAt(0).toUpperCase() + agent.status.slice(1);
   const agentHref = buildCompanyPath(companySlug, `/agents/${encodeURIComponent(agent.slug ?? agent.id)}/dashboard`);
+
+  const latestRun = profile?.liveSession ?? profile?.executionHistory?.[0] ?? null;
+  const recentActivity = profile?.recentActivity ?? [];
+  const currentTasks = profile?.currentTasks ?? [];
+
+  // Build the run status label
+  const runStatusLabel = latestRun
+    ? latestRun.status === "running"
+      ? "Running"
+      : `Finished ${formatAge(latestRun.completedAt ?? latestRun.createdAt)} ago`
+    : agent.status === "working"
+      ? "Running"
+      : agent.status === "paused"
+        ? "Paused"
+        : null;
+
+  // Latest comment from this agent (most recent activity of kind "comment")
+  const latestComment = recentActivity.find((a) => a.kind === "comment");
+  // Recent events (non-comment activity)
+  const recentEvents = recentActivity.filter((a) => a.kind === "event").slice(0, 3);
 
   return (
     <div
-      className="rounded-lg border"
+      className="overflow-hidden rounded-lg border"
       style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
     >
-      {/* header */}
-      <div className="flex items-center justify-between border-b px-3 py-2" style={{ borderColor: "rgba(120,113,108,0.1)" }}>
+      {/* ── header ── */}
+      <div className="flex items-center justify-between px-3 py-2">
         <div className="flex items-center gap-2">
           <span
             className="inline-block h-2 w-2 shrink-0 rounded-full"
             style={{ background: dotColor, boxShadow: dotGlow }}
           />
-          <span className="text-sm">{agent.emoji ?? "🤖"}</span>
-          <span className="text-xs font-medium text-stone-200">{agent.name}</span>
+          <span
+            className="inline-flex h-6 w-6 items-center justify-center rounded text-xs"
+            style={{ background: "rgba(120,113,108,0.12)", color: "#a8a29e" }}
+          >
+            {agent.emoji ?? "🤖"}
+          </span>
+          <span className="text-sm font-medium text-stone-200">{agent.name}</span>
         </div>
         <Link href={agentHref} className="text-stone-600 hover:text-stone-300">
-          <ExternalLink className="h-3 w-3" />
+          <ExternalLink className="h-3.5 w-3.5" />
         </Link>
       </div>
 
-      {/* body */}
-      <div className="px-3 py-2">
-        <p className="text-[11px] text-stone-500">{statusLabel} · {agent.role}</p>
-        {agent.currentTask && (
-          <p className="mt-1 truncate text-xs text-stone-300">{agent.currentTask}</p>
-        )}
+      {/* ── run status line ── */}
+      {runStatusLabel && (
+        <div className="px-3 pb-1">
+          <span className="text-[11px] text-stone-500">{runStatusLabel}</span>
+        </div>
+      )}
 
-        {/* recent agent activity */}
-        {recentActivity.length > 0 && (
-          <div className="mt-2 space-y-1 border-t pt-2" style={{ borderColor: "rgba(120,113,108,0.08)" }}>
-            {recentActivity.map((event) => (
-              <p key={event.id} className="truncate text-[11px] text-stone-500">
-                {event.message}
-                <span className="ml-1 text-stone-600">{formatAge(event.timestamp)}</span>
-              </p>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* ── task context pill (latest run or current task) ── */}
+      {latestRun ? (
+        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{ background: "rgba(120,113,108,0.07)" }}>
+          <span className="text-xs text-stone-400">
+            {latestRun.taskTitle}
+          </span>
+        </div>
+      ) : currentTasks.length > 0 ? (
+        <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{ background: "rgba(120,113,108,0.07)" }}>
+          <span className="text-xs text-stone-400">
+            {currentTasks[0].title}
+          </span>
+        </div>
+      ) : null}
+
+      {/* ── latest comment / agent output ── */}
+      {latestComment ? (
+        <div className="mx-3 mb-2">
+          <p className="text-sm leading-relaxed text-stone-200">
+            {latestComment.message.length > 200
+              ? latestComment.message.slice(0, 200) + "…"
+              : latestComment.message}
+          </p>
+        </div>
+      ) : agent.currentTask && !latestRun ? (
+        <div className="mx-3 mb-2">
+          <p className="text-xs text-stone-400">{agent.role}</p>
+        </div>
+      ) : !latestRun ? (
+        <div className="mx-3 mb-2">
+          <p className="text-xs text-stone-500">{agent.role}</p>
+        </div>
+      ) : null}
+
+      {/* ── execution run metadata ── */}
+      {latestRun && (
+        <div className="mx-3 mb-2">
+          <RunBadge run={latestRun} />
+        </div>
+      )}
+
+      {/* ── expandable recent activity ── */}
+      {recentEvents.length > 0 && (
+        <div className="border-t" style={{ borderColor: "rgba(120,113,108,0.08)" }}>
+          <button
+            type="button"
+            onClick={() => setExpanded(!expanded)}
+            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-[11px] text-stone-500 hover:text-stone-300"
+          >
+            <ChevronRight
+              className="h-3 w-3 shrink-0 transition-transform"
+              style={{ transform: expanded ? "rotate(90deg)" : "rotate(0deg)" }}
+            />
+            {recentEvents.length} recent event{recentEvents.length !== 1 ? "s" : ""}
+          </button>
+          {expanded && (
+            <div className="space-y-0.5 px-3 pb-2">
+              {recentEvents.map((event) => (
+                <p key={event.id} className="truncate text-[11px] text-stone-500">
+                  {event.message}
+                  <span className="ml-1.5 text-stone-600">{formatAge(event.timestamp)}</span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Run badge ── */
+
+function RunBadge({ run }: { run: OrchestrationAgentExecutionRun }) {
+  const style = RUN_STATUS_STYLE[run.status] ?? RUN_STATUS_STYLE.pending;
+  const sessionShort = run.sessionId?.slice(0, 8) ?? run.id.slice(0, 8);
+  const durationLabel = run.durationMs
+    ? run.durationMs < 60_000
+      ? `${Math.round(run.durationMs / 1000)}s`
+      : `${Math.round(run.durationMs / 60_000)}m`
+    : null;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span
+        className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+        style={{ color: style.color, background: style.bg }}
+      >
+        <Terminal className="h-2.5 w-2.5" />
+        {run.status}
+      </span>
+      <span className="font-mono text-[10px] text-stone-600">{sessionShort}</span>
+      {run.provider !== "manual" && (
+        <span
+          className="rounded px-1 py-0.5 text-[9px] font-medium uppercase"
+          style={{ color: "#d97706", background: "rgba(217,119,6,0.1)" }}
+        >
+          {run.provider === "openclaw" ? "Timer" : run.provider}
+        </span>
+      )}
+      {durationLabel && (
+        <span className="text-[10px] text-stone-600">{durationLabel}</span>
+      )}
+      {run.errorMessage && (
+        <span className="truncate text-[10px] text-red-400">{run.errorMessage}</span>
+      )}
     </div>
   );
 }
