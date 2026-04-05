@@ -4,6 +4,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import { ObservabilityTier, capabilitiesFromTier } from "@/lib/orchestration/adapters/types";
+import { getAdapter } from "@/lib/orchestration/adapters/registry";
 
 export const dynamic = "force-dynamic";
 
@@ -313,8 +314,12 @@ function buildExecutionRunResponse(
     : undefined;
 
   const usage = safeJsonParse(row.token_usage_json);
-  const effectiveTier = timeline.length > 0 ? ObservabilityTier.ActionDetection : ObservabilityTier.Milestones;
-  const capabilities = capabilitiesFromTier(effectiveTier);
+
+  // Determine effective tier: cap at the adapter's declared maximum
+  const adapter = getAdapter(row.provider) ?? getAdapter("openclaw-heartbeat");
+  const adapterMaxTier = adapter?.maxTier ?? ObservabilityTier.PostRun;
+  const dataTier = timeline.length > 0 ? ObservabilityTier.ActionDetection : ObservabilityTier.Milestones;
+  const effectiveTier = Math.min(dataTier, adapterMaxTier) as ObservabilityTier;
 
   return NextResponse.json({
     run: {
@@ -351,36 +356,89 @@ function buildExecutionRunResponse(
         ts: new Date(c.created_at).getTime(),
       })),
       provenance: {
-        label: "Persisted agent comments",
-        note: agentComments.length > 0
-          ? "Partial proxy for agent output. Full transcript is not persisted."
-          : "No agent comments found for this run window.",
+        label: row.provider === "paperclip"
+          ? "Paperclip issue comments"
+          : "Persisted agent comments",
+        note: row.provider === "paperclip"
+          ? agentComments.length > 0
+            ? "Comments imported from the Paperclip issue via bridge sync. These reflect what the agent wrote on the Paperclip side."
+            : "No comments synced from Paperclip for this run."
+          : agentComments.length > 0
+            ? "Partial proxy for agent output. Full transcript is not persisted."
+            : "No agent comments found for this run window.",
         totalEntries: agentComments.length,
-        source: "comments",
+        source: row.provider === "paperclip" ? "paperclip_bridge" : "comments",
         fullTranscriptAvailable: false,
       },
     },
     timeline,
     provenance: {
       timeline: {
-        label: timeline.length > 0
-          ? "Reconstructed from linked heartbeat cycles"
-          : "Post-run metadata only",
-        note: timeline.length > 0
-          ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
-          : "No in-flight events available. Only run status is known.",
-        sources: timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
+        label: row.provider === "paperclip"
+          ? "Paperclip bridge sync"
+          : timeline.length > 0
+            ? "Reconstructed from linked heartbeat cycles"
+            : "Post-run metadata only",
+        note: row.provider === "paperclip"
+          ? "Events from Paperclip issue comments imported via bridge sync. Paperclip is poll-based — no live streaming. Comments represent what the agent wrote on the Paperclip issue."
+          : timeline.length > 0
+            ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
+            : "No in-flight events available. Only run status is known.",
+        sources: row.provider === "paperclip"
+          ? ["execution_runs", "comments (source=paperclip)"]
+          : timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
       },
       runTable: "execution_runs",
     },
-    provider: {
-      id: "openclaw-heartbeat",
-      displayName: "OpenClaw Heartbeat",
-      tier: effectiveTier,
-      tierLabel: tierLabel(effectiveTier),
-      capabilities,
-    },
+    provider: resolveProviderInfo(row.provider, effectiveTier),
   });
+}
+
+/* ── Provider Resolution ── */
+
+/**
+ * Resolve provider identity and capabilities from the execution provider name.
+ * Uses the adapter registry as the source of truth when available,
+ * falls back to defaults for known providers.
+ */
+function resolveProviderInfo(providerName: string, effectiveTier?: ObservabilityTier) {
+  // Try the adapter registry first (single source of truth)
+  const adapter = getAdapter(providerName);
+  if (adapter) {
+    const tier = effectiveTier ?? adapter.maxTier;
+    return {
+      id: adapter.providerId,
+      displayName: adapter.displayName,
+      tier,
+      tierLabel: tierLabel(tier),
+      capabilities: capabilitiesFromTier(tier),
+    };
+  }
+
+  // Also check for "openclaw" provider name → maps to "openclaw-heartbeat" adapter
+  if (providerName === "openclaw") {
+    const ocAdapter = getAdapter("openclaw-heartbeat");
+    if (ocAdapter) {
+      const tier = effectiveTier ?? ocAdapter.maxTier;
+      return {
+        id: ocAdapter.providerId,
+        displayName: ocAdapter.displayName,
+        tier,
+        tierLabel: tierLabel(tier),
+        capabilities: capabilitiesFromTier(tier),
+      };
+    }
+  }
+
+  // Fallback for unknown providers
+  const tier = effectiveTier ?? ObservabilityTier.PostRun;
+  return {
+    id: providerName,
+    displayName: providerName,
+    tier,
+    tierLabel: tierLabel(tier),
+    capabilities: capabilitiesFromTier(tier),
+  };
 }
 
 /* ── Shared Helpers ── */

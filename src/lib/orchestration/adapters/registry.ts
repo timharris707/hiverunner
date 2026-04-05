@@ -16,6 +16,7 @@ import type {
   ProviderStatus,
 } from "./types";
 import { createOpenClawHeartbeatAdapter } from "./openclaw-heartbeat";
+import { createPaperclipAdapter } from "./paperclip";
 
 /* ── Types ── */
 
@@ -92,11 +93,12 @@ export function registerAdapter(
 }
 
 /**
- * Initialize the registry with the default adapters.
+ * Initialize the registry with all available adapters.
  * Idempotent — second call is a no-op.
  *
- * Currently registers: OpenClaw Heartbeat adapter.
- * Future: Paperclip, Hermes, webhook adapters.
+ * Registers:
+ *   - OpenClaw Heartbeat (Tier 3 — live text + action detection)
+ *   - Paperclip (Tier 1 — milestone lifecycle via bridge sync)
  */
 export function initAdapterRegistry(): void {
   if (initialized) return;
@@ -104,9 +106,13 @@ export function initAdapterRegistry(): void {
 
   console.log("[adapter-registry] initializing");
 
-  // Register the OpenClaw heartbeat adapter (wraps gateway-stream-bridge)
+  // OpenClaw heartbeat adapter (wraps gateway-stream-bridge)
   const openclawAdapter = createOpenClawHeartbeatAdapter();
   registerAdapter(openclawAdapter);
+
+  // Paperclip adapter (poll-based via bridge sync)
+  const paperclipAdapter = createPaperclipAdapter();
+  registerAdapter(paperclipAdapter);
 }
 
 /**
@@ -126,6 +132,15 @@ export function destroyAdapterRegistry(): void {
   subscribers.clear();
   initialized = false;
   console.log("[adapter-registry] destroyed");
+}
+
+/**
+ * Look up a registered adapter by provider ID.
+ * Used by the run events API to get provider-specific metadata.
+ */
+export function getAdapter(providerId: string): MCProviderAdapter | null {
+  const entry = adapters.get(providerId);
+  return entry?.adapter ?? null;
 }
 
 /**
