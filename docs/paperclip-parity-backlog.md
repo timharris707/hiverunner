@@ -1,6 +1,6 @@
 # Paperclip Parity Backlog
 
-Updated: 2026-04-06  
+Updated: 2026-04-07
 Source audit: [docs/paperclip-parity-audit.md](/Users/timharris/.openclaw/workspace/projects/mission-control-app/docs/paperclip-parity-audit.md) (`88c23538`)
 
 This file is the live tracking layer for Paperclip parity work on Mission Control. It rolls forward the original audit into status, commit linkage, and next-step guidance.
@@ -12,6 +12,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `F2` approvals had detail-only routing and no usable queue
 - Closed the shared agent-status truth bug:
   - `T1` shared agent surfaces no longer show `working` or `LIVE` from stale `agents.status` or stale execution rows
+- Closed the largest missing project-operability surface:
+  - `F3` project workspaces — workspace list + agent workspace detail now backed by real DB + filesystem data
 - Partially closed the main agent-operability stack:
   - `A1` configuration
   - `A2` instructions
@@ -22,23 +24,23 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | Bucket | Count | Notes |
 | --- | ---: | --- |
-| Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
+| Closed | 5 | Includes the two original ship blockers, the tasks empty-state visual blocker, the shared agent-status truth fix, and project workspaces |
 | Partially closed | 4 | All four are materially better but not yet at Paperclip parity |
-| Still open | 8 | Remaining gaps are still material, but the direct agent-status trust bug is no longer open |
+| Still open | 7 | Remaining gaps are still material; project workspaces moved to closed |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `F3` Project workspaces and workspace detail  
-   Reason: this remains the largest missing project-operability surface relative to Paperclip.
-2. `F4` Routine detail / edit route  
+1. `F4` Routine detail / edit route
    Reason: routines are still list-only in Mission Control, which keeps recurring work opaque.
-3. `D1` Project configuration execution truth  
+2. `D1` Project configuration execution truth
    Reason: repo/local-folder/codebase placeholders still overstate confidence and weaken operator trust.
-4. `F5` + `D2` Company import/export routes and honesty cleanup  
+3. `F5` + `D2` Company import/export routes and honesty cleanup
    Reason: the current UI still implies route-backed workflows that do not actually exist.
-5. `A1` Agent configuration backing depth  
+4. `A1` Agent configuration backing depth
    Reason: the operator surface is better now, but more runtime-control fields still need real backing or explicit provider-limited framing.
+5. `U1` Inbox archive workflow
+   Reason: the inbox is functional but archive/cleanup affordances are still weaker than Paperclip's.
 
 ## Closed
 
@@ -48,6 +50,7 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | V1 | Tasks empty-first visual failure | `/NEV/tasks` | Minor | Visual/polish/layout | Closed | This was downstream of `F1`; once the hidden remembered scope was removed, the main visual failure stopped dominating the page. | `d0de73b0` | No separate action unless the tasks shell changes materially again. |
 | F2 | Approvals queue/index missing | `/NEV/approvals`, `/NEV/approvals/pending`, `/NEV/approvals/all` | Ship blocker | Feature/functionality | Closed | Mission Control now has a real company approvals queue with `pending` and `all` states, nav entry, empty states, and detail drill-in. | `3d5b5eed` | Iterate only if approval depth or actions need parity beyond the queue itself. |
 | T1 | Agent shown as active when not actually active | Shared agent-status surfaces, including `/NEV/agents`, `/NEV/team`, `/NEV/agents/forge/configuration`, `/NEV/agents/forge/skills`, `/NEV/agents/henry/dashboard` | Major | Data/truth/provenance | Closed | Shared agent status now comes from fresh execution evidence or fresh queued/running heartbeat evidence. Stale persisted `agents.status = working` and stale `execution_runs.status = running` rows no longer create false-positive `working` or `LIVE` states on the read path. | — | Keep the freshness thresholds aligned with engine semantics if heartbeat or execution timing policy changes. |
+| F3 | Project workspaces missing | `/NEV/projects/:projectSlug/workspaces`, `/NEV/projects/:projectSlug/workspaces/:agentSlug` | Major | Feature/functionality | Closed | Mission Control now has a real project workspaces tab with company workspace root, project directory (filesystem-verified), per-agent workspace cards with detail drill-in, and recent execution context. Workspace detail shows filesystem contents, git branch, identity file, and agent run history. All data is backed by orchestration DB + filesystem checks and honestly annotated with source provenance. Paperclip's equivalent route currently redirects to issues and renders empty, so MC now exceeds Paperclip on this surface. | — | Extend with deeper execution-context fields (env vars, working directory from runs) if the data becomes available. |
 
 ## Partially Closed
 
@@ -62,7 +65,6 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F3 | Project workspaces missing | No MC equivalent to `/projects/:id/workspaces` or `/execution-workspaces/:id` | Major | Feature/functionality | Open | No Mission Control route or equivalent workspace lifecycle surface has been added yet. | — | Add a project workspaces list and workspace detail, or choose an honest alternative IA and document it. |
 | F4 | Routine detail/edit route missing | `/NEV/routines` | Major | Feature/functionality | Open | Routines remain a list-plus-inline surface with no first-class detail route. | — | Add `/routines/:routineId` with schedule, run history, edit controls, and policy details. |
 | F5 | Company import/export still not route-backed | Current entry points live in org/settings, but no dedicated routes | Major | Feature/functionality | Open | The audit concern still stands: entry points exist, but the dedicated workflow pages are not present on this branch. | — | Either ship real import/export pages or remove/replace wording that implies those routes already exist. |
 | U1 | Inbox archive workflow weaker than Paperclip | `/NEV/inbox` | Minor | UX/interaction | Open | This branch still has no clearly visible archive action on the live inbox list. | — | Add explicit row-level or bulk archive affordances on the inbox surface. |

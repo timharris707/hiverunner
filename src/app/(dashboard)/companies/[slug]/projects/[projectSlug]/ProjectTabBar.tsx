@@ -3,11 +3,12 @@
 import Link from "next/link";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
-type TabKey = "tasks" | "overview" | "configuration" | "budget";
+type TabKey = "tasks" | "overview" | "workspaces" | "configuration" | "budget";
 
 const TABS: { key: TabKey; label: string; path: string }[] = [
   { key: "tasks", label: "Tasks", path: "/tasks" },
   { key: "overview", label: "Overview", path: "/overview" },
+  { key: "workspaces", label: "Workspaces", path: "/workspaces" },
   { key: "configuration", label: "Configuration", path: "/configuration" },
   { key: "budget", label: "Budget", path: "/budget" },
 ];
