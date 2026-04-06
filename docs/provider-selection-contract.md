@@ -245,7 +245,8 @@ The `PROVIDER_PRODUCT_DESCRIPTORS` list is static. There is no runtime
 check for whether a provider is actually available for a given
 agent/company/environment. For example:
 - Paperclip requires `PAPERCLIP_API_URL` and `PAPERCLIP_API_KEY`
-- Anthropic requires `ANTHROPIC_API_KEY`
+- Anthropic requires local Claude Code CLI availability; activation
+  cannot fully verify whether the CLI is currently authenticated
 - OpenClaw requires a valid `openclaw_agent_id` and gateway connection
 - Not all agents have both `openclaw_agent_id` and `paperclip_agent_id`
 

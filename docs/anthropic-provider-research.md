@@ -115,4 +115,4 @@ Architectural fit:
 5. Verify.
    - `npm run build`
    - Confirm `PROVIDER_PRODUCT_DESCRIPTORS` includes `anthropic`
-   - Confirm activation logic checks `ANTHROPIC_API_KEY`
+   - Confirm activation logic reflects Claude Code CLI readiness rather than treating `ANTHROPIC_API_KEY` as the required runtime dependency

@@ -16,6 +16,9 @@
  * - adapter_type is the source of truth for current provider identity
  */
 
+import { accessSync, constants as fsConstants } from "fs";
+import path from "path";
+
 import {
   ObservabilityTier,
   TIER_LABELS,
@@ -106,16 +109,23 @@ export interface AgentForActivationCheck {
   paperclipAgentId: string | null;
 }
 
+interface ProviderEnvCheckResult {
+  configured: boolean;
+  missing: string[];
+  detail?: string;
+}
+
 /* ── Environment Check ── */
 
 /**
  * Check whether the environment is configured for a given provider.
- * This is a static check — it reads env vars, not runtime state.
+ * This is a lightweight readiness check — it reads env/runtime hints
+ * but does not perform live provider probes.
  */
 export function checkProviderEnvConfigured(
   providerId: string,
   env: Record<string, string | undefined> = process.env as Record<string, string | undefined>,
-): { configured: boolean; missing: string[] } {
+): ProviderEnvCheckResult {
   if (providerId === "openclaw-heartbeat" || providerId === "openclaw") {
     // OpenClaw needs a gateway URL (token is optional — falls back to config file)
     const missing: string[] = [];
@@ -146,9 +156,22 @@ export function checkProviderEnvConfigured(
   }
 
   if (providerId === "anthropic") {
-    const missing: string[] = [];
-    if (!env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
-    return { configured: missing.length === 0, missing };
+    const claudeAvailable = isCommandAvailableOnPath("claude", env);
+    if (!claudeAvailable) {
+      return {
+        configured: false,
+        missing: ["claude"],
+        detail:
+          "Claude Code CLI (`claude`) is not on PATH. Anthropic in Mission Control is a Claude Code CLI provider, not a direct Anthropic Messages API integration.",
+      };
+    }
+
+    return {
+      configured: true,
+      missing: [],
+      detail:
+        "Claude Code CLI (`claude`) is on PATH. Activation does not verify whether the CLI is currently authenticated; execution still depends on a working Claude CLI auth setup.",
+    };
   }
 
   // Unknown/planned providers are never env-configured
@@ -271,9 +294,11 @@ export function checkProviderActivation(
   checks.push({
     check: "env_configured",
     passed: envCheck.configured,
-    detail: envCheck.configured
-      ? `Environment is configured for ${targetProviderId}.`
-      : `Missing environment variables: ${envCheck.missing.join(", ")}.`,
+    detail:
+      envCheck.detail
+      ?? (envCheck.configured
+        ? `Environment is configured for ${targetProviderId}.`
+        : `Missing environment variables: ${envCheck.missing.join(", ")}.`),
     blocking: true,
   });
 
@@ -460,6 +485,36 @@ export function mapAdapterTypeToProviderId(adapterType: string): string {
 function normalizeProviderId(providerId: string): string {
   if (providerId === "openclaw") return "openclaw-heartbeat";
   return providerId;
+}
+
+function isCommandAvailableOnPath(
+  command: string,
+  env: Record<string, string | undefined>,
+): boolean {
+  const pathValue = env.PATH ?? process.env.PATH ?? "";
+  if (!pathValue.trim()) return false;
+
+  const pathEntries = pathValue.split(path.delimiter).filter(Boolean);
+  const isWindows = process.platform === "win32";
+  const executableSuffixes = isWindows
+    ? (env.PATHEXT ?? process.env.PATHEXT ?? ".EXE;.CMD;.BAT;.COM")
+        .split(";")
+        .filter(Boolean)
+    : [""];
+
+  for (const dir of pathEntries) {
+    for (const suffix of executableSuffixes) {
+      const candidate = path.join(dir, isWindows ? `${command}${suffix}` : command);
+      try {
+        accessSync(candidate, fsConstants.X_OK);
+        return true;
+      } catch {
+        // continue searching PATH
+      }
+    }
+  }
+
+  return false;
 }
 
 /**

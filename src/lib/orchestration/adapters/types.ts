@@ -339,7 +339,8 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
     defaultAvailability: "available",
     statusNote:
       "Tier 4 via Claude Code CLI stream-json. Live text + structured tool/result events are real. " +
-      "Thinking is observable in telemetry, but run steering is not implemented.",
+      "Thinking is observable in telemetry, but run steering is not implemented. " +
+      "Runtime readiness depends on local Claude CLI install/login, not the Anthropic Messages API.",
     tokenUsageTruth: "exact",
     costTruth: "exact",
     thinkingControl: "implicit",

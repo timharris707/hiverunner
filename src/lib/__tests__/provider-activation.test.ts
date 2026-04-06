@@ -5,6 +5,10 @@
  * for a given agent in a given environment?
  */
 
+import { chmodSync, mkdtempSync, writeFileSync } from "fs";
+import os from "os";
+import path from "path";
+
 import {
   checkProviderActivation,
   checkProviderEnvConfigured,
@@ -51,17 +55,24 @@ const unlinkedAgent: AgentForActivationCheck = {
 
 /* ── Test Environments ── */
 
+const fakeClaudeBinDir = mkdtempSync(path.join(os.tmpdir(), "mc-anthropic-cli-"));
+const fakeClaudeBinPath = path.join(fakeClaudeBinDir, "claude");
+writeFileSync(fakeClaudeBinPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+chmodSync(fakeClaudeBinPath, 0o755);
+
 const fullEnv: Record<string, string | undefined> = {
   OPENCLAW_WORKSPACE_ROOT: "/Users/test/.openclaw/workspace",
   PAPERCLIP_API_URL: "https://paperclip.example.com",
   PAPERCLIP_API_KEY: "pk-test-key",
   PAPERCLIP_COMPANY_ID: "company-123",
   ANTHROPIC_API_KEY: "anthropic-test-key",
+  PATH: fakeClaudeBinDir,
   HOME: "/Users/test",
 };
 
 const openclawOnlyEnv: Record<string, string | undefined> = {
   OPENCLAW_WORKSPACE_ROOT: "/Users/test/.openclaw/workspace",
+  PATH: fakeClaudeBinDir,
   HOME: "/Users/test",
 };
 
@@ -69,6 +80,7 @@ const paperclipOnlyEnv: Record<string, string | undefined> = {
   PAPERCLIP_API_URL: "https://paperclip.example.com",
   PAPERCLIP_API_KEY: "pk-test-key",
   PAPERCLIP_COMPANY_ID: "company-123",
+  PATH: fakeClaudeBinDir,
 };
 
 const emptyEnv: Record<string, string | undefined> = {};
@@ -130,12 +142,23 @@ test("checkProviderEnvConfigured: anthropic in full env", () => {
   const result = checkProviderEnvConfigured("anthropic", fullEnv);
   assert(result.configured === true, "anthropic should be configured");
   assert(result.missing.length === 0, "no missing vars");
+  assert(!result.detail?.includes("ANTHROPIC_API_KEY"), "detail should not imply API key dependency");
 });
 
-test("checkProviderEnvConfigured: anthropic missing key", () => {
+test("checkProviderEnvConfigured: anthropic without API key but with CLI", () => {
   const result = checkProviderEnvConfigured("anthropic", openclawOnlyEnv);
-  assert(result.configured === false, "anthropic should not be configured");
-  assert(result.missing.includes("ANTHROPIC_API_KEY"), "missing ANTHROPIC_API_KEY");
+  assert(result.configured === true, "anthropic should not require ANTHROPIC_API_KEY");
+  assert(result.missing.length === 0, "no missing vars");
+  assert(
+    result.detail?.includes("does not verify whether the CLI is currently authenticated") === true,
+    "detail should honestly describe unverifiable Claude CLI auth state",
+  );
+});
+
+test("checkProviderEnvConfigured: anthropic without Claude CLI", () => {
+  const result = checkProviderEnvConfigured("anthropic", { PATH: "" });
+  assert(result.configured === false, "anthropic should not be configured without Claude CLI");
+  assert(result.missing.includes("claude"), "missing claude CLI");
 });
 
 test("checkProviderEnvConfigured: unknown provider", () => {
@@ -241,7 +264,14 @@ test("activation: paperclip without env vars", () => {
 
 test("activation: anthropic without env vars", () => {
   const result = checkProviderActivation(openclawAgent, "anthropic", openclawOnlyEnv);
-  assert(result.canActivate === false, "should not be activatable without anthropic env");
+  assert(result.canActivate === true, "should be activatable with Claude CLI even without ANTHROPIC_API_KEY");
+  const envCheck = result.checks.find((c) => c.check === "env_configured");
+  assert(envCheck?.passed === true, "env_configured should pass");
+});
+
+test("activation: anthropic without Claude CLI is blocking", () => {
+  const result = checkProviderActivation(openclawAgent, "anthropic", { PATH: "" });
+  assert(result.canActivate === false, "should not be activatable without Claude CLI");
   const envCheck = result.checks.find((c) => c.check === "env_configured");
   assert(envCheck?.passed === false, "env_configured should fail");
 });

@@ -14,6 +14,10 @@ if (!process.env.ORCHESTRATION_DB_PATH) {
   );
 }
 
+import { chmodSync, mkdtempSync, writeFileSync } from "fs";
+import os from "os";
+import path from "path";
+
 import { getOrchestrationDb } from "../orchestration/db";
 import {
   computeSwitchPlan,
@@ -77,11 +81,16 @@ function test(name: string, fn: () => void): void {
 }
 
 /* ── Env ── */
+const fakeClaudeBinDir = mkdtempSync(path.join(os.tmpdir(), "mc-anthropic-cli-switch-"));
+const fakeClaudeBinPath = path.join(fakeClaudeBinDir, "claude");
+writeFileSync(fakeClaudeBinPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+chmodSync(fakeClaudeBinPath, 0o755);
+
 process.env.OPENCLAW_WORKSPACE_ROOT = process.env.OPENCLAW_WORKSPACE_ROOT || "/tmp/test-workspace";
 process.env.PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL || "https://paperclip.test.com";
 process.env.PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY || "pk-test";
 process.env.PAPERCLIP_COMPANY_ID = process.env.PAPERCLIP_COMPANY_ID || "company-test";
-process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "anthropic-test";
+process.env.PATH = `${fakeClaudeBinDir}:${process.env.PATH || ""}`;
 
 /* ── Run ── */
 

@@ -222,7 +222,7 @@ export default function AgentConfigurationPage() {
           <div style={{ marginTop: 8 }}>
             {/* Header note */}
             <div style={{ fontSize: 10, color: A.muted, marginBottom: 8, lineHeight: 1.5 }}>
-              Providers Mission Control can integrate with. Availability shown is platform-level, not per-agent. Selection is not yet editable from this surface.
+              Providers Mission Control can integrate with. Availability shown here is static product truth, not a per-agent readiness check. For CLI-backed providers like Anthropic and Codex, this surface does not verify local CLI install or login state.
             </div>
             {/* Provider rows */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
