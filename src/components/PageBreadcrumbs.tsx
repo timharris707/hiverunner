@@ -34,6 +34,7 @@ const LABEL_MAP: Record<string, string> = {
   activity: "Activity",
   analytics: "Analytics",
   about: "About",
+  approvals: "Approvals",
   skills: "Skills",
   git: "Git",
 };

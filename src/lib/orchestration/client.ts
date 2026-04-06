@@ -1,10 +1,13 @@
 import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
 import type {
+  ApprovalStatus,
+  ApprovalType,
   OrchestrationActivityEvent,
   OrchestrationAgentExecutionRun,
   OrchestrationAgentProfile,
   OrchestrationAgentProfileActivity,
   OrchestrationAgentProfileTask,
+  OrchestrationApproval,
   OrchestrationCompanyGoal,
   OrchestrationCompanyInboxEvent,
   OrchestrationCompanyInboxTask,
@@ -1880,6 +1883,21 @@ export async function resubmitApproval(approvalId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function listCompanyApprovals(input: {
+  companySlug: string;
+  status?: ApprovalStatus;
+  type?: ApprovalType;
+}): Promise<OrchestrationApproval[]> {
+  const params = new URLSearchParams();
+  if (input.status) params.set("status", input.status);
+  if (input.type) params.set("type", input.type);
+  const suffix = params.size > 0 ? `?${params.toString()}` : "";
+  const data = await fetchJson<{ approvals: OrchestrationApproval[] }>(
+    `/api/orchestration/companies/${encodeURIComponent(input.companySlug)}/approvals${suffix}`
+  );
+  return data?.approvals ?? [];
 }
 
 export async function getApprovalDetail(approvalId: string): Promise<OrchestrationApproval | null> {

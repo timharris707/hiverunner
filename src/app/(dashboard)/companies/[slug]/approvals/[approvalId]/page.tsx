@@ -6,6 +6,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, Lightbulb, ShieldAlert, UserPlus 
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { formatAge } from "@/components/orchestration/ui";
+import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import {
   getApprovalDetail,
   approveApproval,
@@ -21,7 +22,13 @@ import type { OrchestrationApproval, ApprovalType } from "@/lib/orchestration/ty
 function approvalLabel(type: ApprovalType, payload: Record<string, unknown>): string {
   switch (type) {
     case "hire_agent":
-      return `Hire Agent: ${typeof payload.agentName === "string" ? payload.agentName : "Unknown"}`;
+      return `Hire Agent: ${
+        typeof payload.agentName === "string"
+          ? payload.agentName
+          : typeof payload.name === "string"
+            ? payload.name
+            : "Unknown"
+      }`;
     case "approve_ceo_strategy":
       return typeof payload.title === "string" ? payload.title : "CEO Strategy Approval";
     case "budget_override_required":
@@ -117,27 +124,31 @@ export default function ApprovalDetailPage() {
   }
 
   if (!approval) {
-    return <CompanyErrorState title="Approval not found" detail="This approval could not be found." href={`/${slug}/inbox`} />;
+    return <CompanyErrorState title="Approval not found" detail="This approval could not be found." href={buildCompanyPath(slug, "/approvals/pending")} />;
   }
 
   const label = approvalLabel(approval.type, approval.payload);
   const isActionable = ACTIONABLE.has(approval.status) && approval.type !== "budget_override_required";
   const isRevisionRequested = approval.status === "revision_requested";
   const comments = approval.comments ?? [];
+  const backHref = buildCompanyPath(
+    slug,
+    ACTIONABLE.has(approval.status) ? "/approvals/pending" : "/approvals/all"
+  );
 
   return (
     <div style={{ padding: "24px 32px", maxWidth: 800 }}>
       {/* Back link */}
       <button
         type="button"
-        onClick={() => router.push(`/${slug}/inbox`)}
+        onClick={() => router.push(backHref)}
         style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           background: "none", border: "none", color: "#78716c",
           fontSize: 13, cursor: "pointer", padding: 0, marginBottom: 20,
         }}
       >
-        <ArrowLeft size={14} /> Back to Inbox
+        <ArrowLeft size={14} /> Back to Approvals
       </button>
 
       {/* Header */}
@@ -358,12 +369,14 @@ function PayloadDisplay({ type, payload }: { type: ApprovalType; payload: Record
   const fields: Array<{ label: string; value: string; mono?: boolean; preWrap?: boolean }> = [];
 
   if (type === "hire_agent") {
+    if (payload.name) fields.push({ label: "Name", value: String(payload.name) });
     if (payload.agentName) fields.push({ label: "Name", value: String(payload.agentName) });
     if (payload.role) fields.push({ label: "Role", value: String(payload.role) });
     if (payload.title) fields.push({ label: "Title", value: String(payload.title) });
     if (payload.model) fields.push({ label: "Model", value: String(payload.model) });
     if (payload.emoji) fields.push({ label: "Icon", value: String(payload.emoji) });
     if (payload.capabilities) fields.push({ label: "Capabilities", value: String(payload.capabilities), preWrap: true });
+    if (payload.reason) fields.push({ label: "Reason", value: String(payload.reason), preWrap: true });
     if (payload.adapterType) fields.push({ label: "Adapter", value: String(payload.adapterType), mono: true });
     if (payload.desiredSkills) {
       const skills = Array.isArray(payload.desiredSkills) ? payload.desiredSkills.join(", ") : String(payload.desiredSkills);
