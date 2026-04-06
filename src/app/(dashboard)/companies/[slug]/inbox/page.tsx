@@ -914,6 +914,10 @@ function TaskEventRow({
   const isFailed = event.eventType === "execution.failed";
   const badge = groupCountLabel(group);
 
+  const showAssignee = visibleColumns.includes("assignee");
+  const showProject = visibleColumns.includes("project");
+  const showUpdated = visibleColumns.includes("updated");
+
   return (
     <div
       style={{ position: "relative" }}
@@ -931,92 +935,108 @@ function TaskEventRow({
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 10,
           padding: "9px 4px",
-          paddingRight: 30, // leave room for dismiss button
+          paddingRight: 30,
           borderBottom: "1px solid rgba(120,113,108,0.08)",
           textDecoration: "none",
           transition: "background 100ms",
           background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
         }}
       >
-        {/* Unread dot */}
-        <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
+        {/* ── Left section: dot + status + key + title ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, overflow: "hidden" }}>
+          {/* Unread dot */}
+          <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
 
-        {/* Status icon */}
-        {visibleColumns.includes("status") && <StatusDot status={event.status} />}
+          {/* Status icon */}
+          {visibleColumns.includes("status") && <StatusDot status={event.status} />}
 
-        {/* Task key */}
-        {visibleColumns.includes("id") && taskKey ? (
-          <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>
-            {taskKey}
+          {/* Task key */}
+          {visibleColumns.includes("id") && taskKey ? (
+            <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>
+              {taskKey}
+            </span>
+          ) : null}
+
+          {/* Title */}
+          <span
+            style={{
+              fontSize: 13,
+              color: isFailed ? "#fca5a5" : isUnread ? "#f5f5f4" : "#d6d3d1",
+              fontWeight: isUnread ? 500 : 400,
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              flex: 1,
+              minWidth: 0,
+            }}
+          >
+            {event.taskTitle ?? event.message}
           </span>
-        ) : null}
+        </div>
 
-        {/* Title */}
-        <span
-          style={{
-            fontSize: 13,
-            color: isFailed ? "#fca5a5" : isUnread ? "#f5f5f4" : "#d6d3d1",
-            fontWeight: isUnread ? 500 : 400,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-            flex: 1,
-            minWidth: 0,
-          }}
-        >
-          {event.taskTitle ?? event.message}
-        </span>
-
-        {/* Assignee column */}
-        {visibleColumns.includes("assignee") && event.agentName && (
-          <span style={{
-            fontSize: 11, fontWeight: 500, color: "#a8a29e",
-            background: "rgba(120,113,108,0.12)", borderRadius: 4,
-            padding: "1px 6px", flexShrink: 0, whiteSpace: "nowrap",
-          }}>
-            {event.agentName}
-          </span>
-        )}
-
-        {/* Project column */}
-        {visibleColumns.includes("project") && event.projectName && (
-          <span style={{
-            display: "inline-flex", alignItems: "center", gap: 4,
-            fontSize: 11, color: "#a8a29e", flexShrink: 0, whiteSpace: "nowrap",
-          }}>
+        {/* ── Right section: fixed-width columns, right-aligned ── */}
+        <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
+          {/* Assignee — fixed width */}
+          {showAssignee && (
             <span style={{
-              width: 7, height: 7, borderRadius: "50%",
-              background: hashStringToColor(event.projectName),
-              flexShrink: 0,
-            }} />
-            {event.projectName}
-          </span>
-        )}
+              width: 80, fontSize: 11, color: "#78716c",
+              textAlign: "right", overflow: "hidden", textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}>
+              {event.agentName || ""}
+            </span>
+          )}
 
-        {/* Count badge */}
-        {badge && (
+          {/* Project — fixed width */}
+          {showProject && (
+            <span style={{
+              width: 160, display: "inline-flex", alignItems: "center",
+              justifyContent: "flex-end", gap: 5,
+              fontSize: 11, color: "#78716c", paddingLeft: 8,
+              overflow: "hidden", whiteSpace: "nowrap",
+            }}>
+              {event.projectName ? (
+                <>
+                  <span style={{
+                    width: 7, height: 7, borderRadius: "50%",
+                    background: hashStringToColor(event.projectName),
+                    flexShrink: 0,
+                  }} />
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{event.projectName}</span>
+                </>
+              ) : (
+                <span style={{ color: "#57534e" }}>No project</span>
+              )}
+            </span>
+          )}
+
+          {/* Count badge — fixed width */}
           <span style={{
-            fontSize: 11,
-            fontWeight: 600,
-            color: "#a8a29e",
-            background: "rgba(120,113,108,0.15)",
-            borderRadius: 10,
-            padding: "1px 7px",
-            flexShrink: 0,
-            whiteSpace: "nowrap",
+            width: badge ? "auto" : 0, minWidth: badge ? 40 : 0,
+            textAlign: "center", paddingLeft: badge ? 8 : 0,
           }}>
-            {badge}
+            {badge && (
+              <span style={{
+                fontSize: 10, fontWeight: 600, color: "#a8a29e",
+                background: "rgba(120,113,108,0.15)", borderRadius: 10,
+                padding: "1px 7px", whiteSpace: "nowrap",
+              }}>
+                {badge}
+              </span>
+            )}
           </span>
-        )}
 
-        {/* Trailing: verb + time */}
-        {visibleColumns.includes("updated") && (
-          <span style={{ fontSize: 12, color: isFailed ? "#f87171" : "#57534e", flexShrink: 0, whiteSpace: "nowrap" }}>
-            {verb} {age} ago
-          </span>
-        )}
+          {/* Updated — fixed width */}
+          {showUpdated && (
+            <span style={{
+              width: 120, fontSize: 11, color: isFailed ? "#f87171" : "#57534e",
+              textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8,
+            }}>
+              {verb} {age} ago
+            </span>
+          )}
+        </div>
       </Link>
 
       {/* Dismiss button */}
