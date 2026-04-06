@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus, X } from "lucide-react";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
@@ -1039,36 +1039,34 @@ function TaskEventRow({
         </div>
       </Link>
 
-      {/* Dismiss button */}
-      {hovered && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
-          title="Dismiss"
-          style={{
-            position: "absolute",
-            right: 4,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 22,
-            height: 22,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 4,
-            border: "none",
-            background: "rgba(120,113,108,0.15)",
-            color: "#78716c",
-            cursor: "pointer",
-            transition: "all 100ms",
-            zIndex: 2,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.15)"; e.currentTarget.style.color = "#78716c"; }}
-        >
-          <X size={12} />
-        </button>
-      )}
+      {/* Archive button */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
+        title="Archive"
+        style={{
+          position: "absolute",
+          right: 4,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 22,
+          height: 22,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 4,
+          border: "none",
+          background: hovered ? "rgba(120,113,108,0.15)" : "transparent",
+          color: hovered ? "#78716c" : "transparent",
+          cursor: "pointer",
+          transition: "all 100ms",
+          zIndex: 2,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}
+      >
+        <Archive size={12} />
+      </button>
     </div>
   );
 }
@@ -1258,36 +1256,34 @@ function ApprovalRow({
         ) : null}
       </div>
 
-      {/* Dismiss button */}
-      {hovered && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
-          title="Dismiss"
-          style={{
-            position: "absolute",
-            right: 4,
-            top: "50%",
-            transform: "translateY(-50%)",
-            width: 22,
-            height: 22,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            borderRadius: 4,
-            border: "none",
-            background: "rgba(120,113,108,0.15)",
-            color: "#78716c",
-            cursor: "pointer",
-            transition: "all 100ms",
-            zIndex: 2,
-          }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.15)"; e.currentTarget.style.color = "#78716c"; }}
-        >
-          <X size={12} />
-        </button>
-      )}
+      {/* Archive button */}
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
+        title="Archive"
+        style={{
+          position: "absolute",
+          right: 4,
+          top: "50%",
+          transform: "translateY(-50%)",
+          width: 22,
+          height: 22,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: 4,
+          border: "none",
+          background: hovered ? "rgba(120,113,108,0.15)" : "transparent",
+          color: hovered ? "#78716c" : "transparent",
+          cursor: "pointer",
+          transition: "all 100ms",
+          zIndex: 2,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}
+      >
+        <Archive size={12} />
+      </button>
     </div>
   );
 }
