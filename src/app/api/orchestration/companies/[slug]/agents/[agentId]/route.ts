@@ -92,6 +92,11 @@ export async function PATCH(
       db.prepare("UPDATE agents SET emoji = ?, updated_at = ? WHERE id = ?").run(body.emoji, now, agent.id);
     }
 
+    // Personality / system prompt update
+    if (typeof body.personality === "string") {
+      db.prepare("UPDATE agents SET personality = ?, updated_at = ? WHERE id = ?").run(body.personality, now, agent.id);
+    }
+
     // Ignore ancillary avatar wizard fields (styleId, gender, setup flags) for now
 
     return NextResponse.json({ success: true });

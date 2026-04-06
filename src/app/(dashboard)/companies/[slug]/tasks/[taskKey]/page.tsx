@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Copy, ExternalLink, Tag, Folder } from "lucide-react";
+import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -76,6 +76,8 @@ export default function TaskDetailPage() {
   const [posting, setPosting] = useState(false);
   const [propsOpen, setPropsOpen] = useState(true);
   const [copyHint, setCopyHint] = useState(false);
+  const [reopenOnComment, setReopenOnComment] = useState(false);
+  const [uploading, setUploading] = useState(false);
 
   const loadTask = useCallback(async () => {
     setLoading(true);
@@ -137,11 +139,34 @@ export default function TaskDetailPage() {
     const ok = await addTaskComment(task.id, commentDraft.trim());
     if (ok) {
       setCommentDraft("");
+      if (reopenOnComment && (task.status === "done" || task.status === "cancelled")) {
+        await updateTaskStatus(task.id, "backlog");
+        setTask((prev) => prev ? { ...prev, status: "backlog" as TaskStatus, updated: new Date().toISOString() } : prev);
+        setReopenOnComment(false);
+      }
       const refreshed = await listTaskComments(task.id);
       setComments(refreshed);
     }
     setPosting(false);
-  }, [task, commentDraft, posting]);
+  }, [task, commentDraft, posting, reopenOnComment]);
+
+  const handleFileUpload = useCallback(async (file: File) => {
+    if (!task || uploading) return;
+    setUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("taskId", task.id);
+      const res = await fetch("/api/tasks/attachments", { method: "POST", body: formData });
+      if (res.ok) {
+        await addTaskComment(task.id, `Uploaded file: ${file.name}`);
+        const refreshed = await listTaskComments(task.id);
+        setComments(refreshed);
+      }
+    } finally {
+      setUploading(false);
+    }
+  }, [task, uploading]);
 
   const copyKey = useCallback(() => {
     if (!task) return;
@@ -240,6 +265,32 @@ export default function TaskDetailPage() {
               </div>
             )}
 
+            {/* Action buttons row */}
+            <div style={{ display: "flex", gap: "10px", margin: "16px 0", flexWrap: "wrap" }}>
+              <label
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "6px",
+                  padding: "8px 14px", borderRadius: "8px",
+                  border: `1px solid ${SURFACE.line}`, background: "transparent",
+                  color: SURFACE.textDim, fontSize: "12px", fontWeight: 500,
+                  cursor: uploading ? "wait" : "pointer",
+                  opacity: uploading ? 0.5 : 1,
+                }}
+              >
+                <Upload size={14} />
+                {uploading ? "Uploading…" : "Upload attachment"}
+                <input
+                  type="file"
+                  style={{ display: "none" }}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleFileUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+
             {/* Tabs */}
             <div style={{
               display: "flex", gap: "0", marginTop: "24px",
@@ -327,8 +378,44 @@ export default function TaskDetailPage() {
                         minHeight: "56px",
                       }}
                     />
-                    <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px", marginTop: "6px" }}>
-                      <span style={{ fontSize: "10px", color: SURFACE.textGhost, alignSelf: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
+                      {/* Attachment icon */}
+                      <label style={{ cursor: "pointer", display: "inline-flex", padding: "4px" }}>
+                        <Paperclip size={14} color={SURFACE.textGhost} />
+                        <input
+                          type="file"
+                          style={{ display: "none" }}
+                          onChange={(e) => {
+                            const f = e.target.files?.[0];
+                            if (f) void handleFileUpload(f);
+                            e.target.value = "";
+                          }}
+                        />
+                      </label>
+
+                      <div style={{ flex: 1 }} />
+
+                      {/* Re-open toggle — show when task is done or cancelled */}
+                      {(task.status === "done" || task.status === "cancelled") && (
+                        <label style={{
+                          display: "inline-flex", alignItems: "center", gap: "5px",
+                          fontSize: "11px", color: SURFACE.textDim, cursor: "pointer",
+                          padding: "4px 8px", borderRadius: "6px",
+                          border: `1px solid ${reopenOnComment ? "rgba(59,130,246,0.4)" : SURFACE.line}`,
+                          background: reopenOnComment ? "rgba(59,130,246,0.08)" : "transparent",
+                        }}>
+                          <input
+                            type="checkbox"
+                            checked={reopenOnComment}
+                            onChange={(e) => setReopenOnComment(e.target.checked)}
+                            style={{ accentColor: "#3b82f6", width: 13, height: 13 }}
+                          />
+                          <RotateCcw size={11} />
+                          Re-open
+                        </label>
+                      )}
+
+                      <span style={{ fontSize: "10px", color: SURFACE.textGhost }}>
                         ⌘ + Enter
                       </span>
                       <button
@@ -474,6 +561,17 @@ export default function TaskDetailPage() {
 
             {/* Divider */}
             <div style={{ height: "1px", background: SURFACE.line, margin: "4px 0" }} />
+
+            {/* Created by */}
+            <PropertyRow label="Created by">
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.textMuted }}>
+                <User size={12} />
+                {(() => {
+                  const firstComment = comments.find((c) => c.type === "note" || !c.type);
+                  return firstComment?.author ?? task.assignee ?? "System";
+                })()}
+              </span>
+            </PropertyRow>
 
             {/* Created */}
             <PropertyRow label="Created">

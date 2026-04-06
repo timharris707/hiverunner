@@ -786,6 +786,16 @@ export function Dock() {
 
   const cc = company.code;
 
+  // Extract the current sub-page so we can persist it when switching agents/projects
+  const currentAgentSubpage = (() => {
+    const m = pathname.match(/^\/[^/]+\/agents\/[^/]+\/([^/?]+)/);
+    return m ? m[1] : null;
+  })();
+  const currentProjectSubpage = (() => {
+    const m = pathname.match(/^\/[^/]+\/projects\/[^/]+\/([^/?]+)/);
+    return m ? m[1] : null;
+  })();
+
   const mobileItems: NavItem[] = useMemo(
     () => [
       { href: buildCanonicalDashboardPath(cc), label: "Dashboard", icon: Building2 },
@@ -971,7 +981,10 @@ export function Dock() {
       ) : (
         visibleProjects.filter((p) => !isProjectPaused(p) && p.status !== "archived").map((project) => {
           const pSlug = project.slug || project.id;
-          const href = buildCanonicalProjectIssuesPath(cc, pSlug);
+          const defaultPath = buildCanonicalProjectIssuesPath(cc, pSlug);
+          const href = currentProjectSubpage
+            ? defaultPath.replace(/\/tasks$/, `/${currentProjectSubpage}`)
+            : defaultPath;
           return (
             <NavRow
               key={project.id}
@@ -1007,7 +1020,11 @@ export function Dock() {
         <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No agents registered.</p>
       ) : (
         agents.map((agent) => {
-          const href = buildCanonicalAgentPath(cc, agent.slug || agent.id);
+          const agentSlug = agent.slug || agent.id;
+          const basePath = buildCanonicalAgentPath(cc, agentSlug);
+          const href = currentAgentSubpage
+            ? `${basePath}/${currentAgentSubpage}`
+            : basePath;
           return (
             <NavRow
               key={agent.id}

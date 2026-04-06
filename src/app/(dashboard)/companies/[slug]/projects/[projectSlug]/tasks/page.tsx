@@ -366,7 +366,9 @@ function IssueRow({
 }) {
   const identifier = task.key ?? task.id.slice(0, 8);
   const dotColor = STATUS_DOT[task.status];
-  const taskHref = buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectSlug)}/board?task=${encodeURIComponent(task.id)}`);
+  const taskHref = task.key
+    ? buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(task.key)}`)
+    : buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectSlug)}/board?task=${encodeURIComponent(task.id)}`);
 
   return (
     <Link
@@ -479,7 +481,9 @@ function KanbanView({
               return (
                 <Link
                   key={task.id}
-                  href={buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectSlug)}/board?task=${encodeURIComponent(task.id)}`)}
+                  href={task.key
+                    ? buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(task.key)}`)
+                    : buildCompanyPath(companySlug, `/projects/${encodeURIComponent(projectSlug)}/board?task=${encodeURIComponent(task.id)}`)}
                   className="block rounded-md border p-2 text-xs no-underline transition-colors hover:bg-amber-950/20"
                   style={{ borderColor: "rgba(120,113,108,0.12)", background: "rgba(12,10,9,0.4)" }}
                 >
