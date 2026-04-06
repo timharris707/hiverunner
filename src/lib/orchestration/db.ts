@@ -1075,6 +1075,99 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE agents ADD COLUMN previous_adapter_type TEXT;
     `,
   },
+  {
+    version: 34,
+    name: "execution_runs_add_codex_provider",
+    sql: `
+      -- Expand execution_runs.provider CHECK constraint to include 'codex'.
+      -- SQLite cannot ALTER CHECK constraints, so we recreate the table.
+      PRAGMA foreign_keys = OFF;
+
+      CREATE TABLE execution_runs_new (
+        id                TEXT PRIMARY KEY,
+        task_id           TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+        agent_id          TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        provider          TEXT NOT NULL CHECK (provider IN ('openclaw','paperclip','codex')),
+        session_id        TEXT,
+        status            TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','cancelled')),
+        started_at        TEXT,
+        completed_at      TEXT,
+        error_message     TEXT,
+        token_usage_json  TEXT NOT NULL DEFAULT '{}',
+        duration_ms       INTEGER,
+        idempotency_key   TEXT,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO execution_runs_new SELECT * FROM execution_runs;
+      DROP TABLE execution_runs;
+      ALTER TABLE execution_runs_new RENAME TO execution_runs;
+
+      CREATE INDEX idx_execution_runs_task_created_at
+        ON execution_runs(task_id, created_at DESC);
+      CREATE INDEX idx_execution_runs_task_status
+        ON execution_runs(task_id, status);
+      CREATE INDEX idx_execution_runs_provider_status
+        ON execution_runs(provider, status);
+      CREATE UNIQUE INDEX idx_execution_runs_idempotency_key
+        ON execution_runs(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      PRAGMA foreign_keys = ON;
+    `,
+  },
+  {
+    version: 35,
+    name: "execution_runs_nullable_task_id",
+    sql: `
+      -- Make execution_runs.task_id nullable.
+      --
+      -- Architecturally, not all execution runs originate from orchestration tasks.
+      -- Factory Codex builds (build-queue.ts) are real execution runs but operate
+      -- on factory tasks (TASK-*) that have no orchestration DB counterpart.
+      -- Nullable task_id allows these legitimate execution runs to be stored
+      -- without fabricating an orchestration task relationship.
+      --
+      -- When task_id IS NOT NULL, the FK to tasks(id) still enforces integrity.
+      -- When task_id IS NULL, the run is a provider execution without task context.
+
+      PRAGMA foreign_keys = OFF;
+
+      CREATE TABLE execution_runs_new (
+        id                TEXT PRIMARY KEY,
+        task_id           TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+        agent_id          TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        provider          TEXT NOT NULL CHECK (provider IN ('openclaw','paperclip','codex')),
+        session_id        TEXT,
+        status            TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','cancelled')),
+        started_at        TEXT,
+        completed_at      TEXT,
+        error_message     TEXT,
+        token_usage_json  TEXT NOT NULL DEFAULT '{}',
+        duration_ms       INTEGER,
+        idempotency_key   TEXT,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO execution_runs_new SELECT * FROM execution_runs;
+      DROP TABLE execution_runs;
+      ALTER TABLE execution_runs_new RENAME TO execution_runs;
+
+      CREATE INDEX idx_execution_runs_task_created_at
+        ON execution_runs(task_id, created_at DESC);
+      CREATE INDEX idx_execution_runs_task_status
+        ON execution_runs(task_id, status);
+      CREATE INDEX idx_execution_runs_provider_status
+        ON execution_runs(provider, status);
+      CREATE UNIQUE INDEX idx_execution_runs_idempotency_key
+        ON execution_runs(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      PRAGMA foreign_keys = ON;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

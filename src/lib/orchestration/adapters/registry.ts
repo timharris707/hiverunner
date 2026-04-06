@@ -17,6 +17,7 @@ import type {
 } from "./types";
 import { createOpenClawHeartbeatAdapter } from "./openclaw-heartbeat";
 import { createPaperclipAdapter } from "./paperclip";
+import { createCodexAdapter } from "./codex";
 
 /* ── Types ── */
 
@@ -99,6 +100,7 @@ export function registerAdapter(
  * Registers:
  *   - OpenClaw Heartbeat (Tier 3 — live text + action detection)
  *   - Paperclip (Tier 1 — milestone lifecycle via bridge sync)
+ *   - Codex (Tier 1 — lifecycle events via CLI process wrapper)
  */
 export function initAdapterRegistry(): void {
   if (initialized) return;
@@ -113,6 +115,10 @@ export function initAdapterRegistry(): void {
   // Paperclip adapter (poll-based via bridge sync)
   const paperclipAdapter = createPaperclipAdapter();
   registerAdapter(paperclipAdapter);
+
+  // Codex adapter (CLI-based execution, lifecycle events only)
+  const codexAdapter = createCodexAdapter();
+  registerAdapter(codexAdapter);
 }
 
 /**

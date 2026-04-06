@@ -135,6 +135,16 @@ export function checkProviderEnvConfigured(
     return { configured: missing.length === 0, missing };
   }
 
+  if (providerId === "codex") {
+    // Codex is CLI-based: `codex exec --full-auto <prompt>`.
+    // No env vars are required — the CLI reads its own config.
+    // CLI availability is checked at execution time by the build-queue
+    // (isCliAvailable), not at provider activation time.
+    // Returning configured: true is honest — there's nothing to configure
+    // in the environment for the provider identity to be valid.
+    return { configured: true, missing: [] };
+  }
+
   // Unknown/planned providers are never env-configured
   return { configured: false, missing: ["(provider not implemented)"] };
 }
@@ -155,8 +165,8 @@ const MODEL_PROVIDER_COMPAT: Record<string, string[]> = {
   // Anthropic models — work on OpenClaw
   "anthropic/claude-opus-4-6": ["openclaw-heartbeat", "openclaw"],
   "anthropic/claude-sonnet-4-6": ["openclaw-heartbeat", "openclaw"],
-  // OpenAI models — work on OpenClaw (via adapter), could work on Paperclip
-  "openai-codex/gpt-5.4": ["openclaw-heartbeat", "openclaw", "paperclip"],
+  // OpenAI models — work on OpenClaw (via adapter), Paperclip, and Codex natively
+  "openai-codex/gpt-5.4": ["openclaw-heartbeat", "openclaw", "paperclip", "codex"],
   // Google models — work on OpenClaw (via adapter)
   "google/gemini-3.1-pro-preview": ["openclaw-heartbeat", "openclaw"],
 };
@@ -460,6 +470,13 @@ function checkExternalIdLinked(
     return agent.paperclipAgentId
       ? { linked: true, detail: `Agent has Paperclip ID: ${agent.paperclipAgentId}` }
       : { linked: false, detail: "Agent has no paperclip_agent_id. Cannot route to Paperclip." };
+  }
+
+  if (targetProviderId === "codex") {
+    // Codex is CLI-based — no external agent ID linkage required.
+    // The build-queue dispatches work via `codex exec` CLI args,
+    // not via an agent API that requires a linked remote ID.
+    return { linked: true, detail: "Codex is CLI-based. No external agent ID required." };
   }
 
   // Planned providers don't have external ID requirements yet

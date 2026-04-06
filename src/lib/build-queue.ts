@@ -18,6 +18,11 @@ import {
 } from "@/lib/agent-pipeline";
 import { getAgentByAnyId } from "@/config/agents";
 import { dbReadTasks, dbWriteTasks, dbJournalTransition, dbCheckpoint } from "@/lib/tasks-db";
+import {
+  bridgeCodexRunStarted,
+  bridgeCodexRunCompleted,
+  bridgeCodexRunFailed,
+} from "@/lib/orchestration/codex-execution-bridge";
 import { dbGetTransitions } from "@/lib/tasks-db";
 
 const DATA_DIR = join(process.cwd(), "data");
@@ -1952,6 +1957,8 @@ export async function reconcileBuildQueue(options?: { source?: string; force?: b
 }
 
 async function updateRunningState(buildId: string, taskId: string, pid?: number | null) {
+  let codexBridgeData: { buildId: string; taskId: string; taskTitle?: string; assignedAgent: string | null; startedAt: string; agentType?: string; modelId?: string; modelName?: string } | null = null;
+
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
     const tasks = readTasks();
@@ -1963,6 +1970,20 @@ async function updateRunningState(buildId: string, taskId: string, pid?: number 
       entry.runningAt = new Date().toISOString();
       entry.pid = typeof pid === "number" && Number.isFinite(pid) ? pid : null;
       writeBuildLog(buildLog);
+
+      // Capture data for Codex bridge (called after lock release)
+      if (entry.agentType === "codex") {
+        codexBridgeData = {
+          buildId: entry.id,
+          taskId: entry.taskId,
+          taskTitle: entry.taskTitle,
+          assignedAgent: entry.assignedAgent || null,
+          startedAt: entry.startedAt || entry.runningAt,
+          agentType: entry.agentType,
+          modelId: entry.routing?.modelId,
+          modelName: entry.routing?.modelName,
+        };
+      }
     }
 
     if (task && ["spawning", "queued"].includes(task.buildState)) {
@@ -1973,11 +1994,25 @@ async function updateRunningState(buildId: string, taskId: string, pid?: number 
       writeTasks(tasks);
     }
   });
+
+  // Bridge Codex execution into canonical orchestration run model (non-blocking)
+  if (codexBridgeData) {
+    bridgeCodexRunStarted({
+      buildId: codexBridgeData.buildId,
+      factoryTaskId: codexBridgeData.taskId,
+      factoryTaskTitle: codexBridgeData.taskTitle,
+      assignedAgent: codexBridgeData.assignedAgent,
+      startedAt: codexBridgeData.startedAt,
+      modelId: codexBridgeData.modelId,
+      modelName: codexBridgeData.modelName,
+    });
+  }
 }
 
 async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMessage: string) {
   let notifyText = "";
   let notifyTask: any = null;
+  let codexSpawnFailData: { buildId: string; taskId: string; assignedAgent: string | null; startedAt: string; completedAt: string; error: string; agentType?: string } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -1996,6 +2031,19 @@ async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMe
     entry.error = trimmedError;
     entry.pid = null;
 
+    // Capture data for Codex bridge (called after lock release)
+    if (entry.agentType === "codex") {
+      codexSpawnFailData = {
+        buildId: entry.id,
+        taskId: entry.taskId,
+        assignedAgent: entry.assignedAgent || null,
+        startedAt: entry.startedAt || now,
+        completedAt: now,
+        error: buildError,
+        agentType: entry.agentType,
+      };
+    }
+
     transitionTask(task, "blocked", "build-spawn", { reason: "Builder process failed to start" });
     finalizeTerminalBuildState(task, "blocked", now);
     task.buildError = buildError;
@@ -2010,6 +2058,20 @@ async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMe
     writeBuildLog(buildLog);
     writeTasks(tasks);
   });
+
+  // Bridge Codex spawn failure into canonical run model (non-blocking)
+  if (codexSpawnFailData) {
+    const d = codexSpawnFailData;
+    bridgeCodexRunFailed({
+      buildId: d.buildId,
+      factoryTaskId: d.taskId,
+      assignedAgent: d.assignedAgent,
+      startedAt: d.startedAt,
+      completedAt: d.completedAt,
+      durationMs: new Date(d.completedAt).getTime() - new Date(d.startedAt).getTime(),
+      error: d.error,
+    });
+  }
 
   if (notifyTask) {
     notifyTaskCompletion(notifyTask, "failed");
@@ -2039,6 +2101,7 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
   let vigilQASpawnData: VigilQASpawnData | null = null;
   let memoryData: AgentMemoryData | null = null;
   let blockerDetected = false;
+  let codexBridgeFinalize: { buildId: string; taskId: string; assignedAgent: string | null; startedAt: string; completedAt: string; success: boolean; error?: string; agentType?: string } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -2053,6 +2116,20 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     entry.status = success ? "completed" : "failed";
     entry.completedAt = now;
     entry.output = output.slice(-1500);
+
+    // Capture data for Codex bridge (called after lock release)
+    if (entry.agentType === "codex") {
+      codexBridgeFinalize = {
+        buildId: entry.id,
+        taskId: entry.taskId,
+        assignedAgent: entry.assignedAgent || null,
+        startedAt: entry.startedAt || now,
+        completedAt: now,
+        success,
+        error: success ? undefined : (output.slice(-500) || "Build failed"),
+        agentType: entry.agentType,
+      };
+    }
 
     // GUARD: never resurrect a done task — record build result but leave status untouched
     if (task.status === "done") {
@@ -2329,6 +2406,25 @@ async function finalizeBuild(buildId: string, taskId: string, success: boolean, 
     writeBuildLog(buildLog);
     writeTasks(tasks);
   });
+
+  // Bridge Codex execution into canonical orchestration run model (non-blocking)
+  if (codexBridgeFinalize) {
+    const d = codexBridgeFinalize;
+    const durationMs = new Date(d.completedAt).getTime() - new Date(d.startedAt).getTime();
+    if (d.success) {
+      bridgeCodexRunCompleted({ buildId: d.buildId, completedAt: d.completedAt, durationMs });
+    } else {
+      bridgeCodexRunFailed({
+        buildId: d.buildId,
+        factoryTaskId: d.taskId,
+        assignedAgent: d.assignedAgent,
+        startedAt: d.startedAt,
+        completedAt: d.completedAt,
+        durationMs,
+        error: d.error || "Build failed",
+      });
+    }
+  }
 
   // Record agent memory outside the lock (non-critical path)
   const completedMemoryData = memoryData as AgentMemoryData | null;

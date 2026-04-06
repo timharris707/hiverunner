@@ -225,6 +225,51 @@ export interface ProviderProductDescriptor {
   defaultAvailability: ProviderAvailability;
   /** Short note about current state / limitations */
   statusNote: string;
+
+  /* ── Economic Truth ── */
+
+  /**
+   * What level of token usage data this provider can produce.
+   *
+   * - "exact": provider reports exact input/output token counts
+   * - "partial": some token data available but incomplete (e.g. total only, no breakdown)
+   * - "estimated": MC can estimate from known pricing + model, but provider doesn't report
+   * - "unavailable": no token data from this provider path
+   */
+  tokenUsageTruth: "exact" | "partial" | "estimated" | "unavailable";
+
+  /**
+   * What level of cost data this provider can produce.
+   *
+   * - "exact": provider reports exact cost (e.g. billing API)
+   * - "derived": MC computes from exact token counts + known pricing
+   * - "estimated": MC can estimate from model pricing but token counts are approximate/absent
+   * - "unavailable": no cost data path exists
+   */
+  costTruth: "exact" | "derived" | "estimated" | "unavailable";
+
+  /* ── Reasoning Control Truth ── */
+
+  /**
+   * Whether thinking/reasoning level can be configured before execution.
+   *
+   * - "configurable": explicit flag/parameter controls reasoning depth
+   * - "implicit": reasoning happens but level is not controllable
+   * - "unavailable": no reasoning control path exists
+   */
+  thinkingControl: "configurable" | "implicit" | "unavailable";
+
+  /**
+   * Whether the chosen thinking/reasoning level can be observed after execution.
+   *
+   * - "exact": reasoning level and/or thinking tokens are reported in run telemetry
+   * - "partial": some reasoning metadata available (e.g. "extended thinking was used")
+   * - "unavailable": no post-execution reasoning observability
+   */
+  thinkingObservability: "exact" | "partial" | "unavailable";
+
+  /** Short explanation of economic + reasoning truth for this provider */
+  telemetryNote?: string;
 }
 
 /**
@@ -245,6 +290,14 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
     integrationPath: "WebSocket gateway \u2014 live event streaming",
     defaultAvailability: "available",
     statusNote: "Tier 3 today. Tier 4 gated on gateway scope fix.",
+    tokenUsageTruth: "partial",
+    costTruth: "derived",
+    thinkingControl: "configurable",
+    thinkingObservability: "partial",
+    telemetryNote:
+      "Prompt char count and session telemetry captured. Token counts depend on gateway response. " +
+      "Cost derived from known model pricing + partial token data. " +
+      "Thinking level configurable via Claude --thinking flag; observability is partial (thinking used: yes/no, not token breakdown).",
   },
   {
     providerId: "paperclip",
@@ -253,6 +306,30 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
     integrationPath: "Bridge sync \u2014 poll-based lifecycle events",
     defaultAvailability: "available",
     statusNote: "Tier 1 via bridge sync. No live streaming.",
+    tokenUsageTruth: "unavailable",
+    costTruth: "unavailable",
+    thinkingControl: "unavailable",
+    thinkingObservability: "unavailable",
+    telemetryNote:
+      "Paperclip-side execution telemetry is not exposed through the bridge sync path. " +
+      "Token usage, cost, and reasoning control are managed by Paperclip internally.",
+  },
+  {
+    providerId: "codex",
+    displayName: "Codex",
+    maxTier: ObservabilityTier.Milestones,
+    integrationPath: "CLI execution \u2014 lifecycle events via process wrapper",
+    defaultAvailability: "available",
+    statusNote:
+      "Tier 1 via CLI. Run lifecycle only. No live streaming \u2014 Codex CLI does not emit structured events.",
+    tokenUsageTruth: "unavailable",
+    costTruth: "estimated",
+    thinkingControl: "implicit",
+    thinkingObservability: "unavailable",
+    telemetryNote:
+      "Codex CLI (codex exec --full-auto) does not report token usage in stdout. " +
+      "Cost can be estimated from known model pricing (openai-codex/gpt-5.4) but is approximate without token counts. " +
+      "Codex uses reasoning internally but offers no CLI flag to control thinking depth and no post-execution reasoning telemetry.",
   },
   {
     providerId: "hermes",
@@ -261,6 +338,11 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
     integrationPath: "Direct API \u2014 structured events",
     defaultAvailability: "planned",
     statusNote: "Not yet integrated. Expected Tier 4\u20135.",
+    tokenUsageTruth: "unavailable",
+    costTruth: "unavailable",
+    thinkingControl: "unavailable",
+    thinkingObservability: "unavailable",
+    telemetryNote: "Not yet integrated. Telemetry dimensions TBD.",
   },
   {
     providerId: "byo-webhook",
@@ -269,6 +351,11 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
     integrationPath: "Inbound webhook \u2014 structured payloads",
     defaultAvailability: "planned",
     statusNote: "Not yet integrated. Expected Tier 1\u20133.",
+    tokenUsageTruth: "unavailable",
+    costTruth: "unavailable",
+    thinkingControl: "unavailable",
+    thinkingObservability: "unavailable",
+    telemetryNote: "Not yet integrated. Telemetry dimensions TBD.",
   },
 ];
 
@@ -301,7 +388,7 @@ export type KnownProviderDescriptor = ProviderProductDescriptor;
  * NOT YET ENFORCED — current code uses freeform strings.
  * Phase 1 will constrain adapter_type to this union.
  */
-export type ExecutionProviderId = "openclaw" | "paperclip";
+export type ExecutionProviderId = "openclaw" | "paperclip" | "codex";
 
 /**
  * Agent's configured provider identity.

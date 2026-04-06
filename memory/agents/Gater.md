@@ -36,6 +36,18 @@
 
 ## Task Log
 
+### 2026-04-06 — Gater QA review: test-build-state-1775440318469-v06ovi
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: BLOCKED BLOCKED: Safari verification unavailable
+
+---
+
+### 2026-04-06 — Gater QA review: test-build-state-1775440318426-9mtwic
+**Project:** mission-control
+**Summary:** Gater reviewed task. VERDICT: APPROVED Looks good.
+
+---
+
 ### 2026-04-02 — Gater QA review: TASK-1775098919611
 **Project:** idea-intake
 **Summary:** Gater reviewed task. `summary` in SQLite is 0 chars — must be populated with the 1087-char summary from reviews.json - `assessment` in SQLite is 0 chars — must be populated with the 1005-char assessment from reviews.json - `ideas_takeaways` for review-020 has 0 rows — all 5 takeaways must be written - Use `run_review_update.py` with a payload JSON — it calls `sync_review_to_mc_sqlite` and handles 

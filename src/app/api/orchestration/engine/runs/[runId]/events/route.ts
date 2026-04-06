@@ -3,7 +3,7 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
-import { ObservabilityTier, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
+import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
 
 export const dynamic = "force-dynamic";
@@ -80,7 +80,7 @@ interface HeartbeatRunShape {
 
 type ExecutionRunRow = {
   id: string;
-  task_id: string;
+  task_id: string | null;
   agent_id: string | null;
   provider: string;
   session_id: string | null;
@@ -308,9 +308,13 @@ function buildExecutionRunResponse(
 
   const usage = safeJsonParse(row.token_usage_json);
 
-  // Determine effective tier: cap at the adapter's declared maximum
-  const adapter = getAdapter(row.provider) ?? getAdapter("openclaw-heartbeat");
-  const adapterMaxTier = adapter?.maxTier ?? ObservabilityTier.PostRun;
+  // Determine effective tier: cap at the adapter's declared maximum.
+  // Try runtime registry first, fall back to static product descriptors
+  // (registry may not be initialized in all server contexts).
+  const adapter = getAdapter(row.provider);
+  const adapterMaxTier = adapter?.maxTier
+    ?? PROVIDER_PRODUCT_DESCRIPTORS.find((p) => p.providerId === row.provider)?.maxTier
+    ?? ObservabilityTier.PostRun;
   const dataTier = timeline.length > 0 ? ObservabilityTier.ActionDetection : ObservabilityTier.Milestones;
   const effectiveTier = Math.min(dataTier, adapterMaxTier) as ObservabilityTier;
 
@@ -351,16 +355,21 @@ function buildExecutionRunResponse(
       provenance: {
         label: row.provider === "paperclip"
           ? "Paperclip issue comments"
-          : "Persisted agent comments",
+          : row.provider === "codex"
+            ? "Codex CLI output"
+            : "Persisted agent comments",
         note: row.provider === "paperclip"
           ? agentComments.length > 0
             ? "Comments imported from the Paperclip issue via bridge sync. These reflect what the agent wrote on the Paperclip side."
             : "No comments synced from Paperclip for this run."
-          : agentComments.length > 0
-            ? "Partial proxy for agent output. Full transcript is not persisted."
-            : "No agent comments found for this run window.",
+          : row.provider === "codex"
+            ? "Codex CLI does not emit a structured transcript. Full output is captured by the build queue but not imported as comments."
+            : agentComments.length > 0
+              ? "Partial proxy for agent output. Full transcript is not persisted."
+              : "No agent comments found for this run window.",
         totalEntries: agentComments.length,
-        source: row.provider === "paperclip" ? "paperclip_bridge" : "comments",
+        source: row.provider === "paperclip" ? "paperclip_bridge"
+          : row.provider === "codex" ? "codex_cli" : "comments",
         fullTranscriptAvailable: false,
       },
     },
@@ -369,17 +378,23 @@ function buildExecutionRunResponse(
       timeline: {
         label: row.provider === "paperclip"
           ? "Paperclip bridge sync"
-          : timeline.length > 0
-            ? "Reconstructed from linked heartbeat cycles"
-            : "Post-run metadata only",
+          : row.provider === "codex"
+            ? "Codex CLI execution"
+            : timeline.length > 0
+              ? "Reconstructed from linked heartbeat cycles"
+              : "Post-run metadata only",
         note: row.provider === "paperclip"
           ? "Events from Paperclip issue comments imported via bridge sync. Paperclip is poll-based — no live streaming. Comments represent what the agent wrote on the Paperclip issue."
-          : timeline.length > 0
-            ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
-            : "No in-flight events available. Only run status is known.",
+          : row.provider === "codex"
+            ? "Run lifecycle from Codex CLI execution (codex exec --full-auto). CLI is batch — no live streaming. No structured tool events. Token usage not available from CLI output."
+            : timeline.length > 0
+              ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
+              : "No in-flight events available. Only run status is known.",
         sources: row.provider === "paperclip"
           ? ["execution_runs", "comments (source=paperclip)"]
-          : timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
+          : row.provider === "codex"
+            ? ["execution_runs"]
+            : timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
       },
       runTable: "execution_runs",
     },
@@ -397,11 +412,15 @@ function buildExecutionRunResponse(
  * Maps `providerId` → `id` for backward-compatible JSON response shape.
  */
 function resolveProviderInfo(providerName: string, effectiveTier?: ObservabilityTier) {
-  // If no effective tier was provided, try the adapter registry for runtime truth
+  // If no effective tier was provided, try the adapter registry for runtime truth,
+  // then fall back to static product descriptors (registry may not be initialized).
   if (effectiveTier === undefined) {
-    const adapter = getAdapter(providerName) ?? getAdapter("openclaw-heartbeat");
+    const adapter = getAdapter(providerName);
     if (adapter) {
       effectiveTier = adapter.maxTier;
+    } else {
+      const desc = PROVIDER_PRODUCT_DESCRIPTORS.find((p) => p.providerId === providerName);
+      if (desc) effectiveTier = desc.maxTier;
     }
   }
 

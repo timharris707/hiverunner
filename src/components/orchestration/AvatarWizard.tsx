@@ -95,6 +95,7 @@ export function AvatarWizard({
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restoredFromCache, setRestoredFromCache] = useState(false);
   const [providerStatus, setProviderStatus] = useState<{
     provider: string; label: string; aiAvailable: boolean; setupHint?: string;
   } | null>(null);
@@ -196,38 +197,42 @@ export function AvatarWizard({
     const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyberpunk";
     const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];
-    const shouldResume = cachedPreviews.length > 0 || autoStart || pendingSetup;
+    const cacheComplete = cachedPreviews.length >= TARGET_PREVIEW_COUNT;
 
     setSource("generated");
     setStyleId(nextStyleId);
     setGender(nextGender);
-
-    if (cachedPreviews.length > 0) {
-      setPreviews(cachedPreviews);
-      setSelectedPreview(0);
-      setStep("preview");
-    } else {
-      setPreviews([]);
-      setSelectedPreview(0);
-      setStep(autoStart || pendingSetup ? "preview" : "source");
-    }
-
     setGenerating(false);
     setSaving(false);
     setError(null);
 
-    fetch("/api/orchestration/avatars/status")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setProviderStatus(data); })
-      .catch(() => {});
-
-    if (shouldResume) {
+    if (cacheComplete) {
+      // All previews already cached — skip generation entirely
+      setPreviews(cachedPreviews);
+      setSelectedPreview(0);
+      setStep("preview");
+      setRestoredFromCache(true);
+    } else if (cachedPreviews.length > 0 || autoStart || pendingSetup) {
+      // Partial cache or auto-start — resume generation with seeds
+      setPreviews(cachedPreviews);
+      setSelectedPreview(0);
+      setRestoredFromCache(false);
       void generatePreviews({
         seedPreviews: cachedPreviews,
         styleIdOverride: nextStyleId,
         genderOverride: nextGender,
       });
+    } else {
+      setPreviews([]);
+      setSelectedPreview(0);
+      setStep("source");
+      setRestoredFromCache(false);
     }
+
+    fetch("/api/orchestration/avatars/status")
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setProviderStatus(data); })
+      .catch(() => {});
   }, [open, agentId, autoStart, generatePreviews, initialGender, initialStyleId, pendingSetup]);
 
   // Do NOT close on Escape for this wizard — avoid accidental loss of work

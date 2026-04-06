@@ -123,11 +123,11 @@ export type CancelTaskExecutionResult = {
   task: ReturnType<typeof getTask>["task"];
 };
 
-type ExecutionProvider = "openclaw" | "paperclip";
+type ExecutionProvider = "openclaw" | "paperclip" | "codex";
 type ExecutionRunStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 type ExecutionRunRow = {
   id: string;
-  task_id: string;
+  task_id: string | null;
   agent_id: string | null;
   provider: ExecutionProvider;
   session_id: string | null;
@@ -144,7 +144,7 @@ type ExecutionRunRow = {
 
 type ExecutionRunRecord = {
   id: string;
-  taskId: string;
+  taskId?: string | null;
   agentId?: string;
   provider: ExecutionProvider;
   sessionId?: string;
@@ -204,7 +204,7 @@ function mapExecutionRunRow(row: ExecutionRunRow): ExecutionRunRecord {
 
 function createExecutionRun(
   input: {
-    taskId: string;
+    taskId?: string | null;
     agentId?: string;
     provider: ExecutionProvider;
     status?: ExecutionRunStatus;
@@ -228,7 +228,7 @@ function createExecutionRun(
       (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
-    input.taskId,
+    input.taskId ?? null,
     input.agentId ?? null,
     input.provider,
     input.sessionId ?? null,
