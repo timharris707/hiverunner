@@ -1,6 +1,10 @@
 #!/bin/sh
 set -eu
 
+# ── Ensure Homebrew PATH for node/npm/npx ──
+# Scripts may run from launchd or nohup with minimal PATH.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
 APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
 STABLE_DIR="$APP_DIR/.stable"
 LOG_DIR="$APP_DIR/data"
