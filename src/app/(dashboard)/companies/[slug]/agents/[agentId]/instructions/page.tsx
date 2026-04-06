@@ -1,42 +1,11 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { FileText, Save, File, ChevronRight } from "lucide-react";
+import { FileText, Save, ChevronRight, Pencil } from "lucide-react";
 import { useAgentProfile, A } from "../layout";
 
-/* ── Parse personality into a document-style view ── */
-
-interface InstructionSection {
-  heading: string;
-  content: string;
-}
-
-function parseInstructionSections(text: string): InstructionSection[] {
-  const lines = text.split("\n");
-  const sections: InstructionSection[] = [];
-  let currentHeading = "";
-  let currentLines: string[] = [];
-
-  for (const line of lines) {
-    const headingMatch = line.match(/^#{1,3}\s+(.+)/);
-    if (headingMatch) {
-      if (currentHeading || currentLines.length > 0) {
-        sections.push({ heading: currentHeading, content: currentLines.join("\n").trim() });
-      }
-      currentHeading = headingMatch[1];
-      currentLines = [];
-    } else {
-      currentLines.push(line);
-    }
-  }
-  if (currentHeading || currentLines.length > 0) {
-    sections.push({ heading: currentHeading, content: currentLines.join("\n").trim() });
-  }
-  return sections;
-}
-
 export default function AgentInstructionsPage() {
-  const { profile, slug, agentId, reload } = useAgentProfile();
+  const { profile, slug, reload } = useAgentProfile();
   const { agent } = profile;
 
   const [mode, setMode] = useState<"view" | "edit">("view");
@@ -46,7 +15,6 @@ export default function AgentInstructionsPage() {
 
   const personality = agent.personality ?? "";
   const hasContent = personality.trim().length > 0;
-  const sections = hasContent ? parseInstructionSections(personality) : [];
   const byteSize = new TextEncoder().encode(personality).length;
 
   const handleSave = useCallback(async () => {
@@ -83,7 +51,7 @@ export default function AgentInstructionsPage() {
           <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Files</span>
         </div>
 
-        {/* Main instruction file */}
+        {/* System prompt entry */}
         <button
           type="button"
           onClick={() => setMode("view")}
@@ -96,42 +64,18 @@ export default function AgentInstructionsPage() {
         >
           <FileText size={13} color={A.accent} />
           <span style={{ flex: 1, fontSize: 12, color: A.text, fontWeight: 500 }}>
-            AGENT.md
+            System Prompt
           </span>
-          <span style={{
-            fontSize: 10, padding: "1px 6px", borderRadius: 4,
-            background: "rgba(217,119,6,0.12)", color: A.accentLight,
-            fontWeight: 600,
-          }}>
-            ENTRY
-          </span>
-        </button>
-
-        {/* Personality file (if exists) */}
-        {hasContent && (
-          <button
-            type="button"
-            onClick={() => setMode("edit")}
-            style={{
-              display: "flex", alignItems: "center", gap: 8,
-              width: "100%", padding: "8px 14px", border: "none",
-              background: mode === "edit" ? "rgba(217,119,6,0.08)" : "transparent",
-              cursor: "pointer", textAlign: "left",
-            }}
-          >
-            <File size={13} color={A.muted} />
-            <span style={{ flex: 1, fontSize: 12, color: A.textSec }}>
-              PERSONALITY.md
-            </span>
+          {hasContent && (
             <span style={{ fontSize: 10, color: A.muted }}>
               {formatBytes(byteSize)}
             </span>
-          </button>
-        )}
+          )}
+        </button>
 
-        {/* Info */}
+        {/* Info about multi-file bundles */}
         <div style={{ padding: "12px 14px 4px", fontSize: 10, color: A.muted, lineHeight: 1.5 }}>
-          Multi-file instruction bundles require the Paperclip provider. OpenClaw agents use a single system prompt.
+          Multi-file instruction bundles (AGENTS.md, HEARTBEAT.md, etc.) require the Paperclip provider. This agent uses a single system prompt.
         </div>
       </div>
 
@@ -150,8 +94,10 @@ export default function AgentInstructionsPage() {
               borderBottom: `1px solid ${A.cardBorder}`,
             }}>
               <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: A.text }}>AGENT.md</div>
-                <div style={{ fontSize: 11, color: A.muted, marginTop: 2 }}>markdown file</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: A.text }}>System Prompt</div>
+                <div style={{ fontSize: 11, color: A.muted, marginTop: 2 }}>
+                  Sent as the system message when this agent runs tasks
+                </div>
               </div>
               <button
                 type="button"
@@ -163,6 +109,7 @@ export default function AgentInstructionsPage() {
                   color: A.accentLight, cursor: "pointer",
                 }}
               >
+                <Pencil size={11} />
                 Edit
               </button>
             </div>
@@ -173,24 +120,8 @@ export default function AgentInstructionsPage() {
                 No instructions configured. Click Edit to add a system prompt.
               </div>
             ) : (
-              <div style={{ fontSize: 13, color: A.text, lineHeight: 1.7, fontFamily: "monospace" }}>
-                {sections.map((section, i) => (
-                  <div key={i} style={{ marginBottom: 16 }}>
-                    {section.heading && (
-                      <h3 style={{
-                        fontSize: 15, fontWeight: 700, color: A.text,
-                        margin: "0 0 8px", letterSpacing: "-0.01em",
-                      }}>
-                        {section.heading}
-                      </h3>
-                    )}
-                    {section.content && (
-                      <div style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                        {section.content}
-                      </div>
-                    )}
-                  </div>
-                ))}
+              <div style={{ fontSize: 13, color: A.text, lineHeight: 1.7, fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                {personality}
               </div>
             )}
           </div>
@@ -217,7 +148,7 @@ export default function AgentInstructionsPage() {
                 </button>
                 <span style={{ color: A.accent, fontSize: 12, fontWeight: 600 }}>
                   <FileText size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                  System Prompt / Instructions
+                  System Prompt
                 </span>
               </div>
               <button
@@ -250,9 +181,6 @@ export default function AgentInstructionsPage() {
               onFocus={(e) => { e.currentTarget.style.borderColor = A.cardBorderHover; }}
               onBlur={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}
             />
-            <p style={{ margin: "8px 0 0", fontSize: 11, color: A.muted }}>
-              This prompt is sent as the system message when the agent runs tasks.
-            </p>
           </div>
         )}
       </div>

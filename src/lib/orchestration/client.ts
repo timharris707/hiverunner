@@ -405,6 +405,19 @@ export async function markInboxEventsRead(companySlug: string, eventIds: string[
   }
 }
 
+export async function archiveInboxEvents(companySlug: string, eventIds: string[]): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ eventIds }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function markAllInboxRead(companySlug: string): Promise<boolean> {
   try {
     const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/read`, {

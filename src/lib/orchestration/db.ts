@@ -1168,6 +1168,13 @@ const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys = ON;
     `,
   },
+  {
+    version: 36,
+    name: "inbox_read_state_archived_at",
+    sql: `
+      ALTER TABLE inbox_read_state ADD COLUMN archived_at TEXT;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

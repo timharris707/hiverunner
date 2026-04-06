@@ -9,6 +9,7 @@ import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { formatAge } from "@/components/orchestration/ui";
 import {
+  archiveInboxEvents,
   getCompanyInbox,
   listCompanies,
   markAllInboxRead,
@@ -39,31 +40,6 @@ type InboxState = {
 };
 
 const EMPTY: InboxState = { events: [], unreadCount: 0, hasMore: false };
-
-/* ------------------------------------------------------------------ */
-/*  Dismissed events (localStorage)                                    */
-/* ------------------------------------------------------------------ */
-
-const DISMISSED_STORAGE_KEY = "mc:inbox:dismissed";
-
-function getDismissedIds(): Set<string> {
-  if (typeof window === "undefined") return new Set();
-  try {
-    const raw = localStorage.getItem(DISMISSED_STORAGE_KEY);
-    if (!raw) return new Set();
-    return new Set(JSON.parse(raw) as string[]);
-  } catch {
-    return new Set();
-  }
-}
-
-function persistDismissedIds(ids: Set<string>): void {
-  try {
-    localStorage.setItem(DISMISSED_STORAGE_KEY, JSON.stringify([...ids]));
-  } catch {
-    // localStorage full or unavailable — silently ignore
-  }
-}
 
 /* ------------------------------------------------------------------ */
 /*  Event grouping                                                     */
@@ -342,8 +318,6 @@ export default function CompanyInboxPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("everything");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatusFilter>("all");
-  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => getDismissedIds());
-
   /* ---- Data loading ---- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -444,23 +418,15 @@ export default function CompanyInboxPage() {
   };
 
   /* ---- Dismiss / archive ---- */
-  const handleDismiss = (group: EventGroup) => {
-    const newDismissed = new Set(dismissedIds);
-    for (const ev of group.events) {
-      newDismissed.add(ev.id);
-    }
-    setDismissedIds(newDismissed);
-    persistDismissedIds(newDismissed);
+  const handleDismiss = async (group: EventGroup) => {
+    const eventIds = group.events.map((ev) => ev.id);
+    await archiveInboxEvents(slug, eventIds);
+    void load();
   };
 
   /* ---- Filtering ---- */
   const filteredEvents = useMemo(() => {
     let items = inbox.events;
-
-    // Remove dismissed events
-    if (dismissedIds.size > 0) {
-      items = items.filter((e) => !dismissedIds.has(e.id));
-    }
 
     // Tab filter
     if (activeTab === "unread") {
@@ -489,7 +455,7 @@ export default function CompanyInboxPage() {
     }
 
     return items;
-  }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter, dismissedIds]);
+  }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter]);
 
   /* ---- Group events ---- */
   const groupedEvents = useMemo(() => groupEvents(filteredEvents), [filteredEvents]);

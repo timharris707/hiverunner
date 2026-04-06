@@ -981,9 +981,16 @@ export function listCompanyInbox(input: {
         metadata_json,
         created_at
       FROM feed_events
+      WHERE NOT EXISTS (
+        SELECT 1 FROM inbox_read_state irs2
+        WHERE irs2.company_id = feed_events.company_id
+          AND irs2.user_id = 'default'
+          AND irs2.event_id = feed_events.event_id
+          AND irs2.archived_at IS NOT NULL
+      )
       ${
         decodedCursor
-          ? "WHERE (created_at < ? OR (created_at = ? AND event_id < ?))"
+          ? "AND (created_at < ? OR (created_at = ? AND event_id < ?))"
           : ""
       }
       ORDER BY created_at DESC, event_id DESC
@@ -1649,6 +1656,38 @@ export function markInboxEventsRead(input: {
   tx();
 
   return { marked };
+}
+
+export function archiveInboxEvents(input: {
+  companyIdOrSlug: string;
+  eventIds: string[];
+  userId?: string;
+}): { archived: number } {
+  const db = getOrchestrationDb();
+  const companyRow = getCompanyRowByIdOrSlug(input.companyIdOrSlug);
+  if (!companyRow) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+  const userId = input.userId?.trim() || "default";
+  const now = new Date().toISOString();
+  let archived = 0;
+
+  const upsert = db.prepare(
+    `INSERT INTO inbox_read_state (id, company_id, user_id, event_id, read_at, archived_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET archived_at = excluded.archived_at`
+  );
+
+  const tx = db.transaction(() => {
+    for (const eventId of input.eventIds) {
+      const id = `${companyRow.id}:${userId}:${eventId}`;
+      const result = upsert.run(id, companyRow.id, userId, eventId, now, now);
+      if (result.changes > 0) archived++;
+    }
+  });
+  tx();
+
+  return { archived };
 }
 
 export function markAllInboxRead(input: {

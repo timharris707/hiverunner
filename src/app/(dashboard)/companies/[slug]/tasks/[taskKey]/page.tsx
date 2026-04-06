@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
-import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -78,6 +78,11 @@ export default function TaskDetailPage() {
   const [copyHint, setCopyHint] = useState(false);
   const [reopenOnComment, setReopenOnComment] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [replyTarget, setReplyTarget] = useState<string | null>(null);
+  const [replyPickerOpen, setReplyPickerOpen] = useState(false);
+  const replyPickerRef = useRef<HTMLDivElement>(null);
+  const dragCounter = useRef(0);
 
   const loadTask = useCallback(async () => {
     setLoading(true);
@@ -139,16 +144,22 @@ export default function TaskDetailPage() {
     const ok = await addTaskComment(task.id, commentDraft.trim());
     if (ok) {
       setCommentDraft("");
+      // Reopen if checked
       if (reopenOnComment && (task.status === "done" || task.status === "cancelled")) {
         await updateTaskStatus(task.id, "backlog");
         setTask((prev) => prev ? { ...prev, status: "backlog" as TaskStatus, updated: new Date().toISOString() } : prev);
         setReopenOnComment(false);
       }
+      // Reassign to reply target if different from current assignee
+      if (replyTarget && replyTarget !== task.assignee) {
+        await updateTaskAssignee(task.id, replyTarget);
+        setTask((prev) => prev ? { ...prev, assignee: replyTarget, updated: new Date().toISOString() } : prev);
+      }
       const refreshed = await listTaskComments(task.id);
       setComments(refreshed);
     }
     setPosting(false);
-  }, [task, commentDraft, posting, reopenOnComment]);
+  }, [task, commentDraft, posting, reopenOnComment, replyTarget]);
 
   const handleFileUpload = useCallback(async (file: File) => {
     if (!task || uploading) return;
@@ -194,7 +205,48 @@ export default function TaskDetailPage() {
   const statusMeta = task ? STATUS_META[task.status] : null;
 
   return (
-    <div style={{ display: "flex", height: "100%", background: SURFACE.page, color: SURFACE.text }}>
+    <div
+      style={{ display: "flex", height: "100%", background: SURFACE.page, color: SURFACE.text, position: "relative" }}
+      onDragEnter={(e) => {
+        e.preventDefault();
+        dragCounter.current++;
+        if (e.dataTransfer.types.includes("Files")) setDragOver(true);
+      }}
+      onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; }}
+      onDragLeave={(e) => {
+        e.preventDefault();
+        dragCounter.current--;
+        if (dragCounter.current <= 0) { setDragOver(false); dragCounter.current = 0; }
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOver(false);
+        dragCounter.current = 0;
+        const file = e.dataTransfer.files?.[0];
+        if (file) void handleFileUpload(file);
+      }}
+    >
+      {/* ── Drag overlay ── */}
+      {dragOver && (
+        <div style={{
+          position: "absolute", inset: 0, zIndex: 100,
+          background: "rgba(217,119,6,0.06)",
+          border: "2px dashed rgba(217,119,6,0.4)",
+          borderRadius: 12,
+          display: "flex", alignItems: "center", justifyContent: "center",
+          pointerEvents: "none",
+        }}>
+          <div style={{
+            padding: "16px 32px", borderRadius: 10,
+            background: "rgba(26,24,20,0.95)", border: "1px solid rgba(217,119,6,0.3)",
+            display: "flex", alignItems: "center", gap: 10,
+          }}>
+            <Upload size={18} color="#f59e0b" />
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#f59e0b" }}>Drop file to attach</span>
+          </div>
+        </div>
+      )}
+
       {/* ── Main column ── */}
       <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px 64px", minWidth: 0 }}>
         {loading ? (
@@ -394,6 +446,78 @@ export default function TaskDetailPage() {
                       </label>
 
                       <div style={{ flex: 1 }} />
+
+                      {/* Reply target picker */}
+                      {agents.length > 0 && (
+                        <div ref={replyPickerRef} style={{ position: "relative" }}>
+                          <button
+                            type="button"
+                            onClick={() => setReplyPickerOpen((p) => !p)}
+                            style={{
+                              display: "inline-flex", alignItems: "center", gap: "4px",
+                              padding: "4px 8px", borderRadius: "6px", fontSize: "11px",
+                              border: `1px solid ${replyTarget ? "rgba(217,119,6,0.4)" : SURFACE.line}`,
+                              background: replyTarget ? "rgba(217,119,6,0.08)" : "transparent",
+                              color: replyTarget ? "#f59e0b" : SURFACE.textDim,
+                              cursor: "pointer",
+                            }}
+                          >
+                            <AtSign size={11} />
+                            {replyTarget
+                              ? agents.find((a) => a.name === replyTarget || a.slug === replyTarget)?.name ?? replyTarget
+                              : "Assign"}
+                          </button>
+                          {replyPickerOpen && (
+                            <>
+                              <div
+                                style={{ position: "fixed", inset: 0, zIndex: 98 }}
+                                onClick={() => setReplyPickerOpen(false)}
+                              />
+                              <div style={{
+                                position: "absolute", bottom: "calc(100% + 4px)", right: 0,
+                                background: "#1c1917", border: `1px solid ${SURFACE.line}`,
+                                borderRadius: 8, padding: "4px 0", minWidth: 160,
+                                boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 99,
+                              }}>
+                                <button
+                                  type="button"
+                                  onClick={() => { setReplyTarget(null); setReplyPickerOpen(false); }}
+                                  style={{
+                                    display: "block", width: "100%", padding: "7px 12px",
+                                    fontSize: 12, color: !replyTarget ? SURFACE.text : SURFACE.textDim,
+                                    background: !replyTarget ? "rgba(255,255,255,0.05)" : "transparent",
+                                    border: "none", cursor: "pointer", textAlign: "left",
+                                  }}
+                                >
+                                  No assignment change
+                                </button>
+                                {agents.map((a) => {
+                                  const selected = replyTarget === a.name;
+                                  return (
+                                    <button
+                                      key={a.id}
+                                      type="button"
+                                      onClick={() => { setReplyTarget(a.name); setReplyPickerOpen(false); }}
+                                      style={{
+                                        display: "flex", alignItems: "center", gap: "6px",
+                                        width: "100%", padding: "7px 12px",
+                                        fontSize: 12, color: selected ? SURFACE.text : SURFACE.textDim,
+                                        background: selected ? "rgba(255,255,255,0.05)" : "transparent",
+                                        border: "none", cursor: "pointer", textAlign: "left",
+                                      }}
+                                      onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                                      onMouseLeave={(e) => { e.currentTarget.style.background = selected ? "rgba(255,255,255,0.05)" : "transparent"; }}
+                                    >
+                                      <span style={{ fontSize: "13px" }}>{a.emoji}</span>
+                                      {a.name}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      )}
 
                       {/* Re-open toggle — show when task is done or cancelled */}
                       {(task.status === "done" || task.status === "cancelled") && (
