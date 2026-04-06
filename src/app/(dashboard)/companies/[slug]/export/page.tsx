@@ -6,21 +6,8 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, Check, Download, Package } from "lucide-react";
 import { listCompanies } from "@/lib/orchestration/client";
 import type { OrchestrationCompany } from "@/lib/orchestration/types";
-
-/* ─── Palette ─── */
-const P = {
-  bg: "#0f0f0f",
-  surface: "#1a1a1a",
-  card: "#1e1e1e",
-  cardBorder: "rgba(255,255,255,0.08)",
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
-  accent: "#d97706",
-  accentDim: "rgba(217,119,6,0.15)",
-  success: "#22c55e",
-  successDim: "rgba(34,197,94,0.12)",
-};
+import { P, color, type as T, space, radius } from "@/lib/ui/tokens";
+import { PageHeader, InfoNote } from "@/lib/ui/primitives";
 
 /* ─── Category definitions ─── */
 const CATEGORIES = [
@@ -123,26 +110,20 @@ export default function CompanyExportPage() {
   }
 
   return (
-    <div style={{ padding: "16px 20px", maxWidth: 720, color: P.text, fontSize: 13 }}>
+    <div style={{ padding: `${space.lg}px ${space.xl}px`, maxWidth: 960, color: color.text, fontSize: T.body.size }}>
       {/* Back link */}
       <Link
         href={`/companies/${encodeURIComponent(slug)}/org`}
-        style={{ display: "inline-flex", alignItems: "center", gap: 6, color: P.muted, fontSize: 12, textDecoration: "none", marginBottom: 16 }}
+        style={{ display: "inline-flex", alignItems: "center", gap: space.sm, color: color.textMuted, fontSize: T.bodySmall.size, textDecoration: "none", marginBottom: space.lg }}
       >
         <ArrowLeft size={12} /> Org Chart
       </Link>
 
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-        <Package size={16} style={{ color: P.accent }} />
-        <h1 style={{ margin: 0, fontSize: 15, fontWeight: 700, fontFamily: "var(--font-heading)" }}>
-          Export Company
-        </h1>
-      </div>
-      <p style={{ color: P.textSec, marginBottom: 20, lineHeight: 1.5 }}>
-        Download a structured JSON package of <strong>{company?.name ?? slug}</strong> data.
-        Select the categories to include.
-      </p>
+      <PageHeader
+        icon={<Package size={16} />}
+        title="Export Company"
+        description={`Download a structured JSON package of ${company?.name ?? slug} data. Select the categories to include.`}
+      />
 
       {/* Category checklist */}
       <div style={{ marginBottom: 20 }}>
@@ -201,14 +182,12 @@ export default function CompanyExportPage() {
       </div>
 
       {/* Exclusions note */}
-      <div style={{
-        padding: "10px 14px", borderRadius: 8, marginBottom: 20,
-        background: "rgba(120,113,108,0.06)", border: `1px solid ${P.cardBorder}`,
-        fontSize: 12, color: P.muted, lineHeight: 1.5,
-      }}>
-        <strong style={{ color: P.textSec }}>Not included:</strong> Execution runs, heartbeat telemetry,
-        agent runtime state, inbox read state, avatar images, and ideas/reviews.
-        These are either runtime-ephemeral or user-specific and are not portable across companies.
+      <div style={{ marginBottom: space.xl }}>
+        <InfoNote>
+          <strong style={{ color: color.textSecondary }}>Not included:</strong> Execution runs, heartbeat telemetry,
+          agent runtime state, inbox read state, avatar images, and ideas/reviews.
+          These are either runtime-ephemeral or user-specific and are not portable across companies.
+        </InfoNote>
       </div>
 
       {/* Export button */}
@@ -248,8 +227,8 @@ export default function CompanyExportPage() {
 
 /* ─── Helpers ─── */
 const linkBtnStyle: React.CSSProperties = {
-  background: "none", border: "none", color: P.accent,
-  fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline",
+  background: "none", border: "none", color: color.accent,
+  fontSize: T.caption.size, cursor: "pointer", padding: 0, textDecoration: "underline",
   textUnderlineOffset: 2,
 };
 

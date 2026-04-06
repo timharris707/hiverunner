@@ -7,18 +7,8 @@ import { AlertTriangle, Settings } from "lucide-react";
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
 import { getCompanyTheme, listCompanies } from "@/lib/orchestration/client";
 import type { CompanyTheme, OrchestrationCompany } from "@/lib/orchestration/types";
-
-/* ── Palette (MC stone standard) ── */
-
-const P = {
-  card: "#1e1e1e",
-  cardBorder: "rgba(255,255,255,0.08)",
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
-  inputBg: "rgba(41,37,36,0.4)",
-  inputBorder: "rgba(120,113,108,0.3)",
-};
+import { P, color, type as T, space, radius, font } from "@/lib/ui/tokens";
+import { PageHeader, Section, PropRow, ActionButton, InfoNote } from "@/lib/ui/primitives";
 
 const PROTECTED_COMPANY_SLUGS = new Set(["neveridle-core"]);
 
@@ -141,20 +131,17 @@ export default function CompanySettingsPage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", borderRadius: 8, border: `1px solid ${P.inputBorder}`,
-    background: P.inputBg, padding: "10px 14px", fontSize: 13, color: P.text, outline: "none",
+    width: "100%", borderRadius: radius.md, border: `1px solid rgba(120,113,108,0.3)`,
+    background: "rgba(41,37,36,0.4)", padding: `${space.md}px ${space.lg}px`,
+    fontSize: T.body.size, color: color.text, outline: "none",
   };
 
   const execAgents = execSettings?.agents ?? [];
   const hbAgents = hbSettings?.agents ?? [];
 
   return (
-    <div style={{ padding: "24px 32px", maxWidth: 700 }}>
-      {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 24 }}>
-        <Settings size={20} color={P.muted} />
-        <h1 style={{ fontSize: 20, fontWeight: 600, color: P.text, margin: 0 }}>Company Settings</h1>
-      </div>
+    <div style={{ padding: `${space.lg}px ${space.xl}px`, maxWidth: 960, color: color.text, fontSize: T.body.size }}>
+      <PageHeader icon={<Settings size={16} />} title="Company Settings" />
 
       {error && <Banner tone="error">{error}</Banner>}
       {notice && <Banner tone="success">{notice}</Banner>}
@@ -224,37 +211,19 @@ export default function CompanySettingsPage() {
 
           {/* ── COMPANY PACKAGES ── */}
           <Section title="Company Packages">
-            <p style={{ fontSize: 13, color: P.textSec, lineHeight: 1.5 }}>
+            <p style={{ fontSize: T.body.size, color: color.textSecondary, lineHeight: T.body.lineHeight }}>
               Export and import company data as structured JSON packages from the{" "}
               <a
                 href={`/companies/${encodeURIComponent(slug)}/org`}
-                style={{ color: "#d97706", textDecoration: "underline", textUnderlineOffset: 2 }}
+                style={{ color: color.accent, textDecoration: "underline", textUnderlineOffset: 2 }}
               >
                 Org Chart
               </a>{" "}
               page, or use the direct links below.
             </p>
-            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-              <a
-                href={`/companies/${encodeURIComponent(slug)}/export`}
-                style={{
-                  padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                  border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
-                  color: P.text, textDecoration: "none", display: "inline-block",
-                }}
-              >
-                Export
-              </a>
-              <a
-                href={`/companies/${encodeURIComponent(slug)}/import`}
-                style={{
-                  padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                  border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
-                  color: P.text, textDecoration: "none", display: "inline-block",
-                }}
-              >
-                Import
-              </a>
+            <div style={{ display: "flex", gap: space.sm, marginTop: space.md }}>
+              <ActionButton label="Export" href={`/companies/${encodeURIComponent(slug)}/export`} />
+              <ActionButton label="Import" href={`/companies/${encodeURIComponent(slug)}/import`} />
             </div>
           </Section>
 
@@ -335,28 +304,8 @@ export default function CompanySettingsPage() {
 
 /* ── Sub-components ── */
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div style={{ marginBottom: 20 }}>
-      <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.12em", fontWeight: 600, color: P.muted, marginBottom: 12 }}>{title}</p>
-      <div style={{ padding: "16px 20px", borderRadius: 10, border: `1px solid ${P.cardBorder}`, background: P.card }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
 function FieldLabel({ label }: { label: string }) {
-  return <p style={{ fontSize: 12, color: P.muted, marginBottom: 4 }}>{label}</p>;
-}
-
-function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
-      <span style={{ fontSize: 12, color: P.muted }}>{label}</span>
-      <div>{children}</div>
-    </div>
-  );
+  return <p style={{ fontSize: T.bodySmall.size, color: color.textMuted, marginBottom: space.xs }}>{label}</p>;
 }
 
 function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void }) {
@@ -375,7 +324,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 
 function Banner({ children, tone }: { children: React.ReactNode; tone: "error" | "success" }) {
   const s = tone === "error"
-    ? { border: "1px solid rgba(239,68,68,0.3)", background: "rgba(127,29,29,0.15)", color: "#fca5a5" }
-    : { border: "1px solid rgba(34,197,94,0.3)", background: "rgba(20,83,45,0.15)", color: "#86efac" };
-  return <div style={{ ...s, borderRadius: 8, padding: "8px 14px", fontSize: 13, marginBottom: 16 }}>{children}</div>;
+    ? { border: `1px solid rgba(239,68,68,0.3)`, background: color.negativeSoft, color: "#fca5a5" }
+    : { border: `1px solid rgba(34,197,94,0.3)`, background: color.positiveSoft, color: "#86efac" };
+  return <div style={{ ...s, borderRadius: radius.md, padding: `${space.sm}px ${space.lg}px`, fontSize: T.body.size, marginBottom: space.lg }}>{children}</div>;
 }
