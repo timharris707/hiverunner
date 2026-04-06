@@ -1,189 +1,783 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { FileText, Save, ChevronRight, Pencil } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import {
+  FileText,
+  Layers,
+  Pencil,
+  Save,
+  Shield,
+  Wrench,
+} from "lucide-react";
+
 import { useAgentProfile, A } from "../layout";
 
+type InstructionSource = {
+  id: string;
+  label: string;
+  kind: "profile_field" | "runtime_file" | "role_default";
+  editable: boolean;
+  exists: boolean;
+  status: "active" | "fallback" | "available" | "missing";
+  usedBy: string[];
+  content: string | null;
+  note: string;
+  path?: string;
+  byteSize: number;
+  lineCount: number;
+  updatedAt?: string;
+};
+
+type InstructionsPayload = {
+  agent: {
+    id: string;
+    name: string;
+    role: string;
+    model: string | null;
+    adapterType: string;
+    openclawAgentId?: string | null;
+    paperclipAgentId?: string | null;
+    instructionsMode: "managed" | "external";
+  };
+  runtimeModel: {
+    providerId: string;
+    providerName: string;
+    summary: string;
+    heartbeatPath: { label: string; detail: string };
+    taskDispatchPath: { label: string; detail: string };
+  };
+  sources: InstructionSource[];
+};
+
+const UI = {
+  sectionBg: "rgba(28,25,23,0.8)",
+  sectionBorder: "rgba(255,255,255,0.08)",
+  surface: "rgba(41,37,36,0.38)",
+  surfaceStrong: "rgba(28,25,23,0.94)",
+  surfaceBorder: "rgba(255,255,255,0.08)",
+  divider: "rgba(255,255,255,0.07)",
+  label: "#a8a29e",
+  shadow: "0 18px 40px rgba(0,0,0,0.24)",
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  return `${(bytes / 1024).toFixed(1)}KB`;
+}
+
+function statusTone(status: InstructionSource["status"]) {
+  switch (status) {
+    case "active":
+      return { background: "rgba(34,197,94,0.12)", border: "rgba(34,197,94,0.24)", color: "#86efac" };
+    case "fallback":
+      return { background: "rgba(245,158,11,0.12)", border: "rgba(245,158,11,0.24)", color: "#fdba74" };
+    case "available":
+      return { background: "rgba(255,255,255,0.04)", border: "rgba(255,255,255,0.08)", color: A.textSec };
+    case "missing":
+      return { background: "rgba(120,113,108,0.12)", border: "rgba(120,113,108,0.18)", color: A.muted };
+  }
+}
+
+function kindLabel(kind: InstructionSource["kind"]): string {
+  if (kind === "profile_field") return "MC field";
+  if (kind === "runtime_file") return "Runtime file";
+  return "Role default";
+}
+
 export default function AgentInstructionsPage() {
-  const { profile, slug, reload } = useAgentProfile();
+  const { profile, reload } = useAgentProfile();
   const { agent } = profile;
 
-  const [mode, setMode] = useState<"view" | "edit">("view");
-  const [instructions, setInstructions] = useState(agent.personality ?? "");
+  const [data, setData] = useState<InstructionsPayload | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedSourceId, setSelectedSourceId] = useState<string>("");
+  const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
-  const personality = agent.personality ?? "";
-  const hasContent = personality.trim().length > 0;
-  const byteSize = new TextEncoder().encode(personality).length;
+  const loadInstructions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/instructions`, {
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`${response.status}`);
+      const payload = (await response.json()) as InstructionsPayload;
+      setData(payload);
+      setError(null);
+    } catch (loadError) {
+      setData(null);
+      setError(loadError instanceof Error ? loadError.message : "unknown_error");
+    } finally {
+      setLoading(false);
+    }
+  }, [agent.id]);
+
+  useEffect(() => {
+    void loadInstructions();
+  }, [loadInstructions]);
+
+  const sources = data?.sources ?? [];
+  const selectedSource = useMemo(
+    () =>
+      sources.find((source) => source.id === selectedSourceId) ??
+      sources.find((source) => source.id === "soul") ??
+      sources.find((source) => source.id === "personality") ??
+      sources[0] ??
+      null,
+    [selectedSourceId, sources],
+  );
+
+  useEffect(() => {
+    if (!selectedSource && sources.length === 0) {
+      setSelectedSourceId("");
+      return;
+    }
+    if (selectedSource && selectedSource.id !== selectedSourceId) {
+      setSelectedSourceId(selectedSource.id);
+    }
+  }, [selectedSource, selectedSourceId, sources.length]);
+
+  useEffect(() => {
+    setDraft(selectedSource?.content ?? "");
+  }, [selectedSource?.id, selectedSource?.content]);
+
+  useEffect(() => {
+    setSaved(false);
+    setSaveError(null);
+  }, [selectedSource?.id]);
+
+  const editableSources = sources.filter((source) => source.editable);
+  const readOnlySources = sources.filter((source) => !source.editable);
 
   const handleSave = useCallback(async () => {
+    if (!selectedSource?.editable) return;
     setSaving(true);
+    setSaveError(null);
     try {
-      const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.id)}`, {
+      const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/instructions`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ personality: instructions }),
+        body: JSON.stringify({
+          sourceId: selectedSource.id,
+          content: draft,
+        }),
       });
-      if (res.ok) {
-        setSaved(true);
-        setTimeout(() => setSaved(false), 2000);
-        reload();
+      if (!response.ok) {
+        throw new Error(`${response.status}`);
       }
+      setSaved(true);
+      setTimeout(() => setSaved(false), 1800);
+      await loadInstructions();
+      reload();
+    } catch (saveErr) {
+      setSaveError(saveErr instanceof Error ? saveErr.message : "unknown_error");
     } finally {
       setSaving(false);
     }
-  }, [slug, agent.id, instructions, reload]);
-
-  const formatBytes = (b: number) => b < 1024 ? `${b}B` : `${(b / 1024).toFixed(1)}KB`;
+  }, [agent.id, draft, loadInstructions, reload, selectedSource]);
 
   return (
-    <div style={{ display: "flex", gap: 16 }}>
-      {/* ── File panel (left) ── */}
-      <div style={{
-        width: 220, flexShrink: 0, padding: "12px 0",
-        borderRadius: 10, background: A.card, border: `1px solid ${A.cardBorder}`,
-      }}>
-        <div style={{
-          display: "flex", alignItems: "center", justifyContent: "space-between",
-          padding: "0 14px 10px", borderBottom: `1px solid ${A.cardBorder}`,
-        }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Files</span>
-        </div>
-
-        {/* System prompt entry */}
-        <button
-          type="button"
-          onClick={() => setMode("view")}
-          style={{
-            display: "flex", alignItems: "center", gap: 8,
-            width: "100%", padding: "8px 14px", border: "none",
-            background: mode === "view" ? "rgba(217,119,6,0.08)" : "transparent",
-            cursor: "pointer", textAlign: "left",
-          }}
-        >
-          <FileText size={13} color={A.accent} />
-          <span style={{ flex: 1, fontSize: 12, color: A.text, fontWeight: 500 }}>
-            System Prompt
-          </span>
-          {hasContent && (
-            <span style={{ fontSize: 10, color: A.muted }}>
-              {formatBytes(byteSize)}
-            </span>
-          )}
-        </button>
-
-        {/* Info about multi-file bundles */}
-        <div style={{ padding: "12px 14px 4px", fontSize: 10, color: A.muted, lineHeight: 1.5 }}>
-          Multi-file instruction bundles (AGENTS.md, HEARTBEAT.md, etc.) require the Paperclip provider. This agent uses a single system prompt.
-        </div>
-      </div>
-
-      {/* ── Content panel (right) ── */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-        {mode === "view" ? (
-          /* ── Document view ── */
-          <div style={{
-            padding: "16px 20px", borderRadius: 10,
-            background: A.card, border: `1px solid ${A.cardBorder}`,
-          }}>
-            {/* File header */}
-            <div style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
-              marginBottom: 16, paddingBottom: 12,
-              borderBottom: `1px solid ${A.cardBorder}`,
-            }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 600, color: A.text }}>System Prompt</div>
-                <div style={{ fontSize: 11, color: A.muted, marginTop: 2 }}>
-                  Sent as the system message when this agent runs tasks
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setMode("edit")}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  padding: "5px 12px", borderRadius: 6, fontSize: 11, fontWeight: 500,
-                  background: "rgba(217,119,6,0.10)", border: `1px solid ${A.cardBorder}`,
-                  color: A.accentLight, cursor: "pointer",
-                }}
-              >
-                <Pencil size={11} />
-                Edit
-              </button>
-            </div>
-
-            {/* Rendered content */}
-            {!hasContent ? (
-              <div style={{ padding: "32px 0", textAlign: "center", color: A.muted, fontSize: 12 }}>
-                No instructions configured. Click Edit to add a system prompt.
-              </div>
-            ) : (
-              <div style={{ fontSize: 13, color: A.text, lineHeight: 1.7, fontFamily: "monospace", whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                {personality}
-              </div>
-            )}
-          </div>
-        ) : (
-          /* ── Edit view ── */
-          <div style={{
-            padding: "14px 16px", borderRadius: 10,
-            background: A.card, border: `1px solid ${A.cardBorder}`,
-          }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => setMode("view")}
-                  style={{
-                    display: "inline-flex", alignItems: "center", gap: 4,
-                    padding: "4px 10px", borderRadius: 6, fontSize: 11,
-                    background: "transparent", border: `1px solid ${A.cardBorder}`,
-                    color: A.textSec, cursor: "pointer",
-                  }}
-                >
-                  <ChevronRight size={11} style={{ transform: "rotate(180deg)" }} />
-                  Back
-                </button>
-                <span style={{ color: A.accent, fontSize: 12, fontWeight: 600 }}>
-                  <FileText size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                  System Prompt
-                </span>
-              </div>
-              <button
-                onClick={() => void handleSave()}
-                disabled={saving}
-                style={{
-                  display: "inline-flex", alignItems: "center", gap: 5,
-                  padding: "6px 14px", borderRadius: 6,
-                  background: saved ? "rgba(34,197,94,0.15)" : "rgba(217,119,6,0.10)",
-                  border: `1px solid ${saved ? "rgba(34,197,94,0.3)" : A.cardBorder}`,
-                  color: saved ? "#4ade80" : A.accentLight,
-                  fontSize: 11, fontWeight: 500, cursor: saving ? "wait" : "pointer",
-                  opacity: saving ? 0.5 : 1,
-                }}
-              >
-                <Save size={12} />
-                {saved ? "Saved" : saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-            <textarea
-              value={instructions}
-              onChange={(e) => setInstructions(e.target.value)}
-              placeholder="Enter agent instructions / system prompt..."
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, maxWidth: 1080, paddingBottom: 24 }}>
+      <Section
+        icon={<Layers size={14} />}
+        title="Instruction Model"
+        subtitle="Provider-aware view of the sources Mission Control can actually prove and manage for this agent."
+      >
+        {loading ? (
+          <InlineStatus>Loading instruction sources…</InlineStatus>
+        ) : error ? (
+          <InlineStatus tone="error">Could not load instruction sources ({error}).</InlineStatus>
+        ) : data ? (
+          <>
+            <div
               style={{
-                width: "100%", minHeight: 400, padding: 12, borderRadius: 8,
-                background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.06)",
-                color: A.text, fontSize: 13, fontFamily: "monospace", lineHeight: 1.6,
-                resize: "vertical", outline: "none",
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: 14,
               }}
-              onFocus={(e) => { e.currentTarget.style.borderColor = A.cardBorderHover; }}
-              onBlur={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.06)"; }}
-            />
-          </div>
-        )}
+            >
+              <SummaryCard
+                eyebrow="Current provider"
+                title={data.runtimeModel.providerName}
+                subtitle={data.runtimeModel.summary}
+                accent
+              >
+                <SummaryRow label="Provider ID" value={data.runtimeModel.providerId} mono />
+                <SummaryRow label="Adapter" value={data.agent.adapterType} mono />
+                <SummaryRow label="Instructions mode" value={data.agent.instructionsMode} />
+                <SummaryRow label="Model" value={data.agent.model || "\u2014"} mono />
+              </SummaryCard>
+
+              <SummaryCard
+                eyebrow="Observed paths"
+                title="What this runtime reads"
+                subtitle="Mission Control only labels a source as runtime-used when the code path is proven."
+              >
+                <PathNote title={data.runtimeModel.heartbeatPath.label}>
+                  {data.runtimeModel.heartbeatPath.detail}
+                </PathNote>
+                <PathNote title={data.runtimeModel.taskDispatchPath.label}>
+                  {data.runtimeModel.taskDispatchPath.detail}
+                </PathNote>
+              </SummaryCard>
+
+              <SummaryCard
+                eyebrow="Editable today"
+                title={`${editableSources.length} editable source${editableSources.length === 1 ? "" : "s"}`}
+                subtitle="Mission Control can edit only the sources that have a real backing write path."
+              >
+                {editableSources.length > 0 ? (
+                  editableSources.map((source) => (
+                    <SourceSummary key={source.id} source={source} />
+                  ))
+                ) : (
+                  <InlineStatus>No instruction sources are writable for this agent in Mission Control.</InlineStatus>
+                )}
+              </SummaryCard>
+            </div>
+
+            <div style={{ ...noteStyle, marginTop: 14 }}>
+              Paperclip’s richer bundle workflow is still broader than Mission Control’s. This page now exposes the real sources MC has today instead of collapsing them into a generic “system prompt” field.
+            </div>
+          </>
+        ) : null}
+      </Section>
+
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "280px minmax(0, 1fr)",
+          gap: 16,
+          alignItems: "start",
+        }}
+      >
+        <Section
+          icon={<FileText size={14} />}
+          title="Sources"
+          subtitle="Editable and read-only instruction sources, grouped by provenance."
+        >
+          <SourceGroup title="Editable">
+            {editableSources.length > 0 ? (
+              editableSources.map((source) => (
+                <SourceButton
+                  key={source.id}
+                  source={source}
+                  active={selectedSource?.id === source.id}
+                  onClick={() => setSelectedSourceId(source.id)}
+                />
+              ))
+            ) : (
+              <EmptyMiniState>No editable sources</EmptyMiniState>
+            )}
+          </SourceGroup>
+
+          <SourceGroup title="Read-only">
+            {readOnlySources.map((source) => (
+              <SourceButton
+                key={source.id}
+                source={source}
+                active={selectedSource?.id === source.id}
+                onClick={() => setSelectedSourceId(source.id)}
+              />
+            ))}
+          </SourceGroup>
+        </Section>
+
+        <Section
+          icon={selectedSource?.editable ? <Pencil size={14} /> : <Shield size={14} />}
+          title={selectedSource?.label || "Instruction source"}
+          subtitle={
+            selectedSource
+              ? selectedSource.editable
+                ? "Editable source with a real backing write path."
+                : "Read-only source shown for operator context and provenance."
+              : "Select a source to inspect."
+          }
+        >
+          {selectedSource ? (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  alignItems: "center",
+                  gap: 8,
+                  marginBottom: 14,
+                }}
+              >
+                <Pill>{kindLabel(selectedSource.kind)}</Pill>
+                <StatusPill status={selectedSource.status} />
+                {selectedSource.usedBy.map((usedBy) => (
+                  <Pill key={usedBy}>{usedBy}</Pill>
+                ))}
+              </div>
+
+              <MetaGrid>
+                <MetaRow label="Bytes" value={formatBytes(selectedSource.byteSize)} />
+                <MetaRow label="Lines" value={String(selectedSource.lineCount)} />
+                <MetaRow label="Path" value={selectedSource.path || "\u2014"} mono />
+                <MetaRow
+                  label="Updated"
+                  value={selectedSource.updatedAt ? new Date(selectedSource.updatedAt).toLocaleString() : "\u2014"}
+                />
+              </MetaGrid>
+
+              <div style={{ ...noteStyle, marginTop: 12, marginBottom: 14 }}>
+                {selectedSource.note}
+              </div>
+
+              {selectedSource.editable ? (
+                <>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ fontSize: 12, color: A.textSec }}>
+                      {selectedSource.kind === "runtime_file"
+                        ? "Saving here updates the real runtime file Mission Control can manage for this agent."
+                        : "Saving here updates the Mission Control profile prompt stored in the orchestration DB."}
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setDraft(selectedSource.content ?? "")}
+                        style={secondaryButtonStyle}
+                      >
+                        Reset
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleSave()}
+                        disabled={saving}
+                        style={{
+                          ...primaryButtonStyle,
+                          opacity: saving ? 0.65 : 1,
+                          cursor: saving ? "wait" : "pointer",
+                        }}
+                      >
+                        <Save size={12} />
+                        {saved ? "Saved" : saving ? "Saving…" : "Save"}
+                      </button>
+                    </div>
+                  </div>
+
+                  <textarea
+                    value={draft}
+                    onChange={(event) => setDraft(event.target.value)}
+                    spellCheck={false}
+                    style={editorStyle}
+                  />
+                  {saveError ? (
+                    <InlineStatus tone="error">Could not save this source ({saveError}).</InlineStatus>
+                  ) : null}
+                </>
+              ) : selectedSource.exists ? (
+                <pre style={previewStyle}>{selectedSource.content}</pre>
+              ) : (
+                <EmptySourceState>
+                  This source is not present for the current role/runtime, and Mission Control does not pretend otherwise.
+                </EmptySourceState>
+              )}
+            </>
+          ) : (
+            <EmptySourceState>Select an instruction source to inspect.</EmptySourceState>
+          )}
+        </Section>
       </div>
     </div>
   );
 }
+
+function Section({
+  icon,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: "20px 22px",
+        borderRadius: 18,
+        background: UI.sectionBg,
+        border: `1px solid ${UI.sectionBorder}`,
+        boxShadow: UI.shadow,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 999,
+            display: "grid",
+            placeItems: "center",
+            color: A.accentLight,
+            background: "rgba(255,255,255,0.04)",
+            border: `1px solid ${UI.surfaceBorder}`,
+            flexShrink: 0,
+          }}
+        >
+          {icon}
+        </div>
+        <div>
+          <div style={{ fontSize: 17, fontWeight: 600, color: A.text }}>{title}</div>
+          <div style={{ marginTop: 4, fontSize: 12, color: A.muted, lineHeight: 1.6 }}>{subtitle}</div>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SummaryCard({
+  eyebrow,
+  title,
+  subtitle,
+  accent,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  accent?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: "18px 18px 16px",
+        borderRadius: 16,
+        background: accent ? "rgba(28,25,23,0.94)" : UI.surface,
+        border: `1px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: UI.label }}>
+        {eyebrow}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 18, fontWeight: 600, color: A.text }}>{title}</div>
+      <div style={{ marginTop: 6, fontSize: 12, color: A.textSec, lineHeight: 1.6 }}>{subtitle}</div>
+      <div style={{ marginTop: 14, display: "flex", flexDirection: "column", gap: 10 }}>{children}</div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "112px minmax(0, 1fr)",
+        gap: 10,
+        alignItems: "start",
+      }}
+    >
+      <span style={{ fontSize: 11, color: UI.label, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 13,
+          color: A.text,
+          lineHeight: 1.55,
+          fontFamily: mono ? "monospace" : "inherit",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function PathNote({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: "12px 13px",
+        borderRadius: 12,
+        border: `1px solid ${UI.divider}`,
+        background: "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 600, color: A.text, marginBottom: 6 }}>{title}</div>
+      <div style={{ fontSize: 12, color: A.textSec, lineHeight: 1.6 }}>{children}</div>
+    </div>
+  );
+}
+
+function SourceSummary({ source }: { source: InstructionSource }) {
+  return (
+    <div
+      style={{
+        padding: "10px 12px",
+        borderRadius: 12,
+        border: `1px solid ${UI.divider}`,
+        background: "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>{source.label}</span>
+        <StatusPill status={source.status} />
+      </div>
+      <div style={{ fontSize: 12, color: A.textSec, lineHeight: 1.55 }}>{source.note}</div>
+    </div>
+  );
+}
+
+function SourceGroup({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <div style={{ fontSize: 11, color: UI.label, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SourceButton({
+  source,
+  active,
+  onClick,
+}: {
+  source: InstructionSource;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        width: "100%",
+        textAlign: "left",
+        padding: "12px 13px",
+        borderRadius: 14,
+        border: `1px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
+        background: active ? "rgba(245,158,11,0.08)" : UI.surface,
+        cursor: "pointer",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+        {source.kind === "runtime_file" ? <Wrench size={13} color={A.accentLight} /> : <FileText size={13} color={A.textSec} />}
+        <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>{source.label}</span>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+        <Pill>{kindLabel(source.kind)}</Pill>
+        <StatusPill status={source.status} />
+      </div>
+      <div style={{ fontSize: 11, color: A.muted, lineHeight: 1.5 }}>
+        {source.usedBy.length > 0 ? `Used by: ${source.usedBy.join(", ")}` : source.note}
+      </div>
+    </button>
+  );
+}
+
+function Pill({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 8px",
+        borderRadius: 999,
+        background: "rgba(255,255,255,0.04)",
+        border: `1px solid ${UI.surfaceBorder}`,
+        color: A.textSec,
+        fontSize: 11,
+        fontWeight: 600,
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StatusPill({ status }: { status: InstructionSource["status"] }) {
+  const tone = statusTone(status);
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "4px 8px",
+        borderRadius: 999,
+        background: tone.background,
+        border: `1px solid ${tone.border}`,
+        color: tone.color,
+        fontSize: 11,
+        fontWeight: 700,
+      }}
+    >
+      {status}
+    </span>
+  );
+}
+
+function MetaGrid({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+        gap: 10,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MetaRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div
+      style={{
+        padding: "12px 13px",
+        borderRadius: 12,
+        border: `1px solid ${UI.divider}`,
+        background: "rgba(255,255,255,0.02)",
+      }}
+    >
+      <div style={{ fontSize: 11, color: UI.label, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 6 }}>
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: 12,
+          color: A.text,
+          lineHeight: 1.55,
+          fontFamily: mono ? "monospace" : "inherit",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function EmptyMiniState({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: "12px 13px",
+        borderRadius: 12,
+        border: `1px dashed ${UI.surfaceBorder}`,
+        background: "rgba(255,255,255,0.02)",
+        fontSize: 12,
+        color: A.muted,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function EmptySourceState({ children }: { children: ReactNode }) {
+  return (
+    <div
+      style={{
+        padding: "24px 18px",
+        borderRadius: 14,
+        border: `1px dashed ${UI.surfaceBorder}`,
+        background: "rgba(255,255,255,0.02)",
+        fontSize: 13,
+        color: A.muted,
+        lineHeight: 1.6,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function InlineStatus({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <div
+      style={{
+        fontSize: 12,
+        color: tone === "error" ? "#fca5a5" : A.muted,
+        lineHeight: 1.6,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+const noteStyle: CSSProperties = {
+  fontSize: 12,
+  color: A.muted,
+  lineHeight: 1.65,
+};
+
+const primaryButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  minHeight: 38,
+  padding: "0 13px",
+  borderRadius: 10,
+  border: "1px solid rgba(245,158,11,0.22)",
+  background: "rgba(245,158,11,0.12)",
+  color: A.accentLight,
+  fontSize: 12,
+  fontWeight: 600,
+};
+
+const secondaryButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 38,
+  padding: "0 13px",
+  borderRadius: 10,
+  border: `1px solid ${UI.surfaceBorder}`,
+  background: UI.surface,
+  color: A.textSec,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: "pointer",
+};
+
+const editorStyle: CSSProperties = {
+  width: "100%",
+  minHeight: 460,
+  padding: 14,
+  borderRadius: 14,
+  background: UI.surfaceStrong,
+  border: `1px solid ${UI.surfaceBorder}`,
+  color: A.text,
+  fontSize: 13,
+  fontFamily: "monospace",
+  lineHeight: 1.65,
+  resize: "vertical",
+  outline: "none",
+  boxSizing: "border-box",
+};
+
+const previewStyle: CSSProperties = {
+  margin: 0,
+  padding: "16px 18px",
+  borderRadius: 14,
+  background: UI.surfaceStrong,
+  border: `1px solid ${UI.surfaceBorder}`,
+  color: A.text,
+  fontSize: 13,
+  fontFamily: "monospace",
+  lineHeight: 1.65,
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+};
