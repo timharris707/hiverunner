@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Lightbulb, Search, ShieldAlert, UserPlus, X } from "lucide-react";
+import { Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus, X } from "lucide-react";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
@@ -28,7 +28,8 @@ import type {
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
 
-type TabKey = "recent" | "unread" | "all";
+type TabKey = "mine" | "recent" | "unread" | "all";
+type InboxColumn = "status" | "id" | "assignee" | "project" | "updated";
 type CategoryFilter = "everything" | "tasks" | "executions" | "approvals";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected" | "revision_requested";
 
@@ -40,6 +41,30 @@ type InboxState = {
 };
 
 const EMPTY: InboxState = { events: [], unreadCount: 0, hasMore: false };
+
+/* ------------------------------------------------------------------ */
+/*  Column visibility persistence                                      */
+/* ------------------------------------------------------------------ */
+
+const COLUMNS_STORAGE_KEY = "mc:inbox:columns";
+const DEFAULT_COLUMNS: InboxColumn[] = ["status", "id", "updated"];
+
+function getStoredColumns(): InboxColumn[] {
+  try {
+    const stored = localStorage.getItem(COLUMNS_STORAGE_KEY);
+    if (stored) return JSON.parse(stored);
+  } catch {}
+  return DEFAULT_COLUMNS;
+}
+
+function hashStringToColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 55%, 55%)`;
+}
 
 /* ------------------------------------------------------------------ */
 /*  Event grouping                                                     */
@@ -314,10 +339,41 @@ export default function CompanyInboxPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("recent");
+  const [activeTab, setActiveTab] = useState<TabKey>("mine");
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<CategoryFilter>("everything");
   const [approvalStatusFilter, setApprovalStatusFilter] = useState<ApprovalStatusFilter>("all");
+  const [visibleColumns, setVisibleColumns] = useState<InboxColumn[]>(DEFAULT_COLUMNS);
+  const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
+  const columnsDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate columns from localStorage on mount
+  useEffect(() => {
+    setVisibleColumns(getStoredColumns());
+  }, []);
+
+  // Close columns dropdown on outside click
+  useEffect(() => {
+    if (!columnsDropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (columnsDropdownRef.current && !columnsDropdownRef.current.contains(e.target as Node)) setColumnsDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [columnsDropdownOpen]);
+
+  const toggleColumn = (col: InboxColumn) => {
+    setVisibleColumns((prev) => {
+      const next = prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col];
+      try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  };
+
+  const resetColumns = () => {
+    setVisibleColumns(DEFAULT_COLUMNS);
+    try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(DEFAULT_COLUMNS)); } catch {}
+  };
   /* ---- Data loading ---- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -429,7 +485,9 @@ export default function CompanyInboxPage() {
     let items = inbox.events;
 
     // Tab filter
-    if (activeTab === "unread") {
+    if (activeTab === "mine") {
+      items = items.filter((e) => e.kind === "task" || e.kind === "approval");
+    } else if (activeTab === "unread") {
       items = items.filter((e) => !e.isRead);
     } else if (activeTab === "recent") {
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -487,6 +545,7 @@ export default function CompanyInboxPage() {
   }
 
   const TABS: { key: TabKey; label: string }[] = [
+    { key: "mine", label: "Mine" },
     { key: "recent", label: "Recent" },
     { key: "unread", label: "Unread" },
     { key: "all", label: "All" },
@@ -563,6 +622,88 @@ export default function CompanyInboxPage() {
             />
           </div>
 
+          {/* Show / hide columns */}
+          <div ref={columnsDropdownRef} style={{ position: "relative" }}>
+            <button
+              type="button"
+              onClick={() => setColumnsDropdownOpen(!columnsDropdownOpen)}
+              title="Show / hide columns"
+              style={{
+                display: "flex", alignItems: "center", gap: 6,
+                padding: "5px 10px", fontSize: 12, fontWeight: 500,
+                borderRadius: 6, border: "1px solid rgba(120,113,108,0.25)",
+                background: columnsDropdownOpen ? "rgba(255,255,255,0.05)" : "transparent",
+                color: "#a8a29e", cursor: "pointer",
+              }}
+            >
+              <Columns3 size={13} />
+              Columns
+            </button>
+            {columnsDropdownOpen && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, marginTop: 4,
+                minWidth: 220, borderRadius: 8,
+                border: "1px solid rgba(120,113,108,0.2)",
+                background: "#1c1917", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                zIndex: 50, overflow: "hidden", padding: "4px 0",
+              }}>
+                {([
+                  { key: "status" as InboxColumn, label: "Status", desc: "Task status indicator" },
+                  { key: "id" as InboxColumn, label: "ID", desc: "Task identifier like NEV-45" },
+                  { key: "assignee" as InboxColumn, label: "Assignee", desc: "Assigned agent" },
+                  { key: "project" as InboxColumn, label: "Project", desc: "Project name with color" },
+                  { key: "updated" as InboxColumn, label: "Updated", desc: "Last activity time" },
+                ]).map((col) => (
+                  <button
+                    key={col.key}
+                    type="button"
+                    onClick={() => toggleColumn(col.key)}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      width: "100%", textAlign: "left",
+                      padding: "7px 12px", fontSize: 12,
+                      color: "#d6d3d1",
+                      background: "transparent",
+                      border: "none", cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                  >
+                    <span style={{
+                      width: 16, height: 16, borderRadius: 3,
+                      border: "1px solid rgba(120,113,108,0.4)",
+                      background: visibleColumns.includes(col.key) ? "rgba(59,130,246,0.3)" : "transparent",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      flexShrink: 0,
+                    }}>
+                      {visibleColumns.includes(col.key) && <Check size={10} color="#93c5fd" />}
+                    </span>
+                    <span style={{ flex: 1 }}>
+                      <span style={{ fontWeight: 500 }}>{col.label}</span>
+                      <span style={{ color: "#78716c", marginLeft: 6 }}>{col.desc}</span>
+                    </span>
+                  </button>
+                ))}
+                <div style={{ borderTop: "1px solid rgba(120,113,108,0.15)", marginTop: 4, paddingTop: 4 }}>
+                  <button
+                    type="button"
+                    onClick={resetColumns}
+                    style={{
+                      display: "block", width: "100%", textAlign: "left",
+                      padding: "7px 12px", fontSize: 12,
+                      color: "#78716c", background: "transparent",
+                      border: "none", cursor: "pointer",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; e.currentTarget.style.color = "#a8a29e"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.color = "#78716c"; }}
+                  >
+                    Reset defaults
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Mark all as read */}
           <button
             type="button"
@@ -619,11 +760,13 @@ export default function CompanyInboxPage() {
       {!loading && groupedEvents.length === 0 && !error && (
         <div style={{ padding: "48px 0", textAlign: "center" }}>
           <p style={{ fontSize: 14, color: "#a8a29e", marginBottom: 4 }}>
-            {activeTab === "unread" ? "All caught up!" : searchQuery ? "No matching events." : "No activity yet."}
+            {activeTab === "unread" ? "All caught up!" : activeTab === "mine" ? "Nothing here yet." : searchQuery ? "No matching events." : "No activity yet."}
           </p>
           <p style={{ fontSize: 12, color: "#78716c" }}>
             {activeTab === "unread"
               ? "You have no unread notifications."
+              : activeTab === "mine"
+              ? "Task and approval events will appear here."
               : searchQuery
               ? "Try a different search term."
               : "Events from tasks and executions will appear here."}
@@ -645,6 +788,7 @@ export default function CompanyInboxPage() {
               onMarkGroupRead={handleMarkGroupRead}
               onRefresh={load}
               onDismiss={handleDismiss}
+              visibleColumns={visibleColumns}
             />
           ))}
 
@@ -664,6 +808,7 @@ export default function CompanyInboxPage() {
               onMarkGroupRead={handleMarkGroupRead}
               onRefresh={load}
               onDismiss={handleDismiss}
+              visibleColumns={visibleColumns}
             />
           ))}
 
@@ -701,7 +846,7 @@ export default function CompanyInboxPage() {
 /* ------------------------------------------------------------------ */
 
 function GroupRow({
-  group, company, slug, onMarkRead, onMarkGroupRead, onRefresh, onDismiss,
+  group, company, slug, onMarkRead, onMarkGroupRead, onRefresh, onDismiss, visibleColumns,
 }: {
   group: EventGroup;
   company: OrchestrationCompany | null;
@@ -710,6 +855,7 @@ function GroupRow({
   onMarkGroupRead: (group: EventGroup) => void;
   onRefresh: () => void;
   onDismiss: (group: EventGroup) => void;
+  visibleColumns: InboxColumn[];
 }) {
   const event = group.primary;
 
@@ -723,6 +869,7 @@ function GroupRow({
         onRefresh={onRefresh}
         onDismiss={onDismiss}
         companySlug={company?.code ?? slug}
+        visibleColumns={visibleColumns}
       />
     );
   }
@@ -736,6 +883,7 @@ function GroupRow({
       onMarkRead={onMarkRead}
       onMarkGroupRead={onMarkGroupRead}
       onDismiss={onDismiss}
+      visibleColumns={visibleColumns}
     />
   );
 }
@@ -745,7 +893,7 @@ function GroupRow({
 /* ------------------------------------------------------------------ */
 
 function TaskEventRow({
-  group, event, company, slug, onMarkRead, onMarkGroupRead, onDismiss,
+  group, event, company, slug, onMarkRead, onMarkGroupRead, onDismiss, visibleColumns,
 }: {
   group: EventGroup;
   event: OrchestrationCompanyInboxEvent;
@@ -754,6 +902,7 @@ function TaskEventRow({
   onMarkRead: (id: string) => void;
   onMarkGroupRead: (group: EventGroup) => void;
   onDismiss: (group: EventGroup) => void;
+  visibleColumns: InboxColumn[];
 }) {
   const [hovered, setHovered] = useState(false);
   const isUnread = groupHasUnread(group);
@@ -795,10 +944,10 @@ function TaskEventRow({
         <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
 
         {/* Status icon */}
-        <StatusDot status={event.status} />
+        {visibleColumns.includes("status") && <StatusDot status={event.status} />}
 
         {/* Task key */}
-        {taskKey ? (
+        {visibleColumns.includes("id") && taskKey ? (
           <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>
             {taskKey}
           </span>
@@ -820,6 +969,32 @@ function TaskEventRow({
           {event.taskTitle ?? event.message}
         </span>
 
+        {/* Assignee column */}
+        {visibleColumns.includes("assignee") && event.agentName && (
+          <span style={{
+            fontSize: 11, fontWeight: 500, color: "#a8a29e",
+            background: "rgba(120,113,108,0.12)", borderRadius: 4,
+            padding: "1px 6px", flexShrink: 0, whiteSpace: "nowrap",
+          }}>
+            {event.agentName}
+          </span>
+        )}
+
+        {/* Project column */}
+        {visibleColumns.includes("project") && event.projectName && (
+          <span style={{
+            display: "inline-flex", alignItems: "center", gap: 4,
+            fontSize: 11, color: "#a8a29e", flexShrink: 0, whiteSpace: "nowrap",
+          }}>
+            <span style={{
+              width: 7, height: 7, borderRadius: "50%",
+              background: hashStringToColor(event.projectName),
+              flexShrink: 0,
+            }} />
+            {event.projectName}
+          </span>
+        )}
+
         {/* Count badge */}
         {badge && (
           <span style={{
@@ -837,9 +1012,11 @@ function TaskEventRow({
         )}
 
         {/* Trailing: verb + time */}
-        <span style={{ fontSize: 12, color: isFailed ? "#f87171" : "#57534e", flexShrink: 0, whiteSpace: "nowrap" }}>
-          {verb} {age} ago
-        </span>
+        {visibleColumns.includes("updated") && (
+          <span style={{ fontSize: 12, color: isFailed ? "#f87171" : "#57534e", flexShrink: 0, whiteSpace: "nowrap" }}>
+            {verb} {age} ago
+          </span>
+        )}
       </Link>
 
       {/* Dismiss button */}
@@ -888,6 +1065,7 @@ function ApprovalRow({
   onRefresh,
   onDismiss,
   companySlug,
+  visibleColumns,
 }: {
   group: EventGroup;
   event: OrchestrationCompanyInboxEvent;
@@ -896,6 +1074,7 @@ function ApprovalRow({
   onRefresh: () => void;
   onDismiss: (group: EventGroup) => void;
   companySlug: string;
+  visibleColumns: InboxColumn[];
 }) {
   const router = useRouter();
   const [acting, setActing] = useState(false);
@@ -991,6 +1170,21 @@ function ApprovalRow({
               color: status === "approved" ? "#22c55e" : status === "rejected" ? "#ef4444" : status === "revision_requested" ? "#a855f7" : status === "pending" ? "#f59e0b" : "#78716c",
             }}>{status.replace(/_/g, " ")}</span>
             {requester ? <span>requested by {requester}</span> : null}
+            {visibleColumns.includes("assignee") && event.agentName && (
+              <span style={{
+                fontSize: 11, fontWeight: 500, color: "#a8a29e",
+                background: "rgba(120,113,108,0.12)", borderRadius: 4,
+                padding: "1px 6px",
+              }}>
+                {event.agentName}
+              </span>
+            )}
+            {visibleColumns.includes("project") && event.projectName && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#a8a29e" }}>
+                <span style={{ width: 7, height: 7, borderRadius: "50%", background: hashStringToColor(event.projectName) }} />
+                {event.projectName}
+              </span>
+            )}
             <span>updated {age} ago</span>
           </div>
         </div>
