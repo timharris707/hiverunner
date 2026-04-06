@@ -12,6 +12,7 @@ usage() {
   echo "Usage: $0 <dev|stable> <start|stop|restart|status|logs|rollback>"
   echo "       $0 promote   (build + deploy to stable lane)"
   echo "       $0 rollback  (restore stable to previous promoted checkpoint)"
+  echo "       $0 doctor    (diagnose both lanes, PIDs, health)"
   echo ""
   echo "Examples:"
   echo "  $0 dev start       Start dev server on port 3000"
@@ -20,6 +21,8 @@ usage() {
   echo "  $0 stable logs     Tail stable lane logs"
   echo "  $0 promote         Build and promote to stable"
   echo "  $0 rollback        Roll back stable to previous checkpoint"
+  echo "  $0 doctor          Full runtime health diagnostic"
+  echo "  $0 doctor --fix    Diagnostic + auto-fix stale PIDs"
   exit 1
 }
 
@@ -36,6 +39,10 @@ fi
 if [ "$LANE" = "rollback" ]; then
   shift
   exec "$APP_DIR/scripts/rollback_stable.sh" "$@"
+fi
+if [ "$LANE" = "doctor" ]; then
+  shift
+  exec "$APP_DIR/scripts/doctor.sh" "$@"
 fi
 
 [ -z "$ACTION" ] && usage

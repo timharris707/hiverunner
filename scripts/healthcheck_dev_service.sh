@@ -12,22 +12,41 @@ mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
 
 is_healthy() {
-  # Check both API route AND page rendering — Turbopack corruption breaks pages
-  # while API routes still work
-  curl -sf --max-time 10 "$URL/api/orchestration/companies" >/dev/null 2>&1 \
+  # Dual verification: API route AND page render.
+  # Turbopack corruption can break page rendering while API routes still work.
+  curl -sf --max-time 10 "$URL/api/mc/health" >/dev/null 2>&1 \
     && curl -sf --max-time 15 "$URL/NEV/inbox" >/dev/null 2>&1
 }
 
-cleanup_pid_if_stale() {
+# ── PID reconciliation ──
+# If the PID file is stale or missing but the port has a listener,
+# adopt the actual listener PID. This handles the case where the server
+# was started outside managed scripts (e.g., by Claude or npm run dev).
+reconcile_pid() {
+  ACTUAL_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+
   if [ -f "$PID_FILE" ]; then
-    PID="$(cat "$PID_FILE" 2>/dev/null || true)"
-    if [ -n "$PID" ] && ! kill -0 "$PID" 2>/dev/null; then
-      rm -f "$PID_FILE"
+    FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+    if [ -n "$FILE_PID" ] && kill -0 "$FILE_PID" 2>/dev/null; then
+      # PID file points to a live process — check if it matches port
+      if [ -n "$ACTUAL_PID" ] && [ "$FILE_PID" != "$ACTUAL_PID" ]; then
+        echo "[mc-dev] PID mismatch: file=$FILE_PID, port=$ACTUAL_PID — adopting port listener"
+        echo "$ACTUAL_PID" > "$PID_FILE"
+      fi
+      return
     fi
+    # PID file points to dead process
+    rm -f "$PID_FILE"
+  fi
+
+  # No valid PID file — adopt port listener if present
+  if [ -n "$ACTUAL_PID" ]; then
+    echo "[mc-dev] adopting untracked listener PID $ACTUAL_PID"
+    echo "$ACTUAL_PID" > "$PID_FILE"
   fi
 }
 
-cleanup_pid_if_stale
+reconcile_pid
 
 if is_healthy; then
   echo "[mc-dev] healthy"
