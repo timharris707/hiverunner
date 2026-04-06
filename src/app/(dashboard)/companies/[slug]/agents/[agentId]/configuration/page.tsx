@@ -51,7 +51,7 @@ interface OpenClawConfig {
 interface PeerAgent {
   id: string;
   name: string;
-  openclawAgentId?: string;
+  role?: string;
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
@@ -64,16 +64,16 @@ const MODEL_OPTIONS = [
 ];
 
 const UI = {
-  sectionBg: "rgba(28,25,23,0.72)",
-  sectionBorder: "rgba(120,113,108,0.18)",
-  surface: "rgba(17,14,11,0.72)",
-  surfaceBorder: "rgba(120,113,108,0.22)",
-  surfaceStrong: "rgba(24,20,16,0.92)",
-  accentSurface: "rgba(217,119,6,0.05)",
-  accentBorder: "rgba(217,119,6,0.16)",
-  divider: "rgba(120,113,108,0.15)",
-  label: "#78716c",
-  shadow: "0 18px 40px rgba(0,0,0,0.18)",
+  sectionBg: "rgba(2,6,23,0.52)",
+  sectionBorder: "rgba(255,255,255,0.1)",
+  surface: "rgba(15,23,42,0.52)",
+  surfaceBorder: "rgba(255,255,255,0.1)",
+  surfaceStrong: "rgba(15,23,42,0.74)",
+  accentSurface: "rgba(245,158,11,0.08)",
+  accentBorder: "rgba(245,158,11,0.22)",
+  divider: "rgba(255,255,255,0.08)",
+  label: "#94a3b8",
+  shadow: "0 12px 32px rgba(2,6,23,0.22)",
 };
 
 const FIELD_LABEL_WIDTH = 176;
@@ -105,8 +105,20 @@ export default function AgentConfigurationPage() {
   const resolved = resolveAgentProviderPresentation(agent);
   const resolvedReportsToName =
     agent.reportingToName
-    || peers.find((p) => (p.openclawAgentId || p.id) === (agent.reportingTo ?? ""))?.name
+    || peers.find((p) => p.id === (agent.reportingTo ?? ""))?.name
     || null;
+  const reportingToOptions = [
+    { value: "", label: "\u2014 None \u2014" },
+    ...(
+      agent.reportingTo && !resolvedReportsToName
+        ? [{ value: agent.reportingTo, label: "Unresolved current manager" }]
+        : []
+    ),
+    ...peers.map((p) => ({
+      value: p.id,
+      label: p.role ? `${p.name} — ${p.role}` : p.name,
+    })),
+  ];
 
   useEffect(() => {
     fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
@@ -124,7 +136,8 @@ export default function AgentConfigurationPage() {
       setPeers(
         agents
           .filter((a) => a.id !== agent.id)
-          .map((a) => ({ id: a.id, name: a.name, openclawAgentId: a.openclawAgentId })),
+          .map((a) => ({ id: a.id, name: a.name, role: a.role }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
       );
     }).catch(() => {});
   }, [slug, agent.id]);
@@ -143,7 +156,7 @@ export default function AgentConfigurationPage() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 16 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 20, maxWidth: 980 }}>
       {/* ── Identity ── */}
       <Section
         icon={<Settings size={14} />}
@@ -163,10 +176,7 @@ export default function AgentConfigurationPage() {
         <EditableSelect
           label="Reports to"
           value={agent.reportingTo ?? ""}
-          options={[
-            { value: "", label: "\u2014 None \u2014" },
-            ...peers.map((p) => ({ value: p.openclawAgentId || p.id, label: p.name })),
-          ]}
+          options={reportingToOptions}
           onSave={(v) => patchConfig({ reportsTo: v || null })}
           displayValue={
             resolvedReportsToName
@@ -427,7 +437,7 @@ function ProviderComparisonRow({
 
   return (
     <div style={{
-      padding: "12px 14px", borderRadius: 12,
+      padding: "12px 14px", borderRadius: 14,
       background: isActive ? "rgba(34,197,94,0.05)" : UI.surface,
       border: `1px solid ${isActive ? "rgba(34,197,94,0.16)" : UI.surfaceBorder}`,
       opacity: isPlanned ? 0.6 : 1,
@@ -538,11 +548,11 @@ function DisclosureButton({
         display: "flex",
         alignItems: "center",
         gap: 8,
-        marginTop: 14,
+        marginTop: 16,
         padding: 0,
         background: "none",
         border: "none",
-        color: A.accentLight,
+        color: "#fbbf24",
         fontSize: 12,
         fontWeight: 600,
         letterSpacing: "0.02em",
@@ -575,10 +585,10 @@ function SummaryCard({
     <div
       style={{
         padding: "18px 18px 16px",
-        borderRadius: 14,
+        borderRadius: 16,
         background: accent ? UI.accentSurface : UI.surfaceStrong,
         border: `1px solid ${accent ? UI.accentBorder : UI.surfaceBorder}`,
-        boxShadow: accent ? "none" : "inset 0 1px 0 rgba(255,255,255,0.02)",
+        boxShadow: accent ? "none" : "inset 0 1px 0 rgba(255,255,255,0.03)",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
@@ -677,8 +687,8 @@ function MetricCard({
   return (
     <div
       style={{
-        padding: "14px 14px 12px",
-        borderRadius: 12,
+        padding: "16px 16px 14px",
+        borderRadius: 16,
         background: UI.surface,
         border: `1px solid ${UI.surfaceBorder}`,
       }}
@@ -1108,7 +1118,7 @@ function Section({
   return (
     <div style={{
       padding: "20px 22px",
-      borderRadius: 16,
+      borderRadius: 18,
       background: UI.sectionBg,
       border: `1px solid ${UI.sectionBorder}`,
       boxShadow: UI.shadow,
@@ -1121,8 +1131,8 @@ function Section({
             borderRadius: 999,
             display: "grid",
             placeItems: "center",
-            color: A.accentLight,
-            background: "rgba(217,119,6,0.08)",
+            color: "#fbbf24",
+            background: "rgba(245,158,11,0.08)",
             border: `1px solid ${UI.accentBorder}`,
             flexShrink: 0,
           }}
@@ -1258,7 +1268,7 @@ const inputStyle = (mono?: boolean): React.CSSProperties => ({
   fontFamily: mono ? "monospace" : "inherit",
   background: UI.surfaceStrong,
   border: `1px solid ${UI.surfaceBorder}`,
-  borderRadius: 10,
+  borderRadius: 12,
   padding: "11px 14px",
   outline: "none",
   lineHeight: "1.5",
@@ -1272,7 +1282,7 @@ const displayStyle = (mono?: boolean): React.CSSProperties => ({
   color: A.text,
   fontFamily: mono ? "monospace" : "inherit",
   cursor: "pointer",
-  borderRadius: 10,
+  borderRadius: 12,
   padding: "11px 14px",
   border: `1px solid ${UI.surfaceBorder}`,
   background: UI.surfaceStrong,

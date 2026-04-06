@@ -195,13 +195,13 @@ export async function PATCH(
   for (const [bodyKey, colName] of Object.entries(dbFields)) {
     if (bodyKey in body) {
       dbUpdates.push(`${colName} = @${colName}`);
-      dbValues[`@${colName}`] = typeof body[bodyKey] === "string" ? body[bodyKey] : null;
+      dbValues[colName] = typeof body[bodyKey] === "string" ? body[bodyKey] : null;
     }
   }
 
   if ("skills" in body && Array.isArray(body.skills)) {
     dbUpdates.push("skills_json = @skills_json");
-    dbValues["@skills_json"] = JSON.stringify(body.skills);
+    dbValues.skills_json = JSON.stringify(body.skills);
   }
 
   let updatedAgent: Record<string, unknown> | undefined;
@@ -217,7 +217,7 @@ export async function PATCH(
              AND (openclaw_agent_id = @agentId OR lower(name) = lower(@agentId) OR id = @agentId)
            LIMIT 1`,
         )
-        .get({ "@agentId": agentId }) as { id: string; company_id: string; name: string; openclaw_agent_id: string | null } | undefined;
+        .get({ agentId }) as { id: string; company_id: string; name: string; openclaw_agent_id: string | null } | undefined;
 
       if (!existingAgent) {
         return NextResponse.json({ error: `Agent "${agentId}" not found in orchestration DB` }, { status: 404 });
@@ -225,7 +225,7 @@ export async function PATCH(
 
       if (!existingAgent.openclaw_agent_id) {
         dbUpdates.push("openclaw_agent_id = @resolvedOpenClawAgentId");
-        dbValues["@resolvedOpenClawAgentId"] = agentId;
+        dbValues.resolvedOpenClawAgentId = agentId;
       }
 
       if ("reportsTo" in body) {
@@ -233,7 +233,7 @@ export async function PATCH(
         if (requestedReportsTo) {
           const reportingAgent = db
             .prepare(
-              `SELECT id
+              `SELECT id, name
                FROM agents
                WHERE company_id = @companyId
                  AND archived_at IS NULL
@@ -241,12 +241,26 @@ export async function PATCH(
                LIMIT 1`,
             )
             .get({
-              "@companyId": existingAgent.company_id,
-              "@reportsTo": requestedReportsTo,
-            }) as { id: string } | undefined;
+              companyId: existingAgent.company_id,
+              reportsTo: requestedReportsTo,
+            }) as { id: string; name: string } | undefined;
+
+          if (!reportingAgent) {
+            return NextResponse.json(
+              { error: `Could not resolve reportsTo target "${requestedReportsTo}" within this company` },
+              { status: 400 },
+            );
+          }
+
+          if (reportingAgent.id === existingAgent.id) {
+            return NextResponse.json(
+              { error: "Agent cannot report to itself" },
+              { status: 400 },
+            );
+          }
 
           dbUpdates.push("reporting_to = @reporting_to");
-          dbValues["@reporting_to"] = reportingAgent?.id ?? null;
+          dbValues.reporting_to = reportingAgent.id;
         } else {
           dbUpdates.push("reporting_to = NULL");
         }
@@ -255,16 +269,28 @@ export async function PATCH(
       if (dbUpdates.length > 0) {
         dbUpdates.push("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')");
         const sql = `UPDATE agents SET ${dbUpdates.join(", ")} WHERE id = @rowId`;
-        dbValues["@rowId"] = existingAgent.id;
+        dbValues.rowId = existingAgent.id;
         db.prepare(sql).run(dbValues);
       }
 
       updatedAgent = db
         .prepare(
-          `SELECT id, name, emoji, role, personality, model, skills_json, reporting_to, openclaw_agent_id
-           FROM agents WHERE id = @rowId`,
+          `SELECT
+             a.id,
+             a.name,
+             a.emoji,
+             a.role,
+             a.personality,
+             a.model,
+             a.skills_json,
+             a.reporting_to,
+             mgr.name AS reporting_to_name,
+             a.openclaw_agent_id
+           FROM agents a
+           LEFT JOIN agents mgr ON mgr.id = a.reporting_to
+           WHERE a.id = @rowId`,
         )
-        .get({ "@rowId": existingAgent.id }) as Record<string, unknown> | undefined;
+        .get({ rowId: existingAgent.id }) as Record<string, unknown> | undefined;
     } catch (err) {
       return NextResponse.json({ error: `DB update failed: ${err}` }, { status: 500 });
     }
@@ -284,6 +310,7 @@ export async function PATCH(
           model: updatedAgent.model,
           skills: JSON.parse((updatedAgent.skills_json as string) || "[]"),
           reportingTo: updatedAgent.reporting_to,
+          reportingToName: updatedAgent.reporting_to_name,
         }
       : undefined,
   });
