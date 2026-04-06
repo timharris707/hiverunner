@@ -72,8 +72,42 @@ export async function GET(
   const defaults = config.agents.defaults;
   const entry = config.agents.list.find((a) => a.id === agentId);
 
+  // If the agent isn't in openclaw.json, still return DB-backed config fields
   if (!entry) {
-    return NextResponse.json({ error: `Agent "${agentId}" not found in openclaw.json` }, { status: 404 });
+    let permissions: Record<string, unknown> = {};
+    let runtimeConfig: Record<string, unknown> = {};
+    try {
+      const db = getOrchestrationDb();
+      const row = db
+        .prepare(
+          `SELECT permissions_json, runtime_config_json, model
+           FROM agents
+           WHERE archived_at IS NULL
+             AND (openclaw_agent_id = ? OR lower(name) = lower(?) OR id = ? OR slug = ?)
+           LIMIT 1`
+        )
+        .get(agentId, agentId, agentId, agentId) as { permissions_json: string; runtime_config_json: string; model: string | null } | undefined;
+      if (row) {
+        try { permissions = JSON.parse(row.permissions_json || "{}"); } catch { /* use default */ }
+        try { runtimeConfig = JSON.parse(row.runtime_config_json || "{}"); } catch { /* use default */ }
+        return NextResponse.json({
+          agentId,
+          model: row.model || "",
+          workspace: "",
+          agentDir: "",
+          identity: { name: agentId, emoji: "", creature: "" },
+          soulExists: false,
+          soulPreview: null,
+          identityExists: false,
+          identityPreview: null,
+          sessionCount: 0,
+          permissions,
+          runtimeConfig,
+          scaffoldMissing: true,
+        });
+      }
+    } catch { /* fall through */ }
+    return NextResponse.json({ error: `Agent "${agentId}" not found` }, { status: 404 });
   }
 
   // For "main", inherit from defaults
@@ -119,6 +153,26 @@ export async function GET(
   const identity = identityContent ? parseIdentityMd(identityContent) : {};
   const sessionCount = countSessions(agentId);
 
+  // Read persisted config from DB
+  let permissions: Record<string, unknown> = {};
+  let runtimeConfig: Record<string, unknown> = {};
+  try {
+    const db = getOrchestrationDb();
+    const row = db
+      .prepare(
+        `SELECT permissions_json, runtime_config_json
+         FROM agents
+         WHERE archived_at IS NULL
+           AND (openclaw_agent_id = ? OR lower(name) = lower(?) OR id = ?)
+         LIMIT 1`
+      )
+      .get(agentId, agentId, agentId) as { permissions_json: string; runtime_config_json: string } | undefined;
+    if (row) {
+      try { permissions = JSON.parse(row.permissions_json || "{}"); } catch { /* use default */ }
+      try { runtimeConfig = JSON.parse(row.runtime_config_json || "{}"); } catch { /* use default */ }
+    }
+  } catch { /* best-effort */ }
+
   return NextResponse.json({
     agentId,
     model,
@@ -134,6 +188,8 @@ export async function GET(
     identityExists,
     identityPreview: identityContent ? identityContent.slice(0, 200) : null,
     sessionCount,
+    permissions,
+    runtimeConfig,
   });
 }
 
@@ -204,6 +260,18 @@ export async function PATCH(
     dbValues.skills_json = JSON.stringify(body.skills);
   }
 
+  // Persist permissions to permissions_json
+  if ("permissions" in body && typeof body.permissions === "object" && body.permissions !== null) {
+    dbUpdates.push("permissions_json = @permissions_json");
+    dbValues.permissions_json = JSON.stringify(body.permissions);
+  }
+
+  // Persist runtime config (timeout, grace, heartbeat) to runtime_config_json
+  if ("runtimeConfig" in body && typeof body.runtimeConfig === "object" && body.runtimeConfig !== null) {
+    dbUpdates.push("runtime_config_json = @runtime_config_json");
+    dbValues.runtime_config_json = JSON.stringify(body.runtimeConfig);
+  }
+
   let updatedAgent: Record<string, unknown> | undefined;
 
   if (dbUpdates.length > 0 || "reportsTo" in body) {
@@ -214,7 +282,7 @@ export async function PATCH(
           `SELECT id, company_id, name, openclaw_agent_id
            FROM agents
            WHERE archived_at IS NULL
-             AND (openclaw_agent_id = @agentId OR lower(name) = lower(@agentId) OR id = @agentId)
+             AND (openclaw_agent_id = @agentId OR lower(name) = lower(@agentId) OR id = @agentId OR slug = @agentId)
            LIMIT 1`,
         )
         .get({ agentId }) as { id: string; company_id: string; name: string; openclaw_agent_id: string | null } | undefined;

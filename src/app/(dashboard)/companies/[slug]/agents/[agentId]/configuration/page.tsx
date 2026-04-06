@@ -46,6 +46,8 @@ interface OpenClawConfig {
   identityExists: boolean;
   identityPreview: string | null;
   sessionCount: number;
+  permissions: Record<string, boolean>;
+  runtimeConfig: Record<string, unknown>;
 }
 
 interface PeerAgent {
@@ -471,21 +473,47 @@ export default function AgentConfigurationPage() {
   const runtimeWorkspaceEditable = Boolean(oc && !ocError);
   const modelEditable = isPaperclipManaged ? Boolean(executionSettingsRow?.canUpdate) : Boolean(oc && !ocError);
   const modelValue = executionSettingsRow?.modelId || oc?.model || agent.model || "";
-  const timeoutEditable = Boolean(executionSettingsRow?.canUpdate);
-  const heartbeatEditable = Boolean(heartbeatSettingsRow?.canUpdate);
-  const hasPersistedHeartbeatPolicy = Boolean(heartbeatSettingsRow?.paperclipAgentId);
+
+  // Runtime config: Paperclip agents use the Paperclip settings API;
+  // local agents use the local runtime_config_json column via patchConfig.
+  const localRuntimeConfig = oc?.runtimeConfig as Record<string, number | boolean | undefined> | undefined;
+  const hasLocalRuntimeConfig = Boolean(oc && !ocError);
+  const timeoutEditable = isPaperclipManaged
+    ? Boolean(executionSettingsRow?.canUpdate)
+    : hasLocalRuntimeConfig;
+  const heartbeatEditable = isPaperclipManaged
+    ? Boolean(heartbeatSettingsRow?.canUpdate)
+    : hasLocalRuntimeConfig;
+  const hasPersistedHeartbeatPolicy = isPaperclipManaged
+    ? Boolean(heartbeatSettingsRow?.paperclipAgentId)
+    : hasLocalRuntimeConfig;
   const heartbeatPolicyNote =
-    heartbeatSettingsRow?.updateBlocker ??
-    companyHeartbeatSettings?.writeSupport.reason ??
-    (!hasPersistedHeartbeatPolicy
-      ? "This runtime does not expose a writable per-agent heartbeat policy here yet."
-      : undefined);
+    isPaperclipManaged
+      ? (heartbeatSettingsRow?.updateBlocker ??
+         companyHeartbeatSettings?.writeSupport.reason ??
+         (!heartbeatSettingsRow?.paperclipAgentId
+           ? "This runtime does not expose a writable per-agent heartbeat policy here yet."
+           : undefined))
+      : (hasLocalRuntimeConfig
+          ? "Persisted locally in runtime_config_json. Read by the execution engine at run start."
+          : "Runtime configuration unavailable.");
   const executionPolicyNote =
-    executionSettingsRow?.updateBlocker ??
-    companyExecutionSettings?.writeSupport.reason ??
-    (!isPaperclipManaged
-      ? "Per-agent timeout and grace settings are only backed for Paperclip-linked agents today."
-      : undefined);
+    isPaperclipManaged
+      ? (executionSettingsRow?.updateBlocker ??
+         companyExecutionSettings?.writeSupport.reason ??
+         undefined)
+      : (hasLocalRuntimeConfig
+          ? "Persisted locally in runtime_config_json. Read by the execution engine at run start."
+          : "Runtime configuration unavailable.");
+
+  // Helpers for local runtime config persistence
+  const patchLocalRuntime = useCallback(
+    (patch: Record<string, number | boolean | null>) => {
+      const current = (oc?.runtimeConfig ?? {}) as Record<string, unknown>;
+      patchConfig({ runtimeConfig: { ...current, ...patch } });
+    },
+    [oc, patchConfig],
+  );
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 20, maxWidth: 980 }}>
@@ -815,20 +843,35 @@ export default function AgentConfigurationPage() {
           <SummaryCard
             eyebrow="Execution policy"
             title="Timeouts & runtime limits"
-            subtitle="Paperclip-backed execution controls stay editable. Local OpenClaw limits remain explicitly read-only."
+            subtitle={isPaperclipManaged
+              ? "Backed by the Paperclip control plane."
+              : "Persisted locally in runtime_config_json. Read by the engine at run start."
+            }
           >
             {timeoutEditable ? (
               <>
                 <EditableNumber
                   label="Timeout"
-                  value={executionSettingsRow?.timeoutSeconds ?? null}
-                  onSave={(value) => patchExecutionSettings({ timeoutSeconds: value })}
+                  value={isPaperclipManaged
+                    ? (executionSettingsRow?.timeoutSeconds ?? null)
+                    : (typeof localRuntimeConfig?.timeoutSeconds === "number" ? localRuntimeConfig.timeoutSeconds : null)
+                  }
+                  onSave={(value) => isPaperclipManaged
+                    ? patchExecutionSettings({ timeoutSeconds: value })
+                    : patchLocalRuntime({ timeoutSeconds: value })
+                  }
                   suffix="seconds"
                 />
                 <EditableNumber
                   label="Grace"
-                  value={executionSettingsRow?.graceSeconds ?? null}
-                  onSave={(value) => patchExecutionSettings({ graceSeconds: value })}
+                  value={isPaperclipManaged
+                    ? (executionSettingsRow?.graceSeconds ?? null)
+                    : (typeof localRuntimeConfig?.graceSeconds === "number" ? localRuntimeConfig.graceSeconds : null)
+                  }
+                  onSave={(value) => isPaperclipManaged
+                    ? patchExecutionSettings({ graceSeconds: value })
+                    : patchLocalRuntime({ graceSeconds: value })
+                  }
                   suffix="seconds"
                 />
               </>
@@ -840,7 +883,8 @@ export default function AgentConfigurationPage() {
             )}
             <ReadOnlyRow
               label="Policy source"
-              value={isPaperclipManaged ? "Paperclip control plane" : "No writable local limit store"}
+              value={isPaperclipManaged ? "Paperclip control plane" : "Local runtime_config_json"}
+              mono
             />
             <ReadOnlyRow
               label="Execution provider"
@@ -853,23 +897,38 @@ export default function AgentConfigurationPage() {
           <SummaryCard
             eyebrow="Heartbeat policy"
             title="Scheduler & cadence"
-            subtitle="Shows the real persisted heartbeat policy when one exists. Otherwise calls out the gap directly."
+            subtitle={isPaperclipManaged
+              ? "Backed by the Paperclip control plane."
+              : "Persisted locally in runtime_config_json. Read by the engine at run start."
+            }
           >
             {heartbeatEditable ? (
               <>
                 <EditableSelect
                   label="Heartbeat"
-                  value={heartbeatSettingsRow?.heartbeatEnabled ? "enabled" : "disabled"}
+                  value={isPaperclipManaged
+                    ? (heartbeatSettingsRow?.heartbeatEnabled ? "enabled" : "disabled")
+                    : (localRuntimeConfig?.heartbeatEnabled ? "enabled" : "disabled")
+                  }
                   options={[
                     { value: "enabled", label: "Enabled" },
                     { value: "disabled", label: "Disabled" },
                   ]}
-                  onSave={(value) => patchHeartbeatSettings({ heartbeatEnabled: value === "enabled" })}
+                  onSave={(value) => isPaperclipManaged
+                    ? patchHeartbeatSettings({ heartbeatEnabled: value === "enabled" })
+                    : patchLocalRuntime({ heartbeatEnabled: value === "enabled" })
+                  }
                 />
                 <EditableNumber
                   label="Interval"
-                  value={heartbeatSettingsRow?.intervalSeconds ?? 0}
-                  onSave={(value) => patchHeartbeatSettings({ intervalSeconds: value })}
+                  value={isPaperclipManaged
+                    ? (heartbeatSettingsRow?.intervalSeconds ?? 0)
+                    : (typeof localRuntimeConfig?.heartbeatIntervalSeconds === "number" ? localRuntimeConfig.heartbeatIntervalSeconds : 0)
+                  }
+                  onSave={(value) => isPaperclipManaged
+                    ? patchHeartbeatSettings({ intervalSeconds: value })
+                    : patchLocalRuntime({ heartbeatIntervalSeconds: value })
+                  }
                   suffix="seconds"
                 />
               </>
@@ -887,7 +946,10 @@ export default function AgentConfigurationPage() {
             )}
             <ReadOnlyRow
               label="Scheduler"
-              value={heartbeatSettingsRow?.schedulerActive ? "Active" : "Not active"}
+              value={isPaperclipManaged
+                ? (heartbeatSettingsRow?.schedulerActive ? "Active" : "Not active")
+                : "Local engine"
+              }
             />
             <ReadOnlyRow label="Last heartbeat" value={formatObservedAt(heartbeatSettingsRow?.lastHeartbeatAt || agent.lastHeartbeat)} />
             {heartbeatPolicyNote ? <InlineStatusText>{heartbeatPolicyNote}</InlineStatusText> : null}
@@ -974,17 +1036,25 @@ export default function AgentConfigurationPage() {
       <Section
         icon={<Shield size={14} />}
         title="Permissions"
-        subtitle="Company-granted capabilities surfaced in the configuration view."
+        subtitle="Company-granted capabilities stored in the orchestration database."
       >
         <PermissionRow
           label="Can create new agents"
-          enabled={false}
+          enabled={Boolean(oc?.permissions?.canCreateAgents)}
           description="Lets this agent create or hire agents and implicitly assign tasks."
+          onToggle={oc ? (val) => {
+            const next = { ...oc.permissions, canCreateAgents: val };
+            patchConfig({ permissions: next });
+          } : undefined}
         />
         <PermissionRow
           label="Can assign tasks"
-          enabled={true}
-          description="Enabled via explicit company permission grant."
+          enabled={Boolean(oc?.permissions?.canAssignTasks)}
+          description="Enables task assignment via the orchestration engine."
+          onToggle={oc ? (val) => {
+            const next = { ...oc.permissions, canAssignTasks: val };
+            patchConfig({ permissions: next });
+          } : undefined}
         />
       </Section>
 
@@ -1307,10 +1377,12 @@ function PermissionRow({
   label,
   enabled,
   description,
+  onToggle,
 }: {
   label: string;
   enabled: boolean;
   description: string;
+  onToggle?: (value: boolean) => void;
 }) {
   return (
     <div
@@ -1330,7 +1402,17 @@ function PermissionRow({
           {description}
         </div>
       </div>
-      <TogglePill enabled={enabled} label={enabled ? "On" : "Off"} />
+      {onToggle ? (
+        <button
+          type="button"
+          onClick={() => onToggle(!enabled)}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer" }}
+        >
+          <TogglePill enabled={enabled} label={enabled ? "On" : "Off"} />
+        </button>
+      ) : (
+        <TogglePill enabled={enabled} label={enabled ? "On" : "Off"} />
+      )}
     </div>
   );
 }
