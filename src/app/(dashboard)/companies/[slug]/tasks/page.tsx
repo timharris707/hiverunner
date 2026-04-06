@@ -1,10 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
+import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import {
   listCompanies,
   listCompanyAgents,
@@ -15,8 +16,6 @@ import {
   updateTaskAssignee,
   archiveTask,
 } from "@/lib/orchestration/client";
-import { useActiveProjectState } from "@/lib/active-project-state";
-import { resolveActiveProject } from "@/lib/active-project-utils";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -53,11 +52,12 @@ const STATUS_WEIGHT: Record<TaskStatus, number> = {
 
 export default function CompanyTasksPage() {
   const params = useParams<{ slug: string }>();
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const slug = params?.slug ?? "";
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
-  const { activeProject } = useActiveProjectState();
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
@@ -75,13 +75,20 @@ export default function CompanyTasksPage() {
 
   const searchRef = useRef<HTMLInputElement>(null);
 
+  const explicitProjectScope = searchParams.get("projectId") ?? searchParams.get("project");
+
   const activeProjectRecord = useMemo(() => {
-    const qp = searchParams.get("projectId") ?? searchParams.get("project");
-    if (qp) {
-      return projects.find((p) => p.id === qp || p.slug === qp) ?? resolveActiveProject(projects, activeProject, slug);
-    }
-    return resolveActiveProject(projects, activeProject, slug);
-  }, [activeProject, projects, searchParams, slug]);
+    if (!explicitProjectScope) return null;
+    return projects.find((project) => project.id === explicitProjectScope || project.slug === explicitProjectScope) ?? null;
+  }, [explicitProjectScope, projects]);
+
+  const clearProjectScope = useCallback(() => {
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("projectId");
+    nextParams.delete("project");
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  }, [pathname, router, searchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -233,8 +240,19 @@ export default function CompanyTasksPage() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%", background: SURFACE.page }}>
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
+      {activeProjectRecord ? (
+        <div style={{ padding: "24px 24px 0" }}>
+          <ActiveProjectBanner
+            companySlug={slug}
+            project={activeProjectRecord}
+            compact
+            onClear={clearProjectScope}
+          />
+        </div>
+      ) : null}
+
       {/* Page header */}
-      <div style={{ padding: "24px 24px 0" }}>
+      <div style={{ padding: activeProjectRecord ? "16px 24px 0" : "24px 24px 0" }}>
         <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: "#737373", marginBottom: 16 }}>
           Tasks
         </p>
