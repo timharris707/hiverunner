@@ -264,6 +264,64 @@ export const KNOWN_PROVIDERS = PROVIDER_PRODUCT_DESCRIPTORS;
 /** Backward-compatible alias for the descriptor type. */
 export type KnownProviderDescriptor = ProviderProductDescriptor;
 
+/* ══════════════════════════════════════════════════════════════
+   PROPOSED: Provider Selection Contract Types
+   ──────────────────────────────────────────────────────────────
+   These types define the FUTURE state model for editable provider
+   selection. They are NOT yet implemented in the DB, API, or UI.
+
+   See: docs/provider-selection-contract.md for the full proposal.
+
+   When Phase 1 implementation begins, these types will govern
+   the PATCH /api/orchestration/agents/{id}/provider endpoint
+   and the provider switch lifecycle.
+   ══════════════════════════════════════════════════════════════ */
+
+/**
+ * The four execution providers Mission Control can route to.
+ * This is the typed version of the `agents.adapter_type` column.
+ *
+ * NOT YET ENFORCED — current code uses freeform strings.
+ * Phase 1 will constrain adapter_type to this union.
+ */
+export type ExecutionProviderId = "openclaw" | "paperclip";
+
+/**
+ * Agent's configured provider identity.
+ * Proposed canonical shape for the agent → provider relationship.
+ *
+ * NOT YET IMPLEMENTED — see provider-selection-contract.md Phase 1.
+ */
+export interface AgentProviderConfig {
+  /** Which execution backend runs this agent */
+  executionProvider: ExecutionProviderId;
+
+  /** LLM model identifier. Semi-portable across providers. */
+  model: string;
+
+  /** When the provider was last changed. null = original assignment. */
+  providerChangedAt: string | null;
+}
+
+/**
+ * Result of checking whether a provider can be activated for an agent.
+ * Returned by the future `canActivateProvider()` function.
+ *
+ * NOT YET IMPLEMENTED — see provider-selection-contract.md Phase 1.
+ */
+export interface ProviderActivationCheck {
+  canActivate: boolean;
+  providerId: string;
+  /** Why activation is blocked, if canActivate is false */
+  blockReason: string | null;
+  /** What will change if activated */
+  consequences: {
+    tierChange: { from: ObservabilityTier; to: ObservabilityTier } | null;
+    configReset: boolean;
+    modelCompatible: boolean;
+  };
+}
+
 /* ── Provider Status ── */
 
 export interface ProviderStatus {
