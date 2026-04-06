@@ -39,6 +39,8 @@ scripts/lane.sh rollback
 ```
 Dev Lane (:3000)                    Stable Lane (:3001)
 ├── NODE_ENV=development            ├── NODE_ENV=production
+├── MC_ENGINE_TICK=off              ├── MC_ENGINE_TICK=on
+├── Role: observer (no execution)   ├── Role: executor (owns execution)
 ├── Hot reload (Turbopack)          ├── Pre-built (.stable/.next/)
 ├── Subject to cache corruption     ├── Isolated from dev cache
 ├── Used during active dev          ├── Used as operator surface
@@ -50,6 +52,32 @@ Both lanes:
 ├── Share node_modules/ (via symlink in .stable/)
 ├── Use the same server.js
 └── Are independently startable, stoppable, and watchdog-able
+```
+
+## Execution Ownership
+
+By default, **only the stable lane executes orchestration work**.
+The dev lane is observer-only — it serves pages and API responses
+but does not claim or execute queued heartbeat runs.
+
+This is controlled by `MC_ENGINE_TICK`:
+
+| Value | Behavior | Default for |
+|-------|----------|-------------|
+| `on` | Engine tick active — claims and executes queued runs | Stable lane |
+| `off` | Engine tick disabled — observer-only | Dev lane |
+| `auto` | Active if production, disabled if development | Fallback |
+
+**Override:** If you want dev to execute (e.g., no stable lane exists):
+```bash
+MC_ENGINE_TICK=on scripts/lane.sh dev start
+```
+
+**Check current state:**
+```bash
+curl http://127.0.0.1:3000/api/mc/health  # shows "role": "observer"
+curl http://127.0.0.1:3001/api/mc/health  # shows "role": "executor"
+scripts/lane.sh doctor                    # shows engine tick for both
 ```
 
 ## Common Scenarios

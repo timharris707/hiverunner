@@ -22,12 +22,22 @@ export const dynamic = "force-dynamic";
  * NOT used for comprehensive system health (use /api/health for that).
  */
 export function GET() {
+  const engineTickSetting = (process.env.MC_ENGINE_TICK || "auto").toLowerCase();
+  const isDev = process.env.NODE_ENV !== "production";
+  const engineTickActive =
+    engineTickSetting === "on" ? true :
+    engineTickSetting === "off" ? false :
+    /* auto */ !isDev;
+
   return NextResponse.json({
     status: "ok",
     ts: new Date().toISOString(),
     pid: process.pid,
-    mode: process.env.NODE_ENV === "production" ? "stable" : "dev",
+    mode: isDev ? "dev" : "stable",
     port: process.env.PORT || "3000",
     uptime: Math.floor(process.uptime()),
+    engineTick: engineTickActive ? "active" : "disabled",
+    engineTickSetting,
+    role: engineTickActive ? "executor" : "observer",
   });
 }

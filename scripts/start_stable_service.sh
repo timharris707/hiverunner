@@ -52,8 +52,11 @@ if lsof -tiTCP:"$PORT" -sTCP:LISTEN >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "[mc-stable] starting Mission Control stable server on port $PORT (node: $NODE_BIN)"
-NODE_ENV=production PORT="$PORT" nohup "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
+# MC_ENGINE_TICK=on: stable lane owns execution by default.
+# This is the operator surface and the canonical execution owner.
+MC_ENGINE_TICK="${MC_ENGINE_TICK:-on}"
+echo "[mc-stable] starting Mission Control stable server on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK)"
+NODE_ENV=production PORT="$PORT" MC_ENGINE_TICK="$MC_ENGINE_TICK" nohup "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "[mc-stable] started PID $PID"

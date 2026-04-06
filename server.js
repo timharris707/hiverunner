@@ -6,6 +6,28 @@ const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3000", 10);
 
+// ── Engine tick ownership ──
+// MC_ENGINE_TICK controls whether this instance runs the autonomous
+// execution loop that claims and executes queued heartbeat runs.
+//
+// Values:
+//   "on"   — tick loop active (default for stable/production)
+//   "off"  — tick loop disabled; this instance is observer-only
+//   "auto" — tick if production, skip if development (default)
+//
+// In a two-lane setup:
+//   Dev  (:3000) → MC_ENGINE_TICK=off  (build/UI lane, no execution)
+//   Stable (:3001) → MC_ENGINE_TICK=on (operator lane, owns execution)
+//
+// The atomic claim mechanism (UPDATE WHERE status='queued') prevents
+// duplicate execution even if both lanes tick, but disabling the dev
+// lane's tick loop is cleaner and avoids noisy log competition.
+const engineTickSetting = (process.env.MC_ENGINE_TICK || "auto").toLowerCase();
+const engineTickEnabled =
+  engineTickSetting === "on" ? true :
+  engineTickSetting === "off" ? false :
+  /* auto */ !dev;
+
 const app = next({ dev, hostname, port });
 const handle = app.getRequestHandler();
 
@@ -110,43 +132,48 @@ app.prepare().then(() => {
 
   // ── Engine tick loop ──
   // Automatically claims and executes queued heartbeat runs every 10 seconds.
-  // This is the autonomous execution layer that makes queued wakeups actually fire.
+  // Only runs if engineTickEnabled (controlled by MC_ENGINE_TICK env var).
   let engineTickRunning = false;
+  let engineTickInterval = null;
 
-  const engineTickInterval = setInterval(async () => {
-    if (engineTickRunning) return; // Skip if previous tick is still executing
-    engineTickRunning = true;
-    try {
-      const response = await fetch(`${origin}/api/orchestration/engine/tick`, {
-        method: "POST",
-        headers: {
-          "x-engine-tick": "internal",
-          "Content-Type": "application/json",
-        },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        if (result.claimed) {
-          console.log(
-            `[engine:tick] executed run ${result.runId?.slice(0, 8)} → ${result.status}` +
-            (result.error ? ` (${result.error.slice(0, 80)})` : "") +
-            ` [${result.durationMs}ms]`
-          );
+  if (engineTickEnabled) {
+    engineTickInterval = setInterval(async () => {
+      if (engineTickRunning) return;
+      engineTickRunning = true;
+      try {
+        const response = await fetch(`${origin}/api/orchestration/engine/tick`, {
+          method: "POST",
+          headers: {
+            "x-engine-tick": "internal",
+            "Content-Type": "application/json",
+          },
+        });
+        if (response.ok) {
+          const result = await response.json();
+          if (result.claimed) {
+            console.log(
+              `[engine:tick] executed run ${result.runId?.slice(0, 8)} → ${result.status}` +
+              (result.error ? ` (${result.error.slice(0, 80)})` : "") +
+              ` [${result.durationMs}ms]`
+            );
+          }
+          if (result.staleRunsRecovered > 0) {
+            console.log(`[engine:tick] recovered ${result.staleRunsRecovered} stale run(s)`);
+          }
         }
-        if (result.staleRunsRecovered > 0) {
-          console.log(`[engine:tick] recovered ${result.staleRunsRecovered} stale run(s)`);
-        }
+      } catch {
+        // Tick failed — suppress to avoid flooding logs
+      } finally {
+        engineTickRunning = false;
       }
-    } catch {
-      // Tick failed — suppress to avoid flooding logs
-    } finally {
-      engineTickRunning = false;
-    }
-  }, 10_000);
+    }, 10_000);
+  }
 
   server.listen(port, hostname, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
-    console.log(`> Engine tick loop active (every 10s)`);
+    console.log(`> Mode: ${dev ? "development" : "production"}`);
+    console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"}`);
+    console.log(`> MC_ENGINE_TICK=${engineTickSetting}`);
     console.log(`> Adapter registry initializes on first SSE connection (/api/orchestration/engine/live-stream)`);
 
     // Pre-warm: hit the SSE endpoint once to trigger adapter registry initialization.
@@ -167,7 +194,7 @@ app.prepare().then(() => {
 
   const cleanup = () => {
     clearInterval(broadcastInterval);
-    clearInterval(engineTickInterval);
+    if (engineTickInterval) clearInterval(engineTickInterval);
     for (const client of clients) {
       try {
         client.close();

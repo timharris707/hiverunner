@@ -78,11 +78,23 @@ if [ -n "${DEV_FILE_PID:-}" ] && [ -n "${DEV_PORT_PID:-}" ]; then
   fi
 fi
 
-# Health check
-if curl -sf --max-time 5 "http://127.0.0.1:$DEV_PORT/api/mc/health" >/dev/null 2>&1; then
+# Health check + engine tick role
+DEV_HEALTH_JSON="$(curl -sf --max-time 5 "http://127.0.0.1:$DEV_PORT/api/mc/health" 2>/dev/null || true)"
+if [ -n "$DEV_HEALTH_JSON" ]; then
   ok "Healthcheck: /api/mc/health OK"
+  DEV_ROLE="$(echo "$DEV_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('role','?'))" 2>/dev/null || echo "?")"
+  DEV_TICK="$(echo "$DEV_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('engineTick','?'))" 2>/dev/null || echo "?")"
+  if [ "$DEV_TICK" = "disabled" ]; then
+    ok "Engine tick: disabled (observer-only)"
+  elif [ "$DEV_TICK" = "active" ]; then
+    warn "Engine tick: ACTIVE — dev lane is executing orchestration work"
+    issues=$((issues + 1))
+  else
+    info "Engine tick: $DEV_TICK (role: $DEV_ROLE)"
+  fi
 elif curl -sf --max-time 5 "http://127.0.0.1:$DEV_PORT/api/orchestration/companies" >/dev/null 2>&1; then
   ok "Healthcheck: /api/orchestration/companies OK (mc/health not yet available)"
+  info "Engine tick: unknown (health endpoint too old)"
 else
   if [ -n "${DEV_PORT_PID:-}" ]; then
     fail "Healthcheck: FAILED (process running but not responding)"
@@ -152,10 +164,20 @@ else
   fi
 fi
 
-# Health check (only if port has listener)
+# Health check + engine tick role (only if port has listener)
 if [ -n "${STABLE_PORT_PID:-}" ]; then
-  if curl -sf --max-time 5 "http://127.0.0.1:$STABLE_PORT/api/mc/health" >/dev/null 2>&1; then
+  STABLE_HEALTH_JSON="$(curl -sf --max-time 5 "http://127.0.0.1:$STABLE_PORT/api/mc/health" 2>/dev/null || true)"
+  if [ -n "$STABLE_HEALTH_JSON" ]; then
     ok "Healthcheck: /api/mc/health OK"
+    STABLE_TICK="$(echo "$STABLE_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('engineTick','?'))" 2>/dev/null || echo "?")"
+    if [ "$STABLE_TICK" = "active" ]; then
+      ok "Engine tick: active (execution owner)"
+    elif [ "$STABLE_TICK" = "disabled" ]; then
+      warn "Engine tick: disabled — stable is not executing orchestration work"
+      issues=$((issues + 1))
+    else
+      info "Engine tick: $STABLE_TICK"
+    fi
   elif curl -sf --max-time 5 "http://127.0.0.1:$STABLE_PORT/api/orchestration/companies" >/dev/null 2>&1; then
     ok "Healthcheck: /api/orchestration/companies OK"
   else

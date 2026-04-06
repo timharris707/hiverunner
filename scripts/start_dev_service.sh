@@ -66,7 +66,11 @@ echo "[mc-dev] starting Mission Control dev server on port $PORT"
 
 # Use node directly (not npm run dev) so the PID file tracks the actual
 # node process, not an npm wrapper that can exit before node is stable.
-nohup env NODE_ENV=development PORT="$PORT" "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
+# MC_ENGINE_TICK=off: dev lane does not execute orchestration work.
+# The stable lane (:3001) owns execution. Dev is for UI/build/testing.
+# Override with MC_ENGINE_TICK=on if you want dev to tick (e.g., no stable lane).
+MC_ENGINE_TICK="${MC_ENGINE_TICK:-off}"
+nohup env NODE_ENV=development PORT="$PORT" MC_ENGINE_TICK="$MC_ENGINE_TICK" "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "[mc-dev] started PID $PID"
