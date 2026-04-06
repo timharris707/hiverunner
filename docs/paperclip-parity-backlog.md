@@ -14,6 +14,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `T1` shared agent surfaces no longer show `working` or `LIVE` from stale `agents.status` or stale execution rows
 - Partially closed the largest missing project-operability surface:
   - `F3` project workspaces — workspace list + agent workspace detail routes exist with DB + filesystem backing; project and agent workspace paths are convention-derived (not persisted), which limits trust
+- Partially closed routine management:
+  - `F4` routine detail — first-class detail route with editable configuration, status controls, run history, and honest trigger limitations
 - Partially closed the main agent-operability stack:
   - `A1` configuration
   - `A2` instructions
@@ -25,22 +27,22 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | Bucket | Count | Notes |
 | --- | ---: | --- |
 | Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
-| Partially closed | 5 | Project workspaces added; all five are materially better but not yet at full source-of-truth backing |
-| Still open | 7 | Remaining gaps are still material |
+| Partially closed | 6 | Project workspaces and routine detail added; all six are materially better but not yet at full parity |
+| Still open | 6 | Remaining gaps are still material |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `F4` Routine detail / edit route
-   Reason: routines are still list-only in Mission Control, which keeps recurring work opaque.
-2. `D1` Project configuration execution truth
+1. `D1` Project configuration execution truth
    Reason: repo/local-folder/codebase placeholders still overstate confidence and weaken operator trust.
-3. `F5` + `D2` Company import/export routes and honesty cleanup
+2. `F5` + `D2` Company import/export routes and honesty cleanup
    Reason: the current UI still implies route-backed workflows that do not actually exist.
-4. `A1` Agent configuration backing depth
+3. `A1` Agent configuration backing depth
    Reason: the operator surface is better now, but more runtime-control fields still need real backing or explicit provider-limited framing.
-5. `U1` Inbox archive workflow
+4. `U1` Inbox archive workflow
    Reason: the inbox is functional but archive/cleanup affordances are still weaker than Paperclip's.
+5. `U2` Project last-tab memory
+   Reason: Mission Control still resets users to the default project tab on navigation.
 
 ## Closed
 
@@ -60,12 +62,12 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | A2 | Agent instructions depth | `/NEV/agents/:agentId/instructions` | Major | Feature/functionality | Partially closed | Mission Control now shows provider-aware instruction sources, editable `SOUL.md` and profile prompt paths, provenance, and read-only role defaults. It still does not expose a true provider-native multi-file instructions bundle workflow like Paperclip. | `e379c932` | Decide whether any provider paths should gain true multi-file bundle management or remain intentionally simpler. |
 | A3 | Agent skills depth | `/NEV/agents/:agentId/skills` | Major | Feature/functionality | Partially closed | The page is no longer a raw tag editor. It now distinguishes library-backed vs unmanaged declarations, shows configured library entries, and supports real attach/detach of stored declarations. It still does not prove live provider/runtime skill mounting. | `fe3b73d7` | Add backed runtime evidence or provider-native attachment visibility where possible; otherwise keep the current explicit limitations. |
 | A4 | Agent run detail / transcript depth | `/NEV/agents/:agentId/runs/:runId` | Major | Feature/functionality | Partially closed | Run detail now exposes richer invocation/session/provider context and more metrics, but it still lacks full transcript depth, full prompt/environment visibility, and higher-order rerun/resume affordances. | `a371ff7d` | Add more real execution context only where schema/provider data supports it; do not fake transcript completeness. |
+| F4 | Routine detail/edit | `/NEV/routines/:routineId` | Major | Feature/functionality | Partially closed | The routine detail route now exists with editable title, instructions, assignee, project, concurrency and catch-up policy, status toggle (active/paused), Run Now, priority/dates properties, run history table, and honest trigger limitation note. Editing works via the existing PATCH API and reloads on save. Run Now creates a routine_run record and the runs table updates live. **Still missing vs Paperclip**: trigger configuration (schedule/webhook/cron UI), activity audit log, and variable placeholder support in instructions. The trigger gap is called out honestly in the UI. | — | Add trigger configuration UI if/when the engine supports scheduled triggers. Add activity audit log if the event model supports it. |
 
 ## Still Open
 
 | ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F4 | Routine detail/edit route missing | `/NEV/routines` | Major | Feature/functionality | Open | Routines remain a list-plus-inline surface with no first-class detail route. | — | Add `/routines/:routineId` with schedule, run history, edit controls, and policy details. |
 | F5 | Company import/export still not route-backed | Current entry points live in org/settings, but no dedicated routes | Major | Feature/functionality | Open | The audit concern still stands: entry points exist, but the dedicated workflow pages are not present on this branch. | — | Either ship real import/export pages or remove/replace wording that implies those routes already exist. |
 | U1 | Inbox archive workflow weaker than Paperclip | `/NEV/inbox` | Minor | UX/interaction | Open | This branch still has no clearly visible archive action on the live inbox list. | — | Add explicit row-level or bulk archive affordances on the inbox surface. |
 | U2 | Project last-tab memory missing | `/NEV/projects/:projectSlug` redirect behavior | Minor | UX/interaction | Open | Mission Control still resets users back to the default project tab instead of preserving recent subpage context. | — | Preserve the last visited project subpage or make the redirect stateful. |

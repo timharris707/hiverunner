@@ -3,17 +3,18 @@ import { ZodError } from "zod";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { updateRoutineSchema } from "@/lib/orchestration/contracts";
-import { getRoutine, updateRoutine, runRoutine } from "@/lib/orchestration/service/routine";
+import { getRoutine, getRoutineDetail, updateRoutine, runRoutine } from "@/lib/orchestration/service/routine";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
-    return NextResponse.json(getRoutine(id));
+    const detail = req.nextUrl.searchParams.get("detail") === "true";
+    return NextResponse.json(detail ? getRoutineDetail(id) : getRoutine(id));
   } catch (error) {
     return handleRouteError(error, "routine:get");
   }

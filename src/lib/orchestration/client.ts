@@ -1803,6 +1803,31 @@ export async function updateRoutine(
   }
 }
 
+export async function getRoutineDetail(routineId: string): Promise<{
+  routine: OrchestrationRoutineListItem;
+  runs: Array<{
+    id: string;
+    source: string;
+    status: string;
+    triggeredAt: string;
+    completedAt: string | null;
+    failureReason: string | null;
+  }>;
+} | null> {
+  const data = await fetchJson<{
+    routine: OrchestrationRoutineListItem;
+    runs: Array<{
+      id: string;
+      source: string;
+      status: string;
+      triggeredAt: string;
+      completedAt: string | null;
+      failureReason: string | null;
+    }>;
+  }>(`/api/orchestration/routines/${encodeURIComponent(routineId)}?detail=true`);
+  return data ?? null;
+}
+
 export async function runRoutineNow(routineId: string): Promise<boolean> {
   try {
     const response = await fetch(

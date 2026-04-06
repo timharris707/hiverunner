@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import {
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Repeat,
   X,
 } from "lucide-react";
+import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import {
@@ -506,7 +508,13 @@ export default function CompanyRoutinesPage() {
                 >
                   {/* Name */}
                   <td style={{ padding: "10px 12px", minWidth: "180px" }}>
-                    <span style={{ fontWeight: 500, color: "#f5f5f4" }}>{routine.title}</span>
+                    <Link
+                      href={buildCompanyPath(slug, `/routines/${encodeURIComponent(routine.id)}`)}
+                      className="no-underline"
+                      style={{ fontWeight: 500, color: "#f5f5f4" }}
+                    >
+                      {routine.title}
+                    </Link>
                     {(isArchived || isPaused) && (
                       <div style={{ marginTop: "3px", fontSize: "11px", color: "#78716c" }}>
                         {isArchived ? "archived" : "paused"}

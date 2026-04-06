@@ -147,6 +147,79 @@ export function getRoutine(routineId: string): { routine: OrchestrationRoutine }
   return { routine: routineFromRow(row) };
 }
 
+export function getRoutineDetail(routineId: string): {
+  routine: OrchestrationRoutineListItem;
+  runs: Array<{
+    id: string;
+    source: string;
+    status: RoutineRunStatus;
+    triggeredAt: string;
+    completedAt: string | null;
+    failureReason: string | null;
+  }>;
+} {
+  const db = getOrchestrationDb();
+  const row = db
+    .prepare(
+      `SELECT
+        r.*,
+        p.name  AS project_name,
+        p.color AS project_color,
+        a.name  AS agent_name,
+        a.emoji AS agent_emoji,
+        lr.triggered_at AS last_run_triggered_at,
+        lr.status        AS last_run_status
+      FROM routines r
+      LEFT JOIN projects p ON p.id = r.project_id
+      LEFT JOIN agents a   ON a.id = r.assignee_agent_id
+      LEFT JOIN (
+        SELECT routine_id, triggered_at, status
+        FROM routine_runs
+        WHERE id IN (
+          SELECT id FROM routine_runs rr2
+          WHERE rr2.routine_id = routine_runs.routine_id
+          ORDER BY rr2.created_at DESC
+          LIMIT 1
+        )
+      ) lr ON lr.routine_id = r.id
+      WHERE r.id = ?`
+    )
+    .get(routineId) as RoutineListRow | undefined;
+
+  if (!row) {
+    throw new OrchestrationApiError(404, "routine_not_found", "Routine not found");
+  }
+
+  const runs = db
+    .prepare(
+      `SELECT id, source, status, triggered_at, completed_at, failure_reason
+       FROM routine_runs
+       WHERE routine_id = ?
+       ORDER BY created_at DESC
+       LIMIT 20`
+    )
+    .all(routineId) as Array<{
+    id: string;
+    source: string;
+    status: string;
+    triggered_at: string;
+    completed_at: string | null;
+    failure_reason: string | null;
+  }>;
+
+  return {
+    routine: routineListItemFromRow(row),
+    runs: runs.map((r) => ({
+      id: r.id,
+      source: r.source,
+      status: r.status as RoutineRunStatus,
+      triggeredAt: r.triggered_at,
+      completedAt: r.completed_at,
+      failureReason: r.failure_reason,
+    })),
+  };
+}
+
 export function createRoutine(input: {
   companyIdOrSlug: string;
   title: string;
