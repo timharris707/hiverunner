@@ -155,6 +155,157 @@ export type CompanyAgentProfile = {
   liveSession?: AgentProfileExecutionRun;
 };
 
+type ActiveExecutionEvidenceRow = {
+  id: string;
+  agent_id: string;
+  task_id: string;
+  provider: string;
+  status: "pending" | "running";
+  session_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  error_message: string | null;
+  task_title: string | null;
+  project_id: string | null;
+  project_slug: string | null;
+  project_name: string | null;
+};
+
+type ActiveHeartbeatEvidenceRow = {
+  id: string;
+  agent_id: string;
+  status: "queued" | "running";
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const EXECUTION_STATUS_STALE_MS = 30 * 60 * 1000;
+const HEARTBEAT_STATUS_STALE_MS = 5 * 60 * 1000;
+
+function latestEvidenceTimestamp(
+  ...values: Array<string | null | undefined>
+): number | null {
+  for (const value of values) {
+    if (!value) continue;
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return null;
+}
+
+function isFreshEvidence(timestampMs: number | null, maxAgeMs: number): boolean {
+  if (timestampMs === null) return false;
+  return Date.now() - timestampMs <= maxAgeMs;
+}
+
+function buildInClause(count: number): string {
+  return Array.from({ length: count }, () => "?").join(",");
+}
+
+function loadActiveExecutionEvidence(
+  db: ReturnType<typeof getOrchestrationDb>,
+  agentIds: string[],
+): Map<string, ActiveExecutionEvidenceRow> {
+  if (agentIds.length === 0) return new Map();
+
+  const rows = db
+    .prepare(
+      `SELECT
+         er.id,
+         er.agent_id,
+         er.task_id,
+         er.provider,
+         er.status,
+         er.session_id,
+         er.started_at,
+         er.completed_at,
+         er.created_at,
+         er.updated_at,
+         er.error_message,
+         t.title AS task_title,
+         p.id AS project_id,
+         p.slug AS project_slug,
+         p.name AS project_name
+       FROM execution_runs er
+       LEFT JOIN tasks t ON t.id = er.task_id
+       LEFT JOIN projects p ON p.id = t.project_id
+       WHERE er.agent_id IN (${buildInClause(agentIds.length)})
+         AND er.status IN ('pending', 'running')
+       ORDER BY COALESCE(er.updated_at, er.started_at, er.created_at) DESC, er.created_at DESC`
+    )
+    .all(...agentIds) as ActiveExecutionEvidenceRow[];
+
+  const map = new Map<string, ActiveExecutionEvidenceRow>();
+  for (const row of rows) {
+    if (map.has(row.agent_id)) continue;
+    const fresh = isFreshEvidence(
+      latestEvidenceTimestamp(row.updated_at, row.started_at, row.created_at),
+      EXECUTION_STATUS_STALE_MS,
+    );
+    if (!fresh) continue;
+    map.set(row.agent_id, row);
+  }
+  return map;
+}
+
+function loadActiveHeartbeatEvidence(
+  db: ReturnType<typeof getOrchestrationDb>,
+  agentIds: string[],
+): Map<string, ActiveHeartbeatEvidenceRow> {
+  if (agentIds.length === 0) return new Map();
+
+  const rows = db
+    .prepare(
+      `SELECT
+         id,
+         agent_id,
+         status,
+         started_at,
+         finished_at,
+         created_at,
+         updated_at
+       FROM heartbeat_runs
+       WHERE agent_id IN (${buildInClause(agentIds.length)})
+         AND status IN ('queued', 'running')
+       ORDER BY COALESCE(updated_at, started_at, created_at) DESC, created_at DESC`
+    )
+    .all(...agentIds) as ActiveHeartbeatEvidenceRow[];
+
+  const map = new Map<string, ActiveHeartbeatEvidenceRow>();
+  for (const row of rows) {
+    if (map.has(row.agent_id)) continue;
+    const fresh = isFreshEvidence(
+      latestEvidenceTimestamp(row.updated_at, row.started_at, row.created_at),
+      HEARTBEAT_STATUS_STALE_MS,
+    );
+    if (!fresh) continue;
+    map.set(row.agent_id, row);
+  }
+  return map;
+}
+
+function resolveEffectiveAgentStatus(
+  persistedStatus: AgentStatusInput,
+  hasFreshExecution: boolean,
+  hasFreshHeartbeat: boolean,
+): AgentStatusInput {
+  if (hasFreshExecution || hasFreshHeartbeat) {
+    return "working";
+  }
+
+  if (persistedStatus === "paused" || persistedStatus === "offline" || persistedStatus === "error") {
+    return persistedStatus;
+  }
+
+  return "idle";
+}
+
 export function getAgentProfile(input: {
   agentId: string;
   companyIdOrSlug?: string;
@@ -346,15 +497,34 @@ export function listCompanyAgents(
     )
     .all(companyRow.id) as AgentRow[];
 
-  return {
-    agents: dedupeCompanyAgentsByName(
-      rows
+  const filteredRows = dedupeCompanyAgentsByName(
+    rows
       .filter((row) => {
         if (!isTrustedCompanyAgent(row)) return false;
         if (includeNonProduction) return true;
         return !isNonProductionAgent({ name: row.name, role: row.role });
       })
-    ).map(agentFromRow),
+  );
+
+  const agentIds = filteredRows.map((row) => row.id);
+  const activeExecutionByAgent = loadActiveExecutionEvidence(db, agentIds);
+  const activeHeartbeatByAgent = loadActiveHeartbeatEvidence(db, agentIds);
+
+  return {
+    agents: filteredRows.map((row) => {
+      const activeExecution = activeExecutionByAgent.get(row.id);
+      const activeHeartbeat = activeHeartbeatByAgent.get(row.id);
+      const status = resolveEffectiveAgentStatus(
+        row.status,
+        Boolean(activeExecution),
+        Boolean(activeHeartbeat),
+      );
+
+      return agentFromRow(row, {
+        status,
+        currentTask: activeExecution?.task_title ?? undefined,
+      });
+    }),
   };
 }
 
@@ -575,6 +745,16 @@ export function getCompanyAgentProfile(input: {
     throw new OrchestrationApiError(404, "agent_not_found", "Agent not found");
   }
 
+  const activeExecutionByAgent = loadActiveExecutionEvidence(db, [agentRow.id]);
+  const activeHeartbeatByAgent = loadActiveHeartbeatEvidence(db, [agentRow.id]);
+  const activeExecution = activeExecutionByAgent.get(agentRow.id);
+  const activeHeartbeat = activeHeartbeatByAgent.get(agentRow.id);
+  const effectiveStatus = resolveEffectiveAgentStatus(
+    agentRow.status,
+    Boolean(activeExecution),
+    Boolean(activeHeartbeat),
+  );
+
   const currentTasks = db
     .prepare(
       `SELECT
@@ -772,13 +952,34 @@ export function getCompanyAgentProfile(input: {
     errorMessage: row.error_message ?? undefined,
   }));
 
+  const liveSession = activeExecution
+    ? {
+        id: activeExecution.id,
+        taskId: activeExecution.task_id,
+        taskTitle: activeExecution.task_title ?? "Untitled Task",
+        projectId: activeExecution.project_id ?? "",
+        projectSlug: activeExecution.project_slug ?? "",
+        projectName: activeExecution.project_name ?? "",
+        provider: activeExecution.provider as AgentProfileExecutionRun["provider"],
+        status: activeExecution.status,
+        sessionId: activeExecution.session_id ?? undefined,
+        startedAt: activeExecution.started_at ?? undefined,
+        completedAt: activeExecution.completed_at ?? undefined,
+        createdAt: activeExecution.created_at,
+        errorMessage: activeExecution.error_message ?? undefined,
+      }
+    : undefined;
+
   return {
     company: {
       id: companyRow.id,
       slug: companyRow.slug,
       name: companyRow.name,
     },
-    agent: agentFromRow(agentRow),
+    agent: agentFromRow(agentRow, {
+      status: effectiveStatus,
+      currentTask: activeExecution?.task_title ?? undefined,
+    }),
     currentTasks: currentTasks.map((task) => ({
       id: task.id,
       title: task.title,
@@ -792,7 +993,7 @@ export function getCompanyAgentProfile(input: {
     })),
     recentActivity: activityCombined,
     executionHistory: mappedRuns,
-    liveSession: mappedRuns.find((run) => run.status === "running" || run.status === "pending"),
+    liveSession,
   };
 }
 
