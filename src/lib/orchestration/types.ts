@@ -186,6 +186,8 @@ export interface OrchestrationAgent {
   currentTask?: string;
   personality?: string;
   model?: string;
+  /** Execution provider. Source of truth for provider identity (Phase 1). */
+  adapterType?: string;
   paperclipAgentId?: string;
   openclawAgentId?: string;
   reportingTo?: string;

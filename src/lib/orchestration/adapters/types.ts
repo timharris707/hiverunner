@@ -155,16 +155,33 @@ export function resolveProviderPresentation(
 }
 
 /**
- * Resolve provider presentation for an agent based on its linked IDs.
- * Used by the configuration page to show the current provider identity
- * before any runs happen.
+ * Resolve provider presentation for an agent.
+ *
+ * Prefers explicit adapterType (source of truth per provider-selection
+ * contract). Falls back to external ID inference for backward compat
+ * with agents created before adapter_type was added.
+ *
+ * For full activation validation, use the provider-activation service
+ * (src/lib/orchestration/service/provider-activation.ts) instead.
  */
 export function resolveAgentProviderPresentation(agent: {
+  adapterType?: string;
   openclawAgentId?: string;
   paperclipAgentId?: string;
 }): ProviderPresentationInfo {
-  if (agent.openclawAgentId) return resolveProviderPresentation("openclaw-heartbeat");
-  if (agent.paperclipAgentId) return resolveProviderPresentation("paperclip");
+  // 1. Explicit adapter_type (source of truth)
+  if (agent.adapterType && agent.adapterType !== "openclaw") {
+    // Non-default value — trust it
+    const mappedId = agent.adapterType === "paperclip" ? "paperclip" : agent.adapterType;
+    return resolveProviderPresentation(mappedId);
+  }
+
+  // 2. Default "openclaw" — use ID presence as tiebreaker
+  if (agent.adapterType === "openclaw" || !agent.adapterType) {
+    if (agent.openclawAgentId) return resolveProviderPresentation("openclaw-heartbeat");
+    if (agent.paperclipAgentId) return resolveProviderPresentation("paperclip");
+  }
+
   return resolveProviderPresentation("none");
 }
 

@@ -125,6 +125,7 @@ export type AgentRow = {
   current_task_id: string | null;
   current_task_title: string | null;
   model: string | null;
+  adapter_type: string;
   paperclip_agent_id: string | null;
   openclaw_agent_id: string | null;
   reporting_to: string | null;
