@@ -22,7 +22,7 @@ export const dynamic = "force-dynamic";
  * the real switch can never diverge.
  *
  * Request body:
- *   { "targetProvider": "openclaw" | "paperclip" }
+ *   { "targetProvider": "openclaw" | "paperclip" | "codex" | "anthropic" }
  *
  * Response (200): SwitchPlan
  */
@@ -55,13 +55,13 @@ export async function POST(
       );
     }
 
-    const validTargets = ["openclaw", "paperclip"];
+    const validTargets = ["openclaw", "paperclip", "codex", "anthropic"];
     if (!validTargets.includes(targetProvider)) {
       return NextResponse.json(
         {
           error: "invalid_target_provider",
           message: `targetProvider must be one of: ${validTargets.join(", ")}. Got: "${targetProvider}".`,
-          note: "Planned providers (hermes, byo-webhook) are not yet available for switching.",
+          note: "Only real Mission Control providers are switchable here. Planned providers remain unavailable.",
         },
         { status: 400 },
       );

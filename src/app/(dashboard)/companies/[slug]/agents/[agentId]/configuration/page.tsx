@@ -54,6 +54,110 @@ interface PeerAgent {
   role?: string;
 }
 
+interface AgentConfigPageAgentLike {
+  id: string;
+  name: string;
+  paperclipAgentId?: string;
+}
+
+interface ProviderActivationCheckWire {
+  check: string;
+  passed: boolean;
+  detail: string;
+  blocking: boolean;
+}
+
+interface ProviderActivationWire {
+  canActivate: boolean;
+  providerId: string;
+  agentId: string;
+  currentProvider: string;
+  checks: ProviderActivationCheckWire[];
+  summary: string;
+}
+
+interface ProviderStatusWire {
+  agentId: string;
+  adapterType: string;
+  currentProvider: {
+    providerId: string;
+    displayName: string;
+    tier: number;
+    tierLabel: string;
+  };
+  model: string | null;
+  externalIds: {
+    openclaw: string | null;
+    paperclip: string | null;
+  };
+  providerActivations: Record<string, ProviderActivationWire>;
+}
+
+interface ExecutionSettingsAgentWire {
+  agentId: string;
+  paperclipAgentId?: string;
+  name: string;
+  adapterType?: string;
+  modelId: string;
+  timeoutSeconds: number | null;
+  graceSeconds: number | null;
+  safeRuntimeConfig: {
+    heartbeatEnabled?: boolean;
+    heartbeatIntervalSeconds?: number;
+    executionProvider?: string;
+    openclawAgentId?: string;
+  };
+  canUpdate: boolean;
+  updateBlocker?: string;
+}
+
+interface ExecutionSettingsWire {
+  writeSupport: {
+    supported: boolean;
+    reason?: string;
+  };
+  agents: ExecutionSettingsAgentWire[];
+}
+
+interface HeartbeatSettingsAgentWire {
+  agentId: string;
+  paperclipAgentId?: string;
+  name: string;
+  heartbeatEnabled: boolean;
+  intervalSeconds: number;
+  schedulerActive: boolean;
+  lastHeartbeatAt?: string;
+  canUpdate: boolean;
+  updateBlocker?: string;
+  pauseStatus: {
+    isPaused: boolean;
+    status: string;
+    reason?: string;
+    pausedAt?: string;
+  };
+}
+
+interface HeartbeatSettingsWire {
+  writeSupport: {
+    supported: boolean;
+    reason?: string;
+  };
+  agents: HeartbeatSettingsAgentWire[];
+}
+
+interface SwitchPlanWire {
+  allowed: boolean;
+  mode: "noop" | "blocked" | "switchable";
+  summary: string;
+  blockers: Array<{ code: string; message: string }>;
+  warnings: Array<{ code: string; message: string }>;
+  activation: ProviderActivationWire | null;
+  stateChanges: {
+    preserved: string[];
+    reset: string[];
+  } | null;
+}
+
 type SaveStatus = "idle" | "saving" | "saved" | "error";
 
 const MODEL_OPTIONS = [
@@ -64,19 +168,59 @@ const MODEL_OPTIONS = [
 ];
 
 const UI = {
-  sectionBg: "rgba(2,6,23,0.52)",
-  sectionBorder: "rgba(255,255,255,0.1)",
-  surface: "rgba(15,23,42,0.52)",
-  surfaceBorder: "rgba(255,255,255,0.1)",
-  surfaceStrong: "rgba(15,23,42,0.74)",
-  accentSurface: "rgba(245,158,11,0.08)",
-  accentBorder: "rgba(245,158,11,0.22)",
-  divider: "rgba(255,255,255,0.08)",
-  label: "#94a3b8",
-  shadow: "0 12px 32px rgba(2,6,23,0.22)",
+  sectionBg: "rgba(28,25,23,0.8)",
+  sectionBorder: "rgba(255,255,255,0.08)",
+  surface: "rgba(41,37,36,0.38)",
+  surfaceBorder: "rgba(255,255,255,0.08)",
+  surfaceStrong: "rgba(28,25,23,0.94)",
+  accentSurface: "rgba(28,25,23,0.94)",
+  accentBorder: "rgba(245,158,11,0.18)",
+  divider: "rgba(255,255,255,0.07)",
+  label: "#a8a29e",
+  shadow: "0 18px 40px rgba(0,0,0,0.24)",
 };
 
 const FIELD_LABEL_WIDTH = 176;
+const SWITCHABLE_PROVIDER_IDS = ["openclaw", "paperclip", "codex", "anthropic"] as const;
+
+function normalizeSwitchProviderId(providerId: string): string {
+  return providerId === "openclaw-heartbeat" ? "openclaw" : providerId;
+}
+
+function formatSeconds(value: number | null | undefined): string {
+  if (value == null) return "Unavailable";
+  if (value === 0) return "0s";
+  if (value % 60 === 0) return `${value / 60}m`;
+  return `${value}s`;
+}
+
+function formatObservedAt(value?: string | null): string {
+  if (!value) return "Not observed";
+  return new Date(value).toLocaleString();
+}
+
+function lookupActivation(
+  activations: Record<string, ProviderActivationWire> | undefined,
+  providerId: string,
+): ProviderActivationWire | null {
+  if (!activations) return null;
+  return (
+    activations[providerId] ??
+    (providerId === "openclaw" ? activations["openclaw-heartbeat"] ?? null : null)
+  );
+}
+
+function findAgentScopedRow<T extends { agentId: string; paperclipAgentId?: string; name?: string }>(
+  rows: T[],
+  agent: AgentConfigPageAgentLike,
+): T | null {
+  return (
+    rows.find((row) => row.agentId === agent.id) ??
+    rows.find((row) => agent.paperclipAgentId && row.paperclipAgentId === agent.paperclipAgentId) ??
+    rows.find((row) => row.name?.trim().toLowerCase() === agent.name.trim().toLowerCase()) ??
+    null
+  );
+}
 
 /* ── Provider resolution helpers ── */
 
@@ -100,9 +244,23 @@ export default function AgentConfigurationPage() {
   const [ocError, setOcError] = useState<string | null>(null);
   const [ocLoading, setOcLoading] = useState(true);
   const [peers, setPeers] = useState<PeerAgent[]>([]);
+  const [providerStatus, setProviderStatus] = useState<ProviderStatusWire | null>(null);
+  const [providerStatusError, setProviderStatusError] = useState<string | null>(null);
+  const [runtimePoliciesLoading, setRuntimePoliciesLoading] = useState(true);
+  const [runtimePoliciesError, setRuntimePoliciesError] = useState<string | null>(null);
+  const [executionSettingsRow, setExecutionSettingsRow] = useState<ExecutionSettingsAgentWire | null>(null);
+  const [heartbeatSettingsRow, setHeartbeatSettingsRow] = useState<HeartbeatSettingsAgentWire | null>(null);
+  const [companyExecutionSettings, setCompanyExecutionSettings] = useState<ExecutionSettingsWire | null>(null);
+  const [companyHeartbeatSettings, setCompanyHeartbeatSettings] = useState<HeartbeatSettingsWire | null>(null);
 
   const openclawId = agent.openclawAgentId || agent.id;
   const resolved = resolveAgentProviderPresentation(agent);
+  const currentSwitchProvider = normalizeSwitchProviderId(resolved.providerId);
+  const [switchTarget, setSwitchTarget] = useState<string>(currentSwitchProvider);
+  const [switchPlan, setSwitchPlan] = useState<SwitchPlanWire | null>(null);
+  const [switchLoading, setSwitchLoading] = useState(false);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const resolvedReportsToName =
     agent.reportingToName
     || peers.find((p) => p.id === (agent.reportingTo ?? ""))?.name
@@ -120,16 +278,84 @@ export default function AgentConfigurationPage() {
     })),
   ];
 
-  useEffect(() => {
-    fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
-      .then((r) => {
-        if (!r.ok) throw new Error(`${r.status}`);
-        return r.json();
-      })
-      .then((data) => { setOc(data); setOcError(null); })
-      .catch((e) => { setOcError(e.message); setOc(null); })
-      .finally(() => setOcLoading(false));
+  const loadOpenClawConfig = useCallback(async () => {
+    setOcLoading(true);
+    try {
+      const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`);
+      if (!response.ok) throw new Error(`${response.status}`);
+      const data = (await response.json()) as OpenClawConfig;
+      setOc(data);
+      setOcError(null);
+    } catch (error) {
+      setOc(null);
+      setOcError(error instanceof Error ? error.message : "unknown_error");
+    } finally {
+      setOcLoading(false);
+    }
   }, [openclawId]);
+
+  const loadProviderStatus = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/provider-status`);
+      if (!response.ok) throw new Error(`${response.status}`);
+      const data = (await response.json()) as ProviderStatusWire;
+      setProviderStatus(data);
+      setProviderStatusError(null);
+    } catch (error) {
+      setProviderStatus(null);
+      setProviderStatusError(error instanceof Error ? error.message : "unknown_error");
+    }
+  }, [agent.id]);
+
+  const loadRuntimePolicies = useCallback(async () => {
+    setRuntimePoliciesLoading(true);
+    try {
+      const [executionResponse, heartbeatResponse] = await Promise.all([
+        fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/execution?includeNonProduction=true`),
+        fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/heartbeats?includeNonProduction=true`),
+      ]);
+      if (!executionResponse.ok || !heartbeatResponse.ok) {
+        throw new Error(
+          `${executionResponse.ok ? "" : `execution:${executionResponse.status}`} ${heartbeatResponse.ok ? "" : `heartbeat:${heartbeatResponse.status}`}`.trim(),
+        );
+      }
+
+      const executionData = (await executionResponse.json()) as ExecutionSettingsWire;
+      const heartbeatData = (await heartbeatResponse.json()) as HeartbeatSettingsWire;
+      setCompanyExecutionSettings(executionData);
+      setCompanyHeartbeatSettings(heartbeatData);
+      setExecutionSettingsRow(findAgentScopedRow(executionData.agents, agent));
+      setHeartbeatSettingsRow(findAgentScopedRow(heartbeatData.agents, agent));
+      setRuntimePoliciesError(null);
+    } catch (error) {
+      setCompanyExecutionSettings(null);
+      setCompanyHeartbeatSettings(null);
+      setExecutionSettingsRow(null);
+      setHeartbeatSettingsRow(null);
+      setRuntimePoliciesError(error instanceof Error ? error.message : "unknown_error");
+    } finally {
+      setRuntimePoliciesLoading(false);
+    }
+  }, [agent, slug]);
+
+  const refreshConfigurationData = useCallback(() => {
+    void loadOpenClawConfig();
+    void loadProviderStatus();
+    void loadRuntimePolicies();
+    reload();
+  }, [loadOpenClawConfig, loadProviderStatus, loadRuntimePolicies, reload]);
+
+  useEffect(() => {
+    void loadOpenClawConfig();
+  }, [loadOpenClawConfig]);
+
+  useEffect(() => {
+    void loadProviderStatus();
+  }, [loadProviderStatus]);
+
+  useEffect(() => {
+    void loadRuntimePolicies();
+  }, [loadRuntimePolicies]);
 
   useEffect(() => {
     listCompanyAgents(slug).then((agents) => {
@@ -142,6 +368,12 @@ export default function AgentConfigurationPage() {
     }).catch(() => {});
   }, [slug, agent.id]);
 
+  useEffect(() => {
+    setSwitchTarget(currentSwitchProvider);
+    setSwitchPlan(null);
+    setSwitchError(null);
+  }, [currentSwitchProvider, agent.id]);
+
   const patchConfig = useCallback(
     async (body: Record<string, unknown>) => {
       const res = await fetch(
@@ -149,11 +381,111 @@ export default function AgentConfigurationPage() {
         { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
       );
       if (!res.ok) throw new Error(`${res.status}`);
-      reload();
-      return res.json();
+      const data = await res.json();
+      refreshConfigurationData();
+      return data;
     },
-    [openclawId, reload],
+    [openclawId, refreshConfigurationData],
   );
+
+  const patchExecutionSettings = useCallback(
+    async (body: Partial<Pick<ExecutionSettingsAgentWire, "modelId" | "timeoutSeconds" | "graceSeconds">>) => {
+      const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/execution`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent.id, ...body }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      refreshConfigurationData();
+      return data;
+    },
+    [agent.id, refreshConfigurationData, slug],
+  );
+
+  const patchHeartbeatSettings = useCallback(
+    async (body: { heartbeatEnabled?: boolean; intervalSeconds?: number }) => {
+      const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/heartbeats`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ agentId: agent.id, ...body }),
+      });
+      if (!res.ok) throw new Error(`${res.status}`);
+      const data = await res.json();
+      refreshConfigurationData();
+      return data;
+    },
+    [agent.id, refreshConfigurationData, slug],
+  );
+
+  const loadSwitchPlan = useCallback(
+    async (targetProvider: string) => {
+      setSwitchLoading(true);
+      setSwitchError(null);
+      try {
+        const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/provider/preflight`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ targetProvider }),
+        });
+        if (!response.ok) throw new Error(`${response.status}`);
+        const data = (await response.json()) as SwitchPlanWire;
+        setSwitchPlan(data);
+      } catch (error) {
+        setSwitchPlan(null);
+        setSwitchError(error instanceof Error ? error.message : "unknown_error");
+      } finally {
+        setSwitchLoading(false);
+      }
+    },
+    [agent.id],
+  );
+
+  const switchProvider = useCallback(async () => {
+    setSwitchLoading(true);
+    setSwitchError(null);
+    setSwitchNotice(null);
+    try {
+      const response = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/provider`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ targetProvider: switchTarget }),
+      });
+      if (!response.ok) throw new Error(`${response.status}`);
+      const result = (await response.json()) as { switched?: boolean; message?: string };
+      refreshConfigurationData();
+      await loadSwitchPlan(switchTarget);
+      setSwitchNotice(result.message ?? "Provider state updated.");
+    } catch (error) {
+      setSwitchError(error instanceof Error ? error.message : "unknown_error");
+    } finally {
+      setSwitchLoading(false);
+    }
+  }, [agent.id, loadSwitchPlan, refreshConfigurationData, switchTarget]);
+
+  const currentProviderActivation =
+    lookupActivation(providerStatus?.providerActivations, resolved.providerId) ??
+    lookupActivation(providerStatus?.providerActivations, currentSwitchProvider);
+  const selectedProviderActivation = lookupActivation(providerStatus?.providerActivations, switchTarget);
+  const isPaperclipManaged = Boolean(executionSettingsRow?.paperclipAgentId);
+  const runtimeWorkspaceEditable = Boolean(oc && !ocError);
+  const modelEditable = isPaperclipManaged ? Boolean(executionSettingsRow?.canUpdate) : Boolean(oc && !ocError);
+  const modelValue = executionSettingsRow?.modelId || oc?.model || agent.model || "";
+  const timeoutEditable = Boolean(executionSettingsRow?.canUpdate);
+  const heartbeatEditable = Boolean(heartbeatSettingsRow?.canUpdate);
+  const hasPersistedHeartbeatPolicy = Boolean(heartbeatSettingsRow?.paperclipAgentId);
+  const heartbeatPolicyNote =
+    heartbeatSettingsRow?.updateBlocker ??
+    companyHeartbeatSettings?.writeSupport.reason ??
+    (!hasPersistedHeartbeatPolicy
+      ? "This runtime does not expose a writable per-agent heartbeat policy here yet."
+      : undefined);
+  const executionPolicyNote =
+    executionSettingsRow?.updateBlocker ??
+    companyExecutionSettings?.writeSupport.reason ??
+    (!isPaperclipManaged
+      ? "Per-agent timeout and grace settings are only backed for Paperclip-linked agents today."
+      : undefined);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 20, maxWidth: 980 }}>
@@ -218,9 +550,11 @@ export default function AgentConfigurationPage() {
             title="Execution runtime"
             subtitle="Local workspace and bridge details for the active agent runtime."
           >
-            <SummaryListRow label="Model" value={oc?.model || agent.model || "\u2014"} mono />
+            <SummaryListRow label="Adapter" value={providerStatus?.adapterType || agent.adapterType || "\u2014"} mono />
+            <SummaryListRow label="Model" value={modelValue || "\u2014"} mono />
             <SummaryListRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
             <SummaryListRow label="Agent dir" value={oc?.agentDir || "\u2014"} mono />
+            <SummaryListRow label="Sessions" value={String(oc?.sessionCount ?? "\u2014")} />
             {ocLoading ? (
               <InlineStatusText>Loading runtime bridge details…</InlineStatusText>
             ) : null}
@@ -245,6 +579,119 @@ export default function AgentConfigurationPage() {
             <div style={{ marginTop: 2 }}>
               <div style={microHeadingStyle}>Observability capabilities</div>
               <ReadableCapabilityGrid capabilities={resolved.capabilities} />
+            </div>
+          </SummaryCard>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: 14,
+            marginBottom: 6,
+          }}
+        >
+          <SummaryCard
+            eyebrow="Current provider state"
+            title="Activation & linkage"
+            subtitle="What Mission Control can currently verify about this runtime path."
+          >
+            <SummaryListRow label="Adapter type" value={providerStatus?.adapterType || agent.adapterType || "\u2014"} mono />
+            <SummaryListRow label="OpenClaw ID" value={providerStatus?.externalIds.openclaw || agent.openclawAgentId || "\u2014"} mono />
+            <SummaryListRow label="Paperclip ID" value={providerStatus?.externalIds.paperclip || agent.paperclipAgentId || "\u2014"} mono />
+            <SummaryListRow
+              label="Activation"
+              value={currentProviderActivation?.canActivate ? "Ready enough to route" : "Blocked or partially verified"}
+            />
+            {currentProviderActivation ? (
+              <>
+                <InlineStatusText>{currentProviderActivation.summary}</InlineStatusText>
+                <ActivationCheckList checks={currentProviderActivation.checks} />
+              </>
+            ) : providerStatusError ? (
+              <InlineStatusText tone="error">
+                Could not inspect provider activation ({providerStatusError}).
+              </InlineStatusText>
+            ) : (
+              <InlineStatusText>Provider activation checks have not loaded yet.</InlineStatusText>
+            )}
+          </SummaryCard>
+
+          <SummaryCard
+            eyebrow="Provider control"
+            title="Switch provider"
+            subtitle="Preflight a real provider change before mutating adapter state."
+            badge={<TogglePill enabled={switchPlan?.mode === "switchable"} label={switchPlan?.mode === "switchable" ? "Switchable" : "Preview"} />}
+          >
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div>
+                <div style={{ ...microHeadingStyle, marginBottom: 6 }}>Target provider</div>
+                <select
+                  value={switchTarget}
+                  onChange={(event) => {
+                    setSwitchTarget(event.target.value);
+                    setSwitchPlan(null);
+                    setSwitchError(null);
+                    setSwitchNotice(null);
+                  }}
+                  style={{ ...inputStyle(), cursor: "pointer" }}
+                >
+                  {SWITCHABLE_PROVIDER_IDS.map((providerId) => {
+                    const descriptor = PROVIDER_PRODUCT_DESCRIPTORS.find((entry) => normalizeSwitchProviderId(entry.providerId) === providerId);
+                    return (
+                      <option key={providerId} value={providerId}>
+                        {descriptor?.displayName ?? providerId}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <ActionButton
+                  label={switchLoading ? "Checking…" : "Preview switch"}
+                  onClick={() => void loadSwitchPlan(switchTarget)}
+                  disabled={switchLoading}
+                />
+                <ActionButton
+                  label={switchLoading ? "Switching…" : "Apply switch"}
+                  onClick={() => void switchProvider()}
+                  disabled={switchLoading || switchPlan?.mode !== "switchable"}
+                  emphasis="primary"
+                />
+              </div>
+
+              {switchNotice ? <InlineStatusText>{switchNotice}</InlineStatusText> : null}
+              {switchError ? <InlineStatusText tone="error">Provider switch check failed ({switchError}).</InlineStatusText> : null}
+
+              {switchPlan ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <div style={infoNoteStyle}>{switchPlan.summary}</div>
+                  {switchPlan.activation ? <ActivationCheckList checks={switchPlan.activation.checks} /> : null}
+                  {switchPlan.blockers.length > 0 ? (
+                    <SupportNote tone="error" title="Blocking conditions">
+                      <SwitchStateList items={switchPlan.blockers.map((item) => item.message)} />
+                    </SupportNote>
+                  ) : null}
+                  {switchPlan.warnings.length > 0 ? (
+                    <SupportNote tone="warning" title="Warnings">
+                      <SwitchStateList items={switchPlan.warnings.map((item) => item.message)} />
+                    </SupportNote>
+                  ) : null}
+                  {switchPlan.stateChanges ? (
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 }}>
+                      <SupportNote title="Preserved state">
+                        <SwitchStateList items={switchPlan.stateChanges.preserved} />
+                      </SupportNote>
+                      <SupportNote title="Reset state">
+                        <SwitchStateList items={switchPlan.stateChanges.reset} />
+                      </SupportNote>
+                    </div>
+                  ) : null}
+                </div>
+              ) : selectedProviderActivation ? (
+                <InlineStatusText>{selectedProviderActivation.summary}</InlineStatusText>
+              ) : null}
             </div>
           </SummaryCard>
         </div>
@@ -291,6 +738,7 @@ export default function AgentConfigurationPage() {
         {providerDetailsOpen && (
           <div style={detailPanelStyle}>
             <ReadOnlyRow label="Provider ID" value={resolved.providerId} mono />
+            <ReadOnlyRow label="Adapter type" value={providerStatus?.adapterType || agent.adapterType || "\u2014"} mono />
             <ReadOnlyRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
             <ReadOnlyRow label="Agent Dir" value={oc?.agentDir || "\u2014"} mono />
             {agent.openclawAgentId && <ReadOnlyRow label="OpenClaw Agent ID" value={agent.openclawAgentId} mono />}
@@ -309,15 +757,152 @@ export default function AgentConfigurationPage() {
       <Section
         icon={<Settings size={14} />}
         title="Run Policy"
-        subtitle="Execution defaults, heartbeat behavior, and operator-facing runtime stats."
+        subtitle="Real runtime controls where Mission Control has backing support, plus explicit read-only limits where it does not."
       >
-        <EditableSelect
-          label="Model"
-          value={oc?.model || agent.model || ""}
-          options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
-          onSave={(v) => patchConfig({ model: v })}
-          mono
-        />
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+            gap: 14,
+            marginBottom: 14,
+          }}
+        >
+          <SummaryCard
+            eyebrow="Local runtime"
+            title="Runtime configuration"
+            subtitle="Controls backed by the local runtime scaffold and Mission Control agent record."
+          >
+            {modelEditable ? (
+              <EditableSelect
+                label="Model"
+                value={modelValue}
+                options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
+                onSave={(value) =>
+                  isPaperclipManaged && executionSettingsRow?.canUpdate
+                    ? patchExecutionSettings({ modelId: value })
+                    : patchConfig({ model: value })
+                }
+                mono
+                helpText={
+                  isPaperclipManaged
+                    ? "Writes to the linked Paperclip adapter config."
+                    : "Writes to the local runtime config and Mission Control agent record."
+                }
+              />
+            ) : (
+              <ReadOnlyRow label="Model" value={modelValue || "\u2014"} mono />
+            )}
+            {runtimeWorkspaceEditable ? (
+              <EditableText
+                label="Workspace"
+                value={oc?.workspace || ""}
+                onSave={(value) => patchConfig({ workspace: value })}
+                mono
+              />
+            ) : (
+              <ReadOnlyRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
+            )}
+            <ReadOnlyRow label="Agent dir" value={oc?.agentDir || "\u2014"} mono />
+            <ReadOnlyRow label="OpenClaw ID" value={agent.openclawAgentId || "\u2014"} mono />
+            <ReadOnlyRow label="Sessions" value={String(oc?.sessionCount ?? "\u2014")} />
+            {!runtimeWorkspaceEditable || !modelEditable ? (
+              <InlineStatusText>
+                Local runtime edits are only available when Mission Control can resolve the agent’s OpenClaw scaffold.
+              </InlineStatusText>
+            ) : null}
+          </SummaryCard>
+
+          <SummaryCard
+            eyebrow="Execution policy"
+            title="Timeouts & runtime limits"
+            subtitle="Paperclip-backed execution controls stay editable. Local OpenClaw limits remain explicitly read-only."
+          >
+            {timeoutEditable ? (
+              <>
+                <EditableNumber
+                  label="Timeout"
+                  value={executionSettingsRow?.timeoutSeconds ?? null}
+                  onSave={(value) => patchExecutionSettings({ timeoutSeconds: value })}
+                  suffix="seconds"
+                />
+                <EditableNumber
+                  label="Grace"
+                  value={executionSettingsRow?.graceSeconds ?? null}
+                  onSave={(value) => patchExecutionSettings({ graceSeconds: value })}
+                  suffix="seconds"
+                />
+              </>
+            ) : (
+              <>
+                <ReadOnlyRow label="Timeout" value={formatSeconds(executionSettingsRow?.timeoutSeconds)} />
+                <ReadOnlyRow label="Grace" value={formatSeconds(executionSettingsRow?.graceSeconds)} />
+              </>
+            )}
+            <ReadOnlyRow
+              label="Policy source"
+              value={isPaperclipManaged ? "Paperclip control plane" : "No writable local limit store"}
+            />
+            <ReadOnlyRow
+              label="Execution provider"
+              value={executionSettingsRow?.safeRuntimeConfig.executionProvider || resolved.providerId}
+              mono
+            />
+            {executionPolicyNote ? <InlineStatusText>{executionPolicyNote}</InlineStatusText> : null}
+          </SummaryCard>
+
+          <SummaryCard
+            eyebrow="Heartbeat policy"
+            title="Scheduler & cadence"
+            subtitle="Shows the real persisted heartbeat policy when one exists. Otherwise calls out the gap directly."
+          >
+            {heartbeatEditable ? (
+              <>
+                <EditableSelect
+                  label="Heartbeat"
+                  value={heartbeatSettingsRow?.heartbeatEnabled ? "enabled" : "disabled"}
+                  options={[
+                    { value: "enabled", label: "Enabled" },
+                    { value: "disabled", label: "Disabled" },
+                  ]}
+                  onSave={(value) => patchHeartbeatSettings({ heartbeatEnabled: value === "enabled" })}
+                />
+                <EditableNumber
+                  label="Interval"
+                  value={heartbeatSettingsRow?.intervalSeconds ?? 0}
+                  onSave={(value) => patchHeartbeatSettings({ intervalSeconds: value })}
+                  suffix="seconds"
+                />
+              </>
+            ) : (
+              <>
+                <ReadOnlyRow
+                  label="Heartbeat"
+                  value={hasPersistedHeartbeatPolicy ? (heartbeatSettingsRow?.heartbeatEnabled ? "Enabled" : "Disabled") : "Not exposed"}
+                />
+                <ReadOnlyRow
+                  label="Interval"
+                  value={hasPersistedHeartbeatPolicy ? formatSeconds(heartbeatSettingsRow?.intervalSeconds) : "Not exposed"}
+                />
+              </>
+            )}
+            <ReadOnlyRow
+              label="Scheduler"
+              value={heartbeatSettingsRow?.schedulerActive ? "Active" : "Not active"}
+            />
+            <ReadOnlyRow label="Last heartbeat" value={formatObservedAt(heartbeatSettingsRow?.lastHeartbeatAt || agent.lastHeartbeat)} />
+            {heartbeatPolicyNote ? <InlineStatusText>{heartbeatPolicyNote}</InlineStatusText> : null}
+          </SummaryCard>
+        </div>
+
+        {runtimePoliciesError ? (
+          <InlineStatusText tone="error">
+            Could not load runtime policy detail ({runtimePoliciesError}).
+          </InlineStatusText>
+        ) : null}
+        {runtimePoliciesLoading ? (
+          <InlineStatusText>Loading runtime policy detail…</InlineStatusText>
+        ) : null}
+
         <div
           style={{
             display: "grid",
@@ -328,9 +913,17 @@ export default function AgentConfigurationPage() {
         >
           <MetricCard
             label="Heartbeat interval"
-            value={agent.lastHeartbeat ? "Enabled" : "Disabled"}
-            detail={agent.lastHeartbeat ? `Last: ${new Date(agent.lastHeartbeat).toLocaleString()}` : "No recent heartbeat recorded."}
-            badge={<TogglePill enabled={!!agent.lastHeartbeat} label={agent.lastHeartbeat ? "Enabled" : "Disabled"} />}
+            value={
+              hasPersistedHeartbeatPolicy
+                ? formatSeconds(heartbeatSettingsRow?.intervalSeconds)
+                : "Not exposed"
+            }
+            detail={
+              hasPersistedHeartbeatPolicy
+                ? `Scheduler ${heartbeatSettingsRow?.schedulerActive ? "active" : "inactive"}`
+                : "This runtime does not persist a per-agent heartbeat interval here."
+            }
+            badge={<TogglePill enabled={Boolean(heartbeatSettingsRow?.schedulerActive)} label={heartbeatSettingsRow?.schedulerActive ? "Active" : "Limited"} />}
           />
           <MetricCard
             label="Sessions"
@@ -552,7 +1145,7 @@ function DisclosureButton({
         padding: 0,
         background: "none",
         border: "none",
-        color: "#fbbf24",
+        color: A.textSec,
         fontSize: 12,
         fontWeight: 600,
         letterSpacing: "0.02em",
@@ -588,7 +1181,7 @@ function SummaryCard({
         borderRadius: 16,
         background: accent ? UI.accentSurface : UI.surfaceStrong,
         border: `1px solid ${accent ? UI.accentBorder : UI.surfaceBorder}`,
-        boxShadow: accent ? "none" : "inset 0 1px 0 rgba(255,255,255,0.03)",
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
@@ -691,6 +1284,7 @@ function MetricCard({
         borderRadius: 16,
         background: UI.surface,
         border: `1px solid ${UI.surfaceBorder}`,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -749,6 +1343,7 @@ function EmptyStateCard({ title, body }: { title: string; body: string }) {
         borderRadius: 12,
         border: `1px dashed ${UI.surfaceBorder}`,
         background: UI.surface,
+        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
       }}
     >
       <div style={{ fontSize: 14, fontWeight: 600, color: A.text, marginBottom: 6 }}>
@@ -758,6 +1353,136 @@ function EmptyStateCard({ title, body }: { title: string; body: string }) {
         {body}
       </div>
     </div>
+  );
+}
+
+function ActivationCheckList({ checks }: { checks: ProviderActivationCheckWire[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 10 }}>
+      {checks.map((check) => (
+        <div
+          key={check.check}
+          style={{
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 8,
+            padding: "9px 10px",
+            borderRadius: 10,
+            background: "rgba(255,255,255,0.02)",
+            border: `1px solid ${UI.divider}`,
+          }}
+        >
+          {check.passed ? (
+            <CheckCircle size={14} style={{ color: "#22c55e", marginTop: 2, flexShrink: 0 }} />
+          ) : (
+            <XCircle size={14} style={{ color: check.blocking ? "#f97316" : "#a8a29e", marginTop: 2, flexShrink: 0 }} />
+          )}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, color: A.text, fontWeight: 600 }}>
+              {check.check.replaceAll("_", " ")}
+            </div>
+            <div style={{ fontSize: 12, color: A.muted, lineHeight: 1.55 }}>
+              {check.detail}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SwitchStateList({ items }: { items: string[] }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+      {items.map((item) => (
+        <div key={item} style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+          <span style={{ color: A.muted, marginTop: 1 }}>•</span>
+          <span style={{ fontSize: 12, color: A.textSec, lineHeight: 1.55 }}>{item}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SupportNote({
+  title,
+  tone = "neutral",
+  children,
+}: {
+  title: string;
+  tone?: "neutral" | "warning" | "error";
+  children: React.ReactNode;
+}) {
+  const tones =
+    tone === "error"
+      ? {
+          border: "rgba(248,113,113,0.28)",
+          background: "rgba(127,29,29,0.16)",
+          titleColor: "#fca5a5",
+        }
+      : tone === "warning"
+        ? {
+            border: "rgba(245,158,11,0.22)",
+            background: "rgba(120,53,15,0.14)",
+            titleColor: "#fdba74",
+          }
+        : {
+            border: UI.divider,
+            background: "rgba(255,255,255,0.02)",
+            titleColor: A.text,
+          };
+
+  return (
+    <div
+      style={{
+        padding: "12px 13px",
+        borderRadius: 12,
+        border: `1px solid ${tones.border}`,
+        background: tones.background,
+      }}
+    >
+      <div style={{ fontSize: 12, fontWeight: 600, color: tones.titleColor, marginBottom: 8 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function ActionButton({
+  label,
+  onClick,
+  disabled,
+  emphasis = "secondary",
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  emphasis?: "primary" | "secondary";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minHeight: 40,
+        padding: "0 14px",
+        borderRadius: 10,
+        border: `1px solid ${emphasis === "primary" ? UI.accentBorder : UI.surfaceBorder}`,
+        background: emphasis === "primary" ? "rgba(245,158,11,0.12)" : UI.surface,
+        color: emphasis === "primary" ? A.accentLight : A.text,
+        fontSize: 12,
+        fontWeight: 600,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -999,6 +1724,74 @@ function EditableSelect({
   );
 }
 
+function EditableNumber({
+  label,
+  value,
+  onSave,
+  suffix,
+}: {
+  label: string;
+  value: number | null;
+  onSave: (value: number) => Promise<unknown>;
+  suffix?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value == null ? "" : String(value));
+  const { status, trigger } = useSaveStatus();
+  const ref = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDraft(value == null ? "" : String(value));
+  }, [value]);
+
+  useEffect(() => {
+    if (editing) ref.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    setEditing(false);
+    const normalized = draft.trim() === "" ? "0" : draft.trim();
+    if (normalized !== (value == null ? "" : String(value))) {
+      const parsed = Number(normalized);
+      if (Number.isFinite(parsed)) {
+        trigger(() => onSave(Math.max(0, Math.trunc(parsed))));
+      } else {
+        setDraft(value == null ? "" : String(value));
+      }
+    }
+  };
+
+  return (
+    <div style={fieldRowStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
+      {editing ? (
+        <input
+          ref={ref}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") commit();
+            if (event.key === "Escape") {
+              setDraft(value == null ? "" : String(value));
+              setEditing(false);
+            }
+          }}
+          inputMode="numeric"
+          style={inputStyle()}
+        />
+      ) : (
+        <span onClick={() => setEditing(true)} style={displayStyle()} title="Click to edit">
+          {value == null ? "\u2014" : `${value}${suffix ? ` ${suffix}` : ""}`}
+        </span>
+      )}
+      <div style={saveCellStyle}>
+        <SaveIndicator status={status} />
+      </div>
+    </div>
+  );
+}
+
 /* ── Editable tag input ── */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 function EditableTags({
@@ -1131,9 +1924,9 @@ function Section({
             borderRadius: 999,
             display: "grid",
             placeItems: "center",
-            color: "#fbbf24",
-            background: "rgba(245,158,11,0.08)",
-            border: `1px solid ${UI.accentBorder}`,
+            color: A.accentLight,
+            background: "rgba(255,255,255,0.04)",
+            border: `1px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
           }}
         >
@@ -1251,6 +2044,7 @@ const detailPanelStyle: React.CSSProperties = {
   borderRadius: 14,
   background: UI.surface,
   border: `1px solid ${UI.surfaceBorder}`,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
 };
 
 const infoNoteStyle: React.CSSProperties = {
@@ -1273,6 +2067,7 @@ const inputStyle = (mono?: boolean): React.CSSProperties => ({
   outline: "none",
   lineHeight: "1.5",
   boxSizing: "border-box",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
 });
 
 const displayStyle = (mono?: boolean): React.CSSProperties => ({
@@ -1293,6 +2088,7 @@ const displayStyle = (mono?: boolean): React.CSSProperties => ({
   overflow: "hidden",
   textOverflow: "ellipsis",
   lineHeight: "1.5",
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
 });
 
 const tagStyle: React.CSSProperties = {

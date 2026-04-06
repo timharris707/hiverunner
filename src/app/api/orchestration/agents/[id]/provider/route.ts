@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  * provider state, and returns a structured result.
  *
  * Request body:
- *   { "targetProvider": "openclaw" | "paperclip" }
+ *   { "targetProvider": "openclaw" | "paperclip" | "codex" | "anthropic" }
  *
  * Response (200): Structured ProviderSwitchResult (success or refusal)
  *
@@ -58,13 +58,13 @@ export async function PATCH(
     }
 
     // Validate target is a recognized adapter_type value
-    const validTargets = ["openclaw", "paperclip"];
+    const validTargets = ["openclaw", "paperclip", "codex", "anthropic"];
     if (!validTargets.includes(targetProvider)) {
       return NextResponse.json(
         {
           error: "invalid_target_provider",
           message: `targetProvider must be one of: ${validTargets.join(", ")}. Got: "${targetProvider}".`,
-          note: "Planned providers (hermes, byo-webhook) are not yet switchable.",
+          note: "Only real Mission Control providers are switchable here. Planned providers remain unavailable.",
         },
         { status: 400 },
       );
