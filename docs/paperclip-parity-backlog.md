@@ -14,6 +14,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `T1` shared agent surfaces no longer show `working` or `LIVE` from stale `agents.status` or stale execution rows
 - Partially closed the largest missing project-operability surface:
   - `F3` project workspaces — workspace list + agent workspace detail routes exist with DB + filesystem backing; project and agent workspace paths are convention-derived (not persisted), which limits trust
+- Closed project configuration execution truth:
+  - `D1` project configuration no longer shows misleading placeholder fields; every execution-context claim is labeled with its source (Persisted, Convention, or Not available)
 - Partially closed routine management:
   - `F4` routine detail — first-class detail route with editable configuration, status controls, run history, and honest trigger limitations
 - Partially closed the main agent-operability stack:
@@ -27,15 +29,14 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | Bucket | Count | Notes |
 | --- | ---: | --- |
 | Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
+| Closed | 5 | Includes the two original ship blockers, tasks empty-state, shared agent-status truth, and project configuration truth |
 | Partially closed | 6 | Project workspaces and routine detail added; all six are materially better but not yet at full parity |
-| Still open | 6 | Remaining gaps are still material |
+| Still open | 5 | Remaining gaps are still material |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `D1` Project configuration execution truth
-   Reason: repo/local-folder/codebase placeholders still overstate confidence and weaken operator trust.
-2. `F5` + `D2` Company import/export routes and honesty cleanup
+1. `F5` + `D2` Company import/export routes and honesty cleanup
    Reason: the current UI still implies route-backed workflows that do not actually exist.
 3. `A1` Agent configuration backing depth
    Reason: the operator surface is better now, but more runtime-control fields still need real backing or explicit provider-limited framing.
@@ -52,6 +53,7 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | V1 | Tasks empty-first visual failure | `/NEV/tasks` | Minor | Visual/polish/layout | Closed | This was downstream of `F1`; once the hidden remembered scope was removed, the main visual failure stopped dominating the page. | `d0de73b0` | No separate action unless the tasks shell changes materially again. |
 | F2 | Approvals queue/index missing | `/NEV/approvals`, `/NEV/approvals/pending`, `/NEV/approvals/all` | Ship blocker | Feature/functionality | Closed | Mission Control now has a real company approvals queue with `pending` and `all` states, nav entry, empty states, and detail drill-in. | `3d5b5eed` | Iterate only if approval depth or actions need parity beyond the queue itself. |
 | T1 | Agent shown as active when not actually active | Shared agent-status surfaces, including `/NEV/agents`, `/NEV/team`, `/NEV/agents/forge/configuration`, `/NEV/agents/forge/skills`, `/NEV/agents/henry/dashboard` | Major | Data/truth/provenance | Closed | Shared agent status now comes from fresh execution evidence or fresh queued/running heartbeat evidence. Stale persisted `agents.status = working` and stale `execution_runs.status = running` rows no longer create false-positive `working` or `LIVE` states on the read path. | — | Keep the freshness thresholds aligned with engine semantics if heartbeat or execution timing policy changes. |
+| D1 | Project configuration execution truth | `/NEV/projects/:projectSlug/configuration` | Major | Data/truth/provenance | Closed | The old Codebase section showed "—" dashes for Repo and Local Folder fields that had no schema backing, implying the data was merely empty rather than unsupported. The section was replaced with an honest Execution Context surface: company workspace root (Persisted badge, DB-backed), project directory (Convention badge, convention-derived and filesystem-verified), repository (explicitly stated as not available — no column in schema), assigned agents with workspace existence indicators, and a provenance note explaining the data model. The misleading duplicated "Updated" date (which used `created_at`) was also removed. | — | If a persisted repo or workspace_path column is added to the projects table, upgrade the Convention badges to Persisted. |
 
 ## Partially Closed
 
@@ -72,7 +74,6 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | U1 | Inbox archive workflow weaker than Paperclip | `/NEV/inbox` | Minor | UX/interaction | Open | This branch still has no clearly visible archive action on the live inbox list. | — | Add explicit row-level or bulk archive affordances on the inbox surface. |
 | U2 | Project last-tab memory missing | `/NEV/projects/:projectSlug` redirect behavior | Minor | UX/interaction | Open | Mission Control still resets users back to the default project tab instead of preserving recent subpage context. | — | Preserve the last visited project subpage or make the redirect stateful. |
 | U3 | Company skill detail lacks per-file navigation depth | `/NEV/skills/:skillId` | Minor | UX/interaction | Open | Agent-skills parity improved, but the company skill detail surface is still shallower than Paperclip’s file-level navigation model. | — | Add per-file routes or stronger in-surface file browsing on the company skills detail page. |
-| D1 | Project configuration execution truth is shallow | `/NEV/projects/:projectSlug/configuration` | Major | Data/truth/provenance | Open | Repo/local-folder/codebase context is still not populated with the same level of backed execution truth as Paperclip. | — | Back those fields with real sources or remove/rename placeholders until they are trustworthy. |
 | D2 | Settings/import-export copy still overstates availability | `/NEV/settings` | Major | Data/truth/provenance | Open | The honesty issue remains unless and until the route-backed import/export surfaces actually exist. | — | Align the copy to the real state immediately if the routes are not coming next. |
 
 ## Deferred / Intentionally Divergent
