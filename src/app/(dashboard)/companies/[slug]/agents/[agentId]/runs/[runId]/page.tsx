@@ -9,7 +9,6 @@ import {
   Zap,
   MessageSquare,
   Play,
-  Square,
   Activity,
   Radio,
   FileText,
@@ -41,10 +40,14 @@ interface RunDetail {
   agentEmoji: string | null;
   companyId: string;
   status: string;
+  providerId: string;
   invocationSource: string;
   triggerDetail: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+  durationMs: number | null;
+  wakeupRequestId: string | null;
+  idempotencyKey: string | null;
   sessionIdBefore: string | null;
   sessionIdAfter: string | null;
   usage: Record<string, unknown>;
@@ -65,6 +68,73 @@ interface TaskContext {
 interface RunContext {
   wakeSource: string | null;
   wakeReason: string | null;
+  direction: string | null;
+  directionTaskId: string | null;
+  issueId: string | null;
+  taskKey: string | null;
+}
+
+interface InvocationInfo {
+  providerId: string;
+  runTable: string;
+  wakeupRequestId: string | null;
+  idempotencyKey: string | null;
+  wakeupStatus: string | null;
+  requestedAt: string | null;
+  claimedAt: string | null;
+  completedAt: string | null;
+  linkedHeartbeatCount: number;
+  note: string | null;
+}
+
+interface RunMetrics {
+  durationMs: number | null;
+  promptChars: number | null;
+  promptBuildMs: number | null;
+  totalDurationMs: number | null;
+  thinkingDurationMs: number | null;
+  actionExecutionMs: number | null;
+  importDurationMs: number | null;
+  messageCountBefore: number | null;
+  sessionReused: boolean | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  cacheReadInputTokens: number | null;
+  cacheCreationInputTokens: number | null;
+  totalCostUsd: number | null;
+  messagesImported: number | null;
+  actionsFound: number | null;
+  actionsExecuted: number | null;
+  actionsSkippedDedup: number | null;
+  reportsImported: number | null;
+  approvalsCreated: number | null;
+  tasksCreated: number | null;
+  assistantTextLength: number | null;
+  plainTextLength: number | null;
+  errorCount: number | null;
+}
+
+interface ProviderExecutionInfo {
+  source: string | null;
+  cliCommand: string | null;
+  modelId: string | null;
+  modelName: string | null;
+  factoryBuildId: string | null;
+  factoryTaskId: string | null;
+  factoryTaskTitle: string | null;
+  openclawRunId: string | null;
+  openclawStatus: string | null;
+  structuredTelemetry: boolean | null;
+  observedLiveText: boolean | null;
+  observedThinking: boolean | null;
+  observedStructuredTools: boolean | null;
+  toolCallNames: string[];
+  assistantSummary: string | null;
+  thinkingSummary: string | null;
+  resultSubtype: string | null;
+  resultErrors: string[];
+  linkedHeartbeatCount: number;
+  note: string | null;
 }
 
 interface TranscriptEntry {
@@ -109,6 +179,9 @@ interface RunEventsResponse {
   run: RunDetail;
   task: TaskContext | null;
   context: RunContext | null;
+  invocation: InvocationInfo;
+  metrics: RunMetrics;
+  providerExecution: ProviderExecutionInfo;
   transcript: { entries: TranscriptEntry[]; provenance: TranscriptProvenance };
   timeline: TimelineEvent[];
   provenance: { timeline: { label: string; note: string; sources: string[] }; runTable: string };
@@ -381,13 +454,75 @@ export default function RunDetailPage({
     );
   }
 
-  const { run, task, context, transcript, provider, provenance } = data;
+  const { run, task, context, invocation, metrics, providerExecution, transcript, provider, provenance } = data;
   const statusTone = STATUS_TONES[run.status] ?? STATUS_TONES.cancelled;
-  const durationMs = run.startedAt && run.finishedAt
+  const durationMs = run.durationMs ?? (run.startedAt && run.finishedAt
     ? new Date(run.finishedAt).getTime() - new Date(run.startedAt).getTime()
-    : run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null;
+    : run.startedAt ? Date.now() - new Date(run.startedAt).getTime() : null);
   const result = run.result as Record<string, unknown> | null;
-  const hasResult = result && run.status === "succeeded" && typeof result.actionsExecuted === "number";
+  const hasResultMetrics = [
+    metrics.actionsFound,
+    metrics.actionsExecuted,
+    metrics.messagesImported,
+    metrics.reportsImported,
+    metrics.approvalsCreated,
+    metrics.tasksCreated,
+    metrics.errorCount,
+    metrics.assistantTextLength,
+  ].some((value) => typeof value === "number" && value > 0);
+  const hasTelemetry = [
+    metrics.promptChars,
+    metrics.promptBuildMs,
+    metrics.totalDurationMs,
+    metrics.thinkingDurationMs,
+    metrics.actionExecutionMs,
+    metrics.importDurationMs,
+    metrics.messageCountBefore,
+    metrics.inputTokens,
+    metrics.outputTokens,
+    metrics.cacheReadInputTokens,
+    metrics.cacheCreationInputTokens,
+    metrics.totalCostUsd,
+  ].some((value) => typeof value === "number");
+  const sessionChanged = Boolean(run.sessionIdBefore && run.sessionIdAfter && run.sessionIdBefore !== run.sessionIdAfter);
+  const transcriptCountLabel = `${transcript.provenance.totalEntries} entr${transcript.provenance.totalEntries !== 1 ? "ies" : "y"}`;
+  const providerSignals = [
+    { label: "Structured telemetry", value: providerExecution.structuredTelemetry },
+    { label: "Live text observed", value: providerExecution.observedLiveText },
+    { label: "Thinking observed", value: providerExecution.observedThinking },
+    { label: "Tool events observed", value: providerExecution.observedStructuredTools },
+  ].filter((signal) => signal.value !== null);
+  const providerFactRows = [
+    { label: "Telemetry source", value: providerExecution.source, mono: true },
+    { label: "CLI command", value: providerExecution.cliCommand, mono: true },
+    {
+      label: "Model",
+      value: providerExecution.modelId && providerExecution.modelName
+        ? `${providerExecution.modelName} (${providerExecution.modelId})`
+        : providerExecution.modelName ?? providerExecution.modelId,
+      mono: !providerExecution.modelName && Boolean(providerExecution.modelId),
+    },
+    { label: "Factory build", value: providerExecution.factoryBuildId, mono: true },
+    {
+      label: "Factory task",
+      value: providerExecution.factoryTaskId && providerExecution.factoryTaskTitle
+        ? `${providerExecution.factoryTaskId} · ${providerExecution.factoryTaskTitle}`
+        : providerExecution.factoryTaskId ?? providerExecution.factoryTaskTitle,
+      mono: Boolean(providerExecution.factoryTaskId),
+    },
+    { label: "OpenClaw run", value: providerExecution.openclawRunId, mono: true },
+    { label: "OpenClaw status", value: providerExecution.openclawStatus },
+    { label: "Result subtype", value: providerExecution.resultSubtype },
+    {
+      label: "Tool calls",
+      value: providerExecution.toolCallNames.length > 0 ? providerExecution.toolCallNames.join(", ") : null,
+    },
+    {
+      label: "Linked engine cycles",
+      value: providerExecution.linkedHeartbeatCount > 1 ? String(providerExecution.linkedHeartbeatCount) : null,
+      mono: true,
+    },
+  ].filter((row): row is { label: string; value: string; mono?: boolean } => typeof row.value === "string" && row.value.length > 0);
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 820 }}>
@@ -424,7 +559,8 @@ export default function RunDetailPage({
             <div style={{ minWidth: 0, flex: 1 }}>
               <div style={{ color: A.text, fontSize: 15, fontWeight: 600 }}>{run.agentName}</div>
               <div style={{ color: A.muted, fontSize: 11, marginTop: 2 }}>
-                {formatInvocationSource(run.invocationSource)}
+                {provider.displayName}
+                <span style={{ color: A.textSec }}> · {formatInvocationSource(run.invocationSource)}</span>
                 {context?.wakeReason && <span style={{ color: A.textSec }}> · {context.wakeReason}</span>}
               </div>
             </div>
@@ -484,8 +620,23 @@ export default function RunDetailPage({
         {/* Key IDs — always visible */}
         <div style={{ marginTop: 12, display: "flex", flexWrap: "wrap", gap: 8, fontSize: 11 }}>
           <IdPill label="Run" value={run.id} onCopy={copyValue} copied={copiedField === "runId"} copyKey="runId" />
+          {run.wakeupRequestId && (
+            <IdPill label="Wakeup" value={run.wakeupRequestId} onCopy={copyValue} copied={copiedField === "wakeup"} copyKey="wakeup" />
+          )}
+          {run.idempotencyKey && (
+            <IdPill label="Idempotency" value={run.idempotencyKey} onCopy={copyValue} copied={copiedField === "idempotency"} copyKey="idempotency" />
+          )}
+          {run.sessionIdBefore && sessionChanged && (
+            <IdPill label="Session before" value={run.sessionIdBefore} onCopy={copyValue} copied={copiedField === "session-before"} copyKey="session-before" />
+          )}
           {run.sessionIdAfter && (
-            <IdPill label="Session" value={run.sessionIdAfter} onCopy={copyValue} copied={copiedField === "session"} copyKey="session" />
+            <IdPill
+              label={sessionChanged ? "Session after" : "Session"}
+              value={run.sessionIdAfter}
+              onCopy={copyValue}
+              copied={copiedField === "session"}
+              copyKey="session"
+            />
           )}
         </div>
 
@@ -500,7 +651,10 @@ export default function RunDetailPage({
             {run.startedAt && <MetaLine label="Started" value={new Date(run.startedAt).toLocaleString()} />}
             {run.finishedAt && <MetaLine label="Finished" value={new Date(run.finishedAt).toLocaleString()} />}
             {durationMs != null && <MetaLine label="Duration" value={formatDuration(durationMs)} />}
+            <MetaLine label="Provider" value={run.providerId} mono />
+            <MetaLine label="Invocation" value={formatInvocationSource(run.invocationSource)} />
             <MetaLine label="Source" value={provenance.runTable} mono />
+            {run.exitCode != null && <MetaLine label="Exit code" value={String(run.exitCode)} mono />}
           </div>
         </DisclosureRow>
 
@@ -517,7 +671,7 @@ export default function RunDetailPage({
       </div>
 
       {/* ═══════════════════════════════════════════
-          SECTION 2: PROVIDER DEPTH (collapsible)
+          SECTION 2: PROVIDER + INVOCATION CONTEXT
           ═══════════════════════════════════════════ */}
 
       <div style={cardStyle}>
@@ -541,11 +695,81 @@ export default function RunDetailPage({
         </button>
 
         {providerExpanded && (
-          <div style={{ marginTop: 10, fontSize: 11 }}>
+          <div style={{ marginTop: 10, fontSize: 11, display: "flex", flexDirection: "column", gap: 10 }}>
             <CapabilityGrid capabilities={provider.capabilities} />
+            {providerExecution.note && <ProvenanceNote text={providerExecution.note} />}
           </div>
         )}
       </div>
+
+      <div style={cardStyle}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+          <Radio size={12} style={{ color: A.accent }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Invocation & session</span>
+        </div>
+
+        <div style={factsGridStyle}>
+          <FactField label="Run table" value={invocation.runTable} mono />
+          <FactField label="Invocation source" value={formatInvocationSource(run.invocationSource)} />
+          {context?.wakeSource && <FactField label="Wake source" value={context.wakeSource} />}
+          {context?.wakeReason && <FactField label="Wake reason" value={context.wakeReason} />}
+          {invocation.wakeupStatus && <FactField label="Wakeup status" value={formatLabel(invocation.wakeupStatus)} />}
+          {invocation.requestedAt && <FactField label="Requested" value={new Date(invocation.requestedAt).toLocaleString()} />}
+          {invocation.claimedAt && <FactField label="Claimed" value={new Date(invocation.claimedAt).toLocaleString()} />}
+          {invocation.completedAt && <FactField label="Wakeup finished" value={new Date(invocation.completedAt).toLocaleString()} />}
+          {sessionChanged && run.sessionIdBefore && <FactField label="Session before" value={run.sessionIdBefore} mono />}
+          {run.sessionIdAfter && <FactField label={sessionChanged ? "Session after" : "Session"} value={run.sessionIdAfter} mono />}
+          {metrics.sessionReused !== null && <FactField label="Session reuse" value={metrics.sessionReused ? "Reused" : "New"} />}
+          {metrics.messageCountBefore !== null && <FactField label="Messages before" value={metrics.messageCountBefore.toLocaleString()} mono />}
+          {context?.taskKey && <FactField label="Task key" value={context.taskKey} mono />}
+          {context?.issueId && <FactField label="Issue ID" value={context.issueId} mono />}
+          {context?.directionTaskId && <FactField label="Direction task" value={context.directionTaskId} mono />}
+          {invocation.linkedHeartbeatCount > 1 && <FactField label="Linked engine cycles" value={String(invocation.linkedHeartbeatCount)} mono />}
+        </div>
+
+        {run.triggerDetail && (
+          <LongTextBlock label="Trigger detail" value={run.triggerDetail} mono />
+        )}
+        {context?.direction && (
+          <LongTextBlock label="Direction snapshot" value={context.direction} />
+        )}
+        {invocation.note && <ProvenanceNote text={invocation.note} />}
+      </div>
+
+      {(providerFactRows.length > 0 || providerSignals.length > 0 || providerExecution.assistantSummary || providerExecution.thinkingSummary || providerExecution.resultErrors.length > 0) && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <Terminal size={12} style={{ color: A.accent }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Provider execution context</span>
+          </div>
+
+          {providerFactRows.length > 0 && (
+            <div style={factsGridStyle}>
+              {providerFactRows.map((fact) => (
+                <FactField key={fact.label} label={fact.label} value={fact.value} mono={fact.mono} />
+              ))}
+            </div>
+          )}
+
+          {providerSignals.length > 0 && (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: providerFactRows.length > 0 ? 10 : 0 }}>
+              {providerSignals.map((signal) => (
+                <BooleanChip key={signal.label} label={signal.label} value={Boolean(signal.value)} />
+              ))}
+            </div>
+          )}
+
+          {providerExecution.assistantSummary && (
+            <LongTextBlock label="Assistant summary" value={providerExecution.assistantSummary} />
+          )}
+          {providerExecution.thinkingSummary && (
+            <LongTextBlock label="Thinking summary" value={providerExecution.thinkingSummary} />
+          )}
+          {providerExecution.resultErrors.length > 0 && (
+            <LongTextBlock label="Provider-reported errors" value={providerExecution.resultErrors.join("\n")} />
+          )}
+        </div>
+      )}
 
       {/* ═══════════════════════════════════════════
           SECTION 3: WHAT THE AGENT SAID (evidence)
@@ -572,48 +796,59 @@ export default function RunDetailPage({
       )}
 
       {/* Persisted comments (transcript proxy) */}
-      {!isLive && transcript.entries.length > 0 && (
+      {!isLive && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <MessageSquare size={12} style={{ color: "#22c55e" }} />
               <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>{transcript.provenance.label}</span>
             </div>
-            <span style={{ fontSize: 10, color: A.muted }}>
-              {transcript.provenance.totalEntries} entr{transcript.provenance.totalEntries !== 1 ? "ies" : "y"}
-            </span>
+            <span style={{ fontSize: 10, color: A.muted }}>{transcriptCountLabel}</span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {transcript.entries.map((entry) => {
-              const badge = COMMENT_TYPE_BADGES[entry.type];
-              return (
-                <div key={entry.id} style={{
-                  padding: "10px 12px", borderRadius: 6,
-                  background: "rgba(255,255,255,0.015)",
-                  borderLeft: `2px solid ${badge?.color ?? "rgba(255,255,255,0.08)"}`,
-                }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
-                    {badge && (
-                      <span style={{
-                        fontSize: 9, padding: "0px 5px", borderRadius: 3, fontWeight: 600,
-                        color: badge.color, background: `${badge.color}18`, letterSpacing: "0.03em",
-                      }}>
-                        {badge.label.toUpperCase()}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 10, color: A.muted }}>{formatTimestamp(entry.ts)}</span>
-                    {entry.authorName && (
-                      <span style={{ fontSize: 10, color: A.muted }}>· {entry.authorName}</span>
-                    )}
+          {transcript.entries.length > 0 ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {transcript.entries.map((entry) => {
+                const badge = COMMENT_TYPE_BADGES[entry.type];
+                return (
+                  <div key={entry.id} style={{
+                    padding: "10px 12px", borderRadius: 6,
+                    background: "rgba(255,255,255,0.015)",
+                    borderLeft: `2px solid ${badge?.color ?? "rgba(255,255,255,0.08)"}`,
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                      {badge && (
+                        <span style={{
+                          fontSize: 9, padding: "0px 5px", borderRadius: 3, fontWeight: 600,
+                          color: badge.color, background: `${badge.color}18`, letterSpacing: "0.03em",
+                        }}>
+                          {badge.label.toUpperCase()}
+                        </span>
+                      )}
+                      <span style={{ fontSize: 10, color: A.muted }}>{formatTimestamp(entry.ts)}</span>
+                      {entry.authorName && (
+                        <span style={{ fontSize: 10, color: A.muted }}>· {entry.authorName}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: A.text, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
+                      {entry.body}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 12, color: A.text, lineHeight: 1.55, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>
-                    {entry.body}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div style={{
+              padding: 18,
+              textAlign: "center",
+              color: A.muted,
+              fontSize: 12,
+              borderRadius: 6,
+              border: "1px dashed rgba(120,113,108,0.3)",
+            }}>
+              No persisted transcript entries were captured for this run.
+            </div>
+          )}
 
           <ProvenanceNote text={transcript.provenance.note} />
         </div>
@@ -709,81 +944,45 @@ export default function RunDetailPage({
       </div>
 
       {/* ═══════════════════════════════════════════
-          SECTION 5: RESULT (if completed)
+          SECTION 5: OBSERVED OUTCOME
           ═══════════════════════════════════════════ */}
 
-      {hasResult && (
+      {(hasResultMetrics || (result && Array.isArray((result as Record<string, unknown>).perActionDetail) && ((result as Record<string, unknown>).perActionDetail as Array<Record<string, unknown>>).length > 0)) && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
             <FileText size={12} style={{ color: A.accent }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Result</span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Observed outcome</span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            {typeof result!.actionsExecuted === "number" && (
-              <ResultChip label="actions" value={result!.actionsExecuted as number} />
+            {metrics.actionsFound !== null && metrics.actionsFound > 0 && (
+              <ResultChip label="actions found" value={metrics.actionsFound} />
             )}
-            {typeof result!.reportsImported === "number" && (result!.reportsImported as number) > 0 && (
-              <ResultChip label="reports" value={result!.reportsImported as number} />
+            {metrics.actionsExecuted !== null && metrics.actionsExecuted > 0 && (
+              <ResultChip label="actions executed" value={metrics.actionsExecuted} />
             )}
-            {Array.isArray(result!.tasksCreated) && (result!.tasksCreated as string[]).length > 0 && (
-              <ResultChip label="tasks created" value={(result!.tasksCreated as string[]).length} />
+            {metrics.messagesImported !== null && metrics.messagesImported > 0 && (
+              <ResultChip label="messages imported" value={metrics.messagesImported} />
             )}
-            {typeof result!.actionsSkippedDedup === "number" && (result!.actionsSkippedDedup as number) > 0 && (
-              <ResultChip label="skipped" value={result!.actionsSkippedDedup as number} muted />
+            {metrics.reportsImported !== null && metrics.reportsImported > 0 && (
+              <ResultChip label="reports imported" value={metrics.reportsImported} />
             )}
-            {Array.isArray(result!.errors) && (result!.errors as string[]).length > 0 && (
-              <ResultChip label="errors" value={(result!.errors as string[]).length} warn />
+            {metrics.tasksCreated !== null && metrics.tasksCreated > 0 && (
+              <ResultChip label="tasks created" value={metrics.tasksCreated} />
             )}
-          </div>
-        </div>
-      )}
-
-      {/* ═══════════════════════════════════════════
-          SECTION 6: TELEMETRY (when available)
-          ═══════════════════════════════════════════ */}
-
-      {run.usage && typeof run.usage === "object" && Object.keys(run.usage).length > 0 && (
-        <div style={cardStyle}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Clock size={12} style={{ color: A.accent }} />
-            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Run telemetry</span>
-            <span style={{ fontSize: 9, color: A.muted, fontStyle: "italic", marginLeft: "auto" }}>captured values</span>
-          </div>
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {/* Timing */}
-            {typeof (run.usage as Record<string, unknown>).thinkingDurationMs === "number" && (
-              <TelemetryChip label="Thinking" value={formatDuration((run.usage as Record<string, unknown>).thinkingDurationMs as number)} />
+            {metrics.approvalsCreated !== null && metrics.approvalsCreated > 0 && (
+              <ResultChip label="approvals created" value={metrics.approvalsCreated} />
             )}
-            {typeof (run.usage as Record<string, unknown>).actionExecutionMs === "number" && (
-              <TelemetryChip label="Actions" value={formatDuration((run.usage as Record<string, unknown>).actionExecutionMs as number)} />
+            {metrics.actionsSkippedDedup !== null && metrics.actionsSkippedDedup > 0 && (
+              <ResultChip label="skipped" value={metrics.actionsSkippedDedup} muted />
             )}
-            {typeof (run.usage as Record<string, unknown>).importDurationMs === "number" && (
-              <TelemetryChip label="Import" value={formatDuration((run.usage as Record<string, unknown>).importDurationMs as number)} />
+            {metrics.errorCount !== null && metrics.errorCount > 0 && (
+              <ResultChip label="errors" value={metrics.errorCount} warn />
             )}
-            {typeof (run.usage as Record<string, unknown>).promptBuildMs === "number" && (
-              <TelemetryChip label="Prompt build" value={formatDuration((run.usage as Record<string, unknown>).promptBuildMs as number)} />
+            {metrics.assistantTextLength !== null && metrics.assistantTextLength > 0 && (
+              <ResultChip label="assistant chars" value={metrics.assistantTextLength} muted />
             )}
-
-            {/* Size */}
-            {typeof (run.usage as Record<string, unknown>).promptChars === "number" && (
-              <TelemetryChip label="Prompt" value={`${Math.round(((run.usage as Record<string, unknown>).promptChars as number) / 1000)}k chars`} />
-            )}
-
-            {/* Tokens (nullable — not all providers report) */}
-            {typeof (run.usage as Record<string, unknown>).inputTokens === "number" && (
-              <TelemetryChip label="Input tokens" value={((run.usage as Record<string, unknown>).inputTokens as number).toLocaleString()} />
-            )}
-            {typeof (run.usage as Record<string, unknown>).outputTokens === "number" && (
-              <TelemetryChip label="Output tokens" value={((run.usage as Record<string, unknown>).outputTokens as number).toLocaleString()} />
-            )}
-
-            {/* Session */}
-            {(run.usage as Record<string, unknown>).sessionReused === true && (
-              <TelemetryChip label="Session" value="reused" />
-            )}
-            {(run.usage as Record<string, unknown>).sessionReused === false && (
-              <TelemetryChip label="Session" value="new" />
+            {metrics.plainTextLength !== null && metrics.plainTextLength > 0 && (
+              <ResultChip label="plain-text chars" value={metrics.plainTextLength} muted />
             )}
           </div>
 
@@ -806,6 +1005,56 @@ export default function RunDetailPage({
               </div>
             </DisclosureRow>
           )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════
+          SECTION 6: METRICS (when available)
+          ═══════════════════════════════════════════ */}
+
+      {hasTelemetry && (
+        <div style={cardStyle}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+            <Clock size={12} style={{ color: A.accent }} />
+            <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Observed metrics</span>
+            <span style={{ fontSize: 9, color: A.muted, fontStyle: "italic", marginLeft: "auto" }}>captured values</span>
+          </div>
+
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {metrics.totalDurationMs !== null && (
+              <TelemetryChip label="Provider runtime" value={formatDuration(metrics.totalDurationMs)} />
+            )}
+            {metrics.thinkingDurationMs !== null && (
+              <TelemetryChip label="Thinking" value={formatDuration(metrics.thinkingDurationMs)} />
+            )}
+            {metrics.actionExecutionMs !== null && (
+              <TelemetryChip label="Actions" value={formatDuration(metrics.actionExecutionMs)} />
+            )}
+            {metrics.importDurationMs !== null && (
+              <TelemetryChip label="Import" value={formatDuration(metrics.importDurationMs)} />
+            )}
+            {metrics.promptBuildMs !== null && (
+              <TelemetryChip label="Prompt build" value={formatDuration(metrics.promptBuildMs)} />
+            )}
+            {metrics.promptChars !== null && (
+              <TelemetryChip label="Prompt" value={formatCharCount(metrics.promptChars)} />
+            )}
+            {metrics.inputTokens !== null && (
+              <TelemetryChip label="Input tokens" value={metrics.inputTokens.toLocaleString()} />
+            )}
+            {metrics.outputTokens !== null && (
+              <TelemetryChip label="Output tokens" value={metrics.outputTokens.toLocaleString()} />
+            )}
+            {metrics.cacheReadInputTokens !== null && (
+              <TelemetryChip label="Cache read" value={metrics.cacheReadInputTokens.toLocaleString()} />
+            )}
+            {metrics.cacheCreationInputTokens !== null && (
+              <TelemetryChip label="Cache write" value={metrics.cacheCreationInputTokens.toLocaleString()} />
+            )}
+            {metrics.totalCostUsd !== null && (
+              <TelemetryChip label="Total cost" value={formatUsd(metrics.totalCostUsd)} />
+            )}
+          </div>
         </div>
       )}
 
@@ -899,6 +1148,53 @@ function DisclosureRow({ label, open, onToggle, children, style }: {
   );
 }
 
+function FactField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{
+      padding: "8px 10px",
+      borderRadius: 6,
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.05)",
+      minWidth: 0,
+    }}>
+      <div style={{ fontSize: 10, color: A.muted, marginBottom: 4 }}>{label}</div>
+      <div style={{
+        fontSize: mono ? 11 : 12,
+        color: A.text,
+        lineHeight: 1.45,
+        fontFamily: mono ? "monospace" : "inherit",
+        overflowWrap: "anywhere",
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function LongTextBlock({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 6,
+      background: "rgba(255,255,255,0.02)",
+      border: "1px solid rgba(255,255,255,0.05)",
+    }}>
+      <div style={{ fontSize: 10, color: A.muted, marginBottom: 6 }}>{label}</div>
+      <div style={{
+        fontSize: 12,
+        color: A.text,
+        lineHeight: 1.55,
+        whiteSpace: "pre-wrap",
+        wordBreak: "break-word",
+        fontFamily: mono ? "monospace" : "inherit",
+      }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
 /* CapabilityRow now imported from @/components/orchestration/ProviderPresentation */
 
 function ResultChip({ label, value, warn, muted }: { label: string; value: number; warn?: boolean; muted?: boolean }) {
@@ -913,6 +1209,30 @@ function ResultChip({ label, value, warn, muted }: { label: string; value: numbe
       <span style={{ fontSize: 16, fontWeight: 700, color }}>{value}</span>
       <span style={{ fontSize: 10, color: A.muted }}>{label}</span>
     </div>
+  );
+}
+
+function BooleanChip({ label, value }: { label: string; value: boolean }) {
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6,
+      padding: "4px 8px",
+      borderRadius: 999,
+      fontSize: 10,
+      color: value ? "#22c55e" : A.muted,
+      background: value ? "rgba(34,197,94,0.12)" : "rgba(120,113,108,0.14)",
+      border: `1px solid ${value ? "rgba(34,197,94,0.25)" : "rgba(120,113,108,0.2)"}`,
+    }}>
+      <span style={{
+        width: 6,
+        height: 6,
+        borderRadius: "50%",
+        background: value ? "#22c55e" : "rgba(120,113,108,0.5)",
+      }} />
+      {label}
+    </span>
   );
 }
 
@@ -962,6 +1282,18 @@ function formatTimestamp(ts: number): string {
   return new Date(ts).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
+function formatUsd(value: number): string {
+  return value > 0 ? `$${value.toFixed(4)}` : "$0.0000";
+}
+
+function formatCharCount(value: number): string {
+  return value >= 1000 ? `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}k chars` : `${value} chars`;
+}
+
+function formatLabel(value: string): string {
+  return value.replace(/_/g, " ");
+}
+
 function formatInvocationSource(source: string): string {
   const labels: Record<string, string> = {
     timer: "Scheduled",
@@ -978,4 +1310,10 @@ const cardStyle: React.CSSProperties = {
   borderRadius: 8,
   background: A.card,
   border: `1px solid ${A.cardBorder}`,
+};
+
+const factsGridStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: 8,
 };
