@@ -1,13 +1,18 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
-import {
-  createProject,
-  createProjectAgent,
-  createTask,
-  getTask,
-  listProjectAgents,
-} from "@/lib/orchestration/service";
+// ── Test DB isolation ──────────────────────────────────────────────
+// Force a temp DB so this test NEVER writes to the production database,
+// even when run directly via `npx tsx` without ORCHESTRATION_DB_PATH.
+// Must be set before the orchestration service is imported (dynamic import below).
+if (!process.env.ORCHESTRATION_DB_PATH) {
+  process.env.ORCHESTRATION_DB_PATH = path.join(
+    os.tmpdir(),
+    `mc-type-mapping-test-${Date.now()}.db`,
+  );
+}
 
 let passed = 0;
 let failed = 0;
@@ -29,13 +34,20 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nOrchestration Type Mapping Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
+  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
 
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+
+  // Dynamic import so db.ts sees ORCHESTRATION_DB_PATH set above
+  const {
+    createProject,
+    createProjectAgent,
+    createTask,
+    getTask,
+    listProjectAgents,
+  } = await import("@/lib/orchestration/service");
 
   const project = createProject({
     companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -73,7 +85,7 @@ async function run() {
   await test("agent status error is exposed as error in API layer", () => {
     const created = createProjectAgent({
       projectId: project.id,
-      name: `Error Agent ${Date.now()}`,
+      name: `StatusCheck Agent ${Date.now()}`,
       emoji: "\ud83e\udd16",
       role: "Backend Engineer",
       personality: "Strict",

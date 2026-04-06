@@ -93,7 +93,7 @@ function isNonProductionAgent(input: {
 }): boolean {
   const name = input.name ?? "";
   // Exact patterns for known junk agent prefixes
-  if (/^(Duplicate Agent|Forge QA|Guard Agent|Test Agent)\b/i.test(name)) return true;
+  if (/^(Duplicate Agent|Error Agent|Forge QA|Guard Agent|Test Agent)\b/i.test(name)) return true;
   if (/^\[CP-TEST\]|\[AGENT-TEST\]|\[TEST-VIGIL\]|\[DEBUG\]/i.test(name)) return true;
   if (/^Graduation Test/i.test(name)) return true;
   // Generic numbered agents: "Agent-1", "Agent-12" etc.
