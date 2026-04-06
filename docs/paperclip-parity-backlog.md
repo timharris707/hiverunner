@@ -12,8 +12,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `F2` approvals had detail-only routing and no usable queue
 - Closed the shared agent-status truth bug:
   - `T1` shared agent surfaces no longer show `working` or `LIVE` from stale `agents.status` or stale execution rows
-- Closed the largest missing project-operability surface:
-  - `F3` project workspaces — workspace list + agent workspace detail now backed by real DB + filesystem data
+- Partially closed the largest missing project-operability surface:
+  - `F3` project workspaces — workspace list + agent workspace detail routes exist with DB + filesystem backing; project and agent workspace paths are convention-derived (not persisted), which limits trust
 - Partially closed the main agent-operability stack:
   - `A1` configuration
   - `A2` instructions
@@ -24,9 +24,9 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | Bucket | Count | Notes |
 | --- | ---: | --- |
-| Closed | 5 | Includes the two original ship blockers, the tasks empty-state visual blocker, the shared agent-status truth fix, and project workspaces |
-| Partially closed | 4 | All four are materially better but not yet at Paperclip parity |
-| Still open | 7 | Remaining gaps are still material; project workspaces moved to closed |
+| Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
+| Partially closed | 5 | Project workspaces added; all five are materially better but not yet at full source-of-truth backing |
+| Still open | 7 | Remaining gaps are still material |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
@@ -50,12 +50,12 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | V1 | Tasks empty-first visual failure | `/NEV/tasks` | Minor | Visual/polish/layout | Closed | This was downstream of `F1`; once the hidden remembered scope was removed, the main visual failure stopped dominating the page. | `d0de73b0` | No separate action unless the tasks shell changes materially again. |
 | F2 | Approvals queue/index missing | `/NEV/approvals`, `/NEV/approvals/pending`, `/NEV/approvals/all` | Ship blocker | Feature/functionality | Closed | Mission Control now has a real company approvals queue with `pending` and `all` states, nav entry, empty states, and detail drill-in. | `3d5b5eed` | Iterate only if approval depth or actions need parity beyond the queue itself. |
 | T1 | Agent shown as active when not actually active | Shared agent-status surfaces, including `/NEV/agents`, `/NEV/team`, `/NEV/agents/forge/configuration`, `/NEV/agents/forge/skills`, `/NEV/agents/henry/dashboard` | Major | Data/truth/provenance | Closed | Shared agent status now comes from fresh execution evidence or fresh queued/running heartbeat evidence. Stale persisted `agents.status = working` and stale `execution_runs.status = running` rows no longer create false-positive `working` or `LIVE` states on the read path. | — | Keep the freshness thresholds aligned with engine semantics if heartbeat or execution timing policy changes. |
-| F3 | Project workspaces missing | `/NEV/projects/:projectSlug/workspaces`, `/NEV/projects/:projectSlug/workspaces/:agentSlug` | Major | Feature/functionality | Closed | Mission Control now has a real project workspaces tab with company workspace root, project directory (filesystem-verified), per-agent workspace cards with detail drill-in, and recent execution context. Workspace detail shows filesystem contents, git branch, identity file, and agent run history. All data is backed by orchestration DB + filesystem checks and honestly annotated with source provenance. Paperclip's equivalent route currently redirects to issues and renders empty, so MC now exceeds Paperclip on this surface. | — | Extend with deeper execution-context fields (env vars, working directory from runs) if the data becomes available. |
 
 ## Partially Closed
 
 | ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| F3 | Project workspaces | `/NEV/projects/:projectSlug/workspaces`, `/NEV/projects/:projectSlug/workspaces/:agentSlug` | Major | Feature/functionality | Partially closed | The route contract exists: workspace list tab with company root, project dir, per-agent workspace cards, and execution context; workspace detail with filesystem contents, git info, identity, and run history. **However**, project directory paths and agent workspace paths are convention-derived (`{root}/projects/{slug}`, `~/.openclaw/workspace-{slug}`), not persisted. No `workspace_path` column exists on the `projects` or `agents` tables. The company `workspace_root` is persisted truth, but everything below it is inferred convention verified against the filesystem. The UI now explicitly labels all paths with their source (Persisted vs Convention) and the provenance footer explains the inference model. Paperclip's equivalent route currently redirects to issues and renders empty, but the lack of persisted project/agent workspace paths means MC's surface cannot be called fully source-of-truth-backed. | `08f8f231` | Add a persisted `workspace_path` column to projects and/or agents, or resolve workspace paths from adapter config, so paths are source-of-truth rather than convention-inferred. Until then, the convention model is honest but not durable. |
 | A1 | Agent configuration depth | `/NEV/agents/:agentId/configuration` | Major | Feature/functionality | Partially closed | The page is materially deeper and now includes better readability, working `Reports to`, provider activation evidence, switch controls, and clearer runtime-policy framing. It is still not full Paperclip parity because several runtime controls remain read-only or unsupported. | `0a0b5c86`, `c9562a67`, `c432c7fc` | Back real timeout/grace/heartbeat/runtime fields where possible, and explicitly scope out anything that should stay provider-limited. |
 | A2 | Agent instructions depth | `/NEV/agents/:agentId/instructions` | Major | Feature/functionality | Partially closed | Mission Control now shows provider-aware instruction sources, editable `SOUL.md` and profile prompt paths, provenance, and read-only role defaults. It still does not expose a true provider-native multi-file instructions bundle workflow like Paperclip. | `e379c932` | Decide whether any provider paths should gain true multi-file bundle management or remain intentionally simpler. |
 | A3 | Agent skills depth | `/NEV/agents/:agentId/skills` | Major | Feature/functionality | Partially closed | The page is no longer a raw tag editor. It now distinguishes library-backed vs unmanaged declarations, shows configured library entries, and supports real attach/detach of stored declarations. It still does not prove live provider/runtime skill mounting. | `fe3b73d7` | Add backed runtime evidence or provider-native attachment visibility where possible; otherwise keep the current explicit limitations. |

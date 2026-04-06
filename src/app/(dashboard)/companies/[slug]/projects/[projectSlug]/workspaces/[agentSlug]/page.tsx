@@ -69,7 +69,8 @@ type WorkspaceDetailData = {
     files: FileEntry[];
     identity: string | null;
     git: { branch?: string; hasRepo: boolean };
-    source: string;
+    source: "convention" | "persisted";
+    verified: boolean;
   };
   recentRuns: RunEntry[];
 };
@@ -170,8 +171,16 @@ export default function WorkspaceDetailPage({
                 {data.workspace.path}
               </code>
             </PropRow>
-            <PropRow label="Status">
+            <PropRow label="On disk">
               <StatusBadge ok={data.workspace.exists} />
+            </PropRow>
+            <PropRow label="Source">
+              <span style={{
+                fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
+                color: C.accent, background: "rgba(217,119,6,0.12)",
+              }}>
+                Convention
+              </span>
             </PropRow>
             {data.workspace.git.hasRepo && (
               <PropRow label="Git">
@@ -298,9 +307,10 @@ export default function WorkspaceDetailPage({
           }}>
             <AlertTriangle size={13} style={{ color: C.accent, marginTop: 2, flexShrink: 0 }} />
             <span style={{ fontSize: 12, color: C.textSec, lineHeight: 1.5 }}>
-              This agent&rsquo;s workspace directory does not exist on disk yet.
-              It will be created when the agent runs for the first time, or it may use
-              a non-standard workspace path configured at the provider level.
+              The convention-derived path for this agent&rsquo;s workspace does not exist on disk.
+              The path was inferred from the agent slug &mdash; no persisted workspace path is stored in
+              the agents table. The actual workspace may not have been created yet, or it may use
+              a non-standard location not discoverable by convention.
             </span>
           </div>
         )}

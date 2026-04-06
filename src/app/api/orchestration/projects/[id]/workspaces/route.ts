@@ -70,7 +70,9 @@ export async function GET(
       ? fs.existsSync(companyWorkspaceRoot)
       : false;
 
-    // Check if the project has a subdirectory in the workspace
+    // Check if the project has a subdirectory in the workspace.
+    // There is no persisted project workspace path in the projects table,
+    // so the path is inferred from naming convention and then filesystem-checked.
     let projectDir: string | null = null;
     let projectDirExists = false;
     if (companyWorkspaceRoot && companyRootExists) {
@@ -101,12 +103,14 @@ export async function GET(
       )
       .all(project.id) as AgentWorkspaceRow[];
 
-    // Build agent workspace info
+    // Build agent workspace info.
+    // Agent workspace paths are convention-derived (~/.openclaw/workspace-{slug}),
+    // not persisted. The agents table has no workspace_path column, and
+    // adapter_config_json does not currently store workspace paths.
     const agentWorkspaces = agents.map((agent) => {
       const agentWorkspaceDir = path.join(OPENCLAW_DIR, `workspace-${agent.slug}`);
       const exists = fs.existsSync(agentWorkspaceDir);
 
-      // Check for IDENTITY.md
       let hasIdentity = false;
       if (exists) {
         hasIdentity = fs.existsSync(path.join(agentWorkspaceDir, "IDENTITY.md"));
@@ -121,7 +125,8 @@ export async function GET(
         workspacePath: agentWorkspaceDir,
         exists,
         hasIdentity,
-        source: "filesystem" as const,
+        source: "convention" as const,
+        verified: exists,
       };
     });
 
@@ -159,11 +164,13 @@ export async function GET(
         name: company?.name ?? null,
         workspaceRoot: companyWorkspaceRoot,
         workspaceRootExists: companyRootExists,
+        source: "persisted" as const,
       },
       projectDirectory: {
         path: projectDir,
         exists: projectDirExists,
-        source: projectDirExists ? "filesystem" : "inferred",
+        source: "convention" as const,
+        verified: projectDirExists,
       },
       agentWorkspaces,
       recentExecutionContext: recentRuns.map((run) => ({

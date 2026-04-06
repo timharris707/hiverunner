@@ -74,7 +74,8 @@ export async function GET(
       return NextResponse.json({ error: "agent_not_found" }, { status: 404 });
     }
 
-    // Workspace directory
+    // Workspace directory — convention-derived, not persisted.
+    // No workspace_path column exists on agents; adapter_config_json is typically empty.
     const workspaceDir = path.join(OPENCLAW_DIR, `workspace-${agent.slug}`);
     const exists = fs.existsSync(workspaceDir);
 
@@ -180,7 +181,8 @@ export async function GET(
         files,
         identity,
         git: gitInfo,
-        source: "filesystem",
+        source: "convention",
+        verified: exists,
       },
       recentRuns: recentRuns.map((r) => {
         let tokenUsage: Record<string, unknown> = {};

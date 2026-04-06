@@ -39,7 +39,8 @@ type AgentWorkspace = {
   workspacePath: string;
   exists: boolean;
   hasIdentity: boolean;
-  source: "filesystem";
+  source: "convention";
+  verified: boolean;
 };
 
 type RunContext = {
@@ -61,11 +62,13 @@ type WorkspacesData = {
     name: string | null;
     workspaceRoot: string | null;
     workspaceRootExists: boolean;
+    source: "persisted";
   };
   projectDirectory: {
     path: string | null;
     exists: boolean;
-    source: "filesystem" | "inferred";
+    source: "convention";
+    verified: boolean;
   };
   agentWorkspaces: AgentWorkspace[];
   recentExecutionContext: RunContext[];
@@ -143,8 +146,11 @@ export default function ProjectWorkspacesPage({
                     {data.company.workspaceRoot}
                   </code>
                 </PropRow>
-                <PropRow label="Status">
+                <PropRow label="On disk">
                   <StatusBadge ok={data.company.workspaceRootExists} />
+                </PropRow>
+                <PropRow label="Source">
+                  <SourceBadge source="persisted" />
                 </PropRow>
               </div>
             ) : (
@@ -165,11 +171,11 @@ export default function ProjectWorkspacesPage({
                     {data.projectDirectory.path}
                   </code>
                 </PropRow>
-                <PropRow label="Status">
-                  <StatusBadge ok={data.projectDirectory.exists} />
+                <PropRow label="On disk">
+                  <StatusBadge ok={data.projectDirectory.verified} />
                 </PropRow>
                 <PropRow label="Source">
-                  <SourceBadge source={data.projectDirectory.source} />
+                  <SourceBadge source="convention" />
                 </PropRow>
               </div>
             ) : (
@@ -301,11 +307,14 @@ export default function ProjectWorkspacesPage({
           display: "flex", alignItems: "flex-start", gap: 8,
         }}>
           <AlertTriangle size={13} style={{ color: C.accent, marginTop: 2, flexShrink: 0 }} />
-          <span style={{ fontSize: 12, color: C.textSec, lineHeight: 1.5 }}>
-            Workspace data is assembled from the orchestration database and local filesystem checks.
-            Agent workspace directories follow the convention <code style={{ fontFamily: "monospace", fontSize: 11 }}>~/.openclaw/workspace-{'{'}<em>agent-slug</em>{'}'}</code>.
-            Directories marked &ldquo;not found&rdquo; may not have been created yet or may use a non-standard path.
-          </span>
+          <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.5 }}>
+            <strong style={{ color: C.textSec }}>Data provenance:</strong> The company workspace root is persisted
+            in the orchestration database. Project and agent workspace paths are <em>convention-derived</em> (not
+            persisted) &mdash; there is no workspace path column on projects or agents. Paths follow the
+            convention <code style={{ fontFamily: "monospace", fontSize: 11 }}>{'{'}<em>root</em>{'}'}/projects/{'{'}<em>slug</em>{'}'}</code> and <code style={{ fontFamily: "monospace", fontSize: 11 }}>~/.openclaw/workspace-{'{'}<em>agent-slug</em>{'}'}</code>,
+            then are checked against the filesystem. Paths marked &ldquo;not found&rdquo; may not exist yet or may use
+            a non-standard location not discoverable by convention.
+          </div>
         </div>
       </div>
     </div>
@@ -368,14 +377,17 @@ function StatusBadge({ ok, compact }: { ok: boolean; compact?: boolean }) {
 }
 
 function SourceBadge({ source }: { source: string }) {
-  const isReal = source === "filesystem";
+  const styles: Record<string, { color: string; bg: string; label: string }> = {
+    persisted: { color: C.green, bg: "rgba(34,197,94,0.12)", label: "Persisted" },
+    convention: { color: C.accent, bg: "rgba(217,119,6,0.12)", label: "Convention" },
+  };
+  const s = styles[source] ?? { color: C.muted, bg: "rgba(87,83,78,0.12)", label: source };
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
-      color: isReal ? C.green : C.accent,
-      background: isReal ? "rgba(34,197,94,0.12)" : "rgba(217,119,6,0.12)",
+      color: s.color, background: s.bg,
     }}>
-      {isReal ? "Verified" : "Inferred"}
+      {s.label}
     </span>
   );
 }
