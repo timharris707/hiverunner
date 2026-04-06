@@ -15,7 +15,7 @@ const APP_ROOT_PREFIXES = new Set([
 const COMPANY_SUB_PATHS = new Set([
   "dashboard", "inbox", "issues", "team", "org", "skills", "costs",
   "activity", "files", "settings", "projects", "goals", "agents", "routines", "tasks", "approvals",
-  "export", "import",
+  "export", "import", "manage-projects",
 ]);
 
 const EDGE_ROUTE_MAP_CACHE_TTL_MS = 30_000;

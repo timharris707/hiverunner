@@ -83,6 +83,10 @@ export function buildCanonicalSettingsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/settings");
 }
 
+export function buildCanonicalManageProjectsPath(companyCode: string): string {
+  return buildCanonicalCompanyPath(companyCode, "/manage-projects");
+}
+
 export function buildCanonicalRoutinesPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/routines");
 }

@@ -13,6 +13,7 @@ import {
   ChevronRight,
   X,
   Compass,
+  FolderKanban,
   FolderOpen,
   Goal,
   Inbox,
@@ -67,6 +68,7 @@ import {
   buildCanonicalProjectIssuesPath,
   buildCanonicalProjectSettingsPath,
   buildCanonicalProjectAgentsPath,
+  buildCanonicalManageProjectsPath,
 } from "@/lib/orchestration/route-paths";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
 
@@ -117,6 +119,7 @@ const APPS_ITEMS: NavItem[] = [
 
 const COMPANY_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Org", icon: Building2 },
+  { label: "Manage Projects", icon: FolderKanban },
   { label: "Skills", icon: Sparkles },
   { label: "Costs", icon: Compass },
   { label: "Activity", icon: Activity },
@@ -442,6 +445,8 @@ function companyItemHref(code: string, itemLabel: string): string {
   switch (itemLabel) {
     case "Org":
       return buildCanonicalOrgPath(code);
+    case "Manage Projects":
+      return buildCanonicalManageProjectsPath(code);
     case "Skills":
       return buildCanonicalSkillsPath(code);
     case "Costs":
