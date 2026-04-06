@@ -50,6 +50,10 @@ export default function SkillDetailPage({
   const [loading, setLoading] = useState(true);
   const [viewMode, setViewMode] = useState<"view" | "code">("view");
   const [deleting, setDeleting] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [fileContent, setFileContent] = useState<string | null>(null);
+  const [fileLoading, setFileLoading] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/skills", { cache: "no-store" })
@@ -76,6 +80,23 @@ export default function SkillDetailPage({
       router.push(`/companies/${slug}/skills`);
     }
     setDeleting(false);
+  };
+
+  const handleFileClick = async (filePath: string) => {
+    if (selectedFile === filePath) { setSelectedFile(null); setFileContent(null); return; }
+    setSelectedFile(filePath);
+    setFileContent(null);
+    setFileError(null);
+    setFileLoading(true);
+    try {
+      const params = new URLSearchParams({ skill: skill?.name ?? "", path: filePath });
+      const res = await fetch(`/api/skills/file?${params}`);
+      if (!res.ok) { setFileError("Could not read file"); setFileLoading(false); return; }
+      const data = await res.json();
+      if (data.truncated) { setFileError(`File too large (${(data.size / 1024).toFixed(0)} KB)`); }
+      else { setFileContent(data.content); }
+    } catch { setFileError("Failed to load file"); }
+    setFileLoading(false);
   };
 
   if (loading) {
@@ -164,12 +185,54 @@ export default function SkillDetailPage({
             Files ({skill.fileCount})
           </div>
           <div style={{ borderRadius: 6, border: `1px solid ${P.cardBorder}`, overflow: "hidden" }}>
-            {skill.files.map((file) => (
-              <div key={file} style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", fontSize: 12, color: P.textSec, borderBottom: `1px solid ${P.cardBorder}` }}>
-                {file.endsWith("/") ? <FolderOpen size={12} style={{ color: P.muted }} /> : <FileText size={12} style={{ color: P.muted }} />}
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{file}</span>
-              </div>
-            ))}
+            {skill.files.map((file) => {
+              const isDir = file.endsWith("/");
+              const isSelected = selectedFile === file;
+              return (
+                <div key={file}>
+                  <button
+                    type="button"
+                    onClick={() => { if (!isDir) void handleFileClick(file); }}
+                    disabled={isDir}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 6,
+                      padding: "6px 10px", fontSize: 12, width: "100%",
+                      color: isSelected ? P.text : P.textSec,
+                      background: isSelected ? "rgba(217,119,6,0.08)" : "transparent",
+                      borderBottom: `1px solid ${P.cardBorder}`,
+                      border: "none", borderBottomStyle: "solid", borderBottomWidth: 1, borderBottomColor: P.cardBorder,
+                      cursor: isDir ? "default" : "pointer",
+                      textAlign: "left",
+                      transition: "background 100ms",
+                    }}
+                    onMouseEnter={(e) => { if (!isDir && !isSelected) e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                  >
+                    {isDir ? <FolderOpen size={12} style={{ color: P.muted }} /> : <FileText size={12} style={{ color: isSelected ? "#d97706" : P.muted }} />}
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, flex: 1 }}>{file}</span>
+                    {isSelected && <ChevronRight size={12} style={{ color: "#d97706" }} />}
+                  </button>
+                  {/* File content panel */}
+                  {isSelected && (
+                    <div style={{ padding: "8px 12px", background: "rgba(0,0,0,0.25)", borderBottom: `1px solid ${P.cardBorder}` }}>
+                      {fileLoading && <span style={{ fontSize: 11, color: P.muted }}>Loading...</span>}
+                      {fileError && <span style={{ fontSize: 11, color: "#fca5a5" }}>{fileError}</span>}
+                      {fileContent != null && (
+                        <pre style={{
+                          margin: 0, padding: 8, borderRadius: 4,
+                          background: "rgba(0,0,0,0.3)", border: `1px solid ${P.cardBorder}`,
+                          fontSize: 11, color: P.textSec, fontFamily: "var(--font-mono)",
+                          whiteSpace: "pre-wrap", wordBreak: "break-word",
+                          lineHeight: 1.5, overflow: "auto", maxHeight: 400,
+                        }}>
+                          {fileContent}
+                        </pre>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
