@@ -9,7 +9,7 @@ RELEASE_HISTORY_DIR="$RELEASES_DIR/history"
 CURRENT_RELEASE_FILE="$RELEASES_DIR/current.env"
 STOP_STABLE_SCRIPT="$APP_DIR/scripts/stop_stable_service.sh"
 START_STABLE_SCRIPT="$APP_DIR/scripts/start_stable_service.sh"
-HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:3001/api/orchestration/companies}"
+HEALTHCHECK_URL="${HEALTHCHECK_URL:-http://127.0.0.1:3001/api/mc/health}"
 RELEASE_TAG_PREFIX="stable/"
 TIMESTAMP_UTC="$(date -u +%Y%m%dT%H%M%SZ)"
 

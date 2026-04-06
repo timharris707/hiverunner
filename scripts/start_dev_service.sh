@@ -11,6 +11,20 @@ PORT="${PORT:-3000}"
 mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
 
+# ── Resolve node binary ──
+# launchd and nohup run with minimal PATH; Homebrew node may not be found.
+NODE_BIN=""
+for candidate in /opt/homebrew/bin/node /usr/local/bin/node /Users/timharris/.local/share/fnm/node-versions/*/installation/bin/node; do
+  if [ -x "$candidate" ]; then
+    NODE_BIN="$candidate"
+    break
+  fi
+done
+if [ -z "$NODE_BIN" ]; then
+  echo "[mc-dev] ERROR: cannot find node binary. Install Node.js or set PATH."
+  exit 1
+fi
+
 # ── Boot diagnostic banner ──
 echo ""
 echo "=== Mission Control Dev Start ==="
@@ -52,7 +66,7 @@ echo "[mc-dev] starting Mission Control dev server on port $PORT"
 
 # Use node directly (not npm run dev) so the PID file tracks the actual
 # node process, not an npm wrapper that can exit before node is stable.
-nohup env NODE_ENV=development PORT="$PORT" node server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
+nohup env NODE_ENV=development PORT="$PORT" "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "[mc-dev] started PID $PID"
