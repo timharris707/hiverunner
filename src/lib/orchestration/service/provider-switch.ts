@@ -1,18 +1,16 @@
 /**
  * Mission Control — Provider Switch Service
  *
- * Phase 2 mutation layer: safely switch an agent's execution provider.
+ * Owns both the decision logic (computeSwitchPlan) and the mutation
+ * (switchAgentProvider). The plan is the single source of truth for
+ * whether a switch is allowed, what would change, and why.
  *
- * This service owns the entire switch lifecycle:
- *   validate → check blockers → mutate → audit → reset state → return
+ * Architecture:
+ *   computeSwitchPlan()    — read-only decision; used by preflight route
+ *   switchAgentProvider()  — calls computeSwitchPlan(), then applies mutations
  *
- * It is intentionally conservative:
- * - Refuses if validation fails (structured blockers)
- * - Refuses if the agent has in-flight execution
- * - Does NOT migrate session state between providers
- * - Does NOT silently change the model
- * - Records audit trail (previous_adapter_type, provider_changed_at)
- * - Returns structured result describing exactly what changed
+ * This ensures the preflight/simulation surface and the real mutation
+ * path can never diverge in their decision logic.
  *
  * See: docs/provider-selection-contract.md
  */
@@ -20,68 +18,29 @@
 import { getOrchestrationDb } from "../db";
 import {
   checkProviderActivation,
+  resolveAgentProviderFromRecord,
 } from "./provider-activation";
 import type {
   AgentForActivationCheck,
   ProviderActivationResult,
 } from "./provider-activation";
+import { TIER_LABELS } from "../adapters/types";
 
-/* ── Result Types ── */
+/* ══════════════════════════════════════════
+   Shared Types
+   ══════════════════════════════════════════ */
 
 /**
- * Reason codes for why a switch was refused.
+ * Reason codes for why a switch is blocked.
  */
 export type SwitchBlockReason =
-  | "validation_failed"       // checkProviderActivation returned canActivate: false
-  | "in_flight_execution"     // agent has queued or running heartbeat/wakeup
-  | "already_current"         // target is already the current provider
-  | "agent_not_found";        // agent ID does not exist
+  | "validation_failed"
+  | "in_flight_execution"
+  | "already_current"
+  | "agent_not_found";
 
 /**
- * Result of a provider switch attempt.
- */
-export interface ProviderSwitchResult {
-  /** Whether the switch was executed */
-  switched: boolean;
-
-  /** The agent ID */
-  agentId: string;
-
-  /** Why the switch was refused, if switched is false */
-  blockReason: SwitchBlockReason | null;
-
-  /** Human-readable explanation */
-  message: string;
-
-  /** Detailed activation validation (always included) */
-  activation: ProviderActivationResult | null;
-
-  /** What changed, if switched is true */
-  changes: ProviderSwitchChanges | null;
-
-  /** In-flight execution details if that was the blocker */
-  inFlightDetails: InFlightDetails | null;
-}
-
-/**
- * What actually changed during a successful switch.
- */
-export interface ProviderSwitchChanges {
-  previousProvider: string;
-  newProvider: string;
-  adapterTypeUpdated: boolean;
-  providerChangedAtSet: boolean;
-  previousAdapterTypeRecorded: boolean;
-  runtimeStateReset: boolean;
-  modelKept: boolean;
-  /** Fields that were preserved (not cleared) */
-  preserved: string[];
-  /** Fields that were reset/cleared */
-  reset: string[];
-}
-
-/**
- * Details about in-flight execution that blocked a switch.
+ * In-flight execution details.
  */
 export interface InFlightDetails {
   activeHeartbeatRuns: number;
@@ -89,26 +48,132 @@ export interface InFlightDetails {
   activeExecutionRuns: number;
 }
 
-/* ── Core Switch Function ── */
+/**
+ * Non-blocking warning about the switch.
+ */
+export interface SwitchWarning {
+  code: string;
+  message: string;
+}
 
 /**
- * Attempt to switch an agent's execution provider.
+ * What would change (or did change) during a switch.
+ */
+export interface SwitchStateChanges {
+  previousProvider: string;
+  newProvider: string;
+  adapterTypeUpdated: boolean;
+  providerChangedAtSet: boolean;
+  previousAdapterTypeRecorded: boolean;
+  runtimeStateReset: boolean;
+  modelKept: boolean;
+  /** Human-readable list of preserved fields */
+  preserved: string[];
+  /** Human-readable list of reset fields */
+  reset: string[];
+}
+
+/* ══════════════════════════════════════════
+   Switch Plan — the shared decision type
+   ══════════════════════════════════════════ */
+
+/**
+ * The outcome mode of a switch plan.
  *
- * This is the only authorized mutation path for adapter_type.
- * It validates, checks blockers, mutates, and returns a structured result.
+ * - `noop`: target is already the current provider
+ * - `blocked`: switch is refused due to one or more blockers
+ * - `switchable`: switch is allowed and would proceed if executed
+ */
+export type SwitchPlanMode = "noop" | "blocked" | "switchable";
+
+/**
+ * A fully computed switch plan.
+ *
+ * This is the single canonical decision type for provider switching.
+ * Both the preflight route and the mutation route consume this.
+ * The preflight route returns it directly. The mutation route
+ * checks `plan.mode === "switchable"` before applying changes.
+ *
+ * Read-only — computing a plan does NOT mutate anything.
+ */
+export interface SwitchPlan {
+  /** Whether this switch would be allowed */
+  allowed: boolean;
+
+  /** Outcome mode */
+  mode: SwitchPlanMode;
+
+  /** Agent identity */
+  agentId: string;
+  agentName: string;
+
+  /** Provider identities */
+  currentProvider: string;
+  targetProvider: string;
+
+  /** Block reason (if mode is "blocked" or "noop") */
+  blockReason: SwitchBlockReason | null;
+
+  /** Human-readable summary */
+  summary: string;
+
+  /** Blockers: conditions that prevent the switch */
+  blockers: Array<{ code: string; message: string }>;
+
+  /** Warnings: non-blocking concerns the operator should know about */
+  warnings: SwitchWarning[];
+
+  /** Activation validation result (if computed) */
+  activation: ProviderActivationResult | null;
+
+  /** In-flight execution details (if checked) */
+  inFlight: InFlightDetails | null;
+
+  /**
+   * What would change if the switch is executed.
+   * Only populated when mode is "switchable".
+   */
+  stateChanges: SwitchStateChanges | null;
+
+  /**
+   * Provider presentation for current and target.
+   * Useful for UI confirmation displays.
+   */
+  currentProviderDisplay: {
+    displayName: string;
+    tier: number;
+    tierLabel: string;
+  };
+  targetProviderDisplay: {
+    displayName: string;
+    tier: number;
+    tierLabel: string;
+  } | null;
+}
+
+/* ══════════════════════════════════════════
+   computeSwitchPlan — the shared decision
+   ══════════════════════════════════════════ */
+
+/**
+ * Compute a switch plan for an agent without mutating anything.
+ *
+ * This is the canonical decision path. Both preflight and mutation
+ * call this function. The plan describes exactly what would happen
+ * if the switch were executed.
  *
  * @param agentIdOrSlug - Agent ID, slug, or name
  * @param targetProvider - Target adapter_type value ("openclaw" or "paperclip")
  * @param env - Environment variables (for activation checks)
  */
-export function switchAgentProvider(
+export function computeSwitchPlan(
   agentIdOrSlug: string,
   targetProvider: string,
   env?: Record<string, string | undefined>,
-): ProviderSwitchResult {
+): SwitchPlan {
   const db = getOrchestrationDb();
 
-  // ── Step 1: Load agent ──
+  // ── Load agent ──
 
   const agent = db
     .prepare(
@@ -130,35 +195,48 @@ export function switchAgentProvider(
     } | undefined;
 
   if (!agent) {
-    return {
-      switched: false,
-      agentId: agentIdOrSlug,
-      blockReason: "agent_not_found",
-      message: `Agent '${agentIdOrSlug}' not found.`,
-      activation: null,
-      changes: null,
-      inFlightDetails: null,
-    };
+    return notFoundPlan(agentIdOrSlug);
   }
 
-  // ── Step 2: Check if already current ──
+  // Resolve current provider display
+  const currentPres = resolveAgentProviderFromRecord({
+    adapterType: agent.adapter_type,
+    openclawAgentId: agent.openclaw_agent_id ?? undefined,
+    paperclipAgentId: agent.paperclip_agent_id ?? undefined,
+  });
+
+  const currentProviderDisplay = {
+    displayName: currentPres.displayName,
+    tier: currentPres.tier,
+    tierLabel: TIER_LABELS[currentPres.tier] ?? "Unknown",
+  };
+
+  // ── Already current? ──
 
   const normalizedCurrent = normalizeAdapterType(agent.adapter_type);
   const normalizedTarget = normalizeAdapterType(targetProvider);
 
   if (normalizedCurrent === normalizedTarget) {
     return {
-      switched: false,
+      allowed: false,
+      mode: "noop",
       agentId: agent.id,
+      agentName: agent.name,
+      currentProvider: agent.adapter_type,
+      targetProvider,
       blockReason: "already_current",
-      message: `Agent '${agent.name}' is already using ${targetProvider}. No switch needed.`,
+      summary: `Agent '${agent.name}' is already using ${targetProvider}. No switch needed.`,
+      blockers: [],
+      warnings: [],
       activation: null,
-      changes: null,
-      inFlightDetails: null,
+      inFlight: null,
+      stateChanges: null,
+      currentProviderDisplay,
+      targetProviderDisplay: currentProviderDisplay, // same
     };
   }
 
-  // ── Step 3: Validate activation ──
+  // ── Validate activation ──
 
   const agentForCheck: AgentForActivationCheck = {
     id: agent.id,
@@ -168,47 +246,242 @@ export function switchAgentProvider(
     paperclipAgentId: agent.paperclip_agent_id,
   };
 
-  // Map target to the provider ID used by the activation service
   const activationProviderId = targetProvider === "openclaw"
     ? "openclaw-heartbeat"
     : targetProvider;
 
   const activation = checkProviderActivation(agentForCheck, activationProviderId, env);
 
+  // Build target display from activation result
+  const targetProviderDisplay = activation.consequences
+    ? {
+        displayName: activation.providerId,
+        tier: activation.consequences.tierChange?.to.tier ?? currentPres.tier,
+        tierLabel: activation.consequences.tierChange?.to.label ?? currentProviderDisplay.tierLabel,
+      }
+    : null;
+
+  // Resolve display name for target from the activation's product descriptors
+  const targetPres = resolveAgentProviderFromRecord({
+    adapterType: targetProvider,
+    openclawAgentId: agent.openclaw_agent_id ?? undefined,
+    paperclipAgentId: agent.paperclip_agent_id ?? undefined,
+  });
+  const resolvedTargetDisplay = targetProviderDisplay ?? {
+    displayName: targetPres.displayName,
+    tier: targetPres.tier,
+    tierLabel: TIER_LABELS[targetPres.tier] ?? "Unknown",
+  };
+
   if (!activation.canActivate) {
+    const blockers = activation.checks
+      .filter((c) => c.blocking && !c.passed)
+      .map((c) => ({ code: c.check, message: c.detail }));
+
     return {
-      switched: false,
+      allowed: false,
+      mode: "blocked",
       agentId: agent.id,
+      agentName: agent.name,
+      currentProvider: agent.adapter_type,
+      targetProvider,
       blockReason: "validation_failed",
-      message: activation.summary,
+      summary: activation.summary,
+      blockers,
+      warnings: [],
       activation,
-      changes: null,
-      inFlightDetails: null,
+      inFlight: null,
+      stateChanges: null,
+      currentProviderDisplay,
+      targetProviderDisplay: resolvedTargetDisplay,
     };
   }
 
-  // ── Step 4: Check in-flight execution ──
+  // ── Check in-flight execution ──
 
   const inFlight = checkInFlightExecution(db, agent.id);
 
   if (inFlight.hasInFlight) {
+    const blockers = [];
+    if (inFlight.details.activeHeartbeatRuns > 0) {
+      blockers.push({
+        code: "active_heartbeat_runs",
+        message: `${inFlight.details.activeHeartbeatRuns} heartbeat run(s) queued or running.`,
+      });
+    }
+    if (inFlight.details.pendingWakeupRequests > 0) {
+      blockers.push({
+        code: "pending_wakeup_requests",
+        message: `${inFlight.details.pendingWakeupRequests} wakeup request(s) queued or claimed.`,
+      });
+    }
+    if (inFlight.details.activeExecutionRuns > 0) {
+      blockers.push({
+        code: "active_execution_runs",
+        message: `${inFlight.details.activeExecutionRuns} execution run(s) pending or running.`,
+      });
+    }
+
     return {
-      switched: false,
+      allowed: false,
+      mode: "blocked",
       agentId: agent.id,
+      agentName: agent.name,
+      currentProvider: agent.adapter_type,
+      targetProvider,
       blockReason: "in_flight_execution",
-      message: `Cannot switch provider while agent '${agent.name}' has in-flight execution. Wait for current runs to complete.`,
+      summary: `Cannot switch provider while agent '${agent.name}' has in-flight execution. Wait for current runs to complete.`,
+      blockers,
+      warnings: [],
       activation,
-      changes: null,
-      inFlightDetails: inFlight.details,
+      inFlight: inFlight.details,
+      stateChanges: null,
+      currentProviderDisplay,
+      targetProviderDisplay: resolvedTargetDisplay,
     };
   }
 
-  // ── Step 5: Execute the switch ──
+  // ── Switchable — compute warnings and state changes ──
 
+  const warnings: SwitchWarning[] = [];
+
+  // Advisory warnings
+  const modelCheck = activation.checks.find((c) => c.check === "model_compatible");
+  if (modelCheck && !modelCheck.passed && !modelCheck.blocking) {
+    warnings.push({
+      code: "model_compatibility_unknown",
+      message: modelCheck.detail,
+    });
+  }
+
+  // Tier downgrade warning
+  if (activation.consequences?.tierChange) {
+    const { from, to } = activation.consequences.tierChange;
+    if (to.tier < from.tier) {
+      warnings.push({
+        code: "tier_downgrade",
+        message: `Observability will decrease from T${from.tier} (${from.label}) to T${to.tier} (${to.label}). Some live event types will no longer be available.`,
+      });
+    }
+  }
+
+  // Capability loss warnings
+  if (activation.consequences?.capabilityChanges) {
+    const losses = activation.consequences.capabilityChanges.filter(
+      (c) => c.from === true && c.to === false,
+    );
+    if (losses.length > 0) {
+      warnings.push({
+        code: "capability_loss",
+        message: `${losses.length} capability(ies) will become unavailable: ${losses.map((l) => l.capability).join(", ")}.`,
+      });
+    }
+  }
+
+  // State change preview
+  const hasRuntimeState = !!(db
+    .prepare("SELECT 1 FROM agent_runtime_state WHERE agent_id = ?")
+    .get(agent.id));
+
+  const stateChanges: SwitchStateChanges = {
+    previousProvider: agent.adapter_type,
+    newProvider: targetProvider,
+    adapterTypeUpdated: true,
+    providerChangedAtSet: true,
+    previousAdapterTypeRecorded: true,
+    runtimeStateReset: hasRuntimeState,
+    modelKept: true,
+    preserved: [
+      "agent identity (name, emoji, role, personality)",
+      "model selection",
+      "external IDs (openclaw_agent_id, paperclip_agent_id)",
+      "task history (execution_runs, heartbeat_runs)",
+      "task sessions under previous adapter_type",
+      "cumulative token/cost accounting",
+    ],
+    reset: [
+      "agent_runtime_state.session_id",
+      "agent_runtime_state.state_json",
+      "agent_runtime_state.last_run_id",
+      "agent_runtime_state.last_run_status",
+      "agent_runtime_state.last_error",
+      "agent_runtime_state.adapter_type (updated to new provider)",
+    ],
+  };
+
+  return {
+    allowed: true,
+    mode: "switchable",
+    agentId: agent.id,
+    agentName: agent.name,
+    currentProvider: agent.adapter_type,
+    targetProvider,
+    blockReason: null,
+    summary: `Provider can be switched from ${agent.adapter_type} to ${targetProvider} for agent '${agent.name}'.`,
+    blockers: [],
+    warnings,
+    activation,
+    inFlight: inFlight.details,
+    stateChanges,
+    currentProviderDisplay,
+    targetProviderDisplay: resolvedTargetDisplay,
+  };
+}
+
+/* ══════════════════════════════════════════
+   switchAgentProvider — the mutation
+   ══════════════════════════════════════════ */
+
+/**
+ * Result of a provider switch attempt.
+ */
+export interface ProviderSwitchResult {
+  switched: boolean;
+  agentId: string;
+  blockReason: SwitchBlockReason | null;
+  message: string;
+  activation: ProviderActivationResult | null;
+  changes: SwitchStateChanges | null;
+  inFlightDetails: InFlightDetails | null;
+  /** The full plan that governed this decision */
+  plan: SwitchPlan;
+}
+
+/**
+ * Attempt to switch an agent's execution provider.
+ *
+ * Computes a switch plan, then applies mutations only if the plan
+ * says the switch is allowed. This ensures preflight and mutation
+ * can never diverge.
+ */
+export function switchAgentProvider(
+  agentIdOrSlug: string,
+  targetProvider: string,
+  env?: Record<string, string | undefined>,
+): ProviderSwitchResult {
+  // Compute the plan (read-only decision)
+  const plan = computeSwitchPlan(agentIdOrSlug, targetProvider, env);
+
+  // If not switchable, return structured refusal
+  if (!plan.allowed || plan.mode !== "switchable") {
+    return {
+      switched: false,
+      agentId: plan.agentId,
+      blockReason: plan.blockReason,
+      message: plan.summary,
+      activation: plan.activation,
+      changes: null,
+      inFlightDetails: plan.inFlight,
+      plan,
+    };
+  }
+
+  // ── Apply mutations ──
+
+  const db = getOrchestrationDb();
   const now = new Date().toISOString();
-  const previousAdapterType = agent.adapter_type;
 
-  // 5a. Update agents table — source of truth
+  // Update agents table
   db.prepare(
     `UPDATE agents
      SET adapter_type = ?,
@@ -216,16 +489,13 @@ export function switchAgentProvider(
          provider_changed_at = ?,
          updated_at = ?
      WHERE id = ?`,
-  ).run(targetProvider, previousAdapterType, now, now, agent.id);
+  ).run(targetProvider, plan.currentProvider, now, now, plan.agentId);
 
-  // 5b. Reset runtime state for the new provider
-  //     Preserve cumulative tokens/cost (they're agent-level, not provider-level).
-  //     Clear session_id and state_json (provider-specific ephemeral state).
+  // Reset runtime state
   const runtimeStateExists = db
     .prepare("SELECT 1 FROM agent_runtime_state WHERE agent_id = ?")
-    .get(agent.id);
+    .get(plan.agentId);
 
-  let runtimeStateReset = false;
   if (runtimeStateExists) {
     db.prepare(
       `UPDATE agent_runtime_state
@@ -237,52 +507,51 @@ export function switchAgentProvider(
            last_error = NULL,
            updated_at = ?
        WHERE agent_id = ?`,
-    ).run(targetProvider, now, agent.id);
-    runtimeStateReset = true;
+    ).run(targetProvider, now, plan.agentId);
   }
-
-  // 5c. Agent task sessions are NOT deleted or migrated.
-  //     The UNIQUE index (company_id, agent_id, adapter_type, task_key)
-  //     means old sessions under the previous adapter_type are naturally
-  //     isolated. New runs under the new adapter_type will create new
-  //     session entries. Old sessions are preserved for potential rollback.
 
   return {
     switched: true,
-    agentId: agent.id,
+    agentId: plan.agentId,
     blockReason: null,
-    message: `Provider switched from ${previousAdapterType} to ${targetProvider} for agent '${agent.name}'.`,
-    activation,
-    changes: {
-      previousProvider: previousAdapterType,
-      newProvider: targetProvider,
-      adapterTypeUpdated: true,
-      providerChangedAtSet: true,
-      previousAdapterTypeRecorded: true,
-      runtimeStateReset,
-      modelKept: true,
-      preserved: [
-        "agent identity (name, emoji, role, personality)",
-        "model selection",
-        "external IDs (openclaw_agent_id, paperclip_agent_id)",
-        "task history (execution_runs, heartbeat_runs)",
-        "task sessions under previous adapter_type",
-        "cumulative token/cost accounting",
-      ],
-      reset: [
-        "agent_runtime_state.session_id",
-        "agent_runtime_state.state_json",
-        "agent_runtime_state.last_run_id",
-        "agent_runtime_state.last_run_status",
-        "agent_runtime_state.last_error",
-        "agent_runtime_state.adapter_type (updated to new provider)",
-      ],
-    },
+    message: `Provider switched from ${plan.currentProvider} to ${targetProvider} for agent '${plan.agentName}'.`,
+    activation: plan.activation,
+    changes: plan.stateChanges,
     inFlightDetails: null,
+    plan,
   };
 }
 
-/* ── In-Flight Detection ── */
+/* ══════════════════════════════════════════
+   Backward-compatible re-exports
+   ══════════════════════════════════════════ */
+
+/** @deprecated Use SwitchStateChanges instead */
+export type ProviderSwitchChanges = SwitchStateChanges;
+
+/* ══════════════════════════════════════════
+   Helpers
+   ══════════════════════════════════════════ */
+
+function notFoundPlan(agentIdOrSlug: string): SwitchPlan {
+  return {
+    allowed: false,
+    mode: "blocked",
+    agentId: agentIdOrSlug,
+    agentName: "unknown",
+    currentProvider: "unknown",
+    targetProvider: "unknown",
+    blockReason: "agent_not_found",
+    summary: `Agent '${agentIdOrSlug}' not found.`,
+    blockers: [{ code: "agent_not_found", message: `Agent '${agentIdOrSlug}' not found.` }],
+    warnings: [],
+    activation: null,
+    inFlight: null,
+    stateChanges: null,
+    currentProviderDisplay: { displayName: "unknown", tier: 0, tierLabel: "Unknown" },
+    targetProviderDisplay: null,
+  };
+}
 
 function checkInFlightExecution(
   db: ReturnType<typeof getOrchestrationDb>,
@@ -330,10 +599,7 @@ function checkInFlightExecution(
   };
 }
 
-/* ── Helpers ── */
-
 function normalizeAdapterType(adapterType: string): string {
-  // "openclaw" and "openclaw-heartbeat" are the same provider
   if (adapterType === "openclaw-heartbeat") return "openclaw";
   return adapterType;
 }
