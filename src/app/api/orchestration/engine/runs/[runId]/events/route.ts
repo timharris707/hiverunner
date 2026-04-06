@@ -307,6 +307,38 @@ function buildExecutionRunResponse(
     : undefined;
 
   const usage = safeJsonParse(row.token_usage_json);
+  const anthropicStructuredTelemetry =
+    row.provider === "anthropic" &&
+    !!usage &&
+    typeof usage === "object" &&
+    (usage as Record<string, unknown>).structuredTelemetry === true;
+  const anthropicSummaryText =
+    row.provider === "anthropic" &&
+    !!usage &&
+    typeof usage === "object" &&
+    typeof (usage as Record<string, unknown>).resultText === "string"
+      ? String((usage as Record<string, unknown>).resultText).trim()
+      : "";
+  const transcriptEntries = [
+    ...agentComments.map((c) => ({
+      id: c.id,
+      body: c.body,
+      type: c.type,
+      source: c.source,
+      authorName: c.agent_name,
+      ts: new Date(c.created_at).getTime(),
+    })),
+    ...(row.provider === "anthropic" && agentComments.length === 0 && anthropicSummaryText
+      ? [{
+          id: `${row.id}:anthropic-summary`,
+          body: anthropicSummaryText,
+          type: "comment",
+          source: "anthropic",
+          authorName: row.agent_name ?? "Anthropic",
+          ts: row.completed_at ? new Date(row.completed_at).getTime() : new Date(row.created_at).getTime(),
+        }]
+      : []),
+  ];
 
   // Determine effective tier: cap at the adapter's declared maximum.
   // Try runtime registry first, fall back to static product descriptors
@@ -315,7 +347,11 @@ function buildExecutionRunResponse(
   const adapterMaxTier = adapter?.maxTier
     ?? PROVIDER_PRODUCT_DESCRIPTORS.find((p) => p.providerId === row.provider)?.maxTier
     ?? ObservabilityTier.PostRun;
-  const dataTier = timeline.length > 0 ? ObservabilityTier.ActionDetection : ObservabilityTier.Milestones;
+  const dataTier = timeline.length > 0
+    ? ObservabilityTier.ActionDetection
+    : anthropicStructuredTelemetry
+      ? ObservabilityTier.StructuredTools
+      : ObservabilityTier.Milestones;
   const effectiveTier = Math.min(dataTier, adapterMaxTier) as ObservabilityTier;
 
   return NextResponse.json({
@@ -344,19 +380,14 @@ function buildExecutionRunResponse(
       : null,
     context: null,
     transcript: {
-      entries: agentComments.map((c) => ({
-        id: c.id,
-        body: c.body,
-        type: c.type,
-        source: c.source,
-        authorName: c.agent_name,
-        ts: new Date(c.created_at).getTime(),
-      })),
+      entries: transcriptEntries,
       provenance: {
         label: row.provider === "paperclip"
           ? "Paperclip issue comments"
           : row.provider === "codex"
             ? "Codex CLI output"
+            : row.provider === "anthropic"
+              ? "Claude Code CLI summary"
             : "Persisted agent comments",
         note: row.provider === "paperclip"
           ? agentComments.length > 0
@@ -364,12 +395,18 @@ function buildExecutionRunResponse(
             : "No comments synced from Paperclip for this run."
           : row.provider === "codex"
             ? "Codex CLI does not emit a structured transcript. Full output is captured by the build queue but not imported as comments."
+            : row.provider === "anthropic"
+              ? anthropicSummaryText
+                ? "Structured Claude Code telemetry was captured from stream-json output. This transcript entry is the final assistant summary, not a full replay log."
+                : "Claude Code emitted structured stream-json telemetry for this run, but a full transcript is not persisted."
             : agentComments.length > 0
               ? "Partial proxy for agent output. Full transcript is not persisted."
               : "No agent comments found for this run window.",
-        totalEntries: agentComments.length,
+        totalEntries: transcriptEntries.length,
         source: row.provider === "paperclip" ? "paperclip_bridge"
-          : row.provider === "codex" ? "codex_cli" : "comments",
+          : row.provider === "codex" ? "codex_cli"
+          : row.provider === "anthropic" ? "anthropic_cli"
+          : "comments",
         fullTranscriptAvailable: false,
       },
     },
@@ -380,6 +417,8 @@ function buildExecutionRunResponse(
           ? "Paperclip bridge sync"
           : row.provider === "codex"
             ? "Codex CLI execution"
+            : row.provider === "anthropic"
+              ? "Claude Code CLI stream-json"
             : timeline.length > 0
               ? "Reconstructed from linked heartbeat cycles"
               : "Post-run metadata only",
@@ -387,6 +426,8 @@ function buildExecutionRunResponse(
           ? "Events from Paperclip issue comments imported via bridge sync. Paperclip is poll-based — no live streaming. Comments represent what the agent wrote on the Paperclip issue."
           : row.provider === "codex"
             ? "Run lifecycle from Codex CLI execution (codex exec --full-auto). CLI is batch — no live streaming. No structured tool events. Token usage not available from CLI output."
+            : row.provider === "anthropic"
+              ? "Run lifecycle and structured telemetry came from Claude Code CLI stream-json output. Live text/tool/thinking data was available during execution; this run detail view only persists summarized post-run telemetry."
             : timeline.length > 0
               ? "Events may be from adjacent heartbeat cycles sharing this session. Not all runs have engine events."
               : "No in-flight events available. Only run status is known.",
@@ -394,6 +435,8 @@ function buildExecutionRunResponse(
           ? ["execution_runs", "comments (source=paperclip)"]
           : row.provider === "codex"
             ? ["execution_runs"]
+            : row.provider === "anthropic"
+              ? ["execution_runs (structured telemetry)"]
             : timeline.length > 0 ? ["heartbeat_run_events", "comments"] : ["execution_runs"],
       },
       runTable: "execution_runs",

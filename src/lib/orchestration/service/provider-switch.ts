@@ -163,7 +163,7 @@ export interface SwitchPlan {
  * if the switch were executed.
  *
  * @param agentIdOrSlug - Agent ID, slug, or name
- * @param targetProvider - Target adapter_type value ("openclaw" or "paperclip")
+ * @param targetProvider - Target adapter_type value (for example "openclaw", "paperclip", "codex", or "anthropic")
  * @param env - Environment variables (for activation checks)
  */
 export function computeSwitchPlan(

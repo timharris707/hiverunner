@@ -145,6 +145,12 @@ export function checkProviderEnvConfigured(
     return { configured: true, missing: [] };
   }
 
+  if (providerId === "anthropic") {
+    const missing: string[] = [];
+    if (!env.ANTHROPIC_API_KEY) missing.push("ANTHROPIC_API_KEY");
+    return { configured: missing.length === 0, missing };
+  }
+
   // Unknown/planned providers are never env-configured
   return { configured: false, missing: ["(provider not implemented)"] };
 }
@@ -162,9 +168,10 @@ export function checkProviderEnvConfigured(
  * database table. For now, inline is honest about the scope.
  */
 const MODEL_PROVIDER_COMPAT: Record<string, string[]> = {
-  // Anthropic models — work on OpenClaw
-  "anthropic/claude-opus-4-6": ["openclaw-heartbeat", "openclaw"],
-  "anthropic/claude-sonnet-4-6": ["openclaw-heartbeat", "openclaw"],
+  // Anthropic models — work on OpenClaw and Anthropic CLI
+  "anthropic/claude-opus-4-6": ["openclaw-heartbeat", "openclaw", "anthropic"],
+  "anthropic/claude-sonnet-4-6": ["openclaw-heartbeat", "openclaw", "anthropic"],
+  "anthropic/claude-haiku-3-5": ["openclaw-heartbeat", "openclaw", "anthropic"],
   // OpenAI models — work on OpenClaw (via adapter), Paperclip, and Codex natively
   "openai-codex/gpt-5.4": ["openclaw-heartbeat", "openclaw", "paperclip", "codex"],
   // Google models — work on OpenClaw (via adapter)
@@ -439,6 +446,8 @@ export function mapAdapterTypeToProviderId(adapterType: string): string {
       return "openclaw-heartbeat";
     case "paperclip":
       return "paperclip";
+    case "anthropic":
+      return "anthropic";
     default:
       return adapterType;
   }
@@ -477,6 +486,10 @@ function checkExternalIdLinked(
     // The build-queue dispatches work via `codex exec` CLI args,
     // not via an agent API that requires a linked remote ID.
     return { linked: true, detail: "Codex is CLI-based. No external agent ID required." };
+  }
+
+  if (targetProviderId === "anthropic") {
+    return { linked: true, detail: "Anthropic uses Claude Code CLI. No external agent ID required." };
   }
 
   // Planned providers don't have external ID requirements yet

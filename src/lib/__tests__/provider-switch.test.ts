@@ -81,6 +81,7 @@ process.env.OPENCLAW_WORKSPACE_ROOT = process.env.OPENCLAW_WORKSPACE_ROOT || "/t
 process.env.PAPERCLIP_API_URL = process.env.PAPERCLIP_API_URL || "https://paperclip.test.com";
 process.env.PAPERCLIP_API_KEY = process.env.PAPERCLIP_API_KEY || "pk-test";
 process.env.PAPERCLIP_COMPANY_ID = process.env.PAPERCLIP_COMPANY_ID || "company-test";
+process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "anthropic-test";
 
 /* ── Run ── */
 
@@ -160,6 +161,15 @@ try {
     assert(plan.warnings.length > 0, "should have warnings");
     assert(plan.warnings.some((w) => w.code === "tier_downgrade"), "tier downgrade warning");
     assert(plan.warnings.some((w) => w.code === "capability_loss"), "capability loss warning");
+  });
+
+  test("preflight: switchable — openclaw agent to anthropic", () => {
+    const plan = computeSwitchPlan(`${TEST_PREFIX}oc`, "anthropic");
+    assert(plan.allowed === true, "should be allowed");
+    assert(plan.mode === "switchable", "mode should be switchable");
+    assert(plan.blockers.length === 0, "no blockers");
+    assert(plan.targetProviderDisplay !== null, "target display included");
+    assert(plan.targetProviderDisplay?.tier === 4, "anthropic tier");
   });
 
   test("preflight: switchable — has provider display info", () => {

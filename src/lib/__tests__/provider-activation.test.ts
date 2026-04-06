@@ -56,6 +56,7 @@ const fullEnv: Record<string, string | undefined> = {
   PAPERCLIP_API_URL: "https://paperclip.example.com",
   PAPERCLIP_API_KEY: "pk-test-key",
   PAPERCLIP_COMPANY_ID: "company-123",
+  ANTHROPIC_API_KEY: "anthropic-test-key",
   HOME: "/Users/test",
 };
 
@@ -125,6 +126,18 @@ test("checkProviderEnvConfigured: paperclip missing vars", () => {
   assert(result.missing.includes("PAPERCLIP_API_KEY"), "missing PAPERCLIP_API_KEY");
 });
 
+test("checkProviderEnvConfigured: anthropic in full env", () => {
+  const result = checkProviderEnvConfigured("anthropic", fullEnv);
+  assert(result.configured === true, "anthropic should be configured");
+  assert(result.missing.length === 0, "no missing vars");
+});
+
+test("checkProviderEnvConfigured: anthropic missing key", () => {
+  const result = checkProviderEnvConfigured("anthropic", openclawOnlyEnv);
+  assert(result.configured === false, "anthropic should not be configured");
+  assert(result.missing.includes("ANTHROPIC_API_KEY"), "missing ANTHROPIC_API_KEY");
+});
+
 test("checkProviderEnvConfigured: unknown provider", () => {
   const result = checkProviderEnvConfigured("hermes", fullEnv);
   assert(result.configured === false, "unknown provider should not be configured");
@@ -145,6 +158,11 @@ test("model compat: gpt-5.4 on paperclip = compatible", () => {
 test("model compat: claude-opus on paperclip = incompatible", () => {
   const result = checkModelProviderCompatibility("anthropic/claude-opus-4-6", "paperclip");
   assert(result.status === "incompatible", "should be incompatible");
+});
+
+test("model compat: claude-opus on anthropic = compatible", () => {
+  const result = checkModelProviderCompatibility("anthropic/claude-opus-4-6", "anthropic");
+  assert(result.status === "compatible", "should be compatible");
 });
 
 test("model compat: unknown model = unknown status", () => {
@@ -184,6 +202,14 @@ test("activation: dual-id agent → paperclip in full env", () => {
   assert(result.consequences!.tierChange!.to.tier === 1, "to tier 1");
 });
 
+test("activation: openclaw agent → anthropic in full env", () => {
+  const result = checkProviderActivation(openclawAgent, "anthropic", fullEnv);
+  assert(result.canActivate === true, "should be activatable");
+  const idCheck = result.checks.find((c) => c.check === "external_id_linked");
+  assert(idCheck?.passed === true, "anthropic should not require external ID linkage");
+  assert(result.consequences?.tierChange?.to.tier === 4, "anthropic should be tier 4");
+});
+
 test("activation: paperclip agent → openclaw in full env", () => {
   const result = checkProviderActivation(paperclipAgent, "openclaw-heartbeat", fullEnv);
   // Should fail: agent has no openclaw_agent_id
@@ -209,6 +235,13 @@ test("activation: unknown provider", () => {
 test("activation: paperclip without env vars", () => {
   const result = checkProviderActivation(dualIdAgent, "paperclip", openclawOnlyEnv);
   assert(result.canActivate === false, "should not be activatable without paperclip env");
+  const envCheck = result.checks.find((c) => c.check === "env_configured");
+  assert(envCheck?.passed === false, "env_configured should fail");
+});
+
+test("activation: anthropic without env vars", () => {
+  const result = checkProviderActivation(openclawAgent, "anthropic", openclawOnlyEnv);
+  assert(result.canActivate === false, "should not be activatable without anthropic env");
   const envCheck = result.checks.find((c) => c.check === "env_configured");
   assert(envCheck?.passed === false, "env_configured should fail");
 });
@@ -248,6 +281,7 @@ test("checkAllProviderActivations: returns results for all known providers", () 
   const results = checkAllProviderActivations(openclawAgent, fullEnv);
   assert("openclaw-heartbeat" in results, "should include openclaw");
   assert("paperclip" in results, "should include paperclip");
+  assert("anthropic" in results, "should include anthropic");
   assert("hermes" in results, "should include hermes");
   assert("byo-webhook" in results, "should include byo-webhook");
 });

@@ -23,6 +23,13 @@ import {
   bridgeCodexRunCompleted,
   bridgeCodexRunFailed,
 } from "@/lib/orchestration/codex-execution-bridge";
+import {
+  bridgeAnthropicRunStarted,
+  bridgeAnthropicRunCompleted,
+  bridgeAnthropicRunFailed,
+  bridgeAnthropicStdoutChunk,
+  summarizeAnthropicCliOutput,
+} from "@/lib/orchestration/anthropic-execution-bridge";
 import { dbGetTransitions } from "@/lib/tasks-db";
 
 const DATA_DIR = join(process.cwd(), "data");
@@ -435,7 +442,17 @@ function selectBuildExecutor(routing: any, task: any, projectName: string): Buil
     return {
       agentType: "claude-code",
       command: "claude",
-      args: ["--permission-mode", "bypassPermissions", "--model", fallbackModelKey, "--print", prompt],
+      args: [
+        "--permission-mode",
+        "bypassPermissions",
+        "--model",
+        fallbackModelKey,
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        prompt,
+      ],
       actualModelId: fallbackModel.id,
       actualModelName: fallbackModel.name,
       executor: "claude",
@@ -463,7 +480,17 @@ function selectBuildExecutor(routing: any, task: any, projectName: string): Buil
     return {
       agentType: "claude-code",
       command: "claude",
-      args: ["--permission-mode", "bypassPermissions", "--model", "sonnet", "--print", prompt],
+      args: [
+        "--permission-mode",
+        "bypassPermissions",
+        "--model",
+        "sonnet",
+        "--print",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        prompt,
+      ],
       actualModelId: fallbackModel.id,
       actualModelName: fallbackModel.name,
       executor: "claude",
@@ -479,7 +506,17 @@ function selectBuildExecutor(routing: any, task: any, projectName: string): Buil
   return {
     agentType: "claude-code",
     command: "claude",
-    args: ["--permission-mode", "bypassPermissions", "--model", claudeModelKey, "--print", prompt],
+    args: [
+      "--permission-mode",
+      "bypassPermissions",
+      "--model",
+      claudeModelKey,
+      "--print",
+      "--output-format",
+      "stream-json",
+      "--verbose",
+      prompt,
+    ],
     actualModelId: model.id,
     actualModelName: model.name,
     executor: "claude",
@@ -1120,7 +1157,13 @@ function nextQueuedTaskIdForAgent(buildLog: { builds: any[] }, agentId: string) 
 }
 
 function summarizeOutput(error: Error | null, stdout: string, stderr: string) {
-  const raw = error ? `${stderr || stdout || error.message}` : `${stdout || stderr || "Build completed successfully"}`;
+  const anthropicSummary = summarizeAnthropicCliOutput(
+    stdout,
+    stderr,
+    error ? error.message : "Build completed successfully",
+  );
+  const raw = anthropicSummary
+    ?? (error ? `${stderr || stdout || error.message}` : `${stdout || stderr || "Build completed successfully"}`);
   return raw.slice(-1500);
 }
 
@@ -2013,6 +2056,7 @@ async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMe
   let notifyText = "";
   let notifyTask: any = null;
   let codexSpawnFailData: { buildId: string; taskId: string; assignedAgent: string | null; startedAt: string; completedAt: string; error: string; agentType?: string } | null = null;
+  let anthropicSpawnFailData: { buildId: string; taskId: string; assignedAgent: string | null; startedAt: string; completedAt: string; error: string } | null = null;
 
   await withFactoryLock(async () => {
     const buildLog = readBuildLog();
@@ -2042,6 +2086,15 @@ async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMe
         error: buildError,
         agentType: entry.agentType,
       };
+    } else if (entry.agentType === "claude-code") {
+      anthropicSpawnFailData = {
+        buildId: entry.id,
+        taskId: entry.taskId,
+        assignedAgent: entry.assignedAgent || null,
+        startedAt: entry.startedAt || now,
+        completedAt: now,
+        error: buildError,
+      };
     }
 
     transitionTask(task, "blocked", "build-spawn", { reason: "Builder process failed to start" });
@@ -2063,6 +2116,18 @@ async function blockTaskForSpawnFailure(buildId: string, taskId: string, errorMe
   if (codexSpawnFailData) {
     const d = codexSpawnFailData;
     bridgeCodexRunFailed({
+      buildId: d.buildId,
+      factoryTaskId: d.taskId,
+      assignedAgent: d.assignedAgent,
+      startedAt: d.startedAt,
+      completedAt: d.completedAt,
+      durationMs: new Date(d.completedAt).getTime() - new Date(d.startedAt).getTime(),
+      error: d.error,
+    });
+  }
+  if (anthropicSpawnFailData) {
+    const d = anthropicSpawnFailData;
+    bridgeAnthropicRunFailed({
       buildId: d.buildId,
       factoryTaskId: d.taskId,
       assignedAgent: d.assignedAgent,
@@ -3155,6 +3220,17 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
     let exitSignal: NodeJS.Signals | null = null;
     let completion: { error: Error | null; stdout: string; stderr: string } | null = null;
     let finalized = false;
+    let anthropicBridgeStarted = false;
+    const pendingAnthropicChunks: string[] = [];
+
+    const isAnthropicBuilder = executor.command === "claude" && executor.args.includes("stream-json");
+
+    const flushAnthropicChunks = () => {
+      if (!anthropicBridgeStarted || pendingAnthropicChunks.length === 0) return;
+      for (const chunk of pendingAnthropicChunks.splice(0)) {
+        bridgeAnthropicStdoutChunk({ buildId: buildEntry.id, chunk });
+      }
+    };
 
     const finalizeIfReady = () => {
       if (!startupVerified || !completion || finalized) return;
@@ -3163,6 +3239,28 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
       const withExecutorNote = executor.fallbackReason
         ? `${executor.fallbackReason}\n\n${output}`
         : output;
+
+      if (isAnthropicBuilder) {
+        const durationMs = Date.now() - new Date(buildEntry.startedAt || Date.now()).getTime();
+        if (completion.error) {
+          bridgeAnthropicRunFailed({
+            buildId: buildEntry.id,
+            factoryTaskId: task.id,
+            assignedAgent: buildEntry.assignedAgent || null,
+            startedAt: buildEntry.startedAt || new Date().toISOString(),
+            completedAt: new Date().toISOString(),
+            durationMs,
+            error: withExecutorNote || completion.error.message || "Build failed",
+          });
+        } else {
+          bridgeAnthropicRunCompleted({
+            buildId: buildEntry.id,
+            completedAt: new Date().toISOString(),
+            durationMs,
+          });
+        }
+      }
+
       finalizeBuild(buildEntry.id, task.id, !completion.error, withExecutorNote).catch((err) => {
         console.error("Error finalizing build:", err);
       });
@@ -3212,6 +3310,19 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
       return;
     }
 
+    if (isAnthropicBuilder && child.stdout) {
+      child.stdout.setEncoding("utf8");
+      child.stdout.on("data", (chunk: string | Buffer) => {
+        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
+        if (!text) return;
+        if (!anthropicBridgeStarted) {
+          pendingAnthropicChunks.push(text);
+          return;
+        }
+        bridgeAnthropicStdoutChunk({ buildId: buildEntry.id, chunk: text });
+      });
+    }
+
     child.on("exit", (code, signal) => {
       exitCode = code;
       exitSignal = signal;
@@ -3220,6 +3331,20 @@ function spawnBuildProcess(task: any, buildEntry: any, projectName: string, proj
     child.on("spawn", async () => {
       clearTimeout(spawnTimeout);
       const pid = typeof child.pid === "number" ? child.pid : null;
+
+      if (isAnthropicBuilder && !anthropicBridgeStarted) {
+        anthropicBridgeStarted = true;
+        bridgeAnthropicRunStarted({
+          buildId: buildEntry.id,
+          factoryTaskId: task.id,
+          factoryTaskTitle: task.title,
+          assignedAgent: buildEntry.assignedAgent || null,
+          startedAt: buildEntry.startedAt || new Date().toISOString(),
+          modelId: executor.actualModelId,
+          modelName: executor.actualModelName,
+        });
+        flushAnthropicChunks();
+      }
 
       const stillAlive = await verifySpawnedProcess(pid);
       if (!stillAlive) {

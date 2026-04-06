@@ -332,6 +332,25 @@ export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
       "Codex uses reasoning internally but offers no CLI flag to control thinking depth and no post-execution reasoning telemetry.",
   },
   {
+    providerId: "anthropic",
+    displayName: "Anthropic",
+    maxTier: ObservabilityTier.StructuredTools,
+    integrationPath: "Claude Code CLI — process wrapper with structured stream-json output",
+    defaultAvailability: "available",
+    statusNote:
+      "Tier 4 via Claude Code CLI stream-json. Live text + structured tool/result events are real. " +
+      "Thinking is observable in telemetry, but run steering is not implemented.",
+    tokenUsageTruth: "exact",
+    costTruth: "exact",
+    thinkingControl: "implicit",
+    thinkingObservability: "exact",
+    telemetryNote:
+      "Claude Code CLI emits structured stream-json events with session ID, assistant text, thinking blocks, " +
+      "tool calls/results, exact token usage, and total_cost_usd. Mission Control captures that telemetry " +
+      "through the CLI bridge. Thinking is visible, but the current tier model stays at Tier 4 because " +
+      "pause/resume steering is not available through this integration.",
+  },
+  {
     providerId: "hermes",
     displayName: "Hermes Agent",
     maxTier: ObservabilityTier.StructuredTools,
@@ -382,13 +401,13 @@ export type KnownProviderDescriptor = ProviderProductDescriptor;
    ══════════════════════════════════════════════════════════════ */
 
 /**
- * The four execution providers Mission Control can route to.
+ * The execution providers Mission Control can route to.
  * This is the typed version of the `agents.adapter_type` column.
  *
  * NOT YET ENFORCED — current code uses freeform strings.
  * Phase 1 will constrain adapter_type to this union.
  */
-export type ExecutionProviderId = "openclaw" | "paperclip" | "codex";
+export type ExecutionProviderId = "openclaw" | "paperclip" | "codex" | "anthropic";
 
 /**
  * Agent's configured provider identity.

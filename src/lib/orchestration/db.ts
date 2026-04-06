@@ -1175,6 +1175,48 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE inbox_read_state ADD COLUMN archived_at TEXT;
     `,
   },
+  {
+    version: 37,
+    name: "execution_runs_add_anthropic_provider",
+    sql: `
+      -- Expand execution_runs.provider CHECK constraint to include 'anthropic'.
+      -- SQLite cannot ALTER CHECK constraints, so we recreate the table.
+      PRAGMA foreign_keys = OFF;
+
+      CREATE TABLE execution_runs_new (
+        id                TEXT PRIMARY KEY,
+        task_id           TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+        agent_id          TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        provider          TEXT NOT NULL CHECK (provider IN ('openclaw','paperclip','codex','anthropic')),
+        session_id        TEXT,
+        status            TEXT NOT NULL CHECK (status IN ('pending','running','completed','failed','cancelled')),
+        started_at        TEXT,
+        completed_at      TEXT,
+        error_message     TEXT,
+        token_usage_json  TEXT NOT NULL DEFAULT '{}',
+        duration_ms       INTEGER,
+        idempotency_key   TEXT,
+        created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO execution_runs_new SELECT * FROM execution_runs;
+      DROP TABLE execution_runs;
+      ALTER TABLE execution_runs_new RENAME TO execution_runs;
+
+      CREATE INDEX idx_execution_runs_task_created_at
+        ON execution_runs(task_id, created_at DESC);
+      CREATE INDEX idx_execution_runs_task_status
+        ON execution_runs(task_id, status);
+      CREATE INDEX idx_execution_runs_provider_status
+        ON execution_runs(provider, status);
+      CREATE UNIQUE INDEX idx_execution_runs_idempotency_key
+        ON execution_runs(idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      PRAGMA foreign_keys = ON;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

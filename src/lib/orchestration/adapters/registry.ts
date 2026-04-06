@@ -18,6 +18,7 @@ import type {
 import { createOpenClawHeartbeatAdapter } from "./openclaw-heartbeat";
 import { createPaperclipAdapter } from "./paperclip";
 import { createCodexAdapter } from "./codex";
+import { createAnthropicAdapter } from "./anthropic";
 
 /* ── Types ── */
 
@@ -101,6 +102,7 @@ export function registerAdapter(
  *   - OpenClaw Heartbeat (Tier 3 — live text + action detection)
  *   - Paperclip (Tier 1 — milestone lifecycle via bridge sync)
  *   - Codex (Tier 1 — lifecycle events via CLI process wrapper)
+ *   - Anthropic (Tier 4 — Claude Code CLI stream-json bridge)
  */
 export function initAdapterRegistry(): void {
   if (initialized) return;
@@ -119,6 +121,10 @@ export function initAdapterRegistry(): void {
   // Codex adapter (CLI-based execution, lifecycle events only)
   const codexAdapter = createCodexAdapter();
   registerAdapter(codexAdapter);
+
+  // Anthropic adapter (Claude Code CLI stream-json bridge)
+  const anthropicAdapter = createAnthropicAdapter();
+  registerAdapter(anthropicAdapter);
 }
 
 /**

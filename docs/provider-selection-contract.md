@@ -30,6 +30,8 @@ The system-level backend that runs agent sessions.
 |-------------|-----------|-------------------------------|
 | `openclaw`  | Available | Gateway WebSocket, CLI sessions |
 | `paperclip` | Available | Bridge sync, REST API wake     |
+| `anthropic` | Available | Claude Code CLI, stream-json process wrapper |
+| `codex`     | Available | Codex CLI, batch process wrapper |
 
 This is stored as `agents.adapter_type` (default `'openclaw'`).
 It is also derivable from the env-level
@@ -129,13 +131,17 @@ paperclip_agent_id   TEXT UNIQUE
  */
 interface AgentProviderConfig {
   /** Which execution backend runs this agent */
-  executionProvider: "openclaw" | "paperclip";
+  executionProvider: "openclaw" | "paperclip" | "anthropic" | "codex";
 
   /**
    * Provider-specific configuration bundle.
    * Shape depends on executionProvider. NOT portable across providers.
    */
-  providerConfig: OpenClawProviderConfig | PaperclipProviderConfig;
+  providerConfig:
+    | OpenClawProviderConfig
+    | PaperclipProviderConfig
+    | AnthropicProviderConfig
+    | CodexProviderConfig;
 
   /**
    * Model selection. Semi-portable across providers.
@@ -165,6 +171,19 @@ interface PaperclipProviderConfig {
   boardId?: string;
   timeoutSec: number;
   graceSec: number;
+}
+
+interface AnthropicProviderConfig {
+  timeoutSec: number;
+  graceSec: number;
+  model?: string;
+  cliAuthSource?: "env";
+}
+
+interface CodexProviderConfig {
+  timeoutSec: number;
+  graceSec: number;
+  model?: string;
 }
 ```
 
@@ -226,13 +245,14 @@ The `PROVIDER_PRODUCT_DESCRIPTORS` list is static. There is no runtime
 check for whether a provider is actually available for a given
 agent/company/environment. For example:
 - Paperclip requires `PAPERCLIP_API_URL` and `PAPERCLIP_API_KEY`
+- Anthropic requires `ANTHROPIC_API_KEY`
 - OpenClaw requires a valid `openclaw_agent_id` and gateway connection
 - Not all agents have both `openclaw_agent_id` and `paperclip_agent_id`
 
 **Required**: A `canActivateProvider(agentId, providerId)` function that
 checks:
 - Environment variables present
-- Agent has the required external ID (or can create one)
+- Agent has the required external ID when the provider needs one
 - Provider adapter is registered and connected
 - Company has access to this provider
 
@@ -343,9 +363,13 @@ agent has no `paperclip_agent_id`:
 - UI should explain: "This agent is not linked to a Paperclip agent"
 - Future: auto-create Paperclip agent on demand (Phase 3+)
 
+CLI-backed providers like Anthropic and Codex do not require a linked
+external agent ID. Activation for those providers is instead gated on
+environment readiness and model compatibility.
+
 ### Provider environment not configured
 
-If Paperclip env vars are missing:
+If Paperclip or Anthropic env vars are missing:
 - Provider shows as "Unavailable" (not "Available")
 - Switch is blocked with explanation
 - No fake "planned" status for providers that are just misconfigured

@@ -1,4 +1,4 @@
-export type OrchestrationExecutionProvider = "openclaw" | "paperclip" | "codex";
+export type OrchestrationExecutionProvider = "openclaw" | "paperclip" | "codex" | "anthropic";
 
 const DEFAULT_PROVIDER: OrchestrationExecutionProvider = "openclaw";
 
@@ -18,6 +18,9 @@ export function getOrchestrationExecutionProvider(
   }
   if (raw === "codex") {
     return "codex";
+  }
+  if (raw === "anthropic") {
+    return "anthropic";
   }
   if (raw === "openclaw") {
     return "openclaw";
