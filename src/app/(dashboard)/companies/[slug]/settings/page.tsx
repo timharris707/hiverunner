@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertTriangle, Settings, Upload, Download } from "lucide-react";
+import { AlertTriangle, Settings } from "lucide-react";
 
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
 import { getCompanyTheme, listCompanies } from "@/lib/orchestration/client";
@@ -224,23 +224,11 @@ export default function CompanySettingsPage() {
 
           {/* ── COMPANY PACKAGES ── */}
           <Section title="Company Packages">
-            <p style={{ fontSize: 13, color: P.textSec, marginBottom: 10 }}>
-              Import and export have moved to dedicated pages accessible from the Org Chart header.
+            <p style={{ fontSize: 13, color: P.muted, fontStyle: "italic" }}>
+              Company import and export are not yet available in Mission Control.
+              This feature requires package assembly, selective file export, and
+              import conflict resolution which have not been implemented.
             </p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
-                color: P.text, cursor: "pointer",
-              }}><Download size={14} /> Export</button>
-              <button type="button" style={{
-                display: "inline-flex", alignItems: "center", gap: 6,
-                padding: "8px 16px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-                border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
-                color: P.text, cursor: "pointer",
-              }}><Upload size={14} /> Import</button>
-            </div>
           </Section>
 
           {/* ── EXECUTION DEFAULTS ── */}

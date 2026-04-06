@@ -93,8 +93,8 @@ export default function CompanyOrgPage() {
           Org Chart
         </h1>
         <div style={{ display: "flex", gap: 6 }}>
-          <HeaderButton icon={<Upload size={13} />} label="Import company" />
-          <HeaderButton icon={<Download size={13} />} label="Export company" />
+          <HeaderButton icon={<Upload size={13} />} label="Import company" disabled />
+          <HeaderButton icon={<Download size={13} />} label="Export company" disabled />
         </div>
       </div>
 
@@ -105,19 +105,21 @@ export default function CompanyOrgPage() {
 }
 
 /* ─── Header button ─── */
-function HeaderButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+function HeaderButton({ icon, label, disabled }: { icon: React.ReactNode; label: string; disabled?: boolean }) {
   return (
     <button
       type="button"
-      title={label}
+      title={disabled ? `${label} — not yet available` : label}
+      disabled={disabled}
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,
         padding: "6px 14px", borderRadius: 6,
         background: P.surface, border: `1px solid ${P.cardBorder}`,
-        color: P.text, fontSize: 12, fontWeight: 500,
-        cursor: "pointer", transition: "border-color 0.15s",
+        color: disabled ? P.muted : P.text, fontSize: 12, fontWeight: 500,
+        cursor: disabled ? "not-allowed" : "pointer", transition: "border-color 0.15s",
+        opacity: disabled ? 0.5 : 1,
       }}
-      onMouseEnter={(e) => { e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"; }}
+      onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.borderColor = "rgba(255,255,255,0.18)"; }}
       onMouseLeave={(e) => { e.currentTarget.style.borderColor = P.cardBorder; }}
     >
       {icon}

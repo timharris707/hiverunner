@@ -16,6 +16,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `F3` project workspaces — workspace list + agent workspace detail routes exist with DB + filesystem backing; project and agent workspace paths are convention-derived (not persisted), which limits trust
 - Closed project configuration execution truth:
   - `D1` project configuration no longer shows misleading placeholder fields; every execution-context claim is labeled with its source (Persisted, Convention, or Not available)
+- Closed import/export copy honesty:
+  - `D2` settings and org page no longer imply import/export dedicated pages exist; copy replaced with honest unavailability statement, dead-end buttons removed or disabled
 - Partially closed routine management:
   - `F4` routine detail — first-class detail route with editable configuration, status controls, run history, and honest trigger limitations
 - Partially closed the main agent-operability stack:
@@ -29,21 +31,23 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | Bucket | Count | Notes |
 | --- | ---: | --- |
 | Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
-| Closed | 5 | Includes the two original ship blockers, tasks empty-state, shared agent-status truth, and project configuration truth |
+| Closed | 6 | Includes the two original ship blockers, tasks empty-state, shared agent-status truth, project configuration truth, and import/export copy honesty |
 | Partially closed | 6 | Project workspaces and routine detail added; all six are materially better but not yet at full parity |
-| Still open | 5 | Remaining gaps are still material |
+| Still open | 4 | Remaining gaps are minor UX items and one major feature gap (import/export routes) |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `F5` + `D2` Company import/export routes and honesty cleanup
-   Reason: the current UI still implies route-backed workflows that do not actually exist.
-3. `A1` Agent configuration backing depth
+1. `A1` Agent configuration backing depth
    Reason: the operator surface is better now, but more runtime-control fields still need real backing or explicit provider-limited framing.
-4. `U1` Inbox archive workflow
+2. `U1` Inbox archive workflow
    Reason: the inbox is functional but archive/cleanup affordances are still weaker than Paperclip's.
-5. `U2` Project last-tab memory
+3. `U2` Project last-tab memory
    Reason: Mission Control still resets users to the default project tab on navigation.
+4. `U3` Company skill detail per-file navigation
+   Reason: skill detail is still shallower than Paperclip's file-level browsing model.
+5. `F5` Company import/export routes
+   Reason: the honesty gap (D2) is now closed, but the actual feature remains unimplemented. Large scope, lower priority than the above.
 
 ## Closed
 
@@ -54,6 +58,7 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | F2 | Approvals queue/index missing | `/NEV/approvals`, `/NEV/approvals/pending`, `/NEV/approvals/all` | Ship blocker | Feature/functionality | Closed | Mission Control now has a real company approvals queue with `pending` and `all` states, nav entry, empty states, and detail drill-in. | `3d5b5eed` | Iterate only if approval depth or actions need parity beyond the queue itself. |
 | T1 | Agent shown as active when not actually active | Shared agent-status surfaces, including `/NEV/agents`, `/NEV/team`, `/NEV/agents/forge/configuration`, `/NEV/agents/forge/skills`, `/NEV/agents/henry/dashboard` | Major | Data/truth/provenance | Closed | Shared agent status now comes from fresh execution evidence or fresh queued/running heartbeat evidence. Stale persisted `agents.status = working` and stale `execution_runs.status = running` rows no longer create false-positive `working` or `LIVE` states on the read path. | — | Keep the freshness thresholds aligned with engine semantics if heartbeat or execution timing policy changes. |
 | D1 | Project configuration execution truth | `/NEV/projects/:projectSlug/configuration` | Major | Data/truth/provenance | Closed | The old Codebase section showed "—" dashes for Repo and Local Folder fields that had no schema backing, implying the data was merely empty rather than unsupported. The section was replaced with an honest Execution Context surface: company workspace root (Persisted badge, DB-backed), project directory (Convention badge, convention-derived and filesystem-verified), repository (explicitly stated as not available — no column in schema), assigned agents with workspace existence indicators, and a provenance note explaining the data model. The misleading duplicated "Updated" date (which used `created_at`) was also removed. | — | If a persisted repo or workspace_path column is added to the projects table, upgrade the Convention badges to Persisted. |
+| D2 | Settings/import-export copy honesty | `/NEV/settings`, `/NEV/org` | Major | Data/truth/provenance | Closed | The settings page said "Import and export have moved to dedicated pages accessible from the Org Chart header" — those pages did not exist. Two dead-end Export/Import buttons had no handlers. The org page had Import/Export header buttons with no onClick. Fixed: settings copy replaced with honest unavailability statement, dead-end buttons removed, org header buttons made visually disabled with "not yet available" tooltips. The UI no longer implies functionality that does not exist. | — | When import/export routes are actually implemented (F5), re-enable the org header buttons and link them. |
 
 ## Partially Closed
 
@@ -70,11 +75,10 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F5 | Company import/export still not route-backed | Current entry points live in org/settings, but no dedicated routes | Major | Feature/functionality | Open | The audit concern still stands: entry points exist, but the dedicated workflow pages are not present on this branch. | — | Either ship real import/export pages or remove/replace wording that implies those routes already exist. |
+| F5 | Company import/export not route-backed | No dedicated import/export routes | Major | Feature/functionality | Open | The copy/honesty gap (D2) is now closed — settings and org no longer imply these pages exist. However, the actual import/export workflow (package assembly, selective file export, zip upload, collision resolution) remains unimplemented. Paperclip has full export with file tree and selective download, plus import with GitHub/zip source and conflict strategy. | — | Implement real import/export pages if the feature is prioritized. This is a major feature, not a truth gap. |
 | U1 | Inbox archive workflow weaker than Paperclip | `/NEV/inbox` | Minor | UX/interaction | Open | This branch still has no clearly visible archive action on the live inbox list. | — | Add explicit row-level or bulk archive affordances on the inbox surface. |
 | U2 | Project last-tab memory missing | `/NEV/projects/:projectSlug` redirect behavior | Minor | UX/interaction | Open | Mission Control still resets users back to the default project tab instead of preserving recent subpage context. | — | Preserve the last visited project subpage or make the redirect stateful. |
 | U3 | Company skill detail lacks per-file navigation depth | `/NEV/skills/:skillId` | Minor | UX/interaction | Open | Agent-skills parity improved, but the company skill detail surface is still shallower than Paperclip’s file-level navigation model. | — | Add per-file routes or stronger in-surface file browsing on the company skills detail page. |
-| D2 | Settings/import-export copy still overstates availability | `/NEV/settings` | Major | Data/truth/provenance | Open | The honesty issue remains unless and until the route-backed import/export surfaces actually exist. | — | Align the copy to the real state immediately if the routes are not coming next. |
 
 ## Deferred / Intentionally Divergent
 
