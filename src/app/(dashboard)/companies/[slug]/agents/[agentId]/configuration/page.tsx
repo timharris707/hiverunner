@@ -16,7 +16,6 @@ import {
   Radio,
   Layers,
 } from "lucide-react";
-import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { useAgentProfile, A } from "../layout";
 import { listCompanyAgents } from "@/lib/orchestration/client";
 import {
@@ -31,8 +30,6 @@ import type {
 } from "@/lib/orchestration/adapters/types";
 import {
   TierBadge,
-  CapabilityRow,
-  CapabilityGrid,
   AvailabilityBadge,
   CAPABILITY_LABELS,
 } from "@/components/orchestration/ProviderPresentation";
@@ -66,6 +63,21 @@ const MODEL_OPTIONS = [
   "google/gemini-3.1-pro-preview",
 ];
 
+const UI = {
+  sectionBg: "rgba(28,25,23,0.72)",
+  sectionBorder: "rgba(120,113,108,0.18)",
+  surface: "rgba(17,14,11,0.72)",
+  surfaceBorder: "rgba(120,113,108,0.22)",
+  surfaceStrong: "rgba(24,20,16,0.92)",
+  accentSurface: "rgba(217,119,6,0.05)",
+  accentBorder: "rgba(217,119,6,0.16)",
+  divider: "rgba(120,113,108,0.15)",
+  label: "#78716c",
+  shadow: "0 18px 40px rgba(0,0,0,0.18)",
+};
+
+const FIELD_LABEL_WIDTH = 176;
+
 /* ── Provider resolution helpers ── */
 
 function resolveAvailability(
@@ -91,6 +103,10 @@ export default function AgentConfigurationPage() {
 
   const openclawId = agent.openclawAgentId || agent.id;
   const resolved = resolveAgentProviderPresentation(agent);
+  const resolvedReportsToName =
+    agent.reportingToName
+    || peers.find((p) => (p.openclawAgentId || p.id) === (agent.reportingTo ?? ""))?.name
+    || null;
 
   useEffect(() => {
     fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
@@ -127,14 +143,13 @@ export default function AgentConfigurationPage() {
   );
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 16 }}>
       {/* ── Identity ── */}
-      <Section icon={<Settings size={13} />} title="Identity">
-        <EditableIcon
-          label="Icon / Avatar"
-          value={agent.emoji}
-          onSave={(v) => patchConfig({ emoji: v })}
-        />
+      <Section
+        icon={<Settings size={14} />}
+        title="Identity"
+        subtitle="Editable profile details used across Mission Control."
+      >
         <EditableText
           label="Name"
           value={agent.name}
@@ -153,7 +168,17 @@ export default function AgentConfigurationPage() {
             ...peers.map((p) => ({ value: p.openclawAgentId || p.id, label: p.name })),
           ]}
           onSave={(v) => patchConfig({ reportsTo: v || null })}
-          helpText={agent.reportingToName ? `Resolved manager: ${agent.reportingToName}` : "No manager linked"}
+          displayValue={
+            resolvedReportsToName
+            || (!agent.reportingTo ? "\u2014 None \u2014" : "Unresolved manager link")
+          }
+          helpText={
+            resolvedReportsToName
+              ? `Reports to ${resolvedReportsToName}`
+              : agent.reportingTo
+                ? "Stored manager link no longer resolves to an active agent."
+                : "No manager linked"
+          }
         />
         <EditableTextarea
           label="Capabilities"
@@ -165,67 +190,71 @@ export default function AgentConfigurationPage() {
       {/* ══════════════════════════════════════════
           RUNTIME & PROVIDER
           ══════════════════════════════════════════ */}
-      <Section icon={<Radio size={13} />} title="Runtime & Provider">
-        {/* ── Current Provider Identity Card ── */}
-        <div style={{
-          padding: "12px 14px", borderRadius: 8, marginBottom: 12,
-          background: "rgba(217,119,6,0.04)",
-          border: "1px solid rgba(217,119,6,0.15)",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-            <Shield size={14} style={{ color: A.accent }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>
-              {resolved.displayName}
-            </span>
-            <TierBadge tier={resolved.tier} />
-            <span style={{ fontSize: 10, color: A.muted, marginLeft: "auto" }}>
-              current provider
-            </span>
-          </div>
-          <div style={{ fontSize: 11, color: A.textSec, marginBottom: 10, lineHeight: 1.5 }}>
-            {resolved.integrationPath}
-          </div>
-
-          {/* ── Capability Matrix ── */}
-          <div style={{ marginTop: 4 }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: A.muted, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
-              Observability Capabilities
-            </div>
-            <CapabilityGrid capabilities={resolved.capabilities} />
-          </div>
-        </div>
-
-        {/* ── Model ── */}
-        <EditableSelect
-          label="Model"
-          value={oc?.model || agent.model || ""}
-          options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
-          onSave={(v) => patchConfig({ model: v })}
-          mono
-        />
-
-        {/* ── Provider Comparison ── */}
-        <button
-          onClick={() => setComparisonOpen(!comparisonOpen)}
+      <Section
+        icon={<Radio size={14} />}
+        title="Runtime & Provider"
+        subtitle="Separate the execution runtime from the provider identity and its observability guarantees."
+      >
+        <div
           style={{
-            display: "flex", alignItems: "center", gap: 6,
-            marginTop: 8, padding: 0, background: "none", border: "none",
-            color: A.accent, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+            gap: 14,
+            marginBottom: 14,
           }}
         >
-          {comparisonOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <Layers size={11} />
-          Provider comparison (read-only)
-        </button>
+          <SummaryCard
+            eyebrow="Current runtime"
+            title="Execution runtime"
+            subtitle="Local workspace and bridge details for the active agent runtime."
+          >
+            <SummaryListRow label="Model" value={oc?.model || agent.model || "\u2014"} mono />
+            <SummaryListRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
+            <SummaryListRow label="Agent dir" value={oc?.agentDir || "\u2014"} mono />
+            {ocLoading ? (
+              <InlineStatusText>Loading runtime bridge details…</InlineStatusText>
+            ) : null}
+            {ocError ? (
+              <InlineStatusText tone="error">
+                Could not load runtime bridge details ({ocError}). Provider identity remains available.
+              </InlineStatusText>
+            ) : null}
+          </SummaryCard>
+
+          <SummaryCard
+            eyebrow="Current provider"
+            title={resolved.displayName}
+            subtitle={resolved.integrationPath}
+            badge={(
+              <>
+                <TierBadge tier={resolved.tier} />
+              </>
+            )}
+            accent
+          >
+            <div style={{ marginTop: 2 }}>
+              <div style={microHeadingStyle}>Observability capabilities</div>
+              <ReadableCapabilityGrid capabilities={resolved.capabilities} />
+            </div>
+          </SummaryCard>
+        </div>
+
+        {/* ── Provider Comparison ── */}
+        <DisclosureButton
+          open={comparisonOpen}
+          onToggle={() => setComparisonOpen(!comparisonOpen)}
+          icon={<Layers size={13} />}
+          label="Provider comparison (read-only)"
+        />
 
         {comparisonOpen && (
-          <div style={{ marginTop: 8 }}>
+          <div style={detailPanelStyle}>
             {/* Header note */}
-            <div style={{ fontSize: 10, color: A.muted, marginBottom: 8, lineHeight: 1.5 }}>
+            <div style={{ ...infoNoteStyle, marginBottom: 12 }}>
               Providers Mission Control can integrate with. Availability shown here is static product truth, not a per-agent readiness check. For CLI-backed providers like Anthropic and Codex, this surface does not verify local CLI install or login state.
             </div>
             {/* Provider rows */}
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {PROVIDER_PRODUCT_DESCRIPTORS.map((desc) => {
                 const avail = resolveAvailability(desc, resolved.providerId);
                 const caps = capabilitiesFromTier(desc.maxTier);
@@ -243,40 +272,35 @@ export default function AgentConfigurationPage() {
         )}
 
         {/* ── Provider-Specific Details (collapsible) ── */}
-        <button
-          onClick={() => setProviderDetailsOpen(!providerDetailsOpen)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6,
-            marginTop: 12, padding: 0, background: "none", border: "none",
-            color: A.accent, fontSize: 11, fontWeight: 600, cursor: "pointer",
-          }}
-        >
-          {providerDetailsOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          Provider details
-        </button>
+        <DisclosureButton
+          open={providerDetailsOpen}
+          onToggle={() => setProviderDetailsOpen(!providerDetailsOpen)}
+          label="Provider details"
+        />
 
         {providerDetailsOpen && (
-          <div style={{
-            marginTop: 8, padding: "10px 12px", borderRadius: 6,
-            background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
-          }}>
+          <div style={detailPanelStyle}>
             <ReadOnlyRow label="Provider ID" value={resolved.providerId} mono />
             <ReadOnlyRow label="Workspace" value={oc?.workspace || "\u2014"} mono />
             <ReadOnlyRow label="Agent Dir" value={oc?.agentDir || "\u2014"} mono />
             {agent.openclawAgentId && <ReadOnlyRow label="OpenClaw Agent ID" value={agent.openclawAgentId} mono />}
             {agent.paperclipAgentId && <ReadOnlyRow label="Paperclip Agent ID" value={agent.paperclipAgentId} mono />}
             {ocLoading && (
-              <div style={{ fontSize: 11, color: A.muted, marginTop: 4 }}>Loading provider config…</div>
+              <InlineStatusText>Loading provider config…</InlineStatusText>
             )}
             {ocError && (
-              <div style={{ fontSize: 11, color: "#ef4444", marginTop: 4 }}>Failed to load provider config ({ocError})</div>
+              <InlineStatusText tone="error">Failed to load provider config ({ocError})</InlineStatusText>
             )}
           </div>
         )}
       </Section>
 
       {/* ── Run Policy ── */}
-      <Section icon={<Settings size={13} />} title="Run Policy">
+      <Section
+        icon={<Settings size={14} />}
+        title="Run Policy"
+        subtitle="Execution defaults, heartbeat behavior, and operator-facing runtime stats."
+      >
         <EditableSelect
           label="Model"
           value={oc?.model || agent.model || ""}
@@ -284,31 +308,45 @@ export default function AgentConfigurationPage() {
           onSave={(v) => patchConfig({ model: v })}
           mono
         />
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: A.textSec, width: 160 }}>Heartbeat interval</span>
-          <TogglePill enabled={!!agent.lastHeartbeat} label={agent.lastHeartbeat ? "Enabled" : "Disabled"} />
-          {agent.lastHeartbeat && (
-            <span style={{ fontSize: 11, color: A.muted }}>Last: {new Date(agent.lastHeartbeat).toLocaleString()}</span>
-          )}
-        </div>
-        <ReadOnlyRow label="Sessions" value={String(oc?.sessionCount ?? "\u2014")} />
-        <ReadOnlyRow label="Total runtime" value={`${agent.totalRuntimeMinutes ?? 0} minutes`} />
-        <ReadOnlyRow label="Tasks completed" value={String(agent.tasksCompleted ?? 0)} />
-
-        {/* Advanced collapsible */}
-        <button
-          onClick={() => setAdvancedOpen(!advancedOpen)}
+        <div
           style={{
-            display: "flex", alignItems: "center", gap: 6,
-            marginTop: 10, padding: 0, background: "none", border: "none",
-            color: A.accent, fontSize: 11, fontWeight: 600, cursor: "pointer",
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+            gap: 12,
+            marginTop: 2,
           }}
         >
-          {advancedOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          Advanced Run Policy
-        </button>
+          <MetricCard
+            label="Heartbeat interval"
+            value={agent.lastHeartbeat ? "Enabled" : "Disabled"}
+            detail={agent.lastHeartbeat ? `Last: ${new Date(agent.lastHeartbeat).toLocaleString()}` : "No recent heartbeat recorded."}
+            badge={<TogglePill enabled={!!agent.lastHeartbeat} label={agent.lastHeartbeat ? "Enabled" : "Disabled"} />}
+          />
+          <MetricCard
+            label="Sessions"
+            value={String(oc?.sessionCount ?? "\u2014")}
+            detail="Observed agent runtime sessions."
+          />
+          <MetricCard
+            label="Total runtime"
+            value={`${agent.totalRuntimeMinutes ?? 0} minutes`}
+            detail="Accumulated tracked execution time."
+          />
+          <MetricCard
+            label="Tasks completed"
+            value={String(agent.tasksCompleted ?? 0)}
+            detail="Mission Control task completions."
+          />
+        </div>
+
+        {/* Advanced collapsible */}
+        <DisclosureButton
+          open={advancedOpen}
+          onToggle={() => setAdvancedOpen(!advancedOpen)}
+          label="Advanced Run Policy"
+        />
         {advancedOpen && (
-          <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+          <div style={detailPanelStyle}>
             <ReadOnlyRow label="Status" value={agent.status} />
             <ReadOnlyRow label="Current task" value={agent.currentTask ?? "\u2014"} mono />
             <ReadOnlyRow label="Created" value={agent.created ? new Date(agent.created).toLocaleString() : "\u2014"} />
@@ -319,29 +357,44 @@ export default function AgentConfigurationPage() {
 
       {/* ── Identity Files ── */}
       {oc && (
-        <Section icon={<FileText size={13} />} title="Identity Files">
+        <Section
+          icon={<FileText size={14} />}
+          title="Identity Files"
+          subtitle="Long-form identity documents available to the active runtime."
+        >
           <FileStatus label="IDENTITY.md" exists={oc.identityExists} preview={oc.identityPreview} />
           <FileStatus label="SOUL.md" exists={oc.soulExists} preview={oc.soulPreview} />
         </Section>
       )}
 
       {/* ── Permissions ── */}
-      <Section icon={<Shield size={13} />} title="Permissions">
-        <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-          <span style={{ fontSize: 12, color: A.textSec, width: 200 }}>Can create new agents</span>
-          <TogglePill enabled={false} label="Off" />
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <span style={{ fontSize: 12, color: A.textSec, width: 200 }}>Can assign tasks</span>
-          <TogglePill enabled={true} label="On" />
-        </div>
+      <Section
+        icon={<Shield size={14} />}
+        title="Permissions"
+        subtitle="Company-granted capabilities surfaced in the configuration view."
+      >
+        <PermissionRow
+          label="Can create new agents"
+          enabled={false}
+          description="Lets this agent create or hire agents and implicitly assign tasks."
+        />
+        <PermissionRow
+          label="Can assign tasks"
+          enabled={true}
+          description="Enabled via explicit company permission grant."
+        />
       </Section>
 
       {/* ── API Keys ── */}
-      <Section icon={<Key size={13} />} title="API Keys">
-        <div style={{ padding: 20, textAlign: "center", color: A.muted, fontSize: 12, borderRadius: 6, border: "1px dashed rgba(120,113,108,0.35)" }}>
-          No API keys configured for this agent
-        </div>
+      <Section
+        icon={<Key size={14} />}
+        title="API Keys"
+        subtitle="Agent-specific credentials for Mission Control integrations."
+      >
+        <EmptyStateCard
+          title="No active API keys"
+          body="This agent does not currently have any Mission Control API keys configured."
+        />
       </Section>
     </div>
   );
@@ -374,9 +427,9 @@ function ProviderComparisonRow({
 
   return (
     <div style={{
-      padding: "8px 10px", borderRadius: 6,
-      background: isActive ? "rgba(34,197,94,0.03)" : "rgba(255,255,255,0.015)",
-      border: `1px solid ${isActive ? "rgba(34,197,94,0.12)" : "rgba(255,255,255,0.05)"}`,
+      padding: "12px 14px", borderRadius: 12,
+      background: isActive ? "rgba(34,197,94,0.05)" : UI.surface,
+      border: `1px solid ${isActive ? "rgba(34,197,94,0.16)" : UI.surfaceBorder}`,
       opacity: isPlanned ? 0.6 : 1,
     }}>
       {/* Header row */}
@@ -384,38 +437,316 @@ function ProviderComparisonRow({
         onClick={() => setExpanded(!expanded)}
         style={{
           display: "flex", alignItems: "center", width: "100%",
-          gap: 8, padding: 0, background: "none", border: "none",
+          gap: 10, padding: 0, background: "none", border: "none",
           cursor: "pointer", color: A.text,
         }}
       >
-        <span style={{ fontSize: 12, fontWeight: 500, color: isActive ? "#22c55e" : A.text }}>
+        <span style={{ fontSize: 13, fontWeight: 600, color: isActive ? "#22c55e" : A.text }}>
           {descriptor.displayName}
         </span>
         <TierBadge tier={descriptor.maxTier} />
         <AvailabilityBadge availability={availability} />
         <span style={{
-          fontSize: 10, color: A.muted, marginLeft: "auto",
+          fontSize: 11, color: A.muted, marginLeft: "auto",
           display: "flex", alignItems: "center", gap: 4,
         }}>
           {capCount}/6 capabilities
-          {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         </span>
       </button>
 
       {/* Expanded detail */}
       {expanded && (
-        <div style={{ marginTop: 8, paddingTop: 6, borderTop: "1px solid rgba(255,255,255,0.05)" }}>
-          <div style={{ fontSize: 10, color: A.muted, marginBottom: 6, lineHeight: 1.5 }}>
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${UI.divider}` }}>
+          <div style={{ fontSize: 12, color: A.textSec, marginBottom: 10, lineHeight: 1.6 }}>
             {descriptor.integrationPath}
           </div>
-          <div style={{ marginBottom: 4 }}>
-            <CapabilityGrid capabilities={capabilities} />
+          <div style={{ marginBottom: 8 }}>
+            <ReadableCapabilityGrid capabilities={capabilities} />
           </div>
-          <div style={{ fontSize: 10, color: A.muted, fontStyle: "italic", marginTop: 4 }}>
+          <div style={{ fontSize: 12, color: A.muted, lineHeight: 1.6 }}>
             {descriptor.statusNote}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function ReadableCapabilityGrid({
+  capabilities,
+}: {
+  capabilities: import("@/lib/orchestration/adapters/types").ProviderCapabilities;
+}) {
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+      {CAPABILITY_LABELS.map(({ key, label }) => {
+        const available = capabilities[key];
+        return (
+          <div
+            key={key}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              minHeight: 36,
+              padding: "8px 10px",
+              borderRadius: 10,
+              background: "rgba(255,255,255,0.02)",
+              border: `1px solid ${UI.divider}`,
+            }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: available ? "#22c55e" : "rgba(120,113,108,0.4)",
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ fontSize: 12, color: available ? A.textSec : A.muted, lineHeight: 1.45 }}>
+              {label}
+            </span>
+            {!available ? (
+              <span style={{ fontSize: 10, color: "rgba(120,113,108,0.55)", marginLeft: "auto" }}>
+                unavailable
+              </span>
+            ) : null}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function DisclosureButton({
+  open,
+  onToggle,
+  label,
+  icon,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  label: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        marginTop: 14,
+        padding: 0,
+        background: "none",
+        border: "none",
+        color: A.accentLight,
+        fontSize: 12,
+        fontWeight: 600,
+        letterSpacing: "0.02em",
+        cursor: "pointer",
+      }}
+    >
+      {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function SummaryCard({
+  eyebrow,
+  title,
+  subtitle,
+  badge,
+  accent,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  subtitle?: string;
+  badge?: React.ReactNode;
+  accent?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: "18px 18px 16px",
+        borderRadius: 14,
+        background: accent ? UI.accentSurface : UI.surfaceStrong,
+        border: `1px solid ${accent ? UI.accentBorder : UI.surfaceBorder}`,
+        boxShadow: accent ? "none" : "inset 0 1px 0 rgba(255,255,255,0.02)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: 12 }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={microHeadingStyle}>{eyebrow}</div>
+          <div style={{ fontSize: 18, fontWeight: 600, color: A.text, lineHeight: 1.2, marginTop: 4 }}>
+            {title}
+          </div>
+          {subtitle ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: A.textSec, lineHeight: 1.6 }}>
+              {subtitle}
+            </div>
+          ) : null}
+        </div>
+        {badge ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            {badge}
+          </div>
+        ) : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function SummaryListRow({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "88px minmax(0, 1fr)",
+        gap: 10,
+        alignItems: "start",
+        padding: "8px 0",
+        borderTop: `1px solid ${UI.divider}`,
+      }}
+    >
+      <span style={{ fontSize: 11, color: UI.label, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
+        {label}
+      </span>
+      <span
+        style={{
+          fontSize: 13,
+          color: A.text,
+          lineHeight: 1.6,
+          fontFamily: mono ? "monospace" : "inherit",
+          wordBreak: "break-word",
+        }}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function InlineStatusText({
+  children,
+  tone = "neutral",
+}: {
+  children: React.ReactNode;
+  tone?: "neutral" | "error";
+}) {
+  return (
+    <div
+      style={{
+        marginTop: 10,
+        fontSize: 12,
+        color: tone === "error" ? "#fca5a5" : A.muted,
+        lineHeight: 1.5,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  detail,
+  badge,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  badge?: React.ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        padding: "14px 14px 12px",
+        borderRadius: 12,
+        background: UI.surface,
+        border: `1px solid ${UI.surfaceBorder}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <div style={microHeadingStyle}>{label}</div>
+        <div style={{ marginLeft: "auto" }}>{badge}</div>
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 600, color: A.text, lineHeight: 1.2 }}>
+        {value}
+      </div>
+      {detail ? (
+        <div style={{ marginTop: 6, fontSize: 12, color: A.muted, lineHeight: 1.5 }}>
+          {detail}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function PermissionRow({
+  label,
+  enabled,
+  description,
+}: {
+  label: string;
+  enabled: boolean;
+  description: string;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "flex-start",
+        gap: 14,
+        padding: "14px 0",
+        borderTop: `1px solid ${UI.divider}`,
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, color: A.text, marginBottom: 6 }}>
+          {label}
+        </div>
+        <div style={{ fontSize: 12, color: A.muted, lineHeight: 1.6 }}>
+          {description}
+        </div>
+      </div>
+      <TogglePill enabled={enabled} label={enabled ? "On" : "Off"} />
+    </div>
+  );
+}
+
+function EmptyStateCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div
+      style={{
+        padding: "18px 20px",
+        borderRadius: 12,
+        border: `1px dashed ${UI.surfaceBorder}`,
+        background: UI.surface,
+      }}
+    >
+      <div style={{ fontSize: 14, fontWeight: 600, color: A.text, marginBottom: 6 }}>
+        {title}
+      </div>
+      <div style={{ fontSize: 12, color: A.muted, lineHeight: 1.6 }}>
+        {body}
+      </div>
     </div>
   );
 }
@@ -450,50 +781,16 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
     <span
       style={{
         display: "inline-flex", alignItems: "center", gap: 3,
-        fontSize: 10, fontWeight: 500, marginLeft: 6,
+        fontSize: 11, fontWeight: 600, marginLeft: 6,
         color: status === "saving" ? A.accentLight : status === "saved" ? "#6ee7b7" : "#ef4444",
         transition: "opacity 0.3s",
+        justifyContent: "flex-end",
       }}
     >
       {status === "saving" && <><Loader2 size={10} style={{ animation: "spin 1s linear infinite" }} /> Saving…</>}
       {status === "saved" && <><Check size={10} /> Saved</>}
       {status === "error" && <>Failed</>}
     </span>
-  );
-}
-
-/* ── Editable icon picker ── */
-function EditableIcon({
-  label,
-  value,
-  onSave,
-}: {
-  label: string;
-  value: string;
-  onSave: (v: string) => Promise<unknown>;
-}) {
-  const { status, trigger } = useSaveStatus();
-
-  const handleSelect = (next: string) => {
-    if (next !== value) {
-      void trigger(() => onSave(next));
-    }
-  };
-
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
-      <div style={{ flex: 1, minWidth: 0, maxWidth: 360 }}>
-        <MissionIconPicker
-          value={value || "\u{1F916}"}
-          onChange={handleSelect}
-          ariaLabel={`${label} icon`}
-        />
-      </div>
-      <div style={{ minWidth: 64 }}>
-        <SaveIndicator status={status} />
-      </div>
-    </div>
   );
 }
 
@@ -524,8 +821,8 @@ function EditableText({
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
+    <div style={fieldRowStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
       {editing ? (
         <input
           ref={inputRef}
@@ -544,7 +841,9 @@ function EditableText({
           {value || "\u2014"}
         </span>
       )}
-      <SaveIndicator status={status} />
+      <div style={saveCellStyle}>
+        <SaveIndicator status={status} />
+      </div>
     </div>
   );
 }
@@ -575,8 +874,8 @@ function EditableTextarea({
   };
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0, paddingTop: 4 }}>{label}</span>
+    <div style={fieldRowStyle}>
+      <span style={{ ...fieldLabelStyle, paddingTop: 12 }}>{label}</span>
       {editing ? (
         <textarea
           ref={ref}
@@ -598,15 +897,17 @@ function EditableTextarea({
           style={{
             ...displayStyle(),
             whiteSpace: "pre-wrap",
-            cursor: "pointer",
-            minHeight: 20,
+            minHeight: 92,
+            display: "block",
           }}
           title="Click to edit"
         >
           {value || "\u2014"}
         </span>
       )}
-      <SaveIndicator status={status} />
+      <div style={saveCellStyle}>
+        <SaveIndicator status={status} />
+      </div>
     </div>
   );
 }
@@ -619,6 +920,7 @@ function EditableSelect({
   onSave,
   mono,
   helpText,
+  displayValue,
 }: {
   label: string;
   value: string;
@@ -626,6 +928,7 @@ function EditableSelect({
   onSave: (v: string) => Promise<unknown>;
   mono?: boolean;
   helpText?: string;
+  displayValue?: string;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -642,11 +945,11 @@ function EditableSelect({
     }
   };
 
-  const displayLabel = options.find((o) => o.value === value)?.label || value || "\u2014";
+  const displayLabel = displayValue || options.find((o) => o.value === value)?.label || value || "\u2014";
 
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0, paddingTop: 4 }}>{label}</span>
+    <div style={fieldRowStyle}>
+      <span style={{ ...fieldLabelStyle, paddingTop: 12 }}>{label}</span>
       <div style={{ flex: 1 }}>
         {editing ? (
           <select
@@ -674,12 +977,14 @@ function EditableSelect({
           </span>
         )}
         {helpText ? (
-          <div style={{ marginTop: 4, fontSize: 11, color: A.muted }}>
+          <div style={{ marginTop: 6, fontSize: 12, color: A.muted, lineHeight: 1.5 }}>
             {helpText}
           </div>
         ) : null}
       </div>
-      <SaveIndicator status={status} />
+      <div style={saveCellStyle}>
+        <SaveIndicator status={status} />
+      </div>
     </div>
   );
 }
@@ -772,29 +1077,68 @@ function EditableTags({
 /* ── Read-only row ── */
 function ReadOnlyRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
-      <span style={{ fontSize: 12, color: A.textSec, width: 160, flexShrink: 0 }}>{label}</span>
+    <div style={fieldRowStyle}>
+      <span style={fieldLabelStyle}>{label}</span>
       <span style={{
-        fontSize: 12, color: A.text,
+        ...displayStyle(mono),
+        fontSize: 13, color: A.text,
         fontFamily: mono ? "monospace" : "inherit",
         whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+        cursor: "default",
       }}>
         {value}
       </span>
+      <div />
     </div>
   );
 }
 
 /* ── Section wrapper ── */
-function Section({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+function Section({
+  icon,
+  title,
+  subtitle,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  subtitle?: string;
+  children: React.ReactNode;
+}) {
   return (
     <div style={{
-      padding: "14px 16px", borderRadius: 10,
-      background: A.card, border: `1px solid ${A.cardBorder}`,
+      padding: "20px 22px",
+      borderRadius: 16,
+      background: UI.sectionBg,
+      border: `1px solid ${UI.sectionBorder}`,
+      boxShadow: UI.shadow,
     }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12, color: A.accent, fontSize: 12, fontWeight: 600 }}>
-        {icon}
-        {title}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
+        <div
+          style={{
+            width: 28,
+            height: 28,
+            borderRadius: 999,
+            display: "grid",
+            placeItems: "center",
+            color: A.accentLight,
+            background: "rgba(217,119,6,0.08)",
+            border: `1px solid ${UI.accentBorder}`,
+            flexShrink: 0,
+          }}
+        >
+          {icon}
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 17, fontWeight: 600, color: A.text, lineHeight: 1.25 }}>
+            {title}
+          </div>
+          {subtitle ? (
+            <div style={{ marginTop: 5, fontSize: 12, color: A.muted, lineHeight: 1.6 }}>
+              {subtitle}
+            </div>
+          ) : null}
+        </div>
       </div>
       {children}
     </div>
@@ -806,10 +1150,10 @@ function TogglePill({ enabled, label }: { enabled: boolean; label: string }) {
   return (
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6,
-      padding: "3px 10px", borderRadius: 10,
+      padding: "5px 11px", borderRadius: 999,
       background: enabled ? "rgba(217,119,6,0.12)" : "rgba(120,113,108,0.12)",
-      border: `1px solid ${enabled ? A.cardBorder : "rgba(120,113,108,0.2)"}`,
-      fontSize: 11, color: enabled ? A.accentLight : A.muted,
+      border: `1px solid ${enabled ? UI.accentBorder : "rgba(120,113,108,0.2)"}`,
+      fontSize: 11, fontWeight: 600, color: enabled ? A.accentLight : A.muted,
     }}>
       <span style={{
         width: 8, height: 8, borderRadius: "50%",
@@ -823,25 +1167,34 @@ function TogglePill({ enabled, label }: { enabled: boolean; label: string }) {
 /* ── File status row ── */
 function FileStatus({ label, exists, preview }: { label: string; exists: boolean; preview: string | null }) {
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+    <div
+      style={{
+        marginBottom: 12,
+        padding: "14px 16px",
+        borderRadius: 12,
+        background: UI.surface,
+        border: `1px solid ${UI.surfaceBorder}`,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         {exists ? (
-          <CheckCircle size={13} style={{ color: "#22c55e" }} />
+          <CheckCircle size={14} style={{ color: "#22c55e" }} />
         ) : (
-          <XCircle size={13} style={{ color: A.muted }} />
+          <XCircle size={14} style={{ color: A.muted }} />
         )}
-        <span style={{ fontSize: 12, color: A.text, fontWeight: 500 }}>{label}</span>
+        <span style={{ fontSize: 13, color: A.text, fontWeight: 600 }}>{label}</span>
         <span style={{ fontSize: 11, color: exists ? "#6ee7b7" : A.muted }}>
           {exists ? "Found" : "Not found"}
         </span>
       </div>
       {exists && preview && (
         <div style={{
-          marginLeft: 21, padding: "8px 10px", borderRadius: 6,
-          background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
-          fontSize: 11, color: A.textSec, fontFamily: "monospace",
-          whiteSpace: "pre-wrap", lineHeight: 1.5,
-          maxHeight: 100, overflow: "hidden",
+          padding: "10px 12px", borderRadius: 10,
+          background: "rgba(255,255,255,0.02)",
+          border: `1px solid ${UI.divider}`,
+          fontSize: 12, color: A.textSec, fontFamily: "monospace",
+          whiteSpace: "pre-wrap", lineHeight: 1.6,
+          maxHeight: 120, overflow: "hidden",
         }}>
           {preview}
         </div>
@@ -851,40 +1204,95 @@ function FileStatus({ label, exists, preview }: { label: string; exists: boolean
 }
 
 /* ── Shared styles ── */
+const microHeadingStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  color: UI.label,
+};
+
+const fieldRowStyle: React.CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: `minmax(140px, ${FIELD_LABEL_WIDTH}px) minmax(0, 1fr) minmax(0, auto)`,
+  gap: 14,
+  alignItems: "start",
+  padding: "10px 0",
+  borderTop: `1px solid ${UI.divider}`,
+};
+
+const fieldLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: UI.label,
+  fontWeight: 700,
+  letterSpacing: "0.08em",
+  textTransform: "uppercase",
+  paddingTop: 12,
+};
+
+const saveCellStyle: React.CSSProperties = {
+  minWidth: 72,
+  paddingTop: 11,
+};
+
+const detailPanelStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: "14px 16px",
+  borderRadius: 14,
+  background: UI.surface,
+  border: `1px solid ${UI.surfaceBorder}`,
+};
+
+const infoNoteStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: A.muted,
+  lineHeight: 1.65,
+};
+
 const inputStyle = (mono?: boolean): React.CSSProperties => ({
   flex: 1,
-  fontSize: 12,
+  width: "100%",
+  minHeight: 48,
+  fontSize: 13,
   color: A.text,
   fontFamily: mono ? "monospace" : "inherit",
-  background: "#1a1814",
-  border: `1px solid ${A.accentLight}`,
-  borderRadius: 4,
-  padding: "4px 8px",
+  background: UI.surfaceStrong,
+  border: `1px solid ${UI.surfaceBorder}`,
+  borderRadius: 10,
+  padding: "11px 14px",
   outline: "none",
-  lineHeight: "1.4",
+  lineHeight: "1.5",
+  boxSizing: "border-box",
 });
 
 const displayStyle = (mono?: boolean): React.CSSProperties => ({
-  fontSize: 12,
+  width: "100%",
+  minHeight: 48,
+  fontSize: 13,
   color: A.text,
   fontFamily: mono ? "monospace" : "inherit",
   cursor: "pointer",
-  borderRadius: 4,
-  padding: "2px 6px",
-  border: "1px solid transparent",
-  transition: "border-color 0.15s",
-  flex: 1,
+  borderRadius: 10,
+  padding: "11px 14px",
+  border: `1px solid ${UI.surfaceBorder}`,
+  background: UI.surfaceStrong,
+  transition: "border-color 0.15s, background 0.15s",
+  boxSizing: "border-box",
+  display: "flex",
+  alignItems: "center",
   overflow: "hidden",
   textOverflow: "ellipsis",
+  lineHeight: "1.5",
 });
 
 const tagStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
-  padding: "2px 8px",
-  borderRadius: 4,
+  padding: "4px 9px",
+  borderRadius: 999,
   background: "rgba(217,119,6,0.12)",
-  border: `1px solid ${A.cardBorder}`,
+  border: `1px solid ${UI.accentBorder}`,
   fontSize: 11,
+  fontWeight: 600,
   color: A.accentLight,
 };
