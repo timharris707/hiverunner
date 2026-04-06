@@ -1064,6 +1064,17 @@ const MIGRATIONS: Migration[] = [
         ON heartbeat_run_events(run_id, created_at);
     `,
   },
+  {
+    version: 33,
+    name: "provider_switch_audit",
+    sql: `
+      -- Audit columns for provider switching (Phase 2).
+      -- provider_changed_at: when adapter_type was last changed (null = never switched)
+      -- previous_adapter_type: what adapter_type was before the most recent switch (null = never switched)
+      ALTER TABLE agents ADD COLUMN provider_changed_at TEXT;
+      ALTER TABLE agents ADD COLUMN previous_adapter_type TEXT;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
