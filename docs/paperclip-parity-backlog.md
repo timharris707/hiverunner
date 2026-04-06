@@ -20,6 +20,10 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
   - `D2` settings and org page no longer imply import/export dedicated pages exist; copy replaced with honest unavailability statement, dead-end buttons removed or disabled
 - Partially closed routine management:
   - `F4` routine detail — first-class detail route with editable configuration, status controls, run history, and honest trigger limitations
+- Closed the three remaining UX gaps:
+  - `U1` inbox archive — archive button now visible with Archive icon and proper label; full DB backing already existed
+  - `U2` project tab memory — project navigation now remembers last-visited tab via localStorage
+  - `U3` skill per-file viewing — skill detail now loads and displays individual file content inline via new API
 - Partially closed the main agent-operability stack:
   - `A1` configuration
   - `A2` instructions
@@ -30,24 +34,15 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | Bucket | Count | Notes |
 | --- | ---: | --- |
-| Closed | 4 | Includes the two original ship blockers, the tasks empty-state visual blocker, and the shared agent-status truth fix |
-| Closed | 6 | Includes the two original ship blockers, tasks empty-state, shared agent-status truth, project configuration truth, and import/export copy honesty |
-| Partially closed | 6 | Project workspaces and routine detail added; all six are materially better but not yet at full parity |
-| Still open | 4 | Remaining gaps are minor UX items and one major feature gap (import/export routes) |
+| Closed | 9 | Original ship blockers, tasks visual, agent-status truth, project config truth, import/export copy, inbox archive, project tab memory, skill per-file viewing |
+| Partially closed | 6 | Project workspaces, routine detail, agent config, instructions, skills, run detail |
+| Still open | 1 | Import/export routes (major feature, not a truth gap) |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `A1` Agent configuration backing depth
-   Reason: the operator surface is better now, but more runtime-control fields still need real backing or explicit provider-limited framing.
-2. `U1` Inbox archive workflow
-   Reason: the inbox is functional but archive/cleanup affordances are still weaker than Paperclip's.
-3. `U2` Project last-tab memory
-   Reason: Mission Control still resets users to the default project tab on navigation.
-4. `U3` Company skill detail per-file navigation
-   Reason: skill detail is still shallower than Paperclip's file-level browsing model.
-5. `F5` Company import/export routes
-   Reason: the honesty gap (D2) is now closed, but the actual feature remains unimplemented. Large scope, lower priority than the above.
+1. `F5` Company import/export routes
+   Reason: the only remaining open gap. This is a major feature (package assembly, selective file export, zip import, conflict resolution) rather than a truth or UX issue.
 
 ## Closed
 
@@ -59,6 +54,9 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | T1 | Agent shown as active when not actually active | Shared agent-status surfaces, including `/NEV/agents`, `/NEV/team`, `/NEV/agents/forge/configuration`, `/NEV/agents/forge/skills`, `/NEV/agents/henry/dashboard` | Major | Data/truth/provenance | Closed | Shared agent status now comes from fresh execution evidence or fresh queued/running heartbeat evidence. Stale persisted `agents.status = working` and stale `execution_runs.status = running` rows no longer create false-positive `working` or `LIVE` states on the read path. | — | Keep the freshness thresholds aligned with engine semantics if heartbeat or execution timing policy changes. |
 | D1 | Project configuration execution truth | `/NEV/projects/:projectSlug/configuration` | Major | Data/truth/provenance | Closed | The old Codebase section showed "—" dashes for Repo and Local Folder fields that had no schema backing, implying the data was merely empty rather than unsupported. The section was replaced with an honest Execution Context surface: company workspace root (Persisted badge, DB-backed), project directory (Convention badge, convention-derived and filesystem-verified), repository (explicitly stated as not available — no column in schema), assigned agents with workspace existence indicators, and a provenance note explaining the data model. The misleading duplicated "Updated" date (which used `created_at`) was also removed. | — | If a persisted repo or workspace_path column is added to the projects table, upgrade the Convention badges to Persisted. |
 | D2 | Settings/import-export copy honesty | `/NEV/settings`, `/NEV/org` | Major | Data/truth/provenance | Closed | The settings page said "Import and export have moved to dedicated pages accessible from the Org Chart header" — those pages did not exist. Two dead-end Export/Import buttons had no handlers. The org page had Import/Export header buttons with no onClick. Fixed: settings copy replaced with honest unavailability statement, dead-end buttons removed, org header buttons made visually disabled with "not yet available" tooltips. The UI no longer implies functionality that does not exist. | — | When import/export routes are actually implemented (F5), re-enable the org header buttons and link them. |
+| U1 | Inbox archive workflow | `/NEV/inbox` | Minor | UX/interaction | Closed | The archive backend already existed (archiveInboxEvents API/service/client, inbox_read_state table with archived_at). The UI had a hover-only "Dismiss" button with an X icon that was not recognizable as archive. Fixed: replaced X with Archive icon, renamed tooltip to "Archive", made button visible on row hover for both task and approval rows. End-to-end archive verified — archived events disappear from listing. | `b7a4e996` | No further action needed unless bulk archive is wanted. |
+| U2 | Project last-tab memory | `/NEV/projects/:projectSlug` redirect | Minor | UX/interaction | Closed | The project root page was a server-side redirect that always reset to tasks. Now: ProjectTabBar saves the active tab key to localStorage on click; the project root page reads localStorage and redirects to the remembered tab via client-side router.replace. Falls back to tasks if no preference stored. | `83e55036` | No further action needed. |
+| U3 | Skill detail per-file viewing | `/NEV/skills/:skillId` | Minor | UX/interaction | Closed | The skill detail page showed a flat file list with no content access. Now: each file is clickable, loading its content from a new GET /api/skills/file endpoint. Content displays inline in a code block below the selected file. Supports files up to 100KB with honest size limitation. Directory traversal is prevented. | `37560c05` | Add syntax highlighting or per-file routes if deeper navigation depth is wanted. |
 
 ## Partially Closed
 
@@ -76,9 +74,6 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | F5 | Company import/export not route-backed | No dedicated import/export routes | Major | Feature/functionality | Open | The copy/honesty gap (D2) is now closed — settings and org no longer imply these pages exist. However, the actual import/export workflow (package assembly, selective file export, zip upload, collision resolution) remains unimplemented. Paperclip has full export with file tree and selective download, plus import with GitHub/zip source and conflict strategy. | — | Implement real import/export pages if the feature is prioritized. This is a major feature, not a truth gap. |
-| U1 | Inbox archive workflow weaker than Paperclip | `/NEV/inbox` | Minor | UX/interaction | Open | This branch still has no clearly visible archive action on the live inbox list. | — | Add explicit row-level or bulk archive affordances on the inbox surface. |
-| U2 | Project last-tab memory missing | `/NEV/projects/:projectSlug` redirect behavior | Minor | UX/interaction | Open | Mission Control still resets users back to the default project tab instead of preserving recent subpage context. | — | Preserve the last visited project subpage or make the redirect stateful. |
-| U3 | Company skill detail lacks per-file navigation depth | `/NEV/skills/:skillId` | Minor | UX/interaction | Open | Agent-skills parity improved, but the company skill detail surface is still shallower than Paperclip’s file-level navigation model. | — | Add per-file routes or stronger in-surface file browsing on the company skills detail page. |
 
 ## Deferred / Intentionally Divergent
 
