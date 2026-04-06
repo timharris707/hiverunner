@@ -3,7 +3,7 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
-import { ObservabilityTier, capabilitiesFromTier } from "@/lib/orchestration/adapters/types";
+import { ObservabilityTier, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
 
 export const dynamic = "force-dynamic";
@@ -164,9 +164,8 @@ function buildHeartbeatRunResponse(
   // Context snapshot — summarize, don't dump raw JSON
   const context = buildContextSummary(run.contextSnapshot);
 
-  // Provider capabilities — derived from tier, single source of truth
+  // Provider tier for heartbeat runs
   const tier = ObservabilityTier.ActionDetection;
-  const capabilities = capabilitiesFromTier(tier);
 
   return NextResponse.json({
     run: {
@@ -225,13 +224,7 @@ function buildHeartbeatRunResponse(
       },
       runTable: "heartbeat_runs",
     },
-    provider: {
-      id: "openclaw-heartbeat",
-      displayName: "OpenClaw Heartbeat",
-      tier,
-      tierLabel: tierLabel(tier),
-      capabilities,
-    },
+    provider: providerForWire("openclaw-heartbeat", tier),
   });
 }
 
@@ -397,47 +390,46 @@ function buildExecutionRunResponse(
 /* ── Provider Resolution ── */
 
 /**
- * Resolve provider identity and capabilities from the execution provider name.
- * Uses the adapter registry as the source of truth when available,
- * falls back to defaults for known providers.
+ * Resolve provider identity for API wire format.
+ *
+ * Uses the adapter registry to get the runtime-correct effective tier,
+ * then delegates to resolveProviderPresentation() for canonical identity.
+ * Maps `providerId` → `id` for backward-compatible JSON response shape.
  */
 function resolveProviderInfo(providerName: string, effectiveTier?: ObservabilityTier) {
-  // Try the adapter registry first (single source of truth)
-  const adapter = getAdapter(providerName);
-  if (adapter) {
-    const tier = effectiveTier ?? adapter.maxTier;
-    return {
-      id: adapter.providerId,
-      displayName: adapter.displayName,
-      tier,
-      tierLabel: tierLabel(tier),
-      capabilities: capabilitiesFromTier(tier),
-    };
-  }
-
-  // Also check for "openclaw" provider name → maps to "openclaw-heartbeat" adapter
-  if (providerName === "openclaw") {
-    const ocAdapter = getAdapter("openclaw-heartbeat");
-    if (ocAdapter) {
-      const tier = effectiveTier ?? ocAdapter.maxTier;
-      return {
-        id: ocAdapter.providerId,
-        displayName: ocAdapter.displayName,
-        tier,
-        tierLabel: tierLabel(tier),
-        capabilities: capabilitiesFromTier(tier),
-      };
+  // If no effective tier was provided, try the adapter registry for runtime truth
+  if (effectiveTier === undefined) {
+    const adapter = getAdapter(providerName) ?? getAdapter("openclaw-heartbeat");
+    if (adapter) {
+      effectiveTier = adapter.maxTier;
     }
   }
 
-  // Fallback for unknown providers
-  const tier = effectiveTier ?? ObservabilityTier.PostRun;
+  // Delegate to the shared canonical resolution
+  const pres = resolveProviderPresentation(providerName, effectiveTier);
+
+  // Wire format: `id` (not `providerId`) for backward compat with run detail page
   return {
-    id: providerName,
-    displayName: providerName,
-    tier,
-    tierLabel: tierLabel(tier),
-    capabilities: capabilitiesFromTier(tier),
+    id: pres.providerId,
+    displayName: pres.displayName,
+    tier: pres.tier,
+    tierLabel: pres.tierLabel,
+    capabilities: pres.capabilities,
+  };
+}
+
+/**
+ * Shorthand: resolve for wire format from provider ID + tier.
+ * Used by buildHeartbeatRunResponse where we don't need registry lookup.
+ */
+function providerForWire(providerId: string, tier: ObservabilityTier) {
+  const pres = resolveProviderPresentation(providerId, tier);
+  return {
+    id: pres.providerId,
+    displayName: pres.displayName,
+    tier: pres.tier,
+    tierLabel: pres.tierLabel,
+    capabilities: pres.capabilities,
   };
 }
 
@@ -491,18 +483,6 @@ function buildContextSummary(snapshot: Record<string, unknown>): {
     wakeSource: typeof snapshot.wakeSource === "string" ? snapshot.wakeSource : null,
     wakeReason: typeof snapshot.wakeReason === "string" ? snapshot.wakeReason : null,
   };
-}
-
-function tierLabel(tier: ObservabilityTier): string {
-  const labels: Record<number, string> = {
-    0: "Post-Run",
-    1: "Milestones",
-    2: "Live Text",
-    3: "Action Detection",
-    4: "Structured Tools",
-    5: "Full Parity",
-  };
-  return labels[tier] ?? "Unknown";
 }
 
 function safeJsonParse(raw: string): Record<string, unknown> {

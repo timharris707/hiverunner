@@ -83,7 +83,92 @@ export const TIER_LABELS: Record<ObservabilityTier, string> = {
   [ObservabilityTier.FullParity]: "Full Parity",
 };
 
-/* ── Known Provider Descriptors ── */
+/* ── Provider Presentation View-Model ── */
+
+/**
+ * Canonical view-model for provider identity + capabilities.
+ * This is the shared shape consumed by BOTH the Configuration tab
+ * and the Run Detail surface. It is the single contract for
+ * "how we describe a provider to the operator."
+ *
+ * Built by resolveProviderPresentation() below.
+ */
+export interface ProviderPresentationInfo {
+  providerId: string;
+  displayName: string;
+  tier: ObservabilityTier;
+  tierLabel: string;
+  integrationPath: string;
+  capabilities: ProviderCapabilities;
+}
+
+/**
+ * Resolve a ProviderPresentationInfo from a provider ID and
+ * an optional effective tier. This is the canonical provider
+ * resolution used by the run events API, configuration page,
+ * and any future surface that needs to present provider identity.
+ *
+ * Resolution order:
+ *  1. Match against PROVIDER_PRODUCT_DESCRIPTORS (canonical product truth)
+ *  2. Fall back to "openclaw" → "openclaw-heartbeat" alias
+ *  3. Fall back to generic unknown-provider presentation
+ *
+ * Note: This function is intentionally pure — it does NOT query
+ * the adapter registry at runtime. Both server-side (API routes)
+ * and client-side (React pages) can call it. Server-side callers
+ * that need runtime adapter truth should query getAdapter() first
+ * and pass the effective tier here.
+ */
+export function resolveProviderPresentation(
+  providerId: string,
+  effectiveTier?: ObservabilityTier,
+): ProviderPresentationInfo {
+  // Direct match
+  const desc = PROVIDER_PRODUCT_DESCRIPTORS.find((p) => p.providerId === providerId);
+  if (desc) {
+    const tier = effectiveTier ?? desc.maxTier;
+    return {
+      providerId: desc.providerId,
+      displayName: desc.displayName,
+      tier,
+      tierLabel: TIER_LABELS[tier] ?? "Unknown",
+      integrationPath: desc.integrationPath,
+      capabilities: capabilitiesFromTier(tier),
+    };
+  }
+
+  // Alias: "openclaw" → "openclaw-heartbeat"
+  if (providerId === "openclaw") {
+    return resolveProviderPresentation("openclaw-heartbeat", effectiveTier);
+  }
+
+  // Unknown provider: honest fallback
+  const tier = effectiveTier ?? ObservabilityTier.PostRun;
+  return {
+    providerId,
+    displayName: providerId,
+    tier,
+    tierLabel: TIER_LABELS[tier] ?? "Unknown",
+    integrationPath: "Unknown integration path",
+    capabilities: capabilitiesFromTier(tier),
+  };
+}
+
+/**
+ * Resolve provider presentation for an agent based on its linked IDs.
+ * Used by the configuration page to show the current provider identity
+ * before any runs happen.
+ */
+export function resolveAgentProviderPresentation(agent: {
+  openclawAgentId?: string;
+  paperclipAgentId?: string;
+}): ProviderPresentationInfo {
+  if (agent.openclawAgentId) return resolveProviderPresentation("openclaw-heartbeat");
+  if (agent.paperclipAgentId) return resolveProviderPresentation("paperclip");
+  return resolveProviderPresentation("none");
+}
+
+/* ── Provider Availability ── */
 
 /**
  * Availability state for providers in the comparison view.
@@ -94,24 +179,32 @@ export const TIER_LABELS: Record<ObservabilityTier, string> = {
  */
 export type ProviderAvailability = "active" | "available" | "limited" | "planned";
 
+/* ── Provider Product Descriptors ── */
+
 /**
- * Static provider descriptor for the configuration comparison view.
- * This is intentionally a display-side type — it does NOT replace
- * the MCProviderAdapter interface used by live adapters.
+ * Static product-level descriptor for a provider.
  *
- * The values here describe what providers CAN do at their maximum tier,
- * not what the current agent is using. The comparison view combines
- * these descriptors with the agent's actual provider to derive
- * which is "active" vs "available" vs "planned".
+ * IMPORTANT: These are product definitions, NOT runtime adapter queries.
+ * They include planned providers that have no runtime adapter yet.
+ * For providers that ARE registered in the adapter registry, the
+ * providerId, displayName, and maxTier MUST match the adapter's values.
+ *
+ * This list drives the Configuration tab's comparison view.
+ * It is intentionally static — Mission Control does not yet have
+ * dynamic provider discovery.
  */
-export interface KnownProviderDescriptor {
-  /** Must match the adapter's providerId where applicable */
+export interface ProviderProductDescriptor {
+  /** Must match the adapter's providerId where one exists */
   providerId: string;
   displayName: string;
   maxTier: ObservabilityTier;
   /** Short honest description of integration approach */
   integrationPath: string;
-  /** What this provider is today — filled by config UI based on agent context */
+  /**
+   * Default availability when no agent context is known.
+   * The configuration UI overrides this to "active" for the
+   * agent's current provider.
+   */
   defaultAvailability: ProviderAvailability;
   /** Short note about current state / limitations */
   statusNote: string;
@@ -119,15 +212,20 @@ export interface KnownProviderDescriptor {
 
 /**
  * All providers Mission Control knows about, including planned ones.
- * This is the single source of truth for the provider comparison view.
+ *
+ * This is a PRODUCT-LEVEL list, not a runtime registry query.
+ * Providers marked "planned" have no adapter implementation.
+ * Providers marked "available" have a registered adapter but
+ * are not necessarily backing the current agent.
+ *
  * Order matters: shown in this order in the UI.
  */
-export const KNOWN_PROVIDERS: KnownProviderDescriptor[] = [
+export const PROVIDER_PRODUCT_DESCRIPTORS: ProviderProductDescriptor[] = [
   {
     providerId: "openclaw-heartbeat",
     displayName: "OpenClaw Heartbeat",
     maxTier: ObservabilityTier.ActionDetection,
-    integrationPath: "WebSocket gateway — live event streaming",
+    integrationPath: "WebSocket gateway \u2014 live event streaming",
     defaultAvailability: "available",
     statusNote: "Tier 3 today. Tier 4 gated on gateway scope fix.",
   },
@@ -135,7 +233,7 @@ export const KNOWN_PROVIDERS: KnownProviderDescriptor[] = [
     providerId: "paperclip",
     displayName: "Paperclip",
     maxTier: ObservabilityTier.Milestones,
-    integrationPath: "Bridge sync — poll-based lifecycle events",
+    integrationPath: "Bridge sync \u2014 poll-based lifecycle events",
     defaultAvailability: "available",
     statusNote: "Tier 1 via bridge sync. No live streaming.",
   },
@@ -143,19 +241,28 @@ export const KNOWN_PROVIDERS: KnownProviderDescriptor[] = [
     providerId: "hermes",
     displayName: "Hermes Agent",
     maxTier: ObservabilityTier.StructuredTools,
-    integrationPath: "Direct API — structured events",
+    integrationPath: "Direct API \u2014 structured events",
     defaultAvailability: "planned",
-    statusNote: "Not yet integrated. Expected Tier 4–5.",
+    statusNote: "Not yet integrated. Expected Tier 4\u20135.",
   },
   {
     providerId: "byo-webhook",
     displayName: "BYO Webhook",
     maxTier: ObservabilityTier.ActionDetection,
-    integrationPath: "Inbound webhook — structured payloads",
+    integrationPath: "Inbound webhook \u2014 structured payloads",
     defaultAvailability: "planned",
-    statusNote: "Not yet integrated. Expected Tier 1–3.",
+    statusNote: "Not yet integrated. Expected Tier 1\u20133.",
   },
 ];
+
+/**
+ * Backward-compatible alias.
+ * @deprecated Use PROVIDER_PRODUCT_DESCRIPTORS — the name is more honest.
+ */
+export const KNOWN_PROVIDERS = PROVIDER_PRODUCT_DESCRIPTORS;
+
+/** Backward-compatible alias for the descriptor type. */
+export type KnownProviderDescriptor = ProviderProductDescriptor;
 
 /* ── Provider Status ── */
 

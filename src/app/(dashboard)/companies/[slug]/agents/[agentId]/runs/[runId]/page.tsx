@@ -28,6 +28,8 @@ import { useLiveStream } from "@/components/live/LiveStreamProvider";
 import { buildCanonicalAgentRunsPath } from "@/lib/orchestration/route-paths";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import type { StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
+import type { ProviderCapabilities } from "@/lib/orchestration/adapters/types";
+import { CapabilityGrid, TierBadge } from "@/components/orchestration/ProviderPresentation";
 
 /* ── Types ── */
 
@@ -94,15 +96,7 @@ interface TimelineEvent {
   authorName?: string | null;
 }
 
-interface ProviderCapabilities {
-  liveText: boolean;
-  actionDetection: boolean;
-  structuredTools: boolean;
-  thinking: boolean;
-  runSteering: boolean;
-  persistedTranscript: boolean;
-}
-
+/** Wire format from the run events API — uses `id` not `providerId` */
 interface ProviderInfo {
   id: string;
   displayName: string;
@@ -538,12 +532,7 @@ export default function RunDetailPage({
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <Shield size={13} style={{ color: A.accent }} />
             <span style={{ fontSize: 12, fontWeight: 500, color: A.textSec }}>{provider.displayName}</span>
-            <span style={{
-              fontSize: 9, padding: "1px 6px", borderRadius: 3, fontWeight: 600,
-              color: A.accent, background: "rgba(217,119,6,0.1)",
-            }}>
-              T{provider.tier}
-            </span>
+            <TierBadge tier={provider.tier} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={{ fontSize: 10, color: A.muted }}>{provider.tierLabel}</span>
@@ -552,13 +541,8 @@ export default function RunDetailPage({
         </button>
 
         {providerExpanded && (
-          <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3, fontSize: 11 }}>
-            <CapabilityRow label="Live text streaming" available={provider.capabilities.liveText} />
-            <CapabilityRow label="Action detection" available={provider.capabilities.actionDetection} />
-            <CapabilityRow label="Structured tool events" available={provider.capabilities.structuredTools} />
-            <CapabilityRow label="Thinking / reasoning" available={provider.capabilities.thinking} />
-            <CapabilityRow label="Run steering" available={provider.capabilities.runSteering} />
-            <CapabilityRow label="Persisted transcript" available={provider.capabilities.persistedTranscript} />
+          <div style={{ marginTop: 10, fontSize: 11 }}>
+            <CapabilityGrid capabilities={provider.capabilities} />
           </div>
         )}
       </div>
@@ -915,15 +899,7 @@ function DisclosureRow({ label, open, onToggle, children, style }: {
   );
 }
 
-function CapabilityRow({ label, available }: { label: string; available: boolean }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 0" }}>
-      <div style={{ width: 5, height: 5, borderRadius: "50%", background: available ? "#22c55e" : "rgba(120,113,108,0.35)" }} />
-      <span style={{ color: available ? A.textSec : A.muted, fontSize: 11 }}>{label}</span>
-      {!available && <span style={{ fontSize: 9, color: "rgba(120,113,108,0.45)", marginLeft: "auto" }}>unavailable</span>}
-    </div>
-  );
-}
+/* CapabilityRow now imported from @/components/orchestration/ProviderPresentation */
 
 function ResultChip({ label, value, warn, muted }: { label: string; value: number; warn?: boolean; muted?: boolean }) {
   const color = warn ? "#f87171" : muted ? A.muted : A.text;

@@ -7,7 +7,6 @@ import {
   ChevronRight,
   Key,
   Shield,
-  Cpu,
   CheckCircle,
   XCircle,
   FileText,
@@ -21,16 +20,22 @@ import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker"
 import { useAgentProfile, A } from "../layout";
 import { listCompanyAgents } from "@/lib/orchestration/client";
 import {
-  ObservabilityTier,
   capabilitiesFromTier,
-  TIER_LABELS,
-  KNOWN_PROVIDERS,
+  resolveAgentProviderPresentation,
+  PROVIDER_PRODUCT_DESCRIPTORS,
 } from "@/lib/orchestration/adapters/types";
 import type {
-  ProviderCapabilities,
+  ProviderPresentationInfo,
   ProviderAvailability,
-  KnownProviderDescriptor,
+  ProviderProductDescriptor,
 } from "@/lib/orchestration/adapters/types";
+import {
+  TierBadge,
+  CapabilityRow,
+  CapabilityGrid,
+  AvailabilityBadge,
+  CAPABILITY_LABELS,
+} from "@/components/orchestration/ProviderPresentation";
 
 /* ── Types ── */
 interface OpenClawConfig {
@@ -63,55 +68,8 @@ const MODEL_OPTIONS = [
 
 /* ── Provider resolution helpers ── */
 
-interface ResolvedProvider {
-  providerId: string;
-  displayName: string;
-  maxTier: ObservabilityTier;
-  tierLabel: string;
-  integrationPath: string;
-  capabilities: ProviderCapabilities;
-}
-
-function resolveAgentProvider(agent: {
-  openclawAgentId?: string;
-  paperclipAgentId?: string;
-}): ResolvedProvider {
-  // Determine which provider backs this agent
-  if (agent.openclawAgentId) {
-    const desc = KNOWN_PROVIDERS.find((p) => p.providerId === "openclaw-heartbeat")!;
-    return {
-      providerId: desc.providerId,
-      displayName: desc.displayName,
-      maxTier: desc.maxTier,
-      tierLabel: TIER_LABELS[desc.maxTier],
-      integrationPath: desc.integrationPath,
-      capabilities: capabilitiesFromTier(desc.maxTier),
-    };
-  }
-  if (agent.paperclipAgentId) {
-    const desc = KNOWN_PROVIDERS.find((p) => p.providerId === "paperclip")!;
-    return {
-      providerId: desc.providerId,
-      displayName: desc.displayName,
-      maxTier: desc.maxTier,
-      tierLabel: TIER_LABELS[desc.maxTier],
-      integrationPath: desc.integrationPath,
-      capabilities: capabilitiesFromTier(desc.maxTier),
-    };
-  }
-  // Fallback: no linked provider
-  return {
-    providerId: "none",
-    displayName: "Manual / Unlinked",
-    maxTier: ObservabilityTier.PostRun,
-    tierLabel: TIER_LABELS[ObservabilityTier.PostRun],
-    integrationPath: "No provider integration",
-    capabilities: capabilitiesFromTier(ObservabilityTier.PostRun),
-  };
-}
-
 function resolveAvailability(
-  descriptor: KnownProviderDescriptor,
+  descriptor: ProviderProductDescriptor,
   activeProviderId: string,
 ): ProviderAvailability {
   if (descriptor.providerId === activeProviderId) return "active";
@@ -132,7 +90,7 @@ export default function AgentConfigurationPage() {
   const [peers, setPeers] = useState<PeerAgent[]>([]);
 
   const openclawId = agent.openclawAgentId || agent.id;
-  const resolved = resolveAgentProvider(agent);
+  const resolved = resolveAgentProviderPresentation(agent);
 
   useEffect(() => {
     fetch(`/api/orchestration/agents/${encodeURIComponent(openclawId)}/openclaw-config`)
@@ -219,7 +177,7 @@ export default function AgentConfigurationPage() {
             <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>
               {resolved.displayName}
             </span>
-            <TierBadge tier={resolved.maxTier} />
+            <TierBadge tier={resolved.tier} />
             <span style={{ fontSize: 10, color: A.muted, marginLeft: "auto" }}>
               current provider
             </span>
@@ -233,14 +191,7 @@ export default function AgentConfigurationPage() {
             <div style={{ fontSize: 10, fontWeight: 600, color: A.muted, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 6 }}>
               Observability Capabilities
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 3 }}>
-              <CapabilityRow label="Live text streaming" available={resolved.capabilities.liveText} />
-              <CapabilityRow label="Action detection" available={resolved.capabilities.actionDetection} />
-              <CapabilityRow label="Structured tool events" available={resolved.capabilities.structuredTools} />
-              <CapabilityRow label="Thinking / reasoning" available={resolved.capabilities.thinking} />
-              <CapabilityRow label="Run steering" available={resolved.capabilities.runSteering} />
-              <CapabilityRow label="Persisted transcript" available={resolved.capabilities.persistedTranscript} />
-            </div>
+            <CapabilityGrid capabilities={resolved.capabilities} />
           </div>
         </div>
 
@@ -275,7 +226,7 @@ export default function AgentConfigurationPage() {
             </div>
             {/* Provider rows */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              {KNOWN_PROVIDERS.map((desc) => {
+              {PROVIDER_PRODUCT_DESCRIPTORS.map((desc) => {
                 const avail = resolveAvailability(desc, resolved.providerId);
                 const caps = capabilitiesFromTier(desc.maxTier);
                 return (
@@ -398,78 +349,11 @@ export default function AgentConfigurationPage() {
 
 /* ══════════════════════════════════════════
    Provider display components
+   ──────────────────────────────────────────
+   TierBadge, CapabilityRow, CapabilityGrid,
+   and AvailabilityBadge are imported from
+   @/components/orchestration/ProviderPresentation
    ══════════════════════════════════════════ */
-
-/** Tier badge — matches run detail surface styling */
-function TierBadge({ tier }: { tier: ObservabilityTier }) {
-  return (
-    <span style={{
-      fontSize: 9, padding: "1px 6px", borderRadius: 3, fontWeight: 600,
-      color: A.accent, background: "rgba(217,119,6,0.1)",
-    }}>
-      T{tier}
-    </span>
-  );
-}
-
-/** Capability row — same visual as run detail CapabilityRow */
-function CapabilityRow({ label, available }: { label: string; available: boolean }) {
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 0" }}>
-      <div style={{
-        width: 5, height: 5, borderRadius: "50%",
-        background: available ? "#22c55e" : "rgba(120,113,108,0.35)",
-      }} />
-      <span style={{ color: available ? A.textSec : A.muted, fontSize: 11 }}>
-        {label}
-      </span>
-      {!available && (
-        <span style={{ fontSize: 9, color: "rgba(120,113,108,0.45)", marginLeft: "auto" }}>
-          unavailable
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** Availability badge with honest status colors */
-function AvailabilityBadge({ availability }: { availability: ProviderAvailability }) {
-  const config: Record<ProviderAvailability, { label: string; bg: string; color: string; border: string }> = {
-    active: {
-      label: "Active",
-      bg: "rgba(34,197,94,0.1)",
-      color: "#22c55e",
-      border: "rgba(34,197,94,0.25)",
-    },
-    available: {
-      label: "Available",
-      bg: "rgba(217,119,6,0.08)",
-      color: A.accentLight,
-      border: "rgba(217,119,6,0.2)",
-    },
-    limited: {
-      label: "Limited",
-      bg: "rgba(234,179,8,0.08)",
-      color: "#eab308",
-      border: "rgba(234,179,8,0.2)",
-    },
-    planned: {
-      label: "Planned",
-      bg: "rgba(120,113,108,0.08)",
-      color: A.muted,
-      border: "rgba(120,113,108,0.2)",
-    },
-  };
-  const c = config[availability];
-  return (
-    <span style={{
-      fontSize: 9, fontWeight: 600, padding: "1px 7px", borderRadius: 3,
-      background: c.bg, color: c.color, border: `1px solid ${c.border}`,
-    }}>
-      {c.label}
-    </span>
-  );
-}
 
 /** Provider comparison row — shows one provider with tier, availability, and capability summary */
 function ProviderComparisonRow({
@@ -477,19 +361,14 @@ function ProviderComparisonRow({
   availability,
   capabilities,
 }: {
-  descriptor: KnownProviderDescriptor;
+  descriptor: ProviderProductDescriptor;
   availability: ProviderAvailability;
-  capabilities: ProviderCapabilities;
+  capabilities: import("@/lib/orchestration/adapters/types").ProviderCapabilities;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const capCount = [
-    capabilities.liveText,
-    capabilities.actionDetection,
-    capabilities.structuredTools,
-    capabilities.thinking,
-    capabilities.runSteering,
-    capabilities.persistedTranscript,
-  ].filter(Boolean).length;
+  const capCount = CAPABILITY_LABELS
+    .filter(({ key }) => capabilities[key])
+    .length;
   const isActive = availability === "active";
   const isPlanned = availability === "planned";
 
@@ -529,13 +408,8 @@ function ProviderComparisonRow({
           <div style={{ fontSize: 10, color: A.muted, marginBottom: 6, lineHeight: 1.5 }}>
             {descriptor.integrationPath}
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 2, marginBottom: 4 }}>
-            <CapabilityRow label="Live text streaming" available={capabilities.liveText} />
-            <CapabilityRow label="Action detection" available={capabilities.actionDetection} />
-            <CapabilityRow label="Structured tool events" available={capabilities.structuredTools} />
-            <CapabilityRow label="Thinking / reasoning" available={capabilities.thinking} />
-            <CapabilityRow label="Run steering" available={capabilities.runSteering} />
-            <CapabilityRow label="Persisted transcript" available={capabilities.persistedTranscript} />
+          <div style={{ marginBottom: 4 }}>
+            <CapabilityGrid capabilities={capabilities} />
           </div>
           <div style={{ fontSize: 10, color: A.muted, fontStyle: "italic", marginTop: 4 }}>
             {descriptor.statusNote}
