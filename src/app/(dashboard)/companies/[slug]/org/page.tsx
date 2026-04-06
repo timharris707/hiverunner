@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { Download, Minus, Plus, Upload } from "lucide-react";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { listCompanies, listCompanyAgents } from "@/lib/orchestration/client";
@@ -93,8 +93,8 @@ export default function CompanyOrgPage() {
           Org Chart
         </h1>
         <div style={{ display: "flex", gap: 6 }}>
-          <HeaderButton icon={<Upload size={13} />} label="Import company" disabled />
-          <HeaderButton icon={<Download size={13} />} label="Export company" disabled />
+          <HeaderButton icon={<Upload size={13} />} label="Import company" href={`/companies/${encodeURIComponent(slug)}/import`} />
+          <HeaderButton icon={<Download size={13} />} label="Export company" href={`/companies/${encodeURIComponent(slug)}/export`} />
         </div>
       </div>
 
@@ -105,12 +105,14 @@ export default function CompanyOrgPage() {
 }
 
 /* ─── Header button ─── */
-function HeaderButton({ icon, label, disabled }: { icon: React.ReactNode; label: string; disabled?: boolean }) {
+function HeaderButton({ icon, label, href, disabled }: { icon: React.ReactNode; label: string; href?: string; disabled?: boolean }) {
+  const router = useRouter();
   return (
     <button
       type="button"
       title={disabled ? `${label} — not yet available` : label}
       disabled={disabled}
+      onClick={href && !disabled ? () => router.push(href) : undefined}
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,
         padding: "6px 14px", borderRadius: 6,

@@ -224,11 +224,38 @@ export default function CompanySettingsPage() {
 
           {/* ── COMPANY PACKAGES ── */}
           <Section title="Company Packages">
-            <p style={{ fontSize: 13, color: P.muted, fontStyle: "italic" }}>
-              Company import and export are not yet available in Mission Control.
-              This feature requires package assembly, selective file export, and
-              import conflict resolution which have not been implemented.
+            <p style={{ fontSize: 13, color: P.textSec, lineHeight: 1.5 }}>
+              Export and import company data as structured JSON packages from the{" "}
+              <a
+                href={`/companies/${encodeURIComponent(slug)}/org`}
+                style={{ color: "#d97706", textDecoration: "underline", textUnderlineOffset: 2 }}
+              >
+                Org Chart
+              </a>{" "}
+              page, or use the direct links below.
             </p>
+            <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+              <a
+                href={`/companies/${encodeURIComponent(slug)}/export`}
+                style={{
+                  padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                  border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+                  color: P.text, textDecoration: "none", display: "inline-block",
+                }}
+              >
+                Export
+              </a>
+              <a
+                href={`/companies/${encodeURIComponent(slug)}/import`}
+                style={{
+                  padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
+                  border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+                  color: P.text, textDecoration: "none", display: "inline-block",
+                }}
+              >
+                Import
+              </a>
+            </div>
           </Section>
 
           {/* ── EXECUTION DEFAULTS ── */}

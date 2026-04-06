@@ -7,6 +7,8 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 ## Session Progress Summary
 
+- Closed company import/export routes:
+  - `F5` real route-backed export and import pages with DB-backed API endpoints, selective category export, conflict strategy (skip/overwrite), round-trip tested
 - Closed the two audit ship blockers:
   - `F1` canonical Tasks route defaulted to hidden project scope and could look empty
   - `F2` approvals had detail-only routing and no usable queue
@@ -34,15 +36,14 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 | Bucket | Count | Notes |
 | --- | ---: | --- |
-| Closed | 9 | Original ship blockers, tasks visual, agent-status truth, project config truth, import/export copy, inbox archive, project tab memory, skill per-file viewing |
+| Closed | 10 | Original ship blockers, tasks visual, agent-status truth, project config truth, import/export copy, inbox archive, project tab memory, skill per-file viewing, company import/export routes |
 | Partially closed | 6 | Project workspaces, routine detail, agent config, instructions, skills, run detail |
-| Still open | 1 | Import/export routes (major feature, not a truth gap) |
+| Still open | 0 | — |
 | Deferred / intentionally divergent | 3 | Either product-decision items or areas MC should likely keep distinct |
 
 ## Recommended Next 5
 
-1. `F5` Company import/export routes
-   Reason: the only remaining open gap. This is a major feature (package assembly, selective file export, zip import, conflict resolution) rather than a truth or UX issue.
+No open gaps remain. Remaining work is in "partially closed" items (deepening agent config/instructions/skills/run detail, routine triggers, project workspace persistence) which are incremental enhancements rather than missing surfaces.
 
 ## Closed
 
@@ -57,6 +58,7 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 | U1 | Inbox archive workflow | `/NEV/inbox` | Minor | UX/interaction | Closed | The archive backend already existed (archiveInboxEvents API/service/client, inbox_read_state table with archived_at). The UI had a hover-only "Dismiss" button with an X icon that was not recognizable as archive. Fixed: replaced X with Archive icon, renamed tooltip to "Archive", made button visible on row hover for both task and approval rows. End-to-end archive verified — archived events disappear from listing. | `b7a4e996` | No further action needed unless bulk archive is wanted. |
 | U2 | Project last-tab memory | `/NEV/projects/:projectSlug` redirect | Minor | UX/interaction | Closed | The project root page was a server-side redirect that always reset to tasks. Now: ProjectTabBar saves the active tab key to localStorage on click; the project root page reads localStorage and redirects to the remembered tab via client-side router.replace. Falls back to tasks if no preference stored. | `83e55036` | No further action needed. |
 | U3 | Skill detail per-file viewing | `/NEV/skills/:skillId` | Minor | UX/interaction | Closed | The skill detail page showed a flat file list with no content access. Now: each file is clickable, loading its content from a new GET /api/skills/file endpoint. Content displays inline in a code block below the selected file. Supports files up to 100KB with honest size limitation. Directory traversal is prevented. | `37560c05` | Add syntax highlighting or per-file routes if deeper navigation depth is wanted. |
+| F5 | Company import/export routes | `/NEV/export`, `/NEV/import` | Major | Feature/functionality | Closed | Mission Control now has real, route-backed company export and import pages. **Export** (`/NEV/export`): category-based selective export (company settings, projects, agents, tasks, sprints, comments, routines, approvals) as a structured JSON package with download. **Import** (`/NEV/import`): JSON package upload with package preview (source company, export date, entity counts), cross-company warning, conflict strategy (skip existing / overwrite), per-category result breakdown with error reporting. Both are DB-backed API endpoints, not UI shells. Org page buttons re-enabled and linked; settings page copy updated. Round-trip tested: export from neveridle-core (236 entities, 130KB) → import with skip strategy (all 236 correctly skipped, zero errors). **Honest divergence from Paperclip**: Paperclip exports a filesystem file tree (YAML/MD files with per-file checkboxes) and supports GitHub repo import source. MC exports structured DB entities as JSON and accepts JSON upload only. This reflects the actual data model difference — MC's orchestration data lives in SQLite, not in a file tree. Excluded from V1 (honestly documented on both pages): execution runs, heartbeat telemetry, agent runtime state, inbox read state, avatar images, ideas/reviews. | — | Add zip format support, GitHub-source import, or file-tree export if the filesystem-oriented Paperclip model is wanted alongside the DB entity model. |
 
 ## Partially Closed
 
@@ -71,9 +73,7 @@ This file is the live tracking layer for Paperclip parity work on Mission Contro
 
 ## Still Open
 
-| ID | Area | Route(s) | Original severity | Original theme | Current status | Rationale | Relevant commits | Recommended next action |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| F5 | Company import/export not route-backed | No dedicated import/export routes | Major | Feature/functionality | Open | The copy/honesty gap (D2) is now closed — settings and org no longer imply these pages exist. However, the actual import/export workflow (package assembly, selective file export, zip upload, collision resolution) remains unimplemented. Paperclip has full export with file tree and selective download, plus import with GitHub/zip source and conflict strategy. | — | Implement real import/export pages if the feature is prioritized. This is a major feature, not a truth gap. |
+No open gaps remain.
 
 ## Deferred / Intentionally Divergent
 
