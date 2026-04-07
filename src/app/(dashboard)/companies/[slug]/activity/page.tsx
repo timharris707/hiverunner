@@ -205,13 +205,13 @@ function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
       padding: "9px 14px",
       borderBottom: `0.5px solid ${P.cardBorder}`,
     }}>
-      {/* Agent avatar circle with stable color */}
+      {/* Agent avatar circle — neutral treatment */}
       <span style={{
         width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
-        background: `${color}20`,
-        border: `0.5px solid ${color}40`,
+        background: "rgba(255,255,255,0.06)",
+        border: `0.5px solid ${P.cardBorder}`,
         display: "grid", placeItems: "center",
-        fontSize: 10, fontWeight: 700, color,
+        fontSize: 10, fontWeight: 700, color: P.textSec,
         textTransform: "uppercase", letterSpacing: "0.02em",
       }}>
         {initials}

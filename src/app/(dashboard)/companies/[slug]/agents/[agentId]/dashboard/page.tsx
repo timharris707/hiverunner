@@ -256,11 +256,11 @@ function ChartPanel({
 function IssueStatusPill({ status }: { status: string }) {
   const colors: Record<string, { color: string; bg: string; label: string }> = {
     done: { color: "#22c55e", bg: "rgba(34,197,94,0.14)", label: "done" },
-    review: { color: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "in review" },
-    "in-progress": { color: "#d97706", bg: "rgba(217,119,6,0.14)", label: "in progress" },
+    review: { color: "#a78bfa", bg: "rgba(167,139,250,0.14)", label: "in review" },
+    "in-progress": { color: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "in progress" },
     blocked: { color: "#ef4444", bg: "rgba(239,68,68,0.14)", label: "blocked" },
-    backlog: { color: "#78716c", bg: "rgba(120,113,108,0.14)", label: "backlog" },
-    "on-deck": { color: "#fbbf24", bg: "rgba(251,191,36,0.14)", label: "on deck" },
+    backlog: { color: "#94a3b8", bg: "rgba(148,163,184,0.14)", label: "backlog" },
+    "on-deck": { color: "#60a5fa", bg: "rgba(96,165,250,0.14)", label: "on deck" },
   };
   const c = colors[status] ?? { color: A.muted, bg: "rgba(120,113,108,0.14)", label: status };
   return (
@@ -277,7 +277,7 @@ function IssueStatusPill({ status }: { status: string }) {
 function RunStatusPill({ status }: { status: string }) {
   const colors: Record<string, { color: string; bg: string }> = {
     running: { color: "#22c55e", bg: "rgba(34,197,94,0.14)" },
-    pending: { color: "#fbbf24", bg: "rgba(251,191,36,0.14)" },
+    pending: { color: "#a8a6a0", bg: "rgba(168,166,160,0.14)" },
     completed: { color: "#78716c", bg: "rgba(120,113,108,0.14)" },
     failed: { color: "#ef4444", bg: "rgba(239,68,68,0.14)" },
     cancelled: { color: "#78716c", bg: "rgba(120,113,108,0.14)" },

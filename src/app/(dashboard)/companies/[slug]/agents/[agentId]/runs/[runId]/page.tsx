@@ -310,10 +310,10 @@ function getPhaseColor(kind: MCLiveEventKind): string {
   switch (kind) {
     case "run_start": return "#06b6d4";
     case "run_progress": return "#a8a29e";
-    case "assistant_text_final": return "#f59e0b";
+    case "assistant_text_final": return "#67e8f9";
     case "run_end": return "#22c55e";
     case "run_error": return "#ef4444";
-    case "action_detected": return "#f59e0b";
+    case "action_detected": return "#a8a6a0";
     case "comment_written": return "#22c55e";
     default: return A.muted;
   }
@@ -322,9 +322,9 @@ function getPhaseColor(kind: MCLiveEventKind): string {
 /* ── Constants ── */
 
 const STATUS_TONES: Record<string, { color: string; bg: string; label: string }> = {
-  queued: { color: "#fbbf24", bg: "rgba(251,191,36,0.14)", label: "Queued" },
+  queued: { color: "#a8a6a0", bg: "rgba(168,166,160,0.14)", label: "Queued" },
   running: { color: "#22c55e", bg: "rgba(34,197,94,0.14)", label: "Running" },
-  succeeded: { color: "#d97706", bg: "rgba(217,119,6,0.14)", label: "Succeeded" },
+  succeeded: { color: "#4ade80", bg: "rgba(74,222,128,0.14)", label: "Succeeded" },
   failed: { color: "#f87171", bg: "rgba(248,113,113,0.14)", label: "Failed" },
   cancelled: { color: "#78716c", bg: "rgba(120,113,108,0.14)", label: "Cancelled" },
   timed_out: { color: "#f87171", bg: "rgba(248,113,113,0.14)", label: "Timed Out" },
@@ -339,15 +339,15 @@ const EVENT_ICONS: Partial<Record<MCLiveEventKind, { icon: typeof Zap; color: st
   assistant_text_final: { icon: MessageSquare, color: "#67e8f9" },
   tool_call_start: { icon: Terminal, color: "#a78bfa" },
   tool_call_end: { icon: Terminal, color: "#a78bfa" },
-  action_detected: { icon: Zap, color: "#f59e0b" },
+  action_detected: { icon: Zap, color: "#a8a6a0" },
   comment_written: { icon: MessageSquare, color: "#22c55e" },
   task_updated: { icon: Activity, color: "#22c55e" },
-  report_written: { icon: FileText, color: "#d97706" },
+  report_written: { icon: FileText, color: "#a8a6a0" },
   error: { icon: AlertTriangle, color: "#ef4444" },
 };
 
 const COMMENT_TYPE_BADGES: Record<string, { label: string; color: string }> = {
-  status_update: { label: "report", color: "#d97706" },
+  status_update: { label: "report", color: "#a8a6a0" },
   comment: { label: "comment", color: "#22c55e" },
   code_link: { label: "code", color: "#a78bfa" },
   review: { label: "review", color: "#06b6d4" },
@@ -446,7 +446,7 @@ export default function RunDetailPage({
         </div>
         <Link
           href={buildCanonicalAgentRunsPath(companyCode, agentId)}
-          style={{ color: A.accent, fontSize: 12, textDecoration: "none" }}
+          style={{ color: A.textSec, fontSize: 12, textDecoration: "none" }}
         >
           Back to runs
         </Link>
@@ -590,10 +590,10 @@ export default function RunDetailPage({
         {task && (
           <div style={{
             marginTop: 12, padding: "8px 10px", borderRadius: 6,
-            background: "rgba(217,119,6,0.04)", border: "0.5px solid rgba(217,119,6,0.12)",
+            background: "rgba(255,255,255,0.03)", border: "0.5px solid rgba(255,255,255,0.06)",
             display: "flex", alignItems: "center", gap: 8,
           }}>
-            <ListChecks size={12} style={{ color: A.accent, flexShrink: 0 }} />
+            <ListChecks size={12} style={{ color: A.textSec, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 12, color: A.text, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {task.title ?? "Untitled task"}
@@ -684,7 +684,7 @@ export default function RunDetailPage({
           }}
         >
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <Shield size={13} style={{ color: A.accent }} />
+            <Shield size={13} style={{ color: A.textSec }} />
             <span style={{ fontSize: 12, fontWeight: 500, color: A.textSec }}>{provider.displayName}</span>
             <TierBadge tier={provider.tier} />
           </div>
@@ -704,7 +704,7 @@ export default function RunDetailPage({
 
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-          <Radio size={12} style={{ color: A.accent }} />
+          <Radio size={12} style={{ color: A.textSec }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Invocation & session</span>
         </div>
 
@@ -739,7 +739,7 @@ export default function RunDetailPage({
       {(providerFactRows.length > 0 || providerSignals.length > 0 || providerExecution.assistantSummary || providerExecution.thinkingSummary || providerExecution.resultErrors.length > 0) && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Terminal size={12} style={{ color: A.accent }} />
+            <Terminal size={12} style={{ color: A.textSec }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Provider execution context</span>
           </div>
 
@@ -861,7 +861,7 @@ export default function RunDetailPage({
       <div style={cardStyle}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <Activity size={12} style={{ color: A.accent }} />
+            <Activity size={12} style={{ color: A.textSec }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Execution timeline</span>
           </div>
           <span style={{ fontSize: 10, color: A.muted }}>
@@ -950,7 +950,7 @@ export default function RunDetailPage({
       {(hasResultMetrics || (result && Array.isArray((result as Record<string, unknown>).perActionDetail) && ((result as Record<string, unknown>).perActionDetail as Array<Record<string, unknown>>).length > 0)) && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <FileText size={12} style={{ color: A.accent }} />
+            <FileText size={12} style={{ color: A.textSec }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Observed outcome</span>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
@@ -1015,7 +1015,7 @@ export default function RunDetailPage({
       {hasTelemetry && (
         <div style={cardStyle}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
-            <Clock size={12} style={{ color: A.accent }} />
+            <Clock size={12} style={{ color: A.textSec }} />
             <span style={{ fontSize: 12, fontWeight: 600, color: A.textSec }}>Observed metrics</span>
             <span style={{ fontSize: 9, color: A.muted, fontStyle: "italic", marginLeft: "auto" }}>captured values</span>
           </div>
@@ -1107,7 +1107,7 @@ function CopyChip({ value, label, onCopy, copied, copyKey }: {
       style={{
         display: "inline-flex", alignItems: "center", gap: 3,
         fontFamily: "monospace", fontSize: 10, padding: "1px 6px", borderRadius: 4,
-        background: "rgba(217,119,6,0.12)", color: A.accent,
+        background: "rgba(255,255,255,0.06)", color: A.textSec,
         cursor: "pointer",
       }}
       title={`Copy: ${value}`}

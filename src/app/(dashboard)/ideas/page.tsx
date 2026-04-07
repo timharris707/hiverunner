@@ -118,15 +118,15 @@ const SOURCE_BADGES: Record<string, { icon: string; label: string }> = {
 };
 
 const TAKEAWAY_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  idea: { label: "Idea", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
+  idea: { label: "Idea", color: "#a8a6a0", bg: "rgba(168,166,160,0.15)" },
   approved: { label: "Promoted", color: "#34d399", bg: "rgba(52,211,153,0.15)" },
-  building: { label: "Building", color: "#fbbf24", bg: "rgba(251,191,36,0.15)" },
+  building: { label: "Building", color: "#60a5fa", bg: "rgba(96,165,250,0.15)" },
   shipped: { label: "Shipped", color: "#10b981", bg: "rgba(16,185,129,0.15)" },
   rejected: { label: "Rejected", color: "#f87171", bg: "rgba(248,113,113,0.15)" },
 };
 
 const REVIEW_STATUS: Record<string, { label: string; color: string; bg: string }> = {
-  active: { label: "Active", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
+  active: { label: "Active", color: "#a8a6a0", bg: "rgba(168,166,160,0.15)" },
   archived: { label: "Archived", color: "#9ca3af", bg: "rgba(156,163,175,0.15)" },
   rejected: { label: "Rejected", color: "#f87171", bg: "rgba(248,113,113,0.15)" },
 };
@@ -260,8 +260,8 @@ function SubmitModal({ onClose, onSubmitted }: { onClose: () => void; onSubmitte
           disabled={submitting || !url}
           className="rounded-lg px-4 py-2.5 text-[13px] font-semibold border-none cursor-pointer"
           style={{
-            backgroundColor: "var(--accent)",
-            color: "#fff",
+            backgroundColor: "rgba(255,255,255,0.08)",
+            color: "#eae8e4",
             opacity: submitting || !url ? 0.5 : 1,
             cursor: submitting || !url ? "not-allowed" : "pointer",
           }}
@@ -2196,7 +2196,7 @@ export default function IdeasPage() {
         <button
           onClick={() => setShowModal(true)}
           className="inline-flex items-center gap-1.5 text-[12px] font-semibold px-3.5 py-2 rounded-lg border-none cursor-pointer"
-          style={{ backgroundColor: "var(--accent)", color: "#fff" }}
+          style={{ backgroundColor: "rgba(255,255,255,0.08)", color: "#eae8e4", border: "0.5px solid rgba(222,220,209,0.12)" }}
         >
           <Plus size={14} /> Submit URL
         </button>
@@ -2213,7 +2213,7 @@ export default function IdeasPage() {
           <button
             onClick={() => setShowModal(true)}
             className="bg-transparent border-none underline cursor-pointer text-[13px]"
-            style={{ color: "var(--accent)" }}
+            style={{ color: "var(--text-secondary)" }}
           >
             Submit a URL?
           </button>

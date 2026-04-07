@@ -90,9 +90,9 @@ export default function AgentRunsPage() {
 
 function RunStatusBadge({ status }: { status: OrchestrationAgentExecutionRun["status"] }) {
   const tones: Record<string, { color: string; bg: string; label: string }> = {
-    pending: { color: "#fbbf24", bg: "rgba(251,191,36,0.14)", label: "Pending" },
+    pending: { color: "#a8a6a0", bg: "rgba(168,166,160,0.14)", label: "Pending" },
     running: { color: "#22c55e", bg: "rgba(34,197,94,0.14)", label: "Running" },
-    completed: { color: "#d97706", bg: "rgba(217,119,6,0.14)", label: "Done" },
+    completed: { color: "#4ade80", bg: "rgba(74,222,128,0.14)", label: "Done" },
     failed: { color: "#f87171", bg: "rgba(248,113,113,0.14)", label: "Failed" },
     cancelled: { color: "#78716c", bg: "rgba(120,113,108,0.14)", label: "Cancelled" },
   };
