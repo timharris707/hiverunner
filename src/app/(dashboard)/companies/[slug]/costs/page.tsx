@@ -7,6 +7,7 @@ import { AlertTriangle, DollarSign } from "lucide-react";
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { listCompanies } from "@/lib/orchestration/client";
 import type { OrchestrationCompany } from "@/lib/orchestration/types";
+import { P as tokens } from "@/lib/ui/tokens";
 
 /* ── Types ── */
 
@@ -36,14 +37,14 @@ function fmtTok(n: number): string {
   return String(n);
 }
 
-/* ── Palette (MC stone standard) ── */
+/* ── Palette (from shared tokens) ── */
 
 const P = {
-  card: "#1e1e1e",
-  cardBorder: "rgba(255,255,255,0.08)",
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
+  card: tokens.surface,
+  cardBorder: tokens.cardBorder,
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
 };
 
 /* ── Page ── */
@@ -106,7 +107,7 @@ export default function CompanyCostsPage() {
           {RANGES.map((r) => (
             <button key={r.key} type="button" onClick={() => setTimeframe(r.key)} style={{
               padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer",
-              border: `1px solid ${timeframe === r.key ? "rgba(217,119,6,0.5)" : P.cardBorder}`,
+              border: `0.5px solid ${timeframe === r.key ? "rgba(217,119,6,0.5)" : P.cardBorder}`,
               background: timeframe === r.key ? "rgba(217,119,6,0.12)" : "transparent",
               color: timeframe === r.key ? "#fbbf24" : P.textSec,
             }}>{r.label}</button>
@@ -123,7 +124,7 @@ export default function CompanyCostsPage() {
       </div>
 
       {/* ── Tab bar ── */}
-      <div style={{ borderBottom: `1px solid ${P.cardBorder}`, marginBottom: 20 }}>
+      <div style={{ borderBottom: `0.5px solid ${P.cardBorder}`, marginBottom: 20 }}>
         <nav style={{ display: "flex", gap: 0 }}>
           {TABS.map((t) => (
             <button key={t.key} type="button" onClick={() => setTab(t.key)} style={{
@@ -163,7 +164,7 @@ function OverviewTab({ costData, totalTokens, budgetUtil, loading }: { costData:
               {costData && costData.budget > 0 ? `Budget: ${fmtUsd(costData.budget)}` : "Unlimited budget"}
             </p>
           </div>
-          <div style={{ padding: "8px 16px", borderRadius: 8, border: `1px solid ${P.cardBorder}`, background: P.card, textAlign: "right" }}>
+          <div style={{ padding: "8px 16px", borderRadius: 8, border: `0.5px solid ${P.cardBorder}`, background: "transparent", textAlign: "right" }}>
             <p style={{ fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.08em", margin: 0 }}>Usage</p>
             <p style={{ fontSize: 18, fontWeight: 700, color: P.text, margin: "2px 0 0" }}>{loading ? "..." : fmtTok(totalTokens)}</p>
           </div>
@@ -195,7 +196,7 @@ function OverviewTab({ costData, totalTokens, budgetUtil, loading }: { costData:
         {loading ? <p style={{ fontSize: 13, color: P.muted }}>Loading...</p> : costData?.byAgent?.length ? (
           <div style={{ display: "flex", flexDirection: "column" }}>
             {costData.byAgent.map((row) => (
-              <div key={row.agent} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+              <div key={row.agent} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `0.5px solid ${P.cardBorder}` }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ width: 28, height: 28, borderRadius: 6, background: "rgba(120,113,108,0.15)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase" }}>{row.agent.slice(0, 2)}</span>
                   <span style={{ fontSize: 13, fontWeight: 500, color: P.text }}>{row.agent}</span>
@@ -245,7 +246,7 @@ function ProvidersTab({ costData, loading }: { costData: CostData | null; loadin
       {loading ? <p style={{ fontSize: 13, color: P.muted }}>Loading...</p> : costData?.byModel?.length ? (
         <div style={{ display: "flex", flexDirection: "column" }}>
           {costData.byModel.map((row) => (
-            <div key={row.model} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+            <div key={row.model} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 0", borderBottom: `0.5px solid ${P.cardBorder}` }}>
               <span style={{ fontSize: 13, fontWeight: 500, color: P.text, fontFamily: "var(--font-mono, monospace)" }}>{row.model}</span>
               <div style={{ textAlign: "right" }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: P.text }}>{fmtUsd(row.cost)}</span>
@@ -300,7 +301,7 @@ function FinanceTab() {
 
 function SummaryCard({ label, value, detail, icon }: { label: string; value: string; detail?: string; icon?: React.ReactNode }) {
   return (
-    <div style={{ padding: "16px 18px", borderRadius: 10, border: `1px solid ${P.cardBorder}`, background: P.card }}>
+    <div style={{ padding: "16px 18px", borderRadius: 10, border: `0.5px solid ${P.cardBorder}`, background: "transparent" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
         <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p>
         {icon}
@@ -313,7 +314,7 @@ function SummaryCard({ label, value, detail, icon }: { label: string; value: str
 
 function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 20, padding: 20, borderRadius: 10, border: `1px solid ${P.cardBorder}`, background: P.card }}>
+    <div style={{ marginBottom: 20, padding: 20, borderRadius: 10, border: `0.5px solid ${P.cardBorder}`, background: "transparent" }}>
       <h2 style={{ margin: 0, fontSize: 15, fontWeight: 600, color: P.text }}>{title}</h2>
       {subtitle && <p style={{ margin: "4px 0 16px", fontSize: 12, color: P.muted }}>{subtitle}</p>}
       {!subtitle && <div style={{ height: 12 }} />}
@@ -324,7 +325,7 @@ function Section({ title, subtitle, children }: { title: string; subtitle?: stri
 
 function GapCard({ label, detail }: { label: string; detail: string }) {
   return (
-    <div style={{ padding: "14px 18px", borderRadius: 8, border: `1px solid ${P.cardBorder}`, background: "rgba(28,25,23,0.5)" }}>
+    <div style={{ padding: "14px 18px", borderRadius: 8, border: `0.5px solid ${P.cardBorder}`, background: "transparent" }}>
       <p style={{ margin: 0, fontSize: 10, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</p>
       <p style={{ margin: "6px 0 0", fontSize: 20, fontWeight: 700, color: P.muted }}>—</p>
       <p style={{ margin: "4px 0 0", fontSize: 11, color: P.muted }}>{detail}</p>

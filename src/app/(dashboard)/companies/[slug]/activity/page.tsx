@@ -6,14 +6,15 @@ import { Loader2 } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
 import { listActivityFeed, listCompanies, listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationActivityEvent, OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
+import { P as tokens } from "@/lib/ui/tokens";
 
-/* ─── Palette ─── */
+/* ─── Palette (from shared tokens) ─── */
 const P = {
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
-  cardBorder: "rgba(255,255,255,0.08)",
-  card: "#1e1e1e",
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
+  cardBorder: tokens.cardBorder,
+  card: tokens.surface,
 };
 
 /* ─── Stable agent color palette ─── */
@@ -121,7 +122,7 @@ export default function CompanyActivityPage() {
   if (!loading && !company) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "0.5px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
           Company not found.
         </div>
       </div>
@@ -144,7 +145,7 @@ export default function CompanyActivityPage() {
           onChange={(e) => setTypeFilter(e.target.value)}
           style={{
             padding: "6px 12px", borderRadius: 6,
-            border: `1px solid ${P.cardBorder}`, background: P.card,
+            border: `0.5px solid ${P.cardBorder}`, background: P.card,
             color: P.text, fontSize: 12, outline: "none", cursor: "pointer",
           }}
         >
@@ -155,7 +156,7 @@ export default function CompanyActivityPage() {
       </div>
 
       {/* Event list */}
-      <div style={{ borderRadius: 8, border: `1px solid ${P.cardBorder}` }}>
+      <div style={{ borderRadius: 8, border: `0.5px solid ${P.cardBorder}` }}>
         {loading ? (
           <div style={{ padding: 32, textAlign: "center" }}>
             <Loader2 size={20} style={{ color: P.muted, animation: "spin 1s linear infinite", margin: "0 auto" }} />
@@ -181,7 +182,7 @@ export default function CompanyActivityPage() {
             style={{
               display: "inline-flex", alignItems: "center", gap: 6,
               padding: "6px 16px", borderRadius: 6, fontSize: 11, fontWeight: 500,
-              background: "transparent", border: `1px solid ${P.cardBorder}`,
+              background: "transparent", border: `0.5px solid ${P.cardBorder}`,
               color: P.textSec, cursor: "pointer", opacity: loadingMore ? 0.5 : 1,
             }}
           >
@@ -202,13 +203,13 @@ function ActivityRow({ event }: { event: OrchestrationActivityEvent }) {
     <div style={{
       display: "flex", alignItems: "center", gap: 10,
       padding: "9px 14px",
-      borderBottom: `1px solid ${P.cardBorder}`,
+      borderBottom: `0.5px solid ${P.cardBorder}`,
     }}>
       {/* Agent avatar circle with stable color */}
       <span style={{
         width: 28, height: 28, borderRadius: "50%", flexShrink: 0,
         background: `${color}20`,
-        border: `1px solid ${color}40`,
+        border: `0.5px solid ${color}40`,
         display: "grid", placeItems: "center",
         fontSize: 10, fontWeight: 700, color,
         textTransform: "uppercase", letterSpacing: "0.02em",

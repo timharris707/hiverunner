@@ -16,17 +16,18 @@ import type {
   OrchestrationProject,
   OrchestrationSprint,
 } from "@/lib/orchestration/types";
+import { P as tokens } from "@/lib/ui/tokens";
 
-/* ─── Palette (MC design system) ─── */
+/* ─── Palette (from shared tokens) ─── */
 const P = {
-  bg: "#0f0f0f",
-  surface: "#1a1a1a",
-  card: "#1e1e1e",
-  cardBorder: "rgba(255,255,255,0.08)",
-  cardBorderHover: "rgba(255,255,255,0.16)",
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
+  bg: tokens.bg,
+  surface: tokens.surface,
+  card: tokens.surface,
+  cardBorder: tokens.cardBorder,
+  cardBorderHover: tokens.cardBorderHover,
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
 };
 
 const STATUS_COLORS: Record<string, { color: string; bg: string }> = {
@@ -107,7 +108,7 @@ export default function CompanyGoalsPage() {
   if (loading) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
+        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `0.5px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
       </div>
     );
   }
@@ -115,7 +116,7 @@ export default function CompanyGoalsPage() {
   if (!company) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "0.5px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
           Company not found.
         </div>
       </div>
@@ -141,7 +142,7 @@ export default function CompanyGoalsPage() {
         style={{
           display: "inline-flex", alignItems: "center", gap: 6,
           padding: "8px 16px", borderRadius: 6, marginBottom: 12,
-          background: "transparent", border: `1px solid ${P.cardBorder}`,
+          background: "transparent", border: `0.5px solid ${P.cardBorder}`,
           color: P.text, fontSize: 12, fontWeight: 500, cursor: "pointer",
           transition: "border-color 0.15s",
         }}
@@ -155,7 +156,7 @@ export default function CompanyGoalsPage() {
       {creating && (
         <div style={{
           marginBottom: 12, padding: "12px 14px", borderRadius: 8,
-          background: P.card, border: `1px solid ${P.cardBorder}`,
+          background: P.card, border: `0.5px solid ${P.cardBorder}`,
           display: "flex", flexDirection: "column", gap: 8,
         }}>
           <input
@@ -163,25 +164,25 @@ export default function CompanyGoalsPage() {
             onChange={(e) => setCreateName(e.target.value)}
             placeholder="Goal name..."
             onKeyDown={(e) => { if (e.key === "Enter") void handleCreateGoal(); if (e.key === "Escape") setCreating(false); }}
-            style={{ padding: "8px 10px", borderRadius: 6, border: `1px solid ${P.cardBorder}`, background: "transparent", color: P.text, fontSize: 13, outline: "none" }}
+            style={{ padding: "8px 10px", borderRadius: 6, border: `0.5px solid ${P.cardBorder}`, background: "transparent", color: P.text, fontSize: 13, outline: "none" }}
           />
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <select value={createProjectId} onChange={(e) => setCreateProjectId(e.target.value)}
-              style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${P.cardBorder}`, background: P.card, color: P.text, fontSize: 11, outline: "none" }}>
+              style={{ padding: "6px 8px", borderRadius: 6, border: `0.5px solid ${P.cardBorder}`, background: P.card, color: P.text, fontSize: 11, outline: "none" }}>
               {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <select value={createStatus} onChange={(e) => setCreateStatus(e.target.value as OrchestrationSprint["status"])}
-              style={{ padding: "6px 8px", borderRadius: 6, border: `1px solid ${P.cardBorder}`, background: P.card, color: P.text, fontSize: 11, outline: "none" }}>
+              style={{ padding: "6px 8px", borderRadius: 6, border: `0.5px solid ${P.cardBorder}`, background: P.card, color: P.text, fontSize: 11, outline: "none" }}>
               <option value="planned">Planned</option>
               <option value="active">Active</option>
             </select>
             <div style={{ flex: 1 }} />
             <button type="button" onClick={() => void handleCreateGoal()} disabled={submitting || createName.trim().length < 2}
-              style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: "rgba(34,197,94,0.14)", border: "1px solid rgba(34,197,94,0.3)", color: "#4ade80", cursor: "pointer", opacity: submitting || createName.trim().length < 2 ? 0.5 : 1 }}>
+              style={{ padding: "6px 14px", borderRadius: 6, fontSize: 11, fontWeight: 600, background: "rgba(34,197,94,0.14)", border: "0.5px solid rgba(34,197,94,0.3)", color: "#4ade80", cursor: "pointer", opacity: submitting || createName.trim().length < 2 ? 0.5 : 1 }}>
               {submitting ? "Creating..." : "Create"}
             </button>
             <button type="button" onClick={() => { setCreating(false); setCreateName(""); }}
-              style={{ padding: "6px 10px", borderRadius: 6, fontSize: 11, background: "transparent", border: `1px solid ${P.cardBorder}`, color: P.muted, cursor: "pointer" }}>
+              style={{ padding: "6px 10px", borderRadius: 6, fontSize: 11, background: "transparent", border: `0.5px solid ${P.cardBorder}`, color: P.muted, cursor: "pointer" }}>
               Cancel
             </button>
           </div>
@@ -189,7 +190,7 @@ export default function CompanyGoalsPage() {
       )}
 
       {/* Goal list */}
-      <div style={{ borderRadius: 8, border: `1px solid ${P.cardBorder}` }}>
+      <div style={{ borderRadius: 8, border: `0.5px solid ${P.cardBorder}` }}>
         {orderedGoals.length === 0 ? (
           <div style={{ padding: 32, textAlign: "center", color: P.muted, fontSize: 12 }}>
             No goals yet. Create your first goal to get started.
@@ -206,7 +207,7 @@ export default function CompanyGoalsPage() {
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: indent ? "10px 14px 10px 34px" : "10px 14px",
-                  borderBottom: `1px solid ${P.cardBorder}`,
+                  borderBottom: `0.5px solid ${P.cardBorder}`,
                   cursor: "pointer", textDecoration: "none",
                   transition: "background 0.12s",
                 }}
@@ -217,7 +218,7 @@ export default function CompanyGoalsPage() {
                   fontSize: 10, fontWeight: 500, color: P.muted,
                   padding: "2px 6px", borderRadius: 4,
                   background: "rgba(255,255,255,0.04)",
-                  border: `1px solid ${P.cardBorder}`,
+                  border: `0.5px solid ${P.cardBorder}`,
                   minWidth: 55, textAlign: "center", flexShrink: 0,
                 }}>
                   {level}

@@ -287,7 +287,7 @@ function FilterDropdown({ value, options, onChange }: {
         style={{
           display: "flex", alignItems: "center", gap: 6,
           padding: "5px 10px", fontSize: 12, fontWeight: 500,
-          borderRadius: 6, border: "1px solid rgba(120,113,108,0.25)",
+          borderRadius: 6, border: "0.5px solid rgba(120,113,108,0.25)",
           background: "transparent", color: "#a8a29e", cursor: "pointer",
         }}
       >
@@ -298,8 +298,8 @@ function FilterDropdown({ value, options, onChange }: {
         <div style={{
           position: "absolute", top: "100%", left: 0, marginTop: 4,
           minWidth: 160, borderRadius: 8,
-          border: "1px solid rgba(120,113,108,0.2)",
-          background: "#1c1917", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+          border: "0.5px solid rgba(120,113,108,0.2)",
+          background: "var(--surface-elevated)", boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
           zIndex: 50, overflow: "hidden",
         }}>
           {options.map((opt) => (
@@ -606,7 +606,7 @@ export default function CompanyInboxPage() {
           <div style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "5px 10px", borderRadius: 6,
-            border: "1px solid rgba(120,113,108,0.2)",
+            border: "0.5px solid rgba(120,113,108,0.2)",
             background: "rgba(255,255,255,0.02)",
           }}>
             <Search size={13} color="#78716c" />
@@ -631,7 +631,7 @@ export default function CompanyInboxPage() {
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "5px 10px", fontSize: 12, fontWeight: 500,
-                borderRadius: 6, border: "1px solid rgba(120,113,108,0.25)",
+                borderRadius: 6, border: "0.5px solid rgba(120,113,108,0.25)",
                 background: columnsDropdownOpen ? "rgba(255,255,255,0.05)" : "transparent",
                 color: "#a8a29e", cursor: "pointer",
               }}
@@ -643,8 +643,8 @@ export default function CompanyInboxPage() {
               <div style={{
                 position: "absolute", top: "100%", right: 0, marginTop: 4,
                 minWidth: 220, borderRadius: 8,
-                border: "1px solid rgba(120,113,108,0.2)",
-                background: "#1c1917", boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                border: "0.5px solid rgba(120,113,108,0.2)",
+                background: "var(--surface-elevated)", boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
                 zIndex: 50, overflow: "hidden", padding: "4px 0",
               }}>
                 {([
@@ -671,7 +671,7 @@ export default function CompanyInboxPage() {
                   >
                     <span style={{
                       width: 16, height: 16, borderRadius: 3,
-                      border: "1px solid rgba(120,113,108,0.4)",
+                      border: "0.5px solid rgba(120,113,108,0.4)",
                       background: visibleColumns.includes(col.key) ? "rgba(59,130,246,0.3)" : "transparent",
                       display: "flex", alignItems: "center", justifyContent: "center",
                       flexShrink: 0,
@@ -684,7 +684,7 @@ export default function CompanyInboxPage() {
                     </span>
                   </button>
                 ))}
-                <div style={{ borderTop: "1px solid rgba(120,113,108,0.15)", marginTop: 4, paddingTop: 4 }}>
+                <div style={{ borderTop: "0.5px solid rgba(120,113,108,0.15)", marginTop: 4, paddingTop: 4 }}>
                   <button
                     type="button"
                     onClick={resetColumns}
@@ -714,7 +714,7 @@ export default function CompanyInboxPage() {
               fontSize: "13px",
               fontWeight: 500,
               borderRadius: 6,
-              border: "1px solid rgba(120,113,108,0.3)",
+              border: "0.5px solid rgba(120,113,108,0.3)",
               background: "transparent",
               color: inbox.unreadCount > 0 ? "#d6d3d1" : "#57534e",
               cursor: inbox.unreadCount > 0 ? "pointer" : "default",
@@ -744,7 +744,7 @@ export default function CompanyInboxPage() {
 
       {/* Error */}
       {error && (
-        <div style={{ padding: "12px 16px", margin: "12px 0", borderRadius: 8, border: "1px solid #7f1d1d", background: "rgba(127,29,29,0.15)", fontSize: 13, color: "#fca5a5" }}>
+        <div style={{ padding: "12px 16px", margin: "12px 0", borderRadius: 8, border: "0.5px solid #7f1d1d", background: "rgba(127,29,29,0.15)", fontSize: 13, color: "#fca5a5" }}>
           {error}
         </div>
       )}
@@ -824,7 +824,7 @@ export default function CompanyInboxPage() {
                   fontSize: 12,
                   fontWeight: 500,
                   borderRadius: 6,
-                  border: "1px solid rgba(120,113,108,0.3)",
+                  border: "0.5px solid rgba(120,113,108,0.3)",
                   background: "transparent",
                   color: "#d6d3d1",
                   cursor: "pointer",
@@ -937,7 +937,7 @@ function TaskEventRow({
           alignItems: "center",
           padding: "9px 4px",
           paddingRight: 30,
-          borderBottom: "1px solid rgba(120,113,108,0.08)",
+          borderBottom: "0.5px solid rgba(120,113,108,0.08)",
           textDecoration: "none",
           transition: "background 100ms",
           background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
@@ -1143,7 +1143,7 @@ function ApprovalRow({
           gap: 10,
           padding: "10px 4px 10px 28px",
           paddingRight: 30,
-          borderBottom: "1px solid rgba(120,113,108,0.08)",
+          borderBottom: "0.5px solid rgba(120,113,108,0.08)",
           transition: "background 100ms",
           cursor: "default",
           background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
@@ -1219,7 +1219,7 @@ function ApprovalRow({
                 fontSize: 12,
                 fontWeight: 500,
                 borderRadius: 6,
-                border: "1px solid rgba(34,197,94,0.4)",
+                border: "0.5px solid rgba(34,197,94,0.4)",
                 background: "rgba(34,197,94,0.1)",
                 color: "#4ade80",
                 cursor: acting ? "wait" : "pointer",
@@ -1240,7 +1240,7 @@ function ApprovalRow({
                 fontSize: 12,
                 fontWeight: 500,
                 borderRadius: 6,
-                border: "1px solid rgba(239,68,68,0.4)",
+                border: "0.5px solid rgba(239,68,68,0.4)",
                 background: "rgba(239,68,68,0.1)",
                 color: "#f87171",
                 cursor: acting ? "wait" : "pointer",
