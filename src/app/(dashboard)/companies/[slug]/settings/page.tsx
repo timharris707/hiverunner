@@ -215,7 +215,7 @@ export default function CompanySettingsPage() {
               Export and import company data as structured JSON packages from the{" "}
               <a
                 href={`/companies/${encodeURIComponent(slug)}/org`}
-                style={{ color: color.accent, textDecoration: "underline", textUnderlineOffset: 2 }}
+                style={{ color: color.text, textDecoration: "underline", textUnderlineOffset: 2 }}
               >
                 Org Chart
               </a>{" "}
@@ -285,7 +285,7 @@ export default function CompanySettingsPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button type="button" onClick={() => void handleTogglePause()} disabled={pauseBusy} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                border: "0.5px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#fbbf24",
+                border: `0.5px solid ${P.cardBorderHover}`, background: "rgba(255,255,255,0.08)", color: P.text,
               }}>{pauseBusy ? "Updating..." : company?.status === "paused" ? "Resume Company" : "Pause Company"}</button>
               <button type="button" onClick={() => setDeleteOpen(true)} disabled={isProtected} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,

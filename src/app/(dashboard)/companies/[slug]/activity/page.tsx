@@ -25,7 +25,7 @@ const AGENT_COLORS = [
   "#f43f5e", // rose
   "#ef4444", // red
   "#f97316", // orange
-  "#eab308", // yellow
+  "#a8a6a0", // gray
   "#22c55e", // green
   "#14b8a6", // teal
   "#06b6d4", // cyan
@@ -145,8 +145,8 @@ export default function CompanyActivityPage() {
           onChange={(e) => setTypeFilter(e.target.value)}
           style={{
             padding: "6px 12px", borderRadius: 6,
-            border: `0.5px solid ${P.cardBorder}`, background: P.card,
-            color: P.text, fontSize: 12, outline: "none", cursor: "pointer",
+            border: `0.5px solid ${P.cardBorder}`, background: "transparent",
+            color: P.textSec, fontSize: 12, outline: "none", cursor: "pointer",
           }}
         >
           {EVENT_TYPE_OPTIONS.map((opt) => (

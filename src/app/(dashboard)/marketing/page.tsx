@@ -107,7 +107,7 @@ const platformColor: Record<string, string> = {
   x: "#1DA1F2",
   linkedin: "#0A66C2",
   youtube: "#FF0000",
-  blog: "#F59E0B",
+  blog: "#a8a6a0",
 };
 
 // ── Component ─────────────────────────────────────────────────────────
@@ -128,10 +128,10 @@ export default function MarketingPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 8 }}>
           <div style={{
             width: 40, height: 40, borderRadius: 10,
-            background: "linear-gradient(135deg, #F59E0B, #D97706)",
+            background: "rgba(255,255,255,0.08)",
             display: "flex", alignItems: "center", justifyContent: "center",
           }}>
-            <Megaphone size={20} color="#fff" />
+            <Megaphone size={20} color="#eae8e4" />
           </div>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 700, fontFamily: "var(--font-heading)", color: "#fff", margin: 0 }}>
@@ -161,7 +161,7 @@ export default function MarketingPage() {
                 padding: "10px 16px", fontSize: 13, fontWeight: active ? 600 : 400,
                 color: active ? "#fff" : "var(--text-secondary, #888)",
                 background: "transparent", border: "none", cursor: "pointer",
-                borderBottom: active ? "2px solid #F59E0B" : "2px solid transparent",
+                borderBottom: active ? "2px solid rgba(222,220,209,0.22)" : "2px solid transparent",
                 transition: "all 150ms ease",
                 fontFamily: "var(--font-body)",
               }}
@@ -293,7 +293,7 @@ function DraftCard({ draft, onUpdate }: { draft: ContentDraft; onUpdate: () => v
   const [loading, setLoading] = useState(false);
   const [publishing, setPublishing] = useState(false);
 
-  const color = platformColor[draft.platform] || "#F59E0B";
+  const color = platformColor[draft.platform] || "#a8a6a0";
 
   const patch = useCallback(async (body: Record<string, unknown>) => {
     setLoading(true);
@@ -635,7 +635,7 @@ function ContentGenerator({ onGenerated }: { onGenerated: () => void }) {
     { value: "tweet", label: "Tweet / X", icon: <Twitter size={13} />, color: "#1DA1F2" },
     { value: "linkedin", label: "LinkedIn", icon: <Linkedin size={13} />, color: "#0A66C2" },
     { value: "youtube-idea", label: "YouTube Idea", icon: <Youtube size={13} />, color: "#FF0000" },
-    { value: "blog-intro", label: "Blog Post", icon: <FileText size={13} />, color: "#F59E0B" },
+    { value: "blog-intro", label: "Blog Post", icon: <FileText size={13} />, color: "#a8a6a0" },
   ];
 
   return (
@@ -647,10 +647,10 @@ function ContentGenerator({ onGenerated }: { onGenerated: () => void }) {
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
         <div style={{
           width: 28, height: 28, borderRadius: 6,
-          background: "linear-gradient(135deg, #F59E0B, #D97706)",
+          background: "rgba(255,255,255,0.08)",
           display: "flex", alignItems: "center", justifyContent: "center",
         }}>
-          <Sparkles size={14} color="#fff" />
+          <Sparkles size={14} color="#eae8e4" />
         </div>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "#fff", fontFamily: "var(--font-heading)" }}>
@@ -761,7 +761,7 @@ function ContentGenerator({ onGenerated }: { onGenerated: () => void }) {
         disabled={generating || !topic.trim()}
         style={{
           width: "100%", padding: "11px 0", fontSize: 13, fontWeight: 700,
-          background: generating ? "var(--surface-elevated, #242424)" : "linear-gradient(135deg, #F59E0B, #D97706)",
+          background: generating ? "var(--surface-elevated, #242424)" : "rgba(255,255,255,0.08)",
           border: "none", borderRadius: 8, cursor: generating ? "wait" : !topic.trim() ? "not-allowed" : "pointer",
           color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           opacity: !topic.trim() ? 0.4 : 1, transition: "all 150ms ease",
@@ -813,9 +813,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
     <div style={{
       fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 2,
-      color: "#F59E0B", marginBottom: 0, display: "flex", alignItems: "center", gap: 8,
+      color: "#eae8e4", marginBottom: 0, display: "flex", alignItems: "center", gap: 8,
     }}>
-      <div style={{ width: 3, height: 14, background: "#F59E0B", borderRadius: 2 }} />
+      <div style={{ width: 3, height: 14, background: "#eae8e4", borderRadius: 2 }} />
       {children}
     </div>
   );

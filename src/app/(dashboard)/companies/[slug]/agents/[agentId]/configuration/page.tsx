@@ -176,7 +176,7 @@ const UI = {
   surfaceBorder: "rgba(255,255,255,0.08)",
   surfaceStrong: "rgba(28,25,23,0.94)",
   accentSurface: "rgba(28,25,23,0.94)",
-  accentBorder: "rgba(245,158,11,0.18)",
+  accentBorder: A.cardBorder,
   divider: "rgba(255,255,255,0.07)",
   label: "#a8a29e",
   shadow: "0 18px 40px rgba(0,0,0,0.24)",
@@ -1554,9 +1554,9 @@ function ActionButton({
         minHeight: 40,
         padding: "0 14px",
         borderRadius: 10,
-        border: `0.5px solid ${emphasis === "primary" ? UI.accentBorder : UI.surfaceBorder}`,
-        background: emphasis === "primary" ? "rgba(245,158,11,0.12)" : UI.surface,
-        color: emphasis === "primary" ? A.accentLight : A.text,
+        border: `0.5px solid ${emphasis === "primary" ? A.cardBorder : UI.surfaceBorder}`,
+        background: emphasis === "primary" ? "transparent" : UI.surface,
+        color: emphasis === "primary" ? A.text : A.text,
         fontSize: 12,
         fontWeight: 600,
         cursor: disabled ? "not-allowed" : "pointer",
@@ -1599,7 +1599,7 @@ function SaveIndicator({ status }: { status: SaveStatus }) {
       style={{
         display: "inline-flex", alignItems: "center", gap: 3,
         fontSize: 11, fontWeight: 600, marginLeft: 6,
-        color: status === "saving" ? A.accentLight : status === "saved" ? "#6ee7b7" : "#ef4444",
+        color: status === "saving" ? A.textSec : status === "saved" ? "#6ee7b7" : "#ef4444",
         transition: "opacity 0.3s",
         justifyContent: "flex-end",
       }}
@@ -2006,7 +2006,7 @@ function Section({
             borderRadius: 999,
             display: "grid",
             placeItems: "center",
-            color: A.accentLight,
+            color: A.textSec,
             background: "rgba(255,255,255,0.04)",
             border: `0.5px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
@@ -2036,13 +2036,13 @@ function TogglePill({ enabled, label }: { enabled: boolean; label: string }) {
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 6,
       padding: "5px 11px", borderRadius: 999,
-      background: enabled ? "rgba(217,119,6,0.12)" : "rgba(120,113,108,0.12)",
-      border: `0.5px solid ${enabled ? UI.accentBorder : "rgba(120,113,108,0.2)"}`,
-      fontSize: 11, fontWeight: 600, color: enabled ? A.accentLight : A.muted,
+      background: enabled ? "rgba(255,255,255,0.08)" : "rgba(120,113,108,0.12)",
+      border: `0.5px solid ${enabled ? A.cardBorder : "rgba(120,113,108,0.2)"}`,
+      fontSize: 11, fontWeight: 600, color: enabled ? A.text : A.muted,
     }}>
       <span style={{
         width: 8, height: 8, borderRadius: "50%",
-        background: enabled ? A.accentLight : A.muted,
+        background: enabled ? A.text : A.muted,
       }} />
       {label}
     </span>
@@ -2178,9 +2178,9 @@ const tagStyle: React.CSSProperties = {
   alignItems: "center",
   padding: "4px 9px",
   borderRadius: 999,
-  background: "rgba(217,119,6,0.12)",
-  border: `0.5px solid ${UI.accentBorder}`,
+  background: "rgba(255,255,255,0.08)",
+  border: `0.5px solid ${A.cardBorder}`,
   fontSize: 11,
   fontWeight: 600,
-  color: A.accentLight,
+  color: A.text,
 };

@@ -531,7 +531,7 @@ function BuildTakeawayModal({
             disabled={loading || !selectedProjectId}
             className="inline-flex items-center gap-1.5 rounded-lg border-none px-3.5 py-2 text-[12px] font-semibold"
             style={{
-              background: action === "build-now" ? "linear-gradient(135deg,#f97316,#ef4444)" : "linear-gradient(135deg,#f59e0b,#f97316)",
+              background: action === "build-now" ? "linear-gradient(135deg,#f97316,#ef4444)" : "rgba(255,255,255,0.08)",
               color: "#fff",
               opacity: loading || !selectedProjectId ? 0.6 : 1,
               cursor: loading || !selectedProjectId ? "not-allowed" : "pointer",
@@ -1140,9 +1140,9 @@ function TakeawayRow({
             rel="noopener noreferrer"
             className="inline-flex items-center gap-1.5 text-[12px] font-mono font-semibold px-2 py-1 rounded-md no-underline transition-colors hover:brightness-110"
             style={{
-              color: "#f59e0b",
-              backgroundColor: "rgba(245,158,11,0.1)",
-              border: "1px solid rgba(245,158,11,0.2)",
+              color: "#a8a6a0",
+              backgroundColor: "rgba(255,255,255,0.04)",
+              border: "1px solid rgba(222,220,209,0.12)",
             }}
           >
             {timestampLabel ? `📹 @${timestampLabel}` : "📹 Open video"}
@@ -1189,8 +1189,8 @@ function TakeawayRow({
               style={{
                 cursor: saving ? "not-allowed" : "pointer",
                 opacity: saving ? 0.72 : 1,
-                background: "linear-gradient(120deg, rgba(251,191,36,0.2), rgba(249,115,22,0.2))",
-                color: "#fbbf24",
+                background: "rgba(255,255,255,0.08)",
+                color: "#eae8e4",
               }}
             >
               <Hammer size={12} /> Build
@@ -1377,8 +1377,8 @@ function ScreenshotGallery({ reviewId, isYouTube }: { reviewId: string; isYouTub
             disabled={capturing}
             className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-md border-none cursor-pointer transition-colors"
             style={{
-              backgroundColor: "rgba(245,158,11,0.15)",
-              color: "#f59e0b",
+              backgroundColor: "rgba(255,255,255,0.04)",
+              color: "#a8a6a0",
               opacity: capturing ? 0.6 : 1,
               cursor: capturing ? "wait" : "pointer",
             }}
@@ -1410,7 +1410,7 @@ function ScreenshotGallery({ reviewId, isYouTube }: { reviewId: string; isYouTub
       {capturing && !captured && (
         <div
           className="text-[12px] rounded-lg p-4 text-center"
-          style={{ backgroundColor: "rgba(245,158,11,0.06)", color: "var(--text-secondary)" }}
+          style={{ backgroundColor: "rgba(255,255,255,0.02)", color: "var(--text-secondary)" }}
         >
           Downloading video and extracting frames… This may take a few minutes.
         </div>
@@ -1424,7 +1424,7 @@ function ScreenshotGallery({ reviewId, isYouTube }: { reviewId: string; isYouTub
               onClick={() => setSelectedIdx(selectedIdx === idx ? null : idx)}
               className="relative rounded-lg overflow-hidden border-none p-0 cursor-pointer group"
               style={{
-                border: selectedIdx === idx ? "2px solid #f59e0b" : "1px solid var(--border)",
+                border: selectedIdx === idx ? "2px solid rgba(222,220,209,0.22)" : "1px solid var(--border)",
                 backgroundColor: "var(--bg)",
               }}
             >
@@ -1642,7 +1642,7 @@ function ReviewCard({
                   <button
                     onClick={() => updateReview({ status: "active" })}
                     className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-md border-none cursor-pointer"
-                    style={{ backgroundColor: "rgba(245,158,11,0.12)", color: "#f59e0b" }}
+                    style={{ backgroundColor: "rgba(255,255,255,0.04)", color: "#a8a6a0" }}
                     title="Restore review"
                   >
                     Restore
@@ -1716,8 +1716,8 @@ function ReviewCard({
                   className="m-0 text-[12px] leading-relaxed rounded-lg p-4"
                   style={{
                     color: "var(--text-secondary)",
-                    backgroundColor: "rgba(245,158,11,0.06)",
-                    borderLeft: "3px solid #f59e0b",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderLeft: "3px solid rgba(222,220,209,0.22)",
                   }}
                 >
                   {review.summary}
@@ -1735,8 +1735,8 @@ function ReviewCard({
                   className="text-[12px] leading-relaxed rounded-lg p-4"
                   style={{
                     color: "var(--text-secondary)",
-                    backgroundColor: "rgba(251,191,36,0.06)",
-                    borderLeft: "3px solid #fbbf24",
+                    backgroundColor: "rgba(255,255,255,0.04)",
+                    borderLeft: "3px solid rgba(222,220,209,0.22)",
                   }}
                 >
                   {review.assessment}
@@ -2149,9 +2149,9 @@ export default function IdeasPage() {
         <div className="flex items-center gap-3 mb-3">
           <div
             className="w-[42px] h-[42px] rounded-[10px] flex items-center justify-center"
-            style={{ backgroundColor: "rgba(251,191,36,0.12)" }}
+            style={{ backgroundColor: "rgba(255,255,255,0.06)" }}
           >
-            <Lightbulb size={22} color="#fbbf24" />
+            <Lightbulb size={22} color="#a8a6a0" />
           </div>
           <div>
             <h1
@@ -2168,10 +2168,10 @@ export default function IdeasPage() {
 
         {/* Stats bar */}
         <div className="flex gap-3 flex-wrap">
-          <StatChip label="Reviews" value={stats.totalReviews} color="#f59e0b" />
-          <StatChip label="Takeaways" value={stats.totalTakeaways} color="#f59e0b" />
+          <StatChip label="Reviews" value={stats.totalReviews} color="#a8a6a0" />
+          <StatChip label="Takeaways" value={stats.totalTakeaways} color="#a8a6a0" />
           <StatChip label="Shipped" value={stats.implemented} color="#10b981" />
-          <StatChip label="Pending" value={stats.pending} color="#fbbf24" />
+          <StatChip label="Pending" value={stats.pending} color="#a8a6a0" />
         </div>
       </div>
 

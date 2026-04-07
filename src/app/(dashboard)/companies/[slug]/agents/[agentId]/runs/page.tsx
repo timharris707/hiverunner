@@ -21,9 +21,9 @@ export default function AgentRunsPage() {
 
   return (
     <div style={cardStyle}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.accent, fontSize: 12, fontWeight: 600 }}>
-        <Zap size={13} />
-        Execution Runs ({executionHistory.length})
+      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, fontSize: 12, fontWeight: 600 }}>
+        <Zap size={13} style={{ color: A.textSec }} />
+        <span style={{ color: A.text }}>Execution Runs ({executionHistory.length})</span>
       </div>
 
       {executionHistory.length === 0 ? (
@@ -56,7 +56,7 @@ export default function AgentRunsPage() {
                 display: "flex",
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(217,119,6,0.04)";
+                e.currentTarget.style.background = "rgba(255,255,255,0.03)";
               }}
               onMouseLeave={(e) => {
                 e.currentTarget.style.background = "transparent";

@@ -131,8 +131,8 @@ function TranscriptPanel({
           <div
             className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
               entry.role === "user"
-                ? "bg-amber-600/20 text-amber-100 border border-amber-500/30"
-                : "bg-amber-600/20 text-amber-100 border border-amber-500/30"
+                ? "bg-stone-800/40 text-stone-300 border border-stone-600/30"
+                : "bg-stone-800/40 text-stone-300 border border-stone-600/30"
             }`}
           >
             <div className="text-xs opacity-50 mb-1">
@@ -151,8 +151,8 @@ function TranscriptPanel({
 
 function SetupGuide() {
   return (
-    <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 space-y-3">
-      <div className="flex items-center gap-2 text-amber-400 font-medium">
+    <div className="bg-stone-800/40 border border-stone-600/30 rounded-lg p-4 space-y-3">
+      <div className="flex items-center gap-2 text-stone-300 font-medium">
         <AlertCircle size={18} />
         Google AI API Key Required
       </div>
@@ -161,7 +161,7 @@ function SetupGuide() {
         <ol className="list-decimal list-inside space-y-1 text-zinc-400">
           <li>
             Go to{" "}
-            <span className="text-amber-400 font-mono text-xs">
+            <span className="text-stone-300 font-mono text-xs">
               https://aistudio.google.com/apikey
             </span>
           </li>
@@ -301,7 +301,7 @@ export default function VoiceHenryPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
-            <Zap className="text-amber-400" size={24} />
+            <Zap className="text-stone-400" size={24} />
             Voice Henry
             <span className="text-sm font-normal text-zinc-500 ml-2">
               Gemini Live prototype
@@ -385,12 +385,12 @@ export default function VoiceHenryPage() {
                   onChange={(e) => setTextInput(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleSendText()}
                   placeholder="Or type a message..."
-                  className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-amber-500"
+                  className="flex-1 bg-zinc-800 border border-zinc-600 rounded-lg px-3 py-2 text-sm text-zinc-200 placeholder-zinc-500 focus:outline-none focus:border-stone-500"
                 />
                 <button
                   onClick={handleSendText}
                   disabled={!textInput.trim()}
-                  className="px-3 py-2 rounded-lg bg-amber-600 hover:bg-amber-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
+                  className="px-3 py-2 rounded-lg bg-stone-600 hover:bg-stone-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white transition-colors"
                 >
                   <Send size={16} />
                 </button>
@@ -443,7 +443,7 @@ export default function VoiceHenryPage() {
             </ul>
           </div>
           <div className="space-y-1">
-            <div className="text-amber-400 font-medium">Requires Validation</div>
+            <div className="text-stone-300 font-medium">Requires Validation</div>
             <ul className="text-zinc-400 space-y-0.5">
               <li>GOOGLE_AI_API_KEY access (add to .env.local)</li>
               <li>AudioWorklet browser compatibility (Chrome/Edge)</li>
@@ -453,7 +453,7 @@ export default function VoiceHenryPage() {
             </ul>
           </div>
           <div className="space-y-1">
-            <div className="text-amber-400 font-medium">BoardRunner Path</div>
+            <div className="text-stone-300 font-medium">BoardRunner Path</div>
             <ul className="text-zinc-400 space-y-0.5">
               <li>Phase 1: Voice Henry (this prototype)</li>
               <li>Phase 2: Henry as voice moderator for advisory</li>

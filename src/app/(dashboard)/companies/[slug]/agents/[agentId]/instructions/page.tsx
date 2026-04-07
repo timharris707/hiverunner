@@ -418,7 +418,7 @@ function Section({
             borderRadius: 999,
             display: "grid",
             placeItems: "center",
-            color: A.accentLight,
+            color: A.textSec,
             background: "rgba(255,255,255,0.04)",
             border: `0.5px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
@@ -455,7 +455,7 @@ function SummaryCard({
         padding: "18px 18px 16px",
         borderRadius: 16,
         background: accent ? "rgba(28,25,23,0.94)" : UI.surface,
-        border: `0.5px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
+        border: `0.5px solid ${accent ? A.cardBorder : UI.surfaceBorder}`,
       }}
     >
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: UI.label }}>
@@ -560,13 +560,13 @@ function SourceButton({
         textAlign: "left",
         padding: "12px 13px",
         borderRadius: 14,
-        border: `0.5px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
-        background: active ? "rgba(245,158,11,0.08)" : UI.surface,
+        border: `0.5px solid ${active ? A.cardBorder : UI.surfaceBorder}`,
+        background: active ? "rgba(255,255,255,0.08)" : UI.surface,
         cursor: "pointer",
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-        {source.kind === "runtime_file" ? <Wrench size={13} color={A.accentLight} /> : <FileText size={13} color={A.textSec} />}
+        {source.kind === "runtime_file" ? <Wrench size={13} color={A.textSec} /> : <FileText size={13} color={A.textSec} />}
         <span style={{ fontSize: 13, fontWeight: 600, color: A.text }}>{source.label}</span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
@@ -731,9 +731,9 @@ const primaryButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: "0.5px solid rgba(245,158,11,0.22)",
-  background: "rgba(245,158,11,0.12)",
-  color: A.accentLight,
+  border: `0.5px solid ${A.cardBorder}`,
+  background: "transparent",
+  color: A.text,
   fontSize: 12,
   fontWeight: 600,
 };

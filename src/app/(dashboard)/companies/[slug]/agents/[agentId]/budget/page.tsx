@@ -20,7 +20,7 @@ export default function AgentBudgetPage() {
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* ── Usage Stats ── */}
       <div style={cardStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.accent, fontSize: 12, fontWeight: 600 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.textSec, fontSize: 12, fontWeight: 600 }}>
           <BarChart3 size={13} />
           Usage Summary
         </div>
@@ -36,7 +36,7 @@ export default function AgentBudgetPage() {
 
       {/* ── Cost Tracking ── */}
       <div style={cardStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.accent, fontSize: 12, fontWeight: 600 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.textSec, fontSize: 12, fontWeight: 600 }}>
           <DollarSign size={13} />
           Cost Tracking
         </div>
@@ -51,7 +51,7 @@ export default function AgentBudgetPage() {
 
       {/* ── Budget Limits ── */}
       <div style={cardStyle}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.accent, fontSize: 12, fontWeight: 600 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 14, color: A.textSec, fontSize: 12, fontWeight: 600 }}>
           <TrendingUp size={13} />
           Budget Limits
         </div>

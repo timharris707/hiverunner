@@ -213,8 +213,8 @@ export default function ManageProjectsPage() {
                     {/* Project */}
                     <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top" }}>
                       <Link href={projectTasksHref} style={{ fontWeight: 500, color: color.text, textDecoration: "none" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = color.accent; }}
-                        onMouseLeave={(e) => { e.currentTarget.style.color = color.text; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = color.text; e.currentTarget.style.textDecoration = "underline"; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = color.text; e.currentTarget.style.textDecoration = "none"; }}
                       >
                         {project.name}
                       </Link>

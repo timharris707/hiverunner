@@ -107,9 +107,9 @@ export default function CompanyCostsPage() {
           {RANGES.map((r) => (
             <button key={r.key} type="button" onClick={() => setTimeframe(r.key)} style={{
               padding: "5px 12px", borderRadius: 6, fontSize: 12, fontWeight: 500, cursor: "pointer",
-              border: `0.5px solid ${timeframe === r.key ? "rgba(217,119,6,0.5)" : P.cardBorder}`,
-              background: timeframe === r.key ? "rgba(217,119,6,0.12)" : "transparent",
-              color: timeframe === r.key ? "#fbbf24" : P.textSec,
+              border: `0.5px solid ${timeframe === r.key ? tokens.cardBorderHover : P.cardBorder}`,
+              background: timeframe === r.key ? "rgba(255,255,255,0.08)" : "transparent",
+              color: timeframe === r.key ? P.text : P.textSec,
             }}>{r.label}</button>
           ))}
         </div>

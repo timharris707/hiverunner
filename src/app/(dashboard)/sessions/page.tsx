@@ -75,10 +75,10 @@ function shortModel(model: string): string {
 
 function typeColor(type: Session["type"]): string {
   switch (type) {
-    case "main": return "var(--accent)";
-    case "cron": return "#f59e0b";
-    case "subagent": return "#f59e0b";
-    case "direct": return "#4ade80";
+    case "main": return "#eae8e4";
+    case "cron": return "#a8a6a0";
+    case "subagent": return "#a8a6a0";
+    case "direct": return "#a8a6a0";
     default: return "var(--text-muted)";
   }
 }
@@ -100,15 +100,15 @@ function MessageBubble({ msg }: { msg: Message }) {
           gap: "0.5rem",
           padding: "0.5rem 0.75rem",
           borderRadius: "0.5rem",
-          backgroundColor: "rgba(245,158,11,0.08)",
-          border: "1px solid rgba(245,158,11,0.2)",
+          backgroundColor: "rgba(255,255,255,0.04)",
+          border: "1px solid rgba(222,220,209,0.12)",
           marginBottom: "0.5rem",
           fontSize: "0.78rem",
           fontFamily: "monospace",
         }}
       >
-        <Wrench style={{ width: "13px", height: "13px", color: "#f59e0b", flexShrink: 0, marginTop: "2px" }} />
-        <span style={{ color: "#f59e0b", fontWeight: 600, flexShrink: 0 }}>
+        <Wrench style={{ width: "13px", height: "13px", color: "#a8a6a0", flexShrink: 0, marginTop: "2px" }} />
+        <span style={{ color: "#a8a6a0", fontWeight: 600, flexShrink: 0 }}>
           {msg.toolName}
         </span>
         <span style={{ color: "var(--text-muted)", wordBreak: "break-all" }}>
@@ -157,7 +157,7 @@ function MessageBubble({ msg }: { msg: Message }) {
           width: "24px",
           height: "24px",
           borderRadius: "12px",
-          backgroundColor: isUser ? "var(--accent)" : "var(--card-elevated)",
+          backgroundColor: isUser ? "rgba(255,255,255,0.08)" : "var(--card-elevated)",
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -168,7 +168,7 @@ function MessageBubble({ msg }: { msg: Message }) {
         {isUser ? (
           <User style={{ width: "12px", height: "12px", color: "var(--bg, #000)" }} />
         ) : (
-          <Bot style={{ width: "12px", height: "12px", color: "var(--accent)" }} />
+          <Bot style={{ width: "12px", height: "12px", color: "#a8a6a0" }} />
         )}
       </div>
 
@@ -330,8 +330,8 @@ function SessionDetail({
           {/* Stats row */}
           <div style={{ display: "flex", gap: "1rem", flexWrap: "wrap" }}>
             {[
-              { icon: Cpu, label: shortModel(session.model), color: "#f59e0b" },
-              { icon: Hash, label: `${formatTokens(session.totalTokens)} tokens`, color: "var(--accent)" },
+              { icon: Cpu, label: shortModel(session.model), color: "#a8a6a0" },
+              { icon: Hash, label: `${formatTokens(session.totalTokens)} tokens`, color: "#a8a6a0" },
               {
                 icon: TrendingUp,
                 label: session.contextUsedPercent !== null ? `${session.contextUsedPercent}% ctx` : "ctx n/a",
@@ -366,8 +366,8 @@ function SessionDetail({
             }}
           >
             {[
-              { label: `${userCount} user`, color: "var(--accent)" },
-              { label: `${assistantCount} assistant`, color: "#f59e0b" },
+              { label: `${userCount} user`, color: "#a8a6a0" },
+              { label: `${assistantCount} assistant`, color: "#a8a6a0" },
               { label: `${toolCount} tool calls`, color: "#4ade80" },
             ].map(({ label, color }) => (
               <span key={label} style={{ fontSize: "0.72rem", color }}>
@@ -400,7 +400,7 @@ function SessionDetail({
                 style={{
                   width: "16px",
                   height: "16px",
-                  border: "2px solid var(--accent)",
+                  border: "2px solid rgba(222,220,209,0.22)",
                   borderTopColor: "transparent",
                   borderRadius: "50%",
                   animation: "spin 0.8s linear infinite",
@@ -538,7 +538,7 @@ function SessionRow({
 
       {/* Model */}
       <div style={{ display: "none", flexDirection: "column", alignItems: "flex-end", minWidth: "80px" }} className="sm-flex">
-        <span style={{ fontSize: "0.7rem", color: "#f59e0b", whiteSpace: "nowrap" }}>
+        <span style={{ fontSize: "0.7rem", color: "#a8a6a0", whiteSpace: "nowrap" }}>
           {shortModel(session.model)}
         </span>
       </div>
@@ -682,25 +682,25 @@ export default function SessionsPage() {
               label: "Total Sessions",
               value: sessions.length,
               icon: MessageSquare,
-              color: "var(--accent)",
+              color: "#a8a6a0",
             },
             {
               label: "Total Tokens",
               value: formatTokens(totalTokens),
               icon: Hash,
-              color: "#f59e0b",
+              color: "#a8a6a0",
             },
             {
               label: "Cron Runs",
               value: counts.cron || 0,
               icon: Clock,
-              color: "#f59e0b",
+              color: "#a8a6a0",
             },
             {
               label: "Models Used",
               value: uniqueModels.length,
               icon: Bot,
-              color: "#4ade80",
+              color: "#a8a6a0",
             },
           ].map(({ label, value, icon: Icon, color }) => (
             <div
@@ -784,7 +784,7 @@ export default function SessionsPage() {
                       borderRadius: "9999px",
                       fontSize: "0.8rem",
                       fontWeight: isActive ? 700 : 500,
-                      backgroundColor: isActive ? "var(--accent)" : "var(--card-elevated)",
+                      backgroundColor: isActive ? "rgba(255,255,255,0.08)" : "var(--card-elevated)",
                       color: isActive ? "var(--bg, #000)" : "var(--text-secondary)",
                       border: "none",
                       cursor: "pointer",
@@ -897,7 +897,7 @@ export default function SessionsPage() {
                 style={{
                   width: "20px",
                   height: "20px",
-                  border: "2px solid var(--accent)",
+                  border: "2px solid rgba(222,220,209,0.22)",
                   borderTopColor: "transparent",
                   borderRadius: "50%",
                   animation: "spin 0.8s linear infinite",
