@@ -1102,7 +1102,7 @@ function ProviderComparisonRow({
     <div style={{
       padding: "12px 14px", borderRadius: 14,
       background: isActive ? "rgba(34,197,94,0.05)" : UI.surface,
-      border: `1px solid ${isActive ? "rgba(34,197,94,0.16)" : UI.surfaceBorder}`,
+      border: `0.5px solid ${isActive ? "rgba(34,197,94,0.16)" : UI.surfaceBorder}`,
       opacity: isPlanned ? 0.6 : 1,
     }}>
       {/* Header row */}
@@ -1130,7 +1130,7 @@ function ProviderComparisonRow({
 
       {/* Expanded detail */}
       {expanded && (
-        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `1px solid ${UI.divider}` }}>
+        <div style={{ marginTop: 12, paddingTop: 10, borderTop: `0.5px solid ${UI.divider}` }}>
           <div style={{ fontSize: 12, color: A.textSec, marginBottom: 10, lineHeight: 1.6 }}>
             {descriptor.integrationPath}
           </div>
@@ -1166,7 +1166,7 @@ function ReadableCapabilityGrid({
               padding: "8px 10px",
               borderRadius: 10,
               background: "rgba(255,255,255,0.02)",
-              border: `1px solid ${UI.divider}`,
+              border: `0.5px solid ${UI.divider}`,
             }}
           >
             <span
@@ -1250,7 +1250,7 @@ function SummaryCard({
         padding: "18px 18px 16px",
         borderRadius: 16,
         background: accent ? UI.accentSurface : UI.surfaceStrong,
-        border: `1px solid ${accent ? UI.accentBorder : UI.surfaceBorder}`,
+        border: `0.5px solid ${accent ? UI.accentBorder : UI.surfaceBorder}`,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
       }}
     >
@@ -1294,7 +1294,7 @@ function SummaryListRow({
         gap: 10,
         alignItems: "start",
         padding: "8px 0",
-        borderTop: `1px solid ${UI.divider}`,
+        borderTop: `0.5px solid ${UI.divider}`,
       }}
     >
       <span style={{ fontSize: 11, color: UI.label, fontWeight: 600, letterSpacing: "0.05em", textTransform: "uppercase" }}>
@@ -1353,7 +1353,7 @@ function MetricCard({
         padding: "16px 16px 14px",
         borderRadius: 16,
         background: UI.surface,
-        border: `1px solid ${UI.surfaceBorder}`,
+        border: `0.5px solid ${UI.surfaceBorder}`,
         boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
       }}
     >
@@ -1391,7 +1391,7 @@ function PermissionRow({
         alignItems: "flex-start",
         gap: 14,
         padding: "14px 0",
-        borderTop: `1px solid ${UI.divider}`,
+        borderTop: `0.5px solid ${UI.divider}`,
       }}
     >
       <div style={{ minWidth: 0, flex: 1 }}>
@@ -1451,7 +1451,7 @@ function ActivationCheckList({ checks }: { checks: ProviderActivationCheckWire[]
             padding: "9px 10px",
             borderRadius: 10,
             background: "rgba(255,255,255,0.02)",
-            border: `1px solid ${UI.divider}`,
+            border: `0.5px solid ${UI.divider}`,
           }}
         >
           {check.passed ? (
@@ -1519,7 +1519,7 @@ function SupportNote({
       style={{
         padding: "12px 13px",
         borderRadius: 12,
-        border: `1px solid ${tones.border}`,
+        border: `0.5px solid ${tones.border}`,
         background: tones.background,
       }}
     >
@@ -1554,7 +1554,7 @@ function ActionButton({
         minHeight: 40,
         padding: "0 14px",
         borderRadius: 10,
-        border: `1px solid ${emphasis === "primary" ? UI.accentBorder : UI.surfaceBorder}`,
+        border: `0.5px solid ${emphasis === "primary" ? UI.accentBorder : UI.surfaceBorder}`,
         background: emphasis === "primary" ? "rgba(245,158,11,0.12)" : UI.surface,
         color: emphasis === "primary" ? A.accentLight : A.text,
         fontSize: 12,
@@ -1995,7 +1995,7 @@ function Section({
       padding: "20px 22px",
       borderRadius: 18,
       background: UI.sectionBg,
-      border: `1px solid ${UI.sectionBorder}`,
+      border: `0.5px solid ${UI.sectionBorder}`,
       boxShadow: UI.shadow,
     }}>
       <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 18 }}>
@@ -2008,7 +2008,7 @@ function Section({
             placeItems: "center",
             color: A.accentLight,
             background: "rgba(255,255,255,0.04)",
-            border: `1px solid ${UI.surfaceBorder}`,
+            border: `0.5px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
           }}
         >
@@ -2037,7 +2037,7 @@ function TogglePill({ enabled, label }: { enabled: boolean; label: string }) {
       display: "inline-flex", alignItems: "center", gap: 6,
       padding: "5px 11px", borderRadius: 999,
       background: enabled ? "rgba(217,119,6,0.12)" : "rgba(120,113,108,0.12)",
-      border: `1px solid ${enabled ? UI.accentBorder : "rgba(120,113,108,0.2)"}`,
+      border: `0.5px solid ${enabled ? UI.accentBorder : "rgba(120,113,108,0.2)"}`,
       fontSize: 11, fontWeight: 600, color: enabled ? A.accentLight : A.muted,
     }}>
       <span style={{
@@ -2058,7 +2058,7 @@ function FileStatus({ label, exists, preview }: { label: string; exists: boolean
         padding: "14px 16px",
         borderRadius: 12,
         background: UI.surface,
-        border: `1px solid ${UI.surfaceBorder}`,
+        border: `0.5px solid ${UI.surfaceBorder}`,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -2076,7 +2076,7 @@ function FileStatus({ label, exists, preview }: { label: string; exists: boolean
         <div style={{
           padding: "10px 12px", borderRadius: 10,
           background: "rgba(255,255,255,0.02)",
-          border: `1px solid ${UI.divider}`,
+          border: `0.5px solid ${UI.divider}`,
           fontSize: 12, color: A.textSec, fontFamily: "monospace",
           whiteSpace: "pre-wrap", lineHeight: 1.6,
           maxHeight: 120, overflow: "hidden",
@@ -2103,7 +2103,7 @@ const fieldRowStyle: React.CSSProperties = {
   gap: 14,
   alignItems: "start",
   padding: "10px 0",
-  borderTop: `1px solid ${UI.divider}`,
+  borderTop: `0.5px solid ${UI.divider}`,
 };
 
 const fieldLabelStyle: React.CSSProperties = {
@@ -2125,7 +2125,7 @@ const detailPanelStyle: React.CSSProperties = {
   padding: "14px 16px",
   borderRadius: 14,
   background: UI.surface,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
 };
 
@@ -2143,7 +2143,7 @@ const inputStyle = (mono?: boolean): React.CSSProperties => ({
   color: A.text,
   fontFamily: mono ? "monospace" : "inherit",
   background: UI.surfaceStrong,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   borderRadius: 12,
   padding: "11px 14px",
   outline: "none",
@@ -2161,7 +2161,7 @@ const displayStyle = (mono?: boolean): React.CSSProperties => ({
   cursor: "pointer",
   borderRadius: 12,
   padding: "11px 14px",
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   background: UI.surfaceStrong,
   transition: "border-color 0.15s, background 0.15s",
   boxSizing: "border-box",
@@ -2179,7 +2179,7 @@ const tagStyle: React.CSSProperties = {
   padding: "4px 9px",
   borderRadius: 999,
   background: "rgba(217,119,6,0.12)",
-  border: `1px solid ${UI.accentBorder}`,
+  border: `0.5px solid ${UI.accentBorder}`,
   fontSize: 11,
   fontWeight: 600,
   color: A.accentLight,

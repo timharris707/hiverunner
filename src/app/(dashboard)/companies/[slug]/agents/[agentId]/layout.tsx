@@ -27,18 +27,20 @@ import { AvatarWizard } from "@/components/orchestration/AvatarWizard";
 import { getCompanyAgentProfile, triggerAgentHeartbeat } from "@/lib/orchestration/client";
 import type { OrchestrationAgentProfile } from "@/lib/orchestration/types";
 
-/* ── amber palette ── */
+import { P as tokens } from "@/lib/ui/tokens";
+
+/* ── agent palette (sourced from shared tokens) ── */
 export const A = {
-  accent: "#d97706",
+  accent: tokens.accent,
   accentLight: "#f59e0b",
   accentDark: "#b45309",
-  surface: "#141210",
-  card: "#1a1814",
-  cardBorder: "rgba(217,119,6,0.18)",
-  cardBorderHover: "rgba(217,119,6,0.32)",
-  muted: "#78716c",
-  text: "#fafaf9",
-  textSec: "#a8a29e",
+  surface: tokens.bg,
+  card: tokens.surface,
+  cardBorder: tokens.cardBorder,
+  cardBorderHover: tokens.cardBorderHover,
+  muted: tokens.muted,
+  text: tokens.text,
+  textSec: tokens.textSec,
 };
 
 /* ── context so sub-pages can access profile without re-fetching ── */
@@ -134,7 +136,7 @@ export default function AgentDetailLayout({
   if (loading) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ height: 200, borderRadius: 12, background: A.card, border: `1px solid ${A.cardBorder}`, animation: "pulse 1.5s infinite" }} />
+        <div style={{ height: 200, borderRadius: 12, background: A.card, border: `0.5px solid ${A.cardBorder}`, animation: "pulse 1.5s infinite" }} />
       </div>
     );
   }
@@ -142,7 +144,7 @@ export default function AgentDetailLayout({
   if (error || !profile) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "0.5px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
           {error ?? "Agent not found."}
         </div>
       </div>
@@ -173,7 +175,7 @@ export default function AgentDetailLayout({
         <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
           <div style={{
             width: 40, height: 40, borderRadius: 10, overflow: "hidden",
-            border: `1px solid ${A.cardBorder}`, background: A.card,
+            border: `0.5px solid ${A.cardBorder}`, background: A.card,
             display: "grid", placeItems: "center", fontSize: 18, flexShrink: 0,
           }}>
             {agent.avatar ? (
@@ -191,7 +193,7 @@ export default function AgentDetailLayout({
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 5,
                   padding: "3px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500,
-                  border: "1px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)",
+                  border: "0.5px solid rgba(139,92,246,0.3)", background: "rgba(139,92,246,0.08)",
                   color: "#a78bfa", cursor: "pointer",
                 }}
               >
@@ -247,7 +249,7 @@ export default function AgentDetailLayout({
         <div style={{
           display: "flex", gap: 12, marginBottom: 0, flexWrap: "wrap",
           padding: "8px 12px", borderRadius: "8px 8px 0 0",
-          background: A.card, border: `1px solid ${A.cardBorder}`,
+          background: A.card, border: `0.5px solid ${A.cardBorder}`,
           borderBottom: "none",
           fontSize: 11, color: A.textSec,
         }}>
@@ -271,10 +273,10 @@ export default function AgentDetailLayout({
         {/* ── tab bar ── */}
         <div style={{
           display: "flex", gap: 0,
-          borderBottom: `1px solid ${A.cardBorder}`,
+          borderBottom: `0.5px solid ${A.cardBorder}`,
           background: A.card,
-          borderLeft: `1px solid ${A.cardBorder}`,
-          borderRight: `1px solid ${A.cardBorder}`,
+          borderLeft: `0.5px solid ${A.cardBorder}`,
+          borderRight: `0.5px solid ${A.cardBorder}`,
           borderRadius: "0 0 0 0",
           marginBottom: 16,
         }}>
@@ -359,7 +361,7 @@ function AgentOverflowMenu({ agentId, openclawAgentId }: { agentId: string; open
           display: "inline-flex", alignItems: "center", justifyContent: "center",
           width: 32, height: 32, borderRadius: 6,
           background: open ? "rgba(217,119,6,0.20)" : "rgba(217,119,6,0.10)",
-          border: `1px solid ${open ? A.cardBorderHover : A.cardBorder}`,
+          border: `0.5px solid ${open ? A.cardBorderHover : A.cardBorder}`,
           color: A.accentLight, cursor: "pointer",
           transition: "background 0.15s, border-color 0.15s",
         }}
@@ -371,7 +373,7 @@ function AgentOverflowMenu({ agentId, openclawAgentId }: { agentId: string; open
       {copied && (
         <span style={{
           position: "absolute", top: -28, right: 0,
-          background: A.card, border: `1px solid ${A.cardBorder}`,
+          background: A.card, border: `0.5px solid ${A.cardBorder}`,
           borderRadius: 4, padding: "2px 8px", fontSize: 10,
           color: "#6ee7b7", whiteSpace: "nowrap", zIndex: 100,
         }}>Copied!</span>
@@ -384,7 +386,7 @@ function AgentOverflowMenu({ agentId, openclawAgentId }: { agentId: string; open
           />
           <div style={{
             position: "absolute", top: "calc(100% + 4px)", right: 0,
-            background: A.card, border: `1px solid ${A.cardBorder}`,
+            background: A.card, border: `0.5px solid ${A.cardBorder}`,
             borderRadius: 8, padding: "4px 0", minWidth: 180,
             boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 99,
           }}>
@@ -443,7 +445,7 @@ function ActionBtn({ icon, label, onClick }: { icon: React.ReactNode; label: str
       style={{
         display: "inline-flex", alignItems: "center", gap: 5,
         padding: "6px 12px", borderRadius: 6,
-        background: "rgba(217,119,6,0.10)", border: `1px solid ${A.cardBorder}`,
+        background: "rgba(217,119,6,0.10)", border: `0.5px solid ${A.cardBorder}`,
         color: A.accentLight, fontSize: 11, fontWeight: 500,
         cursor: "pointer", transition: "background 0.15s, border-color 0.15s",
       }}

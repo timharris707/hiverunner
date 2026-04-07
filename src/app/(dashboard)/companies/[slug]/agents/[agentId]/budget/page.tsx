@@ -72,7 +72,7 @@ function StatCard({ label, value, sub, alert }: { label: string; value: string; 
   return (
     <div style={{
       padding: "10px 12px", borderRadius: 8,
-      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
+      background: "rgba(255,255,255,0.02)", border: "0.5px solid rgba(255,255,255,0.05)",
     }}>
       <div style={{ fontSize: 10, color: A.muted, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color: alert ? "#f87171" : A.text, letterSpacing: "-0.02em" }}>{value}</div>
@@ -83,7 +83,7 @@ function StatCard({ label, value, sub, alert }: { label: string; value: string; 
 
 function BudgetRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)" }}>
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 10px", borderRadius: 6, background: "rgba(255,255,255,0.02)", border: "0.5px solid rgba(255,255,255,0.05)" }}>
       <span style={{ fontSize: 12, color: A.textSec }}>{label}</span>
       <span style={{ fontSize: 12, color: A.muted, fontStyle: "italic" }}>{value}</span>
     </div>
@@ -94,5 +94,5 @@ const cardStyle: React.CSSProperties = {
   padding: "14px 16px",
   borderRadius: 10,
   background: A.card,
-  border: `1px solid ${A.cardBorder}`,
+  border: `0.5px solid ${A.cardBorder}`,
 };

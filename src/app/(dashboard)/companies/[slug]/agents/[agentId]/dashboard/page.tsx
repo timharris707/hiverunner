@@ -51,7 +51,7 @@ export default function AgentDashboardPage() {
             </span>
           )}
         </div>
-        <div style={{ borderRadius: 8, border: `1px solid ${A.cardBorder}`, overflow: "hidden" }}>
+        <div style={{ borderRadius: 8, border: `0.5px solid ${A.cardBorder}`, overflow: "hidden" }}>
           {recentIssues.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: A.muted, fontSize: 12 }}>
               No issues assigned.
@@ -63,7 +63,7 @@ export default function AgentDashboardPage() {
                 style={{
                   display: "flex", alignItems: "center", gap: 10,
                   padding: "10px 14px",
-                  borderBottom: i < recentIssues.length - 1 ? `1px solid ${A.cardBorder}` : "none",
+                  borderBottom: i < recentIssues.length - 1 ? `0.5px solid ${A.cardBorder}` : "none",
                   background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)",
                 }}
               >
@@ -98,8 +98,8 @@ export default function AgentDashboardPage() {
         </div>
 
         {/* Per-run cost table */}
-        <div style={{ borderRadius: 8, border: `1px solid ${A.cardBorder}`, overflow: "hidden" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 80px", padding: "8px 14px", background: A.card, borderBottom: `1px solid ${A.cardBorder}`, fontSize: 11, fontWeight: 600, color: A.muted }}>
+        <div style={{ borderRadius: 8, border: `0.5px solid ${A.cardBorder}`, overflow: "hidden" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 80px", padding: "8px 14px", background: A.card, borderBottom: `0.5px solid ${A.cardBorder}`, fontSize: 11, fontWeight: 600, color: A.muted }}>
             <span>Date</span>
             <span>Run</span>
             <span style={{ textAlign: "right" }}>Input</span>
@@ -117,7 +117,7 @@ export default function AgentDashboardPage() {
                 style={{
                   display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 80px",
                   padding: "8px 14px", fontSize: 12,
-                  borderBottom: i < Math.min(executionHistory.length, 10) - 1 ? `1px solid ${A.cardBorder}` : "none",
+                  borderBottom: i < Math.min(executionHistory.length, 10) - 1 ? `0.5px solid ${A.cardBorder}` : "none",
                 }}
               >
                 <span style={{ color: A.textSec }}>{formatRunDate(run.startedAt || run.createdAt)}</span>
@@ -138,7 +138,7 @@ export default function AgentDashboardPage() {
 function LiveRunSection({ liveSession }: { liveSession?: OrchestrationAgentProfile["liveSession"] }) {
   if (!liveSession) {
     return (
-      <div style={{ padding: "12px 14px", borderRadius: 8, background: A.card, border: `1px solid ${A.cardBorder}`, color: A.muted, fontSize: 12 }}>
+      <div style={{ padding: "12px 14px", borderRadius: 8, background: A.card, border: `0.5px solid ${A.cardBorder}`, color: A.muted, fontSize: 12 }}>
         No live run active.
       </div>
     );
@@ -161,7 +161,7 @@ function LiveRunSection({ liveSession }: { liveSession?: OrchestrationAgentProfi
       </div>
       <div style={{
         display: "flex", alignItems: "center", gap: 10, padding: "10px 14px",
-        borderRadius: 8, background: A.card, border: `1px solid ${A.cardBorder}`,
+        borderRadius: 8, background: A.card, border: `0.5px solid ${A.cardBorder}`,
       }}>
         {isRunning && <Loader2 size={14} style={{ color: statusColor, animation: "spin 1s linear infinite" }} />}
         <RunStatusPill status={statusLabel} />
@@ -170,7 +170,7 @@ function LiveRunSection({ liveSession }: { liveSession?: OrchestrationAgentProfi
         </span>
         <span style={{
           fontSize: 10, fontWeight: 600, padding: "2px 8px", borderRadius: 4,
-          background: "rgba(14,165,233,0.12)", color: "#38bdf8", border: "1px solid rgba(14,165,233,0.25)",
+          background: "rgba(14,165,233,0.12)", color: "#38bdf8", border: "0.5px solid rgba(14,165,233,0.25)",
           display: "inline-flex", alignItems: "center", gap: 4,
         }}>
           <Timer size={10} /> Timer
@@ -199,7 +199,7 @@ function ChartPanel({
   return (
     <div style={{
       padding: "14px 16px", borderRadius: 8,
-      background: A.card, border: `1px solid ${A.cardBorder}`,
+      background: A.card, border: `0.5px solid ${A.cardBorder}`,
       display: "flex", flexDirection: "column", gap: 8,
     }}>
       <div>
@@ -287,7 +287,7 @@ function RunStatusPill({ status }: { status: string }) {
 /* ─── Cost Stat ─── */
 function CostStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ padding: "12px 14px", borderRadius: 8, background: A.card, border: `1px solid ${A.cardBorder}` }}>
+    <div style={{ padding: "12px 14px", borderRadius: 8, background: A.card, border: `0.5px solid ${A.cardBorder}` }}>
       <div style={{ fontSize: 11, color: A.muted, marginBottom: 4 }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 700, color: A.text }}>{value}</div>
     </div>

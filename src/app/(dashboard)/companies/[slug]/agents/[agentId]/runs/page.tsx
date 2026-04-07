@@ -108,7 +108,7 @@ const cardStyle: React.CSSProperties = {
   padding: "14px 16px",
   borderRadius: 10,
   background: A.card,
-  border: `1px solid ${A.cardBorder}`,
+  border: `0.5px solid ${A.cardBorder}`,
 };
 
 const headerRow: React.CSSProperties = {
@@ -116,13 +116,13 @@ const headerRow: React.CSSProperties = {
   padding: "8px 10px", marginBottom: 2,
   fontSize: 10, fontWeight: 600, textTransform: "uppercase",
   letterSpacing: "0.06em", color: A.muted,
-  borderBottom: "1px solid rgba(255,255,255,0.06)",
+  borderBottom: "0.5px solid rgba(255,255,255,0.06)",
 };
 
 const dataRow: React.CSSProperties = {
   display: "flex", alignItems: "center", gap: 8,
   padding: "8px 10px", fontSize: 12,
-  borderBottom: "1px solid rgba(255,255,255,0.03)",
+  borderBottom: "0.5px solid rgba(255,255,255,0.03)",
   color: A.textSec,
   cursor: "pointer",
   borderRadius: 4,

@@ -406,7 +406,7 @@ function Section({
         padding: "20px 22px",
         borderRadius: 18,
         background: UI.sectionBg,
-        border: `1px solid ${UI.sectionBorder}`,
+        border: `0.5px solid ${UI.sectionBorder}`,
         boxShadow: UI.shadow,
       }}
     >
@@ -420,7 +420,7 @@ function Section({
             placeItems: "center",
             color: A.accentLight,
             background: "rgba(255,255,255,0.04)",
-            border: `1px solid ${UI.surfaceBorder}`,
+            border: `0.5px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
           }}
         >
@@ -455,7 +455,7 @@ function SummaryCard({
         padding: "18px 18px 16px",
         borderRadius: 16,
         background: accent ? "rgba(28,25,23,0.94)" : UI.surface,
-        border: `1px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
+        border: `0.5px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
       }}
     >
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: UI.label }}>
@@ -502,7 +502,7 @@ function PathNote({ title, children }: { title: string; children: ReactNode }) {
       style={{
         padding: "12px 13px",
         borderRadius: 12,
-        border: `1px solid ${UI.divider}`,
+        border: `0.5px solid ${UI.divider}`,
         background: "rgba(255,255,255,0.02)",
       }}
     >
@@ -518,7 +518,7 @@ function SourceSummary({ source }: { source: InstructionSource }) {
       style={{
         padding: "10px 12px",
         borderRadius: 12,
-        border: `1px solid ${UI.divider}`,
+        border: `0.5px solid ${UI.divider}`,
         background: "rgba(255,255,255,0.02)",
       }}
     >
@@ -560,7 +560,7 @@ function SourceButton({
         textAlign: "left",
         padding: "12px 13px",
         borderRadius: 14,
-        border: `1px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
+        border: `0.5px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
         background: active ? "rgba(245,158,11,0.08)" : UI.surface,
         cursor: "pointer",
       }}
@@ -589,7 +589,7 @@ function Pill({ children }: { children: ReactNode }) {
         padding: "4px 8px",
         borderRadius: 999,
         background: "rgba(255,255,255,0.04)",
-        border: `1px solid ${UI.surfaceBorder}`,
+        border: `0.5px solid ${UI.surfaceBorder}`,
         color: A.textSec,
         fontSize: 11,
         fontWeight: 600,
@@ -610,7 +610,7 @@ function StatusPill({ status }: { status: InstructionSource["status"] }) {
         padding: "4px 8px",
         borderRadius: 999,
         background: tone.background,
-        border: `1px solid ${tone.border}`,
+        border: `0.5px solid ${tone.border}`,
         color: tone.color,
         fontSize: 11,
         fontWeight: 700,
@@ -641,7 +641,7 @@ function MetaRow({ label, value, mono }: { label: string; value: string; mono?: 
       style={{
         padding: "12px 13px",
         borderRadius: 12,
-        border: `1px solid ${UI.divider}`,
+        border: `0.5px solid ${UI.divider}`,
         background: "rgba(255,255,255,0.02)",
       }}
     >
@@ -731,7 +731,7 @@ const primaryButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: "1px solid rgba(245,158,11,0.22)",
+  border: "0.5px solid rgba(245,158,11,0.22)",
   background: "rgba(245,158,11,0.12)",
   color: A.accentLight,
   fontSize: 12,
@@ -744,7 +744,7 @@ const secondaryButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   background: UI.surface,
   color: A.textSec,
   fontSize: 12,
@@ -758,7 +758,7 @@ const editorStyle: CSSProperties = {
   padding: 14,
   borderRadius: 14,
   background: UI.surfaceStrong,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   color: A.text,
   fontSize: 13,
   fontFamily: "monospace",
@@ -773,7 +773,7 @@ const previewStyle: CSSProperties = {
   padding: "16px 18px",
   borderRadius: 14,
   background: UI.surfaceStrong,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   color: A.text,
   fontSize: 13,
   fontFamily: "monospace",

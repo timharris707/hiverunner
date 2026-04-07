@@ -689,7 +689,7 @@ function Section({
         padding: "20px 22px",
         borderRadius: 18,
         background: UI.sectionBg,
-        border: `1px solid ${UI.sectionBorder}`,
+        border: `0.5px solid ${UI.sectionBorder}`,
         boxShadow: UI.shadow,
       }}
     >
@@ -703,7 +703,7 @@ function Section({
             placeItems: "center",
             color: A.accentLight,
             background: "rgba(255,255,255,0.04)",
-            border: `1px solid ${UI.surfaceBorder}`,
+            border: `0.5px solid ${UI.surfaceBorder}`,
             flexShrink: 0,
           }}
         >
@@ -738,7 +738,7 @@ function SummaryCard({
         padding: "18px 18px 16px",
         borderRadius: 16,
         background: accent ? "rgba(28,25,23,0.94)" : UI.surface,
-        border: `1px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
+        border: `0.5px solid ${accent ? "rgba(245,158,11,0.18)" : UI.surfaceBorder}`,
       }}
     >
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: UI.label }}>
@@ -812,7 +812,7 @@ function SkillButton({
         textAlign: "left",
         padding: "12px 13px",
         borderRadius: 14,
-        border: `1px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
+        border: `0.5px solid ${active ? "rgba(245,158,11,0.22)" : UI.surfaceBorder}`,
         background: active ? "rgba(245,158,11,0.08)" : UI.surface,
         cursor: "pointer",
       }}
@@ -854,7 +854,7 @@ function Pill({
         padding: "4px 8px",
         borderRadius: 999,
         background: styles.background,
-        border: `1px solid ${styles.border}`,
+        border: `0.5px solid ${styles.border}`,
         color: styles.color,
         fontSize: 11,
         fontWeight: 600,
@@ -889,7 +889,7 @@ function MetaRow({ label, value, mono }: { label: string; value: string; mono?: 
       style={{
         padding: "12px 13px",
         borderRadius: 12,
-        border: `1px solid ${UI.divider}`,
+        border: `0.5px solid ${UI.divider}`,
         background: "rgba(255,255,255,0.02)",
       }}
     >
@@ -925,7 +925,7 @@ function PathNote({
       style={{
         padding: "12px 13px",
         borderRadius: 12,
-        border: `1px solid ${UI.divider}`,
+        border: `0.5px solid ${UI.divider}`,
         background: "rgba(255,255,255,0.02)",
         ...style,
       }}
@@ -1023,7 +1023,7 @@ const inputStyle: CSSProperties = {
   padding: "0 12px",
   borderRadius: 10,
   background: UI.surfaceStrong,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   color: A.text,
   fontSize: 12,
   outline: "none",
@@ -1037,7 +1037,7 @@ const primaryButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: "1px solid rgba(245,158,11,0.22)",
+  border: "0.5px solid rgba(245,158,11,0.22)",
   background: "rgba(245,158,11,0.12)",
   color: A.accentLight,
   fontSize: 12,
@@ -1051,7 +1051,7 @@ const secondaryButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   background: UI.surface,
   color: A.textSec,
   fontSize: 12,
@@ -1065,7 +1065,7 @@ const linkButtonStyle: CSSProperties = {
   minHeight: 38,
   padding: "0 13px",
   borderRadius: 10,
-  border: `1px solid ${UI.surfaceBorder}`,
+  border: `0.5px solid ${UI.surfaceBorder}`,
   background: UI.surface,
   color: A.text,
   fontSize: 12,

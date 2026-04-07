@@ -590,7 +590,7 @@ export default function RunDetailPage({
         {task && (
           <div style={{
             marginTop: 12, padding: "8px 10px", borderRadius: 6,
-            background: "rgba(217,119,6,0.04)", border: "1px solid rgba(217,119,6,0.12)",
+            background: "rgba(217,119,6,0.04)", border: "0.5px solid rgba(217,119,6,0.12)",
             display: "flex", alignItems: "center", gap: 8,
           }}>
             <ListChecks size={12} style={{ color: A.accent, flexShrink: 0 }} />
@@ -662,7 +662,7 @@ export default function RunDetailPage({
         {run.error && (
           <div style={{
             marginTop: 10, padding: "8px 10px", borderRadius: 6,
-            background: "rgba(248,113,113,0.06)", border: "1px solid rgba(248,113,113,0.18)",
+            background: "rgba(248,113,113,0.06)", border: "0.5px solid rgba(248,113,113,0.18)",
             color: "#f87171", fontSize: 12, lineHeight: 1.5,
           }}>
             {run.error}
@@ -785,7 +785,7 @@ export default function RunDetailPage({
           </div>
           <div style={{
             padding: "10px 12px", borderRadius: 6,
-            background: "rgba(6,182,212,0.03)", border: "1px solid rgba(6,182,212,0.1)",
+            background: "rgba(6,182,212,0.03)", border: "0.5px solid rgba(6,182,212,0.1)",
             color: A.text, fontSize: 12, lineHeight: 1.6,
             whiteSpace: "pre-wrap", wordBreak: "break-word",
             maxHeight: 280, overflowY: "auto",
@@ -892,7 +892,7 @@ export default function RunDetailPage({
                     <div style={{
                       width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
                       display: "flex", alignItems: "center", justifyContent: "center",
-                      background: `${phase.color}14`, border: `1px solid ${phase.color}30`,
+                      background: `${phase.color}14`, border: `0.5px solid ${phase.color}30`,
                     }}>
                       <Icon size={11} style={{ color: phase.color }} />
                     </div>
@@ -907,7 +907,7 @@ export default function RunDetailPage({
                   {/* Phase events (indented) */}
                   <div style={{
                     marginLeft: 11, paddingLeft: 18,
-                    borderLeft: isLastPhase ? "none" : `1px solid rgba(255,255,255,0.06)`,
+                    borderLeft: isLastPhase ? "none" : `0.5px solid rgba(255,255,255,0.06)`,
                   }}>
                     {phase.events.map((event) => {
                       const iconDef = EVENT_ICONS[event.kind];
@@ -1080,7 +1080,7 @@ function IdPill({ label, value, onCopy, copied, copyKey }: {
       style={{
         display: "inline-flex", alignItems: "center", gap: 4,
         padding: "2px 8px", borderRadius: 4, cursor: "pointer",
-        background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)",
+        background: "rgba(255,255,255,0.04)", border: "0.5px solid rgba(255,255,255,0.06)",
         fontSize: 10, fontFamily: "monospace",
         transition: "background 0.15s",
       }}
@@ -1154,7 +1154,7 @@ function FactField({ label, value, mono }: { label: string; value: string; mono?
       padding: "8px 10px",
       borderRadius: 6,
       background: "rgba(255,255,255,0.02)",
-      border: "1px solid rgba(255,255,255,0.05)",
+      border: "0.5px solid rgba(255,255,255,0.05)",
       minWidth: 0,
     }}>
       <div style={{ fontSize: 10, color: A.muted, marginBottom: 4 }}>{label}</div>
@@ -1178,7 +1178,7 @@ function LongTextBlock({ label, value, mono }: { label: string; value: string; m
       padding: "10px 12px",
       borderRadius: 6,
       background: "rgba(255,255,255,0.02)",
-      border: "1px solid rgba(255,255,255,0.05)",
+      border: "0.5px solid rgba(255,255,255,0.05)",
     }}>
       <div style={{ fontSize: 10, color: A.muted, marginBottom: 6 }}>{label}</div>
       <div style={{
@@ -1204,7 +1204,7 @@ function ResultChip({ label, value, warn, muted }: { label: string; value: numbe
       display: "flex", alignItems: "baseline", gap: 5,
       padding: "6px 10px", borderRadius: 6,
       background: warn ? "rgba(248,113,113,0.06)" : "rgba(255,255,255,0.02)",
-      border: `1px solid ${warn ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.05)"}`,
+      border: `0.5px solid ${warn ? "rgba(248,113,113,0.15)" : "rgba(255,255,255,0.05)"}`,
     }}>
       <span style={{ fontSize: 16, fontWeight: 700, color }}>{value}</span>
       <span style={{ fontSize: 10, color: A.muted }}>{label}</span>
@@ -1223,7 +1223,7 @@ function BooleanChip({ label, value }: { label: string; value: boolean }) {
       fontSize: 10,
       color: value ? "#22c55e" : A.muted,
       background: value ? "rgba(34,197,94,0.12)" : "rgba(120,113,108,0.14)",
-      border: `1px solid ${value ? "rgba(34,197,94,0.25)" : "rgba(120,113,108,0.2)"}`,
+      border: `0.5px solid ${value ? "rgba(34,197,94,0.25)" : "rgba(120,113,108,0.2)"}`,
     }}>
       <span style={{
         width: 6,
@@ -1241,7 +1241,7 @@ function TelemetryChip({ label, value }: { label: string; value: string }) {
     <div style={{
       display: "flex", alignItems: "baseline", gap: 5,
       padding: "4px 8px", borderRadius: 5,
-      background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.05)",
+      background: "rgba(255,255,255,0.02)", border: "0.5px solid rgba(255,255,255,0.05)",
     }}>
       <span style={{ fontSize: 11, color: A.text, fontFamily: "monospace" }}>{value}</span>
       <span style={{ fontSize: 10, color: A.muted }}>{label}</span>
@@ -1309,7 +1309,7 @@ const cardStyle: React.CSSProperties = {
   padding: "12px 14px",
   borderRadius: 8,
   background: A.card,
-  border: `1px solid ${A.cardBorder}`,
+  border: `0.5px solid ${A.cardBorder}`,
 };
 
 const factsGridStyle: React.CSSProperties = {

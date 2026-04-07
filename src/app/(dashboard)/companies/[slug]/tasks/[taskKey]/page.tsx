@@ -238,7 +238,7 @@ export default function TaskDetailPage() {
         }}>
           <div style={{
             padding: "16px 32px", borderRadius: 10,
-            background: "rgba(26,24,20,0.95)", border: "1px solid rgba(217,119,6,0.3)",
+            background: "rgba(26,24,20,0.95)", border: "0.5px solid rgba(217,119,6,0.3)",
             display: "flex", alignItems: "center", gap: 10,
           }}>
             <Upload size={18} color="#f59e0b" />
@@ -289,7 +289,7 @@ export default function TaskDetailPage() {
                 style={{
                   marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "4px",
                   padding: "4px 8px", fontSize: "11px", color: SURFACE.textDim,
-                  background: "transparent", border: `1px solid ${SURFACE.line}`, borderRadius: "6px",
+                  background: "transparent", border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
                   cursor: "pointer",
                 }}
               >
@@ -311,7 +311,7 @@ export default function TaskDetailPage() {
               <div style={{
                 fontSize: "13px", color: SURFACE.textMuted, lineHeight: 1.65,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
-                paddingBottom: "20px", borderBottom: `1px solid ${SURFACE.line}`,
+                paddingBottom: "20px", borderBottom: `0.5px solid ${SURFACE.line}`,
               }}>
                 {task.description}
               </div>
@@ -323,7 +323,7 @@ export default function TaskDetailPage() {
                 style={{
                   display: "inline-flex", alignItems: "center", gap: "6px",
                   padding: "8px 14px", borderRadius: "8px",
-                  border: `1px solid ${SURFACE.line}`, background: "transparent",
+                  border: `0.5px solid ${SURFACE.line}`, background: "transparent",
                   color: SURFACE.textDim, fontSize: "12px", fontWeight: 500,
                   cursor: uploading ? "wait" : "pointer",
                   opacity: uploading ? 0.5 : 1,
@@ -346,7 +346,7 @@ export default function TaskDetailPage() {
             {/* Tabs */}
             <div style={{
               display: "flex", gap: "0", marginTop: "24px",
-              borderBottom: `1px solid ${SURFACE.line}`,
+              borderBottom: `0.5px solid ${SURFACE.line}`,
             }}>
               {([["comments", "Comments"], ["subtasks", "Sub-tasks"], ["activity", "Activity"]] as [Tab, string][]).map(([key, label]) => (
                 <button
@@ -384,13 +384,13 @@ export default function TaskDetailPage() {
                           key={c.id}
                           style={{
                             padding: "12px 14px", borderRadius: "8px",
-                            border: `1px solid ${SURFACE.line}`, background: SURFACE.card,
+                            border: `0.5px solid ${SURFACE.line}`, background: SURFACE.card,
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
                             <span style={{
                               width: "22px", height: "22px", borderRadius: "50%",
-                              background: "rgba(120,113,108,0.25)", border: "1px solid rgba(120,113,108,0.15)",
+                              background: "rgba(120,113,108,0.25)", border: "0.5px solid rgba(120,113,108,0.15)",
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
                               fontSize: "9px", fontWeight: 700, color: SURFACE.textDim,
                             }}>
@@ -410,7 +410,7 @@ export default function TaskDetailPage() {
                   </div>
                   {/* Comment composer */}
                   <div style={{
-                    border: `1px solid ${SURFACE.line}`, borderRadius: "8px",
+                    border: `0.5px solid ${SURFACE.line}`, borderRadius: "8px",
                     background: "rgba(41,37,36,0.3)", padding: "10px",
                   }}>
                     <textarea
@@ -456,7 +456,7 @@ export default function TaskDetailPage() {
                             style={{
                               display: "inline-flex", alignItems: "center", gap: "4px",
                               padding: "4px 8px", borderRadius: "6px", fontSize: "11px",
-                              border: `1px solid ${replyTarget ? "rgba(217,119,6,0.4)" : SURFACE.line}`,
+                              border: `0.5px solid ${replyTarget ? "rgba(217,119,6,0.4)" : SURFACE.line}`,
                               background: replyTarget ? "rgba(217,119,6,0.08)" : "transparent",
                               color: replyTarget ? "#f59e0b" : SURFACE.textDim,
                               cursor: "pointer",
@@ -475,7 +475,7 @@ export default function TaskDetailPage() {
                               />
                               <div style={{
                                 position: "absolute", bottom: "calc(100% + 4px)", right: 0,
-                                background: "#1c1917", border: `1px solid ${SURFACE.line}`,
+                                background: "var(--surface-elevated)", border: `0.5px solid ${SURFACE.line}`,
                                 borderRadius: 8, padding: "4px 0", minWidth: 160,
                                 boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 99,
                               }}>
@@ -525,7 +525,7 @@ export default function TaskDetailPage() {
                           display: "inline-flex", alignItems: "center", gap: "5px",
                           fontSize: "11px", color: SURFACE.textDim, cursor: "pointer",
                           padding: "4px 8px", borderRadius: "6px",
-                          border: `1px solid ${reopenOnComment ? "rgba(59,130,246,0.4)" : SURFACE.line}`,
+                          border: `0.5px solid ${reopenOnComment ? "rgba(59,130,246,0.4)" : SURFACE.line}`,
                           background: reopenOnComment ? "rgba(59,130,246,0.08)" : "transparent",
                         }}>
                           <input
@@ -550,7 +550,7 @@ export default function TaskDetailPage() {
                           padding: "6px 12px", fontSize: "12px", fontWeight: 600,
                           background: commentDraft.trim() && !posting ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
                           color: commentDraft.trim() && !posting ? SURFACE.text : SURFACE.textGhost,
-                          border: `1px solid ${SURFACE.line}`, borderRadius: "6px",
+                          border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
                           cursor: commentDraft.trim() && !posting ? "pointer" : "default",
                         }}
                       >
@@ -595,7 +595,7 @@ export default function TaskDetailPage() {
       {/* ── Properties panel ── */}
       {propsOpen && task && (
         <aside style={{
-          width: "280px", flexShrink: 0, borderLeft: `1px solid ${SURFACE.line}`,
+          width: "280px", flexShrink: 0, borderLeft: `0.5px solid ${SURFACE.line}`,
           padding: "24px 20px", overflowY: "auto",
           background: "rgba(12,10,9,0.6)",
         }}>
@@ -725,7 +725,7 @@ export default function TaskDetailPage() {
           style={{
             position: "absolute", right: "16px", top: "80px",
             padding: "6px 10px", fontSize: "11px", color: SURFACE.textDim,
-            background: "rgba(41,37,36,0.5)", border: `1px solid ${SURFACE.line}`, borderRadius: "6px",
+            background: "rgba(41,37,36,0.5)", border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
             cursor: "pointer",
           }}
         >
