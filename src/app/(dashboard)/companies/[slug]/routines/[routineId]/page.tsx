@@ -28,17 +28,19 @@ import type {
 } from "@/lib/orchestration/types";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
+import { P as tokens, color } from "@/lib/ui/tokens";
+
 const C = {
-  bg: "#0c0a09",
-  card: "rgba(28,25,23,0.6)",
-  cardBorder: "rgba(120,113,108,0.18)",
-  text: "#f5f5f4",
-  textSec: "#a8a29e",
-  muted: "#57534e",
-  divider: "rgba(120,113,108,0.15)",
-  accent: "#d97706",
-  green: "#22c55e",
-  red: "#ef4444",
+  bg: tokens.bg,
+  card: tokens.surface,
+  cardBorder: tokens.cardBorder,
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
+  divider: tokens.cardBorder,
+  accent: tokens.accent,
+  green: color.positive,
+  red: color.negative,
   blue: "#3b82f6",
 };
 
@@ -91,8 +93,8 @@ const RUN_STATUS_STYLES: Record<string, { color: string; bg: string }> = {
 const inputStyle: React.CSSProperties = {
   width: "100%",
   borderRadius: 8,
-  border: `1px solid ${C.cardBorder}`,
-  background: "rgba(41,37,36,0.4)",
+  border: `0.5px solid ${C.cardBorder}`,
+  background: "transparent",
   padding: "10px 14px",
   fontSize: 13,
   color: C.text,
@@ -249,7 +251,7 @@ export default function RoutineDetailPage({
               onClick={() => void handleToggleStatus()}
               style={{
                 padding: "8px 16px", borderRadius: 8,
-                border: `1px solid ${C.cardBorder}`,
+                border: `0.5px solid ${C.cardBorder}`,
                 background: "rgba(120,113,108,0.1)",
                 fontSize: 12, fontWeight: 500, color: C.textSec,
                 cursor: "pointer",
@@ -267,7 +269,7 @@ export default function RoutineDetailPage({
               style={{
                 display: "flex", alignItems: "center", gap: 6,
                 padding: "8px 16px", borderRadius: 8,
-                border: `1px solid ${C.cardBorder}`,
+                border: `0.5px solid ${C.cardBorder}`,
                 background: "rgba(34,197,94,0.08)",
                 fontSize: 12, fontWeight: 600, color: C.green,
                 cursor: running ? "wait" : "pointer",
@@ -375,7 +377,7 @@ export default function RoutineDetailPage({
                 style={{
                   display: "inline-flex", alignItems: "center", gap: 6,
                   padding: "8px 20px", borderRadius: 8,
-                  border: `1px solid ${C.cardBorder}`,
+                  border: `0.5px solid ${C.cardBorder}`,
                   background: "rgba(120,113,108,0.15)",
                   fontSize: 13, fontWeight: 600, color: C.text,
                   cursor: saving ? "wait" : "pointer",
@@ -443,7 +445,7 @@ export default function RoutineDetailPage({
             <div style={{
               display: "grid", gridTemplateColumns: "80px 90px 90px 1fr 100px",
               gap: 8, padding: "6px 0",
-              borderBottom: `1px solid ${C.divider}`,
+              borderBottom: `0.5px solid ${C.divider}`,
             }}>
               {["Source", "Status", "Triggered", "Failure", "Completed"].map((h) => (
                 <span key={h} style={{
@@ -462,7 +464,7 @@ export default function RoutineDetailPage({
                   style={{
                     display: "grid", gridTemplateColumns: "80px 90px 90px 1fr 100px",
                     gap: 8, padding: "8px 0",
-                    borderBottom: i < data.runs.length - 1 ? `1px solid ${C.divider}` : undefined,
+                    borderBottom: i < data.runs.length - 1 ? `0.5px solid ${C.divider}` : undefined,
                   }}
                 >
                   <span style={{ fontSize: 12, color: C.textSec }}>{run.source}</span>
@@ -501,7 +503,7 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
   return (
     <div style={{
       marginBottom: 20, padding: "16px 20px", borderRadius: 10,
-      border: `1px solid ${C.cardBorder}`, background: C.card,
+      border: `0.5px solid ${C.cardBorder}`, background: C.card,
     }}>
       <h3 style={{
         margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: C.text,

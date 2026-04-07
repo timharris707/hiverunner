@@ -61,8 +61,8 @@ function nextRoutineStatus(currentStatus: RoutineStatus, enabled: boolean): Rout
 
 const inputStyle: React.CSSProperties = {
   borderRadius: "10px",
-  border: "1px solid rgba(120,113,108,0.3)",
-  background: "rgba(41,37,36,0.5)",
+  border: "0.5px solid rgba(120,113,108,0.3)",
+  background: "transparent",
   padding: "8px 12px",
   fontSize: "13px",
   color: "#f5f5f4",
@@ -234,8 +234,8 @@ export default function CompanyRoutinesPage() {
               gap: "8px",
               padding: "8px 16px",
               borderRadius: "8px",
-              border: "1px solid rgba(120,113,108,0.4)",
-              background: "rgba(41,37,36,0.55)",
+              border: "0.5px solid rgba(120,113,108,0.4)",
+              background: "transparent",
               color: "#d6d3d1",
               fontSize: "13px",
               fontWeight: 500,
@@ -292,8 +292,8 @@ export default function CompanyRoutinesPage() {
               display: "flex",
               flexDirection: "column",
               borderRadius: "16px",
-              border: "1px solid rgba(120,113,108,0.3)",
-              background: "linear-gradient(165deg, rgba(41,37,36,0.98), rgba(20,17,15,0.99))",
+              border: "0.5px solid rgba(120,113,108,0.3)",
+              background: "var(--surface-elevated)",
               boxShadow: "0 24px 60px rgba(0,0,0,0.6)",
               overflow: "hidden",
             }}
@@ -304,7 +304,7 @@ export default function CompanyRoutinesPage() {
               alignItems: "center",
               justifyContent: "space-between",
               padding: "14px 20px",
-              borderBottom: "1px solid rgba(120,113,108,0.2)",
+              borderBottom: "0.5px solid rgba(120,113,108,0.2)",
               flexShrink: 0,
             }}>
               <div>
@@ -375,7 +375,7 @@ export default function CompanyRoutinesPage() {
                 </select>
               </div>
 
-              <div style={{ padding: "0 20px 16px", borderTop: "1px solid rgba(120,113,108,0.15)" }}>
+              <div style={{ padding: "0 20px 16px", borderTop: "0.5px solid rgba(120,113,108,0.15)" }}>
                 <textarea
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
@@ -385,7 +385,7 @@ export default function CompanyRoutinesPage() {
                 />
               </div>
 
-              <div style={{ borderTop: "1px solid rgba(120,113,108,0.15)", padding: "12px 20px" }}>
+              <div style={{ borderTop: "0.5px solid rgba(120,113,108,0.15)", padding: "12px 20px" }}>
                 <button
                   type="button"
                   onClick={() => setAdvancedOpen((v) => !v)}
@@ -419,7 +419,7 @@ export default function CompanyRoutinesPage() {
             </div>
 
             {/* Dialog footer */}
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "16px 20px", borderTop: "1px solid rgba(120,113,108,0.2)", flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", padding: "16px 20px", borderTop: "0.5px solid rgba(120,113,108,0.2)", flexShrink: 0 }}>
               <p style={{ fontSize: "12px", color: "#78716c", maxWidth: "360px" }}>
                 After creation, you can configure triggers for schedules, webhooks, or internal runs.
               </p>
@@ -433,8 +433,8 @@ export default function CompanyRoutinesPage() {
                   gap: "8px",
                   padding: "8px 16px",
                   borderRadius: "8px",
-                  border: "1px solid rgba(120,113,108,0.4)",
-                  background: creating ? "rgba(41,37,36,0.4)" : "rgba(68,64,60,0.5)",
+                  border: "0.5px solid rgba(120,113,108,0.4)",
+                  background: creating ? "transparent" : "transparent",
                   color: (!draft.title.trim() || !draft.projectId || !draft.assigneeAgentId) ? "#57534e" : "#f5f5f4",
                   fontSize: "13px",
                   fontWeight: 500,
@@ -453,7 +453,7 @@ export default function CompanyRoutinesPage() {
       {/* ── Routines table — flat, no card wrapper, matches Paperclip ── */}
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
         <thead>
-          <tr style={{ borderBottom: "1px solid rgba(120,113,108,0.2)" }}>
+          <tr style={{ borderBottom: "0.5px solid rgba(120,113,108,0.2)" }}>
             {["Name", "Project", "Agent", "Last run", "Enabled", ""].map((h) => (
               <th
                 key={h || "actions"}
@@ -500,7 +500,7 @@ export default function CompanyRoutinesPage() {
                 <tr
                   key={routine.id}
                   style={{
-                    borderBottom: "1px solid rgba(120,113,108,0.12)",
+                    borderBottom: "0.5px solid rgba(120,113,108,0.12)",
                     transition: "background 120ms ease",
                   }}
                   onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.025)"; }}
@@ -643,8 +643,8 @@ export default function CompanyRoutinesPage() {
                           zIndex: 50,
                           minWidth: "160px",
                           borderRadius: "10px",
-                          border: "1px solid rgba(120,113,108,0.3)",
-                          background: "rgba(28,25,23,0.98)",
+                          border: "0.5px solid rgba(120,113,108,0.3)",
+                          background: "var(--surface-elevated)",
                           boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
                           padding: "4px",
                           backdropFilter: "blur(12px)",

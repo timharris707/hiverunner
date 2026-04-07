@@ -15,19 +15,20 @@ import type {
   OrchestrationApproval,
   OrchestrationCompany,
 } from "@/lib/orchestration/types";
+import { P as tokens } from "@/lib/ui/tokens";
 
 type QueueView = "pending" | "all";
 
 const P = {
-  text: "#f5f5f4",
-  textSec: "#d6d3d1",
-  muted: "#a8a29e",
-  ghost: "#78716c",
-  line: "rgba(120,113,108,0.18)",
-  lineSoft: "rgba(120,113,108,0.1)",
-  card: "rgba(28,25,23,0.72)",
-  cardHover: "rgba(41,37,36,0.8)",
-  page: "#0c0a09",
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
+  ghost: tokens.muted,
+  line: tokens.cardBorder,
+  lineSoft: tokens.cardBorder,
+  card: tokens.surface,
+  cardHover: tokens.surfaceHover,
+  page: tokens.bg,
 };
 
 const ACTIONABLE_STATUSES = new Set<ApprovalStatus>(["pending", "revision_requested"]);
@@ -129,7 +130,7 @@ function statusBadge(status: ApprovalStatus) {
         alignItems: "center",
         padding: "3px 8px",
         borderRadius: "999px",
-        border: `1px solid ${tone.border}`,
+        border: `0.5px solid ${tone.border}`,
         background: tone.bg,
         color: tone.text,
         fontSize: "11px",
@@ -259,7 +260,7 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
       <section
         style={{
           borderRadius: 14,
-          border: `1px solid ${P.line}`,
+          border: `0.5px solid ${P.line}`,
           background: P.card,
           overflow: "hidden",
         }}
@@ -270,7 +271,7 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
             alignItems: "center",
             justifyContent: "space-between",
             padding: "14px 16px",
-            borderBottom: `1px solid ${P.lineSoft}`,
+            borderBottom: `0.5px solid ${P.lineSoft}`,
             background: "rgba(12,10,9,0.35)",
           }}
         >
@@ -305,7 +306,7 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
                   gap: 14,
                   padding: "16px",
                   textDecoration: "none",
-                  borderBottom: `1px solid ${P.lineSoft}`,
+                  borderBottom: `0.5px solid ${P.lineSoft}`,
                   transition: "background 120ms ease, border-color 120ms ease",
                 }}
                 onMouseEnter={(event) => {
@@ -324,7 +325,7 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    border: `1px solid ${P.line}`,
+                    border: `0.5px solid ${P.line}`,
                     background: "rgba(41,37,36,0.65)",
                   }}
                 >
@@ -391,7 +392,7 @@ function QueueTab({
         gap: 8,
         padding: "8px 12px",
         borderRadius: 10,
-        border: active ? "1px solid rgba(245,245,244,0.18)" : "1px solid rgba(120,113,108,0.2)",
+        border: active ? "0.5px solid rgba(245,245,244,0.18)" : "0.5px solid rgba(120,113,108,0.2)",
         background: active ? "rgba(245,245,244,0.08)" : "rgba(28,25,23,0.5)",
         color: active ? "#f5f5f4" : "#d6d3d1",
         textDecoration: "none",
@@ -423,7 +424,7 @@ function SummaryCard({ label, value, detail }: { label: string; value: number; d
     <div
       style={{
         borderRadius: 12,
-        border: `1px solid ${P.line}`,
+        border: `0.5px solid ${P.line}`,
         background: "rgba(28,25,23,0.68)",
         padding: "14px 16px",
       }}
