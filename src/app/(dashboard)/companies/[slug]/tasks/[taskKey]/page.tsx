@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -31,10 +31,19 @@ import type {
   TaskStatus,
   TaskPriority,
 } from "@/lib/orchestration/types";
+import { useLiveRunStream, type StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
 
 type Comment = NonNullable<OrchestrationTask["comments"]>[number];
 
 type Tab = "comments" | "subtasks" | "activity";
+type ExecutionSnapshot = {
+  state: "running" | "completed" | "unknown" | "skipped";
+  terminal: boolean;
+  reason?: string;
+  raw?: string;
+  sessionId?: string;
+  polledAt: string;
+} | null;
 
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
@@ -81,6 +90,7 @@ export default function TaskDetailPage() {
   const [dragOver, setDragOver] = useState(false);
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyPickerOpen, setReplyPickerOpen] = useState(false);
+  const [execution, setExecution] = useState<ExecutionSnapshot>(null);
   const replyPickerRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
@@ -117,6 +127,65 @@ export default function TaskDetailPage() {
   }, [slug, taskKey]);
 
   useEffect(() => { void loadTask(); }, [loadTask]);
+
+  useEffect(() => {
+    if (!task?.id) {
+      setExecution(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollExecution = async () => {
+      try {
+        const res = await fetch(`/api/orchestration/tasks/${encodeURIComponent(task.id)}/execution`, {
+          cache: "no-store",
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (cancelled) return;
+        setExecution({
+          state: data?.status?.state ?? "unknown",
+          terminal: Boolean(data?.status?.terminal),
+          reason: data?.status?.reason,
+          raw: data?.status?.raw,
+          sessionId: data?.sessionId ?? undefined,
+          polledAt: data?.polledAt ?? new Date().toISOString(),
+        });
+      } catch {
+        if (!cancelled) {
+          setExecution((prev) => prev ?? {
+            state: "unknown",
+            terminal: false,
+            polledAt: new Date().toISOString(),
+          });
+        }
+      }
+    };
+
+    void pollExecution();
+    const interval = window.setInterval(() => { void pollExecution(); }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [task?.id]);
+
+  const assignedAgent = useMemo(() => {
+    if (!task?.assignee) return null;
+    return agents.find((agent) =>
+      agent.id === task.assignee ||
+      agent.name === task.assignee ||
+      agent.slug === task.assignee
+    ) ?? null;
+  }, [agents, task?.assignee]);
+
+  const liveActivityEnabled = Boolean(slug && execution?.state === "running" && assignedAgent?.id);
+  const { streamByAgentId, connected: liveActivityConnected } = useLiveRunStream({
+    companySlug: slug,
+    enabled: liveActivityEnabled,
+  });
+  const liveAgentStream = assignedAgent?.id ? streamByAgentId.get(assignedAgent.id) : undefined;
 
   /* ── Mutations ── */
 
@@ -315,6 +384,17 @@ export default function TaskDetailPage() {
               }}>
                 {task.description}
               </div>
+            )}
+
+            {execution?.state === "running" && assignedAgent && (
+              <LiveActivityPanel
+                agentName={assignedAgent.name}
+                agentEmoji={assignedAgent.emoji}
+                connected={liveActivityConnected}
+                sessionId={execution.sessionId}
+                streamText={liveAgentStream?.streamingText ?? ""}
+                events={liveAgentStream?.events ?? []}
+              />
             )}
 
             {/* Action buttons row */}
@@ -748,4 +828,162 @@ function PropertyRow({ label, children }: { label: string; children: React.React
       </div>
     </div>
   );
+}
+
+function LiveActivityPanel({
+  agentName,
+  agentEmoji,
+  connected,
+  sessionId,
+  streamText,
+  events,
+}: {
+  agentName: string;
+  agentEmoji?: string;
+  connected: boolean;
+  sessionId?: string;
+  streamText: string;
+  events: StreamTranscriptEntry[];
+}) {
+  const renderedEvents = events.slice(-8).reverse();
+
+  return (
+    <section
+      style={{
+        marginBottom: "20px",
+        border: "0.5px solid rgba(245,245,244,0.12)",
+        background: "rgba(28,25,23,0.72)",
+        borderRadius: 12,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+          padding: "14px 16px",
+          borderBottom: "0.5px solid rgba(245,245,244,0.08)",
+          background: "rgba(245,158,11,0.06)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+          <div
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 999,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "rgba(245,158,11,0.14)",
+              border: "0.5px solid rgba(245,158,11,0.25)",
+              fontSize: 14,
+              flexShrink: 0,
+            }}
+          >
+            {agentEmoji || <Bot size={14} color="#f59e0b" />}
+          </div>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: SURFACE.text }}>Live activity</span>
+              <span
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 6,
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.04em",
+                  textTransform: "uppercase",
+                  color: connected ? "#34d399" : "#fbbf24",
+                  background: connected ? "rgba(52,211,153,0.12)" : "rgba(251,191,36,0.12)",
+                }}
+              >
+                <Activity size={10} />
+                {connected ? "streaming" : "connecting"}
+              </span>
+            </div>
+            <div style={{ fontSize: 12, color: SURFACE.textDim }}>
+              {agentName} is actively working this task{sessionId ? ` · session ${sessionId.slice(0, 8)}` : ""}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: 16, display: "grid", gap: 14 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: SURFACE.textGhost, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+            Current output
+          </div>
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 10,
+              background: "rgba(12,10,9,0.7)",
+              border: "0.5px solid rgba(245,245,244,0.08)",
+              color: SURFACE.textMuted,
+              fontSize: 13,
+              lineHeight: 1.6,
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-word",
+              minHeight: 56,
+            }}
+          >
+            {streamText.trim() || "Waiting for the next live output…"}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: SURFACE.textGhost, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+            Recent actions
+          </div>
+          {renderedEvents.length === 0 ? (
+            <div style={{ fontSize: 12, color: SURFACE.textGhost, padding: "8px 0" }}>
+              No stream events yet.
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 8 }}>
+              {renderedEvents.map((event) => (
+                <div
+                  key={event.id}
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "flex-start",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "0.5px solid rgba(245,245,244,0.08)",
+                    background: "rgba(12,10,9,0.4)",
+                  }}
+                >
+                  <div style={{ marginTop: 1, flexShrink: 0 }}>{eventIcon(event)}</div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: SURFACE.text, lineHeight: 1.5 }}>{event.message}</div>
+                    <div style={{ fontSize: 10, color: SURFACE.textGhost, marginTop: 4 }}>{relativeAge(event.ts)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function eventIcon(event: StreamTranscriptEntry) {
+  if (event.kind === "tool_start" || event.kind === "tool_end" || event.kind === "action_detected") {
+    return <Wrench size={14} color="#60a5fa" />;
+  }
+  if (event.kind === "lifecycle_error" || event.kind === "error") {
+    return <AlertCircle size={14} color="#f87171" />;
+  }
+  if (event.kind === "lifecycle_end" || event.kind === "assistant_final") {
+    return <CheckCircle2 size={14} color="#34d399" />;
+  }
+  return <Bot size={14} color="#f59e0b" />;
 }
