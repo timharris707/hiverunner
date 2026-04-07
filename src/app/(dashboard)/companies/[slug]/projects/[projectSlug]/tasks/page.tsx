@@ -36,6 +36,7 @@ import type {
 } from "@/lib/orchestration/types";
 import { Card, EmptyState, PageHeader } from "@/lib/ui/primitives";
 import { color, font, P, radius, space, type as tokenType } from "@/lib/ui/tokens";
+import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 
 /* ── constants ── */
 
@@ -557,6 +558,7 @@ export default function ProjectTasksPage({
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
 
   const viewKey = `mc:project-tasks-view:${projectSlug}`;
   const [view, setView] = useState({
@@ -786,8 +788,9 @@ export default function ProjectTasksPage({
         }
         title={project.name}
         actions={
-          <Link
-            href={newTaskHref}
+          <button
+            type="button"
+            onClick={() => setCreateTaskOpen(true)}
             style={{
               display: "inline-flex",
               alignItems: "center",
@@ -799,12 +802,12 @@ export default function ProjectTasksPage({
               background: "transparent",
               color: P.text,
               fontSize: 13,
-              textDecoration: "none",
+              cursor: "pointer",
             }}
           >
             <Plus size={13} />
             New Task
-          </Link>
+          </button>
         }
       />
 
@@ -1107,6 +1110,17 @@ export default function ProjectTasksPage({
           ))
         )}
       </div>
+
+      <CreateTaskModal
+        open={createTaskOpen}
+        onClose={() => setCreateTaskOpen(false)}
+        onCreated={() => {
+          setCreateTaskOpen(false);
+          window.location.reload();
+        }}
+        companySlug={slug}
+        companyCode={company.code}
+      />
     </div>
   );
 }
