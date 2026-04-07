@@ -772,7 +772,20 @@ export default function ProjectTasksPage({
       }}
     >
       {/* ── project header */}
-      <PageHeader title={project.name} />
+      <PageHeader
+        icon={
+          <span
+            style={{
+              display: "inline-block",
+              width: 14,
+              height: 14,
+              borderRadius: radius.full,
+              background: project.color ?? P.accent,
+            }}
+          />
+        }
+        title={project.name}
+      />
 
       <div style={{ marginTop: space.xs, marginBottom: space.md }}>
         <ProjectTabBar slug={slug} projectSlug={projectSlug} active="tasks" />
