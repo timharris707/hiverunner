@@ -15,13 +15,13 @@
 
 export const color = {
   /** Page background — neutral charcoal canvas (lightest layer) */
-  bg: "#2c2c2c",
+  bg: "#2d2c2c",
   /** Cards, panels — darker than bg, defined by borders */
-  surface: "#202020",
+  surface: "#212020",
   /** Elevated surfaces (modals, dropdowns, popovers) */
-  surfaceElevated: "#2b2b2b",
+  surfaceElevated: "#2c2b2b",
   /** Hover state for surfaces */
-  surfaceHover: "#333333",
+  surfaceHover: "#343333",
 
   /** Default border — warm, hairline-weight feel */
   border: "rgba(222,220,209,0.12)",
