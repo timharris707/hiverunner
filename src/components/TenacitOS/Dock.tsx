@@ -80,7 +80,10 @@ interface NavItem {
   badge?: number;
   badgeText?: string;
   indent?: boolean;
+  /** Trailing status dot (right side) — used for agent liveness indicators with glow/pulse */
   statusDotColor?: string;
+  /** Leading color dot (left side, before label) — used for project color indicators, no glow */
+  leadingDotColor?: string;
   highlight?: boolean;
   trailingAction?: ReactNode;
   accentBar?: boolean;
@@ -312,6 +315,16 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       }}
     >
       {Icon ? <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} /> : null}
+      {item.leadingDotColor ? (
+        <span
+          aria-hidden
+          style={{
+            width: 7, height: 7, borderRadius: "999px",
+            backgroundColor: item.leadingDotColor,
+            flexShrink: 0,
+          }}
+        />
+      ) : null}
       <span
         style={{
           fontFamily: "var(--font-body)",
@@ -575,66 +588,51 @@ export function Dock() {
       const segments = pathname.split("/").filter(Boolean);
       const root = segments[0];
 
+      let resolved: CompanyNavState | null = null;
+
       if (root === "companies" && segments[1]) {
         const current = companies.find((candidate) => candidate.slug === segments[1]);
         if (current) {
-          setCompany({
-            id: current.id,
-            slug: current.slug,
-            name: current.name,
-            code: current.code || current.slug.slice(0, 3).toUpperCase(),
-          });
-          return;
+          resolved = { id: current.id, slug: current.slug, name: current.name, code: current.code || current.slug.slice(0, 3).toUpperCase() };
         }
       }
 
       // Detect canonical /{companyCode}/... URLs
-      if (root && root !== "companies" && root !== "projects") {
+      if (!resolved && root && root !== "companies" && root !== "projects") {
         const byCode = companies.find(
           (candidate) => (candidate.code || "").toUpperCase() === root.toUpperCase()
         );
         if (byCode) {
-          setCompany({
-            id: byCode.id,
-            slug: byCode.slug,
-            name: byCode.name,
-            code: byCode.code || byCode.slug.slice(0, 3).toUpperCase(),
-          });
-          return;
+          resolved = { id: byCode.id, slug: byCode.slug, name: byCode.name, code: byCode.code || byCode.slug.slice(0, 3).toUpperCase() };
         }
       }
 
-      if (root === "projects" && segments[1]) {
+      if (!resolved && root === "projects" && segments[1]) {
         const projects = await listProjects();
         if (cancelled) return;
         const currentProject = projects.find((project) => project.id === segments[1] || project.slug === segments[1]);
         const currentCompany = currentProject?.companyId
           ? companies.find((candidate) => candidate.id === currentProject.companyId)
           : null;
-
         if (currentCompany) {
-          setCompany({
-            id: currentCompany.id,
-            slug: currentCompany.slug,
-            name: currentCompany.name,
-            code: currentCompany.code || currentCompany.slug.slice(0, 3).toUpperCase(),
-          });
-          return;
+          resolved = { id: currentCompany.id, slug: currentCompany.slug, name: currentCompany.name, code: currentCompany.code || currentCompany.slug.slice(0, 3).toUpperCase() };
         }
       }
 
-      // URL doesn't contain a company code — keep the current selection if we have one.
-      // Only fall back to default on first load (company.id is undefined).
-      if (company.id) return;
+      if (!resolved) {
+        // URL doesn't contain a company code — keep current selection if we have one.
+        if (company.id) return;
+        const fallback = companies.find((candidate) => candidate.slug === FALLBACK_COMPANY_SLUG) ?? companies[0];
+        resolved = {
+          id: fallback?.id,
+          slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
+          name: fallback?.name ?? "NeverIdle Core",
+          code: fallback?.code || (fallback?.slug ?? FALLBACK_COMPANY_SLUG).slice(0, 3).toUpperCase(),
+        };
+      }
 
-      const fallback =
-        companies.find((candidate) => candidate.slug === FALLBACK_COMPANY_SLUG) ?? companies[0];
-      setCompany({
-        id: fallback?.id,
-        slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
-        name: fallback?.name ?? "NeverIdle Core",
-        code: fallback?.code || (fallback?.slug ?? FALLBACK_COMPANY_SLUG).slice(0, 3).toUpperCase(),
-      });
+      // Only update state if the company actually changed — prevents cascading re-renders
+      setCompany((prev) => prev.slug === resolved!.slug ? prev : resolved!);
     };
 
     void resolveCompany();
@@ -647,8 +645,11 @@ export function Dock() {
     let cancelled = false;
 
     const loadProjects = async (mode: "initial" | "poll") => {
+      // Only show loading shimmer on true first load when we have no data yet.
+      // Subsequent refetches (from pathname/dependency changes or polls) should
+      // update silently to avoid nav flash/reset.
       if (mode === "initial") {
-        setProjectsLoading(true);
+        setProjectsLoading((prev) => projects.length === 0 ? true : prev);
       }
       const rows = await listProjects({ company: company.slug });
       if (cancelled) return;
@@ -777,7 +778,7 @@ export function Dock() {
     let cancelled = false;
 
     const loadAgents = async (mode: "initial" | "poll") => {
-      if (mode === "initial") setAgentsLoading(true);
+      if (mode === "initial") setAgentsLoading((prev) => agents.length === 0 ? true : prev);
       const rows = await listCompanyAgents(company.slug);
       if (cancelled) return;
       const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
@@ -1004,7 +1005,7 @@ export function Dock() {
               item={{
                 href,
                 label: project.name,
-                statusDotColor: project.color || "#22d3ee",
+                leadingDotColor: project.color || "#22d3ee",
               }}
               active={checkActive(href) || checkActive(`/${cc}/projects/${pSlug}`)}
             />
