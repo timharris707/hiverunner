@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { Grid3X3, List, RefreshCw } from "lucide-react";
+import { Grid3X3, List } from "lucide-react";
 import { FileBrowser } from "@/components/FileBrowser";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
+import { PageHeader } from "@/lib/ui/primitives";
+import { P, font, radius, space } from "@/lib/ui/tokens";
 
 export default function ProjectFilesPage({
   params,
@@ -29,49 +31,39 @@ export default function ProjectFilesPage({
     return () => { cancelled = true; };
   }, [slug, projectSlug]);
 
-  const C = {
-    card: "rgba(28,25,23,0.6)",
-    cardBorder: "rgba(120,113,108,0.18)",
-    text: "#f5f5f4",
-    textSec: "#a8a29e",
-    muted: "#57534e",
-  };
+  if (loading) return <div style={{ padding: 32, color: P.muted, fontSize: 13 }}>Loading files...</div>;
+  if (!project) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Project not found.</div>;
 
-  if (loading) return <div style={{ padding: 32, color: C.muted, fontSize: 13 }}>Loading files...</div>;
-  if (!project) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Project not found.</div>;
-
-  // Use project slug as workspace identifier — the files API resolves this
   const workspaceId = `project-${project.slug ?? project.id}`;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#0c0a09" }}>
-      {/* header */}
-      <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div>
-          <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-            FILES — {project.name}
-          </span>
-          <p style={{ margin: "2px 0 0", fontSize: 12, color: C.textSec }}>
-            Browse project workspace files
-          </p>
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
+      <PageHeader
+        icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
+        title={project.name}
+        actions={
           <button
             type="button"
             onClick={() => setViewMode(viewMode === "list" ? "grid" : "list")}
             style={{
-              display: "grid", placeItems: "center",
-              width: 28, height: 28, borderRadius: 6,
-              border: `1px solid ${C.cardBorder}`, background: C.card,
-              color: C.textSec, cursor: "pointer",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              width: 34,
+              height: 34,
+              borderRadius: radius.md,
+              border: `0.5px solid ${P.cardBorder}`,
+              background: "transparent",
+              color: P.textSec,
+              cursor: "pointer",
             }}
+            title={viewMode === "list" ? "Grid view" : "List view"}
           >
-            {viewMode === "list" ? <Grid3X3 size={13} /> : <List size={13} />}
+            {viewMode === "list" ? <Grid3X3 size={14} /> : <List size={14} />}
           </button>
-        </div>
-      </div>
+        }
+      />
 
-      {/* file browser — scoped to project workspace */}
       <div style={{ flex: 1, overflow: "auto" }}>
         <FileBrowser
           workspace={workspaceId}
