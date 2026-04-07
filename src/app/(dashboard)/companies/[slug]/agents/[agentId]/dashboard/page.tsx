@@ -15,7 +15,7 @@ import type { OrchestrationAgentProfile } from "@/lib/orchestration/types";
 
 /* ─── Page ─── */
 export default function AgentDashboardPage() {
-  const { profile, slug } = useAgentProfile();
+  const { profile, slug, companyCode } = useAgentProfile();
   const { currentTasks, recentActivity, executionHistory, liveSession } = profile;
 
   // Derive recent issues from tasks (all assigned tasks = "issues" in Paperclip terms)
@@ -41,45 +41,54 @@ export default function AgentDashboardPage() {
         <ChartPanel title="Success Rate" subtitle="Last 14 days" data={chartData.successRate} type="bar" />
       </div>
 
-      {/* ── Recent Issues ── */}
+      {/* ── Recent Tasks ── */}
       <div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: A.text }}>Recent Issues</h3>
-          {hasMoreIssues && (
-            <span style={{ fontSize: 12, color: A.textSec, display: "inline-flex", alignItems: "center", gap: 4 }}>
-              See All <ArrowRight size={12} />
-            </span>
-          )}
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: A.text }}>Recent Tasks</h3>
+          <Link
+            href={`/${encodeURIComponent(companyCode.toUpperCase())}/tasks`}
+            style={{ fontSize: 12, color: A.textSec, display: "inline-flex", alignItems: "center", gap: 4, textDecoration: "none" }}
+          >
+            See All <ArrowRight size={12} />
+          </Link>
         </div>
         <div style={{ borderRadius: 8, border: `0.5px solid ${A.cardBorder}`, overflow: "hidden" }}>
           {recentIssues.length === 0 ? (
             <div style={{ padding: 24, textAlign: "center", color: A.muted, fontSize: 12 }}>
-              No issues assigned.
+              No tasks assigned.
             </div>
           ) : (
-            recentIssues.map((task, i) => (
-              <div
-                key={task.id}
-                style={{
-                  display: "flex", alignItems: "center", gap: 10,
-                  padding: "10px 14px",
-                  borderBottom: i < recentIssues.length - 1 ? `0.5px solid ${A.cardBorder}` : "none",
-                  background: i % 2 === 0 ? "transparent" : "rgba(255,255,255,0.01)",
-                }}
-              >
-                <span style={{ fontSize: 12, color: A.muted, fontWeight: 600, fontFamily: "var(--font-mono)", flexShrink: 0, minWidth: 60 }}>
-                  {task.key ?? task.id.slice(0, 8)}
-                </span>
-                <span style={{ fontSize: 12, color: A.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {task.title}
-                </span>
-                <IssueStatusPill status={task.status} />
-              </div>
-            ))
+            recentIssues.map((task, i) => {
+              const taskIdentifier = task.key ?? task.id.slice(0, 8);
+              const taskHref = `/${encodeURIComponent(companyCode.toUpperCase())}/tasks/${encodeURIComponent(taskIdentifier)}`;
+              return (
+                <Link
+                  key={task.id}
+                  href={taskHref}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 10,
+                    padding: "10px 14px",
+                    borderBottom: i < recentIssues.length - 1 ? `0.5px solid ${A.cardBorder}` : "none",
+                    textDecoration: "none", color: A.text,
+                    transition: "background 120ms",
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                >
+                  <span style={{ fontSize: 12, color: A.muted, fontWeight: 600, fontFamily: "var(--font-mono)", flexShrink: 0, minWidth: 60 }}>
+                    {taskIdentifier}
+                  </span>
+                  <span style={{ fontSize: 12, color: A.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {task.title}
+                  </span>
+                  <IssueStatusPill status={task.status} />
+                </Link>
+              );
+            })
           )}
           {hasMoreIssues && (
             <div style={{ padding: "8px 14px", textAlign: "center", fontSize: 11, color: A.muted }}>
-              +{currentTasks.length - 10} more issues
+              +{currentTasks.length - 10} more tasks
             </div>
           )}
         </div>

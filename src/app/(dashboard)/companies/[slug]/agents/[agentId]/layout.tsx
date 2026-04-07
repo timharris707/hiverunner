@@ -37,6 +37,7 @@ export const A = {
 interface AgentContextValue {
   profile: OrchestrationAgentProfile;
   slug: string;
+  companyCode: string;
   agentId: string;
   reload: () => void;
 }
@@ -172,7 +173,7 @@ export default function AgentDetailLayout({
   const isPaused = agent.status === "paused";
 
   return (
-    <AgentContext.Provider value={{ profile, slug, agentId, reload: load }}>
+    <AgentContext.Provider value={{ profile, slug, companyCode, agentId, reload: load }}>
       <div style={{ padding: "0 20px 16px", maxWidth: 1200, color: A.text, fontSize: 13 }}>
         {/* ── agent header row ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
