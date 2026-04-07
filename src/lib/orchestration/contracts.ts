@@ -50,6 +50,8 @@ export const listCompanyInboxQuerySchema = z.object({
   cursor: z.string().trim().min(1).optional(),
   unreadSince: z.string().datetime({ offset: true }).optional(),
   includeTaskSnapshot: queryBooleanSchema.optional().default(true),
+  /** Filter by event kind. Comma-separated: "task", "execution", "approval". Omit for all. */
+  kinds: z.string().trim().min(1).optional(),
 });
 
 export const listCompanyGoalsQuerySchema = z.object({

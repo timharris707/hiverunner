@@ -299,6 +299,12 @@ export default function CompanyInboxPage() {
     setVisibleColumns(DEFAULT_COLUMNS);
     try { localStorage.setItem(COLUMNS_STORAGE_KEY, JSON.stringify(DEFAULT_COLUMNS)); } catch {}
   };
+  /** Map active tab to the server `kinds` filter so the API returns only relevant threads. */
+  const kindsForTab = (tab: TabKey): string | undefined => {
+    if (tab === "mine") return "task,approval";
+    return undefined; // "all", "recent", "unread" show everything
+  };
+
   /* ---- Data loading ---- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -310,7 +316,8 @@ export default function CompanyInboxPage() {
           companySlug: slug,
           includeDone: true,
           includeTaskSnapshot: false,
-          limit: 35,
+          limit: 25,
+          kinds: kindsForTab(activeTab),
         }),
       ]);
       const current = companyRows.find((row) => row.slug === slug) ?? null;
@@ -328,7 +335,7 @@ export default function CompanyInboxPage() {
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, activeTab]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -343,6 +350,7 @@ export default function CompanyInboxPage() {
         includeTaskSnapshot: false,
         limit: 25,
         cursor: inbox.nextCursor,
+        kinds: kindsForTab(activeTab),
       });
       if (!next) return;
       setInbox((prev) => ({
@@ -365,6 +373,7 @@ export default function CompanyInboxPage() {
         events: prev.events.map((e) => ({ ...e, isRead: true })),
         unreadCount: 0,
       }));
+      window.dispatchEvent(new CustomEvent("inbox-unread-change", { detail: { count: 0 } }));
     }
   };
 
@@ -375,13 +384,18 @@ export default function CompanyInboxPage() {
     const threadKind = eventThreadKind(event);
     const ok = await markInboxThreadRead(slug, threadKey, threadKind);
     if (ok) {
-      setInbox((prev) => ({
-        ...prev,
-        events: prev.events.map((e) =>
-          e.id === event.id ? { ...e, isRead: true } : e
-        ),
-        unreadCount: Math.max(0, prev.unreadCount - 1),
-      }));
+      setInbox((prev) => {
+        const newUnread = Math.max(0, prev.unreadCount - 1);
+        // Signal the Dock to update its badge immediately
+        window.dispatchEvent(new CustomEvent("inbox-unread-change", { detail: { count: newUnread } }));
+        return {
+          ...prev,
+          events: prev.events.map((e) =>
+            e.id === event.id ? { ...e, isRead: true } : e
+          ),
+          unreadCount: newUnread,
+        };
+      });
     }
   };
 
@@ -395,10 +409,9 @@ export default function CompanyInboxPage() {
   const filteredEvents = useMemo(() => {
     let items = inbox.events;
 
-    // Tab filter
-    if (activeTab === "mine") {
-      items = items.filter((e) => e.kind === "task" || e.kind === "approval");
-    } else if (activeTab === "unread") {
+    // Kind filtering is now server-side (via `kinds` param). Only apply lightweight
+    // client-side filters that refine within the current server result set.
+    if (activeTab === "unread") {
       items = items.filter((e) => !e.isRead);
     } else if (activeTab === "recent") {
       const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
@@ -413,7 +426,7 @@ export default function CompanyInboxPage() {
     // Approval status filter (only on "all" tab)
     if (activeTab === "all" && approvalStatusFilter !== "all") {
       items = items.filter((e) => {
-        if (e.kind !== "approval") return true; // non-approval events pass through
+        if (e.kind !== "approval") return true;
         return e.approvalStatus === approvalStatusFilter;
       });
     }

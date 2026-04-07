@@ -343,6 +343,8 @@ export async function getCompanyInbox(input: {
   cursor?: string;
   unreadSince?: string;
   includeTaskSnapshot?: boolean;
+  /** Comma-separated event kinds to include: "task", "execution", "approval". Omit for all. */
+  kinds?: string;
 }): Promise<{
   events: OrchestrationCompanyInboxEvent[];
   page: { limit: number; nextCursor?: string; hasMore: boolean };
@@ -362,6 +364,7 @@ export async function getCompanyInbox(input: {
   if (typeof input.includeTaskSnapshot === "boolean") {
     params.set("includeTaskSnapshot", input.includeTaskSnapshot ? "true" : "false");
   }
+  if (input.kinds) params.set("kinds", input.kinds);
 
   const query = params.toString();
   const data = await fetchJson<{

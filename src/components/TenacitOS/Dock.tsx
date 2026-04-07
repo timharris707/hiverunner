@@ -740,6 +740,7 @@ export function Dock() {
         companySlug: company.slug,
         includeTaskSnapshot: false,
         limit: 1,
+        kinds: "task,approval",
       });
       if (cancelled || !inbox) return;
       const count = Math.max(0, inbox.unreadCount);
@@ -751,9 +752,17 @@ export function Dock() {
       void loadInboxCount();
     }, 30_000);
 
+    // Listen for immediate unread-count updates from the inbox page
+    const handleUnreadChange = (e: Event) => {
+      const count = (e as CustomEvent).detail?.count;
+      if (typeof count === "number") setInboxUnreadCount(count);
+    };
+    window.addEventListener("inbox-unread-change", handleUnreadChange);
+
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener("inbox-unread-change", handleUnreadChange);
     };
   }, [company.slug]);
 

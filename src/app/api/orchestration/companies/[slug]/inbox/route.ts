@@ -6,7 +6,6 @@ import { listCompanyInboxQuerySchema } from "@/lib/orchestration/contracts";
 import { listCompanyInbox } from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
-export const revalidate = 0;
 
 export async function GET(
   req: NextRequest,
@@ -23,14 +22,47 @@ export async function GET(
       cursor: req.nextUrl.searchParams.get("cursor") ?? undefined,
       unreadSince: req.nextUrl.searchParams.get("unreadSince") ?? undefined,
       includeTaskSnapshot: req.nextUrl.searchParams.get("includeTaskSnapshot") ?? undefined,
+      kinds: req.nextUrl.searchParams.get("kinds") ?? undefined,
     });
 
-    // Fetch extra events to compensate for thread de-duplication, then collapse.
-    // With ~340 task events across ~40 tasks, we need a high multiplier to ensure
-    // 25 unique threads from sorted raw events where recent tasks may have many comments.
-    const rawLimit = query.limit ?? 50;
-    const overFetchLimit = Math.min(rawLimit * 40, 2000);
+    const pageLimit = query.limit ?? 50;
 
+    // Parse optional kind filter (e.g. "task,approval" for the "Mine" tab)
+    const kindSet = query.kinds
+      ? new Set(query.kinds.split(",").map((k) => k.trim()).filter(Boolean))
+      : null;
+
+    // ---------- Unread count ----------
+    // Always fetch the full event set (uncapped) for unread thread counting so the
+    // badge is accurate regardless of the page limit.
+    const fullRaw = listCompanyInbox({
+      companyIdOrSlug: slug,
+      projectId: query.projectId,
+      status: query.status,
+      search: query.search,
+      includeDone: query.includeDone,
+      limit: 5000,       // effectively unlimited — covers all events
+      includeTaskSnapshot: false,
+    });
+
+    // Count distinct unread threads (matching kind filter)
+    const unreadThreadKeys = new Set<string>();
+    for (const event of fullRaw.events) {
+      if (kindSet && !kindSet.has(event.kind)) continue;
+      if (event.isRead) continue;
+      const tk =
+        event.kind === "approval" && event.approvalId
+          ? `a:${event.approvalId}`
+          : event.taskKey
+            ? `t:${event.taskKey}`
+            : `e:${event.id}`;
+      unreadThreadKeys.add(tk);
+    }
+    const threadUnreadCount = unreadThreadKeys.size;
+
+    // ---------- Paginated thread list ----------
+    // Over-fetch raw events so we can de-duplicate by thread and fill the page.
+    const overFetchLimit = Math.min(pageLimit * 40, 2000);
     const raw = listCompanyInbox({
       companyIdOrSlug: slug,
       projectId: query.projectId,
@@ -43,10 +75,11 @@ export async function GET(
       includeTaskSnapshot: query.includeTaskSnapshot,
     });
 
-    // De-duplicate by thread: keep only the first (most recent) event per task/approval
+    // De-duplicate by thread, applying kind filter
     const seen = new Set<string>();
     const deduped = [];
     for (const event of raw.events) {
+      if (kindSet && !kindSet.has(event.kind)) continue;
       const threadKey =
         event.kind === "approval" && event.approvalId
           ? `a:${event.approvalId}`
@@ -59,12 +92,9 @@ export async function GET(
       }
     }
 
-    const pageEvents = deduped.slice(0, rawLimit);
-    // Only signal hasMore if we actually produced more unique threads than the limit.
-    // If deduped <= rawLimit, we've exhausted all unique threads in the raw data.
-    const hasMore = deduped.length > rawLimit;
+    const pageEvents = deduped.slice(0, pageLimit);
+    const hasMore = deduped.length > pageLimit;
 
-    // Build cursor from the last de-duplicated event using the server's format: base64url(createdAt|id)
     const lastEvent = pageEvents.at(-1);
     let nextCursor: string | undefined;
     if (hasMore && lastEvent) {
@@ -74,8 +104,9 @@ export async function GET(
     return NextResponse.json({
       ...raw,
       events: pageEvents,
+      unreadCount: threadUnreadCount,
       page: {
-        limit: rawLimit,
+        limit: pageLimit,
         nextCursor,
         hasMore,
       },
