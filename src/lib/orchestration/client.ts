@@ -1447,6 +1447,8 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<{
   taskId: string;
   mode: "openclaw" | "paperclip" | "manual";
   sessionId?: string;
+  runId?: string;
+  agentId?: string;
   polledAt: string;
   status: {
     state: "running" | "completed" | "unknown" | "skipped";
@@ -1489,6 +1491,8 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<{
   return {
     taskId: String(data.taskId ?? taskId),
     mode: String(data.mode ?? "manual") as "openclaw" | "paperclip" | "manual",
+    runId: data.runId ? String(data.runId) : undefined,
+    agentId: data.agentId ? String(data.agentId) : undefined,
     sessionId: data.sessionId ? String(data.sessionId) : undefined,
     polledAt: String(data.polledAt ?? new Date().toISOString()),
     status: {

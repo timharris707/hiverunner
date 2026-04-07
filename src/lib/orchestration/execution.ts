@@ -80,6 +80,8 @@ export type TriggerTaskNudgeResult = TriggerTaskExecutionResult;
 export type PollTaskExecutionResult = {
   taskId: string;
   mode: "openclaw" | "paperclip" | "manual";
+  runId?: string;
+  agentId?: string;
   sessionId?: string;
   polledAt: string;
   status: {
@@ -1162,6 +1164,8 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
   return {
     taskId: task.id,
     mode: "openclaw",
+    runId: run.id,
+    agentId: run.agentId,
     sessionId: run.sessionId,
     polledAt,
     status: {

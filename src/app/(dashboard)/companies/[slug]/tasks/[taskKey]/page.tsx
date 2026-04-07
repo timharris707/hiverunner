@@ -41,6 +41,8 @@ type ExecutionSnapshot = {
   terminal: boolean;
   reason?: string;
   raw?: string;
+  runId?: string;
+  agentId?: string;
   sessionId?: string;
   polledAt: string;
 } | null;
@@ -149,6 +151,8 @@ export default function TaskDetailPage() {
           terminal: Boolean(data?.status?.terminal),
           reason: data?.status?.reason,
           raw: data?.status?.raw,
+          runId: data?.runId ?? undefined,
+          agentId: data?.agentId ?? undefined,
           sessionId: data?.sessionId ?? undefined,
           polledAt: data?.polledAt ?? new Date().toISOString(),
         });
@@ -172,20 +176,37 @@ export default function TaskDetailPage() {
   }, [task?.id]);
 
   const assignedAgent = useMemo(() => {
+    const preferredAgentId = execution?.agentId;
+    if (preferredAgentId) {
+      const matched = agents.find((agent) => agent.id === preferredAgentId) ?? null;
+      if (matched) return matched;
+    }
+
     if (!task?.assignee) return null;
     return agents.find((agent) =>
       agent.id === task.assignee ||
       agent.name === task.assignee ||
       agent.slug === task.assignee
     ) ?? null;
-  }, [agents, task?.assignee]);
+  }, [agents, execution?.agentId, task?.assignee]);
 
   const liveActivityEnabled = Boolean(slug && execution?.state === "running" && assignedAgent?.id);
   const { streamByAgentId, connected: liveActivityConnected } = useLiveRunStream({
     companySlug: slug,
     enabled: liveActivityEnabled,
   });
-  const liveAgentStream = assignedAgent?.id ? streamByAgentId.get(assignedAgent.id) : undefined;
+  const rawLiveAgentStream = assignedAgent?.id ? streamByAgentId.get(assignedAgent.id) : undefined;
+  const liveAgentStream = useMemo(() => {
+    if (!rawLiveAgentStream) return undefined;
+    if (!execution?.runId) return rawLiveAgentStream;
+    if (rawLiveAgentStream.runId && rawLiveAgentStream.runId !== execution.runId) return undefined;
+
+    const filteredEvents = rawLiveAgentStream.events.filter((event) => !event.runId || event.runId === execution.runId);
+    return {
+      ...rawLiveAgentStream,
+      events: filteredEvents,
+    };
+  }, [execution?.runId, rawLiveAgentStream]);
 
   /* ── Mutations ── */
 

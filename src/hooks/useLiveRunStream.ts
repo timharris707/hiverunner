@@ -28,6 +28,8 @@ export interface StreamEvent {
 export interface AgentStreamState {
   /** Accumulated assistant text from streaming deltas */
   streamingText: string;
+  /** Active run ID for the current stream, when known */
+  runId?: string;
   /** Whether the agent is actively generating text */
   isStreaming: boolean;
   /** Recent stream events (tool calls, lifecycle, etc.) — last 20 */
@@ -38,6 +40,7 @@ export interface AgentStreamState {
 
 export interface StreamTranscriptEntry {
   id: string;
+  runId?: string;
   kind: "assistant_delta" | "assistant_final" | "tool_start" | "tool_end" | "lifecycle_start" | "lifecycle_end" | "lifecycle_error" | "error" | "action_detected";
   message: string;
   ts: string;
@@ -154,6 +157,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
     const current = stateRef.current.get(agentId) ?? {
       streamingText: "",
+      runId: undefined,
       isStreaming: false,
       events: [],
       lastEventTs: 0,
@@ -162,6 +166,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
     const ts = event.ts ?? Date.now();
     const entry: StreamTranscriptEntry = {
       id: `stream-${ts}-${Math.random().toString(36).slice(2, 7)}`,
+      runId: event.runId,
       kind: event.type as StreamTranscriptEntry["kind"],
       message: "",
       ts: new Date(ts).toISOString(),
@@ -171,6 +176,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
     switch (event.type) {
       case "assistant_delta": {
         current.streamingText = event.text ?? current.streamingText + (event.delta ?? "");
+        current.runId = event.runId ?? current.runId;
         current.isStreaming = true;
         current.lastEventTs = ts;
 
@@ -182,6 +188,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
           detectedActionCountRef.current.set(agentId, totalCount);
           const actionEntries: StreamTranscriptEntry[] = newActions.map((a) => ({
             id: `action-${ts}-${Math.random().toString(36).slice(2, 7)}`,
+            runId: event.runId,
             kind: "action_detected" as const,
             message: a.summary,
             ts: new Date(ts).toISOString(),
@@ -197,23 +204,27 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
       case "assistant_final":
         current.streamingText = event.text ?? current.streamingText;
+        current.runId = event.runId ?? current.runId;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Response complete";
         break;
 
       case "tool_start":
+        current.runId = event.runId ?? current.runId;
         entry.message = event.detail ?? `Tool: ${event.toolName ?? "unknown"}`;
         current.lastEventTs = ts;
         break;
 
       case "tool_end":
+        current.runId = event.runId ?? current.runId;
         entry.message = event.detail ?? `Tool complete: ${event.toolName ?? "unknown"}`;
         current.lastEventTs = ts;
         break;
 
       case "lifecycle_start":
         current.streamingText = "";
+        current.runId = event.runId;
         current.isStreaming = false;
         current.lastEventTs = ts;
         detectedActionCountRef.current.set(agentId, 0);
@@ -221,18 +232,21 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
         break;
 
       case "lifecycle_end":
+        current.runId = event.runId ?? current.runId;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Session ended";
         break;
 
       case "lifecycle_error":
+        current.runId = event.runId ?? current.runId;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Session error";
         break;
 
       case "error":
+        current.runId = event.runId ?? current.runId;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Stream error";
         break;
@@ -268,7 +282,6 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
   // SSE connection
   useEffect(() => {
     if (!companySlug || !enabled) {
-      setConnected(false);
       return;
     }
 
@@ -314,5 +327,5 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
     };
   }, [companySlug, enabled, handleEvent]);
 
-  return { streamByAgentId, connected };
+  return { streamByAgentId, connected: enabled && connected };
 }
