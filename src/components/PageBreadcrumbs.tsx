@@ -2,14 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChevronRight, Home } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 
 const LABEL_MAP: Record<string, string> = {
   trading: "Trading Desk",
   advisory: "Advisory Board",
   agents: "Team",
   companies: "Companies",
-  tasks: "Task Board",
+  tasks: "Tasks",
   issues: "Tasks",
   team: "Team",
   board: "Board",
@@ -37,39 +37,60 @@ const LABEL_MAP: Record<string, string> = {
   approvals: "Approvals",
   skills: "Skills",
   git: "Git",
+  projects: "Projects",
+  overview: "Overview",
+  workspaces: "Workspaces",
+  configuration: "Configuration",
+  budget: "Budget",
+  routines: "Routines",
+  goals: "Goals",
+  org: "Org",
+  export: "Export",
+  import: "Import",
 };
+
+/** Segments that are structural routing and should be hidden from breadcrumbs. */
+const HIDDEN_SEGMENTS = new Set(["companies"]);
+
+/** Check if a segment looks like a short company code (e.g. NEV, TIM). */
+function isCompanyCode(seg: string): boolean {
+  return /^[A-Z]{2,5}$/.test(seg);
+}
+
+/** Format a slug into a readable label: "mission-control-orchestration" → "Mission Control Orchestration" */
+function slugToLabel(slug: string): string {
+  return slug.split("-").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
 
 export function PageBreadcrumbs() {
   const pathname = usePathname();
 
-  // Advisory page uses full-bleed layout with negative margins — breadcrumbs overlap
-  // Use startsWith to cover any advisory sub-routes
   if (pathname === "/" || pathname.startsWith("/advisory")) return null;
 
   const segments = pathname.split("/").filter(Boolean);
 
-  const crumbs = segments.map((seg, i) => ({
-    label: LABEL_MAP[seg] || seg.charAt(0).toUpperCase() + seg.slice(1),
-    href: "/" + segments.slice(0, i + 1).join("/"),
-    isLast: i === segments.length - 1,
-  }));
+  // Build crumbs, skipping structural/noise segments
+  const crumbs: { label: string; href: string; isLast: boolean }[] = [];
+  for (let i = 0; i < segments.length; i++) {
+    const seg = segments[i];
+    // Skip hidden structural segments and company codes
+    if (HIDDEN_SEGMENTS.has(seg) || isCompanyCode(seg)) continue;
+
+    const label = LABEL_MAP[seg] ?? slugToLabel(seg);
+    const href = "/" + segments.slice(0, i + 1).join("/");
+    crumbs.push({ label, href, isLast: i === segments.length - 1 });
+  }
+
+  if (crumbs.length === 0) return null;
 
   return (
     <nav
       className="flex items-center gap-1.5 mb-3"
       style={{ fontSize: "12px", color: "var(--text-muted)" }}
     >
-      <Link
-        href="/"
-        className="flex items-center gap-1 transition-opacity hover:opacity-80"
-        style={{ color: "var(--text-muted)", textDecoration: "none" }}
-      >
-        <Home size={12} />
-        <span>Home</span>
-      </Link>
-      {crumbs.map((crumb) => (
+      {crumbs.map((crumb, i) => (
         <span key={crumb.href} className="flex items-center gap-1.5">
-          <ChevronRight size={10} style={{ color: "var(--text-muted)", opacity: 0.5 }} />
+          {i > 0 && <ChevronRight size={10} style={{ color: "var(--text-muted)", opacity: 0.5 }} />}
           {crumb.isLast ? (
             <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
               {crumb.label}

@@ -9,8 +9,8 @@
 
 :root {
   /* Core Colors — warm charcoal palette, lifted value structure */
-  --bg: #272624;
-  --background: #272624; /* alias for compatibility */
+  --bg: #2d2c29;
+  --background: #2d2c29; /* alias for compatibility */
   --foreground: #eae8e4;
 
   /* Surface Colors — cards sit darker than bg canvas */

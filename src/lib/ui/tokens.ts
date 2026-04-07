@@ -15,7 +15,7 @@
 
 export const color = {
   /** Page background — warm charcoal canvas (lightest layer) */
-  bg: "#272624",
+  bg: "#2d2c29",
   /** Cards, panels — darker than bg, defined by borders */
   surface: "#201f1d",
   /** Elevated surfaces (modals, dropdowns, popovers) */

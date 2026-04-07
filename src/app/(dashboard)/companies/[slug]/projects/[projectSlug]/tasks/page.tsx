@@ -349,23 +349,37 @@ function IssueRow({
         <span style={{ display: "inline-flex", alignItems: "center", gap: 6, width: 120 }}>
           {agent ? (
             <>
-              <span
-                style={{
-                  width: 20,
-                  height: 20,
-                  borderRadius: "9999px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  background: color.accentSoft,
-                  color: color.accent,
-                  fontSize: 9,
-                  fontFamily: font.mono,
-                  flexShrink: 0,
-                }}
-              >
-                {agent.emoji ?? agent.name?.slice(0, 1)?.toUpperCase()}
-              </span>
+              {agent.avatar ? (
+                <img
+                  src={agent.avatar}
+                  alt={agent.name}
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "9999px",
+                    objectFit: "cover",
+                    flexShrink: 0,
+                  }}
+                />
+              ) : (
+                <span
+                  style={{
+                    width: 20,
+                    height: 20,
+                    borderRadius: "9999px",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(255,255,255,0.06)",
+                    color: P.textSecondary,
+                    fontSize: 9,
+                    fontFamily: font.mono,
+                    flexShrink: 0,
+                  }}
+                >
+                  {agent.emoji ?? agent.name?.slice(0, 1)?.toUpperCase()}
+                </span>
+              )}
               <span style={{ fontSize: 12, color: P.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.name}</span>
             </>
           ) : task.assignee ? (
@@ -759,20 +773,7 @@ export default function ProjectTasksPage({
     >
       {/* ── project header */}
       <PageHeader
-        icon={
-          <span
-            style={{
-              display: "inline-block",
-              width: 14,
-              height: 14,
-              borderRadius: radius.full,
-              background: project.color ?? P.accent,
-              boxShadow: `0 0 0 1px ${P.cardBorder} inset`,
-            }}
-          />
-        }
         title={project.name}
-        description="Project task workspace"
         actions={
           <ActionButton
             label="New Task"
