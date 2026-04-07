@@ -5,7 +5,7 @@ import { assignTaskSchema } from "@/lib/orchestration/contracts";
 import { assignTask } from "@/lib/orchestration/service";
 import { errorResponse, handleRouteError, OrchestrationApiError } from "@/lib/orchestration/api";
 import { isBridgeClientError } from "@/lib/orchestration/bridge";
-import { triggerTaskExecution } from "@/lib/orchestration/execution";
+import { triggerTaskExecution, triggerTaskNudge } from "@/lib/orchestration/execution";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +38,19 @@ export async function PATCH(
         }
       | undefined;
 
-    if (result.assignmentChanged && result.task.status === "in-progress" && result.task.assignee) {
+    if (result.assignmentChanged && result.task.assignee) {
       try {
-        const execution = await triggerTaskExecution({
-          taskId: id,
-          idempotencyKey: `mc-task-assignment:${id}:${result.task.updated}`,
-          reason: "task_assigned_in_progress",
-        });
+        const execution = result.task.status === "in-progress"
+          ? await triggerTaskExecution({
+              taskId: id,
+              idempotencyKey: `mc-task-assignment:${id}:${result.task.updated}`,
+              reason: "task_assigned_in_progress",
+            })
+          : await triggerTaskNudge({
+              taskId: id,
+              idempotencyKey: `mc-task-nudge:${id}:${result.task.updated}`,
+              reason: "task_assigned",
+            });
         heartbeat = {
           attempted: true,
           queued: execution.queued,
@@ -94,7 +100,7 @@ export async function PATCH(
         attempted: false,
         queued: false,
         status: "skipped",
-        reason: "no_in_progress_assignment_change",
+        reason: "no_assignment_change",
       };
     }
 

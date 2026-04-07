@@ -72,6 +72,8 @@ export type TriggerTaskAssignmentHeartbeatResult = {
   reason?: string;
 };
 
+export type TriggerTaskAssigneeNudgeResult = TriggerTaskAssignmentHeartbeatResult;
+
 async function upsertPaperclipIssueForTask(
   bridge: PaperclipBridgeClient,
   task: BridgeTaskRecord
@@ -405,6 +407,80 @@ export async function triggerTaskAssignmentHeartbeat(
     queued: wake.status !== "skipped",
     status: wake.status,
     runId: wake.runId,
+  };
+}
+
+
+export async function triggerTaskAssigneeNudge(
+  input: {
+    taskId: string;
+    idempotencyKey?: string;
+    reason?: string;
+    forceFreshSession?: boolean;
+  }
+): Promise<TriggerTaskAssigneeNudgeResult> {
+  const task = getTaskBridgeRecord(input.taskId);
+
+  if (!task.assigneeAgentId) {
+    return {
+      taskId: task.id,
+      queued: false,
+      status: "skipped",
+      reason: "assignee_required",
+    };
+  }
+
+  if (!task.assigneePaperclipAgentId) {
+    return {
+      taskId: task.id,
+      assigneeAgentId: task.assigneeAgentId,
+      queued: false,
+      status: "skipped",
+      reason: "paperclip_agent_mapping_missing",
+    };
+  }
+
+  const bridge = new PaperclipBridgeClient(getPaperclipBridgeConfigFromEnv());
+  let issue: PaperclipIssueReference;
+  let wake: Awaited<ReturnType<PaperclipBridgeClient["wakeAgent"]>>;
+  try {
+    issue = await upsertPaperclipIssueForTask(bridge, task);
+    wake = await bridge.wakeAgent(task.assigneePaperclipAgentId, {
+      source: "assignment",
+      triggerDetail: "system",
+      reason: input.reason ?? "mission_control_task_assignment_nudge",
+      idempotencyKey: input.idempotencyKey ?? null,
+      forceFreshSession: input.forceFreshSession ?? false,
+      payload: {
+        taskId: task.id,
+        taskStatus: task.status,
+        projectId: task.projectId,
+        projectName: task.projectName,
+        paperclipIssueId: issue.id,
+        paperclipIssueIdentifier: issue.identifier,
+        executionMode: task.executionMode,
+      },
+    });
+  } catch (error) {
+    if (error instanceof PaperclipBridgeError) {
+      recordBridgeFailure(task.id, "heartbeat", error);
+      if (error.code === "paperclip_timeout") {
+        markTaskBlockedOnTimeout(task.id, "heartbeat");
+      }
+    }
+    throw error;
+  }
+
+  return {
+    taskId: task.id,
+    assigneeAgentId: task.assigneeAgentId,
+    assigneePaperclipAgentId: task.assigneePaperclipAgentId,
+    paperclipIssueId: issue.id,
+    paperclipIssueIdentifier: issue.identifier,
+    queued: wake.status !== "skipped",
+    status: wake.status,
+    runId: wake.runId,
+    reason: wake.reason,
   };
 }
 

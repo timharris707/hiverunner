@@ -8,9 +8,10 @@ import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { triggerTaskAssignmentHeartbeat } from "@/lib/orchestration/bridge/sync";
+import { triggerTaskAssignmentHeartbeat, triggerTaskAssigneeNudge } from "@/lib/orchestration/bridge/sync";
 import { getTaskBridgeRecord, listTaskExternalCommentRefs, setTaskExecutionMode } from "@/lib/orchestration/bridge/store";
 import { getOrchestrationExecutionProvider } from "@/lib/orchestration/execution-provider";
+import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
 import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
 import type { TaskStatusInput } from "@/lib/orchestration/contracts";
 
@@ -73,6 +74,8 @@ export type TriggerTaskExecutionResult = {
   sessionId?: string;
   reason?: string;
 };
+
+export type TriggerTaskNudgeResult = TriggerTaskExecutionResult;
 
 export type PollTaskExecutionResult = {
   taskId: string;
@@ -1173,6 +1176,81 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
     },
     transition,
     task: updatedTask,
+  };
+}
+
+
+export async function triggerTaskNudge(
+  input: {
+    taskId: string;
+    idempotencyKey?: string;
+    reason?: string;
+    forceFreshSession?: boolean;
+  }
+): Promise<TriggerTaskNudgeResult> {
+  const db = getOrchestrationDb();
+  const task = getTaskBridgeRecord(input.taskId, db);
+  const executionProvider = getOrchestrationExecutionProvider();
+  const mode: TriggerTaskNudgeResult["mode"] =
+    executionProvider === "paperclip" ? "paperclip" : "openclaw";
+
+  if (!task.assigneeAgentId) {
+    return {
+      taskId: task.id,
+      mode,
+      queued: false,
+      status: "skipped",
+      reason: "assignee_required",
+    };
+  }
+
+  if (executionProvider === "openclaw") {
+    if (!task.assigneeOpenclawAgentId) {
+      return {
+        taskId: task.id,
+        mode: "openclaw",
+        queued: false,
+        status: "skipped",
+        reason: "openclaw_agent_mapping_missing",
+      };
+    }
+
+    const wake = enqueueWakeup(
+      {
+        agentId: task.assigneeAgentId,
+        companyId: task.companyId,
+        source: "issue_assigned",
+        reason: input.reason ?? "mission_control_task_assignment_nudge",
+        payload: {
+          taskId: task.id,
+          taskStatus: task.status,
+          projectId: task.projectId,
+          projectName: task.projectName,
+          executionMode: task.executionMode,
+        },
+        idempotencyKey: input.idempotencyKey,
+      },
+      db
+    );
+
+    return {
+      taskId: task.id,
+      mode: "openclaw",
+      queued: true,
+      status: wake.status === "coalesced" ? "queued" : wake.status,
+      runId: wake.heartbeatRunId || undefined,
+      reason: wake.status === "coalesced" ? "idempotency_key_reused" : input.reason,
+    };
+  }
+
+  const wake = await triggerTaskAssigneeNudge(input);
+  return {
+    taskId: wake.taskId,
+    mode: "paperclip",
+    queued: wake.queued,
+    status: wake.status,
+    runId: wake.runId,
+    reason: wake.reason,
   };
 }
 
