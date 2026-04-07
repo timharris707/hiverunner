@@ -101,21 +101,12 @@ export function CompanyShell({
   children: ReactNode;
 }) {
   return (
-    <div className="space-y-6 p-4 md:p-8">
-      <section
-        style={{
-          overflow: "hidden",
-          borderRadius: "20px",
-          border: "1px solid rgba(120,113,108,0.25)",
-          padding: "24px 28px",
-          background: "linear-gradient(145deg, rgba(41,37,36,0.88), rgba(20,17,15,0.95))",
-          boxShadow: "0 16px 40px rgba(0,0,0,0.35)",
-        }}
-      >
-        <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.22em", color: "#78716c" }}>{eyebrow}</p>
-        <h1 style={{ marginTop: "4px", fontSize: "28px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4" }}>{title}</h1>
-        <p style={{ marginTop: "8px", maxWidth: "640px", fontSize: "13px", color: "#a8a29e" }}>{description}</p>
-      </section>
+    <div style={{ padding: "12px 20px" }}>
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>{eyebrow}</p>
+        <h1 style={{ marginTop: "4px", fontSize: "17px", fontWeight: 600, letterSpacing: "-0.01em", color: "var(--text-primary)" }}>{title}</h1>
+        <p style={{ marginTop: "6px", maxWidth: "640px", fontSize: "13px", color: "var(--text-secondary)" }}>{description}</p>
+      </div>
       {children}
     </div>
   );
@@ -166,15 +157,15 @@ export function StatCard({
   return (
     <div
       style={{
-        borderRadius: "14px",
-        border: "1px solid rgba(120,113,108,0.25)",
+        borderRadius: "12px",
+        border: "0.5px solid var(--border)",
         padding: "16px",
-        background: "rgba(28,25,23,0.7)",
+        background: "transparent",
       }}
     >
-      <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.18em", color: "#78716c" }}>{label}</p>
-      <p style={{ marginTop: "12px", fontSize: "24px", fontWeight: 600, color: "#f5f5f4" }}>{value}</p>
-      {detail ? <p style={{ marginTop: "8px", fontSize: "13px", color: "#78716c" }}>{detail}</p> : null}
+      <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>{label}</p>
+      <p style={{ marginTop: "8px", fontSize: "24px", fontWeight: 600, color: "var(--text-primary)" }}>{value}</p>
+      {detail ? <p style={{ marginTop: "4px", fontSize: "12px", color: "var(--text-muted)" }}>{detail}</p> : null}
     </div>
   );
 }

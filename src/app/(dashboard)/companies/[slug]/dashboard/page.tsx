@@ -429,7 +429,7 @@ export default function CompanyDashboardPage() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: "linear-gradient(180deg, #0c0a09 0%, #1c1917 100%)" }}>
+    <div className="min-h-screen">
       <div className="mx-auto max-w-[1200px] px-4 py-5 md:px-6">
         {/* ── page heading ── */}
         <div className="mb-6 flex items-center justify-between">
@@ -470,7 +470,7 @@ export default function CompanyDashboardPage() {
           ) : (
             <div
               className="flex items-center gap-3 rounded-lg border px-4 py-3"
-              style={{ borderColor: "rgba(120,113,108,0.2)", background: "rgba(28,25,23,0.5)" }}
+              style={{ borderColor: "rgba(120,113,108,0.2)", background: "transparent" }}
             >
               <Bot className="h-5 w-5 text-stone-500" />
               <div>
@@ -562,7 +562,7 @@ export default function CompanyDashboardPage() {
           {/* Recent Activity */}
           <section
             className="rounded-lg border"
-            style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
+            style={{ borderColor: "rgba(120,113,108,0.15)", background: "transparent" }}
           >
             <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "rgba(120,113,108,0.12)" }}>
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-500">Recent Activity</h2>
@@ -597,7 +597,7 @@ export default function CompanyDashboardPage() {
           {/* Recent Tasks */}
           <section
             className="rounded-lg border"
-            style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
+            style={{ borderColor: "rgba(120,113,108,0.15)", background: "transparent" }}
           >
             <div className="flex items-center justify-between border-b px-4 py-2.5" style={{ borderColor: "rgba(120,113,108,0.12)" }}>
               <h2 className="text-xs font-semibold uppercase tracking-[0.12em] text-stone-500">Recent Tasks</h2>
@@ -689,7 +689,7 @@ function StreamingTextBlock({ text, isStreaming }: { text: string; isStreaming: 
       style={{
         maxHeight: "120px",
         background: "rgba(6,182,212,0.04)",
-        border: "1px solid rgba(6,182,212,0.12)",
+        border: "0.5px solid rgba(6,182,212,0.12)",
       }}
     >
       <p className="whitespace-pre-wrap text-xs leading-relaxed text-stone-300">
@@ -761,8 +761,8 @@ function AgentTranscript({
       className="mx-3 mb-2 overflow-y-auto rounded-md"
       style={{
         maxHeight: "180px",
-        background: isLive ? "rgba(6,182,212,0.03)" : "rgba(28,25,23,0.3)",
-        border: isLive ? "1px solid rgba(6,182,212,0.1)" : "1px solid rgba(120,113,108,0.08)",
+        background: isLive ? "rgba(6,182,212,0.03)" : "transparent",
+        border: isLive ? "0.5px solid rgba(6,182,212,0.1)" : "0.5px solid rgba(120,113,108,0.08)",
       }}
     >
       {mergedEntries.map((entry, i) => (
@@ -1012,7 +1012,7 @@ function AgentRunCard({
       {latestRun ? (
         <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{
           background: isLive ? "rgba(6,182,212,0.06)" : "rgba(120,113,108,0.07)",
-          border: isLive ? "1px solid rgba(6,182,212,0.12)" : "none",
+          border: isLive ? "0.5px solid rgba(6,182,212,0.12)" : "none",
         }}>
           <span className="text-xs text-stone-400">
             {latestRun.taskTitle}
@@ -1054,7 +1054,7 @@ function AgentRunCard({
       {justFinished && liveRun.result && (
         <div className="mx-3 mb-1.5 rounded-md px-2.5 py-1.5" style={{
           background: liveRun.status === "succeeded" ? "rgba(74,222,128,0.06)" : "rgba(239,68,68,0.06)",
-          border: `1px solid ${liveRun.status === "succeeded" ? "rgba(74,222,128,0.15)" : "rgba(239,68,68,0.15)"}`,
+          border: `0.5px solid ${liveRun.status === "succeeded" ? "rgba(74,222,128,0.15)" : "rgba(239,68,68,0.15)"}`,
         }}>
           <span className="text-[11px] font-medium" style={{
             color: liveRun.status === "succeeded" ? "#4ade80" : "#ef4444",
@@ -1180,7 +1180,7 @@ function MetricCard({
   return (
     <div
       className="rounded-lg border px-4 py-3"
-      style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
+      style={{ borderColor: "rgba(120,113,108,0.15)", background: "transparent" }}
     >
       <div className="flex items-start justify-between">
         <div>
@@ -1200,7 +1200,7 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
   return (
     <div
       className="rounded-lg border px-3 py-2.5"
-      style={{ borderColor: "rgba(120,113,108,0.15)", background: "rgba(28,25,23,0.5)" }}
+      style={{ borderColor: "rgba(120,113,108,0.15)", background: "transparent" }}
     >
       <div className="mb-2">
         <p className="text-xs font-medium text-stone-400">{title}</p>

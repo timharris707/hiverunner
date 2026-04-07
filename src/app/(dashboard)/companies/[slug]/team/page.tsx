@@ -128,19 +128,19 @@ export default function CompanyTeamPage() {
         <StatCard label="Departments" value={stats.departments} accentColor="#d97706" />
       </section>
 
-      <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl md:p-5">
+      <section className="p-0" style={{ marginTop: 16 }}>
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <div className="relative min-w-[220px] flex-1">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
             <input
-              className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-white outline-none focus:border-amber-400/60"
+              className="w-full rounded-lg border border-white/8 bg-transparent px-10 py-2.5 text-sm text-white outline-none focus:border-white/20"
               placeholder="Search company team"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </div>
           <select
-            className="rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2.5 text-sm text-white outline-none"
+            className="rounded-lg border border-white/8 bg-transparent px-3 py-2.5 text-sm text-white outline-none"
             value={statusFilter}
             onChange={(event) => setStatusFilter(event.target.value as "all" | OrchestrationAgent["status"])}
           >
@@ -151,19 +151,19 @@ export default function CompanyTeamPage() {
             <option value="offline">Offline</option>
             <option value="error">Error</option>
           </select>
-          <div className="rounded-xl border border-white/10 bg-slate-900/70 px-3 py-2 text-xs text-slate-400">
+          <div className="rounded-lg border border-white/8 bg-transparent px-3 py-2 text-xs text-slate-400">
             {projects.length} projects in company
           </div>
           <Link
             href={`/companies/${encodeURIComponent(slug)}/agents/new`}
-            className="inline-flex items-center gap-2 rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-400/15"
+            className="inline-flex items-center gap-2 rounded-lg border border-white/8 bg-transparent px-3 py-2 text-xs text-slate-200 transition hover:bg-white/3"
           >
             <UserPlus className="h-3.5 w-3.5" />
             Add Agent
           </Link>
           <Link
             href={`/companies/${encodeURIComponent(slug)}/org`}
-            className="rounded-xl border border-amber-300/35 bg-amber-400/10 px-3 py-2 text-xs text-amber-100 transition hover:bg-amber-400/15"
+            className="rounded-lg border border-white/8 bg-transparent px-3 py-2 text-xs text-slate-200 transition hover:bg-white/3"
           >
             Open Org Chart
           </Link>
@@ -173,7 +173,7 @@ export default function CompanyTeamPage() {
           {departmentGroups.map((group) => (
             <section
               key={group.key}
-              className="rounded-2xl border border-white/10 bg-slate-900/70 p-4"
+              className="rounded-xl border border-white/8 bg-transparent p-4"
               style={{
                 boxShadow: `inset 3px 0 0 ${group.color}`,
               }}
@@ -192,7 +192,7 @@ export default function CompanyTeamPage() {
                   <Link
                     key={agent.id}
                     href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.slug || agent.id)}`}
-                    className="block rounded-xl border border-white/10 bg-slate-950/80 p-3 transition hover:border-amber-300/30"
+                    className="block rounded-lg border border-white/6 bg-transparent p-3 transition hover:bg-white/[0.02]"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -222,7 +222,7 @@ export default function CompanyTeamPage() {
         </div>
 
         {!loading && filteredAgents.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/60 p-8 text-center text-sm text-slate-400">
+          <div className="rounded-lg border border-dashed border-white/8 bg-transparent p-8 text-center text-sm text-slate-400">
             No company agents matched this filter.
           </div>
         ) : null}

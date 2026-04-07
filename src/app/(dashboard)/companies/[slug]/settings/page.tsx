@@ -131,7 +131,7 @@ export default function CompanySettingsPage() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", borderRadius: radius.md, border: `1px solid rgba(120,113,108,0.3)`,
+    width: "100%", borderRadius: radius.md, border: `0.5px solid rgba(120,113,108,0.3)`,
     background: "rgba(41,37,36,0.4)", padding: `${space.md}px ${space.lg}px`,
     fontSize: T.body.size, color: color.text, outline: "none",
   };
@@ -164,7 +164,7 @@ export default function CompanySettingsPage() {
             <div style={{ marginTop: 12 }}>
               <button type="button" disabled={!profileDirty || profileSaving} onClick={() => void handleSaveProfile()} style={{
                 padding: "8px 20px", borderRadius: 8, fontSize: 13, fontWeight: 500, cursor: profileDirty ? "pointer" : "default",
-                border: `1px solid ${P.cardBorder}`, background: profileDirty ? "rgba(120,113,108,0.15)" : "transparent",
+                border: `0.5px solid ${P.cardBorder}`, background: profileDirty ? "rgba(120,113,108,0.15)" : "transparent",
                 color: profileDirty ? P.text : P.muted, opacity: profileDirty ? 1 : 0.5,
               }}>{profileSaving ? "Saving..." : "Save changes"}</button>
             </div>
@@ -176,7 +176,7 @@ export default function CompanySettingsPage() {
               <div style={{
                 width: 48, height: 48, borderRadius: 10, background: "rgba(99,102,241,0.2)",
                 display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: 20, fontWeight: 700, color: "#a5b4fc", border: "1px solid rgba(99,102,241,0.3)",
+                fontSize: 20, fontWeight: 700, color: "#a5b4fc", border: "0.5px solid rgba(99,102,241,0.3)",
               }}>
                 {company?.name?.charAt(0)?.toUpperCase() ?? "C"}
               </div>
@@ -204,7 +204,7 @@ export default function CompanySettingsPage() {
             <p style={{ fontSize: 13, color: P.textSec, marginBottom: 10 }}>Generate an OpenClaw agent invite snippet.</p>
             <button type="button" style={{
               padding: "8px 18px", borderRadius: 8, fontSize: 13, fontWeight: 500,
-              border: `1px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
+              border: `0.5px solid ${P.cardBorder}`, background: "rgba(120,113,108,0.1)",
               color: P.text, cursor: "pointer",
             }}>Generate OpenClaw Invite Prompt</button>
           </Section>
@@ -232,7 +232,7 @@ export default function CompanySettingsPage() {
             {execAgents.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                 {execAgents.map((a) => (
-                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `0.5px solid ${P.cardBorder}` }}>
                     <span style={{ fontSize: 13, color: P.text }}>{a.agentName ?? a.name ?? a.agentId}</span>
                     <span style={{ fontSize: 11, color: P.muted, fontFamily: "var(--font-mono, monospace)" }}>
                       {a.modelId}{a.timeoutSeconds != null ? ` · ${a.timeoutSeconds}s` : ""}
@@ -250,7 +250,7 @@ export default function CompanySettingsPage() {
             {hbAgents.length > 0 ? (
               <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
                 {hbAgents.map((a) => (
-                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `1px solid ${P.cardBorder}` }}>
+                  <div key={a.agentId} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderBottom: `0.5px solid ${P.cardBorder}` }}>
                     <span style={{ fontSize: 13, color: P.text }}>{a.agentName ?? a.name ?? a.agentId}</span>
                     <span style={{ fontSize: 11, color: P.muted }}>
                       {a.heartbeatEnabled ? "on" : "off"} · {Math.round(a.intervalSeconds / 60)}m interval
@@ -274,7 +274,7 @@ export default function CompanySettingsPage() {
           {/* ── DANGER ZONE ── */}
           <div style={{
             marginTop: 24, padding: 20, borderRadius: 10,
-            border: "1px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.04)",
+            border: "0.5px solid rgba(239,68,68,0.2)", background: "rgba(239,68,68,0.04)",
           }}>
             <h3 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600, color: "#ef4444", display: "flex", alignItems: "center", gap: 6 }}>
               <AlertTriangle size={14} /> Danger Zone
@@ -285,11 +285,11 @@ export default function CompanySettingsPage() {
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button type="button" onClick={() => void handleTogglePause()} disabled={pauseBusy} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
-                border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#fbbf24",
+                border: "0.5px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.08)", color: "#fbbf24",
               }}>{pauseBusy ? "Updating..." : company?.status === "paused" ? "Resume Company" : "Pause Company"}</button>
               <button type="button" onClick={() => setDeleteOpen(true)} disabled={isProtected} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
-                border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#ef4444",
+                border: "0.5px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#ef4444",
                 cursor: isProtected ? "not-allowed" : "pointer", opacity: isProtected ? 0.5 : 1,
               }}>{isProtected ? "Delete disabled for core company" : "Archive company"}</button>
             </div>
@@ -324,7 +324,7 @@ function Toggle({ enabled, onToggle }: { enabled: boolean; onToggle: () => void 
 
 function Banner({ children, tone }: { children: React.ReactNode; tone: "error" | "success" }) {
   const s = tone === "error"
-    ? { border: `1px solid rgba(239,68,68,0.3)`, background: color.negativeSoft, color: "#fca5a5" }
-    : { border: `1px solid rgba(34,197,94,0.3)`, background: color.positiveSoft, color: "#86efac" };
+    ? { border: `0.5px solid rgba(239,68,68,0.3)`, background: color.negativeSoft, color: "#fca5a5" }
+    : { border: `0.5px solid rgba(34,197,94,0.3)`, background: color.positiveSoft, color: "#86efac" };
   return <div style={{ ...s, borderRadius: radius.md, padding: `${space.sm}px ${space.lg}px`, fontSize: T.body.size, marginBottom: space.lg }}>{children}</div>;
 }

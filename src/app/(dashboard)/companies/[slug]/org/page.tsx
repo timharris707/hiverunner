@@ -7,17 +7,18 @@ import { Download, Minus, Plus, Upload } from "lucide-react";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { listCompanies, listCompanyAgents } from "@/lib/orchestration/client";
 import type { OrchestrationAgent, OrchestrationCompany } from "@/lib/orchestration/types";
+import { P as tokens } from "@/lib/ui/tokens";
 
-/* ─── Palette ─── */
+/* ─── Palette (from shared tokens) ─── */
 const P = {
-  bg: "#0f0f0f",
-  surface: "#1a1a1a",
-  card: "#1e1e1e",
-  cardBorder: "rgba(255,255,255,0.08)",
-  text: "#e5e5e5",
-  textSec: "#a3a3a3",
-  muted: "#737373",
-  accent: "#d97706",
+  bg: tokens.bg,
+  surface: tokens.surface,
+  card: tokens.surface,
+  cardBorder: tokens.cardBorder,
+  text: tokens.text,
+  textSec: tokens.textSec,
+  muted: tokens.muted,
+  accent: tokens.accent,
 };
 
 /* ─── Types ─── */
@@ -66,7 +67,7 @@ export default function CompanyOrgPage() {
   if (loading) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `1px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
+        <div style={{ height: 200, borderRadius: 8, background: P.card, border: `0.5px solid ${P.cardBorder}`, animation: "pulse 1.5s infinite" }} />
       </div>
     );
   }
@@ -74,7 +75,7 @@ export default function CompanyOrgPage() {
   if (!company) {
     return (
       <div style={{ padding: 24 }}>
-        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
+        <div style={{ padding: 16, borderRadius: 8, background: "rgba(239,68,68,0.1)", border: "0.5px solid rgba(239,68,68,0.3)", color: "#fca5a5", fontSize: 13 }}>
           Company not found.
         </div>
       </div>
@@ -116,7 +117,7 @@ function HeaderButton({ icon, label, href, disabled }: { icon: React.ReactNode; 
       style={{
         display: "inline-flex", alignItems: "center", gap: 6,
         padding: "6px 14px", borderRadius: 6,
-        background: P.surface, border: `1px solid ${P.cardBorder}`,
+        background: P.surface, border: `0.5px solid ${P.cardBorder}`,
         color: disabled ? P.muted : P.text, fontSize: 12, fontWeight: 500,
         cursor: disabled ? "not-allowed" : "pointer", transition: "border-color 0.15s",
         opacity: disabled ? 0.5 : 1,
@@ -242,7 +243,7 @@ function OrgCanvas({ org, slug }: { org: ReturnType<typeof buildOrg>; slug: stri
         style={{
           width: "100%", height: "calc(100vh - 120px)", minHeight: 400,
           borderRadius: 8, background: P.bg,
-          border: `1px solid ${P.cardBorder}`,
+          border: `0.5px solid ${P.cardBorder}`,
           overflow: "hidden", cursor: dragging ? "grabbing" : "grab",
           position: "relative",
         }}
@@ -313,7 +314,7 @@ function ZoomBtn({ label, onClick, small }: { label: string; onClick: () => void
       title={label}
       style={{
         width: 32, height: small ? 28 : 32,
-        borderRadius: 4, border: `1px solid ${P.cardBorder}`,
+        borderRadius: 4, border: `0.5px solid ${P.cardBorder}`,
         background: P.surface, color: P.text,
         fontSize: small ? 10 : 14, fontWeight: 600,
         cursor: "pointer", display: "grid", placeItems: "center",
@@ -342,7 +343,7 @@ function OrgCard({ node, slug }: { node: LayoutNode; slug: string }) {
         height: CARD_H,
         borderRadius: 8,
         background: P.card,
-        border: `1px solid ${P.cardBorder}`,
+        border: `0.5px solid ${P.cardBorder}`,
         padding: "12px 14px",
         display: "flex",
         gap: 10,
@@ -363,7 +364,7 @@ function OrgCard({ node, slug }: { node: LayoutNode; slug: string }) {
       {/* Icon */}
       <div style={{
         width: 28, height: 28, borderRadius: 6, flexShrink: 0,
-        background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
+        background: "rgba(255,255,255,0.06)", border: `0.5px solid ${P.cardBorder}`,
         display: "grid", placeItems: "center", fontSize: 14,
         overflow: "hidden",
       }}>
