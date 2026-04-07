@@ -13,6 +13,7 @@ interface Props {
   onCreated?: () => void;
   companySlug: string;
   companyCode: string;
+  defaultAssignee?: string;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -32,11 +33,11 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "6px",
 };
 
-export function CreateTaskModal({ open, onClose, onCreated, companySlug, companyCode }: Props) {
+export function CreateTaskModal({ open, onClose, onCreated, companySlug, companyCode, defaultAssignee }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [assignee, setAssignee] = useState("");
+  const [assignee, setAssignee] = useState(defaultAssignee ?? "");
   const [priority, setPriority] = useState<TaskPriority>("P2");
   const [status, setStatus] = useState<TaskStatus>("backlog");
   const [submitting, setSubmitting] = useState(false);

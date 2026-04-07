@@ -3,8 +3,9 @@
 import { useRef } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { InlineStatusPicker } from "./InlineStatusPicker";
-import { SURFACE, type TaskRow as TaskRowT, type InlineEditCallbacks, getTaskIdentifier, formatShortDate, assigneeInitials } from "./types";
+import { type TaskRow as TaskRowT, type InlineEditCallbacks, getTaskIdentifier, formatShortDate, assigneeInitials } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
+import { font, P } from "@/lib/ui/tokens";
 
 interface Props {
   task: TaskRowT;
@@ -43,7 +44,7 @@ export function TaskRow({
       style={{
         display: "flex", alignItems: "center", gap: "10px",
         height: "38px", padding: `0 16px 0 ${16 + depth * 20}px`,
-        borderBottom: `1px solid ${SURFACE.lineSoft}`,
+        borderBottom: `0.5px solid ${P.cardBorder}`,
         background: isSelected ? "rgba(255,255,255,0.03)" : "transparent",
         cursor: "pointer", userSelect: "none",
         transition: "background 60ms ease",
@@ -62,8 +63,8 @@ export function TaskRow({
           }}
         >
           {expanded
-            ? <ChevronDown size={12} color={SURFACE.textGhost} />
-            : <ChevronRight size={12} color={SURFACE.textGhost} />
+            ? <ChevronDown size={12} color={P.textMuted} />
+            : <ChevronRight size={12} color={P.textMuted} />
           }
         </button>
       ) : depth > 0 ? (
@@ -78,8 +79,8 @@ export function TaskRow({
 
       {/* Task identifier (NEV-25) */}
       <span style={{
-        minWidth: "62px", fontSize: "12px", color: SURFACE.textGhost, fontWeight: 500,
-        letterSpacing: "0.02em", flexShrink: 0, fontFamily: "var(--font-mono, monospace)",
+        minWidth: "62px", fontSize: "12px", color: P.textMuted, fontWeight: 500,
+        letterSpacing: "0.02em", flexShrink: 0, fontFamily: font.mono,
       }}>
         {getTaskIdentifier(task)}
       </span>
@@ -89,14 +90,14 @@ export function TaskRow({
         href={href}
         onClick={(e) => e.stopPropagation()}
         style={{
-          flex: 1, minWidth: 0, fontSize: "13px", color: SURFACE.text,
+          flex: 1, minWidth: 0, fontSize: "13px", color: P.text,
           overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
           textDecoration: "none",
         }}
       >
         {task.title}
         {childCount !== undefined && childCount > 0 && (
-          <span style={{ marginLeft: "6px", fontSize: "10px", color: SURFACE.textGhost, background: "rgba(255,255,255,0.05)", padding: "1px 4px", borderRadius: "4px" }}>
+          <span style={{ marginLeft: "6px", fontSize: "10px", color: P.textMuted, background: "rgba(255,255,255,0.05)", padding: "1px 4px", borderRadius: "4px" }}>
             {childCount}
           </span>
         )}
@@ -109,7 +110,7 @@ export function TaskRow({
             width: "5px", height: "5px", borderRadius: "50%", background: "#22c55e",
             animation: "pulse 1.5s ease-in-out infinite",
           }} />
-          <span style={{ fontSize: "10px", color: SURFACE.textFaint }}>{activeAgentName ?? "running"}</span>
+          <span style={{ fontSize: "10px", color: P.textMuted }}>{activeAgentName ?? "running"}</span>
         </span>
       )}
 
@@ -118,14 +119,14 @@ export function TaskRow({
         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
           <span style={{
             width: "22px", height: "22px", borderRadius: "50%",
-            background: "rgba(120,113,108,0.25)", border: "1px solid rgba(120,113,108,0.15)",
+            background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: "9px", fontWeight: 700, color: SURFACE.textDim,
+            fontSize: "9px", fontWeight: 700, color: P.textSecondary,
             letterSpacing: "0.03em", flexShrink: 0,
           }}>
             {initials}
           </span>
-          <span style={{ fontSize: "12px", color: SURFACE.textDim, flexShrink: 0 }}>
+          <span style={{ fontSize: "12px", color: P.textSecondary, flexShrink: 0 }}>
             {assigneeName}
           </span>
         </div>
@@ -134,7 +135,7 @@ export function TaskRow({
       )}
 
       {/* Date */}
-      <span style={{ fontSize: "12px", color: SURFACE.textGhost, flexShrink: 0, width: "90px", textAlign: "right" }}>
+      <span style={{ fontSize: "12px", color: P.textMuted, flexShrink: 0, width: "90px", textAlign: "right" }}>
         {formatShortDate(task.updated)}
       </span>
     </div>

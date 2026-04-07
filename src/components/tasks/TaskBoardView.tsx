@@ -14,8 +14,9 @@ import { useDroppable } from "@dnd-kit/core";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { TaskCard } from "./TaskCard";
 import { useTaskDragDrop } from "./useTaskDragDrop";
-import { SURFACE, type TaskRow, type InlineEditCallbacks, BOARD_COLUMNS, STATUS_LABEL, getActiveRunLabel } from "./types";
+import { type TaskRow, type InlineEditCallbacks, BOARD_COLUMNS, STATUS_LABEL, getActiveRunLabel } from "./types";
 import type { OrchestrationAgent, TaskStatus } from "@/lib/orchestration/types";
+import { P, radius } from "@/lib/ui/tokens";
 
 interface Props {
   tasks: TaskRow[];
@@ -42,17 +43,17 @@ function Column({
     <div style={{
       flex: 1, minWidth: "220px", maxWidth: "280px", display: "flex", flexDirection: "column",
       background: isOver ? "rgba(255,255,255,0.02)" : "transparent",
-      borderRadius: "6px", transition: "background 150ms ease"
+      borderRadius: radius.md, transition: "background 150ms ease"
     }}>
       <div style={{
         display: "flex", alignItems: "center", gap: "6px",
-        padding: "8px 10px", borderBottom: `1px solid ${SURFACE.lineSoft}`,
+        padding: "8px 10px", borderBottom: `0.5px solid ${P.cardBorder}`,
       }}>
         <StatusCircle status={status} size={12} />
-        <span style={{ fontSize: "11px", fontWeight: 600, color: SURFACE.textDim, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+        <span style={{ fontSize: "11px", fontWeight: 600, color: P.textSecondary, textTransform: "uppercase", letterSpacing: "0.02em" }}>
           {STATUS_LABEL[status]}
         </span>
-        <span style={{ fontSize: "11px", color: SURFACE.textGhost, marginLeft: "auto" }}>{tasks.length}</span>
+        <span style={{ fontSize: "11px", color: P.textMuted, marginLeft: "auto" }}>{tasks.length}</span>
       </div>
 
       <div
@@ -153,12 +154,12 @@ export function TaskBoardView({ tasks, agents, agentMap, callbacks, buildHref, o
       <DragOverlay>
         {activeTask ? (
           <div style={{
-            padding: "10px 12px", background: SURFACE.cardHover,
-            border: `1px solid rgba(120,113,108,0.3)`, borderRadius: "6px",
+            padding: "10px 12px", background: P.surfaceElevated,
+            border: `0.5px solid ${P.cardBorderHover}`, borderRadius: radius.md,
             boxShadow: "0 12px 32px rgba(0,0,0,0.6)", width: "240px",
-            fontSize: "12px", color: SURFACE.text,
+            fontSize: "12px", color: P.text,
           }}>
-            <div style={{ fontSize: "10px", color: SURFACE.textFaint, marginBottom: "4px" }}>
+            <div style={{ fontSize: "10px", color: P.textMuted, marginBottom: "4px" }}>
               {activeTask.key ?? activeTask.id.slice(0, 8)}
             </div>
             {activeTask.title}

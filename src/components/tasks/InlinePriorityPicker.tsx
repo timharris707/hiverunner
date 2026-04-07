@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { PRIORITY_META } from "@/components/orchestration/task-display";
 import type { TaskPriority } from "@/lib/orchestration/types";
-import { SURFACE } from "./types";
+import { P, radius } from "@/lib/ui/tokens";
 
 const PRIORITIES: TaskPriority[] = ["P0", "P1", "P2", "P3"];
 
@@ -47,9 +47,9 @@ export function InlinePriorityPicker({ current, onChange }: Props) {
         <div style={{
           position: "absolute", top: "100%", left: 0, zIndex: 50,
           marginTop: "4px", minWidth: "130px",
-          background: "#1c1917", border: `1px solid ${SURFACE.line}`,
-          borderRadius: "6px", padding: "4px 0",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          background: P.surfaceElevated, border: `1px solid ${P.cardBorder}`,
+          borderRadius: radius.md, padding: "4px 0",
+          boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
         }}>
           {PRIORITIES.map((p) => {
             const m = PRIORITY_META[p];

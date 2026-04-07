@@ -39,12 +39,12 @@ import {
   type TaskRow,
   type TaskGroup,
   type InlineEditCallbacks,
-  SURFACE,
   STATUS_ORDER,
   STATUS_LABEL,
   PRI_WEIGHT,
   getTaskIdentifier
 } from "@/components/tasks/types";
+import { font, P, space, type as tokenType } from "@/lib/ui/tokens";
 
 const STATUS_WEIGHT: Record<TaskStatus, number> = {
   "in-progress": 0, "on-deck": 1, review: 2, blocked: 3, backlog: 4, done: 5, cancelled: 6,
@@ -237,7 +237,7 @@ export default function CompanyTasksPage() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: SURFACE.page }}>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", color: P.text, fontFamily: font.body }}>
       <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
 
       {activeProjectRecord ? (
@@ -253,7 +253,7 @@ export default function CompanyTasksPage() {
 
       {/* Page header */}
       <div style={{ padding: activeProjectRecord ? "16px 24px 0" : "24px 24px 0" }}>
-        <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: "#737373", marginBottom: 16 }}>
+        <p style={{ fontSize: tokenType.sectionLabel.size, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: tokenType.sectionLabel.weight, color: P.textMuted, marginBottom: space.lg }}>
           Tasks
         </p>
       </div>
@@ -275,9 +275,9 @@ export default function CompanyTasksPage() {
 
       <div style={{ flex: 1, overflowY: "auto" }}>
         {loading ? (
-          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "12px", color: SURFACE.textGhost }}>Loading tasks…</div>
+          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: tokenType.bodySmall.size, color: P.textMuted }}>Loading tasks…</div>
         ) : filtered.length === 0 ? (
-          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: "12px", color: SURFACE.textGhost }}>No tasks match filters.</div>
+          <div style={{ padding: "48px 16px", textAlign: "center", fontSize: tokenType.bodySmall.size, color: P.textMuted }}>No tasks match filters.</div>
         ) : viewMode === "list" ? (
           <TaskListView
             groups={grouped}

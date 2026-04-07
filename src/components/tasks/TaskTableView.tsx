@@ -4,8 +4,9 @@ import { formatAge } from "@/components/orchestration/ui";
 import { InlineStatusPicker } from "./InlineStatusPicker";
 import { InlinePriorityPicker } from "./InlinePriorityPicker";
 import { InlineAssigneePicker } from "./InlineAssigneePicker";
-import { SURFACE, type TaskRow, type InlineEditCallbacks, type SortField, type SortDir, getTaskIdentifier, getActiveRunLabel } from "./types";
+import { type TaskRow, type InlineEditCallbacks, type SortField, type SortDir, getTaskIdentifier, getActiveRunLabel } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
+import { font, P } from "@/lib/ui/tokens";
 
 interface Props {
   tasks: TaskRow[];
@@ -40,12 +41,12 @@ export function TaskTableView({
   const arrow = (field: SortField) => sortField === field ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   const headerStyle = (col: typeof COLUMNS[number]): React.CSSProperties => ({
-    padding: "6px 8px", fontSize: "11px", color: SURFACE.textFaint, fontWeight: 600,
+    padding: "6px 8px", fontSize: "11px", color: P.textMuted, fontWeight: 600,
     textAlign: col.align === "right" ? "right" : "left",
     width: col.width || undefined, flex: col.width ? undefined : 1,
     cursor: "pointer", userSelect: "none", whiteSpace: "nowrap",
-    borderBottom: `1px solid ${SURFACE.line}`,
-    background: "#0c0a09"
+    borderBottom: `0.5px solid ${P.cardBorder}`,
+    background: P.surface,
   });
 
   return (
@@ -67,7 +68,7 @@ export function TaskTableView({
               onContextMenu={(e) => onContextMenu(e, task)}
               style={{
                 display: "flex", alignItems: "center", height: "36px", padding: "0 16px",
-                borderBottom: `1px solid ${SURFACE.lineSoft}`,
+                borderBottom: `0.5px solid ${P.cardBorder}`,
                 background: selectedIndex === i ? "rgba(255,255,255,0.03)" : "transparent",
                 cursor: "pointer", transition: "background 60ms ease",
               }}
@@ -75,8 +76,8 @@ export function TaskTableView({
               onMouseLeave={(e) => { if (selectedIndex !== i) e.currentTarget.style.background = "transparent"; }}
             >
               <span style={{
-                width: "70px", flexShrink: 0, fontSize: "11px", color: SURFACE.textDim, fontWeight: 600,
-                letterSpacing: "0.04em", fontFamily: "var(--font-mono, monospace)", padding: "0 8px",
+                width: "70px", flexShrink: 0, fontSize: "11px", color: P.textSecondary, fontWeight: 600,
+                letterSpacing: "0.04em", fontFamily: font.mono, padding: "0 8px",
               }}>
                 {getTaskIdentifier(task)}
               </span>
@@ -87,13 +88,13 @@ export function TaskTableView({
 
               <div style={{ flex: 1, padding: "0 8px", minWidth: 0, display: "flex", alignItems: "center", gap: "6px" }}>
                 <a href={buildHref(task)} onClick={(e) => e.stopPropagation()} style={{
-                  fontSize: "12px", color: SURFACE.text, textDecoration: "none",
+                  fontSize: "12px", color: P.text, textDecoration: "none",
                   overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                 }}>
                   {task.title}
                 </a>
                 {activeLabel && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", color: SURFACE.textFaint, flexShrink: 0 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: "3px", fontSize: "10px", color: P.textMuted, flexShrink: 0 }}>
                     <span style={{ width: "5px", height: "5px", borderRadius: "50%", background: "#22c55e", animation: "pulse 1.5s ease-in-out infinite" }} />
                     {activeLabel}
                   </span>
@@ -109,13 +110,13 @@ export function TaskTableView({
               </div>
 
               <span style={{
-                width: "90px", padding: "0 8px", fontSize: "11px", color: SURFACE.textGhost,
+                width: "90px", padding: "0 8px", fontSize: "11px", color: P.textMuted,
                 overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               }}>
                 {task.projectName}
               </span>
 
-              <span style={{ width: "70px", padding: "0 8px", fontSize: "11px", color: SURFACE.textGhost, textAlign: "right" }}>
+              <span style={{ width: "70px", padding: "0 8px", fontSize: "11px", color: P.textMuted, textAlign: "right" }}>
                 {formatAge(task.updated)}
               </span>
             </div>

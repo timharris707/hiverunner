@@ -4,8 +4,9 @@ import { useMemo, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 
 import { TaskRow } from "./TaskRow";
-import { SURFACE, type TaskRow as TaskRowT, type TaskGroup, type InlineEditCallbacks, type GroupMode, STATUS_LABEL, getActiveRunLabel } from "./types";
+import { type TaskRow as TaskRowT, type TaskGroup, type InlineEditCallbacks, type GroupMode, STATUS_LABEL, getActiveRunLabel } from "./types";
 import type { OrchestrationAgent, TaskStatus } from "@/lib/orchestration/types";
+import { P } from "@/lib/ui/tokens";
 
 interface Props {
   groups: TaskGroup[];
@@ -82,7 +83,7 @@ export function TaskListView({
           {group.label !== null && (
             <div style={{
               padding: "4px 16px", display: "flex", alignItems: "center", gap: "8px",
-              borderBottom: `1px solid ${SURFACE.lineSoft}`, background: "rgba(255,255,255,0.01)"
+              borderBottom: `0.5px solid ${P.cardBorder}`
             }}>
               <button
                 type="button"
@@ -94,11 +95,11 @@ export function TaskListView({
                 }}
               >
                 {collapsedGroups[group.key]
-                  ? <ChevronRight size={12} color={SURFACE.textFaint} />
-                  : <ChevronDown size={12} color={SURFACE.textFaint} />
+                  ? <ChevronRight size={12} color={P.textMuted} />
+                  : <ChevronDown size={12} color={P.textMuted} />
                 }
-                <span style={{ fontSize: "11px", fontWeight: 600, color: SURFACE.textDim, textTransform: "uppercase", letterSpacing: "0.02em" }}>{group.label}</span>
-                <span style={{ fontSize: "11px", color: SURFACE.textGhost }}>({group.items.filter(t => !t.parentTaskId).length})</span>
+                <span style={{ fontSize: "11px", fontWeight: 600, color: P.textSecondary, textTransform: "uppercase", letterSpacing: "0.02em" }}>{group.label}</span>
+                <span style={{ fontSize: "11px", color: P.textMuted }}>({group.items.filter(t => !t.parentTaskId).length})</span>
               </button>
             </div>
           )}

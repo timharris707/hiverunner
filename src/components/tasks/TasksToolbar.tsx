@@ -3,10 +3,11 @@
 import { useState, useRef, useEffect } from "react";
 import { LayoutList, Columns3, Table2, Plus, Search, SlidersHorizontal, ArrowUpDown, Layers } from "lucide-react";
 import { FilterPills } from "./FilterPills";
-import { SURFACE, type TaskFilters, type TaskSort, type ViewMode, type GroupMode, type SortField, type SortDir } from "./types";
+import { type TaskFilters, type TaskSort, type ViewMode, type GroupMode, type SortField, type SortDir } from "./types";
 import { STATUS_ORDER, STATUS_LABEL, TASK_TYPES, TYPE_LABEL } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
 import { STATUS_META } from "@/components/orchestration/task-display";
+import { P, radius } from "@/lib/ui/tokens";
 
 interface Props {
   viewMode: ViewMode;
@@ -50,10 +51,10 @@ function Popover({ label, icon: Icon, children, isActive }: {
         onClick={() => setOpen(!open)}
         style={{
           display: "inline-flex", alignItems: "center", gap: "5px",
-          padding: "0 10px", height: "28px", borderRadius: "6px",
+          padding: "0 10px", height: "28px", borderRadius: radius.md,
           border: "none", background: "transparent",
           fontSize: "12px", fontWeight: 500,
-          color: isActive ? SURFACE.text : SURFACE.textDim,
+          color: isActive ? P.text : P.textSecondary,
           cursor: "pointer",
         }}
       >
@@ -63,9 +64,9 @@ function Popover({ label, icon: Icon, children, isActive }: {
       {open && (
         <div style={{
           position: "absolute", top: "100%", right: 0, marginTop: "4px", zIndex: 50,
-          minWidth: "200px", padding: "8px", borderRadius: "8px",
-          background: "#1c1917", border: `1px solid rgba(120,113,108,0.25)`,
-          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          minWidth: "200px", padding: "8px", borderRadius: radius.md,
+          background: P.surfaceElevated, border: `1px solid ${P.cardBorder}`,
+          boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
         }}>
           {children}
         </div>
@@ -82,7 +83,7 @@ function CheckOption({ label, checked, onChange, color }: {
   return (
     <label style={{
       display: "flex", alignItems: "center", gap: "8px", padding: "4px 6px",
-      borderRadius: "4px", cursor: "pointer", fontSize: "12px", color: SURFACE.textMuted,
+      borderRadius: radius.sm, cursor: "pointer", fontSize: "12px", color: P.textSecondary,
     }}>
       <input type="checkbox" checked={checked} onChange={onChange} style={{ accentColor: color }} />
       {color && (
@@ -102,14 +103,14 @@ function SortOption({ label, active, onClick }: { label: string; active: boolean
       onClick={onClick}
       style={{
         display: "flex", alignItems: "center", gap: "8px", padding: "5px 8px",
-        borderRadius: "4px", background: active ? "rgba(255,255,255,0.06)" : "transparent",
+        borderRadius: radius.sm, background: active ? "rgba(255,255,255,0.06)" : "transparent",
         border: "none", cursor: "pointer", fontSize: "12px",
-        color: active ? SURFACE.text : SURFACE.textMuted, width: "100%", textAlign: "left",
+        color: active ? P.text : P.textSecondary, width: "100%", textAlign: "left",
         fontWeight: active ? 600 : 400,
       }}
     >
       {label}
-      {active && <span style={{ marginLeft: "auto", fontSize: "10px", color: SURFACE.textGhost }}>↓</span>}
+      {active && <span style={{ marginLeft: "auto", fontSize: "10px", color: P.textMuted }}>↓</span>}
     </button>
   );
 }
@@ -154,10 +155,10 @@ export function TasksToolbar({
 
   const viewBtnStyle = (v: ViewMode): React.CSSProperties => ({
     display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "28px", height: "28px", borderRadius: "6px",
-    border: viewMode === v ? `1px solid rgba(120,113,108,0.3)` : "1px solid transparent",
-    background: viewMode === v ? "rgba(41,37,36,0.5)" : "transparent",
-    cursor: "pointer", color: viewMode === v ? SURFACE.text : SURFACE.textFaint,
+    width: "28px", height: "28px", borderRadius: radius.md,
+    border: viewMode === v ? `0.5px solid ${P.cardBorderHover}` : "0.5px solid transparent",
+    background: viewMode === v ? "rgba(255,255,255,0.08)" : "transparent",
+    cursor: "pointer", color: viewMode === v ? P.text : P.textMuted,
   });
 
   const hasActiveFilters = filters.status !== "all" || filters.priority !== "all" || filters.assignee !== "all" || filters.type !== "all" || filters.query !== "";
@@ -166,31 +167,31 @@ export function TasksToolbar({
     <div>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "8px 16px", borderBottom: `1px solid ${SURFACE.line}`,
-        gap: "8px", background: "rgba(12,10,9,0.8)"
+        padding: "8px 16px", borderBottom: `0.5px solid ${P.cardBorder}`,
+        gap: "8px", background: "transparent"
       }}>
         {/* Left: New Task + Search + View toggles */}
         <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
           <button type="button" onClick={onNewTask} style={{
             display: "inline-flex", alignItems: "center", gap: "4px",
-            padding: "0 10px", height: "28px", borderRadius: "6px",
-            border: `1px solid rgba(120,113,108,0.3)`, background: "rgba(41,37,36,0.5)",
-            fontSize: "12px", fontWeight: 600, color: SURFACE.text, cursor: "pointer",
+            padding: "0 10px", height: "28px", borderRadius: radius.md,
+            border: `0.5px solid ${P.cardBorder}`, background: "transparent",
+            fontSize: "12px", fontWeight: 600, color: P.text, cursor: "pointer",
           }}>
             <Plus size={13} /> New Task
           </button>
 
           <div style={{ position: "relative", marginLeft: "4px" }}>
-            <Search size={12} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: SURFACE.textGhost, pointerEvents: "none" }} />
+            <Search size={12} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: P.textMuted, pointerEvents: "none" }} />
             <input
               ref={searchRef}
               value={filters.query}
               onChange={(e) => setFilter("query", e.target.value)}
               placeholder="Search tasks..."
               style={{
-                height: "28px", width: "180px", borderRadius: "6px",
-                border: `1px solid rgba(120,113,108,0.2)`, background: "rgba(41,37,36,0.3)",
-                padding: "0 8px 0 26px", fontSize: "12px", color: SURFACE.text, outline: "none",
+                height: "28px", width: "180px", borderRadius: radius.md,
+                border: `0.5px solid ${P.cardBorder}`, background: "transparent",
+                padding: "0 8px 0 26px", fontSize: "12px", color: P.text, outline: "none",
               }}
             />
           </div>
@@ -212,7 +213,7 @@ export function TasksToolbar({
         <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
           <Popover label="Filter" icon={SlidersHorizontal} isActive={hasActiveFilters}>
             <div style={{ marginBottom: "8px" }}>
-              <div style={{ fontSize: "10px", fontWeight: 600, color: SURFACE.textGhost, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Status
               </div>
               {STATUS_ORDER.map((s) => (
@@ -226,7 +227,7 @@ export function TasksToolbar({
               ))}
             </div>
             <div style={{ marginBottom: "8px" }}>
-              <div style={{ fontSize: "10px", fontWeight: 600, color: SURFACE.textGhost, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Priority
               </div>
               {(["P0", "P1", "P2", "P3"] as const).map((p) => (
@@ -239,7 +240,7 @@ export function TasksToolbar({
               ))}
             </div>
             <div>
-              <div style={{ fontSize: "10px", fontWeight: 600, color: SURFACE.textGhost, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
+              <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Assignee
               </div>
               <CheckOption label="Unassigned" checked={filters.assignee === ""} onChange={() => toggleAssigneeFilter("")} />

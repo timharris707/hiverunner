@@ -67,6 +67,9 @@ export function PageBreadcrumbs() {
 
   if (pathname === "/" || pathname.startsWith("/advisory")) return null;
 
+  // Agent detail pages render their own breadcrumb inside the layout
+  if (/\/agents\/[^/]+\/(dashboard|instructions|skills|configuration|runs|budget)/.test(pathname)) return null;
+
   const segments = pathname.split("/").filter(Boolean);
 
   // Build crumbs, skipping structural/noise segments

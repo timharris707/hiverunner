@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
-import { SURFACE } from "./types";
+import { P, radius } from "@/lib/ui/tokens";
 
 interface Props {
   current: string | undefined;
@@ -35,7 +35,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
         style={{
           display: "inline-flex", alignItems: "center", gap: "4px",
           background: "transparent", border: "none", cursor: "pointer", padding: "2px 4px",
-          borderRadius: "4px", fontSize: "12px", color: "#78716c",
+          borderRadius: "4px", fontSize: "12px", color: P.textMuted,
           maxWidth: "120px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
         }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
@@ -44,16 +44,16 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
         {currentAgent ? (
           <><span>{currentAgent.emoji}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{currentAgent.name}</span></>
         ) : (
-          <span style={{ color: "#57534e" }}>{current || "Unassigned"}</span>
+          <span style={{ color: P.textMuted }}>{current || "Unassigned"}</span>
         )}
       </button>
       {open && (
         <div style={{
           position: "absolute", top: "100%", right: 0, zIndex: 50,
           marginTop: "4px", minWidth: "160px", maxHeight: "240px", overflowY: "auto",
-          background: "#1c1917", border: `1px solid ${SURFACE.line}`,
-          borderRadius: "6px", padding: "4px 0",
-          boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+          background: P.surfaceElevated, border: `1px solid ${P.cardBorder}`,
+          borderRadius: radius.md, padding: "4px 0",
+          boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
         }}>
           <button
             type="button"
@@ -61,7 +61,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
             style={{
               display: "flex", alignItems: "center", gap: "8px", width: "100%",
               padding: "6px 12px", background: !current ? "rgba(255,255,255,0.05)" : "transparent",
-              border: "none", cursor: "pointer", fontSize: "12px", color: SURFACE.textFaint,
+              border: "none", cursor: "pointer", fontSize: "12px", color: P.textMuted,
             }}
             onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = !current ? "rgba(255,255,255,0.05)" : "transparent"; }}
@@ -77,7 +77,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
                 display: "flex", alignItems: "center", gap: "8px", width: "100%",
                 padding: "6px 12px",
                 background: (current ?? "").toLowerCase() === a.name.toLowerCase() ? "rgba(255,255,255,0.05)" : "transparent",
-                border: "none", cursor: "pointer", fontSize: "12px", color: SURFACE.textMuted,
+                border: "none", cursor: "pointer", fontSize: "12px", color: P.textSecondary,
               }}
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = (current ?? "").toLowerCase() === a.name.toLowerCase() ? "rgba(255,255,255,0.05)" : "transparent"; }}

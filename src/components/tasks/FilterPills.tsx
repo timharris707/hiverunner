@@ -4,6 +4,7 @@ import { X } from "lucide-react";
 import { PRIORITY_META, STATUS_META } from "@/components/orchestration/task-display";
 import type { TaskFilters } from "./types";
 import { TYPE_LABEL } from "./types";
+import { P } from "@/lib/ui/tokens";
 
 interface Props {
   filters: TaskFilters;
@@ -30,8 +31,8 @@ export function FilterPills({ filters, onClear }: Props) {
           style={{
             display: "inline-flex", alignItems: "center", gap: "4px",
             padding: "2px 8px", borderRadius: "12px",
-            background: "rgba(120,113,108,0.15)", border: "1px solid rgba(120,113,108,0.2)",
-            fontSize: "11px", color: "#a8a29e", cursor: "pointer",
+            background: `rgba(222,220,209,0.08)`, border: `0.5px solid ${P.cardBorder}`,
+            fontSize: "11px", color: P.textSecondary, cursor: "pointer",
           }}
         >
           {p.label}
