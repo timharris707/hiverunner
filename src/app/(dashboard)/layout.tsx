@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
-import { QuickActionBar } from "@/components/QuickActionBar";
 import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { MissionControlRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
 import { LiveStreamProvider } from "@/components/live/LiveStreamProvider";
@@ -52,7 +51,6 @@ export default function DashboardLayout({
             {children}
           </main>
 
-          <QuickActionBar />
           {!isMobile && <StatusBar />}
         </div>
       </NotificationProvider>

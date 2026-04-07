@@ -198,7 +198,7 @@ export function NotificationDropdown() {
               width: "18px",
               height: "18px",
               borderRadius: "50%",
-              backgroundColor: "#f87171",
+              backgroundColor: "#d97706",
               color: "#fff",
               fontSize: "10px",
               fontWeight: 700,

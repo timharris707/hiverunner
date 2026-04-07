@@ -15,7 +15,6 @@ import {
   Columns3,
   User,
   CircleAlert,
-  CircleDashed,
 } from "lucide-react";
 
 import { statusTheme, priorityTheme } from "@/components/orchestration/ui";
@@ -143,12 +142,12 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
   }, [local]);
 
   return (
-    <label style={{ position: "relative", minWidth: 180, width: 200 }}>
+    <label style={{ position: "relative", minWidth: 200, flex: "0 1 280px" }}>
       <Search
-        size={13}
+        size={14}
         style={{
           position: "absolute",
-          left: space.sm,
+          left: 10,
           top: "50%",
           transform: "translateY(-50%)",
           color: P.textMuted,
@@ -158,15 +157,15 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
       <input
         value={local}
         onChange={(e) => setLocal(e.target.value)}
-        placeholder="Search tasks..."
+        placeholder="Search issues..."
         style={{
           width: "100%",
-          height: 30,
+          height: 34,
           borderRadius: radius.md,
-          border: `1px solid ${P.cardBorder}`,
-          background: P.surface,
-          padding: `0 ${space.md}px 0 ${space.lg}px`,
-          fontSize: tokenType.bodySmall.size,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: "transparent",
+          padding: "0 12px 0 32px",
+          fontSize: 13,
           color: P.text,
           outline: "none",
         }}
@@ -208,12 +207,12 @@ function SimplePopover({
           alignItems: "center",
           gap: "6px",
           padding: "0 10px",
-          height: "30px",
+          height: "34px",
           borderRadius: radius.md,
-          border: `1px solid ${P.cardBorder}`,
-          background: P.surface,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: "transparent",
           color: P.textSecondary,
-          fontSize: tokenType.bodySmall.size,
+          fontSize: 13,
           cursor: "pointer",
         }}
       >
@@ -264,7 +263,7 @@ function MiniCheckbox({ checked, onChange }: { checked: boolean; onChange: () =>
   );
 }
 
-/* ── issue row (Paperclip-inspired, calmer density) ── */
+/* ── issue row (single-line, Paperclip-matched) ── */
 
 function IssueRow({
   task,
@@ -290,108 +289,70 @@ function IssueRow({
   return (
     <Link
       href={taskHref}
-      className="group"
       style={{
-        position: "relative",
-        display: "grid",
-        gridTemplateColumns: "16px minmax(0, 1fr)",
-        gap: space.md,
-        padding: `${space.md}px ${space.md}px`,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 12px",
         textDecoration: "none",
         color: P.text,
-        background: P.surface,
-        borderBottom: isLast ? "none" : `1px solid ${P.cardBorder}`,
+        borderBottom: isLast ? "none" : `0.5px solid ${P.cardBorder}`,
+        transition: "background 120ms",
+        fontSize: 13,
       }}
       onMouseEnter={(e) => {
-        e.currentTarget.style.background = P.surfaceHover;
+        e.currentTarget.style.background = "rgba(255,255,255,0.03)";
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.background = P.surface;
+        e.currentTarget.style.background = "transparent";
       }}
     >
-      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: statusColor }}>
+      {/* status circle */}
+      <span style={{ flexShrink: 0 }}>
         <span
           style={{
-            width: 10,
-            height: 10,
+            display: "inline-block",
+            width: 12,
+            height: 12,
             borderRadius: "9999px",
-            border: `1px solid ${statusColor}`,
+            border: `1.5px solid ${statusColor}`,
             background: task.status === "done" ? statusColor : "transparent",
           }}
         />
       </span>
 
-      <div style={{ display: "grid", gap: "6px", minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0 }}>
-          <span style={{
-            fontFamily: font.mono,
-            fontSize: tokenType.mono.size,
-            color: P.textSec,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}>
-            {identifier}
-          </span>
+      {/* task key */}
+      <span style={{
+        flexShrink: 0,
+        fontFamily: font.mono,
+        fontSize: 12,
+        color: P.textMuted,
+      }}>
+        {identifier}
+      </span>
 
-          {isLive && (
-            <span
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: "4px",
-                padding: "1px 7px",
-                borderRadius: radius.full,
-                background: P.accentSoft,
-                color: color.accent,
-                fontSize: tokenType.caption.size,
-                fontWeight: 600,
-                letterSpacing: "0.06em",
-              }}
-            >
-              <CircleDashed size={9} />
-              LIVE
-            </span>
-          )}
-        </div>
+      {/* title */}
+      <span style={{
+        flex: "1 1 auto",
+        minWidth: 0,
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+        whiteSpace: "nowrap",
+        color: P.text,
+      }}>
+        {task.title}
+      </span>
 
-        <p style={{
-          margin: 0,
-          fontSize: tokenType.cardTitle.size,
-          fontWeight: tokenType.cardTitle.weight,
-          color: P.text,
-          minWidth: 0,
-          overflow: "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace: "nowrap",
-        }}>
-          {task.title}
-        </p>
-
-        <div style={{
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: `${space.sm}px ${space.md}px`,
-          fontSize: tokenType.bodySmall.size,
-          color: P.textSec,
-        }}>
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-            <span style={{
-              width: 8,
-              height: 8,
-              borderRadius: "9999px",
-              background: statusColor,
-            }} />
-            {statusLabel(task.status)}
-          </span>
-          {task.key && <span>{task.key}</span>}
+      {/* trailing: assignee + date */}
+      <span style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 12, marginLeft: "auto" }}>
+        {/* assignee */}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, width: 120 }}>
           {agent ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+            <>
               <span
                 style={{
-                  width: 16,
-                  height: 16,
+                  width: 20,
+                  height: 20,
                   borderRadius: "9999px",
                   display: "inline-flex",
                   alignItems: "center",
@@ -400,23 +361,53 @@ function IssueRow({
                   color: color.accent,
                   fontSize: 9,
                   fontFamily: font.mono,
+                  flexShrink: 0,
                 }}
               >
                 {agent.emoji ?? agent.name?.slice(0, 1)?.toUpperCase()}
               </span>
-              <span>{agent.name}</span>
-            </span>
+              <span style={{ fontSize: 12, color: P.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{agent.name}</span>
+            </>
           ) : task.assignee ? (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-              <User size={12} />
-              <span>{task.assignee}</span>
-            </span>
+            <>
+              <span style={{
+                width: 20,
+                height: 20,
+                borderRadius: "9999px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: `1px dashed ${P.cardBorder}`,
+                color: P.textMuted,
+                flexShrink: 0,
+              }}>
+                <User size={11} />
+              </span>
+              <span style={{ fontSize: 12, color: P.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.assignee}</span>
+            </>
           ) : (
-            <span style={{ color: P.textMuted }}>Unassigned</span>
+            <>
+              <span style={{
+                width: 20,
+                height: 20,
+                borderRadius: "9999px",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                border: `1px dashed ${P.cardBorder}`,
+                color: P.textMuted,
+                flexShrink: 0,
+              }}>
+                <User size={11} />
+              </span>
+              <span style={{ fontSize: 12, color: P.textMuted }}>Assignee</span>
+            </>
           )}
-          <span style={{ fontFamily: font.mono }}>Updated {formatAbsoluteDate(task.updated)}</span>
-        </div>
-      </div>
+        </span>
+
+        {/* date */}
+        <span style={{ fontSize: 12, color: P.textMuted, flexShrink: 0 }}>{formatAbsoluteDate(task.updated)}</span>
+      </span>
     </Link>
   );
 }
@@ -759,7 +750,6 @@ export default function ProjectTasksPage({
 
   return (
     <div
-      className="orchestra-shell"
       style={{
         minHeight: "100%",
         padding: `${space.md}px ${space.xl}px`,
@@ -798,7 +788,7 @@ export default function ProjectTasksPage({
       </div>
 
       {/* ── toolbar */}
-      <Card style={{ marginBottom: space.md, padding: `${space.sm}px ${space.md}px`, borderColor: P.cardBorder }}>
+      <div style={{ marginBottom: space.md, padding: `${space.sm}px 0` }}>
         <div style={{
           display: "flex",
           alignItems: "center",
@@ -814,7 +804,7 @@ export default function ProjectTasksPage({
             <div style={{
               display: "inline-flex",
               borderRadius: radius.md,
-              border: `1px solid ${P.cardBorder}`,
+              border: `0.5px solid ${P.cardBorder}`,
             }}>
               <button
                 type="button"
@@ -1044,7 +1034,7 @@ export default function ProjectTasksPage({
             )}
           </div>
         </div>
-      </Card>
+      </div>
 
       {/* ── content ── */}
       <div style={{ flex: 1, overflow: "auto" }}>
@@ -1114,25 +1104,19 @@ function CollapsibleGroup({
   children: React.ReactNode;
 }) {
   if (!label) {
-    return (
-      <Card style={{ borderColor: P.cardBorder, padding: 0, overflow: "hidden" }}>
-        {children}
-      </Card>
-    );
+    return <div>{children}</div>;
   }
 
   return (
-    <div style={{ marginBottom: space.md }}>
+    <div style={{ marginBottom: space.lg }}>
       <div
         style={{
           display: "flex",
           alignItems: "center",
           gap: space.sm,
-          padding: `${space.sm}px ${space.md}px`,
+          padding: `${space.sm}px 0`,
           color: P.textSecondary,
-          borderBottom: `1px solid ${P.cardBorder}`,
-          borderRadius: `${radius.md}px ${radius.md}px 0 0`,
-          background: P.surface,
+          borderBottom: `0.5px solid ${P.cardBorder}`,
         }}
       >
         <button
@@ -1146,7 +1130,7 @@ function CollapsibleGroup({
             background: "transparent",
             color: P.textSecondary,
             cursor: "pointer",
-            fontSize: tokenType.body.size,
+            fontSize: 13,
             fontWeight: 600,
           }}
         >
@@ -1158,7 +1142,7 @@ function CollapsibleGroup({
             }}
           />
           {label}
-          <span style={{ color: P.textMuted, marginLeft: 2 }}>{count}</span>
+          <span style={{ color: P.textMuted, marginLeft: 4, fontWeight: 400 }}>{count}</span>
         </button>
 
         <Link
@@ -1174,11 +1158,7 @@ function CollapsibleGroup({
         </Link>
       </div>
 
-      {!collapsed && (
-        <Card style={{ borderColor: P.cardBorder, borderRadius: `0 0 ${radius.md}px ${radius.md}px`, padding: 0 }}>
-          {children}
-        </Card>
-      )}
+      {!collapsed && <div>{children}</div>}
     </div>
   );
 }
