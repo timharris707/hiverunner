@@ -759,6 +759,7 @@ export function getCompanyAgentProfile(input: {
     .prepare(
       `SELECT
         t.id,
+        t.task_key,
         t.title,
         t.status,
         t.priority,
@@ -778,6 +779,7 @@ export function getCompanyAgentProfile(input: {
     )
     .all(agentRow.id) as Array<{
     id: string;
+    task_key: string | null;
     title: string;
     status: "backlog" | "on_deck" | "in_progress" | "review" | "done" | "blocked";
     priority: "critical" | "high" | "medium" | "low";
@@ -982,6 +984,7 @@ export function getCompanyAgentProfile(input: {
     }),
     currentTasks: currentTasks.map((task) => ({
       id: task.id,
+      key: task.task_key || null,
       title: task.title,
       projectId: task.project_id,
       projectSlug: task.project_slug,

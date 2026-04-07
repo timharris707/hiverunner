@@ -913,6 +913,7 @@ export async function getCompanyAgentProfile(
   const agentRaw = data.agent as JsonRecord;
   const normalizeProfileTask = (raw: JsonRecord): OrchestrationAgentProfileTask => ({
     id: String(raw.id ?? ""),
+    key: raw.key ? String(raw.key) : null,
     title: String(raw.title ?? "Untitled Task"),
     projectId: String(raw.projectId ?? ""),
     projectSlug: String(raw.projectSlug ?? ""),
@@ -1012,6 +1013,7 @@ export async function getAgentProfileById(
   const agentRaw = data.agent as JsonRecord;
   const normalizeProfileTask = (raw: JsonRecord): OrchestrationAgentProfileTask => ({
     id: String(raw.id ?? ""),
+    key: raw.key ? String(raw.key) : null,
     title: String(raw.title ?? "Untitled Task"),
     projectId: String(raw.projectId ?? ""),
     projectSlug: String(raw.projectSlug ?? ""),

@@ -68,7 +68,7 @@ export default function AgentDashboardPage() {
                 }}
               >
                 <span style={{ fontSize: 12, color: A.muted, fontWeight: 600, fontFamily: "var(--font-mono)", flexShrink: 0, minWidth: 60 }}>
-                  {task.projectSlug ? `${task.projectSlug.toUpperCase().slice(0, 3)}-${task.id.slice(-3)}` : task.id.slice(0, 8)}
+                  {task.key ?? task.id.slice(0, 8)}
                 </span>
                 <span style={{ fontSize: 12, color: A.text, flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {task.title}

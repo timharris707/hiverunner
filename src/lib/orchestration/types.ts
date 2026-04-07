@@ -202,6 +202,7 @@ export interface OrchestrationAgent {
 
 export interface OrchestrationAgentProfileTask {
   id: string;
+  key?: string | null;
   title: string;
   projectId: string;
   projectSlug: string;

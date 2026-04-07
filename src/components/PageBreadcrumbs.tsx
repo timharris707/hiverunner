@@ -42,7 +42,10 @@ const LABEL_MAP: Record<string, string> = {
   workspaces: "Workspaces",
   configuration: "Configuration",
   budget: "Budget",
+  dashboard: "Dashboard",
   routines: "Routines",
+  instructions: "Instructions",
+  runs: "Runs",
   goals: "Goals",
   org: "Org",
   export: "Export",
@@ -66,9 +69,6 @@ export function PageBreadcrumbs() {
   const pathname = usePathname();
 
   if (pathname === "/" || pathname.startsWith("/advisory")) return null;
-
-  // Agent detail pages render their own breadcrumb inside the layout
-  if (/\/agents\/[^/]+\/(dashboard|instructions|skills|configuration|runs|budget)/.test(pathname)) return null;
 
   const segments = pathname.split("/").filter(Boolean);
 

@@ -6,9 +6,7 @@ import { use, useEffect, useMemo, useState, createContext, useContext, useCallba
 import {
   Copy,
   MoreHorizontal,
-  RotateCcw,
   Sparkles,
-  Trash2,
   PlayCircle,
   PauseCircle,
   HeartPulse,
@@ -175,14 +173,7 @@ export default function AgentDetailLayout({
 
   return (
     <AgentContext.Provider value={{ profile, slug, agentId, reload: load }}>
-      <div style={{ padding: "16px 20px", maxWidth: 1200, color: A.text, fontSize: 13 }}>
-        {/* ── breadcrumb (single line) ── */}
-        <div style={{ marginBottom: 16, display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-          <Link href={`/companies/${encodeURIComponent(slug)}/agents`} style={{ color: A.textSec, textDecoration: "none" }}>Agents</Link>
-          <span style={{ color: A.muted }}>›</span>
-          <span style={{ color: A.text, fontWeight: 500 }}>{agent.name}</span>
-        </div>
-
+      <div style={{ padding: "0 20px 16px", maxWidth: 1200, color: A.text, fontSize: 13 }}>
         {/* ── agent header row ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 12 }}>
           {/* avatar — click to edit */}
@@ -393,33 +384,6 @@ function AgentOverflowMenu({ agentId, openclawAgentId }: { agentId: string; open
               onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
             >
               <Copy size={13} style={{ color: A.textSec }} /> Copy Agent ID
-            </button>
-            <button
-              onClick={() => { setOpen(false); /* TODO: reset sessions */ }}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                width: "100%", padding: "8px 12px", border: "none",
-                background: "transparent", color: A.text, fontSize: 12,
-                cursor: "pointer", textAlign: "left",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.04)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-            >
-              <RotateCcw size={13} style={{ color: A.textSec }} /> Reset Sessions
-            </button>
-            <div style={{ height: 1, margin: "4px 8px", background: `rgba(222,220,209,0.12)` }} />
-            <button
-              onClick={() => { setOpen(false); /* TODO: terminate */ }}
-              style={{
-                display: "flex", alignItems: "center", gap: 8,
-                width: "100%", padding: "8px 12px", border: "none",
-                background: "transparent", color: "#ef4444", fontSize: 12,
-                cursor: "pointer", textAlign: "left",
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.08)"; }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-            >
-              <Trash2 size={13} style={{ color: "#ef4444" }} /> Terminate
             </button>
           </div>
         </>

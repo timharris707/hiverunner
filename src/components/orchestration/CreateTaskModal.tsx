@@ -37,7 +37,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
-  const [assignee, setAssignee] = useState(defaultAssignee ?? "");
+  const [assignee, setAssignee] = useState("");
   const [priority, setPriority] = useState<TaskPriority>("P2");
   const [status, setStatus] = useState<TaskStatus>("backlog");
   const [submitting, setSubmitting] = useState(false);
@@ -83,6 +83,12 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
       if (cancelled) return;
       setProjects(projectRows);
       setAgents(agentRows.sort((a, b) => a.name.localeCompare(b.name)));
+
+      // Pre-select assignee if a default was provided and matches an available agent
+      if (defaultAssignee) {
+        const match = agentRows.find((a) => a.name.toLowerCase() === defaultAssignee.toLowerCase());
+        if (match) setAssignee(match.id);
+      }
 
       const active = resolveActiveProject(projectRows, activeProject, companySlug);
       setProjectId((prev) => prev || active?.id || projectRows[0]?.id || "");
