@@ -270,7 +270,7 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
   const highlighted = item.highlight && !active;
   const iconColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#a8a6a0";
   const labelColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#c2c0b6";
-  const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "#0c0b0a" : "transparent";
+  const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "#0c0c0c" : "transparent";
   const border = hasAccent ? "0.5px solid rgba(222,220,209,0.06)" : active ? "0.5px solid transparent" : "0.5px solid transparent";
   const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.04)";
   const hoverBorder = active || hasAccent ? border : "0.5px solid rgba(222,220,209,0.06)";
@@ -1259,7 +1259,7 @@ export function Dock() {
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, borderRadius: 6,
-                  background: active ? "#0c0b0a" : "transparent",
+                  background: active ? "#0c0c0c" : "transparent",
                   border: active ? "0.5px solid transparent" : "0.5px solid transparent",
                   color: active ? "#eae8e4" : "#a8a6a0",
                   textDecoration: "none", transition: "all 120ms ease",

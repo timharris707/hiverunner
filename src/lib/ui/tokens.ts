@@ -14,14 +14,14 @@
 /* ─── Color Palette ─── */
 
 export const color = {
-  /** Page background — warm charcoal canvas (lightest layer) */
-  bg: "#2d2c29",
+  /** Page background — neutral charcoal canvas (lightest layer) */
+  bg: "#2c2c2c",
   /** Cards, panels — darker than bg, defined by borders */
-  surface: "#201f1d",
+  surface: "#202020",
   /** Elevated surfaces (modals, dropdowns, popovers) */
-  surfaceElevated: "#2c2b28",
+  surfaceElevated: "#2b2b2b",
   /** Hover state for surfaces */
-  surfaceHover: "#33312e",
+  surfaceHover: "#333333",
 
   /** Default border — warm, hairline-weight feel */
   border: "rgba(222,220,209,0.12)",

@@ -9,16 +9,16 @@
 
 :root {
   /* Core Colors — warm charcoal palette, lifted value structure */
-  --bg: #2d2c29;
-  --background: #2d2c29; /* alias for compatibility */
+  --bg: #2c2c2c;
+  --background: #2c2c2c; /* alias for compatibility */
   --foreground: #eae8e4;
 
   /* Surface Colors — cards sit darker than bg canvas */
-  --surface: #201f1d;
-  --surface-elevated: #2c2b28;
-  --surface-hover: #33312e;
-  --card: #201f1d; /* alias */
-  --card-elevated: #2c2b28; /* alias */
+  --surface: #202020;
+  --surface-elevated: #2b2b2b;
+  --surface-hover: #333333;
+  --card: #202020; /* alias */
+  --card-elevated: #2b2b2b; /* alias */
 
   /* Borders — warm, subtle, slightly more visible on lighter surfaces */
   --border: rgba(222,220,209,0.12);
