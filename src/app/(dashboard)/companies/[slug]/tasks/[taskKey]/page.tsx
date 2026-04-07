@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle } from "lucide-react";
+import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
+import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -22,7 +24,7 @@ import {
 import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
 import { InlineAssigneePicker } from "@/components/tasks/InlineAssigneePicker";
-import { SURFACE, STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
+import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -69,10 +71,40 @@ function relativeAge(iso: string): string {
   return `${days}d ago`;
 }
 
+/* ── Inbox review context ── */
+
+type InboxContextItem = { taskKey: string; title: string };
+type InboxContext = { items: InboxContextItem[]; inboxHref: string } | null;
+
+const INBOX_CONTEXT_KEY = "mc:inbox:context";
+
+function loadInboxContext(): InboxContext {
+  try {
+    const raw = sessionStorage.getItem(INBOX_CONTEXT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed?.items) && typeof parsed?.inboxHref === "string") return parsed;
+  } catch {}
+  return null;
+}
+
 export default function TaskDetailPage() {
   const params = useParams<{ slug: string; taskKey: string }>();
+  const searchParams = useSearchParams();
   const slug = params?.slug ?? "";
   const taskKey = decodeURIComponent(params?.taskKey ?? "");
+  const fromInbox = searchParams.get("from") === "inbox";
+
+  // Inbox review context — loaded when ?from=inbox is present
+  const inboxCtx = useMemo<InboxContext>(() => (fromInbox ? loadInboxContext() : null), [fromInbox]);
+  const inboxNav = useMemo(() => {
+    if (!inboxCtx) return null;
+    const idx = inboxCtx.items.findIndex((item) => item.taskKey === taskKey);
+    if (idx < 0) return { inboxHref: inboxCtx.inboxHref, prev: null, next: null, pos: 0, total: inboxCtx.items.length };
+    const prev = idx > 0 ? inboxCtx.items[idx - 1] : null;
+    const next = idx < inboxCtx.items.length - 1 ? inboxCtx.items[idx + 1] : null;
+    return { inboxHref: inboxCtx.inboxHref, prev, next, pos: idx + 1, total: inboxCtx.items.length };
+  }, [inboxCtx, taskKey]);
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [project, setProject] = useState<OrchestrationProject | null>(null);
@@ -296,7 +328,7 @@ export default function TaskDetailPage() {
 
   return (
     <div
-      style={{ display: "flex", height: "100%", background: SURFACE.page, color: SURFACE.text, position: "relative" }}
+      style={{ display: "flex", height: "100%", background: color.bg, color: color.text, position: "relative" }}
       onDragEnter={(e) => {
         e.preventDefault();
         dragCounter.current++;
@@ -338,38 +370,118 @@ export default function TaskDetailPage() {
       )}
 
       {/* ── Main column ── */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "24px 32px 64px", minWidth: 0 }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: `${space.xl}px ${space.xxxl}px 64px`, minWidth: 0 }}>
         {loading ? (
-          <div style={{ padding: "48px 0", textAlign: "center", fontSize: "12px", color: SURFACE.textGhost }}>
+          <div style={{ padding: "48px 0", textAlign: "center", fontSize: typeScale.bodySmall.size, color: color.textMuted }}>
             Loading task…
           </div>
         ) : task && (
           <>
+            {/* ── Inbox review context bar ── */}
+            {inboxNav && (
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: `${space.sm}px ${space.md}px`,
+                marginBottom: space.lg,
+                borderRadius: radius.md,
+                border: `0.5px solid ${color.border}`,
+                background: color.surface,
+              }}>
+                <Link
+                  href={inboxNav.inboxHref}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: space.xs,
+                    fontSize: typeScale.bodySmall.size, fontWeight: 500,
+                    color: color.textSecondary, textDecoration: "none",
+                  }}
+                >
+                  <ArrowLeft size={14} />
+                  Back to Inbox
+                </Link>
+
+                <div style={{ display: "flex", alignItems: "center", gap: space.md }}>
+                  {inboxNav.total > 0 && (
+                    <span style={{ fontSize: typeScale.caption.size, color: color.textMuted }}>
+                      {inboxNav.pos} of {inboxNav.total}
+                    </span>
+                  )}
+                  <div style={{ display: "flex", gap: space.xs }}>
+                    {inboxNav.prev ? (
+                      <Link
+                        href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(inboxNav.prev.taskKey)}?from=inbox`)}
+                        title={inboxNav.prev.title}
+                        style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          width: 28, height: 28, borderRadius: radius.sm,
+                          border: `0.5px solid ${color.border}`, background: "transparent",
+                          color: color.textSecondary, textDecoration: "none",
+                        }}
+                      >
+                        <ChevronLeft size={14} />
+                      </Link>
+                    ) : (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 28, height: 28, borderRadius: radius.sm,
+                        border: `0.5px solid ${color.border}`, background: "transparent",
+                        color: color.textMuted, opacity: 0.4,
+                      }}>
+                        <ChevronLeft size={14} />
+                      </span>
+                    )}
+                    {inboxNav.next ? (
+                      <Link
+                        href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(inboxNav.next.taskKey)}?from=inbox`)}
+                        title={inboxNav.next.title}
+                        style={{
+                          display: "inline-flex", alignItems: "center", justifyContent: "center",
+                          width: 28, height: 28, borderRadius: radius.sm,
+                          border: `0.5px solid ${color.border}`, background: "transparent",
+                          color: color.textSecondary, textDecoration: "none",
+                        }}
+                      >
+                        <ChevronRight size={14} />
+                      </Link>
+                    ) : (
+                      <span style={{
+                        display: "inline-flex", alignItems: "center", justifyContent: "center",
+                        width: 28, height: 28, borderRadius: radius.sm,
+                        border: `0.5px solid ${color.border}`, background: "transparent",
+                        color: color.textMuted, opacity: 0.4,
+                      }}>
+                        <ChevronRight size={14} />
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Breadcrumbs */}
-            <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.textDim, marginBottom: "16px" }}>
-              <Link href={tasksHref} style={{ color: SURFACE.textDim, textDecoration: "none" }}>Tasks</Link>
-              <ChevronRight size={12} color={SURFACE.textGhost} />
-              <span style={{ color: SURFACE.textMuted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: typeScale.bodySmall.size, color: color.textMuted, marginBottom: space.lg }}>
+              <Link href={tasksHref} style={{ color: color.textMuted, textDecoration: "none" }}>Tasks</Link>
+              <ChevronRight size={12} color={color.textMuted} style={{ opacity: 0.5 }} />
+              <span style={{ color: color.textSecondary, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {task.title}
               </span>
             </div>
 
             {/* Meta row: status, priority, key, project */}
-            <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.md }}>
               <StatusCircle status={task.status} size={16} />
               {priorityMeta && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "4px", fontSize: "12px", color: priorityMeta.color }}>
-                  <span style={{ fontSize: "13px", lineHeight: 1 }}>{priorityMeta.icon}</span>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: space.xs, fontSize: typeScale.bodySmall.size, color: priorityMeta.color }}>
+                  <span style={{ fontSize: 13, lineHeight: 1 }}>{priorityMeta.icon}</span>
                   {priorityMeta.label}
                 </span>
               )}
-              <span style={{ fontSize: "12px", color: SURFACE.textDim, fontFamily: "var(--font-mono, monospace)", whiteSpace: "nowrap", flexShrink: 0 }}>
+              <span style={{ fontSize: typeScale.mono.size, color: color.textMuted, fontFamily: font.mono, whiteSpace: "nowrap", flexShrink: 0 }}>
                 {task.key ?? task.id.slice(0, 8).toUpperCase()}
               </span>
               {project && (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
-                  <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: project.color }} />
-                  <span style={{ fontSize: "12px", color: SURFACE.textDim }}>{project.name}</span>
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: radius.full, background: project.color }} />
+                  <span style={{ fontSize: typeScale.bodySmall.size, color: color.textMuted }}>{project.name}</span>
                 </div>
               )}
               <button
@@ -377,9 +489,9 @@ export default function TaskDetailPage() {
                 onClick={copyKey}
                 title="Copy task ID and title"
                 style={{
-                  marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: "4px",
-                  padding: "4px 8px", fontSize: "11px", color: SURFACE.textDim,
-                  background: "transparent", border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
+                  marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: space.xs,
+                  padding: `${space.xs}px ${space.sm}px`, fontSize: typeScale.caption.size, color: color.textMuted,
+                  background: "transparent", border: `0.5px solid ${color.border}`, borderRadius: radius.sm,
                   cursor: "pointer",
                 }}
               >
@@ -390,7 +502,7 @@ export default function TaskDetailPage() {
 
             {/* Title */}
             <h1 style={{
-              fontSize: "24px", fontWeight: 700, color: SURFACE.text, margin: "0 0 16px 0",
+              fontSize: typeScale.metric.size, fontWeight: 700, color: color.text, margin: `0 0 ${space.lg}px 0`,
               letterSpacing: "-0.01em", lineHeight: 1.25,
             }}>
               {task.title}
@@ -399,9 +511,9 @@ export default function TaskDetailPage() {
             {/* Description */}
             {task.description && (
               <div style={{
-                fontSize: "13px", color: SURFACE.textMuted, lineHeight: 1.65,
+                fontSize: typeScale.body.size, color: color.textSecondary, lineHeight: 1.65,
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
-                paddingBottom: "20px", borderBottom: `0.5px solid ${SURFACE.line}`,
+                paddingBottom: space.xl, borderBottom: `0.5px solid ${color.border}`,
               }}>
                 {task.description}
               </div>
@@ -424,8 +536,8 @@ export default function TaskDetailPage() {
                 style={{
                   display: "inline-flex", alignItems: "center", gap: "6px",
                   padding: "8px 14px", borderRadius: "8px",
-                  border: `0.5px solid ${SURFACE.line}`, background: "transparent",
-                  color: SURFACE.textDim, fontSize: "12px", fontWeight: 500,
+                  border: `0.5px solid ${color.border}`, background: "transparent",
+                  color: color.textSecondary, fontSize: "12px", fontWeight: 500,
                   cursor: uploading ? "wait" : "pointer",
                   opacity: uploading ? 0.5 : 1,
                 }}
@@ -447,7 +559,7 @@ export default function TaskDetailPage() {
             {/* Tabs */}
             <div style={{
               display: "flex", gap: "0", marginTop: "24px",
-              borderBottom: `0.5px solid ${SURFACE.line}`,
+              borderBottom: `0.5px solid ${color.border}`,
             }}>
               {([["comments", "Comments"], ["subtasks", "Sub-tasks"], ["activity", "Activity"]] as [Tab, string][]).map(([key, label]) => (
                 <button
@@ -456,10 +568,10 @@ export default function TaskDetailPage() {
                   onClick={() => setActiveTab(key)}
                   style={{
                     padding: "10px 16px", background: "transparent", border: "none",
-                    borderBottom: activeTab === key ? "2px solid #f5f5f4" : "2px solid transparent",
+                    borderBottom: activeTab === key ? `2px solid ${color.text}` : "2px solid transparent",
                     marginBottom: "-1px", cursor: "pointer",
-                    fontSize: "12px", fontWeight: 500,
-                    color: activeTab === key ? SURFACE.text : SURFACE.textFaint,
+                    fontSize: typeScale.bodySmall.size, fontWeight: 500,
+                    color: activeTab === key ? color.text : color.textMuted,
                   }}
                 >
                   {label}
@@ -471,12 +583,12 @@ export default function TaskDetailPage() {
             <div style={{ paddingTop: "16px" }}>
               {activeTab === "comments" && (
                 <>
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: SURFACE.text, marginBottom: "12px" }}>
+                  <div style={{ fontSize: "13px", fontWeight: 600, color: color.text, marginBottom: "12px" }}>
                     Comments ({comments.length})
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
                     {comments.length === 0 ? (
-                      <div style={{ padding: "16px 0", fontSize: "12px", color: SURFACE.textGhost, textAlign: "center" }}>
+                      <div style={{ padding: "16px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
                         No comments yet.
                       </div>
                     ) : (
@@ -485,7 +597,7 @@ export default function TaskDetailPage() {
                           key={c.id}
                           style={{
                             padding: "12px 14px", borderRadius: "8px",
-                            border: `0.5px solid ${SURFACE.line}`, background: SURFACE.card,
+                            border: `0.5px solid ${color.border}`, background: color.surface,
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
@@ -493,16 +605,16 @@ export default function TaskDetailPage() {
                               width: "22px", height: "22px", borderRadius: "50%",
                               background: "rgba(120,113,108,0.25)", border: "0.5px solid rgba(120,113,108,0.15)",
                               display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              fontSize: "9px", fontWeight: 700, color: SURFACE.textDim,
+                              fontSize: "9px", fontWeight: 700, color: color.textSecondary,
                             }}>
                               {assigneeInitials(c.author)}
                             </span>
-                            <span style={{ fontSize: "12px", fontWeight: 600, color: SURFACE.text }}>{c.author}</span>
-                            <span style={{ marginLeft: "auto", fontSize: "11px", color: SURFACE.textGhost }}>
+                            <span style={{ fontSize: "12px", fontWeight: 600, color: color.text }}>{c.author}</span>
+                            <span style={{ marginLeft: "auto", fontSize: "11px", color: color.textMuted }}>
                               {formatTimestamp(c.timestamp)}
                             </span>
                           </div>
-                          <div style={{ fontSize: "13px", color: SURFACE.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>
+                          <div style={{ fontSize: "13px", color: color.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>
                             {c.text}
                           </div>
                         </div>
@@ -511,7 +623,7 @@ export default function TaskDetailPage() {
                   </div>
                   {/* Comment composer */}
                   <div style={{
-                    border: `0.5px solid ${SURFACE.line}`, borderRadius: "8px",
+                    border: `0.5px solid ${color.border}`, borderRadius: "8px",
                     background: "rgba(41,37,36,0.3)", padding: "10px",
                   }}>
                     <textarea
@@ -527,14 +639,14 @@ export default function TaskDetailPage() {
                       }}
                       style={{
                         width: "100%", background: "transparent", border: "none", resize: "vertical",
-                        color: SURFACE.text, fontSize: "13px", outline: "none", fontFamily: "inherit",
+                        color: color.text, fontSize: "13px", outline: "none", fontFamily: "inherit",
                         minHeight: "56px",
                       }}
                     />
                     <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "6px" }}>
                       {/* Attachment icon */}
                       <label style={{ cursor: "pointer", display: "inline-flex", padding: "4px" }}>
-                        <Paperclip size={14} color={SURFACE.textGhost} />
+                        <Paperclip size={14} color={color.textMuted} />
                         <input
                           type="file"
                           style={{ display: "none" }}
@@ -557,9 +669,9 @@ export default function TaskDetailPage() {
                             style={{
                               display: "inline-flex", alignItems: "center", gap: "4px",
                               padding: "4px 8px", borderRadius: "6px", fontSize: "11px",
-                              border: `0.5px solid ${replyTarget ? "rgba(217,119,6,0.4)" : SURFACE.line}`,
+                              border: `0.5px solid ${replyTarget ? "rgba(217,119,6,0.4)" : color.border}`,
                               background: replyTarget ? "rgba(217,119,6,0.08)" : "transparent",
-                              color: replyTarget ? "#f59e0b" : SURFACE.textDim,
+                              color: replyTarget ? "#f59e0b" : color.textSecondary,
                               cursor: "pointer",
                             }}
                           >
@@ -576,7 +688,7 @@ export default function TaskDetailPage() {
                               />
                               <div style={{
                                 position: "absolute", bottom: "calc(100% + 4px)", right: 0,
-                                background: "var(--surface-elevated)", border: `0.5px solid ${SURFACE.line}`,
+                                background: "var(--surface-elevated)", border: `0.5px solid ${color.border}`,
                                 borderRadius: 8, padding: "4px 0", minWidth: 160,
                                 boxShadow: "0 8px 24px rgba(0,0,0,0.5)", zIndex: 99,
                               }}>
@@ -585,7 +697,7 @@ export default function TaskDetailPage() {
                                   onClick={() => { setReplyTarget(null); setReplyPickerOpen(false); }}
                                   style={{
                                     display: "block", width: "100%", padding: "7px 12px",
-                                    fontSize: 12, color: !replyTarget ? SURFACE.text : SURFACE.textDim,
+                                    fontSize: 12, color: !replyTarget ? color.text : color.textSecondary,
                                     background: !replyTarget ? "rgba(255,255,255,0.05)" : "transparent",
                                     border: "none", cursor: "pointer", textAlign: "left",
                                   }}
@@ -602,7 +714,7 @@ export default function TaskDetailPage() {
                                       style={{
                                         display: "flex", alignItems: "center", gap: "6px",
                                         width: "100%", padding: "7px 12px",
-                                        fontSize: 12, color: selected ? SURFACE.text : SURFACE.textDim,
+                                        fontSize: 12, color: selected ? color.text : color.textSecondary,
                                         background: selected ? "rgba(255,255,255,0.05)" : "transparent",
                                         border: "none", cursor: "pointer", textAlign: "left",
                                       }}
@@ -624,9 +736,9 @@ export default function TaskDetailPage() {
                       {(task.status === "done" || task.status === "cancelled") && (
                         <label style={{
                           display: "inline-flex", alignItems: "center", gap: "5px",
-                          fontSize: "11px", color: SURFACE.textDim, cursor: "pointer",
+                          fontSize: "11px", color: color.textSecondary, cursor: "pointer",
                           padding: "4px 8px", borderRadius: "6px",
-                          border: `0.5px solid ${reopenOnComment ? "rgba(59,130,246,0.4)" : SURFACE.line}`,
+                          border: `0.5px solid ${reopenOnComment ? "rgba(59,130,246,0.4)" : color.border}`,
                           background: reopenOnComment ? "rgba(59,130,246,0.08)" : "transparent",
                         }}>
                           <input
@@ -640,7 +752,7 @@ export default function TaskDetailPage() {
                         </label>
                       )}
 
-                      <span style={{ fontSize: "10px", color: SURFACE.textGhost }}>
+                      <span style={{ fontSize: "10px", color: color.textMuted }}>
                         ⌘ + Enter
                       </span>
                       <button
@@ -650,8 +762,8 @@ export default function TaskDetailPage() {
                         style={{
                           padding: "6px 12px", fontSize: "12px", fontWeight: 600,
                           background: commentDraft.trim() && !posting ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.03)",
-                          color: commentDraft.trim() && !posting ? SURFACE.text : SURFACE.textGhost,
-                          border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
+                          color: commentDraft.trim() && !posting ? color.text : color.textMuted,
+                          border: `0.5px solid ${color.border}`, borderRadius: "6px",
                           cursor: commentDraft.trim() && !posting ? "pointer" : "default",
                         }}
                       >
@@ -662,26 +774,26 @@ export default function TaskDetailPage() {
                 </>
               )}
               {activeTab === "subtasks" && (
-                <div style={{ padding: "24px 0", fontSize: "12px", color: SURFACE.textGhost, textAlign: "center" }}>
+                <div style={{ padding: "24px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
                   No sub-tasks.
                 </div>
               )}
               {activeTab === "activity" && (
-                <div style={{ fontSize: "12px", color: SURFACE.textMuted }}>
+                <div style={{ fontSize: "12px", color: color.textMuted }}>
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
                     <div style={{ display: "flex", gap: "8px" }}>
-                      <span style={{ color: SURFACE.textGhost, minWidth: "100px" }}>{formatTimestamp(task.created)}</span>
+                      <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.created)}</span>
                       <span>Task created</span>
                     </div>
                     {task.updated !== task.created && (
                       <div style={{ display: "flex", gap: "8px" }}>
-                        <span style={{ color: SURFACE.textGhost, minWidth: "100px" }}>{formatTimestamp(task.updated)}</span>
+                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.updated)}</span>
                         <span>Task updated</span>
                       </div>
                     )}
                     {task.completedAt && (
                       <div style={{ display: "flex", gap: "8px" }}>
-                        <span style={{ color: SURFACE.textGhost, minWidth: "100px" }}>{formatTimestamp(task.completedAt)}</span>
+                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.completedAt)}</span>
                         <span>Task completed</span>
                       </div>
                     )}
@@ -696,18 +808,18 @@ export default function TaskDetailPage() {
       {/* ── Properties panel ── */}
       {propsOpen && task && (
         <aside style={{
-          width: "280px", flexShrink: 0, borderLeft: `0.5px solid ${SURFACE.line}`,
-          padding: "24px 20px", overflowY: "auto",
-          background: "rgba(12,10,9,0.6)",
+          width: 280, flexShrink: 0, borderLeft: `0.5px solid ${color.border}`,
+          padding: `${space.xxl}px ${space.xl}px`, overflowY: "auto",
+          background: color.surface,
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
-            <div style={{ fontSize: "11px", fontWeight: 600, color: SURFACE.textGhost, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+            <div style={{ fontSize: "11px", fontWeight: 600, color: color.textMuted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
               Properties
             </div>
             <button
               type="button"
               onClick={() => setPropsOpen(false)}
-              style={{ background: "transparent", border: "none", color: SURFACE.textGhost, cursor: "pointer", padding: "2px" }}
+              style={{ background: "transparent", border: "none", color: color.textMuted, cursor: "pointer", padding: "2px" }}
               title="Close properties"
             >
               ×
@@ -722,7 +834,7 @@ export default function TaskDetailPage() {
                   current={task.status}
                   onChange={(s) => onStatusChange(task.id, s)}
                 />
-                <span style={{ fontSize: "12px", color: SURFACE.text }}>
+                <span style={{ fontSize: "12px", color: color.text }}>
                   {statusMeta?.label ?? STATUS_LABEL[task.status]}
                 </span>
               </div>
@@ -740,14 +852,14 @@ export default function TaskDetailPage() {
 
             {/* Labels */}
             <PropertyRow label="Labels">
-              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.textDim }}>
+              <div style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.textSecondary }}>
                 <Tag size={12} />
                 {task.tags && task.tags.length > 0 ? (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                     {task.tags.map((t) => (
                       <span key={t} style={{
                         fontSize: "10px", padding: "2px 6px", borderRadius: "4px",
-                        background: "rgba(255,255,255,0.06)", color: SURFACE.textMuted,
+                        background: "rgba(255,255,255,0.06)", color: color.textMuted,
                       }}>{t}</span>
                     ))}
                   </div>
@@ -771,25 +883,25 @@ export default function TaskDetailPage() {
               {project ? (
                 <Link
                   href={`/${encodeURIComponent(companyCode.toUpperCase())}/projects/${encodeURIComponent(project.slug)}`}
-                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.text, textDecoration: "none" }}
+                  style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.text, textDecoration: "none" }}
                 >
                   <span style={{ width: "8px", height: "8px", borderRadius: "50%", background: project.color }} />
                   {project.name}
-                  <ExternalLink size={11} color={SURFACE.textGhost} />
+                  <ExternalLink size={11} color={color.textMuted} />
                 </Link>
               ) : (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.textDim }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.textSecondary }}>
                   <Folder size={12} /> —
                 </span>
               )}
             </PropertyRow>
 
             {/* Divider */}
-            <div style={{ height: "1px", background: SURFACE.line, margin: "4px 0" }} />
+            <div style={{ height: "1px", background: color.border, margin: "4px 0" }} />
 
             {/* Created by */}
             <PropertyRow label="Created by">
-              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: SURFACE.textMuted }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.textMuted }}>
                 <User size={12} />
                 {(() => {
                   const firstComment = comments.find((c) => c.type === "note" || !c.type);
@@ -800,18 +912,18 @@ export default function TaskDetailPage() {
 
             {/* Created */}
             <PropertyRow label="Created">
-              <span style={{ fontSize: "12px", color: SURFACE.textMuted }}>{formatShortDate(task.created)}</span>
+              <span style={{ fontSize: "12px", color: color.textMuted }}>{formatShortDate(task.created)}</span>
             </PropertyRow>
 
             {/* Updated */}
             <PropertyRow label="Updated">
-              <span style={{ fontSize: "12px", color: SURFACE.textMuted }}>{relativeAge(task.updated)}</span>
+              <span style={{ fontSize: "12px", color: color.textMuted }}>{relativeAge(task.updated)}</span>
             </PropertyRow>
 
             {/* Completed */}
             {task.completedAt && (
               <PropertyRow label="Completed">
-                <span style={{ fontSize: "12px", color: SURFACE.textMuted }}>{formatShortDate(task.completedAt)}</span>
+                <span style={{ fontSize: "12px", color: color.textMuted }}>{formatShortDate(task.completedAt)}</span>
               </PropertyRow>
             )}
           </div>
@@ -825,8 +937,8 @@ export default function TaskDetailPage() {
           onClick={() => setPropsOpen(true)}
           style={{
             position: "absolute", right: "16px", top: "80px",
-            padding: "6px 10px", fontSize: "11px", color: SURFACE.textDim,
-            background: "rgba(41,37,36,0.5)", border: `0.5px solid ${SURFACE.line}`, borderRadius: "6px",
+            padding: "6px 10px", fontSize: "11px", color: color.textSecondary,
+            background: "rgba(41,37,36,0.5)", border: `0.5px solid ${color.border}`, borderRadius: "6px",
             cursor: "pointer",
           }}
         >
@@ -841,7 +953,7 @@ export default function TaskDetailPage() {
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-      <div style={{ width: "72px", fontSize: "11px", color: SURFACE.textGhost, flexShrink: 0 }}>
+      <div style={{ width: "72px", fontSize: "11px", color: color.textMuted, flexShrink: 0 }}>
         {label}
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
@@ -908,7 +1020,7 @@ function LiveActivityPanel({
           </div>
           <div style={{ minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: SURFACE.text }}>Live activity</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: color.text }}>Live activity</span>
               <span
                 style={{
                   display: "inline-flex",
@@ -928,7 +1040,7 @@ function LiveActivityPanel({
                 {connected ? "streaming" : "connecting"}
               </span>
             </div>
-            <div style={{ fontSize: 12, color: SURFACE.textDim }}>
+            <div style={{ fontSize: 12, color: color.textSecondary }}>
               {agentName} is actively working this task{sessionId ? ` · session ${sessionId.slice(0, 8)}` : ""}
             </div>
           </div>
@@ -937,7 +1049,7 @@ function LiveActivityPanel({
 
       <div style={{ padding: 16, display: "grid", gap: 14 }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: SURFACE.textGhost, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: color.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
             Current output
           </div>
           <div
@@ -946,7 +1058,7 @@ function LiveActivityPanel({
               borderRadius: 10,
               background: "rgba(12,10,9,0.7)",
               border: "0.5px solid rgba(245,245,244,0.08)",
-              color: SURFACE.textMuted,
+              color: color.textMuted,
               fontSize: 13,
               lineHeight: 1.6,
               whiteSpace: "pre-wrap",
@@ -959,11 +1071,11 @@ function LiveActivityPanel({
         </div>
 
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: SURFACE.textGhost, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: color.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 8 }}>
             Recent actions
           </div>
           {renderedEvents.length === 0 ? (
-            <div style={{ fontSize: 12, color: SURFACE.textGhost, padding: "8px 0" }}>
+            <div style={{ fontSize: 12, color: color.textMuted, padding: "8px 0" }}>
               No stream events yet.
             </div>
           ) : (
@@ -983,8 +1095,8 @@ function LiveActivityPanel({
                 >
                   <div style={{ marginTop: 1, flexShrink: 0 }}>{eventIcon(event)}</div>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, color: SURFACE.text, lineHeight: 1.5 }}>{event.message}</div>
-                    <div style={{ fontSize: 10, color: SURFACE.textGhost, marginTop: 4 }}>{relativeAge(event.ts)}</div>
+                    <div style={{ fontSize: 12, color: color.text, lineHeight: 1.5 }}>{event.message}</div>
+                    <div style={{ fontSize: 10, color: color.textMuted, marginTop: 4 }}>{relativeAge(event.ts)}</div>
                   </div>
                 </div>
               ))}

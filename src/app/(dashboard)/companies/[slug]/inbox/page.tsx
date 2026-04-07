@@ -132,9 +132,22 @@ function eventTargetHref(
   event: OrchestrationCompanyInboxEvent
 ): string {
   if (event.taskKey) {
-    return buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(event.taskKey)}`);
+    return buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(event.taskKey)}?from=inbox`);
   }
   return buildCompanyPath(companySlug, "");
+}
+
+/** Persist the current inbox item list to sessionStorage for prev/next navigation on the task detail page. */
+const INBOX_CONTEXT_KEY = "mc:inbox:context";
+
+function persistInboxContext(events: OrchestrationCompanyInboxEvent[], companySlug: string) {
+  try {
+    const items = events
+      .filter((e) => e.taskKey)
+      .map((e) => ({ taskKey: e.taskKey!, title: e.taskTitle ?? e.message }));
+    const inboxHref = buildCompanyPath(companySlug, "/inbox");
+    sessionStorage.setItem(INBOX_CONTEXT_KEY, JSON.stringify({ items, inboxHref }));
+  } catch {}
 }
 
 function eventMatchesSearch(event: OrchestrationCompanyInboxEvent, query: string): boolean {
@@ -438,6 +451,13 @@ export default function CompanyInboxPage() {
 
     return items;
   }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter]);
+
+  // Persist the current visible inbox items for prev/next navigation on task detail pages
+  useEffect(() => {
+    if (filteredEvents.length > 0 && company) {
+      persistInboxContext(filteredEvents, company.slug);
+    }
+  }, [filteredEvents, company]);
 
   /* ---- Time-split rendering (events are already 1-per-thread from server) ---- */
   const { todayEvents, earlierEvents } = useMemo(() => {
