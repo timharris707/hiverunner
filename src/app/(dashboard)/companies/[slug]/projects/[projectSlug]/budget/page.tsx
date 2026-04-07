@@ -45,40 +45,32 @@ export default function ProjectBudgetPage({
       </div>
 
       <div style={{ maxWidth: 700 }}>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: P.muted }}>Lifetime budget</p>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 24 }}>
-          <div style={{
-            padding: "16px 20px", borderRadius: radius.lg,
-            border: `0.5px solid ${P.cardBorder}`, background: P.surface,
-          }}>
+        {/* Summary — flat rows on canvas */}
+        <div style={{ display: "flex", gap: space.xxxl, marginBottom: space.xl }}>
+          <div>
             <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Observed</p>
             <p style={{ margin: "6px 0 0", fontSize: 28, fontWeight: 700, color: P.text }}>$0.00</p>
           </div>
-          <div style={{
-            padding: "16px 20px", borderRadius: radius.lg,
-            border: `0.5px solid ${P.cardBorder}`, background: P.surface,
-          }}>
+          <div>
             <p style={{ margin: 0, fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.06em" }}>Budget</p>
             <p style={{ margin: "6px 0 0", fontSize: 28, fontWeight: 700, color: P.text }}>Disabled</p>
             <p style={{ margin: "2px 0 0", fontSize: 11, color: P.muted }}>Soft alert at 80%</p>
           </div>
         </div>
 
-        <div style={{ marginBottom: 24 }}>
+        {/* Progress bar */}
+        <div style={{ marginBottom: space.xl }}>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 12, color: P.muted }}>
             <span>Remaining</span>
             <span>Unlimited</span>
           </div>
-          <div style={{ height: 6, borderRadius: 999, background: P.cardBorder, overflow: "hidden" }}>
+          <div style={{ height: 4, borderRadius: 999, background: P.cardBorder, overflow: "hidden" }}>
             <div style={{ height: "100%", width: "0%", borderRadius: 999, background: P.textSec }} />
           </div>
         </div>
 
-        <div style={{
-          padding: "16px 20px", borderRadius: radius.lg,
-          border: `0.5px solid ${P.cardBorder}`, background: P.surface,
-        }}>
+        {/* Budget input — flat on canvas */}
+        <div style={{ marginBottom: space.xl }}>
           <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>
             Budget (USD)
           </label>
@@ -113,26 +105,24 @@ export default function ProjectBudgetPage({
           </div>
         </div>
 
-        <div style={{ marginTop: 24 }}>
-          <h2 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600, color: P.text }}>Cost Breakdown</h2>
-          <div style={{
-            display: "grid", gridTemplateColumns: "repeat(4, 1fr)",
-            borderRadius: radius.lg,
-            border: `0.5px solid ${P.cardBorder}`,
-            overflow: "hidden",
-          }}>
+        {/* Cost breakdown — flat rows */}
+        <div>
+          <h3 style={{ margin: `0 0 ${space.sm}px`, fontSize: 13, fontWeight: 600, color: P.textSec }}>Cost Breakdown</h3>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 0 }}>
             {[
               { label: "Input tokens", value: "0" },
               { label: "Output tokens", value: "0" },
               { label: "Cached tokens", value: "0" },
               { label: "Total cost", value: "$0.00" },
-            ].map((cell) => (
+            ].map((cell, i) => (
               <div key={cell.label} style={{
-                padding: "14px 16px",
-                borderRight: `0.5px solid ${P.cardBorder}`,
+                padding: "10px 0",
+                borderRight: i < 3 ? `0.5px solid ${P.cardBorder}` : "none",
+                paddingRight: i < 3 ? 16 : 0,
+                paddingLeft: i > 0 ? 16 : 0,
               }}>
                 <p style={{ margin: 0, fontSize: 11, color: P.muted }}>{cell.label}</p>
-                <p style={{ margin: "6px 0 0", fontSize: 16, fontWeight: 600, color: P.text }}>{cell.value}</p>
+                <p style={{ margin: "4px 0 0", fontSize: 16, fontWeight: 600, color: P.text }}>{cell.value}</p>
               </div>
             ))}
           </div>
