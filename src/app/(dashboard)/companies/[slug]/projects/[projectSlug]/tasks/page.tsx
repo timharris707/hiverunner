@@ -34,7 +34,7 @@ import type {
   TaskPriority,
   TaskStatus,
 } from "@/lib/orchestration/types";
-import { ActionButton, Card, EmptyState, PageHeader } from "@/lib/ui/primitives";
+import { Card, EmptyState, PageHeader } from "@/lib/ui/primitives";
 import { color, font, P, radius, space, type as tokenType } from "@/lib/ui/tokens";
 
 /* ── constants ── */
@@ -772,17 +772,7 @@ export default function ProjectTasksPage({
       }}
     >
       {/* ── project header */}
-      <PageHeader
-        title={project.name}
-        actions={
-          <ActionButton
-            label="New Task"
-            icon={<Plus size={13} />}
-            href={newTaskHref}
-            variant="secondary"
-          />
-        }
-      />
+      <PageHeader title={project.name} />
 
       <div style={{ marginTop: space.xs, marginBottom: space.md }}>
         <ProjectTabBar slug={slug} projectSlug={projectSlug} active="tasks" />
@@ -797,7 +787,27 @@ export default function ProjectTasksPage({
           gap: space.md,
           flexWrap: "wrap",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: space.md, minWidth: 0, flex: 1 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0, flex: 1 }}>
+            <Link
+              href={newTaskHref}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "0 10px",
+                height: 34,
+                borderRadius: radius.md,
+                border: `0.5px solid ${P.cardBorder}`,
+                background: "transparent",
+                color: P.text,
+                fontSize: 13,
+                textDecoration: "none",
+                flexShrink: 0,
+              }}
+            >
+              <Plus size={13} />
+              New Task
+            </Link>
             <SearchInput value={search} onChange={setSearch} />
           </div>
 
@@ -814,8 +824,8 @@ export default function ProjectTasksPage({
                   padding: "6px 8px",
                   borderRadius: radius.md,
                   border: "none",
-                  background: view.viewMode === "list" ? P.accentSoft : "transparent",
-                  color: view.viewMode === "list" ? color.accent : P.textSecondary,
+                  background: view.viewMode === "list" ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: view.viewMode === "list" ? P.text : P.textMuted,
                   cursor: "pointer",
                 }}
                 title="List view"
@@ -829,8 +839,8 @@ export default function ProjectTasksPage({
                   padding: "6px 8px",
                   borderRadius: radius.md,
                   border: "none",
-                  background: view.viewMode === "board" ? P.accentSoft : "transparent",
-                  color: view.viewMode === "board" ? color.accent : P.textSecondary,
+                  background: view.viewMode === "board" ? "rgba(255,255,255,0.08)" : "transparent",
+                  color: view.viewMode === "board" ? P.text : P.textMuted,
                   cursor: "pointer",
                 }}
                 title="Board view"
