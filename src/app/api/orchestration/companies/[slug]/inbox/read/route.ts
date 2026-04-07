@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
-import { markInboxEventsRead, markAllInboxRead } from "@/lib/orchestration/company-service";
+import { markInboxEventsRead, markAllInboxRead, markInboxThreadRead } from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +25,8 @@ export async function POST(
       all?: boolean;
       beforeTimestamp?: string;
       userId?: string;
+      threadKey?: string;
+      threadKind?: "task" | "approval";
     };
 
     if (body.all) {
@@ -36,8 +38,19 @@ export async function POST(
       return NextResponse.json(result);
     }
 
+    // Thread-level mark-as-read: marks ALL events for a task/approval thread
+    if (body.threadKey && body.threadKind) {
+      const result = markInboxThreadRead({
+        companyIdOrSlug: slug,
+        threadKey: body.threadKey,
+        threadKind: body.threadKind,
+        userId: body.userId,
+      });
+      return NextResponse.json(result);
+    }
+
     if (!body.eventIds || !Array.isArray(body.eventIds) || body.eventIds.length === 0) {
-      return errorResponse(400, "validation_error", "eventIds array is required (or use { all: true })");
+      return errorResponse(400, "validation_error", "eventIds array is required (or use { all: true } or { threadKey, threadKind })");
     }
 
     const result = markInboxEventsRead({

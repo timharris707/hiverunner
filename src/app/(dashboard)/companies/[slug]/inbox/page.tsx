@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus, X } from "lucide-react";
+import { Archive, Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus } from "lucide-react";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
@@ -13,7 +13,7 @@ import {
   getCompanyInbox,
   listCompanies,
   markAllInboxRead,
-  markInboxEventsRead,
+  markInboxThreadRead,
   approveApproval,
   rejectApproval,
 } from "@/lib/orchestration/client";
@@ -67,93 +67,18 @@ function hashStringToColor(str: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Event grouping                                                     */
+/*  Thread helpers                                                     */
 /* ------------------------------------------------------------------ */
 
-/** A group of events sharing the same task/approval, rendered as one row. */
-interface EventGroup {
-  /** The most recent event — used for display */
-  primary: OrchestrationCompanyInboxEvent;
-  /** All events in the group (most-recent first) */
-  events: OrchestrationCompanyInboxEvent[];
-  /** Grouping key */
-  groupKey: string;
+/** Derive a thread key for an event — used for thread-level mark-as-read */
+function eventThreadKey(event: OrchestrationCompanyInboxEvent): string {
+  if (event.kind === "approval" && event.approvalId) return event.approvalId;
+  if (event.taskKey) return event.taskKey;
+  return event.id;
 }
 
-/** Priority of event verbs for picking the "most important" status in a group */
-const VERB_PRIORITY: Record<string, number> = {
-  failed: 6,
-  cancelled: 5,
-  completed: 4,
-  "revision requested": 3,
-  rejected: 3,
-  approved: 2,
-  requested: 2,
-  created: 1,
-  commented: 1,
-  archived: 1,
-  updated: 0,
-};
-
-function eventGroupKey(event: OrchestrationCompanyInboxEvent): string {
-  if (event.kind === "approval" && event.approvalId) return `approval:${event.approvalId}`;
-  if (event.taskKey) return `task:${event.taskKey}`;
-  // Ungroupable — use unique id
-  return `event:${event.id}`;
-}
-
-function groupEvents(events: OrchestrationCompanyInboxEvent[]): EventGroup[] {
-  const map = new Map<string, OrchestrationCompanyInboxEvent[]>();
-  const order: string[] = [];
-
-  for (const ev of events) {
-    const key = eventGroupKey(ev);
-    if (!map.has(key)) {
-      map.set(key, []);
-      order.push(key);
-    }
-    map.get(key)!.push(ev);
-  }
-
-  const groups: EventGroup[] = [];
-  for (const key of order) {
-    const evts = map.get(key)!;
-    // Events are already sorted most-recent first from the API.
-    // Pick the event with the highest-priority verb as primary (tiebreak: most recent).
-    let primary = evts[0];
-    let bestPriority = VERB_PRIORITY[eventVerb(primary)] ?? 0;
-    for (let i = 1; i < evts.length; i++) {
-      const p = VERB_PRIORITY[eventVerb(evts[i])] ?? 0;
-      if (p > bestPriority) {
-        bestPriority = p;
-        primary = evts[i];
-      }
-    }
-    // But always keep the most recent timestamp visible, so override timestamp on primary if needed.
-    // We'll pass the group's newest timestamp separately via the group object.
-    groups.push({ primary, events: evts, groupKey: key });
-  }
-
-  return groups;
-}
-
-/** Human-readable count badge text */
-function groupCountLabel(group: EventGroup): string | null {
-  if (group.events.length <= 1) return null;
-  // Try to summarise — if all events are comments, say "3 comments"
-  const allComments = group.events.every((e) => e.eventType === "task.comment_added");
-  if (allComments) return `${group.events.length} comments`;
-  return `\u00d7${group.events.length}`;
-}
-
-/** Whether any event in the group is unread */
-function groupHasUnread(group: EventGroup): boolean {
-  return group.events.some((e) => !e.isRead);
-}
-
-/** The most recent timestamp in the group */
-function groupNewestTimestamp(group: EventGroup): string {
-  return group.events[0].timestamp;
+function eventThreadKind(event: OrchestrationCompanyInboxEvent): "task" | "approval" {
+  return event.kind === "approval" ? "approval" : "task";
 }
 
 /* ------------------------------------------------------------------ */
@@ -385,7 +310,7 @@ export default function CompanyInboxPage() {
           companySlug: slug,
           includeDone: true,
           includeTaskSnapshot: false,
-          limit: 25,
+          limit: 35,
         }),
       ]);
       const current = companyRows.find((row) => row.slug === slug) ?? null;
@@ -443,40 +368,26 @@ export default function CompanyInboxPage() {
     }
   };
 
-  const handleMarkRead = async (eventId: string) => {
-    const ok = await markInboxEventsRead(slug, [eventId]);
+  /** Mark the entire thread for an event as read (all comments/updates for that task/approval) */
+  const handleMarkThreadRead = async (event: OrchestrationCompanyInboxEvent) => {
+    if (event.isRead) return;
+    const threadKey = eventThreadKey(event);
+    const threadKind = eventThreadKind(event);
+    const ok = await markInboxThreadRead(slug, threadKey, threadKind);
     if (ok) {
       setInbox((prev) => ({
         ...prev,
         events: prev.events.map((e) =>
-          e.id === eventId ? { ...e, isRead: true } : e
+          e.id === event.id ? { ...e, isRead: true } : e
         ),
         unreadCount: Math.max(0, prev.unreadCount - 1),
       }));
     }
   };
 
-  /** Mark all events in a group as read */
-  const handleMarkGroupRead = async (group: EventGroup) => {
-    const unreadIds = group.events.filter((e) => !e.isRead).map((e) => e.id);
-    if (unreadIds.length === 0) return;
-    const ok = await markInboxEventsRead(slug, unreadIds);
-    if (ok) {
-      const idSet = new Set(unreadIds);
-      setInbox((prev) => ({
-        ...prev,
-        events: prev.events.map((e) =>
-          idSet.has(e.id) ? { ...e, isRead: true } : e
-        ),
-        unreadCount: Math.max(0, prev.unreadCount - unreadIds.length),
-      }));
-    }
-  };
-
   /* ---- Dismiss / archive ---- */
-  const handleDismiss = async (group: EventGroup) => {
-    const eventIds = group.events.map((ev) => ev.id);
-    await archiveInboxEvents(slug, eventIds);
+  const handleDismiss = async (event: OrchestrationCompanyInboxEvent) => {
+    await archiveInboxEvents(slug, [event.id]);
     void load();
   };
 
@@ -515,23 +426,19 @@ export default function CompanyInboxPage() {
     return items;
   }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter]);
 
-  /* ---- Group events ---- */
-  const groupedEvents = useMemo(() => groupEvents(filteredEvents), [filteredEvents]);
-
-  /* ---- Time-grouped rendering ---- */
-  const { todayGroups, earlierGroups } = useMemo(() => {
-    const today: EventGroup[] = [];
-    const earlier: EventGroup[] = [];
-    for (const group of groupedEvents) {
-      const newestTs = groupNewestTimestamp(group);
-      if (isToday(newestTs)) {
-        today.push(group);
+  /* ---- Time-split rendering (events are already 1-per-thread from server) ---- */
+  const { todayEvents, earlierEvents } = useMemo(() => {
+    const today: OrchestrationCompanyInboxEvent[] = [];
+    const earlier: OrchestrationCompanyInboxEvent[] = [];
+    for (const event of filteredEvents) {
+      if (isToday(event.timestamp)) {
+        today.push(event);
       } else {
-        earlier.push(group);
+        earlier.push(event);
       }
     }
-    return { todayGroups: today, earlierGroups: earlier };
-  }, [groupedEvents]);
+    return { todayEvents: today, earlierEvents: earlier };
+  }, [filteredEvents]);
 
   /* ---- Render guards ---- */
   if (!loading && !company) {
@@ -758,7 +665,7 @@ export default function CompanyInboxPage() {
       )}
 
       {/* Empty state */}
-      {!loading && groupedEvents.length === 0 && !error && (
+      {!loading && filteredEvents.length === 0 && !error && (
         <div style={{ padding: "48px 0", textAlign: "center" }}>
           <p style={{ fontSize: 14, color: "#a8a29e", marginBottom: 4 }}>
             {activeTab === "unread" ? "All caught up!" : activeTab === "mine" ? "Nothing here yet." : searchQuery ? "No matching events." : "No activity yet."}
@@ -775,18 +682,17 @@ export default function CompanyInboxPage() {
         </div>
       )}
 
-      {/* Event list */}
-      {!loading && groupedEvents.length > 0 && (
+      {/* Event list — each event is one thread (server de-duplicated) */}
+      {!loading && filteredEvents.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", marginTop: 4 }}>
           {/* Today section */}
-          {todayGroups.length > 0 && todayGroups.map((group) => (
-            <GroupRow
-              key={group.groupKey}
-              group={group}
+          {todayEvents.map((event) => (
+            <EventRow
+              key={event.id}
+              event={event}
               company={company}
               slug={slug}
-              onMarkRead={handleMarkRead}
-              onMarkGroupRead={handleMarkGroupRead}
+              onMarkThreadRead={handleMarkThreadRead}
               onRefresh={load}
               onDismiss={handleDismiss}
               visibleColumns={visibleColumns}
@@ -794,19 +700,18 @@ export default function CompanyInboxPage() {
           ))}
 
           {/* Earlier divider */}
-          {earlierGroups.length > 0 && todayGroups.length > 0 && (
+          {earlierEvents.length > 0 && todayEvents.length > 0 && (
             <TimeDivider label="Earlier" />
           )}
 
           {/* Earlier section */}
-          {earlierGroups.map((group) => (
-            <GroupRow
-              key={group.groupKey}
-              group={group}
+          {earlierEvents.map((event) => (
+            <EventRow
+              key={event.id}
+              event={event}
               company={company}
               slug={slug}
-              onMarkRead={handleMarkRead}
-              onMarkGroupRead={handleMarkGroupRead}
+              onMarkThreadRead={handleMarkThreadRead}
               onRefresh={load}
               onDismiss={handleDismiss}
               visibleColumns={visibleColumns}
@@ -843,82 +748,164 @@ export default function CompanyInboxPage() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Group row — dispatches to approval or task row                     */
+/*  Unified event row — one per thread (server de-duplicated)          */
 /* ------------------------------------------------------------------ */
 
-function GroupRow({
-  group, company, slug, onMarkRead, onMarkGroupRead, onRefresh, onDismiss, visibleColumns,
+function EventRow({
+  event, company, slug, onMarkThreadRead, onRefresh, onDismiss, visibleColumns,
 }: {
-  group: EventGroup;
-  company: OrchestrationCompany | null;
-  slug: string;
-  onMarkRead: (id: string) => void;
-  onMarkGroupRead: (group: EventGroup) => void;
-  onRefresh: () => void;
-  onDismiss: (group: EventGroup) => void;
-  visibleColumns: InboxColumn[];
-}) {
-  const event = group.primary;
-
-  if (event.kind === "approval") {
-    return (
-      <ApprovalRow
-        group={group}
-        event={event}
-        onMarkRead={onMarkRead}
-        onMarkGroupRead={onMarkGroupRead}
-        onRefresh={onRefresh}
-        onDismiss={onDismiss}
-        companySlug={company?.code ?? slug}
-        visibleColumns={visibleColumns}
-      />
-    );
-  }
-
-  return (
-    <TaskEventRow
-      group={group}
-      event={event}
-      company={company}
-      slug={slug}
-      onMarkRead={onMarkRead}
-      onMarkGroupRead={onMarkGroupRead}
-      onDismiss={onDismiss}
-      visibleColumns={visibleColumns}
-    />
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Task / execution event row                                         */
-/* ------------------------------------------------------------------ */
-
-function TaskEventRow({
-  group, event, company, slug, onMarkRead, onMarkGroupRead, onDismiss, visibleColumns,
-}: {
-  group: EventGroup;
   event: OrchestrationCompanyInboxEvent;
   company: OrchestrationCompany | null;
   slug: string;
-  onMarkRead: (id: string) => void;
-  onMarkGroupRead: (group: EventGroup) => void;
-  onDismiss: (group: EventGroup) => void;
+  onMarkThreadRead: (event: OrchestrationCompanyInboxEvent) => void;
+  onRefresh: () => void;
+  onDismiss: (event: OrchestrationCompanyInboxEvent) => void;
   visibleColumns: InboxColumn[];
 }) {
+  const router = useRouter();
   const [hovered, setHovered] = useState(false);
-  const isUnread = groupHasUnread(group);
-  const href = eventTargetHref(company?.slug ?? slug, event);
+  const [acting, setActing] = useState(false);
+  const isUnread = !event.isRead;
   const verb = eventVerb(event);
-  const newestTimestamp = groupNewestTimestamp(group);
-  const age = formatAge(newestTimestamp);
-  const taskKey = event.taskKey ?? null;
+  const age = formatAge(event.timestamp);
   const isFailed = event.eventType === "execution.failed";
-  const badge = groupCountLabel(group);
 
   const showAssignee = visibleColumns.includes("assignee");
   const showProject = visibleColumns.includes("project");
   const showType = visibleColumns.includes("type");
   const showUpdated = visibleColumns.includes("updated");
+
+  // Approval-specific
+  const isApproval = event.kind === "approval";
+  const approvalId = event.approvalId;
+  const approvalType = event.approvalType ?? "hire_agent";
+  const approvalStatus = event.approvalStatus ?? "pending";
+  const isPendingApproval = isApproval && (approvalStatus === "pending" || approvalStatus === "revision_requested");
+  const showInlineActions = isPendingApproval && approvalType !== "budget_override_required";
+
+  const handleApprove = async () => {
+    if (!approvalId || acting) return;
+    setActing(true);
+    await approveApproval(approvalId);
+    onRefresh();
+    setActing(false);
+  };
+
+  const handleReject = async () => {
+    if (!approvalId || acting) return;
+    setActing(true);
+    await rejectApproval(approvalId);
+    onRefresh();
+    setActing(false);
+  };
+
+  const href = isApproval && approvalId
+    ? `/${company?.code ?? slug}/approvals/${approvalId}`
+    : eventTargetHref(company?.slug ?? slug, event);
+
+  const handleClick = () => {
+    if (isUnread) void onMarkThreadRead(event);
+    if (isApproval && approvalId) {
+      router.push(href);
+    }
+  };
+
+  // Approval rows use a slightly different layout
+  if (isApproval) {
+    const label = event.approvalLabel ?? event.message;
+    const requester = event.requestedByName ?? event.agentName;
+
+    return (
+      <div
+        style={{ position: "relative" }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <div
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "9px 4px", paddingRight: 30,
+            borderBottom: "0.5px solid rgba(120,113,108,0.08)",
+            transition: "background 100ms", cursor: "pointer",
+            background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
+          }}
+          onClick={handleClick}
+        >
+          {/* Left section */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, overflow: "hidden" }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
+            {/* Approval icon */}
+            <div style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(120,113,108,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+              {approvalType === "approve_ceo_strategy" ? <Lightbulb size={11} color="#78716c" /> :
+               approvalType === "budget_override_required" ? <ShieldAlert size={11} color="#78716c" /> :
+               <UserPlus size={11} color="#78716c" />}
+            </div>
+            <span style={{
+              fontSize: 13, fontWeight: isUnread ? 500 : 400,
+              color: isUnread ? "#f5f5f4" : "#d6d3d1",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              flex: 1, minWidth: 0,
+            }}>
+              {label}
+            </span>
+          </div>
+
+          {/* Right section */}
+          <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
+            {showAssignee && (
+              <span style={{ width: 100, fontSize: 11, color: "#78716c", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 8 }}>
+                {requester || ""}
+              </span>
+            )}
+            {showProject && (
+              <span style={{ width: 160, display: "inline-flex", alignItems: "center", justifyContent: "flex-start", gap: 5, fontSize: 11, color: "#78716c", paddingLeft: 8, overflow: "hidden", whiteSpace: "nowrap" }}>
+                {event.projectName ? (
+                  <>
+                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: hashStringToColor(event.projectName), flexShrink: 0 }} />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{event.projectName}</span>
+                  </>
+                ) : (
+                  <span style={{ color: "#57534e" }}>—</span>
+                )}
+              </span>
+            )}
+            {showInlineActions && approvalId ? (
+              <div style={{ display: "flex", gap: 4, flexShrink: 0, paddingLeft: 8 }}>
+                <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); void handleApprove(); }}
+                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.1)", color: "#4ade80", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                  Approve
+                </button>
+                <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); void handleReject(); }}
+                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "#f87171", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                  Reject
+                </button>
+              </div>
+            ) : null}
+            {showType && (
+              <span style={{ width: 80, fontSize: 11, color: "#78716c", textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, textTransform: "capitalize" }}>
+                {approvalStatus.replace(/_/g, " ")}
+              </span>
+            )}
+            {showUpdated && (
+              <span style={{ width: 90, fontSize: 11, color: "#57534e", textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8 }}>
+                {age} ago
+              </span>
+            )}
+          </div>
+        </div>
+        {/* Archive button */}
+        <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(event); }} title="Archive"
+          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, border: "none", background: hovered ? "rgba(120,113,108,0.15)" : "transparent", color: hovered ? "#78716c" : "transparent", cursor: "pointer", transition: "all 100ms", zIndex: 2 }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}>
+          <Archive size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  // Task / execution row
+  const taskKey = event.taskKey ?? null;
 
   return (
     <div
@@ -928,83 +915,43 @@ function TaskEventRow({
     >
       <Link
         href={href}
-        onClick={() => {
-          if (isUnread) {
-            if (group.events.length === 1) void onMarkRead(event.id);
-            else void onMarkGroupRead(group);
-          }
-        }}
+        onClick={() => { if (isUnread) void onMarkThreadRead(event); }}
         style={{
-          display: "flex",
-          alignItems: "center",
-          padding: "9px 4px",
-          paddingRight: 30,
+          display: "flex", alignItems: "center",
+          padding: "9px 4px", paddingRight: 30,
           borderBottom: "0.5px solid rgba(120,113,108,0.08)",
-          textDecoration: "none",
-          transition: "background 100ms",
+          textDecoration: "none", transition: "background 100ms",
           background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
         }}
       >
-        {/* ── Left section: dot + status + key + title ── */}
+        {/* Left section */}
         <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, overflow: "hidden" }}>
-          {/* Unread dot */}
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
-
-          {/* Status icon */}
           {visibleColumns.includes("status") && <StatusDot status={event.status} />}
-
-          {/* Task key */}
           {visibleColumns.includes("id") && taskKey ? (
-            <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>
-              {taskKey}
-            </span>
+            <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>{taskKey}</span>
           ) : null}
-
-          {/* Title */}
-          <span
-            style={{
-              fontSize: 13,
-              color: isFailed ? "#fca5a5" : isUnread ? "#f5f5f4" : "#d6d3d1",
-              fontWeight: isUnread ? 500 : 400,
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              flex: 1,
-              minWidth: 0,
-            }}
-          >
+          <span style={{
+            fontSize: 13, color: isFailed ? "#fca5a5" : isUnread ? "#f5f5f4" : "#d6d3d1",
+            fontWeight: isUnread ? 500 : 400,
+            overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
+          }}>
             {event.taskTitle ?? event.message}
           </span>
         </div>
 
-        {/* ── Right section: data columns ── */}
+        {/* Right section */}
         <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
-          {/* Assignee — left-aligned */}
           {showAssignee && (
-            <span style={{
-              width: 100, fontSize: 11, color: "#78716c",
-              textAlign: "left", overflow: "hidden", textOverflow: "ellipsis",
-              whiteSpace: "nowrap", paddingLeft: 8,
-            }}>
+            <span style={{ width: 100, fontSize: 11, color: "#78716c", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 8 }}>
               {event.agentName || ""}
             </span>
           )}
-
-          {/* Project — left-aligned */}
           {showProject && (
-            <span style={{
-              width: 160, display: "inline-flex", alignItems: "center",
-              justifyContent: "flex-start", gap: 5,
-              fontSize: 11, color: "#78716c", paddingLeft: 8,
-              overflow: "hidden", whiteSpace: "nowrap",
-            }}>
+            <span style={{ width: 160, display: "inline-flex", alignItems: "center", justifyContent: "flex-start", gap: 5, fontSize: 11, color: "#78716c", paddingLeft: 8, overflow: "hidden", whiteSpace: "nowrap" }}>
               {event.projectName ? (
                 <>
-                  <span style={{
-                    width: 7, height: 7, borderRadius: "50%",
-                    background: hashStringToColor(event.projectName),
-                    flexShrink: 0,
-                  }} />
+                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: hashStringToColor(event.projectName), flexShrink: 0 }} />
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{event.projectName}</span>
                 </>
               ) : (
@@ -1012,290 +959,26 @@ function TaskEventRow({
               )}
             </span>
           )}
-
-          {/* Count badge */}
-          <span style={{
-            width: badge ? "auto" : 0, minWidth: badge ? 40 : 0,
-            textAlign: "center", paddingLeft: badge ? 8 : 0,
-          }}>
-            {badge && (
-              <span style={{
-                fontSize: 10, fontWeight: 600, color: "#a8a29e",
-                background: "rgba(120,113,108,0.15)", borderRadius: 10,
-                padding: "1px 7px", whiteSpace: "nowrap",
-              }}>
-                {badge}
-              </span>
-            )}
-          </span>
-
-          {/* Type — separate column, left-aligned */}
           {showType && (
             <span style={{
-              width: 80, fontSize: 11,
-              color: isFailed ? "#f87171" : "#78716c",
-              textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8,
-              textTransform: "capitalize",
+              width: 80, fontSize: 11, color: isFailed ? "#f87171" : "#78716c",
+              textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, textTransform: "capitalize",
             }}>
               {verb}
             </span>
           )}
-
-          {/* Updated — time only, right-aligned */}
           {showUpdated && (
-            <span style={{
-              width: 90, fontSize: 11, color: isFailed ? "#f87171" : "#57534e",
-              textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8,
-            }}>
+            <span style={{ width: 90, fontSize: 11, color: isFailed ? "#f87171" : "#57534e", textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8 }}>
               {age} ago
             </span>
           )}
         </div>
       </Link>
-
       {/* Archive button */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
-        title="Archive"
-        style={{
-          position: "absolute",
-          right: 4,
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: 22,
-          height: 22,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 4,
-          border: "none",
-          background: hovered ? "rgba(120,113,108,0.15)" : "transparent",
-          color: hovered ? "#78716c" : "transparent",
-          cursor: "pointer",
-          transition: "all 100ms",
-          zIndex: 2,
-        }}
+      <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(event); }} title="Archive"
+        style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, border: "none", background: hovered ? "rgba(120,113,108,0.15)" : "transparent", color: hovered ? "#78716c" : "transparent", cursor: "pointer", transition: "all 100ms", zIndex: 2 }}
         onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}
-      >
-        <Archive size={12} />
-      </button>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Approval row — matches Paperclip's nested approval rendering       */
-/* ------------------------------------------------------------------ */
-
-function ApprovalRow({
-  group,
-  event,
-  onMarkRead,
-  onMarkGroupRead,
-  onRefresh,
-  onDismiss,
-  companySlug,
-  visibleColumns,
-}: {
-  group: EventGroup;
-  event: OrchestrationCompanyInboxEvent;
-  onMarkRead: (id: string) => void;
-  onMarkGroupRead: (group: EventGroup) => void;
-  onRefresh: () => void;
-  onDismiss: (group: EventGroup) => void;
-  companySlug: string;
-  visibleColumns: InboxColumn[];
-}) {
-  const router = useRouter();
-  const [acting, setActing] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const isUnread = groupHasUnread(group);
-  const newestTimestamp = groupNewestTimestamp(group);
-  const age = formatAge(newestTimestamp);
-  const label = event.approvalLabel ?? event.message;
-  const status = event.approvalStatus ?? "pending";
-  const requester = event.requestedByName ?? event.agentName;
-  const isPending = status === "pending";
-  const isRevisionRequested = status === "revision_requested";
-  const showInlineActions = isPending || isRevisionRequested;
-  const approvalId = event.approvalId;
-  const approvalType = event.approvalType ?? "hire_agent";
-  const badge = groupCountLabel(group);
-
-  const handleApprove = async () => {
-    if (!approvalId || acting) return;
-    setActing(true);
-    await approveApproval(approvalId);
-    if (isUnread) await markInboxEventsRead("", group.events.filter((e) => !e.isRead).map((e) => e.id)).catch(() => {});
-    onRefresh();
-    setActing(false);
-  };
-
-  const handleReject = async () => {
-    if (!approvalId || acting) return;
-    setActing(true);
-    await rejectApproval(approvalId);
-    if (isUnread) await markInboxEventsRead("", group.events.filter((e) => !e.isRead).map((e) => e.id)).catch(() => {});
-    onRefresh();
-    setActing(false);
-  };
-
-  return (
-    <div
-      style={{
-        position: "relative",
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div
-        style={{
-          display: "flex",
-          alignItems: "flex-start",
-          gap: 10,
-          padding: "10px 4px 10px 28px",
-          paddingRight: 30,
-          borderBottom: "0.5px solid rgba(120,113,108,0.08)",
-          transition: "background 100ms",
-          cursor: "default",
-          background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
-        }}
-        onClick={() => {
-          if (isUnread) {
-            if (group.events.length === 1) void onMarkRead(event.id);
-            else void onMarkGroupRead(group);
-          }
-          if (event.approvalId) router.push(`/${companySlug}/approvals/${event.approvalId}`);
-        }}
-      >
-        {/* Approval icon — type-specific */}
-        <div style={{ width: 28, height: 28, borderRadius: "50%", background: "rgba(120,113,108,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1 }}>
-          {approvalType === "approve_ceo_strategy" ? <Lightbulb size={14} color="#78716c" /> :
-           approvalType === "budget_override_required" ? <ShieldAlert size={14} color="#78716c" /> :
-           <UserPlus size={14} color="#78716c" />}
-        </div>
-
-        {/* Content */}
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 13, fontWeight: isUnread ? 500 : 400, color: isUnread ? "#f5f5f4" : "#d6d3d1", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-            {badge && (
-              <span style={{
-                fontSize: 11,
-                fontWeight: 600,
-                color: "#a8a29e",
-                background: "rgba(120,113,108,0.15)",
-                borderRadius: 10,
-                padding: "1px 7px",
-                flexShrink: 0,
-                whiteSpace: "nowrap",
-              }}>
-                {badge}
-              </span>
-            )}
-          </div>
-          <div style={{ fontSize: 12, color: "#78716c", marginTop: 2, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{
-              textTransform: "capitalize",
-              color: status === "approved" ? "#22c55e" : status === "rejected" ? "#ef4444" : status === "revision_requested" ? "#a855f7" : status === "pending" ? "#f59e0b" : "#78716c",
-            }}>{status.replace(/_/g, " ")}</span>
-            {requester ? <span>requested by {requester}</span> : null}
-            {visibleColumns.includes("assignee") && event.agentName && (
-              <span style={{
-                fontSize: 11, fontWeight: 500, color: "#a8a29e",
-                background: "rgba(120,113,108,0.12)", borderRadius: 4,
-                padding: "1px 6px",
-              }}>
-                {event.agentName}
-              </span>
-            )}
-            {visibleColumns.includes("project") && event.projectName && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: "#a8a29e" }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: hashStringToColor(event.projectName) }} />
-                {event.projectName}
-              </span>
-            )}
-            <span>{age} ago</span>
-          </div>
-        </div>
-
-        {/* Inline approve/reject buttons for actionable approvals */}
-        {showInlineActions && approvalId && approvalType !== "budget_override_required" ? (
-          <div style={{ display: "flex", gap: 6, flexShrink: 0, alignItems: "center" }}>
-            <button
-              type="button"
-              disabled={acting}
-              onClick={(e) => { e.stopPropagation(); void handleApprove(); }}
-              style={{
-                padding: "4px 12px",
-                fontSize: 12,
-                fontWeight: 500,
-                borderRadius: 6,
-                border: "0.5px solid rgba(34,197,94,0.4)",
-                background: "rgba(34,197,94,0.1)",
-                color: "#4ade80",
-                cursor: acting ? "wait" : "pointer",
-                opacity: acting ? 0.5 : 1,
-                transition: "all 120ms ease",
-              }}
-              onMouseEnter={(e) => { if (!acting) { e.currentTarget.style.background = "rgba(34,197,94,0.2)"; e.currentTarget.style.borderColor = "rgba(34,197,94,0.6)"; } }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(34,197,94,0.1)"; e.currentTarget.style.borderColor = "rgba(34,197,94,0.4)"; }}
-            >
-              Approve
-            </button>
-            <button
-              type="button"
-              disabled={acting}
-              onClick={(e) => { e.stopPropagation(); void handleReject(); }}
-              style={{
-                padding: "4px 12px",
-                fontSize: 12,
-                fontWeight: 500,
-                borderRadius: 6,
-                border: "0.5px solid rgba(239,68,68,0.4)",
-                background: "rgba(239,68,68,0.1)",
-                color: "#f87171",
-                cursor: acting ? "wait" : "pointer",
-                opacity: acting ? 0.5 : 1,
-                transition: "all 120ms ease",
-              }}
-              onMouseEnter={(e) => { if (!acting) { e.currentTarget.style.background = "rgba(239,68,68,0.2)"; e.currentTarget.style.borderColor = "rgba(239,68,68,0.6)"; } }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(239,68,68,0.1)"; e.currentTarget.style.borderColor = "rgba(239,68,68,0.4)"; }}
-            >
-              Reject
-            </button>
-          </div>
-        ) : null}
-      </div>
-
-      {/* Archive button */}
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(group); }}
-        title="Archive"
-        style={{
-          position: "absolute",
-          right: 4,
-          top: "50%",
-          transform: "translateY(-50%)",
-          width: 22,
-          height: 22,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          borderRadius: 4,
-          border: "none",
-          background: hovered ? "rgba(120,113,108,0.15)" : "transparent",
-          color: hovered ? "#78716c" : "transparent",
-          cursor: "pointer",
-          transition: "all 100ms",
-          zIndex: 2,
-        }}
-        onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
-        onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}
-      >
+        onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}>
         <Archive size={12} />
       </button>
     </div>

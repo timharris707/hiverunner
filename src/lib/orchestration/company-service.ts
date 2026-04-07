@@ -1658,6 +1658,63 @@ export function markInboxEventsRead(input: {
   return { marked };
 }
 
+/**
+ * Mark all events for a given thread (task_key or approval_id) as read.
+ * This ensures viewing one inbox item marks the whole thread as seen.
+ */
+export function markInboxThreadRead(input: {
+  companyIdOrSlug: string;
+  threadKey: string; // e.g. "NEV-25" (task key) or approval UUID
+  threadKind: "task" | "approval";
+  userId?: string;
+}): { marked: number } {
+  const db = getOrchestrationDb();
+  const companyRow = getCompanyRowByIdOrSlug(input.companyIdOrSlug);
+  if (!companyRow) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+  const userId = input.userId?.trim() || "default";
+  const now = new Date().toISOString();
+
+  const feedCte = buildInboxFeedCte(companyRow.id);
+
+  // Find all unread event IDs for this thread
+  const threadEventRows = db
+    .prepare(
+      `${feedCte.sql}
+      SELECT fe.event_id
+      FROM feed_events fe
+      LEFT JOIN inbox_read_state irs
+        ON irs.company_id = ? AND irs.user_id = ? AND irs.event_id = fe.event_id
+      WHERE irs.id IS NULL
+        AND ${
+          input.threadKind === "approval"
+            ? "fe.event_kind = 'approval' AND json_extract(fe.metadata_json, '$.approvalId') = ?"
+            : "(fe.task_key = ? AND fe.task_key != '')"
+        }`
+    )
+    .all(...feedCte.params, companyRow.id, userId, input.threadKey) as { event_id: string }[];
+
+  if (threadEventRows.length === 0) return { marked: 0 };
+
+  const insertRead = db.prepare(
+    `INSERT OR IGNORE INTO inbox_read_state (id, company_id, user_id, event_id, read_at)
+     VALUES (?, ?, ?, ?, ?)`
+  );
+
+  let marked = 0;
+  const tx = db.transaction(() => {
+    for (const row of threadEventRows) {
+      const id = `${companyRow.id}:${userId}:${row.event_id}`;
+      const result = insertRead.run(id, companyRow.id, userId, row.event_id, now);
+      if (result.changes > 0) marked++;
+    }
+  });
+  tx();
+
+  return { marked };
+}
+
 export function archiveInboxEvents(input: {
   companyIdOrSlug: string;
   eventIds: string[];

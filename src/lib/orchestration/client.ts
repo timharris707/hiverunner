@@ -408,6 +408,23 @@ export async function markInboxEventsRead(companySlug: string, eventIds: string[
   }
 }
 
+export async function markInboxThreadRead(
+  companySlug: string,
+  threadKey: string,
+  threadKind: "task" | "approval"
+): Promise<boolean> {
+  try {
+    const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/read`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ threadKey, threadKind }),
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function archiveInboxEvents(companySlug: string, eventIds: string[]): Promise<boolean> {
   try {
     const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/inbox/archive`, {
