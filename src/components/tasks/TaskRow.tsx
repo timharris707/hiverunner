@@ -114,17 +114,19 @@ export function TaskRow({
         </span>
       )}
 
-      {/* Assignee badge + name */}
+      {/* Assignee avatar + name */}
       {assigneeName ? (
         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
           <span style={{
             width: "22px", height: "22px", borderRadius: "50%",
-            background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
+            background: agent?.emoji ? "rgba(217,119,6,0.18)" : "rgba(255,255,255,0.06)",
+            border: agent?.emoji ? "none" : `1px solid ${P.cardBorder}`,
             display: "inline-flex", alignItems: "center", justifyContent: "center",
-            fontSize: "9px", fontWeight: 700, color: P.textSecondary,
+            fontSize: agent?.emoji ? "12px" : "9px", fontWeight: 700,
+            color: agent?.emoji ? "#fbbf24" : P.textSecondary,
             letterSpacing: "0.03em", flexShrink: 0,
           }}>
-            {initials}
+            {agent?.emoji ?? initials}
           </span>
           <span style={{ fontSize: "12px", color: P.textSecondary, flexShrink: 0 }}>
             {assigneeName}

@@ -371,10 +371,10 @@ function IssueRow({
                     display: "inline-flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    background: "rgba(255,255,255,0.06)",
-                    color: P.textSecondary,
-                    fontSize: 9,
-                    fontFamily: font.mono,
+                    background: agent.emoji ? "rgba(217,119,6,0.18)" : "rgba(255,255,255,0.06)",
+                    color: agent.emoji ? "#fbbf24" : P.textSecondary,
+                    fontSize: agent.emoji ? 11 : 9,
+                    fontFamily: agent.emoji ? undefined : font.mono,
                     flexShrink: 0,
                   }}
                 >

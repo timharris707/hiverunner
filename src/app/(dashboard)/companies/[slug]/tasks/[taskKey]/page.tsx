@@ -601,14 +601,22 @@ export default function TaskDetailPage() {
                           }}
                         >
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
-                            <span style={{
-                              width: "22px", height: "22px", borderRadius: "50%",
-                              background: "rgba(120,113,108,0.25)", border: "0.5px solid rgba(120,113,108,0.15)",
-                              display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              fontSize: "9px", fontWeight: 700, color: color.textSecondary,
-                            }}>
-                              {assigneeInitials(c.author)}
-                            </span>
+                            {(() => {
+                              const commentAgent = agents.find((a) => a.name === c.author || a.slug === c.author);
+                              const emoji = commentAgent?.emoji;
+                              return (
+                                <span style={{
+                                  width: "22px", height: "22px", borderRadius: "50%",
+                                  background: emoji ? "rgba(217,119,6,0.18)" : "rgba(120,113,108,0.25)",
+                                  border: emoji ? "none" : "0.5px solid rgba(120,113,108,0.15)",
+                                  display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                  fontSize: emoji ? "12px" : "9px", fontWeight: 700,
+                                  color: emoji ? "#fbbf24" : color.textSecondary,
+                                }}>
+                                  {emoji ?? assigneeInitials(c.author)}
+                                </span>
+                              );
+                            })()}
                             <span style={{ fontSize: "12px", fontWeight: 600, color: color.text }}>{c.author}</span>
                             <span style={{ marginLeft: "auto", fontSize: "11px", color: color.textMuted }}>
                               {formatTimestamp(c.timestamp)}
