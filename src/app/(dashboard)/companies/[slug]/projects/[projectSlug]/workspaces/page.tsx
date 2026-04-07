@@ -16,18 +16,20 @@ import type { OrchestrationProject } from "@/lib/orchestration/types";
 import { ProjectTabBar } from "../ProjectTabBar";
 import Link from "next/link";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { PageHeader } from "@/lib/ui/primitives";
+import { P, color, font, radius, space } from "@/lib/ui/tokens";
 
 const C = {
-  bg: "#0c0a09",
-  card: "rgba(28,25,23,0.6)",
-  cardBorder: "rgba(120,113,108,0.18)",
-  text: "#f5f5f4",
-  textSec: "#a8a29e",
-  muted: "#57534e",
-  divider: "rgba(120,113,108,0.15)",
-  accent: "#d97706",
-  green: "#22c55e",
-  red: "#ef4444",
+  bg: P.bg,
+  card: P.surface,
+  cardBorder: P.cardBorder,
+  text: P.text,
+  textSec: P.textSec,
+  muted: P.muted,
+  divider: P.cardBorder,
+  accent: P.accent,
+  green: color.positive,
+  red: color.negative,
 };
 
 type AgentWorkspace = {
@@ -116,25 +118,17 @@ export default function ProjectWorkspacesPage({
   if (error) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
 
   return (
-    <div>
-      {/* project header + tabs */}
-      <div className="px-5 pt-5">
-        <div className="flex items-center gap-3">
-          <span
-            className="inline-block h-4 w-4 shrink-0 rounded-md"
-            style={{ backgroundColor: project.color ?? C.accent }}
-          />
-          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
-        </div>
-        <div className="mt-3">
-          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="workspaces" />
-        </div>
+    <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
+      <PageHeader
+        icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
+        title={project.name}
+      />
+
+      <div style={{ marginTop: space.xs, marginBottom: space.md }}>
+        <ProjectTabBar slug={slug} projectSlug={projectSlug} active="workspaces" />
       </div>
 
-      <div style={{ padding: "20px 24px", maxWidth: 800 }}>
-        <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 600, color: C.text }}>
-          Workspaces
-        </h2>
+      <div style={{ maxWidth: 800 }}>
 
         {/* Company Workspace Root */}
         {data && (
@@ -204,7 +198,7 @@ export default function ProjectWorkspacesPage({
                       style={{
                         padding: "12px 16px",
                         borderRadius: 8,
-                        border: `1px solid ${C.cardBorder}`,
+                        border: `0.5px solid ${C.cardBorder}`,
                         background: "rgba(41,37,36,0.4)",
                         cursor: "pointer",
                         transition: "border-color 0.15s",
@@ -262,7 +256,7 @@ export default function ProjectWorkspacesPage({
                     gridTemplateColumns: "1fr 80px 80px 90px",
                     gap: 8,
                     padding: "6px 0",
-                    borderBottom: `1px solid ${C.divider}`,
+                    borderBottom: `0.5px solid ${C.divider}`,
                   }}
                 >
                   <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Agent</span>
@@ -278,7 +272,7 @@ export default function ProjectWorkspacesPage({
                       gridTemplateColumns: "1fr 80px 80px 90px",
                       gap: 8,
                       padding: "8px 0",
-                      borderBottom: i < data.recentExecutionContext.length - 1 ? `1px solid ${C.divider}` : undefined,
+                      borderBottom: i < data.recentExecutionContext.length - 1 ? `0.5px solid ${C.divider}` : undefined,
                     }}
                   >
                     <span style={{ fontSize: 13, color: C.text }}>{run.agentName || "—"}</span>
@@ -303,7 +297,7 @@ export default function ProjectWorkspacesPage({
           marginTop: 16, padding: "12px 16px",
           borderRadius: 8,
           background: "rgba(217,119,6,0.06)",
-          border: "1px solid rgba(217,119,6,0.15)",
+          border: "0.5px solid rgba(217,119,6,0.15)",
           display: "flex", alignItems: "flex-start", gap: 8,
         }}>
           <AlertTriangle size={13} style={{ color: C.accent, marginTop: 2, flexShrink: 0 }} />
@@ -327,7 +321,7 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
   return (
     <div style={{
       marginBottom: 20, padding: "16px 20px", borderRadius: 10,
-      border: `1px solid ${C.cardBorder}`,
+      border: `0.5px solid ${C.cardBorder}`,
       background: C.card,
     }}>
       <h3 style={{

@@ -15,18 +15,20 @@ import { listProjects, updateProjectSettings } from "@/lib/orchestration/client"
 import type { OrchestrationProject } from "@/lib/orchestration/types";
 import { ProjectTabBar } from "../ProjectTabBar";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { PageHeader } from "@/lib/ui/primitives";
+import { P, color, font, radius, space } from "@/lib/ui/tokens";
 
 const C = {
-  bg: "#0c0a09",
-  card: "rgba(28,25,23,0.6)",
-  cardBorder: "rgba(120,113,108,0.18)",
-  text: "#f5f5f4",
-  textSec: "#a8a29e",
-  muted: "#57534e",
-  divider: "rgba(120,113,108,0.15)",
-  accent: "#d97706",
-  green: "#22c55e",
-  red: "#ef4444",
+  bg: P.bg,
+  card: P.surface,
+  cardBorder: P.cardBorder,
+  text: P.text,
+  textSec: P.textSec,
+  muted: P.muted,
+  divider: P.cardBorder,
+  accent: P.accent,
+  green: color.positive,
+  red: color.negative,
 };
 
 type ExecutionContext = {
@@ -116,7 +118,7 @@ export default function ProjectConfigurationPage({
   if (!project) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Project not found.</div>;
 
   const inputStyle: React.CSSProperties = {
-    width: "100%", borderRadius: 8, border: `1px solid ${C.cardBorder}`,
+    width: "100%", borderRadius: 8, border: `0.5px solid ${C.cardBorder}`,
     background: "rgba(41,37,36,0.4)", padding: "10px 14px",
     fontSize: 13, color: C.text, outline: "none",
   };
@@ -130,25 +132,17 @@ export default function ProjectConfigurationPage({
   const st = STATUS_STYLE[project.status] ?? { color: C.textSec, bg: "rgba(168,162,158,0.12)" };
 
   return (
-    <div>
-      {/* project header + tabs */}
-      <div className="px-5 pt-5">
-        <div className="flex items-center gap-3">
-          <span
-            className="inline-block h-4 w-4 shrink-0 rounded-md"
-            style={{ backgroundColor: project.color ?? "#d97706" }}
-          />
-          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
-        </div>
-        <div className="mt-3">
-          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="configuration" />
-        </div>
+    <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
+      <PageHeader
+        icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
+        title={project.name}
+      />
+
+      <div style={{ marginTop: space.xs, marginBottom: space.md }}>
+        <ProjectTabBar slug={slug} projectSlug={projectSlug} active="configuration" />
       </div>
 
-      <div style={{ padding: "20px 24px", maxWidth: 700 }}>
-      <h2 style={{ margin: "0 0 20px", fontSize: 18, fontWeight: 600, color: C.text }}>
-        Configuration
-      </h2>
+      <div style={{ maxWidth: 700 }}>
 
       {/* Name & Description */}
       <Section title="General">
@@ -182,7 +176,7 @@ export default function ProjectConfigurationPage({
               disabled={saving}
               style={{
                 padding: "8px 20px", borderRadius: 8,
-                border: `1px solid ${C.cardBorder}`,
+                border: `0.5px solid ${C.cardBorder}`,
                 background: "rgba(120,113,108,0.15)",
                 fontSize: 13, fontWeight: 600, color: C.text,
                 cursor: saving ? "default" : "pointer",
@@ -221,7 +215,7 @@ export default function ProjectConfigurationPage({
             </div>
 
             {/* Project directory — convention-derived */}
-            <div style={{ borderTop: `1px solid ${C.divider}`, paddingTop: 14 }}>
+            <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
                 <FolderOpen size={13} style={{ color: C.textSec }} />
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec }}>Project Directory</span>
@@ -242,7 +236,7 @@ export default function ProjectConfigurationPage({
             </div>
 
             {/* Repo — not supported */}
-            <div style={{ borderTop: `1px solid ${C.divider}`, paddingTop: 14 }}>
+            <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
                 <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec }}>Repository</span>
               </div>
@@ -253,7 +247,7 @@ export default function ProjectConfigurationPage({
 
             {/* Agent workspaces summary */}
             {execCtx.agentWorkspaces.length > 0 && (
-              <div style={{ borderTop: `1px solid ${C.divider}`, paddingTop: 14 }}>
+              <div style={{ borderTop: `0.5px solid ${C.divider}`, paddingTop: 14 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                   <span style={{ fontSize: 12, fontWeight: 600, color: C.textSec }}>
                     Assigned Agents ({execCtx.agentWorkspaces.length})
@@ -273,7 +267,7 @@ export default function ProjectConfigurationPage({
                       style={{
                         display: "inline-flex", alignItems: "center", gap: 4,
                         fontSize: 12, padding: "3px 8px", borderRadius: 6,
-                        border: `1px solid ${C.cardBorder}`,
+                        border: `0.5px solid ${C.cardBorder}`,
                         background: "rgba(41,37,36,0.4)",
                         color: C.textSec,
                       }}
@@ -294,7 +288,7 @@ export default function ProjectConfigurationPage({
             <div style={{
               marginTop: 4, padding: "10px 12px", borderRadius: 6,
               background: "rgba(217,119,6,0.05)",
-              border: "1px solid rgba(217,119,6,0.12)",
+              border: "0.5px solid rgba(217,119,6,0.12)",
               display: "flex", alignItems: "flex-start", gap: 6,
             }}>
               <Info size={12} style={{ color: C.accent, marginTop: 2, flexShrink: 0 }} />
@@ -327,7 +321,7 @@ export default function ProjectConfigurationPage({
       {/* Danger Zone */}
       <div style={{
         marginTop: 24, padding: 20, borderRadius: 10,
-        border: "1px solid rgba(239,68,68,0.2)",
+        border: "0.5px solid rgba(239,68,68,0.2)",
         background: "rgba(239,68,68,0.04)",
       }}>
         <h3 style={{ margin: "0 0 8px", fontSize: 14, fontWeight: 600, color: "#ef4444", display: "flex", alignItems: "center", gap: 6 }}>
@@ -341,7 +335,7 @@ export default function ProjectConfigurationPage({
           style={{
             display: "inline-flex", alignItems: "center", gap: 6,
             padding: "8px 16px", borderRadius: 8,
-            border: "1px solid rgba(239,68,68,0.3)",
+            border: "0.5px solid rgba(239,68,68,0.3)",
             background: "rgba(239,68,68,0.08)",
             fontSize: 12, fontWeight: 600, color: "#ef4444",
             cursor: "pointer",
@@ -361,7 +355,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <div style={{
       marginBottom: 20, padding: "16px 20px", borderRadius: 10,
-      border: `1px solid rgba(120,113,108,0.18)`,
+      border: `0.5px solid rgba(120,113,108,0.18)`,
       background: "rgba(28,25,23,0.6)",
     }}>
       <h2 style={{ margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: "#f5f5f4" }}>{title}</h2>

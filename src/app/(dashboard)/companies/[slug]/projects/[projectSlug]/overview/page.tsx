@@ -4,16 +4,8 @@ import { use, useEffect, useState } from "react";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
 import { ProjectTabBar } from "../ProjectTabBar";
-
-const C = {
-  bg: "#0c0a09",
-  card: "rgba(28,25,23,0.6)",
-  cardBorder: "rgba(120,113,108,0.18)",
-  text: "#f5f5f4",
-  textSec: "#a8a29e",
-  muted: "#57534e",
-  divider: "rgba(120,113,108,0.15)",
-};
+import { PageHeader } from "@/lib/ui/primitives";
+import { P, color, font, radius, space } from "@/lib/ui/tokens";
 
 export default function ProjectOverviewPage({
   params,
@@ -36,44 +28,36 @@ export default function ProjectOverviewPage({
     return () => { cancelled = true; };
   }, [slug, projectSlug]);
 
-  if (loading) return <div style={{ padding: 32, color: C.muted, fontSize: 13 }}>Loading...</div>;
-  if (!project) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Project not found.</div>;
+  if (loading) return <div style={{ padding: 32, color: P.muted, fontSize: 13 }}>Loading...</div>;
+  if (!project) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Project not found.</div>;
 
   const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-    active: { color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
-    "in-progress": { color: "#22c55e", bg: "rgba(34,197,94,0.12)" },
-    paused: { color: "#eab308", bg: "rgba(234,179,8,0.12)" },
-    archived: { color: "#57534e", bg: "rgba(87,83,78,0.12)" },
+    active: { color: color.positive, bg: color.positiveSoft },
+    "in-progress": { color: color.positive, bg: color.positiveSoft },
+    paused: { color: color.warning, bg: color.warningSoft },
+    archived: { color: P.muted, bg: "rgba(87,83,78,0.12)" },
   };
-  const st = STATUS_STYLE[project.status] ?? { color: C.textSec, bg: "rgba(168,162,158,0.12)" };
+  const st = STATUS_STYLE[project.status] ?? { color: P.textSec, bg: "rgba(168,162,158,0.12)" };
 
   return (
-    <div>
-      {/* project header + tabs */}
-      <div className="px-5 pt-5">
-        <div className="flex items-center gap-3">
-          <span
-            className="inline-block h-4 w-4 shrink-0 rounded-md"
-            style={{ backgroundColor: project.color ?? "#d97706" }}
-          />
-          <h1 className="text-lg font-semibold text-stone-100">{project.name}</h1>
-        </div>
-        <div className="mt-3">
-          <ProjectTabBar slug={slug} projectSlug={projectSlug} active="overview" />
-        </div>
+    <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
+      <PageHeader
+        icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
+        title={project.name}
+      />
+
+      <div style={{ marginTop: space.xs, marginBottom: space.md }}>
+        <ProjectTabBar slug={slug} projectSlug={projectSlug} active="overview" />
       </div>
 
-      {/* content */}
-      <div style={{ padding: "20px 24px", maxWidth: 700 }}>
-        {/* description */}
-        <p style={{ margin: "0 0 20px", fontSize: 14, color: project.description ? C.textSec : C.muted, fontStyle: project.description ? "normal" : "italic" }}>
+      <div style={{ maxWidth: 700 }}>
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: project.description ? P.textSec : P.muted, fontStyle: project.description ? "normal" : "italic" }}>
           {project.description || "Add a description..."}
         </p>
 
-        {/* properties */}
         <div style={{
-          borderRadius: 10, border: `1px solid ${C.cardBorder}`,
-          background: C.card, padding: "16px 20px",
+          borderRadius: radius.lg, border: `0.5px solid ${P.cardBorder}`,
+          background: P.surface, padding: "16px 20px",
           display: "flex", flexDirection: "column", gap: 14,
         }}>
           <PropRow label="Status">
@@ -86,19 +70,19 @@ export default function ProjectOverviewPage({
           </PropRow>
 
           <PropRow label="Created">
-            <span style={{ fontSize: 13, color: C.textSec }}>
-              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+            <span style={{ fontSize: 13, color: P.textSec }}>
+              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
             </span>
           </PropRow>
 
           <PropRow label="Updated">
-            <span style={{ fontSize: 13, color: C.textSec }}>
-              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+            <span style={{ fontSize: 13, color: P.textSec }}>
+              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
             </span>
           </PropRow>
 
           <PropRow label="Tasks">
-            <span style={{ fontSize: 13, color: C.text, fontWeight: 600 }}>
+            <span style={{ fontSize: 13, color: P.text, fontWeight: 600 }}>
               {project.taskCount ?? 0}
             </span>
           </PropRow>
@@ -111,7 +95,7 @@ export default function ProjectOverviewPage({
 function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <span style={{ width: 80, fontSize: 12, color: "#57534e" }}>{label}</span>
+      <span style={{ width: 80, fontSize: 12, color: P.muted }}>{label}</span>
       <div>{children}</div>
     </div>
   );
