@@ -2,12 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useParams } from "next/navigation";
 import { Archive, Eye, EyeOff, FolderKanban, Pause, Play, Plus, Search } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { CreateProjectModal } from "@/components/orchestration/CreateProjectModal";
 import { listCompanies, listProjects, updateProjectSettings } from "@/lib/orchestration/client";
-import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { buildCompanyPath, buildCanonicalProjectTasksPath } from "@/lib/orchestration/route-paths";
 import { useHiddenProjects } from "@/lib/hidden-project-state";
 import type { OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 import { P, color, type as T, space, radius } from "@/lib/ui/tokens";
@@ -26,6 +28,10 @@ export default function ManageProjectsPage() {
   const [filter, setFilter] = useState<FilterMode>("active");
   const { hiddenProjects, setHidden } = useHiddenProjects(slug);
   const [busyProjectId, setBusyProjectId] = useState<string | null>(null);
+  const [createProjectOpen, setCreateProjectOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,18 +103,19 @@ export default function ManageProjectsPage() {
         title="Manage Projects"
         description="Control visibility, status, and lifecycle for all projects in this company."
         actions={
-          <Link
-            href={`/companies/${encodeURIComponent(slug)}?tab=projects&createProject=1`}
+          <button
+            type="button"
+            onClick={() => setCreateProjectOpen(true)}
             style={{
               display: "inline-flex", alignItems: "center", gap: space.sm,
               padding: `${space.sm}px ${space.md}px`, borderRadius: radius.md,
               border: `1px solid ${color.border}`, background: color.surface,
               color: color.text, fontSize: T.bodySmall.size, fontWeight: 500,
-              textDecoration: "none",
+              cursor: "pointer",
             }}
           >
             <Plus size={14} /> New project
-          </Link>
+          </button>
         }
       />
 
@@ -168,7 +175,7 @@ export default function ManageProjectsPage() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: T.body.size }}>
           <thead>
             <tr style={{ borderBottom: `1px solid ${color.border}`, background: "rgba(255,255,255,0.02)" }}>
-              {["Project", "Status", "Visibility", "Tasks", "Actions"].map((h) => (
+              {["Project", "Actions"].map((h) => (
                 <th key={h} style={{
                   padding: `${space.md}px ${space.lg}px`,
                   fontSize: T.sectionLabel.size, fontWeight: T.sectionLabel.weight,
@@ -183,13 +190,13 @@ export default function ManageProjectsPage() {
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={5} style={{ padding: `${space.xxxl}px ${space.lg}px`, textAlign: "center", color: color.textMuted }}>
+                <td colSpan={2} style={{ padding: `${space.xxxl}px ${space.lg}px`, textAlign: "center", color: color.textMuted }}>
                   Loading projects...
                 </td>
               </tr>
             ) : filteredProjects.length === 0 ? (
               <tr>
-                <td colSpan={5} style={{ padding: `${space.xxxl}px ${space.lg}px`, textAlign: "center", color: color.textMuted }}>
+                <td colSpan={2} style={{ padding: `${space.xxxl}px ${space.lg}px`, textAlign: "center", color: color.textMuted }}>
                   No projects match this filter.
                 </td>
               </tr>
@@ -197,35 +204,28 @@ export default function ManageProjectsPage() {
               filteredProjects.map((project) => {
                 const hidden = Boolean(hiddenProjects[project.id]);
                 const busy = busyProjectId === project.id;
+                const projectTasksHref = buildCanonicalProjectTasksPath(
+                  company?.code ?? slug.slice(0, 3).toUpperCase(),
+                  project.slug || project.id,
+                );
                 return (
                   <tr key={project.id} style={{ borderBottom: `1px solid ${color.border}` }}>
                     {/* Project */}
                     <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top" }}>
-                      <div style={{ fontWeight: 500, color: color.text }}>{project.name}</div>
+                      <Link href={projectTasksHref} style={{ fontWeight: 500, color: color.text, textDecoration: "none" }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = color.accent; }}
+                        onMouseLeave={(e) => { e.currentTarget.style.color = color.text; }}
+                      >
+                        {project.name}
+                      </Link>
                       <div style={{ fontSize: T.caption.size, color: color.textMuted, marginTop: 2 }}>{project.slug}</div>
                       {project.description ? (
                         <div style={{ fontSize: T.bodySmall.size, color: color.textSecondary, marginTop: 4 }}>{project.description}</div>
                       ) : null}
                     </td>
-                    {/* Status */}
-                    <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top" }}>
-                      <StatusBadge status={project.status} />
-                    </td>
-                    {/* Visibility */}
-                    <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top", color: color.textSecondary }}>
-                      {hidden ? "Hidden" : "Visible"}
-                    </td>
-                    {/* Tasks */}
-                    <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top", color: color.textSecondary }}>
-                      {project.taskCount ?? "—"}
-                    </td>
                     {/* Actions */}
                     <td style={{ padding: `${space.md}px ${space.lg}px`, verticalAlign: "top", textAlign: "right" }}>
                       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: space.sm }}>
-                        <TableAction
-                          href={buildCompanyPath(slug, `/projects/${encodeURIComponent(project.slug || project.id)}`)}
-                          label="Open"
-                        />
                         <TableAction
                           icon={hidden ? <Eye size={13} /> : <EyeOff size={13} />}
                           label={hidden ? "Show" : "Hide"}
@@ -266,29 +266,41 @@ export default function ManageProjectsPage() {
           </tbody>
         </table>
       </div>
+
+      {company && mounted && createPortal(
+        <CreateProjectModal
+          open={createProjectOpen}
+          onClose={() => setCreateProjectOpen(false)}
+          onCreated={(project) => {
+            setCreateProjectOpen(false);
+            setProjects((prev) => [...prev, {
+              id: project.id,
+              slug: project.slug,
+              name: project.name,
+              description: "",
+              emoji: "",
+              color: "#0ea5e9",
+              owner: "",
+              status: "active",
+              created: new Date().toISOString(),
+              taskCount: 0,
+              inProgress: 0,
+              backlog: 0,
+              review: 0,
+              completed: 0,
+            }].sort((a, b) => a.name.localeCompare(b.name)));
+          }}
+          companyId={company.id}
+          companyCode={company.code}
+          companySlug={company.slug}
+        />,
+        document.body,
+      )}
     </div>
   );
 }
 
 /* ─── Sub-components ─── */
-
-function StatusBadge({ status }: { status: string }) {
-  const tones: Record<string, { fg: string; bg: string }> = {
-    active: { fg: color.positive, bg: color.positiveSoft },
-    paused: { fg: color.warning, bg: color.warningSoft },
-    archived: { fg: color.textMuted, bg: "rgba(115,115,115,0.12)" },
-  };
-  const t = tones[status] ?? tones.archived;
-  return (
-    <span style={{
-      display: "inline-block", padding: `2px ${space.sm}px`,
-      borderRadius: radius.sm, fontSize: T.caption.size, fontWeight: T.caption.weight,
-      background: t.bg, color: t.fg,
-    }}>
-      {status}
-    </span>
-  );
-}
 
 function TableAction({
   icon, label, onClick, disabled, href,
