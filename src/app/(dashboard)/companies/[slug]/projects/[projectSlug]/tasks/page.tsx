@@ -785,6 +785,27 @@ export default function ProjectTasksPage({
           />
         }
         title={project.name}
+        actions={
+          <Link
+            href={newTaskHref}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              padding: "0 10px",
+              height: 34,
+              borderRadius: radius.md,
+              border: `0.5px solid ${P.cardBorder}`,
+              background: "transparent",
+              color: P.text,
+              fontSize: 13,
+              textDecoration: "none",
+            }}
+          >
+            <Plus size={13} />
+            New Task
+          </Link>
+        }
       />
 
       <div style={{ marginTop: space.xs, marginBottom: space.md }}>
@@ -801,26 +822,6 @@ export default function ProjectTasksPage({
           flexWrap: "wrap",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: space.sm, minWidth: 0, flex: 1 }}>
-            <Link
-              href={newTaskHref}
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "0 10px",
-                height: 34,
-                borderRadius: radius.md,
-                border: `0.5px solid ${P.cardBorder}`,
-                background: "transparent",
-                color: P.text,
-                fontSize: 13,
-                textDecoration: "none",
-                flexShrink: 0,
-              }}
-            >
-              <Plus size={13} />
-              New Task
-            </Link>
             <SearchInput value={search} onChange={setSearch} />
           </div>
 
