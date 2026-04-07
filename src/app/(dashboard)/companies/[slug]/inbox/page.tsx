@@ -29,7 +29,7 @@ import type {
 /* ------------------------------------------------------------------ */
 
 type TabKey = "mine" | "recent" | "unread" | "all";
-type InboxColumn = "status" | "id" | "assignee" | "project" | "updated";
+type InboxColumn = "status" | "id" | "assignee" | "project" | "type" | "updated";
 type CategoryFilter = "everything" | "tasks" | "executions" | "approvals";
 type ApprovalStatusFilter = "all" | "pending" | "approved" | "rejected" | "revision_requested";
 
@@ -47,7 +47,7 @@ const EMPTY: InboxState = { events: [], unreadCount: 0, hasMore: false };
 /* ------------------------------------------------------------------ */
 
 const COLUMNS_STORAGE_KEY = "mc:inbox:columns";
-const DEFAULT_COLUMNS: InboxColumn[] = ["status", "id", "updated"];
+const DEFAULT_COLUMNS: InboxColumn[] = ["status", "id", "type", "updated"];
 
 function getStoredColumns(): InboxColumn[] {
   try {
@@ -385,7 +385,7 @@ export default function CompanyInboxPage() {
           companySlug: slug,
           includeDone: true,
           includeTaskSnapshot: false,
-          limit: 100,
+          limit: 25,
         }),
       ]);
       const current = companyRows.find((row) => row.slug === slug) ?? null;
@@ -416,7 +416,7 @@ export default function CompanyInboxPage() {
         companySlug: slug,
         includeDone: true,
         includeTaskSnapshot: false,
-        limit: 100,
+        limit: 25,
         cursor: inbox.nextCursor,
       });
       if (!next) return;
@@ -652,7 +652,8 @@ export default function CompanyInboxPage() {
                   { key: "id" as InboxColumn, label: "ID", desc: "Task identifier like NEV-45" },
                   { key: "assignee" as InboxColumn, label: "Assignee", desc: "Assigned agent" },
                   { key: "project" as InboxColumn, label: "Project", desc: "Project name with color" },
-                  { key: "updated" as InboxColumn, label: "Updated", desc: "Last activity time" },
+                  { key: "type" as InboxColumn, label: "Type", desc: "Update type (commented, failed, etc.)" },
+                  { key: "updated" as InboxColumn, label: "Updated", desc: "Last changed time" },
                 ]).map((col) => (
                   <button
                     key={col.key}
@@ -916,6 +917,7 @@ function TaskEventRow({
 
   const showAssignee = visibleColumns.includes("assignee");
   const showProject = visibleColumns.includes("project");
+  const showType = visibleColumns.includes("type");
   const showUpdated = visibleColumns.includes("updated");
 
   return (
@@ -975,24 +977,24 @@ function TaskEventRow({
           </span>
         </div>
 
-        {/* ── Right section: fixed-width columns, right-aligned ── */}
+        {/* ── Right section: data columns ── */}
         <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
-          {/* Assignee — fixed width */}
+          {/* Assignee — left-aligned */}
           {showAssignee && (
             <span style={{
-              width: 80, fontSize: 11, color: "#78716c",
-              textAlign: "right", overflow: "hidden", textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
+              width: 100, fontSize: 11, color: "#78716c",
+              textAlign: "left", overflow: "hidden", textOverflow: "ellipsis",
+              whiteSpace: "nowrap", paddingLeft: 8,
             }}>
               {event.agentName || ""}
             </span>
           )}
 
-          {/* Project — fixed width */}
+          {/* Project — left-aligned */}
           {showProject && (
             <span style={{
               width: 160, display: "inline-flex", alignItems: "center",
-              justifyContent: "flex-end", gap: 5,
+              justifyContent: "flex-start", gap: 5,
               fontSize: 11, color: "#78716c", paddingLeft: 8,
               overflow: "hidden", whiteSpace: "nowrap",
             }}>
@@ -1006,12 +1008,12 @@ function TaskEventRow({
                   <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{event.projectName}</span>
                 </>
               ) : (
-                <span style={{ color: "#57534e" }}>No project</span>
+                <span style={{ color: "#57534e" }}>—</span>
               )}
             </span>
           )}
 
-          {/* Count badge — fixed width */}
+          {/* Count badge */}
           <span style={{
             width: badge ? "auto" : 0, minWidth: badge ? 40 : 0,
             textAlign: "center", paddingLeft: badge ? 8 : 0,
@@ -1027,13 +1029,25 @@ function TaskEventRow({
             )}
           </span>
 
-          {/* Updated — fixed width */}
+          {/* Type — separate column, left-aligned */}
+          {showType && (
+            <span style={{
+              width: 80, fontSize: 11,
+              color: isFailed ? "#f87171" : "#78716c",
+              textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8,
+              textTransform: "capitalize",
+            }}>
+              {verb}
+            </span>
+          )}
+
+          {/* Updated — time only, right-aligned */}
           {showUpdated && (
             <span style={{
-              width: 120, fontSize: 11, color: isFailed ? "#f87171" : "#57534e",
+              width: 90, fontSize: 11, color: isFailed ? "#f87171" : "#57534e",
               textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8,
             }}>
-              {verb} {age} ago
+              {age} ago
             </span>
           )}
         </div>
@@ -1203,7 +1217,7 @@ function ApprovalRow({
                 {event.projectName}
               </span>
             )}
-            <span>updated {age} ago</span>
+            <span>{age} ago</span>
           </div>
         </div>
 

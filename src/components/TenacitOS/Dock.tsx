@@ -469,9 +469,9 @@ export function Dock() {
   const { liveAgentIds } = useLiveStream();
 
   const [isMobile, setIsMobile] = useState(false);
-  const [projectsOpen, setProjectsOpen] = useState(false);
-  const [agentsOpen, setAgentsOpen] = useState(false);
-  const [companyOpen, setCompanyOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
+  const [agentsOpen, setAgentsOpen] = useState(true);
+  const [companyOpen, setCompanyOpen] = useState(true);
   const [systemsOpen, setSystemsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const [company, setCompany] = useState<CompanyNavState>({
