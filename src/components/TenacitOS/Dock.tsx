@@ -270,9 +270,9 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
   const highlighted = item.highlight && !active;
   const iconColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#a8a6a0";
   const labelColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#c2c0b6";
-  const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "rgba(255,255,255,0.08)" : "transparent";
-  const border = hasAccent ? "0.5px solid rgba(222,220,209,0.06)" : active ? "0.5px solid rgba(222,220,209,0.10)" : "0.5px solid transparent";
-  const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.03)";
+  const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "#0c0b0a" : "transparent";
+  const border = hasAccent ? "0.5px solid rgba(222,220,209,0.06)" : active ? "0.5px solid transparent" : "0.5px solid transparent";
+  const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.04)";
   const hoverBorder = active || hasAccent ? border : "0.5px solid rgba(222,220,209,0.06)";
   // Accent bar uses inset box-shadow so it doesn't affect layout or get wiped by hover border resets
   const accentShadow = hasAccent ? "inset 2px 0 0 0 rgba(214,211,209,0.4)" : undefined;
@@ -824,8 +824,8 @@ export function Dock() {
           left: 0,
           right: 0,
           height: "56px",
-          borderTop: "1px solid rgba(120,113,108,0.58)",
-          background: "linear-gradient(180deg, rgba(28,25,23,0.96) 0%, rgba(41,37,36,0.96) 100%)",
+          borderTop: "0.5px solid rgba(222,220,209,0.12)",
+          background: "#1e1d1b",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-around",
@@ -873,7 +873,7 @@ export function Dock() {
         bottom: 0,
         width: `${DOCK_WIDTH}px`,
         borderRight: "0.5px solid rgba(222,220,209,0.08)",
-        background: "#181716",
+        background: "#1e1d1b",
         boxShadow: "none",
         display: "flex",
         flexDirection: "column",
@@ -1240,7 +1240,7 @@ export function Dock() {
         style={{
           position: "fixed", left: 0, top: 0, bottom: 0,
           width: `${DOCK_COLLAPSED_WIDTH}px`,
-          background: "#181716",
+          background: "#1e1d1b",
           borderRight: "0.5px solid rgba(222,220,209,0.08)",
           display: "flex", flexDirection: "column", alignItems: "center",
           padding: "8px 4px", gap: 2, zIndex: 50,
@@ -1259,8 +1259,8 @@ export function Dock() {
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, borderRadius: 6,
-                  background: active ? "rgba(255,255,255,0.08)" : "transparent",
-                  border: active ? "0.5px solid rgba(222,220,209,0.10)" : "0.5px solid transparent",
+                  background: active ? "#0c0b0a" : "transparent",
+                  border: active ? "0.5px solid transparent" : "0.5px solid transparent",
                   color: active ? "#eae8e4" : "#a8a6a0",
                   textDecoration: "none", transition: "all 120ms ease",
                 }}

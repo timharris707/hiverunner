@@ -164,7 +164,7 @@ function SearchInput({ value, onChange }: { value: string; onChange: (v: string)
           height: 30,
           borderRadius: radius.md,
           border: `1px solid ${P.cardBorder}`,
-          background: "rgba(12, 10, 9, 0.45)",
+          background: P.surface,
           padding: `0 ${space.md}px 0 ${space.lg}px`,
           fontSize: tokenType.bodySmall.size,
           color: P.text,
@@ -211,7 +211,7 @@ function SimplePopover({
           height: "30px",
           borderRadius: radius.md,
           border: `1px solid ${P.cardBorder}`,
-          background: "rgba(12, 10, 9, 0.45)",
+          background: P.surface,
           color: P.textSecondary,
           fontSize: tokenType.bodySmall.size,
           cursor: "pointer",
@@ -231,7 +231,7 @@ function SimplePopover({
             borderRadius: radius.md,
             border: `1px solid ${P.cardBorder}`,
             background: P.surfaceElevated,
-            boxShadow: "0 16px 36px rgba(12, 10, 9, 0.45)",
+            boxShadow: "0 16px 36px rgba(0, 0, 0, 0.35)",
           }}
         >
           {children(() => setOpen(false))}

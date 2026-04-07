@@ -14,19 +14,19 @@
 /* ─── Color Palette ─── */
 
 export const color = {
-  /** Page background — warm charcoal */
-  bg: "#141312",
-  /** Cards, panels, elevated containers */
-  surface: "#1c1b19",
+  /** Page background — warm charcoal canvas (lightest layer) */
+  bg: "#272624",
+  /** Cards, panels — darker than bg, defined by borders */
+  surface: "#201f1d",
   /** Elevated surfaces (modals, dropdowns, popovers) */
-  surfaceElevated: "#252321",
+  surfaceElevated: "#2c2b28",
   /** Hover state for surfaces */
-  surfaceHover: "#2c2a28",
+  surfaceHover: "#33312e",
 
   /** Default border — warm, hairline-weight feel */
-  border: "rgba(222,220,209,0.10)",
+  border: "rgba(222,220,209,0.12)",
   /** Stronger border (focused inputs, active states) */
-  borderStrong: "rgba(222,220,209,0.18)",
+  borderStrong: "rgba(222,220,209,0.22)",
 
   /** Primary text — warm white */
   text: "#eae8e4",
@@ -162,13 +162,18 @@ export const pageStyle: React.CSSProperties = {
 export const P = {
   bg: color.bg,
   surface: color.surface,
+  surfaceElevated: color.surfaceElevated,
+  surfaceHover: color.surfaceHover,
   card: color.surface,
   cardBorder: color.border,
   cardBorderHover: color.borderStrong,
   text: color.text,
   textSec: color.textSecondary,
+  textSecondary: color.textSecondary,
+  textMuted: color.textMuted,
   muted: color.textMuted,
   accent: color.accent,
+  accentSoft: color.accentSoft,
   accentDim: color.accentSoft,
   success: color.positive,
   successDim: color.positiveSoft,

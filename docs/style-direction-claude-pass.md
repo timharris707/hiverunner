@@ -6,13 +6,24 @@ Date: 2026-04-06
 
 ## Key decisions
 
-### Palette shift: cool → warm
-- Background: `#0c0c0c` → `#141312` (warm charcoal)
-- Surface: `#1a1a1a` → `#1c1b19`
-- Elevated: `#242424` → `#252321`
+### Palette shift: cool → warm + value lift
+- Background: `#0c0c0c` → `#272624` (warm charcoal canvas, ~15% lightness)
+- Surface: `#1a1a1a` → `#201f1d` (cards darker than bg, defined by borders)
+- Elevated: `#242424` → `#2c2b28`
+- Hover: → `#33312e`
+- Sidebar: → `#1e1d1b` (darker than content, lighter than old base)
+- Active nav: → `#0c0b0a` (near-black for emphasis, like Claude)
 - Text primary: `#e5e5e5` → `#eae8e4` (warm white, not cream)
 - Text secondary: `#a3a3a3` → `#a8a6a0` (olive-gray, not blue-gray)
 - Text muted: `#737373` → `#7a7872`
+
+### Value structure (luminance hierarchy)
+The key insight is not just warm hue but **lifted lightness**:
+- Content canvas is the **lightest** layer (~15% L, matching Claude's `#262624`)
+- Sidebar is **slightly darker** (~12% L, matching Claude's `#1f1e1d`)
+- Cards/surfaces sit **darker than canvas** with border definition
+- Active pills use **near-black** for emphasis contrast
+- Darkest tones are **selective accents**, not the default world
 
 ### Border treatment
 - Width: `1px` → `0.5px` throughout (hairline borders)

@@ -8,21 +8,21 @@
    ============================================ */
 
 :root {
-  /* Core Colors — warm charcoal palette */
-  --bg: #141312;
-  --background: #141312; /* alias for compatibility */
+  /* Core Colors — warm charcoal palette, lifted value structure */
+  --bg: #272624;
+  --background: #272624; /* alias for compatibility */
   --foreground: #eae8e4;
 
-  /* Surface Colors — warm tones */
-  --surface: #1c1b19;
-  --surface-elevated: #252321;
-  --surface-hover: #2c2a28;
-  --card: #1c1b19; /* alias */
-  --card-elevated: #252321; /* alias */
+  /* Surface Colors — cards sit darker than bg canvas */
+  --surface: #201f1d;
+  --surface-elevated: #2c2b28;
+  --surface-hover: #33312e;
+  --card: #201f1d; /* alias */
+  --card-elevated: #2c2b28; /* alias */
 
-  /* Borders — warm, subtle */
-  --border: rgba(222,220,209,0.10);
-  --border-strong: rgba(222,220,209,0.18);
+  /* Borders — warm, subtle, slightly more visible on lighter surfaces */
+  --border: rgba(222,220,209,0.12);
+  --border-strong: rgba(222,220,209,0.22);
 
   /* Accent — restrained amber instead of red */
   --accent: #d97706;
@@ -253,7 +253,7 @@ code, pre, .font-mono {
 
 .orchestra-chip {
   border: 0.5px solid rgba(222, 220, 209, 0.12);
-  background: rgba(28, 25, 23, 0.74);
+  background: var(--surface);
   color: #d6d3d1;
 }
 
