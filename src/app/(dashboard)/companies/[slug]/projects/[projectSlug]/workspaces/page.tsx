@@ -19,19 +19,6 @@ import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import { PageHeader } from "@/lib/ui/primitives";
 import { P, color, font, radius, space } from "@/lib/ui/tokens";
 
-const C = {
-  bg: P.bg,
-  card: P.surface,
-  cardBorder: P.cardBorder,
-  text: P.text,
-  textSec: P.textSec,
-  muted: P.muted,
-  divider: P.cardBorder,
-  accent: P.accent,
-  green: color.positive,
-  red: color.negative,
-};
-
 type AgentWorkspace = {
   agentId: string;
   agentName: string;
@@ -49,29 +36,14 @@ type RunContext = {
   agentId: string | null;
   agentName: string | null;
   provider: string;
-  sessionId: string | null;
   status: string;
   startedAt: string | null;
   completedAt: string | null;
-  durationMs: number | null;
 };
 
-type WorkspacesData = {
-  project: { id: string; name: string; slug: string };
-  company: {
-    id: string | null;
-    slug: string | null;
-    name: string | null;
-    workspaceRoot: string | null;
-    workspaceRootExists: boolean;
-    source: "persisted";
-  };
-  projectDirectory: {
-    path: string | null;
-    exists: boolean;
-    source: "convention";
-    verified: boolean;
-  };
+type WorkspaceData = {
+  company: { workspaceRoot: string | null; workspaceRootExists: boolean; source: "persisted" };
+  projectDirectory: { path: string | null; exists: boolean; source: "convention"; verified: boolean };
   agentWorkspaces: AgentWorkspace[];
   recentExecutionContext: RunContext[];
 };
@@ -83,7 +55,7 @@ export default function ProjectWorkspacesPage({
 }) {
   const { slug, projectSlug } = use(params);
   const [project, setProject] = useState<OrchestrationProject | null>(null);
-  const [data, setData] = useState<WorkspacesData | null>(null);
+  const [data, setData] = useState<WorkspaceData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -93,29 +65,31 @@ export default function ProjectWorkspacesPage({
       try {
         const projects = await listProjects({ company: slug });
         if (cancelled) return;
-        const p = projects.find((p) => p.slug === projectSlug || p.id === projectSlug) ?? null;
-        setProject(p);
+        const proj = projects.find((p) => p.slug === projectSlug || p.id === projectSlug) ?? null;
+        setProject(proj);
 
-        if (p) {
+        if (proj) {
           const res = await fetch(
-            `/api/orchestration/projects/${encodeURIComponent(p.id)}/workspaces`
+            `/api/orchestration/projects/${encodeURIComponent(proj.id)}/workspaces`
           );
-          if (!res.ok) throw new Error("Failed to load workspace data");
-          const json = await res.json();
-          if (!cancelled) setData(json);
+          if (res.ok) {
+            const json = await res.json();
+            if (!cancelled) setData(json);
+          }
         }
-      } catch (err) {
+      } catch (err: unknown) {
         if (!cancelled) setError(err instanceof Error ? err.message : "Unknown error");
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      if (!cancelled) setLoading(false);
     };
     void load();
     return () => { cancelled = true; };
   }, [slug, projectSlug]);
 
-  if (loading) return <div style={{ padding: 32, color: C.muted, fontSize: 13 }}>Loading...</div>;
-  if (!project) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Project not found.</div>;
-  if (error) return <div style={{ padding: 32, color: "#fca5a5", fontSize: 13 }}>Error: {error}</div>;
+  if (loading) return <div style={{ padding: 32, color: P.muted, fontSize: 13 }}>Loading...</div>;
+  if (!project) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Project not found.</div>;
+  if (error) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Error: {error}</div>;
 
   return (
     <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>
@@ -132,59 +106,59 @@ export default function ProjectWorkspacesPage({
 
         {/* Company Workspace Root */}
         {data && (
-          <Section title="Company Workspace Root" icon={<HardDrive size={14} />}>
+          <SectionBlock title="Company Workspace Root">
             {data.company.workspaceRoot ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <PropRow label="Root path">
-                  <code style={{ fontSize: 12, color: C.textSec, fontFamily: "monospace" }}>
+              <>
+                <PropRow label="Root path" divider>
+                  <code style={{ fontSize: 12, color: P.textSec, fontFamily: font.mono }}>
                     {data.company.workspaceRoot}
                   </code>
                 </PropRow>
-                <PropRow label="On disk">
+                <PropRow label="On disk" divider>
                   <StatusBadge ok={data.company.workspaceRootExists} />
                 </PropRow>
                 <PropRow label="Source">
                   <SourceBadge source="persisted" />
                 </PropRow>
-              </div>
+              </>
             ) : (
-              <p style={{ margin: 0, fontSize: 13, color: C.muted, fontStyle: "italic" }}>
+              <p style={{ margin: 0, fontSize: 13, color: P.muted, fontStyle: "italic" }}>
                 No workspace root configured for this company.
               </p>
             )}
-          </Section>
+          </SectionBlock>
         )}
 
         {/* Project Directory */}
         {data && (
-          <Section title="Project Directory" icon={<FolderOpen size={14} />}>
+          <SectionBlock title="Project Directory">
             {data.projectDirectory.path ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                <PropRow label="Path">
-                  <code style={{ fontSize: 12, color: C.textSec, fontFamily: "monospace" }}>
+              <>
+                <PropRow label="Path" divider>
+                  <code style={{ fontSize: 12, color: P.textSec, fontFamily: font.mono }}>
                     {data.projectDirectory.path}
                   </code>
                 </PropRow>
-                <PropRow label="On disk">
+                <PropRow label="On disk" divider>
                   <StatusBadge ok={data.projectDirectory.verified} />
                 </PropRow>
                 <PropRow label="Source">
                   <SourceBadge source="convention" />
                 </PropRow>
-              </div>
+              </>
             ) : (
-              <p style={{ margin: 0, fontSize: 13, color: C.muted, fontStyle: "italic" }}>
+              <p style={{ margin: 0, fontSize: 13, color: P.muted, fontStyle: "italic" }}>
                 No project directory path could be determined.
               </p>
             )}
-          </Section>
+          </SectionBlock>
         )}
 
         {/* Agent Workspaces */}
         {data && (
-          <Section title="Agent Workspaces" icon={<Bot size={14} />}>
+          <SectionBlock title="Agent Workspaces">
             {data.agentWorkspaces.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
                 {data.agentWorkspaces.map((aw) => (
                   <Link
                     key={aw.agentId}
@@ -192,124 +166,84 @@ export default function ProjectWorkspacesPage({
                       slug,
                       `/projects/${encodeURIComponent(projectSlug)}/workspaces/${encodeURIComponent(aw.agentSlug)}`
                     )}
-                    className="no-underline"
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      padding: "10px 0",
+                      borderBottom: `0.5px solid ${P.cardBorder}`,
+                      textDecoration: "none",
+                      color: P.text,
+                      transition: "background 120ms",
+                    }}
+                    onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.03)"; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
                   >
-                    <div
-                      style={{
-                        padding: "12px 16px",
-                        borderRadius: 8,
-                        border: `0.5px solid ${C.cardBorder}`,
-                        background: "rgba(41,37,36,0.4)",
-                        cursor: "pointer",
-                        transition: "border-color 0.15s",
-                      }}
-                      onMouseEnter={(e) => {
-                        (e.currentTarget as HTMLElement).style.borderColor = "rgba(120,113,108,0.35)";
-                      }}
-                      onMouseLeave={(e) => {
-                        (e.currentTarget as HTMLElement).style.borderColor = C.cardBorder;
-                      }}
-                    >
-                      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <Bot size={14} style={{ color: C.textSec }} />
-                          <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>
-                            {aw.agentName}
-                          </span>
-                          <span style={{
-                            fontSize: 11, color: C.muted, padding: "1px 6px",
-                            borderRadius: 4, background: "rgba(120,113,108,0.1)",
-                          }}>
-                            {aw.agentRole || aw.agentSlug}
-                          </span>
-                        </div>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <StatusBadge ok={aw.exists} compact />
-                          <ExternalLink size={12} style={{ color: C.muted }} />
-                        </div>
-                      </div>
-                      <div style={{ marginTop: 6 }}>
-                        <code style={{ fontSize: 11, color: C.muted, fontFamily: "monospace" }}>
-                          {aw.workspacePath}
-                        </code>
-                      </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: P.text }}>{aw.agentName}</span>
+                      <span style={{ fontSize: 11, color: P.muted }}>{aw.agentRole || aw.agentSlug}</span>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <StatusBadge ok={aw.exists} compact />
+                      <ExternalLink size={11} style={{ color: P.muted }} />
                     </div>
                   </Link>
                 ))}
               </div>
             ) : (
-              <p style={{ margin: 0, fontSize: 13, color: C.muted, fontStyle: "italic" }}>
+              <p style={{ margin: 0, fontSize: 13, color: P.muted, fontStyle: "italic", padding: "6px 0" }}>
                 No agents are assigned to this project.
               </p>
             )}
-          </Section>
+          </SectionBlock>
         )}
 
         {/* Recent Execution Context */}
-        {data && (
-          <Section title="Recent Execution Context" icon={<Clock size={14} />}>
-            {data.recentExecutionContext.length > 0 ? (
-              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+        {data && data.recentExecutionContext.length > 0 && (
+          <SectionBlock title="Recent Execution Context">
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 80px 80px 90px",
+                  gap: 8,
+                  padding: "6px 0",
+                  borderBottom: `0.5px solid ${P.cardBorder}`,
+                }}
+              >
+                <span style={{ fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Agent</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Provider</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Status</span>
+                <span style={{ fontSize: 11, fontWeight: 600, color: P.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>When</span>
+              </div>
+              {data.recentExecutionContext.map((run, i) => (
                 <div
+                  key={i}
                   style={{
                     display: "grid",
                     gridTemplateColumns: "1fr 80px 80px 90px",
                     gap: 8,
-                    padding: "6px 0",
-                    borderBottom: `0.5px solid ${C.divider}`,
+                    padding: "8px 0",
+                    borderBottom: i < data.recentExecutionContext.length - 1 ? `0.5px solid ${P.cardBorder}` : undefined,
                   }}
                 >
-                  <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Agent</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Provider</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>Status</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.04em" }}>When</span>
+                  <span style={{ fontSize: 13, color: P.text }}>{run.agentName || "\u2014"}</span>
+                  <span style={{ fontSize: 12, color: P.textSec }}>{run.provider}</span>
+                  <RunStatusBadge status={run.status} />
+                  <span style={{ fontSize: 12, color: P.muted }}>
+                    {run.startedAt ? formatRelative(run.startedAt) : "\u2014"}
+                  </span>
                 </div>
-                {data.recentExecutionContext.map((run, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "1fr 80px 80px 90px",
-                      gap: 8,
-                      padding: "8px 0",
-                      borderBottom: i < data.recentExecutionContext.length - 1 ? `0.5px solid ${C.divider}` : undefined,
-                    }}
-                  >
-                    <span style={{ fontSize: 13, color: C.text }}>{run.agentName || "—"}</span>
-                    <span style={{ fontSize: 12, color: C.textSec }}>{run.provider}</span>
-                    <RunStatusBadge status={run.status} />
-                    <span style={{ fontSize: 12, color: C.muted }}>
-                      {run.startedAt ? formatRelative(run.startedAt) : "—"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p style={{ margin: 0, fontSize: 13, color: C.muted, fontStyle: "italic" }}>
-                No execution runs recorded for this project.
-              </p>
-            )}
-          </Section>
+              ))}
+            </div>
+          </SectionBlock>
         )}
 
-        {/* Data provenance footer */}
-        <div style={{
-          marginTop: 16, padding: "12px 16px",
-          borderRadius: 8,
-          background: "rgba(217,119,6,0.06)",
-          border: "0.5px solid rgba(217,119,6,0.15)",
-          display: "flex", alignItems: "flex-start", gap: 8,
-        }}>
-          <AlertTriangle size={13} style={{ color: C.accent, marginTop: 2, flexShrink: 0 }} />
-          <div style={{ fontSize: 12, color: C.textSec, lineHeight: 1.5 }}>
-            <strong style={{ color: C.textSec }}>Data provenance:</strong> The company workspace root is persisted
-            in the orchestration database. Project and agent workspace paths are <em>convention-derived</em> (not
-            persisted) &mdash; there is no workspace path column on projects or agents. Paths follow the
-            convention <code style={{ fontFamily: "monospace", fontSize: 11 }}>{'{'}<em>root</em>{'}'}/projects/{'{'}<em>slug</em>{'}'}</code> and <code style={{ fontFamily: "monospace", fontSize: 11 }}>~/.openclaw/workspace-{'{'}<em>agent-slug</em>{'}'}</code>,
-            then are checked against the filesystem. Paths marked &ldquo;not found&rdquo; may not exist yet or may use
-            a non-standard location not discoverable by convention.
-          </div>
-        </div>
+        {/* Data provenance — subtle inline note */}
+        <p style={{ marginTop: space.xl, fontSize: 12, color: P.muted, lineHeight: 1.6 }}>
+          The company workspace root is persisted in the orchestration database. Project and agent
+          workspace paths are convention-derived and checked against the filesystem.
+        </p>
       </div>
     </div>
   );
@@ -317,18 +251,15 @@ export default function ProjectWorkspacesPage({
 
 /* ─── Helpers ─── */
 
-function Section({ title, icon, children }: { title: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function SectionBlock({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{
-      marginBottom: 20, padding: "16px 20px", borderRadius: 10,
-      border: `0.5px solid ${C.cardBorder}`,
-      background: C.card,
-    }}>
+    <div style={{ marginBottom: space.xl }}>
       <h3 style={{
-        margin: "0 0 14px", fontSize: 14, fontWeight: 600, color: C.text,
-        display: "flex", alignItems: "center", gap: 8,
+        margin: `0 0 ${space.sm}px`,
+        fontSize: 13,
+        fontWeight: 600,
+        color: P.textSec,
       }}>
-        {icon}
         {title}
       </h3>
       {children}
@@ -336,10 +267,16 @@ function Section({ title, icon, children }: { title: string; icon?: React.ReactN
   );
 }
 
-function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
+function PropRow({ label, children, divider }: { label: string; children: React.ReactNode; divider?: boolean }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-      <span style={{ width: 100, fontSize: 12, color: C.muted, flexShrink: 0 }}>{label}</span>
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "10px 0",
+      borderBottom: divider ? `0.5px solid ${P.cardBorder}` : "none",
+    }}>
+      <span style={{ width: 80, fontSize: 12, color: P.muted, flexShrink: 0 }}>{label}</span>
       <div style={{ minWidth: 0 }}>{children}</div>
     </div>
   );
@@ -351,7 +288,7 @@ function StatusBadge({ ok, compact }: { ok: boolean; compact?: boolean }) {
       <span style={{
         display: "inline-flex", alignItems: "center", gap: 4,
         fontSize: 11, fontWeight: 500, padding: compact ? "1px 5px" : "2px 8px",
-        borderRadius: 4, color: C.green, background: "rgba(34,197,94,0.12)",
+        borderRadius: 4, color: color.positive, background: color.positiveSoft,
       }}>
         <CheckCircle2 size={11} />
         {!compact && "Exists on disk"}
@@ -362,7 +299,7 @@ function StatusBadge({ ok, compact }: { ok: boolean; compact?: boolean }) {
     <span style={{
       display: "inline-flex", alignItems: "center", gap: 4,
       fontSize: 11, fontWeight: 500, padding: compact ? "1px 5px" : "2px 8px",
-      borderRadius: 4, color: C.red, background: "rgba(239,68,68,0.12)",
+      borderRadius: 4, color: color.negative, background: color.negativeSoft,
     }}>
       <XCircle size={11} />
       {!compact && "Not found"}
@@ -372,10 +309,10 @@ function StatusBadge({ ok, compact }: { ok: boolean; compact?: boolean }) {
 
 function SourceBadge({ source }: { source: string }) {
   const styles: Record<string, { color: string; bg: string; label: string }> = {
-    persisted: { color: C.green, bg: "rgba(34,197,94,0.12)", label: "Persisted" },
-    convention: { color: C.accent, bg: "rgba(217,119,6,0.12)", label: "Convention" },
+    persisted: { color: color.positive, bg: color.positiveSoft, label: "Persisted" },
+    convention: { color: color.accent, bg: color.accentSoft, label: "Convention" },
   };
-  const s = styles[source] ?? { color: C.muted, bg: "rgba(87,83,78,0.12)", label: source };
+  const s = styles[source] ?? { color: P.muted, bg: "rgba(87,83,78,0.12)", label: source };
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
@@ -388,13 +325,13 @@ function SourceBadge({ source }: { source: string }) {
 
 function RunStatusBadge({ status }: { status: string }) {
   const s: Record<string, { color: string; bg: string }> = {
-    completed: { color: C.green, bg: "rgba(34,197,94,0.12)" },
-    running: { color: "#3b82f6", bg: "rgba(59,130,246,0.12)" },
-    failed: { color: C.red, bg: "rgba(239,68,68,0.12)" },
-    cancelled: { color: C.muted, bg: "rgba(87,83,78,0.12)" },
-    pending: { color: C.accent, bg: "rgba(217,119,6,0.12)" },
+    completed: { color: color.positive, bg: color.positiveSoft },
+    running: { color: color.info, bg: color.infoSoft },
+    failed: { color: color.negative, bg: color.negativeSoft },
+    cancelled: { color: P.muted, bg: "rgba(87,83,78,0.12)" },
+    pending: { color: color.accent, bg: color.accentSoft },
   };
-  const st = s[status] ?? { color: C.textSec, bg: "rgba(168,162,158,0.12)" };
+  const st = s[status] ?? { color: P.textSec, bg: "rgba(168,162,158,0.12)" };
   return (
     <span style={{
       fontSize: 11, fontWeight: 500, padding: "1px 6px", borderRadius: 4,
