@@ -67,8 +67,8 @@ export function TopBar() {
           left: isMobile ? 0 : `${dockCollapsed ? DOCK_COLLAPSED_WIDTH : DOCK_WIDTH}px`,
           right: 0,
           height: "48px",
-          backgroundColor: "var(--surface)",
-          borderBottom: "1px solid var(--border)",
+          backgroundColor: "var(--bg)",
+          borderBottom: "0.5px solid var(--border)",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
@@ -81,27 +81,24 @@ export function TopBar() {
           <span
             style={{
               fontFamily: "var(--font-heading)",
-              fontSize: "11px",
+              fontSize: "13px",
               fontWeight: 600,
-              color: "var(--accent)",
-              letterSpacing: "1.5px",
-              textTransform: "uppercase" as const,
+              color: "var(--text-primary)",
+              letterSpacing: "0.02em",
             }}
           >
             Mission Control
           </span>
-          <span style={{ color: "var(--border)", fontSize: "14px", margin: "0 4px" }}>|</span>
           <span
             style={{
               fontFamily: "var(--font-body)",
               fontSize: "12px",
-              fontWeight: 600,
-              fontStyle: "italic",
-              color: "var(--text-secondary)",
-              letterSpacing: "0.3px",
+              fontWeight: 400,
+              color: "var(--text-muted)",
+              marginLeft: "12px",
             }}
           >
-            &ldquo;Build an autonomous organization that produces value 24/7&rdquo;
+            Build an autonomous organization that produces value 24/7
           </span>
         </div>
 
@@ -172,7 +169,8 @@ export function TopBar() {
                   width: "28px",
                   height: "28px",
                   borderRadius: "14px",
-                  backgroundColor: "var(--accent)",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "0.5px solid var(--border-strong)",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -211,12 +209,12 @@ export function TopBar() {
                   top: "calc(100% + 4px)",
                   right: 0,
                   width: "180px",
-                  backgroundColor: "var(--surface)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
+                  backgroundColor: "var(--surface-elevated)",
+                  border: "0.5px solid var(--border)",
+                  borderRadius: "10px",
                   padding: "4px",
                   zIndex: 100,
-                  boxShadow: "0 8px 24px rgba(0,0,0,0.3)",
+                  boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
                 }}
               >
                 <Link

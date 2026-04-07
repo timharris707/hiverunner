@@ -56,6 +56,7 @@ export function PageHeader({ title, icon, actions, description }: PageHeaderProp
             margin: 0,
             fontSize: type.pageTitle.size,
             fontWeight: type.pageTitle.weight,
+            letterSpacing: type.pageTitle.letterSpacing,
             fontFamily: font.heading,
             color: color.text,
           }}>
@@ -132,7 +133,7 @@ export function Section({ title, trailing, children, card = true }: SectionProps
         <div style={{
           padding: `${space.lg}px ${space.xl}px`,
           borderRadius: radius.lg,
-          border: `1px solid ${color.border}`,
+          border: `0.5px solid ${color.border}`,
           background: color.surface,
         }}>
           {children}
@@ -166,7 +167,7 @@ export function Card({ children, style, hoverable, onClick }: CardProps) {
       style={{
         padding: `${space.lg}px ${space.xl}px`,
         borderRadius: radius.lg,
-        border: `1px solid ${hovered ? color.borderStrong : color.border}`,
+        border: `0.5px solid ${hovered ? color.borderStrong : color.border}`,
         background: color.surface,
         cursor: onClick ? "pointer" : undefined,
         transition: "border-color 0.15s",
@@ -287,7 +288,7 @@ export function ActionButton({
     },
     secondary: {
       background: color.surface,
-      border: `1px solid ${color.border}`,
+      border: `0.5px solid ${color.border}`,
       color: color.text,
       fontWeight: 500,
     },
@@ -403,7 +404,7 @@ export function InfoNote({ children, tone = "default" }: InfoNoteProps) {
       padding: `${space.md}px ${space.lg}px`,
       borderRadius: radius.md,
       background: bg,
-      border: `1px solid ${borderColor}`,
+      border: `0.5px solid ${borderColor}`,
       fontSize: type.bodySmall.size,
       color: color.textMuted,
       lineHeight: type.bodySmall.lineHeight,

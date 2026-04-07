@@ -137,10 +137,9 @@ function SectionDivider() {
   return (
     <div
       style={{
-        height: "1px",
+        height: "0.5px",
         margin: "4px 6px",
-        background:
-          "linear-gradient(90deg, rgba(68,64,60,0.02) 0%, rgba(120,113,108,0.35) 50%, rgba(68,64,60,0.02) 100%)",
+        background: "rgba(222,220,209,0.08)",
       }}
     />
   );
@@ -201,7 +200,7 @@ function SectionHeader({
           <ChevronRight
             size={11}
             strokeWidth={2.2}
-            color="#a8a29e"
+            color="#7a7872"
             style={{
               flexShrink: 0,
               marginRight: "3px",
@@ -213,10 +212,10 @@ function SectionHeader({
         <span
           style={{
             fontSize: "10px",
-            fontWeight: 700,
-            letterSpacing: "0.16em",
+            fontWeight: 600,
+            letterSpacing: "0.1em",
             textTransform: "uppercase",
-            color: "#a8a29e",
+            color: "#7a7872",
           }}
         >
           {label}
@@ -236,9 +235,9 @@ function SectionHeader({
             width: "18px",
             height: "18px",
             borderRadius: "6px",
-            border: "1px solid rgba(120,113,108,0.4)",
-            background: "rgba(41,37,36,0.55)",
-            color: "#d6d3d1",
+            border: "0.5px solid rgba(222,220,209,0.12)",
+            background: "rgba(41,37,36,0.35)",
+            color: "#a8a6a0",
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
@@ -248,14 +247,14 @@ function SectionHeader({
             marginRight: "6px",
           }}
           onMouseEnter={(event) => {
-            event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
-            event.currentTarget.style.background = "rgba(120,53,15,0.4)";
-            event.currentTarget.style.color = "#fde68a";
+            event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+            event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+            event.currentTarget.style.color = "#eae8e4";
           }}
           onMouseLeave={(event) => {
-            event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
-            event.currentTarget.style.background = "rgba(41,37,36,0.55)";
-            event.currentTarget.style.color = "#d6d3d1";
+            event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.12)";
+            event.currentTarget.style.background = "rgba(41,37,36,0.35)";
+            event.currentTarget.style.color = "#a8a6a0";
           }}
         >
           <Plus size={11} strokeWidth={2.2} />
@@ -269,14 +268,14 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
   const Icon = item.icon;
   const hasAccent = Boolean(item.accentBar);
   const highlighted = item.highlight && !active;
-  const iconColor = hasAccent ? "#f5f5f4" : active ? "#f5f5f4" : highlighted ? "#f5f5f4" : "#a8a29e";
-  const labelColor = hasAccent ? "#fafaf9" : active ? "#fafaf9" : highlighted ? "#f5f5f4" : "#d6d3d1";
-  const background = hasAccent ? "rgba(255,255,255,0.05)" : active ? "rgba(255,255,255,0.12)" : "transparent";
-  const border = hasAccent ? "1px solid rgba(255,255,255,0.08)" : active ? "1px solid rgba(255,255,255,0.18)" : "1px solid transparent";
-  const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.04)";
-  const hoverBorder = active || hasAccent ? border : "1px solid rgba(255,255,255,0.08)";
+  const iconColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#a8a6a0";
+  const labelColor = hasAccent ? "#eae8e4" : active ? "#eae8e4" : highlighted ? "#eae8e4" : "#c2c0b6";
+  const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "rgba(255,255,255,0.08)" : "transparent";
+  const border = hasAccent ? "0.5px solid rgba(222,220,209,0.06)" : active ? "0.5px solid rgba(222,220,209,0.10)" : "0.5px solid transparent";
+  const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.03)";
+  const hoverBorder = active || hasAccent ? border : "0.5px solid rgba(222,220,209,0.06)";
   // Accent bar uses inset box-shadow so it doesn't affect layout or get wiped by hover border resets
-  const accentShadow = hasAccent ? "inset 3px 0 0 0 rgba(214,211,209,0.6)" : undefined;
+  const accentShadow = hasAccent ? "inset 2px 0 0 0 rgba(214,211,209,0.4)" : undefined;
   const hasInlineAction = Boolean(item.trailingAction);
 
   return (
@@ -364,9 +363,9 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       {item.badge != null ? (
         <span
           style={{
-            background: "rgba(68,64,60,0.78)",
-            color: "#f5f5f4",
-            border: "1px solid rgba(120,113,108,0.4)",
+            background: "rgba(68,64,60,0.5)",
+            color: "#c2c0b6",
+            border: "0.5px solid rgba(222,220,209,0.12)",
             fontSize: "10px",
             fontWeight: 700,
             borderRadius: "9999px",
@@ -385,9 +384,9 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       {item.badgeText ? (
         <span
           style={{
-            background: "rgba(6,95,70,0.18)",
+            background: "rgba(6,95,70,0.12)",
             color: "#6ee7b7",
-            border: "1px solid rgba(16,185,129,0.4)",
+            border: "0.5px solid rgba(16,185,129,0.25)",
             fontSize: "10px",
             fontWeight: 700,
             borderRadius: "9999px",
@@ -873,11 +872,9 @@ export function Dock() {
         top: 0,
         bottom: 0,
         width: `${DOCK_WIDTH}px`,
-        borderRight: "1px solid rgba(120,113,108,0.36)",
-        background:
-          "radial-gradient(125% 88% at 0% 0%, rgba(180,83,9,0.11) 0%, rgba(28,25,23,0.94) 40%), linear-gradient(180deg, rgba(28,25,23,0.98) 0%, rgba(41,37,36,0.98) 100%)",
-        boxShadow: "inset -1px 0 0 rgba(214,211,209,0.08)",
-        backdropFilter: "blur(14px)",
+        borderRight: "0.5px solid rgba(222,220,209,0.08)",
+        background: "#181716",
+        boxShadow: "none",
         display: "flex",
         flexDirection: "column",
         padding: "6px 6px 10px",
@@ -887,15 +884,14 @@ export function Dock() {
         overflowX: "hidden",
       }}
     >
-      <div style={{ margin: "2px 4px 8px", padding: "2px 2px 6px", borderBottom: "1px solid rgba(120,113,108,0.28)" }}>
+      <div style={{ margin: "2px 4px 8px", padding: "2px 2px 6px", borderBottom: "0.5px solid rgba(222,220,209,0.08)" }}>
         <p
           style={{
             margin: 0,
-            fontSize: "11px",
-            letterSpacing: "0.16em",
-            textTransform: "uppercase",
-            color: "#e7e5e4",
-            fontWeight: 700,
+            fontSize: "13px",
+            letterSpacing: "0.01em",
+            color: "#eae8e4",
+            fontWeight: 600,
           }}
         >
           {company.name}
@@ -1244,8 +1240,8 @@ export function Dock() {
         style={{
           position: "fixed", left: 0, top: 0, bottom: 0,
           width: `${DOCK_COLLAPSED_WIDTH}px`,
-          background: "linear-gradient(180deg, rgba(28,25,23,0.98) 0%, rgba(41,37,36,0.98) 100%)",
-          borderRight: "1px solid rgba(120,113,108,0.25)",
+          background: "#181716",
+          borderRight: "0.5px solid rgba(222,220,209,0.08)",
           display: "flex", flexDirection: "column", alignItems: "center",
           padding: "8px 4px", gap: 2, zIndex: 50,
           overflowY: "auto", overflowX: "hidden",
@@ -1263,16 +1259,16 @@ export function Dock() {
                 style={{
                   display: "flex", alignItems: "center", justifyContent: "center",
                   width: 32, height: 32, borderRadius: 6,
-                  background: active ? "rgba(217,119,6,0.2)" : "transparent",
-                  border: active ? "1px solid rgba(245,158,11,0.38)" : "1px solid transparent",
-                  color: active ? "#fbbf24" : "#a8a29e",
+                  background: active ? "rgba(255,255,255,0.08)" : "transparent",
+                  border: active ? "0.5px solid rgba(222,220,209,0.10)" : "0.5px solid transparent",
+                  color: active ? "#eae8e4" : "#a8a6a0",
                   textDecoration: "none", transition: "all 120ms ease",
                 }}
               >
                 <Icon size={15} strokeWidth={active ? 2.25 : 2} />
               </Link>
               {item.dividerAfter && (
-                <div style={{ height: 1, width: 24, margin: "3px auto", background: "rgba(120,113,108,0.3)" }} />
+                <div style={{ height: 0.5, width: 24, margin: "3px auto", background: "rgba(222,220,209,0.08)" }} />
               )}
             </div>
           );
@@ -1285,12 +1281,12 @@ export function Dock() {
           style={{
             display: "flex", alignItems: "center", justifyContent: "center",
             width: 32, height: 32, borderRadius: 8,
-            border: "1px solid rgba(120,113,108,0.25)",
-            background: "rgba(41,37,36,0.5)", color: "#a8a29e",
+            border: "0.5px solid rgba(222,220,209,0.08)",
+            background: "rgba(41,37,36,0.3)", color: "#a8a6a0",
             cursor: "pointer", transition: "all 120ms ease",
           }}
-          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,53,15,0.3)"; e.currentTarget.style.color = "#fde68a"; }}
-          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(41,37,36,0.5)"; e.currentTarget.style.color = "#a8a29e"; }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.06)"; e.currentTarget.style.color = "#eae8e4"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = "rgba(41,37,36,0.3)"; e.currentTarget.style.color = "#a8a6a0"; }}
         >
           <ChevronRight size={14} />
         </button>

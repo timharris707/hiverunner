@@ -14,31 +14,31 @@
 /* ─── Color Palette ─── */
 
 export const color = {
-  /** Page background */
-  bg: "#0c0c0c",
+  /** Page background — warm charcoal */
+  bg: "#141312",
   /** Cards, panels, elevated containers */
-  surface: "#1a1a1a",
+  surface: "#1c1b19",
   /** Elevated surfaces (modals, dropdowns, popovers) */
-  surfaceElevated: "#242424",
+  surfaceElevated: "#252321",
   /** Hover state for surfaces */
-  surfaceHover: "#2e2e2e",
+  surfaceHover: "#2c2a28",
 
-  /** Default border */
-  border: "rgba(255,255,255,0.08)",
+  /** Default border — warm, hairline-weight feel */
+  border: "rgba(222,220,209,0.10)",
   /** Stronger border (focused inputs, active states) */
-  borderStrong: "rgba(255,255,255,0.16)",
+  borderStrong: "rgba(222,220,209,0.18)",
 
-  /** Primary text — headings, values, emphasized content */
-  text: "#e5e5e5",
+  /** Primary text — warm white */
+  text: "#eae8e4",
   /** Secondary text — descriptions, metadata, supporting content */
-  textSecondary: "#a3a3a3",
+  textSecondary: "#a8a6a0",
   /** Muted text — timestamps, captions, disabled labels */
-  textMuted: "#737373",
+  textMuted: "#7a7872",
 
   /** Brand accent (amber) — interactive highlights, active indicators */
   accent: "#d97706",
   /** Accent background — subtle highlight behind accent elements */
-  accentSoft: "rgba(217,119,6,0.12)",
+  accentSoft: "rgba(217,119,6,0.10)",
 
   /** Positive/success */
   positive: "#22c55e",
@@ -73,7 +73,7 @@ export const font = {
  */
 export const type = {
   /** Page title — used once per page in the header */
-  pageTitle: { size: 15, weight: 700 as const, letterSpacing: undefined },
+  pageTitle: { size: 17, weight: 600 as const, letterSpacing: "-0.01em" },
   /** Section header — uppercase label above grouped content */
   sectionLabel: { size: 11, weight: 600 as const, letterSpacing: "0.08em" },
   /** Card/item title — primary label in a list row or card */
@@ -114,10 +114,10 @@ export const space = {
 export const radius = {
   /** 4px — buttons, inputs, badges */
   sm: 4,
-  /** 8px — cards, panels */
+  /** 8px — cards, panels, inputs */
   md: 8,
-  /** 10px — prominent cards, sections */
-  lg: 10,
+  /** 12px — prominent cards, sections */
+  lg: 12,
   /** 9999px — pills, fully rounded */
   full: 9999,
 } as const;
@@ -128,7 +128,7 @@ export const radius = {
 export const cardStyle: React.CSSProperties = {
   padding: `${space.lg}px ${space.xl}px`,
   borderRadius: radius.lg,
-  border: `1px solid ${color.border}`,
+  border: `0.5px solid ${color.border}`,
   background: color.surface,
 };
 
