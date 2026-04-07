@@ -42,7 +42,15 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
         onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
       >
         {currentAgent ? (
-          <><span>{currentAgent.emoji}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{currentAgent.name}</span></>
+          <>
+            {currentAgent.avatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={currentAgent.avatar} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+            ) : (
+              <span>{currentAgent.emoji}</span>
+            )}
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{currentAgent.name}</span>
+          </>
         ) : (
           <span style={{ color: P.textMuted }}>{current || "Unassigned"}</span>
         )}
@@ -82,7 +90,12 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = (current ?? "").toLowerCase() === a.name.toLowerCase() ? "rgba(255,255,255,0.05)" : "transparent"; }}
             >
-              <span>{a.emoji}</span>
+              {a.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={a.avatar} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+              ) : (
+                <span>{a.emoji}</span>
+              )}
               <span>{a.name}</span>
             </button>
           ))}

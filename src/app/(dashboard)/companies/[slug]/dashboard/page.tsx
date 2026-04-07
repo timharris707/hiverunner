@@ -575,12 +575,17 @@ export default function CompanyDashboardPage() {
                 const agent = event.agentId ? agentLookup.get(event.agentId.toLowerCase()) : null;
                 return (
                   <div key={event.id} className="flex items-start gap-2.5 px-4 py-2">
-                    <span
-                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px]"
-                      style={{ background: "rgba(120,113,108,0.15)", color: agent ? "#a8a29e" : "#78716c" }}
-                    >
-                      {agent?.emoji ?? "BO"}
-                    </span>
+                    {agent?.avatar ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={agent.avatar} alt="" className="mt-0.5 h-5 w-5 shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <span
+                        className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px]"
+                        style={{ background: "rgba(120,113,108,0.15)", color: agent ? "#a8a29e" : "#78716c" }}
+                      >
+                        {agent?.emoji ?? "BO"}
+                      </span>
+                    )}
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-xs text-stone-300">{event.message}</p>
                     </div>
@@ -615,9 +620,14 @@ export default function CompanyDashboardPage() {
                     <span className="inline-block h-[12px] w-[12px] shrink-0 rounded-full border-2" style={{ borderColor: dotColor }} />
                     <span className="shrink-0 font-mono text-[11px] text-stone-500">{identifier}</span>
                     {assigneeAgent && (
-                      <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: "rgba(120,113,108,0.15)", color: "#a8a29e" }}>
-                        {assigneeAgent.emoji ?? "•"}
-                      </span>
+                      assigneeAgent.avatar ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={assigneeAgent.avatar} alt="" className="h-4 w-4 shrink-0 rounded-full object-cover" />
+                      ) : (
+                        <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[8px]" style={{ background: "rgba(120,113,108,0.15)", color: "#a8a29e" }}>
+                          {assigneeAgent.emoji ?? "•"}
+                        </span>
+                      )
                     )}
                     <span className="shrink-0 text-[10px] text-stone-600">{formatAge(task.updated)}</span>
                     <span className="min-w-0 flex-1 truncate text-xs text-stone-300">{task.title}</span>
@@ -986,12 +996,17 @@ function AgentRunCard({
               style={{ background: dotColor, boxShadow: dotGlow }}
             />
           )}
-          <span
-            className="inline-flex h-6 w-6 items-center justify-center rounded text-xs"
-            style={{ background: "rgba(120,113,108,0.12)", color: "#a8a29e" }}
-          >
-            {agent.emoji ?? "🤖"}
-          </span>
+          {agent.avatar ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={agent.avatar} alt="" className="h-6 w-6 rounded object-cover shrink-0" />
+          ) : (
+            <span
+              className="inline-flex h-6 w-6 items-center justify-center rounded text-xs"
+              style={{ background: "rgba(120,113,108,0.12)", color: "#a8a29e" }}
+            >
+              {agent.emoji ?? "🤖"}
+            </span>
+          )}
           <span className="text-sm font-medium text-stone-200">{agent.name}</span>
         </div>
         <Link href={agentHref} className="text-stone-600 hover:text-stone-300">

@@ -603,14 +603,22 @@ export default function TaskDetailPage() {
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
                             {(() => {
                               const commentAgent = agents.find((a) => a.name === c.author || a.slug === c.author);
+                              if (commentAgent?.avatar) {
+                                return (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={commentAgent.avatar} alt={c.author} style={{
+                                    width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0,
+                                  }} />
+                                );
+                              }
                               const emoji = commentAgent?.emoji;
                               return (
                                 <span style={{
-                                  width: "22px", height: "22px", borderRadius: "50%",
+                                  width: 22, height: 22, borderRadius: "50%",
                                   background: emoji ? "rgba(217,119,6,0.18)" : "rgba(120,113,108,0.25)",
                                   border: emoji ? "none" : "0.5px solid rgba(120,113,108,0.15)",
                                   display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                  fontSize: emoji ? "12px" : "9px", fontWeight: 700,
+                                  fontSize: emoji ? 12 : 9, fontWeight: 700,
                                   color: emoji ? "#fbbf24" : color.textSecondary,
                                 }}>
                                   {emoji ?? assigneeInitials(c.author)}
