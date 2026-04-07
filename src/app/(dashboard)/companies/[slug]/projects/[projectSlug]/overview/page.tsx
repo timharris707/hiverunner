@@ -50,51 +50,58 @@ export default function ProjectOverviewPage({
         <ProjectTabBar slug={slug} projectSlug={projectSlug} active="overview" />
       </div>
 
-      <div style={{ maxWidth: 700 }}>
-        <p style={{ margin: "0 0 20px", fontSize: 13, color: project.description ? P.textSec : P.muted, fontStyle: project.description ? "normal" : "italic" }}>
-          {project.description || "Add a description..."}
-        </p>
+      {/* description — flat on canvas, like Paperclip */}
+      <p style={{
+        margin: `0 0 ${space.xl}px`,
+        fontSize: 13,
+        color: project.description ? P.textSec : P.muted,
+        fontStyle: project.description ? "normal" : "italic",
+      }}>
+        {project.description || "Add a description..."}
+      </p>
 
-        <div style={{
-          borderRadius: radius.lg, border: `0.5px solid ${P.cardBorder}`,
-          background: P.surface, padding: "16px 20px",
-          display: "flex", flexDirection: "column", gap: 14,
-        }}>
-          <PropRow label="Status">
-            <span style={{
-              fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
-              color: st.color, background: st.bg,
-            }}>
-              {project.status}
-            </span>
-          </PropRow>
+      {/* properties — flat rows with hairline dividers, no card fill */}
+      <div style={{ maxWidth: 600 }}>
+        <PropRow label="Status" divider>
+          <span style={{
+            fontSize: 11, fontWeight: 500, padding: "2px 8px", borderRadius: 4,
+            color: st.color, background: st.bg,
+          }}>
+            {project.status}
+          </span>
+        </PropRow>
 
-          <PropRow label="Created">
-            <span style={{ fontSize: 13, color: P.textSec }}>
-              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
-            </span>
-          </PropRow>
+        <PropRow label="Created" divider>
+          <span style={{ fontSize: 13, color: P.textSec }}>
+            {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
+          </span>
+        </PropRow>
 
-          <PropRow label="Updated">
-            <span style={{ fontSize: 13, color: P.textSec }}>
-              {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
-            </span>
-          </PropRow>
+        <PropRow label="Updated" divider>
+          <span style={{ fontSize: 13, color: P.textSec }}>
+            {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
+          </span>
+        </PropRow>
 
-          <PropRow label="Tasks">
-            <span style={{ fontSize: 13, color: P.text, fontWeight: 600 }}>
-              {project.taskCount ?? 0}
-            </span>
-          </PropRow>
-        </div>
+        <PropRow label="Tasks">
+          <span style={{ fontSize: 13, color: P.text, fontWeight: 600 }}>
+            {project.taskCount ?? 0}
+          </span>
+        </PropRow>
       </div>
     </div>
   );
 }
 
-function PropRow({ label, children }: { label: string; children: React.ReactNode }) {
+function PropRow({ label, children, divider }: { label: string; children: React.ReactNode; divider?: boolean }) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+    <div style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      padding: "10px 0",
+      borderBottom: divider ? `0.5px solid ${P.cardBorder}` : "none",
+    }}>
       <span style={{ width: 80, fontSize: 12, color: P.muted }}>{label}</span>
       <div>{children}</div>
     </div>
