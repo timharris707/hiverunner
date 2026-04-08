@@ -11,10 +11,11 @@ const nextConfig = {
     // TODO: Remove this once advisory refactor is complete
     ignoreBuildErrors: true,
   },
-  // better-sqlite3 is a native Node.js addon — must not be bundled by webpack.
-  // This is required for Vercel preview deployments where the module is used
-  // in API routes (server-side only).
-  serverExternalPackages: ["better-sqlite3"],
+  // Native Node.js addons — must not be bundled by webpack.
+  // better-sqlite3: required for SQLite access in API routes.
+  // ws/bufferutil/utf-8-validate: required for WebSocket gateway bridge;
+  //   without this, webpack dev mode fails with "bufferUtil.mask is not a function".
+  serverExternalPackages: ["better-sqlite3", "ws", "bufferutil", "utf-8-validate"],
 };
 
 export default nextConfig;

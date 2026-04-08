@@ -28,7 +28,14 @@ const engineTickEnabled =
   engineTickSetting === "off" ? false :
   /* auto */ !dev;
 
-const app = next({ dev, hostname, port });
+// ── Bundler selection ──
+// Next.js 16 defaults to Turbopack for dev. Turbopack's persistent cache
+// (4–5 GB) has been the primary crash source for the dev lane — it panics
+// when spawning PostCSS subprocesses after cache corruption (76 panic logs
+// accumulated since March 27). Default to webpack for dev stability.
+// Set NEXT_TURBOPACK=1 to re-enable Turbopack if you want to test it.
+const useWebpack = dev && process.env.NEXT_TURBOPACK !== "1";
+const app = next({ dev, hostname, port, ...(useWebpack ? { webpack: true } : {}) });
 const handle = app.getRequestHandler();
 
 app.prepare().then(() => {

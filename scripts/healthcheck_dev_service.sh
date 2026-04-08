@@ -74,8 +74,9 @@ if [ -n "$LISTEN_PID" ]; then
   kill -9 "$LISTEN_PID" 2>/dev/null || true
 fi
 
-# Also kill any orphaned node server.js processes for this project
-pkill -f "node server.js" 2>/dev/null || true
+# NOTE: Previously used `pkill -f "node server.js"` here, which could
+# kill the stable lane (:3001) too since both match that pattern.
+# Removed: port-specific kill above is sufficient and safe.
 sleep 1
 
 # Clear corrupted Turbopack dev cache before restarting — this is the
