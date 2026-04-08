@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock } from "lucide-react";
 import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
@@ -69,6 +69,31 @@ function relativeAge(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+/** Render text with task-key references (e.g. NEV-34) auto-linked. */
+function LinkedText({ text, companySlug }: { text: string; companySlug: string }) {
+  // Match task keys: 2-5 uppercase letters, dash, 1+ digits
+  const parts = text.split(/(\b[A-Z]{2,5}-\d+\b)/g);
+  if (parts.length === 1) return <>{text}</>;
+  return (
+    <>
+      {parts.map((part, i) =>
+        /^[A-Z]{2,5}-\d+$/.test(part) ? (
+          <Link
+            key={i}
+            href={buildCompanyPath(companySlug, `/tasks/${encodeURIComponent(part)}`)}
+            style={{ color: color.accent, textDecoration: "none", fontWeight: 500 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {part}
+          </Link>
+        ) : (
+          <span key={i}>{part}</span>
+        )
+      )}
+    </>
+  );
 }
 
 /* ── Inbox review context ── */
@@ -515,7 +540,7 @@ export default function TaskDetailPage() {
                 whiteSpace: "pre-wrap", wordBreak: "break-word",
                 paddingBottom: space.xl, borderBottom: `0.5px solid ${color.border}`,
               }}>
-                {task.description}
+                <LinkedText text={task.description} companySlug={slug} />
               </div>
             )}
 
@@ -561,19 +586,25 @@ export default function TaskDetailPage() {
               display: "flex", gap: "0", marginTop: "24px",
               borderBottom: `0.5px solid ${color.border}`,
             }}>
-              {([["comments", "Comments"], ["subtasks", "Sub-tasks"], ["activity", "Activity"]] as [Tab, string][]).map(([key, label]) => (
+              {([
+                ["comments", "Comments", MessageSquare] as const,
+                ["subtasks", "Sub-tasks", GitBranch] as const,
+                ["activity", "Activity", Clock] as const,
+              ]).map(([key, label, TabIcon]) => (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => setActiveTab(key)}
+                  onClick={() => setActiveTab(key as Tab)}
                   style={{
+                    display: "inline-flex", alignItems: "center", gap: 5,
                     padding: "10px 16px", background: "transparent", border: "none",
-                    borderBottom: activeTab === key ? `2px solid ${color.text}` : "2px solid transparent",
+                    borderBottom: activeTab === key ? `2px solid ${color.accent}` : "2px solid transparent",
                     marginBottom: "-1px", cursor: "pointer",
                     fontSize: typeScale.bodySmall.size, fontWeight: 500,
                     color: activeTab === key ? color.text : color.textMuted,
                   }}
                 >
+                  <TabIcon size={13} color={activeTab === key ? color.text : color.textMuted} />
                   {label}
                 </button>
               ))}
@@ -583,6 +614,31 @@ export default function TaskDetailPage() {
             <div style={{ paddingTop: "16px" }}>
               {activeTab === "comments" && (
                 <>
+                  {/* Run info bar */}
+                  {execution && execution.state !== "unknown" && execution.runId && (
+                    <div style={{
+                      display: "flex", alignItems: "center", gap: 8,
+                      padding: "8px 12px", marginBottom: 12, borderRadius: radius.md,
+                      border: `0.5px solid ${color.border}`, background: "rgba(255,255,255,0.02)",
+                      fontSize: 11, color: color.textMuted,
+                    }}>
+                      <span style={{
+                        width: 5, height: 5, borderRadius: "50%",
+                        background: execution.state === "running" ? "#22c55e" : execution.state === "completed" ? color.textMuted : "#f87171",
+                        animation: execution.state === "running" ? "pulse 1.5s ease-in-out infinite" : undefined,
+                        flexShrink: 0,
+                      }} />
+                      <span style={{ fontWeight: 500 }}>
+                        {execution.state === "running" ? "Running" : execution.state === "completed" ? "Completed" : execution.state}
+                      </span>
+                      <span style={{ fontFamily: font.mono, fontSize: 10 }}>{execution.runId.slice(0, 8)}</span>
+                      {execution.sessionId && (
+                        <span style={{ fontFamily: font.mono, fontSize: 10, color: color.textMuted }}>
+                          session {execution.sessionId.slice(0, 8)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <div style={{ fontSize: "13px", fontWeight: 600, color: color.text, marginBottom: "12px" }}>
                     Comments ({comments.length})
                   </div>
@@ -626,12 +682,31 @@ export default function TaskDetailPage() {
                               );
                             })()}
                             <span style={{ fontSize: "12px", fontWeight: 600, color: color.text }}>{c.author}</span>
-                            <span style={{ marginLeft: "auto", fontSize: "11px", color: color.textMuted }}>
-                              {formatTimestamp(c.timestamp)}
+                            <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
+                              <span style={{ fontSize: "11px", color: color.textMuted }}>
+                                {formatTimestamp(c.timestamp)}
+                              </span>
+                              <button
+                                type="button"
+                                title="Copy comment"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  void navigator.clipboard.writeText(c.text);
+                                }}
+                                style={{
+                                  background: "transparent", border: "none", cursor: "pointer",
+                                  padding: 2, color: color.textMuted, opacity: 0.5,
+                                  display: "inline-flex", alignItems: "center",
+                                }}
+                                onMouseEnter={(e) => { e.currentTarget.style.opacity = "1"; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.opacity = "0.5"; }}
+                              >
+                                <Copy size={11} />
+                              </button>
                             </span>
                           </div>
-                          <div style={{ fontSize: "13px", color: color.textMuted, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>
-                            {c.text}
+                          <div style={{ fontSize: "13px", color: color.textSecondary, whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.5 }}>
+                            <LinkedText text={c.text} companySlug={slug} />
                           </div>
                         </div>
                       ))
@@ -813,6 +888,17 @@ export default function TaskDetailPage() {
                         <span>Task completed</span>
                       </div>
                     )}
+                    {execution && execution.state !== "unknown" && execution.runId && (
+                      <div style={{ display: "flex", gap: "8px", marginTop: 4 }}>
+                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{execution.polledAt ? formatTimestamp(execution.polledAt) : "—"}</span>
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          Execution {execution.state}
+                          <span style={{ fontFamily: font.mono, fontSize: 10, background: "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 4 }}>
+                            {execution.runId.slice(0, 8)}
+                          </span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -824,9 +910,13 @@ export default function TaskDetailPage() {
       {/* ── Properties panel ── */}
       {propsOpen && task && (
         <aside style={{
-          width: 280, flexShrink: 0, borderLeft: `0.5px solid ${color.border}`,
-          padding: `${space.xxl}px ${space.xl}px`, overflowY: "auto",
+          width: 280, flexShrink: 0,
+          margin: `${space.lg}px ${space.lg}px ${space.lg}px 0`,
+          padding: `${space.xl}px ${space.xl}px`,
+          overflowY: "auto",
           background: color.surface,
+          border: `0.5px solid ${color.border}`,
+          borderRadius: radius.lg,
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "16px" }}>
             <div style={{ fontSize: "11px", fontWeight: 600, color: color.textMuted, textTransform: "uppercase", letterSpacing: "0.08em" }}>
