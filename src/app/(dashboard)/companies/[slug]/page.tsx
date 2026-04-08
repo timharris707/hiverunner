@@ -1,14 +1,19 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  BriefcaseBusiness,
   Building2,
   ChevronDown,
   Compass,
+  Wifi,
+  WifiOff,
+  Bot,
   FolderKanban,
   FolderOpen,
   Inbox,
@@ -27,7 +32,7 @@ import {
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
 import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { classifyProjectState } from "@/components/orchestration/ui";
+import { classifyProjectState, formatAge } from "@/components/orchestration/ui";
 import {
   createProject,
   listCompanies,
@@ -86,6 +91,172 @@ function companyStatusTone(status: string): "default" | "positive" | "warning" |
     case "archived": return "negative";
     default: return "default";
   }
+}
+
+function formatAgentTask(agent: CompanyRosterAgent): string {
+  if (agent.status !== "working") {
+    return "Idle — ready for assignment";
+  }
+
+  return agent.currentTask || "No active task";
+}
+
+function formatAgentProject(agent: CompanyRosterAgent): string {
+  return agent.projectName || "Company-wide";
+}
+
+function formatAgentModel(agent: CompanyRosterAgent): string {
+  return agent.model && agent.model.trim().length > 0 ? agent.model : "Pending Forge contract";
+}
+
+function formatHeartbeatDue(raw?: string): string | null {
+  if (!raw) return null;
+
+  const dueMs = new Date(raw).getTime();
+  if (!Number.isFinite(dueMs)) return null;
+
+  const diffMs = dueMs - Date.now();
+  if (diffMs <= 0) {
+    return "due now";
+  }
+
+  const dueMinutes = Math.max(1, Math.floor(diffMs / 60000));
+  if (dueMinutes < 60) return `${dueMinutes}m`;
+  const dueHours = Math.floor(dueMinutes / 60);
+  if (dueHours < 24) return `${dueHours}h`;
+  return `${Math.floor(dueHours / 24)}d`;
+}
+
+function formatAgentHeartbeat(agent: CompanyRosterAgent): string {
+  if (!agent.lastHeartbeat) {
+    const next = formatHeartbeatDue(
+      (agent as CompanyRosterAgent & { nextHeartbeat?: string; nextHeartbeatDueAt?: string }).nextHeartbeatDueAt,
+    );
+    return next ? `No heartbeat yet • next heartbeat ${next}` : "No heartbeat yet";
+  }
+
+  const next = formatHeartbeatDue(
+    (agent as CompanyRosterAgent & { nextHeartbeat?: string; nextHeartbeatDueAt?: string }).nextHeartbeatDueAt ||
+    (agent as CompanyRosterAgent & { nextHeartbeat?: string; nextHeartbeatDueAt?: string }).nextHeartbeat,
+  );
+
+  return next ? `${formatAge(agent.lastHeartbeat)} ago • next heartbeat ${next}` : `${formatAge(agent.lastHeartbeat)} ago`;
+}
+
+function AvatarWithGlow({
+  source,
+  alt,
+  isWorking,
+}: {
+  source?: string;
+  alt: string;
+  isWorking: boolean;
+}) {
+  const wrapperStyle: CSSProperties = {
+    position: "relative",
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    flexShrink: 0,
+  };
+
+  const imageStyle: CSSProperties = {
+    width: 40,
+    height: 40,
+    minWidth: 40,
+    borderRadius: "9999px",
+    objectFit: "cover",
+    border: `2px solid ${color.border}`,
+    boxShadow: isWorking
+      ? `0 0 0 2px ${color.positive}55, 0 0 0 1px ${color.border}`
+      : `0 0 0 1px ${color.border}`,
+  };
+
+  const workingDot = isWorking ? (
+    <span
+      style={{
+        position: "absolute",
+        right: -1,
+        bottom: -1,
+        width: 10,
+        height: 10,
+        borderRadius: "9999px",
+        border: `2px solid ${color.surface}`,
+        background: color.positive,
+        boxShadow: `0 0 0 2px ${color.positive}55`,
+      }}
+    />
+  ) : null;
+
+  return source ? (
+    <span style={wrapperStyle}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={source}
+        alt={alt}
+        title={alt}
+        width={40}
+        height={40}
+        className="rounded-full object-cover"
+        style={imageStyle}
+      />
+      {workingDot}
+    </span>
+  ) : (
+    <span style={wrapperStyle}>
+      <AgentAvatar agentId={alt} size={40} />
+      {workingDot}
+    </span>
+  );
+}
+
+function AgentInfoRow({
+  label,
+  value,
+  compact = false,
+  icon,
+}: {
+  label: string;
+  value: string;
+  compact?: boolean;
+  icon?: ReactNode;
+}) {
+  return (
+    <div
+      style={{
+        border: `0.5px solid ${color.border}`,
+        background: color.surface,
+        borderRadius: radius.md,
+        padding: `${compact ? 6 : 8}px`,
+      }}
+    >
+      <div
+        style={{
+          fontSize: T.caption.size,
+          color: color.textMuted,
+          marginBottom: 3,
+          display: "flex",
+          alignItems: "center",
+          gap: 5,
+        }}
+      >
+        {icon ? icon : null}
+        {label}
+      </div>
+      <div
+        style={{
+          fontSize: T.bodySmall.size,
+          color: color.text,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+        title={value}
+      >
+        {value}
+      </div>
+    </div>
+  );
 }
 
 /* ── Page ── */
@@ -550,13 +721,18 @@ export default function CompanyDetailPage() {
                 style={{ textDecoration: "none" }}
               >
                 <Card hoverable>
-                  <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
-                    <AgentAvatar agentId={agent.slug || agent.id} size={36} />
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: space.md, marginBottom: space.md }}>
+                    <AvatarWithGlow
+                      source={agent.avatar}
+                      alt={agent.slug || agent.id}
+                      isWorking={agent.status === "working"}
+                    />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{
                         fontSize: T.cardTitle.size,
                         fontWeight: T.cardTitle.weight,
                         color: color.text,
+                        lineHeight: 1.2,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -566,6 +742,7 @@ export default function CompanyDetailPage() {
                       <div style={{
                         fontSize: T.bodySmall.size,
                         color: color.textMuted,
+                        lineHeight: 1.25,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
                         whiteSpace: "nowrap",
@@ -575,11 +752,53 @@ export default function CompanyDetailPage() {
                     </div>
                     <Badge label={agent.status} tone={agentStatusTone(agent.status)} />
                   </div>
-                  <div style={{ fontSize: T.bodySmall.size, color: color.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {agent.currentTask || "Idle — ready for assignment"}
+                  <div style={{ display: "grid", gap: space.sm, marginBottom: space.md }}>
+                    <AgentInfoRow label="Current Task" value={formatAgentTask(agent)} icon={<Bot size={12} />} compact />
+                    <AgentInfoRow
+                      label="Project"
+                      value={formatAgentProject(agent)}
+                      icon={<BriefcaseBusiness size={12} />}
+                      compact
+                    />
+                    <AgentInfoRow
+                      label="Model"
+                      value={formatAgentModel(agent)}
+                      icon={agent.adapterType ? <Activity size={12} /> : <Building2 size={12} />}
+                      compact
+                    />
+                    <AgentInfoRow
+                      label="Heartbeat"
+                      value={formatAgentHeartbeat(agent)}
+                      icon={agent.lastHeartbeat ? <Wifi size={12} /> : <WifiOff size={12} />}
+                      compact
+                    />
                   </div>
-                  <div style={{ fontSize: T.caption.size, color: color.textMuted, marginTop: space.xs }}>
-                    {agent.projectName}
+                  <div style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                  }}>
+                    <div style={{
+                      fontSize: T.caption.size,
+                      color: color.textMuted,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      minWidth: 0,
+                    }}>
+                      {agent.companyName}
+                    </div>
+                    <span style={{
+                      fontSize: T.caption.size,
+                      color: color.textSecondary,
+                      fontWeight: 500,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                    }}>
+                      <ArrowRight size={11} />
+                      Open profile
+                    </span>
                   </div>
                 </Card>
               </Link>
