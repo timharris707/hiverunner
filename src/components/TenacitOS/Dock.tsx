@@ -1169,7 +1169,7 @@ export function Dock() {
       ) : visibleProjects.length === 0 ? (
         <p style={{ margin: "2px 8px 4px", fontSize: "10px", color: "#78716c" }}>No projects found.</p>
       ) : (
-        visibleProjects.filter((p) => !isProjectPaused(p) && p.status !== "archived").map((project) => {
+        visibleProjects.filter((p) => p.status !== "archived").map((project) => {
           const pSlug = project.slug || project.id;
           const defaultPath = buildCanonicalProjectIssuesPath(cc, pSlug);
           const href = currentProjectSubpage
