@@ -97,10 +97,9 @@ export default function CompanyCostsPage() {
   return (
     <div style={{ padding: "24px 32px", maxWidth: 1000 }}>
       {/* ── Header ── */}
-      <p style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: P.muted, marginBottom: 8 }}>Costs</p>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 6 }}>
         <div>
-          <h1 style={{ fontSize: 24, fontWeight: 600, color: P.text, margin: "0 0 6px" }}>Costs</h1>
+          <h1 style={{ fontSize: 17, fontWeight: 600, color: P.text, margin: "0 0 6px", letterSpacing: "-0.01em" }}>Costs</h1>
           <p style={{ fontSize: 13, color: P.textSec, margin: 0 }}>Inference spend, platform fees, credits, and live quota windows.</p>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>

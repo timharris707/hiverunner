@@ -52,14 +52,14 @@ export default function FilesPage() {
         <h1
           style={{
             fontFamily: "var(--font-heading)",
-            fontSize: "24px",
-            fontWeight: 700,
-            letterSpacing: "-1px",
+            fontSize: "17px",
+            fontWeight: 600,
+            letterSpacing: "-0.01em",
             color: "var(--text-primary)",
             marginBottom: "4px",
           }}
         >
-          File Browser
+          Files
         </h1>
         <p style={{ fontFamily: "var(--font-body)", fontSize: "13px", color: "var(--text-secondary)" }}>
           Browse workspaces and agent files

@@ -252,7 +252,9 @@ export default function CompanyTasksPage() {
       ) : null}
 
       {/* Page header */}
-      <div style={{ padding: activeProjectRecord ? "4px 24px 0" : "8px 24px 0" }} />
+      <div style={{ padding: activeProjectRecord ? "4px 24px 12px" : "8px 24px 12px" }}>
+        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: P.text, letterSpacing: "-0.01em" }}>Tasks</h1>
+      </div>
 
       <TasksToolbar
         viewMode={viewMode}

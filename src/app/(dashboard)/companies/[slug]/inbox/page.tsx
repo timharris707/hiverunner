@@ -508,6 +508,7 @@ export default function CompanyInboxPage() {
 
   return (
     <div style={{ padding: "8px 32px 24px" }}>
+      <h1 style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 600, color: "#eae8e4", letterSpacing: "-0.01em" }}>Inbox</h1>
 
       {/* Toolbar: tabs left, search + actions right */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 0 }}>

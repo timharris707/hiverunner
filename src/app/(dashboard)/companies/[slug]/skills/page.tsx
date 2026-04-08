@@ -217,7 +217,7 @@ export default function CompanySkillsPage() {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 4 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: P.text, fontFamily: "var(--font-heading)" }}>
+            <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: P.text, fontFamily: "var(--font-heading)", letterSpacing: "-0.01em" }}>
               Skills
             </h1>
             <span style={{ fontSize: 11, color: P.muted }}>{filtered.length} available</span>

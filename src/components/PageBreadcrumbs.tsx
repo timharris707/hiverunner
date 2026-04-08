@@ -48,6 +48,7 @@ const LABEL_MAP: Record<string, string> = {
   runs: "Runs",
   goals: "Goals",
   org: "Org",
+  "manage-projects": "Manage Projects",
   export: "Export",
   import: "Import",
 };
@@ -55,8 +56,21 @@ const LABEL_MAP: Record<string, string> = {
 /** Segments that are structural routing and should be hidden from breadcrumbs. */
 const HIDDEN_SEGMENTS = new Set(["companies"]);
 
-/** Operations pages — these should show "Operations > Page" in the breadcrumb. */
-const OPERATIONS_PAGES = new Set(["tasks", "issues", "dashboard", "inbox", "approvals", "routines", "goals"]);
+/**
+ * Section membership for top-level company pages.
+ * Maps URL segment → section label shown as the parent crumb.
+ * Only applies when the segment is the first meaningful crumb (top-level company route).
+ */
+const SECTION_FOR_PAGE: Record<string, string> = {
+  // Operations
+  tasks: "Operations", issues: "Operations", dashboard: "Operations",
+  inbox: "Operations", approvals: "Operations", routines: "Operations", goals: "Operations",
+  // Company
+  org: "Company", "manage-projects": "Company", skills: "Company",
+  costs: "Company", activity: "Company", files: "Company", settings: "Company",
+  // Systems
+  terminal: "Systems", sessions: "Systems", logs: "Systems",
+};
 
 /** Check if a segment looks like a short company code (e.g. NEV, TIM). */
 function isCompanyCode(seg: string): boolean {
@@ -77,18 +91,21 @@ export function PageBreadcrumbs() {
 
   // Build crumbs, skipping structural/noise segments
   const crumbs: { label: string; href: string; isLast: boolean }[] = [];
-  let operationsInserted = false;
+  let sectionInserted = false;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     // Skip hidden structural segments and company codes
     if (HIDDEN_SEGMENTS.has(seg) || isCompanyCode(seg)) continue;
 
-    // Insert "Operations" parent crumb only when the Operations page is a top-level
-    // company route (the first meaningful segment after the company code), NOT when
-    // it appears nested under projects/ or agents/.
-    if (!operationsInserted && OPERATIONS_PAGES.has(seg) && crumbs.length === 0) {
-      operationsInserted = true;
-      crumbs.push({ label: "Operations", href: "", isLast: false });
+    // Insert section parent crumb (Operations / Company / Systems) only when the
+    // page is a top-level company route (first meaningful segment after company code).
+    // Does NOT trigger for nested routes like /projects/.../tasks.
+    if (!sectionInserted && crumbs.length === 0) {
+      const section = SECTION_FOR_PAGE[seg];
+      if (section) {
+        sectionInserted = true;
+        crumbs.push({ label: section, href: "", isLast: false });
+      }
     }
 
     const label = LABEL_MAP[seg] ?? slugToLabel(seg);

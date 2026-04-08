@@ -134,9 +134,9 @@ export default function CompanyActivityPage() {
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
         <h1 style={{
-          margin: 0, fontSize: 13, fontWeight: 700,
-          letterSpacing: "0.12em", textTransform: "uppercase",
-          color: P.textSec, fontFamily: "var(--font-heading)",
+          margin: 0, fontSize: 17, fontWeight: 600,
+          letterSpacing: "-0.01em",
+          color: P.text, fontFamily: "var(--font-heading)",
         }}>
           Activity
         </h1>
