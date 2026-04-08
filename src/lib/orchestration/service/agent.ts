@@ -803,6 +803,7 @@ export function getCompanyAgentProfile(input: {
         er.created_at,
         er.duration_ms,
         er.error_message,
+        er.token_usage_json,
         t.title AS task_title,
         p.id AS project_id,
         p.slug AS project_slug,
@@ -828,6 +829,7 @@ export function getCompanyAgentProfile(input: {
     created_at: string;
     duration_ms: number | null;
     error_message: string | null;
+    token_usage_json: string | null;
     task_title: string;
     project_id: string;
     project_slug: string;
@@ -937,22 +939,41 @@ export function getCompanyAgentProfile(input: {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
     .slice(0, activityLimit);
 
-  const mappedRuns = executionHistory.map((row) => ({
-    id: row.id,
-    taskId: row.task_id,
-    taskTitle: row.task_title,
-    projectId: row.project_id,
-    projectSlug: row.project_slug,
-    projectName: row.project_name,
-    provider: row.provider,
-    status: row.status,
-    sessionId: row.session_id ?? undefined,
-    startedAt: row.started_at ?? undefined,
-    completedAt: row.completed_at ?? undefined,
-    createdAt: row.created_at,
-    durationMs: row.duration_ms ?? undefined,
-    errorMessage: row.error_message ?? undefined,
-  }));
+  const mappedRuns = executionHistory.map((row) => {
+    let inputTokens: number | undefined;
+    let outputTokens: number | undefined;
+    let cacheReadTokens: number | undefined;
+    let totalCostUsd: number | undefined;
+    if (row.token_usage_json) {
+      try {
+        const usage = JSON.parse(row.token_usage_json);
+        inputTokens = typeof usage.inputTokens === "number" ? usage.inputTokens : undefined;
+        outputTokens = typeof usage.outputTokens === "number" ? usage.outputTokens : undefined;
+        cacheReadTokens = typeof usage.cacheReadInputTokens === "number" ? usage.cacheReadInputTokens : undefined;
+        totalCostUsd = typeof usage.totalCostUsd === "number" ? usage.totalCostUsd : undefined;
+      } catch { /* ignore malformed JSON */ }
+    }
+    return {
+      id: row.id,
+      taskId: row.task_id,
+      taskTitle: row.task_title,
+      projectId: row.project_id,
+      projectSlug: row.project_slug,
+      projectName: row.project_name,
+      provider: row.provider,
+      status: row.status,
+      sessionId: row.session_id ?? undefined,
+      startedAt: row.started_at ?? undefined,
+      completedAt: row.completed_at ?? undefined,
+      createdAt: row.created_at,
+      durationMs: row.duration_ms ?? undefined,
+      errorMessage: row.error_message ?? undefined,
+      inputTokens,
+      outputTokens,
+      cacheReadTokens,
+      totalCostUsd,
+    };
+  });
 
   const liveSession = activeExecution
     ? {

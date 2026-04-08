@@ -971,6 +971,10 @@ export async function getCompanyAgentProfile(
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     durationMs: raw.durationMs ? Number(raw.durationMs) : undefined,
     errorMessage: raw.errorMessage ? String(raw.errorMessage) : undefined,
+    inputTokens: typeof raw.inputTokens === "number" ? raw.inputTokens : undefined,
+    outputTokens: typeof raw.outputTokens === "number" ? raw.outputTokens : undefined,
+    cacheReadTokens: typeof raw.cacheReadTokens === "number" ? raw.cacheReadTokens : undefined,
+    totalCostUsd: typeof raw.totalCostUsd === "number" ? raw.totalCostUsd : undefined,
   });
 
   return {
@@ -1071,6 +1075,10 @@ export async function getAgentProfileById(
     createdAt: String(raw.createdAt ?? new Date().toISOString()),
     durationMs: raw.durationMs ? Number(raw.durationMs) : undefined,
     errorMessage: raw.errorMessage ? String(raw.errorMessage) : undefined,
+    inputTokens: typeof raw.inputTokens === "number" ? raw.inputTokens : undefined,
+    outputTokens: typeof raw.outputTokens === "number" ? raw.outputTokens : undefined,
+    cacheReadTokens: typeof raw.cacheReadTokens === "number" ? raw.cacheReadTokens : undefined,
+    totalCostUsd: typeof raw.totalCostUsd === "number" ? raw.totalCostUsd : undefined,
   });
 
   return {

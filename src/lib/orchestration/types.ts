@@ -232,7 +232,7 @@ export interface OrchestrationAgentExecutionRun {
   projectId: string;
   projectSlug: string;
   projectName: string;
-  provider: "openclaw" | "paperclip";
+  provider: "openclaw" | "paperclip" | "codex" | "anthropic";
   status: "pending" | "running" | "completed" | "failed" | "cancelled";
   sessionId?: string;
   startedAt?: string;
@@ -240,6 +240,11 @@ export interface OrchestrationAgentExecutionRun {
   createdAt: string;
   durationMs?: number;
   errorMessage?: string;
+  /** Token usage stats — populated when available */
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  totalCostUsd?: number;
 }
 
 export interface OrchestrationAgentProfile {
