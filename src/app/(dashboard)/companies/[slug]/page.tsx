@@ -344,7 +344,7 @@ export default function CompanyDetailPage() {
         icon={
           <Building2
             size={16}
-            style={{ color: company?.status === "active" ? color.positive : color.warning }}
+            style={{ color: color.textSecondary }}
           />
         }
         title={loading ? "Loading..." : company?.name ?? "Company Not Found"}
@@ -531,7 +531,7 @@ export default function CompanyDetailPage() {
                   icon={<Rocket size={14} />}
                   onClick={handleKickoff}
                   disabled={kickoffBusy}
-                  variant="primary"
+                  variant="secondary"
                 />
               </div>
             )}
@@ -539,7 +539,7 @@ export default function CompanyDetailPage() {
               label="New Project"
               icon={<Plus size={14} />}
               onClick={() => setCreateOpen(true)}
-              variant="primary"
+              variant="secondary"
             />
           </div>
           {kickoffResult && (
@@ -653,20 +653,20 @@ export default function CompanyDetailPage() {
                   style={{ textDecoration: "none" }}
                   onClick={() => setActiveProject({ companySlug: slug, projectId: project.id, projectSlug: project.slug, projectName: project.name })}
                 >
-                  <Card hoverable style={isActive ? { borderColor: color.accent } : undefined}>
+                  <Card hoverable style={isActive ? { borderColor: color.borderStrong } : undefined}>
                     {/* Header row */}
                     <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
                       <span style={{
-                        fontSize: 18,
                         display: "grid",
                         placeItems: "center",
                         width: 36,
                         height: 36,
                         borderRadius: radius.md,
-                        background: `${project.color || color.accent}18`,
+                        background: "rgba(255,255,255,0.06)",
                         flexShrink: 0,
+                        color: color.text,
                       }}>
-                        {project.emoji}
+                        <FolderKanban size={16} />
                       </span>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{
@@ -684,7 +684,7 @@ export default function CompanyDetailPage() {
                           }}>
                             {project.name}
                           </span>
-                          {isActive && <Badge label="Active" tone="accent" />}
+                          {isActive && <Badge label="Active" tone="default" />}
                         </div>
                         <div style={{
                           fontSize: T.bodySmall.size,
@@ -698,7 +698,7 @@ export default function CompanyDetailPage() {
                       </div>
                       <Badge
                         label={state}
-                        tone={state === "active" ? "accent" : state === "paused" ? "warning" : "default"}
+                        tone={state === "active" ? "default" : state === "paused" ? "warning" : "default"}
                       />
                     </div>
                     {/* Metrics row */}
@@ -718,7 +718,7 @@ export default function CompanyDetailPage() {
                           height: "100%",
                           borderRadius: radius.full,
                           width: `${sprint.percent}%`,
-                          background: project.color || color.accent,
+                          background: color.textSecondary,
                           transition: "width 0.5s ease",
                         }} />
                       </div>
@@ -751,7 +751,7 @@ export default function CompanyDetailPage() {
           ].map((link) => (
             <Link key={link.path} href={buildCompanyPath(slug, link.path)} style={{ textDecoration: "none" }}>
               <Card hoverable style={{ display: "flex", alignItems: "center", gap: space.sm, padding: `${space.md}px ${space.lg}px` }}>
-                <span style={{ color: color.accent, display: "flex", alignItems: "center" }}>{link.icon}</span>
+                <span style={{ color: color.text, display: "flex", alignItems: "center" }}>{link.icon}</span>
                 <span style={{ fontSize: T.bodySmall.size, color: color.text }}>{link.label}</span>
               </Card>
             </Link>
@@ -1020,8 +1020,9 @@ function CreateProjectModal({
                 padding: `5px 12px`,
                 borderRadius: radius.md,
                 border: "none",
-                background: color.accent,
-                color: "#000",
+                background: color.surface,
+                border: `0.5px solid ${color.border}`,
+                color: color.text,
                 fontSize: 12,
                 fontWeight: 600,
                 cursor: busy || !name.trim() ? "not-allowed" : "pointer",
