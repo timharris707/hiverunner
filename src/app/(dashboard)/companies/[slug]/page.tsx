@@ -54,7 +54,7 @@ import type {
   OrchestrationProject,
   OrchestrationSprint,
 } from "@/lib/orchestration/types";
-import { PageHeader, Section, Card, PropRow, Badge, ActionButton, EmptyState } from "@/lib/ui/primitives";
+import { PageHeader, Section, Card, PropRow, Badge, EmptyState } from "@/lib/ui/primitives";
 import { color, type as T, space, radius, font, pageStyle } from "@/lib/ui/tokens";
 
 /* ── Types ── */
@@ -143,6 +143,20 @@ function formatAgentHeartbeat(agent: CompanyRosterAgent): string {
   return next ? `${formatAge(agent.lastHeartbeat)} ago • next heartbeat ${next}` : `${formatAge(agent.lastHeartbeat)} ago`;
 }
 
+const companyControlStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "0 10px",
+  height: 34,
+  borderRadius: radius.md,
+  border: `0.5px solid ${color.border}`,
+  background: "transparent",
+  color: color.text,
+  fontSize: T.bodySmall.size,
+  cursor: "pointer",
+};
+
 function AvatarWithGlow({
   source,
   alt,
@@ -224,8 +238,6 @@ function AgentInfoRow({
   return (
     <div
       style={{
-        border: `0.5px solid ${color.border}`,
-        background: color.surface,
         borderRadius: radius.md,
         padding: `${compact ? 6 : 8}px`,
       }}
@@ -528,104 +540,114 @@ export default function CompanyDetailPage() {
                 label={company.status}
                 tone={companyStatusTone(company.status)}
               />
-              <ActionButton
-                label={pauseBusy ? "..." : company.status === "paused" ? "Resume" : "Pause"}
-                icon={company.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
-                onClick={handleTogglePause}
-                disabled={pauseBusy}
-                variant="secondary"
-                size="sm"
-              />
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: space.sm,
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={handleTogglePause}
+                  disabled={pauseBusy}
+                  style={{
+                    ...companyControlStyle,
+                    opacity: pauseBusy ? 0.5 : 1,
+                    cursor: pauseBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  {company.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
+                  {pauseBusy ? "..." : company.status === "paused" ? "Resume" : "Pause"}
+                </button>
+                {/* ── Company switcher ── */}
+                {otherCompanies.length > 0 && (
+                  <div style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      onClick={() => setSwitcherOpen((p) => !p)}
+                      style={companyControlStyle}
+                    >
+                      Switch
+                      <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                    </button>
+                    {switcherOpen && (
+                      <>
+                        <div
+                          style={{ position: "fixed", inset: 0, zIndex: 40 }}
+                          onClick={() => setSwitcherOpen(false)}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: "calc(100% + 4px)",
+                            minWidth: 200,
+                            padding: `${space.xs}px 0`,
+                            borderRadius: radius.md,
+                            border: `0.5px solid ${color.border}`,
+                            background: color.surfaceElevated,
+                            boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                            zIndex: 50,
+                          }}
+                        >
+                          {otherCompanies.map((c) => (
+                            <Link
+                              key={c.slug}
+                              href={buildCompanyPath(c.slug)}
+                              onClick={() => setSwitcherOpen(false)}
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: space.sm,
+                                padding: `${space.sm}px ${space.md}px`,
+                                fontSize: T.bodySmall.size,
+                                color: color.text,
+                                textDecoration: "none",
+                              }}
+                              onMouseEnter={(e) => { e.currentTarget.style.background = color.surfaceHover; }}
+                              onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                            >
+                              <Building2 size={12} style={{ color: color.textMuted, flexShrink: 0 }} />
+                              <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {c.name}
+                              </span>
+                              <span style={{ fontSize: T.caption.size, color: color.textMuted, fontFamily: font.mono }}>
+                                {c.code}
+                              </span>
+                            </Link>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
               {engineStatus?.ceo && (
-                <ActionButton
-                  label={kickoffBusy ? "Starting..." : "Start"}
-                  icon={<Rocket size={14} />}
+                <button
+                  type="button"
                   onClick={handleKickoff}
                   disabled={kickoffBusy}
-                  variant="secondary"
-                  size="sm"
-                />
+                  style={{
+                    ...companyControlStyle,
+                    opacity: kickoffBusy ? 0.5 : 1,
+                    cursor: kickoffBusy ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <Rocket size={14} />
+                  {kickoffBusy ? "Starting..." : "Start"}
+                </button>
               )}
-              {/* ── Company switcher ── */}
-              {otherCompanies.length > 0 && (
-                <div style={{ position: "relative" }}>
-                  <button
-                    type="button"
-                    onClick={() => setSwitcherOpen((p) => !p)}
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: `5px 12px`,
-                      borderRadius: radius.md,
-                      border: `0.5px solid ${color.border}`,
-                      background: color.surface,
-                      color: color.text,
-                      fontSize: 12,
-                      fontWeight: 500,
-                      cursor: "pointer",
-                    }}
-                  >
-                    Switch
-                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
-                  </button>
-                  {switcherOpen && (
-                    <>
-                      <div
-                        style={{ position: "fixed", inset: 0, zIndex: 40 }}
-                        onClick={() => setSwitcherOpen(false)}
-                      />
-                      <div
-                        style={{
-                          position: "absolute",
-                          right: 0,
-                          top: "calc(100% + 4px)",
-                          minWidth: 200,
-                          padding: `${space.xs}px 0`,
-                          borderRadius: radius.md,
-                          border: `0.5px solid ${color.border}`,
-                          background: color.surfaceElevated,
-                          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-                          zIndex: 50,
-                        }}
-                      >
-                        {otherCompanies.map((c) => (
-                          <Link
-                            key={c.slug}
-                            href={buildCompanyPath(c.slug)}
-                            onClick={() => setSwitcherOpen(false)}
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: space.sm,
-                              padding: `${space.sm}px ${space.md}px`,
-                              fontSize: T.bodySmall.size,
-                              color: color.text,
-                              textDecoration: "none",
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.background = color.surfaceHover; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
-                          >
-                            <Building2 size={12} style={{ color: color.textMuted, flexShrink: 0 }} />
-                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {c.name}
-                            </span>
-                            <span style={{ fontSize: T.caption.size, color: color.textMuted, fontFamily: font.mono }}>
-                              {c.code}
-                            </span>
-                          </Link>
-                        ))}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-              <ActionButton
-                label="Settings"
-                icon={<Settings size={14} />}
+              <Link
                 href={buildCompanyPath(slug, "/settings")}
-                size="sm"
-              />
+                style={{
+                  ...companyControlStyle,
+                  textDecoration: "none",
+                }}
+              >
+                <Settings size={14} />
+                Settings
+              </Link>
             </div>
           ) : undefined
         }
@@ -674,24 +696,26 @@ export default function CompanyDetailPage() {
 
       {/* ── Profile ── */}
       {company && (
-        <Section title="Profile">
-          <PropRow label="Name">
-            <span style={{ fontWeight: 500 }}>{company.name}</span>
-          </PropRow>
-          <PropRow label="Slug">
-            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.slug}</span>
-          </PropRow>
-          <PropRow label="Code">
-            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.code}</span>
-          </PropRow>
-          <PropRow label="Status">
-            <Badge label={company.status} tone={companyStatusTone(company.status)} />
-          </PropRow>
-          <PropRow label="Theme">{company.theme.name}</PropRow>
-          <PropRow label="Source">
-            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.workspace.source}</span>
-          </PropRow>
-        </Section>
+        <div style={{ width: "min(100%, 460px)" }}>
+          <Section title="Profile">
+            <PropRow label="Name">
+              <span style={{ fontWeight: 500 }}>{company.name}</span>
+            </PropRow>
+            <PropRow label="Slug">
+              <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.slug}</span>
+            </PropRow>
+            <PropRow label="Code">
+              <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.code}</span>
+            </PropRow>
+            <PropRow label="Status">
+              <Badge label={company.status} tone={companyStatusTone(company.status)} />
+            </PropRow>
+            <PropRow label="Theme">{company.theme.name}</PropRow>
+            <PropRow label="Source">
+              <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.workspace.source}</span>
+            </PropRow>
+          </Section>
+        </div>
       )}
 
       {/* ── Team ── */}
@@ -755,7 +779,7 @@ export default function CompanyDetailPage() {
                   <div style={{ display: "grid", gap: space.sm, marginBottom: space.md }}>
                     <AgentInfoRow label="Current Task" value={formatAgentTask(agent)} icon={<Bot size={12} />} compact />
                     <AgentInfoRow
-                      label="Project"
+                      label="Recent Project"
                       value={formatAgentProject(agent)}
                       icon={<BriefcaseBusiness size={12} />}
                       compact
@@ -821,17 +845,8 @@ export default function CompanyDetailPage() {
                 type="button"
                 onClick={() => setCreateOpen(true)}
                 style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 3,
-                  padding: `3px 10px`,
-                  borderRadius: radius.md,
-                  border: `0.5px solid ${color.border}`,
-                  background: color.surface,
+                  ...companyControlStyle,
                   color: color.textSecondary,
-                  fontSize: T.caption.size,
-                  fontWeight: 500,
-                  cursor: "pointer",
                 }}
               >
                 <Plus size={11} /> New
@@ -1267,24 +1282,26 @@ function CreateProjectModal({
           </div>
 
           <div style={{ display: "flex", justifyContent: "flex-end", gap: space.sm }}>
-            <ActionButton label="Cancel" onClick={onClose} disabled={busy} variant="secondary" size="sm" />
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={busy}
+              style={{
+                ...companyControlStyle,
+                opacity: busy ? 0.5 : 1,
+                cursor: busy ? "not-allowed" : "pointer",
+              }}
+            >
+              Cancel
+            </button>
             <button
               type="submit"
               disabled={busy || !name.trim()}
               style={{
-                display: "inline-flex",
-                alignItems: "center",
-                gap: space.sm,
-                padding: `5px 12px`,
-                borderRadius: radius.md,
-                border: "none",
-                background: color.surface,
-                border: `0.5px solid ${color.border}`,
-                color: color.text,
-                fontSize: 12,
-                fontWeight: 600,
+                ...companyControlStyle,
                 cursor: busy || !name.trim() ? "not-allowed" : "pointer",
                 opacity: busy || !name.trim() ? 0.5 : 1,
+                width: "auto",
               }}
             >
               {busy ? "Creating..." : "Create Project"}

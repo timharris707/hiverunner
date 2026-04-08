@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Activity, BriefcaseBusiness, Search, UserPlus, Users, Wifi, WifiOff } from "lucide-react";
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { formatAge } from "@/components/orchestration/ui";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { listCompanies, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
@@ -197,7 +198,11 @@ export default function CompanyTeamPage() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="text-lg">{agent.emoji}</span>
+                          <span
+                            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/10 bg-white/5"
+                          >
+                            <AvatarGlyph value={agent.emoji} size={14} color="#f9fafb" />
+                          </span>
                           <h3 className="text-sm font-semibold text-white">{agent.name}</h3>
                         </div>
                         <p className="mt-1 text-sm text-slate-300">{agent.role}</p>

@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
+import { listCompanies } from "@/lib/orchestration/client";
 
 const LABEL_MAP: Record<string, string> = {
   trading: "Trading Desk",
@@ -85,9 +87,48 @@ function slugToLabel(slug: string): string {
 export function PageBreadcrumbs() {
   const pathname = usePathname();
 
-  if (pathname === "/" || pathname.startsWith("/advisory")) return null;
-
   const segments = pathname.split("/").filter(Boolean);
+  const companySlug = segments.length === 2 && segments[0] === "companies" ? segments[1] : null;
+  const [resolvedCompanyName, setResolvedCompanyName] = useState(companySlug ? slugToLabel(companySlug) : "");
+
+  useEffect(() => {
+    if (!companySlug) return;
+
+    let alive = true;
+    listCompanies()
+      .then((rows) => {
+        if (!alive) return;
+        const match = rows.find((row) => row.slug === companySlug);
+        setResolvedCompanyName((match?.name ?? "").trim() || slugToLabel(companySlug));
+      })
+      .catch(() => {
+        if (!alive) return;
+        setResolvedCompanyName(slugToLabel(companySlug));
+      });
+
+    return () => { alive = false; };
+  }, [companySlug]);
+
+  if (companySlug) {
+    return (
+      <nav
+        className="flex items-center gap-1.5 mb-3"
+        style={{ fontSize: "12px", color: "var(--text-muted)" }}
+      >
+        <Link href="/companies" className="transition-opacity hover:opacity-80" style={{ color: "var(--text-muted)", textDecoration: "none" }}>
+          Company
+        </Link>
+        <span className="flex items-center gap-1.5">
+          <ChevronRight size={10} style={{ color: "var(--text-muted)", opacity: 0.5 }} />
+          <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
+            {resolvedCompanyName}
+          </span>
+        </span>
+      </nav>
+    );
+  }
+
+  if (pathname === "/" || pathname.startsWith("/advisory")) return null;
 
   // Build crumbs, skipping structural/noise segments
   const crumbs: { label: string; href: string; isLast: boolean }[] = [];

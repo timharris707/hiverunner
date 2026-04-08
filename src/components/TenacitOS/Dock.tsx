@@ -44,7 +44,8 @@ import { CreateProjectModal } from "@/components/orchestration/CreateProjectModa
 import { CreateAgentModal } from "@/components/orchestration/CreateAgentModal";
 import { CreateCompanyModal } from "@/components/orchestration/CreateCompanyModal";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
-import type { OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import type { CompanyStatus, OrchestrationAgent, OrchestrationProject } from "@/lib/orchestration/types";
 import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { useHiddenProjects } from "@/lib/hidden-project-state";
@@ -77,6 +78,7 @@ interface NavItem {
   href: string;
   label: string;
   icon?: LucideIcon;
+  leadingNode?: ReactNode;
   ariaLabel?: string;
   badge?: number;
   badgeText?: string;
@@ -88,6 +90,8 @@ interface NavItem {
   highlight?: boolean;
   trailingAction?: ReactNode;
   accentBar?: boolean;
+  onRowMouseEnter?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
+  onRowMouseLeave?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
 }
 
 interface CompanyNavState {
@@ -95,6 +99,7 @@ interface CompanyNavState {
   slug: string;
   name: string;
   code: string;
+  status: CompanyStatus;
 }
 
 const DOCK_WIDTH = 204;
@@ -156,6 +161,7 @@ function SectionHeader({
   collapsed,
   onToggle,
   action,
+  showCreateOnHover,
 }: {
   label: string;
   onCreate?: () => void;
@@ -163,11 +169,20 @@ function SectionHeader({
   collapsed?: boolean;
   onToggle?: () => void;
   action?: React.ReactNode;
+  showCreateOnHover?: boolean;
 }) {
   const isCollapsible = collapsed != null && onToggle != null;
+  const [showCreateAction, setShowCreateAction] = useState(false);
+  const shouldShowCreate = !showCreateOnHover || showCreateAction;
 
   return (
     <div
+      onMouseEnter={() => {
+        if (showCreateOnHover) setShowCreateAction(true);
+      }}
+      onMouseLeave={() => {
+        if (showCreateOnHover) setShowCreateAction(false);
+      }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -249,6 +264,8 @@ function SectionHeader({
             transition: "all 120ms ease",
             flexShrink: 0,
             marginRight: "6px",
+            opacity: shouldShowCreate ? 1 : 0,
+            pointerEvents: shouldShowCreate ? "auto" : "none",
           }}
           onMouseEnter={(event) => {
             event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
@@ -265,6 +282,90 @@ function SectionHeader({
         </button>
       ) : null}
     </div>
+  );
+}
+
+function AgentNavAvatar({ agent }: { agent: OrchestrationAgent }) {
+  const fallback = agent.emoji || "🤖";
+  const fallbackStyle = {
+    width: "13px",
+    height: "13px",
+    minWidth: "13px",
+    borderRadius: "9999px",
+    border: "1px solid rgba(222,220,209,0.3)",
+    background: "rgba(41,37,36,0.8)",
+    color: "#e6e2dd",
+    fontSize: "8px",
+    lineHeight: 1,
+  };
+
+  if (!agent.avatar) {
+    return (
+      <span
+        style={{
+          ...fallbackStyle,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+        }}
+      >
+        <AvatarGlyph value={fallback} size={9} color="#e6e2dd" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        width: "13px",
+        height: "13px",
+        minWidth: "13px",
+        flexShrink: 0,
+        position: "relative",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={agent.avatar}
+        alt={agent.name}
+        title={agent.name}
+        width={13}
+        height={13}
+        className="rounded-full object-cover"
+        style={{
+          width: "13px",
+          height: "13px",
+          minWidth: "13px",
+          borderRadius: "9999px",
+          border: "1px solid rgba(222,220,209,0.3)",
+          boxShadow: "0 0 0 1px rgba(0,0,0,0.35)",
+        }}
+        onError={(e) => {
+          const image = e.currentTarget as HTMLImageElement;
+          image.style.display = "none";
+          const fallbackNode = image.nextElementSibling as HTMLElement | null;
+          if (fallbackNode) {
+            fallbackNode.style.display = "inline-flex";
+          }
+        }}
+      />
+      <span
+        style={{
+          ...fallbackStyle,
+          display: "none",
+          alignItems: "center",
+          justifyContent: "center",
+          position: "absolute",
+          inset: 0,
+          margin: 0,
+          pointerEvents: "none",
+        }}
+      >
+        <AvatarGlyph value={fallback} size={9} color="#e6e2dd" />
+      </span>
+    </span>
   );
 }
 
@@ -288,6 +389,20 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
       aria-label={item.ariaLabel ?? item.label}
       className="dock-nav-row"
       onClick={onClick}
+      onMouseEnter={(event) => {
+        item.onRowMouseEnter?.(event);
+        if (!active) {
+          event.currentTarget.style.background = hoverBackground;
+          event.currentTarget.style.border = hoverBorder;
+        }
+      }}
+      onMouseLeave={(event) => {
+        item.onRowMouseLeave?.(event);
+        if (!active) {
+          event.currentTarget.style.background = background;
+          event.currentTarget.style.border = border;
+        }
+      }}
       style={{
         display: "flex",
         alignItems: "center",
@@ -302,20 +417,8 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
         cursor: "pointer",
         position: "relative",
       }}
-      onMouseEnter={(event) => {
-        if (!active) {
-          event.currentTarget.style.background = hoverBackground;
-          event.currentTarget.style.border = hoverBorder;
-        }
-      }}
-      onMouseLeave={(event) => {
-        if (!active) {
-          event.currentTarget.style.background = background;
-          event.currentTarget.style.border = border;
-        }
-      }}
     >
-      {Icon ? <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} /> : null}
+      {item.leadingNode ? item.leadingNode : Icon ? <Icon size={13} strokeWidth={active || highlighted ? 2.25 : 2} color={iconColor} style={{ flexShrink: 0 }} /> : null}
       {item.leadingDotColor ? (
         <span
           aria-hidden
@@ -492,6 +595,7 @@ export function Dock() {
     slug: FALLBACK_COMPANY_SLUG,
     name: "NeverIdle Core",
     code: FALLBACK_COMPANY_CODE,
+    status: "active",
   });
   const [companies, setCompanies] = useState<(CompanyNavState & { code: string })[]>([]);
   const [companyPickerOpen, setCompanyPickerOpen] = useState(false);
@@ -507,6 +611,9 @@ export function Dock() {
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
   const [createCompanyOpen, setCreateCompanyOpen] = useState(false);
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [showCreateTaskAction, setShowCreateTaskAction] = useState(false);
+  const [showCompanyActions, setShowCompanyActions] = useState(false);
+  const [companyPauseBusy, setCompanyPauseBusy] = useState(false);
 
   const activeProjectForCompany =
     activeProject && activeProject.companySlug === company.slug ? activeProject : null;
@@ -571,6 +678,30 @@ export function Dock() {
     [pathname]
   );
 
+  const handleToggleCompanyPause = async () => {
+    if (!company || companyPauseBusy) return;
+    const next = company.status === "paused" ? "active" : "paused";
+
+    setCompanyPauseBusy(true);
+    try {
+      const response = await fetch(`/api/orchestration/companies/${company.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!response.ok) throw new Error("failed");
+
+      setCompany((previous) => (previous ? { ...previous, status: next } : previous));
+      setCompanies((rows) => rows.map((item) => (
+        item.slug === company.slug ? { ...item, status: next } : item
+      )));
+    } catch {
+      // keep local state as-is when the API request fails
+    } finally {
+      setCompanyPauseBusy(false);
+    }
+  };
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
@@ -584,7 +715,13 @@ export function Dock() {
     const resolveCompany = async () => {
       const companies = await listCompanies();
       if (cancelled || companies.length === 0) return;
-      setCompanies(companies.map((c) => ({ id: c.id, slug: c.slug, name: c.name, code: c.code || c.slug.slice(0, 3).toUpperCase() })));
+      setCompanies(companies.map((c) => ({
+        id: c.id,
+        slug: c.slug,
+        name: c.name,
+        code: c.code || c.slug.slice(0, 3).toUpperCase(),
+        status: c.status,
+      })));
 
       const segments = pathname.split("/").filter(Boolean);
       const root = segments[0];
@@ -594,7 +731,13 @@ export function Dock() {
       if (root === "companies" && segments[1]) {
         const current = companies.find((candidate) => candidate.slug === segments[1]);
         if (current) {
-          resolved = { id: current.id, slug: current.slug, name: current.name, code: current.code || current.slug.slice(0, 3).toUpperCase() };
+          resolved = {
+            id: current.id,
+            slug: current.slug,
+            name: current.name,
+            code: current.code || current.slug.slice(0, 3).toUpperCase(),
+            status: current.status,
+          };
         }
       }
 
@@ -604,7 +747,13 @@ export function Dock() {
           (candidate) => (candidate.code || "").toUpperCase() === root.toUpperCase()
         );
         if (byCode) {
-          resolved = { id: byCode.id, slug: byCode.slug, name: byCode.name, code: byCode.code || byCode.slug.slice(0, 3).toUpperCase() };
+          resolved = {
+            id: byCode.id,
+            slug: byCode.slug,
+            name: byCode.name,
+            code: byCode.code || byCode.slug.slice(0, 3).toUpperCase(),
+            status: byCode.status,
+          };
         }
       }
 
@@ -616,7 +765,13 @@ export function Dock() {
           ? companies.find((candidate) => candidate.id === currentProject.companyId)
           : null;
         if (currentCompany) {
-          resolved = { id: currentCompany.id, slug: currentCompany.slug, name: currentCompany.name, code: currentCompany.code || currentCompany.slug.slice(0, 3).toUpperCase() };
+          resolved = {
+            id: currentCompany.id,
+            slug: currentCompany.slug,
+            name: currentCompany.name,
+            code: currentCompany.code || currentCompany.slug.slice(0, 3).toUpperCase(),
+            status: currentCompany.status,
+          };
         }
       }
 
@@ -629,11 +784,16 @@ export function Dock() {
           slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
           name: fallback?.name ?? "NeverIdle Core",
           code: fallback?.code || (fallback?.slug ?? FALLBACK_COMPANY_SLUG).slice(0, 3).toUpperCase(),
+          status: fallback?.status ?? "active",
         };
       }
 
       // Only update state if the company actually changed — prevents cascading re-renders
-      setCompany((prev) => prev.slug === resolved!.slug && prev.name === resolved!.name && prev.code === resolved!.code ? prev : resolved!);
+      setCompany((prev) => (
+        prev.slug === resolved!.slug && prev.name === resolved!.name && prev.code === resolved!.code && prev.status === resolved!.status
+          ? prev
+          : resolved!
+      ));
     };
 
     void resolveCompany();
@@ -911,9 +1071,10 @@ export function Dock() {
 
       <SectionHeader label="Operations" />
       {OPERATIONS_ITEMS.map((entry) => {
+        const isTasks = entry.label === "Tasks";
         const href = operationsItemHref(cc, entry.label);
-        const item =
-          entry.label === "Tasks"
+                const item =
+          isTasks
             ? {
                 ...entry,
                 href,
@@ -926,6 +1087,9 @@ export function Dock() {
                       transform: "translateY(-50%)",
                       display: "inline-flex",
                       alignItems: "center",
+                      opacity: showCreateTaskAction ? 1 : 0,
+                      pointerEvents: showCreateTaskAction ? "auto" : "none",
+                      transition: "opacity 120ms ease",
                       zIndex: 2,
                     }}
                   >
@@ -942,9 +1106,9 @@ export function Dock() {
                         width: "18px",
                         height: "18px",
                         borderRadius: "6px",
-                        border: "1px solid rgba(120,113,108,0.4)",
+                        border: "0.5px solid rgba(222,220,209,0.12)",
                         background: "rgba(41,37,36,0.55)",
-                        color: "#d6d3d1",
+                        color: "#a8a6a0",
                         display: "inline-flex",
                         alignItems: "center",
                         justifyContent: "center",
@@ -952,14 +1116,14 @@ export function Dock() {
                         transition: "all 120ms ease",
                       }}
                       onMouseEnter={(event) => {
-                        event.currentTarget.style.border = "1px solid rgba(245,158,11,0.4)";
-                        event.currentTarget.style.background = "rgba(120,53,15,0.4)";
-                        event.currentTarget.style.color = "#fde68a";
+                        event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                        event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                        event.currentTarget.style.color = "#eae8e4";
                       }}
                       onMouseLeave={(event) => {
-                        event.currentTarget.style.border = "1px solid rgba(120,113,108,0.4)";
+                        event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.12)";
                         event.currentTarget.style.background = "rgba(41,37,36,0.55)";
-                        event.currentTarget.style.color = "#d6d3d1";
+                        event.currentTarget.style.color = "#a8a6a0";
                       }}
                     >
                       <Plus size={11} strokeWidth={2.2} />
@@ -972,7 +1136,17 @@ export function Dock() {
               : entry.label === "Inbox"
                 ? { ...entry, href, badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined }
                 : { ...entry, href };
-        return <NavRow key={entry.label} item={item} active={checkActive(href)} />;
+        return (
+          <NavRow
+            key={entry.label}
+            item={{
+              ...item,
+              onRowMouseEnter: isTasks ? () => setShowCreateTaskAction(true) : undefined,
+              onRowMouseLeave: isTasks ? () => setShowCreateTaskAction(false) : undefined,
+            }}
+            active={checkActive(href)}
+          />
+        );
       })}
 
       <SectionDivider />
@@ -981,6 +1155,7 @@ export function Dock() {
         label="Projects"
         collapsed={!projectsOpen}
         onToggle={() => setProjectsOpen((prev) => !prev)}
+        showCreateOnHover
         onCreate={() => {
           setCreateProjectOpen(true);
         }}
@@ -1020,6 +1195,7 @@ export function Dock() {
         label="Agents"
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
+        showCreateOnHover
         onCreate={() => {
           setCreateAgentOpen(true);
         }}
@@ -1046,8 +1222,7 @@ export function Dock() {
               item={{
                 href,
                 label: agent.name,
-                icon: Bot,
-                statusDotColor: liveAgentIds.has(agent.id) || isAgentActive(agent) ? "#22c55e" : "#78716c",
+                leadingNode: <AgentNavAvatar agent={agent} />,
               }}
               active={checkActive(href)}
             />
@@ -1061,12 +1236,17 @@ export function Dock() {
         label="Company"
         collapsed={!companyOpen}
         onToggle={() => setCompanyOpen((prev) => !prev)}
+        showCreateOnHover
         onCreate={() => { setCreateCompanyOpen(true); }}
         createAriaLabel="Create company"
       />
       {companyOpen && (
         <>
-          <div style={{ position: "relative", margin: "0 -6px" }}>
+          <div
+            style={{ position: "relative", margin: "0 -6px" }}
+            onMouseEnter={() => setShowCompanyActions(true)}
+            onMouseLeave={() => setShowCompanyActions(false)}
+          >
             <NavRow
               item={{
                 href: buildCompanyPath(company.slug),
@@ -1076,38 +1256,120 @@ export function Dock() {
               }}
               active={pathname === buildCompanyPath(company.slug) || checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalOrgPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
             />
-            {companies.length > 1 ? (
+            <div
+              style={{
+                position: "absolute",
+                right: "12px",
+                top: "50%",
+                transform: "translateY(-50%)",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: "4px",
+                opacity: showCompanyActions || companyPickerOpen ? 1 : 0,
+                pointerEvents: showCompanyActions || companyPickerOpen ? "auto" : "none",
+                transition: "opacity 140ms ease",
+                zIndex: 2,
+              }}
+            >
               <button
                 type="button"
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  setCompanyPickerOpen((prev) => !prev);
+                  void handleToggleCompanyPause();
                 }}
-                aria-label="Switch company"
-                title="Switch company"
+                aria-label={company.status === "paused" ? "Resume company" : "Pause company"}
+                title={company.status === "paused" ? "Resume company" : "Pause company"}
                 style={{
-                  position: "absolute",
-                  right: "12px",
-                  top: "50%",
-                  transform: "translateY(-50%)",
                   width: "18px",
                   height: "18px",
                   borderRadius: "6px",
-                  border: "1px solid rgba(255,255,255,0.16)",
-                  background: "rgba(255,255,255,0.04)",
-                  color: "#f5f5f4",
+                  border: "0.5px solid rgba(222,220,209,0.12)",
+                  background: "rgba(41,37,36,0.35)",
+                  color: "#a8a6a0",
                   display: "inline-flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  cursor: "pointer",
+                  cursor: companyPauseBusy ? "not-allowed" : "pointer",
                   transition: "all 120ms ease",
-                  zIndex: 2,
+                  opacity: companyPauseBusy ? 0.5 : 1,
+                }}
+                disabled={companyPauseBusy}
+                onMouseEnter={(event) => {
+                  if (companyPauseBusy) return;
+                  event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                  event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                  event.currentTarget.style.color = "#eae8e4";
+                }}
+                onMouseLeave={(event) => {
+                  if (companyPauseBusy) return;
+                  event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.12)";
+                  event.currentTarget.style.background = "rgba(41,37,36,0.35)";
+                  event.currentTarget.style.color = "#a8a6a0";
+                }}
+                onMouseDown={(event) => {
+                  if (companyPauseBusy) return;
+                  event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                  event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                  event.currentTarget.style.color = "#eae8e4";
+                }}
+                onMouseUp={(event) => {
+                  if (companyPauseBusy) return;
+                  event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                  event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                  event.currentTarget.style.color = "#eae8e4";
                 }}
               >
-                <Repeat size={11} strokeWidth={2.2} />
+                {company.status === "paused" ? <Play size={11} strokeWidth={2.2} /> : <Pause size={11} strokeWidth={2.2} />}
               </button>
-            ) : null}
+              {companies.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setCompanyPickerOpen((prev) => !prev);
+                  }}
+                  aria-label="Switch company"
+                  title="Switch company"
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                    borderRadius: "6px",
+                    border: "0.5px solid rgba(222,220,209,0.12)",
+                    background: "rgba(41,37,36,0.35)",
+                    color: "#a8a6a0",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    transition: "all 120ms ease",
+                  }}
+                  onMouseEnter={(event) => {
+                    event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                    event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                    event.currentTarget.style.color = "#eae8e4";
+                  }}
+                  onMouseLeave={(event) => {
+                    event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.12)";
+                    event.currentTarget.style.background = "rgba(41,37,36,0.35)";
+                    event.currentTarget.style.color = "#a8a6a0";
+                  }}
+                  onMouseDown={(event) => {
+                    event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                    event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                    event.currentTarget.style.color = "#eae8e4";
+                  }}
+                  onMouseUp={(event) => {
+                    event.currentTarget.style.border = "0.5px solid rgba(222,220,209,0.2)";
+                    event.currentTarget.style.background = "rgba(41,37,36,0.55)";
+                    event.currentTarget.style.color = "#eae8e4";
+                  }}
+                >
+                  <Repeat size={11} strokeWidth={2.2} />
+                </button>
+              ) : null}
+            </div>
             {companyPickerOpen ? (
               <div
                 style={{

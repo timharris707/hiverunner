@@ -14,6 +14,8 @@ import {
   Wand2,
 } from "lucide-react";
 import { AVATAR_THEME_PRESETS } from "./avatar-theme-data";
+import { AvatarGlyph, avatarIconToken, toAvatarIconToken } from "./AvatarGlyph";
+import { LUCIDE_ICON_OPTIONS } from "./lucide-icons";
 import { clearAvatarDraftCache, readAvatarDraftCache, writeAvatarDraftCache } from "./avatar-draft-storage";
 
 /* ── Types ── */
@@ -88,6 +90,7 @@ export function AvatarWizard({
 }: AvatarWizardProps) {
   const [step, setStep] = useState<WizardStep>("source");
   const [source, setSource] = useState<AvatarSource>("generated");
+  const [selectedIcon, setSelectedIcon] = useState<string>(LUCIDE_ICON_OPTIONS[0]?.value ?? "bot");
   const [styleId, setStyleId] = useState<string>(initialStyleId ?? "cyberpunk");
   const [gender, setGender] = useState<AvatarGender>(initialGender ?? "androgynous");
   const [previews, setPreviews] = useState<string[]>([]);
@@ -194,12 +197,14 @@ export function AvatarWizard({
     if (!open) return;
 
     const cached = readAvatarDraftCache(agentId, alternateAgentKey);
+    const nextIcon = avatarIconToken(agentEmoji) ?? LUCIDE_ICON_OPTIONS[0]?.value ?? "bot";
     const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyberpunk";
     const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];
     const cacheComplete = cachedPreviews.length >= TARGET_PREVIEW_COUNT;
 
     setSource("generated");
+    setSelectedIcon(nextIcon);
     setStyleId(nextStyleId);
     setGender(nextGender);
     setGenerating(false);
@@ -254,13 +259,25 @@ export function AvatarWizard({
     setSaving(true);
     setError(null);
     try {
-      let avatarUrl: string | null;
+      let payload: {
+        avatarUrl: string | null;
+        avatarStyleId: string;
+        avatarGender: AvatarGender;
+        avatarSetupPending: boolean;
+        emoji?: string;
+      } = {
+        avatarUrl: null,
+        avatarStyleId: styleId,
+        avatarGender: gender,
+        avatarSetupPending: false,
+      };
 
       if (source === "icon") {
-        avatarUrl = null;
+        payload.emoji = toAvatarIconToken(selectedIcon);
       } else {
-        avatarUrl = previews[selectedPreview];
-        if (!avatarUrl) throw new Error("No preview selected");
+        const selected = previews[selectedPreview];
+        if (!selected) throw new Error("No preview selected");
+        payload.avatarUrl = selected;
       }
 
       const res = await fetch(
@@ -268,12 +285,7 @@ export function AvatarWizard({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            avatarUrl,
-            avatarStyleId: styleId,
-            avatarGender: gender,
-            avatarSetupPending: false,
-          }),
+          body: JSON.stringify(payload),
         }
       );
       if (!res.ok) throw new Error(`Save failed (${res.status})`);
@@ -286,7 +298,7 @@ export function AvatarWizard({
     } finally {
       setSaving(false);
     }
-  }, [agentId, companySlug, gender, onClose, onSaved, previews, selectedPreview, source, styleId]);
+  }, [agentId, companySlug, gender, onClose, onSaved, previews, selectedIcon, selectedPreview, source, styleId]);
 
   // Navigation
   const goNext = () => {
@@ -420,6 +432,8 @@ export function AvatarWizard({
             <SourceStep
               source={source}
               onSelect={setSource}
+              selectedIcon={selectedIcon}
+              onSelectIcon={setSelectedIcon}
               currentAvatar={currentAvatar}
               agentEmoji={agentEmoji}
               providerStatus={providerStatus}
@@ -510,7 +524,7 @@ export function AvatarWizard({
               <WizardBtn variant="primary" onClick={goNext}>
                 {step === "source" && source === "icon" ? (
                   <>
-                    <Check size={13} /> Reset to Icon
+                    <Check size={13} /> Apply Icon
                   </>
                 ) : (
                   <>
@@ -532,6 +546,8 @@ export function AvatarWizard({
 function SourceStep({
   source,
   onSelect,
+  selectedIcon,
+  onSelectIcon,
   currentAvatar,
   agentEmoji,
   providerStatus,
@@ -539,12 +555,16 @@ function SourceStep({
 }: {
   source: AvatarSource;
   onSelect: (s: AvatarSource) => void;
+  selectedIcon: string;
+  onSelectIcon: (value: string) => void;
   currentAvatar?: string;
   agentEmoji: string;
   providerStatus: { provider: string; label: string; aiAvailable: boolean; setupHint?: string } | null;
   pendingSetup: boolean;
 }) {
   const aiAvailable = providerStatus?.aiAvailable ?? false;
+  const sourceIconValue = toAvatarIconToken(selectedIcon);
+  const currentAvatarIsIcon = avatarIconToken(currentAvatar);
   return (
     <div>
       <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 14px" }}>
@@ -557,10 +577,12 @@ function SourceStep({
           selected={source === "icon"}
           onClick={() => onSelect("icon")}
           icon={
-            <span style={{ fontSize: 28 }}>{agentEmoji || "🤖"}</span>
+            <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+              <AvatarGlyph value={sourceIconValue} size={28} fallback={agentEmoji || "🤖"} color={W.text} />
+            </span>
           }
-          title="Default Icon"
-          description="Use the current Lucide icon or emoji. Clean and minimal."
+          title="Basic icon."
+          description="Choose from available Lucide icons."
         />
         <SourceCard
           selected={source === "generated"}
@@ -584,21 +606,81 @@ function SourceStep({
           {providerStatus.setupHint}
         </div>
       )}
+      {source === "icon" ? (
+        <div style={{ marginTop: 12 }}>
+          <p style={{ margin: "0 0 8px", fontSize: 12, color: W.textSec, fontWeight: 600 }}>
+            Pick a basic icon
+          </p>
+          <div style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(8, minmax(0, 1fr))",
+            gap: 6,
+            maxHeight: 142,
+            overflowY: "auto",
+            padding: 2,
+          }}>
+            {LUCIDE_ICON_OPTIONS.map((option) => {
+              const iconValue = toAvatarIconToken(option.value);
+              const selected = option.value === selectedIcon;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onSelectIcon(option.value)}
+                  title={`${option.label} (${option.value})`}
+                  style={{
+                    width: 34,
+                    height: 34,
+                    borderRadius: 8,
+                    border: `1px solid ${selected ? W.accentBorder : W.border}`,
+                    background: selected ? W.accentDim : "rgba(255,255,255,0.04)",
+                    color: selected ? W.text : W.textSec,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    padding: 0,
+                  }}
+                >
+                  <AvatarGlyph value={iconValue} size={16} color={selected ? W.text : W.textSec} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
       {currentAvatar && (
         <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 11, color: W.muted }}>Current avatar:</span>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={currentAvatar}
-            alt="current"
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              border: `1px solid ${W.border}`,
-              objectFit: "cover",
-            }}
-          />
+          {currentAvatarIsIcon ? (
+            <span
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                border: `1px solid ${W.border}`,
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "rgba(255,255,255,0.04)",
+              }}
+            >
+              <AvatarGlyph value={currentAvatar} size={22} color={W.text} />
+            </span>
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={currentAvatar}
+              alt="current"
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                border: `1px solid ${W.border}`,
+                objectFit: "cover",
+              }}
+            />
+          )}
         </div>
       )}
     </div>

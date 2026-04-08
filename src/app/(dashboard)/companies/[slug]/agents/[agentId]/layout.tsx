@@ -13,6 +13,7 @@ import {
   Plus,
 } from "lucide-react";
 import { AvatarWizard } from "@/components/orchestration/AvatarWizard";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import { getCompanyAgentProfile, listCompanies, triggerAgentHeartbeat } from "@/lib/orchestration/client";
 import type { OrchestrationAgentProfile } from "@/lib/orchestration/types";
@@ -194,7 +195,7 @@ export default function AgentDetailLayout({
               // eslint-disable-next-line @next/next/no-img-element
               <img src={agent.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
             ) : (
-              <span>{agent.emoji}</span>
+              <AvatarGlyph value={agent.emoji} size={16} />
             )}
             {/* tiny edit overlay on hover */}
             <span style={{
