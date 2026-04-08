@@ -11,11 +11,28 @@ START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
 mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
 
+# ── Boot grace period ──
+# Webpack cold-start compilation takes 30–60 seconds. The watchdog runs
+# every 15 seconds. Without a grace period the watchdog kills the server
+# before it finishes compiling, creating a restart loop.
+BOOT_GRACE_SECS="${BOOT_GRACE_SECS:-90}"
+
+in_boot_grace() {
+  # If the PID file was written recently, the server is still booting.
+  [ -f "$PID_FILE" ] || return 1
+  FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
+  [ -n "$FILE_PID" ] && kill -0 "$FILE_PID" 2>/dev/null || return 1
+
+  # macOS stat -f %m returns mtime as epoch seconds
+  PID_MTIME="$(stat -f %m "$PID_FILE" 2>/dev/null || echo 0)"
+  NOW="$(date +%s)"
+  AGE=$(( NOW - PID_MTIME ))
+  [ "$AGE" -lt "$BOOT_GRACE_SECS" ]
+}
+
 is_healthy() {
-  # Dual verification: API route AND page render.
-  # Turbopack corruption can break page rendering while API routes still work.
-  curl -sf --max-time 10 "$URL/api/mc/health" >/dev/null 2>&1 \
-    && curl -sf --max-time 15 "$URL/NEV/inbox" >/dev/null 2>&1
+  # API health only — lightweight check that works even during compilation.
+  curl -sf --max-time 10 "$URL/api/mc/health" >/dev/null 2>&1
 }
 
 # ── PID reconciliation ──
@@ -50,6 +67,11 @@ reconcile_pid
 
 if is_healthy; then
   echo "[mc-dev] healthy"
+  exit 0
+fi
+
+if in_boot_grace; then
+  echo "[mc-dev] still booting (within ${BOOT_GRACE_SECS}s grace) — skipping restart"
   exit 0
 fi
 
