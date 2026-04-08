@@ -47,7 +47,7 @@ import {
 import { font, P, space, type as tokenType } from "@/lib/ui/tokens";
 
 const STATUS_WEIGHT: Record<TaskStatus, number> = {
-  "in-progress": 0, "on-deck": 1, review: 2, blocked: 3, backlog: 4, done: 5, cancelled: 6,
+  backlog: 0, "on-deck": 1, "in-progress": 2, review: 3, blocked: 4, done: 5, cancelled: 6,
 };
 
 export default function CompanyTasksPage() {

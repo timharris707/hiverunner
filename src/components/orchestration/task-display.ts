@@ -29,7 +29,7 @@ export const PRIORITY_META: Record<TaskPriority, PriorityInfo> = {
 
 export const STATUS_META: Record<TaskStatus, StatusInfo> = {
   backlog:       { label: "Backlog",     color: "#737373", style: "ring", fill: "empty", filled: false },
-  "on-deck":     { label: "On Deck",     color: "#60a5fa", style: "ring", fill: "empty", filled: false },
+  "on-deck":     { label: "Todo",        color: "#60a5fa", style: "ring", fill: "empty", filled: false },
   "in-progress": { label: "In Progress", color: "#facc15", style: "ring", fill: "empty", filled: false },
   review:        { label: "In Review",   color: "#a78bfa", style: "ring", fill: "empty", filled: false },
   blocked:       { label: "Blocked",     color: "#f87171", style: "ring", fill: "empty", filled: false },

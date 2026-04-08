@@ -36,10 +36,10 @@ export interface InlineEditCallbacks {
   onAssigneeChange: (taskId: string, assignee: string) => void | Promise<void>;
 }
 
-export const STATUS_ORDER: TaskStatus[] = ["in-progress", "on-deck", "review", "blocked", "backlog", "done", "cancelled"];
+export const STATUS_ORDER: TaskStatus[] = ["backlog", "on-deck", "in-progress", "review", "blocked", "done", "cancelled"];
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
-  "on-deck": "On Deck",
+  "on-deck": "Todo",
   "in-progress": "In Progress",
   review: "Review",
   done: "Done",

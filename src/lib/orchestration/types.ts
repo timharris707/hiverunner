@@ -375,8 +375,9 @@ export interface OrchestrationRoutineListItem extends OrchestrationRoutine {
 
 export const ORCHESTRATION_COLUMNS: Array<{ id: TaskStatus; label: string }> = [
   { id: "backlog", label: "Backlog" },
-  { id: "on-deck", label: "On Deck" },
+  { id: "on-deck", label: "Todo" },
   { id: "in-progress", label: "In Progress" },
   { id: "review", label: "Review" },
+  { id: "blocked", label: "Blocked" },
   { id: "done", label: "Done" },
 ];

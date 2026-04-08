@@ -845,7 +845,14 @@ export default function TaskDetailPage() {
                             type="checkbox"
                             checked={reopenOnComment}
                             onChange={(e) => setReopenOnComment(e.target.checked)}
-                            style={{ accentColor: "#3b82f6", width: 13, height: 13 }}
+                            style={{
+                              appearance: "none",
+                              WebkitAppearance: "none",
+                              width: 13, height: 13, borderRadius: 3, flexShrink: 0,
+                              border: `1.5px solid ${reopenOnComment ? "#3b82f6" : "rgba(120,113,108,0.5)"}`,
+                              background: reopenOnComment ? "#3b82f6" : "transparent",
+                              cursor: "pointer",
+                            }}
                           />
                           <RotateCcw size={11} />
                           Re-open
@@ -986,11 +993,31 @@ export default function TaskDetailPage() {
 
             {/* Assignee */}
             <PropertyRow label="Assignee">
-              <InlineAssigneePicker
-                current={task.assignee}
-                agents={agents}
-                onChange={(a) => onAssigneeChange(task.id, a)}
-              />
+              {task.status === "done" || task.status === "cancelled" ? (
+                (() => {
+                  if (!task.assignee) return <span style={{ fontSize: "12px", color: color.textMuted }}>—</span>;
+                  const ag = agents.find(
+                    (a) => a.name.toLowerCase() === task.assignee!.toLowerCase() || a.id.toLowerCase() === task.assignee!.toLowerCase()
+                  );
+                  if (ag) {
+                    const av = resolveAvatar(ag);
+                    return (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.textMuted }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        {av ? <img src={av} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover" }} /> : <AvatarGlyph value={ag.emoji} size={14} />}
+                        {ag.name}
+                      </span>
+                    );
+                  }
+                  return <span style={{ fontSize: "12px", color: color.textMuted }}>{task.assignee}</span>;
+                })()
+              ) : (
+                <InlineAssigneePicker
+                  current={task.assignee}
+                  agents={agents}
+                  onChange={(a) => onAssigneeChange(task.id, a)}
+                />
+              )}
             </PropertyRow>
 
             {/* Project */}
@@ -1035,9 +1062,9 @@ export default function TaskDetailPage() {
               <span style={{ fontSize: "12px", color: color.textMuted }}>{relativeAge(task.updated)}</span>
             </PropertyRow>
 
-            {/* Completed */}
+            {/* Completed at */}
             {task.completedAt && (
-              <PropertyRow label="Completed">
+              <PropertyRow label="Completed at">
                 <span style={{ fontSize: "12px", color: color.textMuted }}>{formatShortDate(task.completedAt)}</span>
               </PropertyRow>
             )}

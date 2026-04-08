@@ -5,6 +5,8 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { InlineStatusPicker } from "./InlineStatusPicker";
 import { type TaskRow as TaskRowT, type InlineEditCallbacks, getTaskIdentifier, formatShortDate, assigneeInitials } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { resolveAvatar } from "./InlineAssigneePicker";
 import { font, P } from "@/lib/ui/tokens";
 
 interface Props {
@@ -117,29 +119,27 @@ export function TaskRow({
       {/* Assignee avatar + name */}
       {assigneeName ? (
         <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
-          {agent?.avatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={agent.avatar}
-              alt={assigneeName}
-              style={{
-                width: 22, height: 22, borderRadius: "50%",
-                objectFit: "cover", flexShrink: 0,
-              }}
-            />
-          ) : (
-            <span style={{
-              width: 22, height: 22, borderRadius: "50%",
-              background: agent?.emoji ? "rgba(217,119,6,0.18)" : "rgba(255,255,255,0.06)",
-              border: agent?.emoji ? "none" : `1px solid ${P.cardBorder}`,
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              fontSize: agent?.emoji ? 12 : 9, fontWeight: 700,
-              color: agent?.emoji ? "#fbbf24" : P.textSecondary,
-              flexShrink: 0,
-            }}>
-              {agent?.emoji ?? initials}
-            </span>
-          )}
+          {(() => {
+            const avatarUrl = agent ? resolveAvatar(agent) : undefined;
+            if (avatarUrl) {
+              return (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt={assigneeName} style={{ width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+              );
+            }
+            if (agent?.emoji) {
+              return (
+                <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(217,119,6,0.18)", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <AvatarGlyph value={agent.emoji} size={12} />
+                </span>
+              );
+            }
+            return (
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
+                {initials}
+              </span>
+            );
+          })()}
           <span style={{ fontSize: "12px", color: P.textSecondary, flexShrink: 0 }}>
             {assigneeName}
           </span>

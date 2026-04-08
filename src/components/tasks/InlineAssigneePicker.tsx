@@ -72,7 +72,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
       {open && (
         <div style={{
           position: "absolute", top: "100%", right: 0, zIndex: 50,
-          marginTop: "4px", minWidth: "160px", maxHeight: "240px", overflowY: "auto",
+          marginTop: "4px", minWidth: "160px", maxHeight: "360px", overflowY: "auto",
           background: P.surfaceElevated, border: `1px solid ${P.cardBorder}`,
           borderRadius: radius.md, padding: "4px 0",
           boxShadow: "0 16px 36px rgba(0,0,0,0.35)",

@@ -5,6 +5,8 @@ import { PRIORITY_META } from "@/components/orchestration/task-display";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { SURFACE, type TaskRow, type InlineEditCallbacks, STATUS_ORDER, STATUS_LABEL, getTaskIdentifier } from "./types";
 import type { OrchestrationAgent, TaskPriority } from "@/lib/orchestration/types";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { resolveAvatar } from "./InlineAssigneePicker";
 
 const PRIORITIES: TaskPriority[] = ["P0", "P1", "P2", "P3"];
 
@@ -138,7 +140,12 @@ export function TaskContextMenu({ task, x, y, agents, callbacks, onArchive, onCl
             onClick={() => { callbacks.onAssigneeChange(task.id, a.name); onClose(); }}
             onMouseEnter={hoverIn} onMouseLeave={hoverOut}
           >
-            <span>{a.emoji}</span> {a.name}
+            {(() => {
+              const av = resolveAvatar(a);
+              // eslint-disable-next-line @next/next/no-img-element
+              return av ? <img src={av} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} /> : <AvatarGlyph value={a.emoji} size={14} />;
+            })()}
+            {a.name}
           </button>
         ))}
       </SubMenu>
