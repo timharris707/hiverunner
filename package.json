@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "NODE_ENV=development node server.js",
+    "dev": "NODE_ENV=development node --max-old-space-size=8192 server.js",
     "build": "node ./node_modules/next/dist/bin/next build --experimental-build-mode compile",
     "start": "NODE_ENV=production node server.js",
     "lint": "eslint",

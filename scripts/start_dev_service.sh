@@ -70,7 +70,12 @@ echo "[mc-dev] starting Mission Control dev server on port $PORT"
 # The stable lane (:3001) owns execution. Dev is for UI/build/testing.
 # Override with MC_ENGINE_TICK=on if you want dev to tick (e.g., no stable lane).
 MC_ENGINE_TICK="${MC_ENGINE_TICK:-off}"
-nohup env NODE_ENV=development PORT="$PORT" MC_ENGINE_TICK="$MC_ENGINE_TICK" "$NODE_BIN" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
+# Webpack dev mode for a large app can reach 2–3 GB RSS.  Default Node heap
+# limit (~4 GB) leaves almost no headroom, causing OOM crashes after ~2 hours
+# of accumulated HMR recompilation + snapshot polling churn.  8 GB gives
+# comfortable room while still bounding runaway growth.
+NODE_HEAP_SIZE="${NODE_HEAP_SIZE:-8192}"
+nohup env NODE_ENV=development PORT="$PORT" MC_ENGINE_TICK="$MC_ENGINE_TICK" "$NODE_BIN" --max-old-space-size="$NODE_HEAP_SIZE" server.js >>"$OUT_LOG" 2>>"$ERR_LOG" &
 PID=$!
 echo "$PID" > "$PID_FILE"
 echo "[mc-dev] started PID $PID"

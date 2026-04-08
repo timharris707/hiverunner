@@ -88,6 +88,11 @@ app.prepare().then(() => {
     }
   }
 
+  // Dev lane polls slower (15s) to reduce GC pressure — snapshot is ~1.3 MB
+  // and each cycle allocates ≈2.6 MB (fetch response + JSON.stringify).
+  // At 5s that's ~1.9 GB/hr of allocation churn; at 15s it's ~0.6 GB/hr.
+  const snapshotIntervalMs = dev ? 15_000 : 5_000;
+
   const broadcastInterval = setInterval(async () => {
     if (clients.size === 0) return;
 
@@ -113,7 +118,7 @@ app.prepare().then(() => {
         ts: new Date().toISOString(),
       }));
     }
-  }, 5000);
+  }, snapshotIntervalMs);
 
   wss.on("connection", (ws) => {
     clients.add(ws);
