@@ -49,6 +49,7 @@ import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { useHiddenProjects } from "@/lib/hidden-project-state";
 import {
+  buildCompanyPath,
   buildCanonicalCompanyPath,
   buildCanonicalDashboardPath,
   buildCanonicalInboxPath,
@@ -632,7 +633,7 @@ export function Dock() {
       }
 
       // Only update state if the company actually changed — prevents cascading re-renders
-      setCompany((prev) => prev.slug === resolved!.slug ? prev : resolved!);
+      setCompany((prev) => prev.slug === resolved!.slug && prev.name === resolved!.name && prev.code === resolved!.code ? prev : resolved!);
     };
 
     void resolveCompany();
@@ -1068,12 +1069,12 @@ export function Dock() {
           <div style={{ position: "relative", margin: "0 -6px" }}>
             <NavRow
               item={{
-                href: buildCanonicalDashboardPath(cc),
+                href: buildCompanyPath(company.slug),
                 label: company.name,
                 indent: true,
                 accentBar: true,
               }}
-              active={checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalOrgPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
+              active={pathname === buildCompanyPath(company.slug) || checkActive(buildCanonicalDashboardPath(cc)) || checkActive(buildCanonicalOrgPath(cc)) || checkActive(buildCanonicalSkillsPath(cc)) || checkActive(buildCanonicalCostsPath(cc)) || checkActive(buildCanonicalActivityPath(cc)) || checkActive(buildCanonicalFilesPath(cc)) || checkActive(buildCanonicalSettingsPath(cc))}
             />
             {companies.length > 1 ? (
               <button

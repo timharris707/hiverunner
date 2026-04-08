@@ -213,9 +213,8 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   const qs = new URLSearchParams(searchParams);
 
   if (!rest || rest === "/") {
-    const url = new URL(`/${companyCode}`, origin);
-    copyQuery(url, qs);
-    return url;
+    // Don't redirect bare /companies/{slug} — let it serve the company detail page directly
+    return null;
   }
 
   const projectParam = searchParams.get("project") || searchParams.get("projectId");
