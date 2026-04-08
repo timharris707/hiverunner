@@ -579,10 +579,20 @@ export function syncCompanyAgentsFromOpenClaw(input: {
 
     const insertAgent = db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, slug, emoji, role, personality, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
+        (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
        VALUES
-        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
+        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
     );
+
+    // Resolve company avatar theme once for all inserts
+    const companyThemeRow = db.prepare(
+      `SELECT theme_name, theme_prompt_template, theme_keywords_json FROM companies WHERE id = ? LIMIT 1`
+    ).get(companyRow.id) as { theme_name: string | null; theme_prompt_template: string | null; theme_keywords_json: string | null } | undefined;
+    const seedTheme = {
+      name: companyThemeRow?.theme_name ?? "Corporate Noir",
+      promptTemplate: companyThemeRow?.theme_prompt_template ?? "dark premium portrait, cohesive team style",
+      keywords: (() => { try { return JSON.parse(companyThemeRow?.theme_keywords_json ?? "[]"); } catch { return []; } })(),
+    };
 
     const updateAgent = db.prepare(
       `UPDATE agents
@@ -646,6 +656,13 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         continue;
       }
 
+      const seedAvatar = generateAgentAvatarDataUrl({
+        name: normalizedName,
+        role,
+        personality,
+        emoji,
+        theme: seedTheme,
+      });
       insertAgent.run(
         randomUUID(),
         companyRow.id,
@@ -654,6 +671,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         emoji,
         role,
         personality,
+        seedAvatar,
         status,
         model,
         openclawId,

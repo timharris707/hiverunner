@@ -5,6 +5,7 @@ import path from "path";
 import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -281,17 +282,26 @@ export async function POST(req: NextRequest) {
 
     // ---------- 5. Create agent in orchestration DB ----------
     const agentId = randomUUID();
+    const ceoPersonality = `CEO of ${company.name.trim()}. ${company.description?.trim() || ""}`.trim();
+    const ceoAvatarUrl = generateAgentAvatarDataUrl({
+      name: ceo.name.trim(),
+      role: "CEO",
+      personality: ceoPersonality,
+      emoji: "\u{1F3AF}",
+      theme: { name: "Corporate Noir", promptTemplate: "dark premium portrait, cohesive team style", keywords: ["enterprise", "studio", "polished", "dark"] },
+    });
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, emoji, role, personality, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'CEO', ?, ?, 'idle', ?, '[]', ?, ?)`,
+        (id, company_id, project_id, name, emoji, role, personality, avatar_url, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'CEO', ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
     ).run(
       agentId,
       companyId,
       projectId,
       ceo.name.trim(),
       "\u{1F3AF}",
-      `CEO of ${company.name.trim()}. ${company.description?.trim() || ""}`.trim(),
+      ceoPersonality,
+      ceoAvatarUrl,
       model,
       openclawAgentId,
       now,
