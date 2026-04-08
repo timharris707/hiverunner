@@ -951,7 +951,7 @@ export default function ProjectTasksPage({
                         <span>Unassigned</span>
                       </label>
                       {agents.map((a) => {
-                        const cfg = getAgentByAnyId(a.id);
+                        const avatarSrc = a.avatar || getAgentByAnyId(a.id)?.avatar;
                         return (
                         <label
                           key={a.id}
@@ -961,8 +961,8 @@ export default function ProjectTasksPage({
                             checked={view.assignees.includes(a.id)}
                             onChange={() => updateView({ assignees: toggleIn(view.assignees, a.id) })}
                           />
-                          {cfg?.avatar ? (
-                            <img src={cfg.avatar} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                          {avatarSrc ? (
+                            <img src={avatarSrc} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
                           ) : (
                             <span style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
                               {a.name?.slice(0, 1).toUpperCase()}

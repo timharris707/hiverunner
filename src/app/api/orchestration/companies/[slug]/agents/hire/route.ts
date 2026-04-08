@@ -6,6 +6,7 @@ import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createApproval } from "@/lib/orchestration/service/approval";
+import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
 
 export const dynamic = "force-dynamic";
 
@@ -83,10 +84,29 @@ export async function POST(
       ? mission.trim()
       : `${name.trim()} owns ${role.trim()} responsibilities for ${company.name}.`;
 
+    // Generate a deterministic SVG avatar for the new agent
+    const companyTheme = (() => {
+      const row = db.prepare(
+        `SELECT theme_name, theme_prompt_template, theme_keywords_json FROM companies WHERE id = ? LIMIT 1`
+      ).get(company.id) as { theme_name: string | null; theme_prompt_template: string | null; theme_keywords_json: string | null } | undefined;
+      return {
+        name: row?.theme_name ?? "Corporate Noir",
+        promptTemplate: row?.theme_prompt_template ?? "dark premium portrait, cohesive team style",
+        keywords: (() => { try { return JSON.parse(row?.theme_keywords_json ?? "[]"); } catch { return []; } })(),
+      };
+    })();
+    const avatarUrl = generateAgentAvatarDataUrl({
+      name: name.trim(),
+      role: role.trim(),
+      personality: resolvedPersonality,
+      emoji: resolvedEmoji,
+      theme: companyTheme,
+    });
+
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, name, emoji, role, personality, model, status, openclaw_agent_id, reporting_to, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'paused', ?, ?, '[]', ?, ?)`
+        (id, company_id, name, emoji, role, personality, model, status, avatar_url, openclaw_agent_id, reporting_to, skills_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'paused', ?, ?, ?, '[]', ?, ?)`
     ).run(
       agentId,
       company.id,
@@ -95,6 +115,7 @@ export async function POST(
       role.trim(),
       resolvedPersonality,
       agentModel,
+      avatarUrl,
       openclawAgentId,
       reportingToId,
       now,

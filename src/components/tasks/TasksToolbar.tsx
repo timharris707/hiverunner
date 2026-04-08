@@ -244,15 +244,15 @@ export function TasksToolbar({
               </div>
               <CheckOption label="Unassigned" checked={filters.assignee === ""} onChange={() => toggleAssigneeFilter("")} />
               {agents.map((a) => {
-                const cfg = getAgentByAnyId(a.id) ?? getAgentByAnyId(a.name);
+                const avatarSrc = a.avatar || getAgentByAnyId(a.id)?.avatar || getAgentByAnyId(a.name)?.avatar;
                 return (
                   <label key={a.id} style={{
                     display: "flex", alignItems: "center", gap: "8px", padding: "4px 6px",
                     borderRadius: radius.sm, cursor: "pointer", fontSize: "12px", color: P.textSecondary,
                   }}>
                     <input type="checkbox" checked={filters.assignee === a.name} onChange={() => toggleAssigneeFilter(a.name)} />
-                    {cfg?.avatar ? (
-                      <img src={cfg.avatar} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                    {avatarSrc ? (
+                      <img src={avatarSrc} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
                     ) : (
                       <span style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: `1px solid rgba(120,113,108,0.25)`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
                         {a.name?.slice(0, 1).toUpperCase()}
