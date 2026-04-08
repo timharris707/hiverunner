@@ -141,6 +141,14 @@ export default function TaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [activityTimeline, setActivityTimeline] = useState<Array<{
+    id: string; kind: "event" | "comment"; eventType?: string;
+    fromStatus?: string | null; toStatus?: string | null;
+    body?: string; commentType?: string | null; commentSource?: string | null;
+    actorName: string | null; actorEmoji: string | null; actorId: string | null;
+    metadata?: Record<string, unknown>; timestamp: string;
+  }>>([]);
+  const [activityLoading, setActivityLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("comments");
   const [commentDraft, setCommentDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -188,6 +196,21 @@ export default function TaskDetailPage() {
   }, [slug, taskKey]);
 
   useEffect(() => { void loadTask(); }, [loadTask]);
+
+  // Fetch real activity timeline when Activity tab is shown
+  useEffect(() => {
+    if (activeTab !== "activity" || !task?.id) return;
+    let cancelled = false;
+    setActivityLoading(true);
+    fetch(`/api/orchestration/tasks/${task.id}/activity`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!cancelled && data?.timeline) setActivityTimeline(data.timeline);
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setActivityLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, task?.id]);
 
   useEffect(() => {
     if (!task?.id) {
@@ -887,35 +910,94 @@ export default function TaskDetailPage() {
               )}
               {activeTab === "activity" && (
                 <div style={{ fontSize: "12px", color: color.textMuted }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    <div style={{ display: "flex", gap: "8px" }}>
-                      <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.created)}</span>
-                      <span>Task created</span>
+                  {activityLoading && activityTimeline.length === 0 ? (
+                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>Loading activity...</div>
+                  ) : activityTimeline.length === 0 ? (
+                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>No activity recorded yet.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {activityTimeline.map((entry) => (
+                        <div
+                          key={entry.id}
+                          style={{
+                            display: "flex", gap: "10px", padding: "8px 0",
+                            borderBottom: `0.5px solid ${color.border}`,
+                          }}
+                        >
+                          {/* Actor badge */}
+                          <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
+                            {entry.actorName ? (
+                              <span style={{
+                                width: 22, height: 22, borderRadius: "50%",
+                                background: "rgba(217,119,6,0.15)",
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 10, fontWeight: 700, color: "#fbbf24",
+                              }}>
+                                {entry.actorName.slice(0, 2).toUpperCase()}
+                              </span>
+                            ) : (
+                              <span style={{
+                                width: 22, height: 22, borderRadius: "50%",
+                                background: "rgba(120,113,108,0.2)",
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                fontSize: 10, color: color.textMuted,
+                              }}>
+                                <User size={10} />
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Content */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                              {entry.actorName && (
+                                <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorName}</span>
+                              )}
+                              <span style={{ color: color.text, fontSize: 11 }}>
+                                {entry.kind === "comment" ? (
+                                  "added a comment"
+                                ) : entry.eventType === "task.created" ? (
+                                  "created the task"
+                                ) : entry.eventType === "task.status_changed" ? (
+                                  <>changed status from <StatusLabel s={entry.fromStatus} /> to <StatusLabel s={entry.toStatus} /></>
+                                ) : entry.eventType === "task.assigned" ? (
+                                  (() => {
+                                    const meta = entry.metadata as Record<string, unknown> | undefined;
+                                    const assignee = meta?.assignee ? String(meta.assignee) : null;
+                                    return assignee ? <>assigned to <span style={{ fontWeight: 600, color: color.textSecondary }}>{assignee}</span></> : "updated assignment";
+                                  })()
+                                ) : entry.eventType === "task.unassigned" ? (
+                                  "removed assignment"
+                                ) : entry.eventType === "task.comment_added" ? (
+                                  "added a comment"
+                                ) : entry.eventType === "task.reordered" ? (
+                                  "reordered the task"
+                                ) : (
+                                  (entry.eventType ?? "unknown event").replace("task.", "")
+                                )}
+                              </span>
+                              <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
+                                {relativeAge(entry.timestamp)}
+                              </span>
+                            </div>
+                            {/* Comment body preview */}
+                            {entry.kind === "comment" && entry.body && (
+                              <div style={{
+                                marginTop: 4, padding: "6px 8px", borderRadius: 4,
+                                background: "rgba(255,255,255,0.02)",
+                                border: `0.5px solid ${color.border}`,
+                                fontSize: 11, color: color.textSecondary,
+                                lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                                maxHeight: 80, overflow: "hidden",
+                              }}>
+                                {entry.body.length > 200 ? entry.body.slice(0, 197) + "..." : entry.body}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                    {task.updated !== task.created && (
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.updated)}</span>
-                        <span>Task updated</span>
-                      </div>
-                    )}
-                    {task.completedAt && (
-                      <div style={{ display: "flex", gap: "8px" }}>
-                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{formatTimestamp(task.completedAt)}</span>
-                        <span>Task completed</span>
-                      </div>
-                    )}
-                    {execution && execution.state !== "unknown" && execution.runId && (
-                      <div style={{ display: "flex", gap: "8px", marginTop: 4 }}>
-                        <span style={{ color: color.textMuted, minWidth: "100px" }}>{execution.polledAt ? formatTimestamp(execution.polledAt) : "—"}</span>
-                        <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          Execution {execution.state}
-                          <span style={{ fontFamily: font.mono, fontSize: 10, background: "rgba(255,255,255,0.05)", padding: "1px 5px", borderRadius: 4 }}>
-                            {execution.runId.slice(0, 8)}
-                          </span>
-                        </span>
-                      </div>
-                    )}
-                  </div>
+                  )}
                 </div>
               )}
             </div>
@@ -1092,6 +1174,12 @@ export default function TaskDetailPage() {
 }
 
 /* ── Property row helper ── */
+function StatusLabel({ s }: { s: string | null | undefined }) {
+  if (!s) return <span style={{ color: color.textMuted }}>—</span>;
+  const label = STATUS_LABEL[s as keyof typeof STATUS_LABEL] ?? s;
+  return <span style={{ fontWeight: 500, color: color.textSecondary }}>{label}</span>;
+}
+
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
