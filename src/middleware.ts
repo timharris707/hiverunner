@@ -101,8 +101,22 @@ async function getEdgeRouteMaps(request: NextRequest): Promise<EdgeRouteMaps> {
     return cached.maps;
   }
 
+  const scoped = globalThis as typeof globalThis & GlobalCacheState;
+
+  // If the service layer already populated the cache (via refreshEdgeRouteMapCache),
+  // use that even if it was invalidated by a version bump — it is still the latest.
+  const eagerCache = scoped.__mcEdgeRouteMapCache;
+  if (eagerCache && eagerCache.expiresAt > now) {
+    return eagerCache.maps;
+  }
+
   try {
-    const url = new URL("/api/orchestration/edge-route-maps", request.nextUrl.origin);
+    // Use the host header to build the self-fetch URL so the request reaches
+    // the correct server instance (avoids misrouting on custom ports / 0.0.0.0).
+    const host = request.headers.get("host") || request.nextUrl.host;
+    const protocol = request.nextUrl.protocol || "http:";
+    const origin = `${protocol}//${host}`;
+    const url = new URL("/api/orchestration/edge-route-maps", origin);
     const headers = new Headers({
       "x-mc-internal": "edge-route-map-refresh",
     });
@@ -119,7 +133,6 @@ async function getEdgeRouteMaps(request: NextRequest): Promise<EdgeRouteMaps> {
       const payload = await response.json();
       if (isEdgeRouteMapsPayload(payload)) {
         const merged = withEdgeRouteMapFallback(payload);
-        const scoped = globalThis as typeof globalThis & GlobalCacheState;
         cacheStore.cache = {
           maps: merged,
           expiresAt: now + EDGE_ROUTE_MAP_CACHE_TTL_MS,
@@ -383,6 +396,17 @@ export async function middleware(request: NextRequest) {
     const routeMaps = shouldResolveEdgeRouteMaps(pathname)
       ? await getEdgeRouteMaps(request)
       : EDGE_ROUTE_MAPS_FALLBACK;
+
+    // Bare company code (e.g. /NEV) → redirect to /{code}/dashboard so the
+    // browser URL reflects the actual page and breadcrumbs resolve correctly.
+    const bareSegments = pathname.split("/").filter(Boolean);
+    if (bareSegments.length === 1 && !APP_ROOT_PREFIXES.has(bareSegments[0].toLowerCase())) {
+      const code = bareSegments[0];
+      const slug = routeMaps.companyCodeToSlug[code.toUpperCase()];
+      if (slug) {
+        return finalize(NextResponse.redirect(new URL(`/${code}/dashboard`, origin), 308));
+      }
+    }
 
     const rewriteTarget = tryCanonicalRewrite(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (rewriteTarget) {

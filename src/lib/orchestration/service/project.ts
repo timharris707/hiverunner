@@ -17,6 +17,7 @@ import {
   parseProjectSettings,
   isNonProductionProject,
 } from "./shared";
+import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 
 export function listProjects(input?: {
   companyIdOrSlug?: string;
@@ -381,8 +382,7 @@ export function updateProjectSettings(input: {
 
   // Invalidate edge route map cache if slug changed.
   if (nextSlug !== current.slug) {
-    const g = globalThis as typeof globalThis & { __mcEdgeRouteMapVersion?: number };
-    g.__mcEdgeRouteMapVersion = (g.__mcEdgeRouteMapVersion ?? 0) + 1;
+    refreshEdgeRouteMapCache();
   }
 
   const row = getProjectRow(db, current.id);

@@ -211,6 +211,28 @@ app.prepare().then(() => {
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
     console.log(`> Snapshot poll: ${snapshotIntervalMs / 1000}s`);
 
+    // Pre-warm edge route maps: populate the globalThis cache so the middleware
+    // can resolve canonical company-code routes (e.g. /MER/org → /companies/meridian-labs/org)
+    // without needing a self-fetch. The middleware and server share globalThis.
+    setTimeout(async () => {
+      try {
+        const resp = await fetch(`${origin}/api/orchestration/edge-route-maps`, {
+          headers: { "x-mc-internal": "startup-prewarm" },
+        });
+        if (resp.ok) {
+          const maps = await resp.json();
+          globalThis.__mcEdgeRouteMapCache = {
+            maps,
+            expiresAt: Date.now() + 120_000,
+            version: globalThis.__mcEdgeRouteMapVersion ?? 0,
+          };
+          console.log(`> Edge route maps: ${Object.keys(maps.companyCodeToSlug || {}).length} companies loaded`);
+        }
+      } catch (e) {
+        console.warn("> Edge route maps pre-warm failed:", e.message || e);
+      }
+    }, 1500);
+
     // Pre-warm: hit the SSE endpoint once to trigger adapter registry initialization.
     // This ensures provider adapters (including the OpenClaw gateway WS connection)
     // are established before the operator opens the dashboard, reducing first-event latency.

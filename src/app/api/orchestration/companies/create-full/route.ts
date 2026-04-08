@@ -6,6 +6,8 @@ import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
+import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
+import { generateTaskKey } from "@/lib/orchestration/service/shared/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -227,11 +229,24 @@ export async function POST(req: NextRequest) {
 
     // ---------- 2. Create company in orchestration DB ----------
     const companyId = randomUUID();
+
+    // Generate unique company code for canonical routing (e.g. /MER/dashboard)
+    const baseCompanyCode = (company.name.trim())
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .slice(0, 3)
+      .toUpperCase() || "CMP";
+    let companyCode = baseCompanyCode;
+    let companyCodeIndex = 1;
+    while (db.prepare("SELECT 1 FROM companies WHERE company_code = ? LIMIT 1").get(companyCode)) {
+      companyCodeIndex += 1;
+      companyCode = `${baseCompanyCode}${companyCodeIndex}`;
+    }
+
     db.prepare(
       `INSERT INTO companies
-        (id, slug, name, description, status, workspace_root, workspace_source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'active', ?, 'provisioned', ?, ?)`,
-    ).run(companyId, companySlug, company.name.trim(), company.description?.trim() || "", workspacePath, now, now);
+        (id, slug, company_code, name, description, status, workspace_root, workspace_source, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'active', ?, 'provisioned', ?, ?)`,
+    ).run(companyId, companySlug, companyCode, company.name.trim(), company.description?.trim() || "", workspacePath, now, now);
 
     // ---------- 3. Create project (if provided) ----------
     let projectId: string | null = null;
@@ -355,13 +370,16 @@ export async function POST(req: NextRequest) {
     const dbPriority = PRIORITY_MAP[task.priority] || "high";
 
     if (projectId) {
+      const { taskNumber, taskKey } = generateTaskKey(db, projectId);
       db.prepare(
         `INSERT INTO tasks
-          (id, project_id, title, description, priority, type, status, assignee_agent_id, assigned_at, created_by, execution_mode, labels_json, depends_on_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'directive', 'backlog', ?, ?, 'system', 'manual', '[]', '[]', ?, ?)`,
+          (id, project_id, task_key, task_number, title, description, priority, type, status, assignee_agent_id, assigned_at, created_by, execution_mode, labels_json, depends_on_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'directive', 'backlog', ?, ?, 'mission-control', 'manual', '[]', '[]', ?, ?)`,
       ).run(
         taskId,
         projectId,
+        taskKey,
+        taskNumber,
         task.title.trim(),
         task.description?.trim() || "",
         dbPriority,
@@ -372,7 +390,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ---------- 9. Return success ----------
+    // ---------- 9. Refresh edge route map cache ----------
+    refreshEdgeRouteMapCache();
+
+    // ---------- 10. Return success ----------
     return NextResponse.json(
       {
         success: true,

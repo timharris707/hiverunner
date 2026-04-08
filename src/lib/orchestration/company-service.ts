@@ -22,6 +22,7 @@ import {
   type AvatarThemePreset,
 } from "@/lib/orchestration/theme-presets";
 import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
+import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 
 type CompanyRow = {
   id: string;
@@ -955,8 +956,7 @@ export function updateCompany(input: {
   // If slug changed, immediately invalidate the edge route map cache so
   // middleware picks up the new alias on the very next request.
   if (nextSlug !== current.slug) {
-    const g = globalThis as typeof globalThis & { __mcEdgeRouteMapVersion?: number };
-    g.__mcEdgeRouteMapVersion = (g.__mcEdgeRouteMapVersion ?? 0) + 1;
+    refreshEdgeRouteMapCache();
   }
 
   const row = getCompanyRowById(current.id);

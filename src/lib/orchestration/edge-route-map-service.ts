@@ -1,5 +1,6 @@
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
+import { withEdgeRouteMapFallback } from "@/lib/orchestration/edge-route-maps";
 
 type CompanyRouteRow = {
   slug: string;
@@ -106,4 +107,37 @@ export function buildEdgeRouteMaps(): EdgeRouteMaps {
     projectSlugAliasToCanonical,
     generatedAt: new Date().toISOString(),
   };
+}
+
+type GlobalCacheState = {
+  __mcEdgeRouteMapCache?: {
+    maps: EdgeRouteMaps;
+    expiresAt: number;
+    version: number;
+  };
+  __mcEdgeRouteMapVersion?: number;
+};
+
+const EDGE_ROUTE_MAP_CACHE_TTL_MS = 30_000;
+
+/**
+ * Bump the edge route map version AND eagerly rebuild the cache from the DB.
+ * This runs in the Node.js server process and writes directly to globalThis,
+ * which the middleware reads from on the next request — no HTTP self-fetch needed.
+ */
+export function refreshEdgeRouteMapCache(): void {
+  const g = globalThis as typeof globalThis & GlobalCacheState;
+  g.__mcEdgeRouteMapVersion = (g.__mcEdgeRouteMapVersion ?? 0) + 1;
+
+  try {
+    const maps = buildEdgeRouteMaps();
+    const merged = withEdgeRouteMapFallback(maps);
+    g.__mcEdgeRouteMapCache = {
+      maps: merged,
+      expiresAt: Date.now() + EDGE_ROUTE_MAP_CACHE_TTL_MS,
+      version: g.__mcEdgeRouteMapVersion,
+    };
+  } catch {
+    // DB access failed; middleware will try HTTP fetch as fallback.
+  }
 }

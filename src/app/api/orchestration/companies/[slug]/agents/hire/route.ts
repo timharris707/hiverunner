@@ -45,7 +45,7 @@ export async function POST(
     const agentWorkspacePath = path.join(company.workspace_root, "agents", agentSlug);
     fs.mkdirSync(agentWorkspacePath, { recursive: true });
     const agentModel = model || "anthropic/claude-sonnet-4-6";
-    let openclawAgentId: string | null = agentSlug;
+    let openclawAgentId: string | null = null;
 
     try {
       const cmd = `openclaw agents add ${agentSlug} --workspace "${agentWorkspacePath}" --model "${agentModel}" --non-interactive --json`;
@@ -64,11 +64,21 @@ export async function POST(
       console.warn("[agents/hire] openclaw agents add failed", e);
     }
 
+    // Ensure openclaw_agent_id uniqueness — if the same agent name exists in
+    // another company the UNIQUE constraint would fail. Append company slug to
+    // disambiguate when there's a collision.
+    if (openclawAgentId) {
+      const existing = db.prepare("SELECT 1 FROM agents WHERE openclaw_agent_id = ? LIMIT 1").get(openclawAgentId);
+      if (existing) {
+        openclawAgentId = `${openclawAgentId}-${resolved.slug.slice(0, 12)}`;
+      }
+    }
+
     const now = new Date().toISOString();
     const agentId = randomUUID();
 
     const resolvedEmoji = typeof emoji === "string" && emoji.trim() ? emoji.trim() : "pixel";
-    const requestedReportsTo = typeof reportsTo === "string" && reportsTo.trim() ? reportsTo.trim() : "Henry";
+    const requestedReportsTo = typeof reportsTo === "string" && reportsTo.trim() ? reportsTo.trim() : "";
     const normalizedReportsTo = requestedReportsTo.trim();
     const reportingAgent = db.prepare(
       `SELECT id, name FROM agents

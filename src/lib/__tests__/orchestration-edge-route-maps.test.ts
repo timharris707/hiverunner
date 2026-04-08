@@ -69,8 +69,30 @@ test("legacy issue URLs redirect through the generated project compatibility map
   );
 
   assert.ok(redirected);
-  assert.strictEqual(redirected?.pathname, `/${company.code}/projects/${project.slug}/issues`);
+  assert.strictEqual(redirected?.pathname, `/${company.code}/projects/${project.slug}/tasks`);
   assert.strictEqual(redirected?.search, "");
+});
+
+test("legacy weather-edge company slug redirects to NEV canonical dashboard", () => {
+  const redirected = tryLegacyRedirect(
+    "/companies/weather-edge/dashboard",
+    new URLSearchParams(),
+    "http://localhost:3010",
+  );
+
+  assert.ok(redirected);
+  assert.strictEqual(redirected?.pathname, "/NEV/dashboard");
+});
+
+test("bare weather-edge company route redirects to NEV dashboard", () => {
+  const redirected = tryLegacyRedirect(
+    "/companies/weather-edge",
+    new URLSearchParams(),
+    "http://localhost:3010",
+  );
+
+  assert.ok(redirected);
+  assert.strictEqual(redirected?.pathname, "/NEV/dashboard");
 });
 
 console.log(`\n${passed} passed, ${failed} failed\n`);

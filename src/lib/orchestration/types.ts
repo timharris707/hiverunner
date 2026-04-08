@@ -79,6 +79,7 @@ export interface OrchestrationTask {
   sprint?: string;
   blockedReason?: string;
   executionMode?: TaskExecutionMode;
+  createdBy?: string;
   sourceReviewId?: string;
   sourceTakeawayId?: string;
   created: string;

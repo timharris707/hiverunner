@@ -40,7 +40,7 @@ export default function CreateCompanyAgentPage() {
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [model, setModel] = useState("anthropic/claude-sonnet-4-6");
-  const [reportsTo, setReportsTo] = useState("Henry");
+  const [reportsTo, setReportsTo] = useState("");
   const [personality, setPersonality] = useState("");
   const [mission, setMission] = useState("");
   const [saving, setSaving] = useState(false);
@@ -87,7 +87,7 @@ export default function CreateCompanyAgentPage() {
       const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents/hire`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), role: role.trim(), model, reportsTo: reportsTo.trim() || "Henry", personality: personality.trim(), mission: mission.trim() }),
+        body: JSON.stringify({ name: name.trim(), role: role.trim(), model, reportsTo: reportsTo.trim() || undefined, personality: personality.trim(), mission: mission.trim() }),
       });
       const json = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(json.error || "Failed to create agent");
@@ -144,8 +144,7 @@ export default function CreateCompanyAgentPage() {
                 <label style={labelStyle}>Reports to</label>
                 <select value={reportsTo} onChange={(e) => setReportsTo(e.target.value)} style={inputStyle}>
                   <option value="">Unassigned</option>
-                  <option value="Henry">Henry</option>
-                  {rosterOptions.map((a) => <option key={a.id} value={a.openclawAgentId || a.id}>{a.name}</option>)}
+                  {rosterOptions.map((a) => <option key={a.id} value={a.name}>{a.name}</option>)}
                 </select>
               </div>
             </div>

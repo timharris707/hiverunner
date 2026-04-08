@@ -1265,7 +1265,7 @@ export async function createTask(input: {
       ...(input.assignee ? { assignee: input.assignee } : {}),
       ...(input.sprintId ? { sprintId: input.sprintId } : {}),
       labels: input.labels ?? [],
-      createdBy: "pixel-ui",
+      createdBy: "mission-control",
     }),
   }).catch(() => null);
 
