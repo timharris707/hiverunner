@@ -2,28 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams, useSearchParams, useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   Activity,
-  AlertTriangle,
-  ArrowRight,
-  Bot,
-  BriefcaseBusiness,
-  Home,
-  Palette,
+  Building2,
+  ChevronDown,
+  Compass,
+  FolderKanban,
+  FolderOpen,
+  Inbox,
+  LayoutDashboard,
+  Network,
+  Pause,
+  Play,
   Plus,
-  Search,
-  Settings2,
-  ShieldCheck,
-  Sparkles,
-  Wifi,
-  WifiOff,
+  Rocket,
+  Settings,
+  Trash2,
+  Users,
+  Wrench,
 } from "lucide-react";
 
-import { CompanyErrorState, CompanyShell, StatCard, DeleteCompanyModal } from "@/components/company/company-ui";
+import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
 import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
-import { classifyProjectState, formatAge } from "@/components/orchestration/ui";
+import { AgentAvatar } from "@/components/AgentAvatar";
+import { classifyProjectState } from "@/components/orchestration/ui";
 import {
   createProject,
   listCompanies,
@@ -36,15 +40,18 @@ import {
 import type { EngineStatus, KickoffResult } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { resolveActiveProject } from "@/lib/active-project-utils";
+import { useHiddenProjects } from "@/lib/hidden-project-state";
+import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
   OrchestrationProject,
   OrchestrationSprint,
 } from "@/lib/orchestration/types";
+import { PageHeader, Section, Card, PropRow, Badge, ActionButton, EmptyState } from "@/lib/ui/primitives";
+import { color, type as T, space, radius, font, pageStyle } from "@/lib/ui/tokens";
 
-type CompanyTab = "projects" | "agents" | "settings";
-type ProjectStateTab = "active" | "paused" | "archived";
+/* ── Types ── */
 
 type CompanyRosterAgent = OrchestrationAgent & {
   projectId?: string;
@@ -58,27 +65,42 @@ type ProjectSprintSummary = {
   percent: number;
 };
 
-const shellTabs: Array<{ id: CompanyTab; label: string }> = [
-  { id: "projects", label: "Projects" },
-  { id: "agents", label: "Agents" },
-  { id: "settings", label: "Settings" },
-];
+/* ── Helpers ── */
+
+function agentStatusTone(status: OrchestrationAgent["status"]): "default" | "positive" | "negative" | "warning" {
+  switch (status) {
+    case "working": return "positive";
+    case "idle": return "default";
+    case "paused": return "warning";
+    case "offline": return "negative";
+    case "error": return "negative";
+    default: return "default";
+  }
+}
+
+function companyStatusTone(status: string): "default" | "positive" | "warning" | "negative" {
+  switch (status) {
+    case "active": return "positive";
+    case "paused": return "warning";
+    case "archived": return "negative";
+    default: return "default";
+  }
+}
+
+/* ── Page ── */
 
 export default function CompanyDetailPage() {
   const params = useParams<{ slug: string }>();
-  const searchParams = useSearchParams();
   const router = useRouter();
   const slug = params?.slug ?? "";
   const { activeProject, clearActiveProject, setActiveProject } = useActiveProjectState();
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
+  const [companies, setCompanies] = useState<OrchestrationCompany[]>([]);
   const [projects, setProjects] = useState<OrchestrationProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<CompanyTab>("projects");
-  const [projectStateTab, setProjectStateTab] = useState<ProjectStateTab>("active");
-  const [query, setQuery] = useState("");
   const [createOpen, setCreateOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -86,8 +108,6 @@ export default function CompanyDetailPage() {
   const [roster, setRoster] = useState<CompanyRosterAgent[]>([]);
   const [rosterLoading, setRosterLoading] = useState(false);
   const [rosterError, setRosterError] = useState<string | null>(null);
-  const [rosterQuery, setRosterQuery] = useState("");
-  const [rosterStatus, setRosterStatus] = useState<"all" | OrchestrationAgent["status"]>("all");
   const [sprintSummaries, setSprintSummaries] = useState<Record<string, ProjectSprintSummary>>({});
 
   /* ── Engine state ── */
@@ -96,33 +116,37 @@ export default function CompanyDetailPage() {
   const [kickoffDirection, setKickoffDirection] = useState("");
   const [kickoffResult, setKickoffResult] = useState<KickoffResult | null>(null);
 
-  useEffect(() => {
-    const tabParam = searchParams.get("tab");
-    if (tabParam === "projects" || tabParam === "agents" || tabParam === "settings") {
-      setActiveTab(tabParam);
-    }
+  /* ── Pause / resume ── */
+  const [pauseBusy, setPauseBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
-    if (searchParams.get("createProject") === "1") {
-      setActiveTab("projects");
-      setCreateOpen(true);
-    }
-  }, [searchParams]);
+  /* ── Company switcher ── */
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+
+  const { hiddenProjects } = useHiddenProjects(slug);
+
+  const visibleProjects = useMemo(
+    () => projects.filter((p) => !hiddenProjects[p.id]),
+    [projects, hiddenProjects],
+  );
+
+  const activeProjectRecord = useMemo(
+    () => resolveActiveProject(projects, activeProject, slug),
+    [activeProject, projects, slug],
+  );
+
+  /* ── Data fetching ── */
 
   useEffect(() => {
     let mounted = true;
 
     Promise.all([listCompanies(), listProjects({ company: slug, includeNonProduction: true })])
-      .then(([companies, rows]) => {
+      .then(([allCompanies, rows]) => {
         if (!mounted) return;
-        const current = companies.find((item) => item.slug === slug) ?? null;
+        setCompanies(allCompanies);
+        const current = allCompanies.find((item) => item.slug === slug) ?? null;
         setCompany(current);
-
-        if (!current) {
-          setProjects([]);
-          return;
-        }
-
-        setProjects(rows);
+        setProjects(current ? rows : []);
       })
       .catch(() => {
         if (!mounted) return;
@@ -132,13 +156,12 @@ export default function CompanyDetailPage() {
         if (mounted) setLoading(false);
       });
 
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [slug]);
 
+  /* Agents — load eagerly */
   useEffect(() => {
-    if (activeTab !== "agents" || !company) return;
+    if (!company) return;
 
     let cancelled = false;
     const loadRoster = async () => {
@@ -147,9 +170,8 @@ export default function CompanyDetailPage() {
 
       try {
         const companyAgents = await listCompanyAgents(company.slug);
-
         if (cancelled) return;
-        const projectNameById = new Map(projects.map((project) => [project.id, project.name]));
+        const projectNameById = new Map(projects.map((p) => [p.id, p.name]));
         const rosterRows = companyAgents.map((agent) => ({
           ...agent,
           projectName: agent.projectId
@@ -159,23 +181,17 @@ export default function CompanyDetailPage() {
         }));
         setRoster(rosterRows.sort((a, b) => a.name.localeCompare(b.name)));
       } catch {
-        if (!cancelled) {
-          setRosterError("Failed to load company agent roster.");
-        }
+        if (!cancelled) setRosterError("Failed to load company agent roster.");
       } finally {
-        if (!cancelled) {
-          setRosterLoading(false);
-        }
+        if (!cancelled) setRosterLoading(false);
       }
     };
 
     void loadRoster();
+    return () => { cancelled = true; };
+  }, [company, projects]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, company, projects]);
-
+  /* Sprint summaries */
   useEffect(() => {
     if (!company || projects.length === 0) {
       setSprintSummaries({});
@@ -183,27 +199,22 @@ export default function CompanyDetailPage() {
     }
 
     let cancelled = false;
-
     const loadSprintSummaries = async () => {
       const entries = await Promise.all(
         projects.map(async (project) => {
           const sprints = await listProjectSprints(project.id);
           return [project.id, buildProjectSprintSummary(project, sprints)] as const;
-        })
+        }),
       );
-
       if (cancelled) return;
       setSprintSummaries(Object.fromEntries(entries));
     };
 
     void loadSprintSummaries();
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [company, projects]);
 
-  /* ── Engine status fetch ── */
+  /* Engine status */
   useEffect(() => {
     if (!company) return;
     let cancelled = false;
@@ -213,6 +224,8 @@ export default function CompanyDetailPage() {
     return () => { cancelled = true; };
   }, [company]);
 
+  /* ── Handlers ── */
+
   const handleKickoff = async () => {
     if (!company || kickoffBusy) return;
     setKickoffBusy(true);
@@ -221,7 +234,6 @@ export default function CompanyDetailPage() {
       const result = await kickoffCompany(company.slug, kickoffDirection || undefined);
       setKickoffResult(result);
       if (result) {
-        // Refresh engine status
         const updated = await getCompanyEngineStatus(company.slug);
         setEngineStatus(updated);
       }
@@ -230,52 +242,27 @@ export default function CompanyDetailPage() {
     }
   };
 
-  const activeProjectRecord = useMemo(
-    () => resolveActiveProject(projects, activeProject, slug),
-    [activeProject, projects, slug]
-  );
-
-  const filteredProjects = useMemo(() => {
-    const q = query.toLowerCase();
-    return projects.filter((project) => {
-      if (activeProjectRecord && project.id !== activeProjectRecord.id) return false;
-      if (classifyProjectState(project.status) !== projectStateTab) return false;
-      return `${project.name} ${project.description}`.toLowerCase().includes(q);
-    });
-  }, [projects, projectStateTab, query]);
-
-  const projectTotals = useMemo(() => {
-    return projects.reduce(
-      (acc, project) => {
-        const lane = classifyProjectState(project.status);
-        acc[lane] += 1;
-        acc.inProgress += project.inProgress;
-        acc.review += project.review;
-        return acc;
-      },
-      { active: 0, paused: 0, archived: 0, inProgress: 0, review: 0 }
-    );
-  }, [projects]);
-
-  const rosterTotals = useMemo(
-    () => ({
-      working: roster.filter((agent) => agent.status === "working").length,
-      idle: roster.filter((agent) => agent.status === "idle").length,
-      paused: roster.filter((agent) => agent.status === "paused").length,
-      offline: roster.filter((agent) => agent.status === "offline").length,
-    }),
-    [roster]
-  );
-
-  const filteredRoster = useMemo(() => {
-    const lower = rosterQuery.trim().toLowerCase();
-    return roster.filter((agent) => {
-      if (rosterStatus !== "all" && agent.status !== rosterStatus) return false;
-      if (!lower) return true;
-      const haystack = `${agent.name} ${agent.role} ${agent.projectName} ${agent.currentTask ?? ""}`.toLowerCase();
-      return haystack.includes(lower);
-    });
-  }, [roster, rosterQuery, rosterStatus]);
+  const handleTogglePause = async () => {
+    if (!company) return;
+    setPauseBusy(true);
+    setError(null);
+    setNotice(null);
+    const next = company.status === "paused" ? "active" : "paused";
+    try {
+      const r = await fetch(`/api/orchestration/companies/${company.slug}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: next }),
+      });
+      if (!r.ok) throw new Error("failed");
+      setCompany((p) => p ? { ...p, status: next } : null);
+      setNotice(next === "paused" ? "Company paused." : "Company resumed.");
+    } catch {
+      setError("Could not update company status.");
+    } finally {
+      setPauseBusy(false);
+    }
+  };
 
   const handleCreateProject = async (payload: {
     name: string;
@@ -311,7 +298,6 @@ export default function CompanyDetailPage() {
       projectSlug: created.slug,
       projectName: created.name,
     });
-    setProjectStateTab("active");
     setCreateOpen(false);
     return true;
   };
@@ -323,9 +309,7 @@ export default function CompanyDetailPage() {
       const response = await fetch(`/api/orchestration/companies/${company.slug}?hard=true`, {
         method: "DELETE",
       });
-      if (!response.ok) {
-        throw new Error("Failed to delete company");
-      }
+      if (!response.ok) throw new Error("Failed to delete company");
       setDeleteOpen(false);
       router.push("/companies");
     } catch {
@@ -334,6 +318,8 @@ export default function CompanyDetailPage() {
       setDeleteOpen(false);
     }
   };
+
+  /* ── Error state ── */
 
   if (!loading && !company) {
     return (
@@ -345,527 +331,466 @@ export default function CompanyDetailPage() {
     );
   }
 
+  /* ── Derived ── */
+
+  const otherCompanies = companies.filter((c) => c.slug !== slug);
+
+  /* ── Render ── */
+
   return (
-    <CompanyShell
-      eyebrow="Company Workspace"
-      title={loading ? "Loading Company..." : company?.name ?? "Company"}
-      description={
-        company?.description ||
-        "Build projects, route tasks, and keep this team's execution quality consistently high."
-      }
-      accentColor={company?.theme?.sampleUrl ? "#d97706" : "#14b8a6"}
-    >
+    <div style={pageStyle}>
+      {/* ── Header ── */}
+      <PageHeader
+        icon={
+          <Building2
+            size={16}
+            style={{ color: company?.status === "active" ? color.positive : color.warning }}
+          />
+        }
+        title={loading ? "Loading..." : company?.name ?? "Company Not Found"}
+        description={company?.description || undefined}
+        actions={
+          company ? (
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm }}>
+              <Badge
+                label={company.status}
+                tone={companyStatusTone(company.status)}
+              />
+              {/* ── Company switcher ── */}
+              {otherCompanies.length > 0 && (
+                <div style={{ position: "relative" }}>
+                  <button
+                    type="button"
+                    onClick={() => setSwitcherOpen((p) => !p)}
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: `5px 12px`,
+                      borderRadius: radius.md,
+                      border: `0.5px solid ${color.border}`,
+                      background: color.surface,
+                      color: color.text,
+                      fontSize: 12,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Switch
+                    <ChevronDown size={12} style={{ opacity: 0.6 }} />
+                  </button>
+                  {switcherOpen && (
+                    <>
+                      {/* backdrop */}
+                      <div
+                        style={{ position: "fixed", inset: 0, zIndex: 40 }}
+                        onClick={() => setSwitcherOpen(false)}
+                      />
+                      <div
+                        style={{
+                          position: "absolute",
+                          right: 0,
+                          top: "calc(100% + 4px)",
+                          minWidth: 200,
+                          padding: `${space.xs}px 0`,
+                          borderRadius: radius.md,
+                          border: `0.5px solid ${color.border}`,
+                          background: color.surfaceElevated,
+                          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+                          zIndex: 50,
+                        }}
+                      >
+                        {otherCompanies.map((c) => (
+                          <Link
+                            key={c.slug}
+                            href={buildCompanyPath(c.slug)}
+                            onClick={() => setSwitcherOpen(false)}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: space.sm,
+                              padding: `${space.sm}px ${space.md}px`,
+                              fontSize: T.bodySmall.size,
+                              color: color.text,
+                              textDecoration: "none",
+                            }}
+                            onMouseEnter={(e) => { e.currentTarget.style.background = color.surfaceHover; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                          >
+                            <Building2 size={12} style={{ color: color.textMuted, flexShrink: 0 }} />
+                            <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {c.name}
+                            </span>
+                            <span style={{ fontSize: T.caption.size, color: color.textMuted, fontFamily: font.mono }}>
+                              {c.code}
+                            </span>
+                          </Link>
+                        ))}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+              <ActionButton
+                label="Settings"
+                icon={<Settings size={14} />}
+                href={buildCompanyPath(slug, "/settings")}
+                size="sm"
+              />
+            </div>
+          ) : undefined
+        }
+      />
+
+      {/* ── Banners ── */}
+      {error && (
+        <div style={{
+          marginBottom: space.md,
+          padding: `${space.sm}px ${space.lg}px`,
+          borderRadius: radius.md,
+          background: color.negativeSoft,
+          border: `0.5px solid rgba(239,68,68,0.2)`,
+          fontSize: T.bodySmall.size,
+          color: color.negative,
+        }}>
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div style={{
+          marginBottom: space.md,
+          padding: `${space.sm}px ${space.lg}px`,
+          borderRadius: radius.md,
+          background: color.positiveSoft,
+          border: `0.5px solid rgba(34,197,94,0.2)`,
+          fontSize: T.bodySmall.size,
+          color: color.positive,
+        }}>
+          {notice}
+        </div>
+      )}
+
       {activeProjectRecord ? (
-        <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} />
+        <div style={{ marginBottom: space.md }}>
+          <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} />
+        </div>
       ) : null}
 
-      <section className="rounded-3xl border border-white/10 bg-[radial-gradient(circle_at_10%_5%,rgba(45,212,191,0.2),transparent_38%),radial-gradient(circle_at_90%_0%,rgba(180,83,9,0.22),transparent_35%),linear-gradient(150deg,rgba(2,6,23,0.95),rgba(15,23,42,0.9))] p-5 shadow-[0_16px_46px_rgba(2,6,23,0.5)] backdrop-blur-2xl md:p-8">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2 text-xs text-slate-300">
-            <Link href="/companies" className="inline-flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2 py-1 hover:bg-white/10">
-              <Home className="h-3.5 w-3.5" />
-              Companies
-            </Link>
-            <span className="text-slate-500">/</span>
-            <span className="rounded-lg border border-amber-300/30 bg-amber-500/10 px-2 py-1 text-amber-100">{slug}</span>
-            {company ? (
-              <span className="rounded-lg border border-white/10 bg-white/[0.03] px-2 py-1 text-slate-300">
-                Theme: {company.theme.name}
-              </span>
-            ) : null}
-          </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <Link href={`/companies/${encodeURIComponent(slug)}/dashboard`} className="orchestra-ghost-btn rounded-lg px-2.5 py-1.5 text-slate-200">
-              Live Dashboard
-            </Link>
-            <Link href={`/companies/${encodeURIComponent(slug)}/costs`} className="orchestra-ghost-btn rounded-lg px-2.5 py-1.5 text-slate-200">
-              Costs
-            </Link>
-            <Link href={`/companies/${encodeURIComponent(slug)}/org`} className="orchestra-ghost-btn rounded-lg px-2.5 py-1.5 text-slate-200">
-              Org Chart
-            </Link>
-            <Link href={`/companies/${encodeURIComponent(slug)}/inbox`} className="orchestra-ghost-btn rounded-lg px-2.5 py-1.5 text-slate-200">
-              Company Inbox
-            </Link>
-          </div>
-        </div>
+      {/* ── Profile ── */}
+      {company && (
+        <Section title="Profile">
+          <PropRow label="Name">
+            <span style={{ fontWeight: 500 }}>{company.name}</span>
+          </PropRow>
+          <PropRow label="Slug">
+            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.slug}</span>
+          </PropRow>
+          <PropRow label="Code">
+            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.code}</span>
+          </PropRow>
+          <PropRow label="Status">
+            <Badge label={company.status} tone={companyStatusTone(company.status)} />
+          </PropRow>
+          <PropRow label="Theme">{company.theme.name}</PropRow>
+          <PropRow label="Source">
+            <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.workspace.source}</span>
+          </PropRow>
+        </Section>
+      )}
 
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[11px] uppercase tracking-[0.2em] text-amber-100/70">Company Detail</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight text-white">
-              {loading ? "Loading Company..." : company?.name ?? "Company Not Found"}
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-slate-300">
-              {company?.description || "Build projects, route tasks, and keep this team's execution quality consistently high."}
-            </p>
-          </div>
-          {activeTab === "projects" && company ? (
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="inline-flex items-center gap-2 rounded-xl border border-amber-300/45 bg-amber-400/15 px-3 py-2 text-sm font-medium text-amber-100 shadow-[0_10px_25px_rgba(180,83,9,0.24)]"
-            >
-              <Plus className="h-4 w-4" />
-              New Project
-            </button>
-          ) : null}
-        </div>
-
-        {company ? (
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <StatCard label="Projects" value={projects.length} detail="Company-scoped initiatives" accentColor="#d97706" />
-            <StatCard label="In Progress" value={projectTotals.inProgress} detail="Tasks actively moving" accentColor="#14b8a6" />
-            <StatCard label="In Review" value={projectTotals.review} detail="Awaiting signoff" accentColor="#d97706" />
-            <StatCard label="Agents" value={company.stats.agents} detail="Rostered under company" accentColor="#f59e0b" />
-          </div>
-        ) : null}
-      </section>
-
-      {/* ── Engine Control ── */}
-      {company && engineStatus ? (
-        <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-4 backdrop-blur-xl">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-amber-400" />
-              <h3 className="text-sm font-medium text-white">Company Engine</h3>
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider"
-                style={{
-                  backgroundColor: engineStatus.ceo
-                    ? "rgba(20,184,166,0.2)"
-                    : "rgba(239,68,68,0.2)",
-                  color: engineStatus.ceo ? "#5eead4" : "#fca5a5",
-                  border: `1px solid ${engineStatus.ceo ? "rgba(20,184,166,0.3)" : "rgba(239,68,68,0.3)"}`,
-                }}
-              >
-                {engineStatus.ceo ? "Ready" : "No CEO"}
-              </span>
-            </div>
-            {engineStatus.recentHeartbeatRuns.length > 0 ? (
-              <span className="text-[11px] text-slate-400">
-                Last run: {String(engineStatus.recentHeartbeatRuns[0]?.status ?? "—")}
-              </span>
-            ) : null}
-          </div>
-
-          {engineStatus.ceo ? (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-              <div className="flex-1">
-                <label className="mb-1 block text-[11px] text-slate-400">Direction for CEO ({engineStatus.ceo.name})</label>
+      {/* ── Controls ── */}
+      {company && (
+        <Section title="Controls" card={false}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, alignItems: "flex-end" }}>
+            <ActionButton
+              label={pauseBusy ? "Updating..." : company.status === "paused" ? "Resume Company" : "Pause Company"}
+              icon={company.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
+              onClick={handleTogglePause}
+              disabled={pauseBusy}
+              variant="secondary"
+            />
+            {engineStatus?.ceo && (
+              <div style={{ display: "flex", gap: space.sm, alignItems: "flex-end", flex: 1, minWidth: 240 }}>
                 <input
                   value={kickoffDirection}
                   onChange={(e) => setKickoffDirection(e.target.value)}
-                  placeholder="e.g. Build a weather trading bot that monitors Kalshi markets"
-                  className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500 focus:border-amber-400/60"
+                  placeholder={`Direction for ${engineStatus.ceo.name}...`}
+                  style={{
+                    flex: 1,
+                    padding: `7px ${space.md}px`,
+                    borderRadius: radius.md,
+                    border: `0.5px solid ${color.border}`,
+                    background: color.surface,
+                    color: color.text,
+                    fontSize: T.bodySmall.size,
+                    outline: "none",
+                  }}
+                />
+                <ActionButton
+                  label={kickoffBusy ? "Starting..." : "Start Company"}
+                  icon={<Rocket size={14} />}
+                  onClick={handleKickoff}
+                  disabled={kickoffBusy}
+                  variant="primary"
                 />
               </div>
-              <button
-                type="button"
-                onClick={handleKickoff}
-                disabled={kickoffBusy}
-                className="inline-flex items-center gap-2 rounded-xl border border-teal-400/40 bg-teal-500/15 px-4 py-2 text-sm font-medium text-teal-100 shadow-[0_6px_20px_rgba(20,184,166,0.2)] transition-all hover:bg-teal-500/25 disabled:opacity-50"
-              >
-                {kickoffBusy ? (
-                  <Wifi className="h-4 w-4 animate-pulse" />
-                ) : (
-                  <Sparkles className="h-4 w-4" />
-                )}
-                {kickoffBusy ? "Starting..." : "Start Company"}
-              </button>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-400">
-              No CEO agent found. Hire an agent with role &quot;ceo&quot; to enable the company engine.
-            </p>
-          )}
-
-          {kickoffResult ? (
-            <div
-              className="mt-3 rounded-xl border p-3 text-xs"
-              style={{
-                borderColor:
-                  kickoffResult.status === "queued"
-                    ? "rgba(20,184,166,0.3)"
-                    : kickoffResult.status === "already_active"
-                      ? "rgba(234,179,8,0.3)"
-                      : "rgba(239,68,68,0.3)",
-                backgroundColor:
-                  kickoffResult.status === "queued"
-                    ? "rgba(20,184,166,0.08)"
-                    : kickoffResult.status === "already_active"
-                      ? "rgba(234,179,8,0.08)"
-                      : "rgba(239,68,68,0.08)",
-                color:
-                  kickoffResult.status === "queued"
-                    ? "#5eead4"
-                    : kickoffResult.status === "already_active"
-                      ? "#fde68a"
-                      : "#fca5a5",
-              }}
-            >
+            )}
+            <ActionButton
+              label="New Project"
+              icon={<Plus size={14} />}
+              onClick={() => setCreateOpen(true)}
+              variant="primary"
+            />
+          </div>
+          {kickoffResult && (
+            <div style={{
+              marginTop: space.md,
+              padding: `${space.sm}px ${space.lg}px`,
+              borderRadius: radius.md,
+              fontSize: T.bodySmall.size,
+              border: `0.5px solid ${kickoffResult.status === "queued" ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)"}`,
+              background: kickoffResult.status === "queued" ? color.positiveSoft : color.warningSoft,
+              color: kickoffResult.status === "queued" ? color.positive : color.warning,
+            }}>
               {kickoffResult.message}
-              {kickoffResult.directionTaskId ? (
-                <span className="ml-2 text-slate-400">
-                  Task: {kickoffResult.directionTaskId.slice(0, 8)}...
-                </span>
-              ) : null}
             </div>
-          ) : null}
-        </section>
-      ) : null}
+          )}
+        </Section>
+      )}
 
-      <section className="rounded-2xl border border-white/10 bg-slate-950/60 p-3 backdrop-blur-xl">
-        <div className="flex flex-wrap gap-2">
-          {shellTabs.map((tab) => {
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                className="rounded-xl border px-3 py-2 text-sm transition-all"
-                style={{
-                  borderColor: active ? "rgba(217,119,6,0.55)" : "rgba(148,163,184,0.2)",
-                  background: active ? "linear-gradient(135deg, rgba(180,83,9,0.35), rgba(30,41,59,0.75))" : "rgba(15,23,42,0.46)",
-                  color: active ? "#fef3c7" : "#cbd5e1",
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </section>
-
-      {error ? (
-        <section className="rounded-xl border border-rose-400/35 bg-rose-500/10 p-3 text-sm text-rose-200">{error}</section>
-      ) : null}
-
-      {activeTab === "projects" ? (
-        <section className="orchestra-panel rounded-2xl p-4 md:p-5">
-          <div className="mb-4 flex flex-wrap items-center gap-3">
-            <div className="relative min-w-[240px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-white outline-none focus:border-amber-400/60"
-                placeholder="Search projects in this company"
-              />
-            </div>
-            {(["active", "paused", "archived"] as ProjectStateTab[]).map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => setProjectStateTab(item)}
-                className="rounded-xl border px-3 py-2 text-sm capitalize"
-                style={{
-                  borderColor: projectStateTab === item ? "rgba(217,119,6,0.55)" : "rgba(148,163,184,0.2)",
-                  backgroundColor: projectStateTab === item ? "rgba(14,116,144,0.24)" : "rgba(15,23,42,0.5)",
-                  color: projectStateTab === item ? "#fef3c7" : "#cbd5e1",
-                }}
-              >
-                {item}
-                <span className="ml-2 text-xs text-slate-400">{projectTotals[item]}</span>
-              </button>
+      {/* ── Team ── */}
+      <Section title="Team" card={false} trailing={roster.length > 0 ? `${roster.length} agents` : undefined}>
+        {rosterLoading ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: space.md }}>
+            {[1, 2, 3, 4, 5, 6].map((i) => (
+              <div key={i} style={{
+                height: 100,
+                borderRadius: radius.lg,
+                border: `0.5px solid ${color.border}`,
+                background: color.surface,
+                opacity: 0.5,
+              }} />
             ))}
           </div>
-
-          {loading ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div key={idx} className="h-44 animate-pulse rounded-2xl border border-white/10 bg-slate-900/65" />
-              ))}
-            </div>
-          ) : !company ? (
-            <div className="rounded-2xl border border-dashed border-slate-700/80 bg-slate-900/55 p-10 text-center">
-              <p className="text-sm text-slate-300">This company could not be found.</p>
-              <Link href="/companies" className="mt-3 inline-flex text-sm text-amber-200 underline-offset-4 hover:underline">
-                Return to Companies
-              </Link>
-            </div>
-          ) : filteredProjects.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-amber-300/15 bg-[radial-gradient(circle_at_top,rgba(217,119,6,0.08),transparent_45%),rgba(2,6,23,0.7)] p-12 text-center">
-              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-300/20 bg-amber-400/10 text-amber-100">
-                <Sparkles className="h-6 w-6" />
-              </div>
-              <p className="text-sm font-medium text-slate-200">No projects match this view yet.</p>
-              <p className="mt-2 text-sm text-slate-400">Switch tabs, clear the search, or start a fresh project shell for this company.</p>
-              <button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                className="orchestra-cta mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm text-amber-100"
+        ) : rosterError ? (
+          <div style={{ padding: space.lg, fontSize: T.bodySmall.size, color: color.negative }}>{rosterError}</div>
+        ) : roster.length === 0 ? (
+          <EmptyState icon={<Users size={24} />} title="No agents" description="No agents have been created for this company yet." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: space.md }}>
+            {roster.map((agent) => (
+              <Link
+                key={agent.id}
+                href={buildCompanyPath(slug, `/agents/${encodeURIComponent(agent.slug || agent.id)}`)}
+                style={{ textDecoration: "none" }}
               >
-                <Plus className="h-4 w-4" />
-                New Project
-              </button>
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-              {filteredProjects.map((project) => {
-                const sprint = sprintSummaries[project.id] ?? buildProjectSprintSummary(project, []);
-                const projectState = classifyProjectState(project.status);
-                return (
-                  <Link
-                    key={project.id}
-                    href={`/companies/${encodeURIComponent(slug)}/projects/${encodeURIComponent(project.slug)}`}
-                    className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(217,119,6,0.12),transparent_28%),linear-gradient(165deg,rgba(30,41,59,0.95),rgba(2,6,23,0.92))] p-4 shadow-[0_16px_35px_rgba(2,6,23,0.45)] transition-all duration-200 hover:-translate-y-0.5 hover:border-amber-300/50"
-                    onClick={() =>
-                      setActiveProject({
-                        companySlug: slug,
-                        projectId: project.id,
-                        projectSlug: project.slug,
-                        projectName: project.name,
-                      })
-                    }
-                  >
-                    <div className="pointer-events-none absolute inset-x-5 top-0 h-px bg-gradient-to-r from-transparent via-white/60 to-transparent opacity-0 transition group-hover:opacity-100" />
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <span className="grid h-10 w-10 place-items-center rounded-xl border border-white/10 text-lg" style={{ backgroundColor: `${project.color}20` }}>
-                          {project.emoji}
-                        </span>
-                        <div>
-                          <h2 className="flex items-center gap-2 text-sm font-semibold text-white">
-                            <span>{project.name}</span>
-                            {activeProjectRecord?.id === project.id ? (
-                              <span className="rounded-full border border-amber-300/35 bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-amber-100">
-                                Active
-                              </span>
-                            ) : null}
-                          </h2>
-                          <p className="line-clamp-1 text-xs text-slate-400">{project.description || "No description yet."}</p>
+                <Card hoverable>
+                  <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
+                    <AgentAvatar agentId={agent.slug || agent.id} size={36} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: T.cardTitle.size,
+                        fontWeight: T.cardTitle.weight,
+                        color: color.text,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {agent.name}
+                      </div>
+                      <div style={{
+                        fontSize: T.bodySmall.size,
+                        color: color.textMuted,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {agent.role}
+                      </div>
+                    </div>
+                    <Badge label={agent.status} tone={agentStatusTone(agent.status)} />
+                  </div>
+                  <div style={{ fontSize: T.bodySmall.size, color: color.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {agent.currentTask || "Idle — ready for assignment"}
+                  </div>
+                  <div style={{ fontSize: T.caption.size, color: color.textMuted, marginTop: space.xs }}>
+                    {agent.projectName}
+                  </div>
+                </Card>
+              </Link>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      {/* ── Projects ── */}
+      <Section title="Projects" card={false} trailing={visibleProjects.length > 0 ? `${visibleProjects.length} projects` : undefined}>
+        {loading ? (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: space.md }}>
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} style={{
+                height: 160,
+                borderRadius: radius.lg,
+                border: `0.5px solid ${color.border}`,
+                background: color.surface,
+                opacity: 0.5,
+              }} />
+            ))}
+          </div>
+        ) : visibleProjects.length === 0 ? (
+          <EmptyState icon={<FolderKanban size={24} />} title="No projects" description="Create your first project to get started." />
+        ) : (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: space.md }}>
+            {visibleProjects.map((project) => {
+              const sprint = sprintSummaries[project.id] ?? buildProjectSprintSummary(project, []);
+              const state = classifyProjectState(project.status);
+              const isActive = activeProjectRecord?.id === project.id;
+
+              return (
+                <Link
+                  key={project.id}
+                  href={buildCompanyPath(slug, `/projects/${encodeURIComponent(project.slug)}`)}
+                  style={{ textDecoration: "none" }}
+                  onClick={() => setActiveProject({ companySlug: slug, projectId: project.id, projectSlug: project.slug, projectName: project.name })}
+                >
+                  <Card hoverable style={isActive ? { borderColor: color.accent } : undefined}>
+                    {/* Header row */}
+                    <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
+                      <span style={{
+                        fontSize: 18,
+                        display: "grid",
+                        placeItems: "center",
+                        width: 36,
+                        height: 36,
+                        borderRadius: radius.md,
+                        background: `${project.color || color.accent}18`,
+                        flexShrink: 0,
+                      }}>
+                        {project.emoji}
+                      </span>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: space.sm,
+                        }}>
+                          <span style={{
+                            fontSize: T.cardTitle.size,
+                            fontWeight: T.cardTitle.weight,
+                            color: color.text,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}>
+                            {project.name}
+                          </span>
+                          {isActive && <Badge label="Active" tone="accent" />}
+                        </div>
+                        <div style={{
+                          fontSize: T.bodySmall.size,
+                          color: color.textMuted,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}>
+                          {project.description || "No description"}
                         </div>
                       </div>
-                      <ArrowRight className="h-4 w-4 text-slate-500 transition group-hover:text-amber-300" />
+                      <Badge
+                        label={state}
+                        tone={state === "active" ? "accent" : state === "paused" ? "warning" : "default"}
+                      />
                     </div>
-
-                    <div className="mb-3 flex flex-wrap gap-2 text-[11px] uppercase tracking-[0.14em] text-slate-300">
-                      <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1">{project.slug}</span>
-                      <span
-                        className="rounded-full border px-2.5 py-1"
-                        style={{
-                          borderColor:
-                            projectState === "paused"
-                              ? "rgba(245,158,11,0.35)"
-                              : projectState === "archived"
-                              ? "rgba(148,163,184,0.3)"
-                              : "rgba(217,119,6,0.35)",
-                          background:
-                            projectState === "paused"
-                              ? "rgba(245,158,11,0.12)"
-                              : projectState === "archived"
-                              ? "rgba(148,163,184,0.12)"
-                              : "rgba(217,119,6,0.12)",
-                        }}
-                      >
-                        {projectState}
-                      </span>
+                    {/* Metrics row */}
+                    <div style={{ display: "flex", gap: space.lg, fontSize: T.caption.size, color: color.textMuted, marginBottom: space.sm }}>
+                      <span>{project.taskCount ?? 0} tasks</span>
+                      <span>{project.inProgress ?? 0} active</span>
+                      <span>{project.review ?? 0} review</span>
                     </div>
-
-                    <div className="mb-3 grid grid-cols-3 gap-2 text-xs">
-                      <MiniMetric label="Tasks" value={project.taskCount} />
-                      <MiniMetric label="Active" value={project.inProgress} accent="#d97706" />
-                      <MiniMetric label="Review" value={project.review} accent="#d97706" />
-                    </div>
-
-                    <div>
-                      <div className="mb-1 flex items-center justify-between text-[11px] text-slate-400">
-                        <span className="max-w-[72%] truncate">{sprint.name}</span>
+                    {/* Sprint progress */}
+                    <div style={{ marginBottom: space.xs }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: T.caption.size, color: color.textMuted, marginBottom: 4 }}>
+                        <span>{sprint.name}</span>
                         <span>{sprint.ratioLabel}</span>
                       </div>
-                      <div className="h-2 overflow-hidden rounded-full border border-white/10 bg-slate-900/80">
-                        <div
-                          className="h-full rounded-full transition-[width] duration-700 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                          style={{
-                            width: `${sprint.percent}%`,
-                            background: `linear-gradient(90deg, ${project.color}, color-mix(in srgb, ${project.color} 56%, white))`,
-                          }}
-                        />
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-slate-500">
-                        <span>Current Sprint</span>
-                        <span>{sprint.percent}% complete</span>
+                      <div style={{ height: 5, borderRadius: radius.full, background: color.border, overflow: "hidden" }}>
+                        <div style={{
+                          height: "100%",
+                          borderRadius: radius.full,
+                          width: `${sprint.percent}%`,
+                          background: project.color || color.accent,
+                          transition: "width 0.5s ease",
+                        }} />
                       </div>
                     </div>
-                    <div className="mt-4 flex items-center justify-between text-xs text-slate-400">
-                      <span>{project.owner ? `Owner: ${project.owner}` : "No owner assigned"}</span>
-                      <span className="text-amber-200 transition group-hover:translate-x-0.5">Open workspace</span>
+                    {/* Owner */}
+                    <div style={{ fontSize: T.caption.size, color: color.textMuted }}>
+                      {project.owner ? `Owner: ${project.owner}` : "No owner assigned"}
                     </div>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {activeTab === "agents" ? (
-        <section className="orchestra-panel rounded-2xl p-4 md:p-5">
-          <div className="mb-4 grid gap-3 md:grid-cols-4">
-            <MiniMetric label="Total" value={roster.length} accent="#e2e8f0" />
-            <MiniMetric label="Working" value={rosterTotals.working} accent="#6ee7b7" />
-            <MiniMetric label="Idle" value={rosterTotals.idle} accent="#fbbf24" />
-            <MiniMetric label="Paused/Offline" value={rosterTotals.paused + rosterTotals.offline} accent="#fbbf24" />
-          </div>
-
-          <div className="mb-4 flex flex-wrap items-center gap-2">
-            <div className="relative min-w-[240px] flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-              <input
-                value={rosterQuery}
-                onChange={(event) => setRosterQuery(event.target.value)}
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-10 py-2.5 text-sm text-white outline-none focus:border-amber-400/60"
-                placeholder="Search by name, role, task, or project"
-              />
-            </div>
-            <select
-              value={rosterStatus}
-              onChange={(event) => setRosterStatus(event.target.value as typeof rosterStatus)}
-              className="rounded-xl border border-white/10 bg-slate-900 px-3 py-2 text-sm text-slate-200"
-            >
-              <option value="all">All statuses</option>
-              <option value="working">Working</option>
-              <option value="idle">Idle</option>
-              <option value="paused">Paused</option>
-              <option value="offline">Offline</option>
-            </select>
-          </div>
-
-          {rosterError ? (
-            <div className="mb-4 rounded-xl border border-rose-400/35 bg-rose-500/10 p-3 text-sm text-rose-100">{rosterError}</div>
-          ) : null}
-
-          {rosterLoading ? (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {Array.from({ length: 6 }).map((_, idx) => (
-                <div key={idx} className="h-44 animate-pulse rounded-2xl border border-white/10 bg-slate-900/65" />
-              ))}
-            </div>
-          ) : filteredRoster.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-amber-300/15 bg-[radial-gradient(circle_at_top,rgba(245,158,11,0.08),transparent_40%),rgba(2,6,23,0.72)] p-10 text-center text-sm text-slate-400">
-              {roster.length === 0
-                ? "No agents have been created for this company yet."
-                : "No agents match the current roster filter."}
-            </div>
-          ) : (
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-              {filteredRoster.map((agent) => (
-                <Link
-                  key={agent.id}
-                  href={`/companies/${encodeURIComponent(slug)}/agents/${encodeURIComponent(agent.slug || agent.id)}`}
-                  className="group rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_top_left,rgba(245,158,11,0.12),transparent_30%),linear-gradient(160deg,rgba(30,41,59,0.85),rgba(2,6,23,0.9))] p-4 transition hover:border-amber-300/35"
-                >
-                  <div className="mb-3 flex items-start justify-between gap-2">
-                    <div className="relative inline-flex h-11 w-11 items-center justify-center rounded-xl border border-white/15 bg-slate-800 text-lg">
-                      {agent.emoji}
-                      {(agent.status === "working" || agent.status === "idle") && <span className="orchestra-live-dot" />}
-                    </div>
-                    <AgentStatusBadge status={agent.status} />
-                  </div>
-
-                  <h3 className="text-sm font-semibold text-white">{agent.name}</h3>
-                  <p className="mt-1 text-xs text-slate-400">{agent.role}</p>
-
-                  <div className="mt-3 space-y-2 text-xs">
-                    <InfoRow icon={<Activity className="h-3.5 w-3.5" />} label="Current Task" value={agent.currentTask || "Idle — ready for assignment"} />
-                    <InfoRow icon={<BriefcaseBusiness className="h-3.5 w-3.5" />} label="Project" value={agent.projectName} />
-                    <InfoRow icon={<Bot className="h-3.5 w-3.5" />} label="Model" value={agent.model || "Pending Forge contract"} />
-                    <InfoRow
-                      icon={agent.lastHeartbeat ? <Wifi className="h-3.5 w-3.5" /> : <WifiOff className="h-3.5 w-3.5" />}
-                      label="Heartbeat"
-                      value={agent.lastHeartbeat ? `${formatAge(agent.lastHeartbeat)} ago` : "No heartbeat yet"}
-                    />
-                  </div>
-                  <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-                    <span>{agent.companyName}</span>
-                    <span className="text-amber-200 transition group-hover:translate-x-0.5">Open profile</span>
-                  </div>
+                  </Card>
                 </Link>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
+              );
+            })}
+          </div>
+        )}
+      </Section>
 
-      {activeTab === "settings" ? (
-        <section className="grid gap-4 lg:grid-cols-2">
-          <section className="orchestra-panel rounded-2xl p-4">
-            <div className="mb-3 inline-flex items-center gap-2 text-amber-200">
-              <Palette className="h-4 w-4" />
-              <h2 className="text-sm font-semibold text-white">Avatar Theme</h2>
-            </div>
-            {company ? (
-              <div className="space-y-2">
-                <Setting label="Theme" value={company.theme.name} helper="Applied to all agents across projects in this company." />
-                <Setting
-                  label="Keywords"
-                  value={company.theme.keywords.length > 0 ? company.theme.keywords.join(", ") : "No keywords configured"}
-                  helper="Used by avatar generation and visual identity prompts."
-                />
-                <Setting
-                  label="Prompt Template"
-                  value={company.theme.promptTemplate || "No prompt template set"}
-                  helper="Forge image endpoint will consume this prompt during generation."
-                />
-              </div>
-            ) : (
-              <p className="text-sm text-slate-400">No company theme settings found.</p>
-            )}
-          </section>
+      {/* ── Navigation ── */}
+      <Section title="Navigation" card={false}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: space.sm }}>
+          {[
+            { label: "Dashboard", icon: <LayoutDashboard size={14} />, path: "/dashboard" },
+            { label: "Inbox", icon: <Inbox size={14} />, path: "/inbox" },
+            { label: "Org Chart", icon: <Network size={14} />, path: "/org" },
+            { label: "Projects", icon: <FolderKanban size={14} />, path: "/projects" },
+            { label: "Costs", icon: <Compass size={14} />, path: "/costs" },
+            { label: "Activity", icon: <Activity size={14} />, path: "/activity" },
+            { label: "Files", icon: <FolderOpen size={14} />, path: "/files" },
+            { label: "Manage Projects", icon: <Wrench size={14} />, path: "/manage-projects" },
+            { label: "Settings", icon: <Settings size={14} />, path: "/settings" },
+          ].map((link) => (
+            <Link key={link.path} href={buildCompanyPath(slug, link.path)} style={{ textDecoration: "none" }}>
+              <Card hoverable style={{ display: "flex", alignItems: "center", gap: space.sm, padding: `${space.md}px ${space.lg}px` }}>
+                <span style={{ color: color.accent, display: "flex", alignItems: "center" }}>{link.icon}</span>
+                <span style={{ fontSize: T.bodySmall.size, color: color.text }}>{link.label}</span>
+              </Card>
+            </Link>
+          ))}
+        </div>
+      </Section>
 
-          <section className="orchestra-panel rounded-2xl p-4">
-            <div className="mb-3 inline-flex items-center gap-2 text-amber-200">
-              <Settings2 className="h-4 w-4" />
-              <h2 className="text-sm font-semibold text-white">Execution Defaults</h2>
-            </div>
-            <div className="space-y-2">
-              <Setting label="Review Required" value="Enabled" helper="Tasks should pass through Review before Done." />
-              <Setting label="Stale Escalation" value="In Progress > 4h" helper="Shown in dashboard alerts and board stale indicators." />
-              <Setting label="Review Timeout" value="> 1h" helper="Escalate unresolved review cards to operator." />
-              <Setting label="Heartbeat Interval" value="60 minutes" helper="Agent liveness checks for roster monitoring." />
-            </div>
-          </section>
+      {/* ── Danger zone (de-emphasized) ── */}
+      {company && (
+        <div style={{ marginTop: space.xxxl, paddingTop: space.xl, borderTop: `0.5px solid ${color.border}` }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <span style={{ fontSize: T.caption.size, color: color.textMuted, textTransform: "uppercase", letterSpacing: T.sectionLabel.letterSpacing }}>
+              Danger Zone
+            </span>
+            <button
+              type="button"
+              onClick={() => setDeleteOpen(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: space.xs,
+                padding: `4px ${space.md}px`,
+                borderRadius: radius.md,
+                border: `0.5px solid rgba(239,68,68,0.2)`,
+                background: "transparent",
+                color: color.textMuted,
+                fontSize: T.caption.size,
+                cursor: "pointer",
+              }}
+            >
+              <Trash2 size={12} />
+              Delete Company
+            </button>
+          </div>
+        </div>
+      )}
 
-          <section className="orchestra-panel rounded-2xl p-4">
-            <div className="mb-3 inline-flex items-center gap-2 text-amber-200">
-              <ShieldCheck className="h-4 w-4" />
-              <h2 className="text-sm font-semibold text-white">Access & Governance</h2>
-            </div>
-            <div className="space-y-2">
-              <Setting label="Status" value={company?.status ?? "unknown"} helper="Use status to pause or archive orchestration activity." />
-              <Setting label="Company Slug" value={company?.slug ?? "n/a"} helper="Stable URL identity for project and roster routes." />
-              <Setting label="Total Projects" value={String(projects.length)} helper="Scoped projects currently associated with this company." />
-              <Setting label="Total Agents" value={String(company?.stats.agents ?? 0)} helper="Aggregated roster count from orchestration data layer." />
-            </div>
-          </section>
-
-          <section className="rounded-2xl border border-rose-300/30 bg-rose-500/10 p-4 backdrop-blur-xl">
-            <div className="mb-3 inline-flex items-center gap-2 text-rose-200">
-              <AlertTriangle className="h-4 w-4" />
-              <h2 className="text-sm font-semibold text-slate-100">Danger Zone</h2>
-            </div>
-            <p className="text-sm text-slate-300">Permanently delete this company, all of its projects, agents, tasks, and file workspaces. This action cannot be undone.</p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <button 
-                type="button" 
-                onClick={() => setDeleteOpen(true)}
-                className="rounded-lg border border-rose-400/50 bg-rose-500/20 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-rose-500/30"
-              >
-                Delete Company
-              </button>
-            </div>
-          </section>
-        </section>
-      ) : null}
-
-      <CreateProjectModal
-        open={createOpen}
-        onClose={() => setCreateOpen(false)}
-        onSubmit={handleCreateProject}
-      />
-
+      {/* ── Modals ── */}
+      <CreateProjectModal open={createOpen} onClose={() => setCreateOpen(false)} onSubmit={handleCreateProject} />
       <DeleteCompanyModal
         open={deleteOpen}
         onClose={() => setDeleteOpen(false)}
@@ -873,94 +798,36 @@ export default function CompanyDetailPage() {
         companyName={company?.name ?? slug}
         busy={deleteBusy}
       />
-    </CompanyShell>
+    </div>
   );
 }
 
+/* ── Sprint summary helper ── */
+
 function buildProjectSprintSummary(project: OrchestrationProject, sprints: OrchestrationSprint[]): ProjectSprintSummary {
   const ordered = [...sprints].sort(
-    (a, b) => new Date(b.updated || b.startDate).getTime() - new Date(a.updated || a.startDate).getTime()
+    (a, b) => new Date(b.updated || b.startDate).getTime() - new Date(a.updated || a.startDate).getTime(),
   );
-  const active = ordered.find((sprint) => sprint.status === "active");
-  const planned = ordered.find((sprint) => sprint.status === "planned");
-  const done = ordered.find((sprint) => sprint.status === "done");
+  const active = ordered.find((s) => s.status === "active");
+  const planned = ordered.find((s) => s.status === "planned");
+  const done = ordered.find((s) => s.status === "done");
   const current = active ?? planned ?? done ?? null;
 
   if (!current) {
     const total = project.taskCount;
     const doneCount = project.completed;
     const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
-    return {
-      name: "No active sprint",
-      ratioLabel: `${doneCount}/${total}`,
-      percent: Math.max(0, Math.min(100, percent)),
-    };
+    return { name: "No active sprint", ratioLabel: `${doneCount}/${total}`, percent: Math.max(0, Math.min(100, percent)) };
   }
 
   const total = current.taskCount > 0 ? current.taskCount : project.taskCount;
   const doneCount = current.taskCount > 0 ? current.doneCount : project.completed;
   const percent = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  return {
-    name: current.name,
-    ratioLabel: `${doneCount}/${total}`,
-    percent: Math.max(0, Math.min(100, percent)),
-  };
+  return { name: current.name, ratioLabel: `${doneCount}/${total}`, percent: Math.max(0, Math.min(100, percent)) };
 }
 
-function MiniMetric({ label, value, accent }: { label: string; value: number; accent?: string }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-slate-900/55 p-2">
-      <p className="text-[10px] uppercase tracking-[0.1em] text-slate-400">{label}</p>
-      <p className="mt-1 text-sm font-semibold" style={{ color: accent ?? "#e2e8f0" }}>{value}</p>
-    </div>
-  );
-}
-
-function AgentStatusBadge({ status }: { status: OrchestrationAgent["status"] }) {
-  const palette: Record<OrchestrationAgent["status"], { text: string; bg: string; border: string }> = {
-    working: { text: "#6ee7b7", bg: "rgba(16,185,129,0.18)", border: "rgba(16,185,129,0.45)" },
-    idle: { text: "#fbbf24", bg: "rgba(217,119,6,0.16)", border: "rgba(217,119,6,0.4)" },
-    paused: { text: "#fcd34d", bg: "rgba(245,158,11,0.16)", border: "rgba(245,158,11,0.4)" },
-    offline: { text: "#fda4af", bg: "rgba(244,63,94,0.16)", border: "rgba(244,63,94,0.4)" },
-    error: { text: "#f87171", bg: "rgba(239,68,68,0.18)", border: "rgba(239,68,68,0.5)" },
-  };
-
-  return (
-    <span
-      className="rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.12em]"
-      style={{
-        color: palette[status].text,
-        borderColor: palette[status].border,
-        backgroundColor: palette[status].bg,
-      }}
-    >
-      {status}
-    </span>
-  );
-}
-
-function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-slate-900/70 p-2">
-      <p className="inline-flex items-center gap-1 text-slate-500">
-        {icon}
-        {label}
-      </p>
-      <p className="mt-1 text-slate-200">{value}</p>
-    </div>
-  );
-}
-
-function Setting({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-slate-900/70 p-2">
-      <p className="text-[10px] uppercase tracking-[0.12em] text-slate-500">{label}</p>
-      <p className="mt-1 text-sm text-slate-200">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{helper}</p>
-    </div>
-  );
-}
+/* ── Create Project Modal (page-specific) ── */
 
 function CreateProjectModal({
   open,
@@ -981,24 +848,22 @@ function CreateProjectModal({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [emoji, setEmoji] = useState("🛰️");
-  const [color, setColor] = useState("#b45309");
+  const [projectColor, setProjectColor] = useState("#b45309");
   const [owner, setOwner] = useState("");
   const [status, setStatus] = useState<"active" | "paused" | "archived">("active");
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     if (!open) return;
-    const previousOverflow = document.body.style.overflow;
+    const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
+    return () => { document.body.style.overflow = prev; };
   }, [open]);
 
   useEffect(() => {
     if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !busy) onClose();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
@@ -1006,118 +871,136 @@ function CreateProjectModal({
 
   if (!open) return null;
 
+  const inputStyle: React.CSSProperties = {
+    width: "100%",
+    padding: `8px ${space.md}px`,
+    borderRadius: radius.md,
+    border: `0.5px solid ${color.border}`,
+    background: color.surface,
+    color: color.text,
+    fontSize: T.bodySmall.size,
+    outline: "none",
+  };
+
+  const labelStyle: React.CSSProperties = {
+    fontSize: T.caption.size,
+    fontWeight: T.sectionLabel.weight,
+    letterSpacing: T.sectionLabel.letterSpacing,
+    textTransform: "uppercase",
+    color: color.textMuted,
+    marginBottom: space.xs,
+    display: "block",
+  };
+
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-3 backdrop-blur-md md:items-center"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose();
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 50,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "rgba(0,0,0,0.6)",
+        backdropFilter: "blur(6px)",
+        padding: space.md,
       }}
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Create project"
-        className="w-full max-w-xl rounded-3xl border border-white/15 bg-[radial-gradient(circle_at_top,rgba(217,119,6,0.12),transparent_38%),linear-gradient(165deg,rgba(15,23,42,0.98),rgba(2,6,23,0.98))] p-5 shadow-[0_24px_60px_rgba(2,6,23,0.65)] md:p-6"
+        style={{
+          width: "100%",
+          maxWidth: 540,
+          borderRadius: radius.lg,
+          border: `0.5px solid ${color.border}`,
+          background: color.surfaceElevated,
+          padding: space.xl,
+          boxShadow: "0 24px 60px rgba(0,0,0,0.5)",
+        }}
       >
-        <div className="mb-4 flex items-start justify-between gap-3">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: space.lg }}>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.16em] text-amber-100/70">Create Project</p>
-            <h2 className="mt-1 text-xl font-semibold text-white">New Project</h2>
+            <span style={{ ...labelStyle, marginBottom: 2 }}>Create Project</span>
+            <h2 style={{ margin: 0, fontSize: T.pageTitle.size, fontWeight: T.pageTitle.weight, color: color.text }}>New Project</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
             disabled={busy}
-            className="rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-xs text-slate-200 hover:bg-white/10 disabled:opacity-50"
+            style={{
+              padding: `4px ${space.md}px`,
+              borderRadius: radius.md,
+              border: `0.5px solid ${color.border}`,
+              background: color.surface,
+              color: color.textSecondary,
+              fontSize: T.bodySmall.size,
+              cursor: "pointer",
+              opacity: busy ? 0.5 : 1,
+            }}
           >
             Close
           </button>
         </div>
 
         <form
-          className="space-y-3"
-          onSubmit={async (event) => {
-            event.preventDefault();
+          onSubmit={async (e) => {
+            e.preventDefault();
             if (!name.trim() || busy) return;
             setBusy(true);
             const created = await onSubmit({
               name: name.trim(),
               description: description.trim(),
               emoji: emoji.trim() || "🛰️",
-              color,
+              color: projectColor,
               owner: owner.trim(),
               status,
             });
             setBusy(false);
             if (created) {
-              setName("");
-              setDescription("");
-              setEmoji("🛰️");
-              setColor("#b45309");
-              setOwner("");
-              setStatus("active");
+              setName(""); setDescription(""); setEmoji("🛰️");
+              setProjectColor("#b45309"); setOwner(""); setStatus("active");
             }
           }}
         >
-          <div className="grid gap-3 md:grid-cols-[1fr,240px,124px]">
-            <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Name</span>
-              <input
-                required
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Orchestration Dashboard"
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-amber-400/60"
-              />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 200px 100px", gap: space.md, marginBottom: space.md }}>
+            <label>
+              <span style={labelStyle}>Name</span>
+              <input required autoFocus value={name} onChange={(e) => setName(e.target.value)} placeholder="Orchestration Dashboard" style={inputStyle} />
             </label>
-            <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Icon</span>
-              <MissionIconPicker
-                value={emoji}
-                onChange={setEmoji}
-                ariaLabel="Project icon"
-              />
+            <label>
+              <span style={labelStyle}>Icon</span>
+              <MissionIconPicker value={emoji} onChange={setEmoji} ariaLabel="Project icon" />
             </label>
-            <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Accent</span>
-              <input
-                type="color"
-                value={color}
-                onChange={(event) => setColor(event.target.value)}
-                className="h-10 w-full rounded-xl border border-white/10 bg-slate-900/80 p-1"
+            <label>
+              <span style={labelStyle}>Accent</span>
+              <input type="color" value={projectColor} onChange={(e) => setProjectColor(e.target.value)} style={{ ...inputStyle, height: 38, padding: 3 }} />
+            </label>
+          </div>
+
+          <div style={{ marginBottom: space.md }}>
+            <label>
+              <span style={labelStyle}>Description</span>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                rows={3}
+                placeholder="Describe what this project is shipping."
+                style={{ ...inputStyle, resize: "none" }}
               />
             </label>
           </div>
 
-          <label className="space-y-1">
-            <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Description</span>
-            <textarea
-              value={description}
-              onChange={(event) => setDescription(event.target.value)}
-              rows={4}
-              placeholder="Describe what this project is shipping."
-              className="w-full resize-none rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-amber-400/60"
-            />
-          </label>
-
-          <div className="grid gap-3 md:grid-cols-2">
-            <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Owner</span>
-              <input
-                value={owner}
-                onChange={(event) => setOwner(event.target.value)}
-                placeholder="tim"
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-amber-400/60"
-              />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: space.md, marginBottom: space.lg }}>
+            <label>
+              <span style={labelStyle}>Owner</span>
+              <input value={owner} onChange={(e) => setOwner(e.target.value)} placeholder="tim" style={inputStyle} />
             </label>
-            <label className="space-y-1">
-              <span className="text-xs uppercase tracking-[0.12em] text-slate-400">Status</span>
-              <select
-                value={status}
-                onChange={(event) => setStatus(event.target.value as "active" | "paused" | "archived")}
-                className="w-full rounded-xl border border-white/10 bg-slate-900/80 px-3 py-2 text-sm text-white outline-none focus:border-amber-400/60"
-              >
+            <label>
+              <span style={labelStyle}>Status</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value as "active" | "paused" | "archived")} style={inputStyle}>
                 <option value="active">Active</option>
                 <option value="paused">Paused</option>
                 <option value="archived">Archived</option>
@@ -1125,19 +1008,25 @@ function CreateProjectModal({
             </label>
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={busy}
-              className="rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-slate-200 hover:bg-white/10 disabled:opacity-50"
-            >
-              Cancel
-            </button>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: space.sm }}>
+            <ActionButton label="Cancel" onClick={onClose} disabled={busy} variant="secondary" size="sm" />
             <button
               type="submit"
               disabled={busy || !name.trim()}
-              className="rounded-xl border border-amber-300/40 bg-amber-400/15 px-3 py-2 text-sm font-medium text-amber-100 shadow-[0_12px_26px_rgba(180,83,9,0.25)] disabled:opacity-50"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: space.sm,
+                padding: `5px 12px`,
+                borderRadius: radius.md,
+                border: "none",
+                background: color.accent,
+                color: "#000",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: busy || !name.trim() ? "not-allowed" : "pointer",
+                opacity: busy || !name.trim() ? 0.5 : 1,
+              }}
             >
               {busy ? "Creating..." : "Create Project"}
             </button>
