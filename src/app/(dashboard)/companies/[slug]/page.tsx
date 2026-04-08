@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
   Activity,
+  ArrowRight,
   Building2,
   ChevronDown,
   Compass,
@@ -24,7 +25,6 @@ import {
 } from "lucide-react";
 
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
-import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
 import { MissionIconPicker } from "@/components/orchestration/MissionIconPicker";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { classifyProjectState } from "@/components/orchestration/ui";
@@ -36,6 +36,7 @@ import {
   listProjects,
   getCompanyEngineStatus,
   kickoffCompany,
+  updateProjectSettings,
 } from "@/lib/orchestration/client";
 import type { EngineStatus, KickoffResult } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
@@ -93,7 +94,7 @@ export default function CompanyDetailPage() {
   const params = useParams<{ slug: string }>();
   const router = useRouter();
   const slug = params?.slug ?? "";
-  const { activeProject, clearActiveProject, setActiveProject } = useActiveProjectState();
+  const { activeProject, setActiveProject } = useActiveProjectState();
 
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [companies, setCompanies] = useState<OrchestrationCompany[]>([]);
@@ -351,11 +352,29 @@ export default function CompanyDetailPage() {
         description={company?.description || undefined}
         actions={
           company ? (
-            <div style={{ display: "flex", alignItems: "center", gap: space.sm }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" }}>
               <Badge
                 label={company.status}
                 tone={companyStatusTone(company.status)}
               />
+              <ActionButton
+                label={pauseBusy ? "..." : company.status === "paused" ? "Resume" : "Pause"}
+                icon={company.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
+                onClick={handleTogglePause}
+                disabled={pauseBusy}
+                variant="secondary"
+                size="sm"
+              />
+              {engineStatus?.ceo && (
+                <ActionButton
+                  label={kickoffBusy ? "Starting..." : "Start"}
+                  icon={<Rocket size={14} />}
+                  onClick={handleKickoff}
+                  disabled={kickoffBusy}
+                  variant="secondary"
+                  size="sm"
+                />
+              )}
               {/* ── Company switcher ── */}
               {otherCompanies.length > 0 && (
                 <div style={{ position: "relative" }}>
@@ -381,7 +400,6 @@ export default function CompanyDetailPage() {
                   </button>
                   {switcherOpen && (
                     <>
-                      {/* backdrop */}
                       <div
                         style={{ position: "fixed", inset: 0, zIndex: 40 }}
                         onClick={() => setSwitcherOpen(false)}
@@ -469,12 +487,19 @@ export default function CompanyDetailPage() {
           {notice}
         </div>
       )}
-
-      {activeProjectRecord ? (
-        <div style={{ marginBottom: space.md }}>
-          <ActiveProjectBanner companySlug={slug} project={activeProjectRecord} onClear={clearActiveProject} />
+      {kickoffResult && (
+        <div style={{
+          marginBottom: space.md,
+          padding: `${space.sm}px ${space.lg}px`,
+          borderRadius: radius.md,
+          fontSize: T.bodySmall.size,
+          border: `0.5px solid ${kickoffResult.status === "queued" ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)"}`,
+          background: kickoffResult.status === "queued" ? color.positiveSoft : color.warningSoft,
+          color: kickoffResult.status === "queued" ? color.positive : color.warning,
+        }}>
+          {kickoffResult.message}
         </div>
-      ) : null}
+      )}
 
       {/* ── Profile ── */}
       {company && (
@@ -495,66 +520,6 @@ export default function CompanyDetailPage() {
           <PropRow label="Source">
             <span style={{ fontFamily: font.mono, fontSize: T.mono.size }}>{company.workspace.source}</span>
           </PropRow>
-        </Section>
-      )}
-
-      {/* ── Controls ── */}
-      {company && (
-        <Section title="Controls" card={false}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: space.sm, alignItems: "flex-end" }}>
-            <ActionButton
-              label={pauseBusy ? "Updating..." : company.status === "paused" ? "Resume Company" : "Pause Company"}
-              icon={company.status === "paused" ? <Play size={14} /> : <Pause size={14} />}
-              onClick={handleTogglePause}
-              disabled={pauseBusy}
-              variant="secondary"
-            />
-            {engineStatus?.ceo && (
-              <div style={{ display: "flex", gap: space.sm, alignItems: "flex-end", flex: 1, minWidth: 240 }}>
-                <input
-                  value={kickoffDirection}
-                  onChange={(e) => setKickoffDirection(e.target.value)}
-                  placeholder={`Direction for ${engineStatus.ceo.name}...`}
-                  style={{
-                    flex: 1,
-                    padding: `7px ${space.md}px`,
-                    borderRadius: radius.md,
-                    border: `0.5px solid ${color.border}`,
-                    background: color.surface,
-                    color: color.text,
-                    fontSize: T.bodySmall.size,
-                    outline: "none",
-                  }}
-                />
-                <ActionButton
-                  label={kickoffBusy ? "Starting..." : "Start Company"}
-                  icon={<Rocket size={14} />}
-                  onClick={handleKickoff}
-                  disabled={kickoffBusy}
-                  variant="secondary"
-                />
-              </div>
-            )}
-            <ActionButton
-              label="New Project"
-              icon={<Plus size={14} />}
-              onClick={() => setCreateOpen(true)}
-              variant="secondary"
-            />
-          </div>
-          {kickoffResult && (
-            <div style={{
-              marginTop: space.md,
-              padding: `${space.sm}px ${space.lg}px`,
-              borderRadius: radius.md,
-              fontSize: T.bodySmall.size,
-              border: `0.5px solid ${kickoffResult.status === "queued" ? "rgba(34,197,94,0.2)" : "rgba(245,158,11,0.2)"}`,
-              background: kickoffResult.status === "queued" ? color.positiveSoft : color.warningSoft,
-              color: kickoffResult.status === "queued" ? color.positive : color.warning,
-            }}>
-              {kickoffResult.message}
-            </div>
-          )}
         </Section>
       )}
 
@@ -624,7 +589,38 @@ export default function CompanyDetailPage() {
       </Section>
 
       {/* ── Projects ── */}
-      <Section title="Projects" card={false} trailing={visibleProjects.length > 0 ? `${visibleProjects.length} projects` : undefined}>
+      <Section
+        title="Projects"
+        card={false}
+        trailing={
+          <div style={{ display: "flex", alignItems: "center", gap: space.sm }}>
+            {visibleProjects.length > 0 && (
+              <span style={{ fontSize: T.caption.size, color: color.textMuted }}>{visibleProjects.length} projects</span>
+            )}
+            {company && (
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 3,
+                  padding: `3px 10px`,
+                  borderRadius: radius.md,
+                  border: `0.5px solid ${color.border}`,
+                  background: color.surface,
+                  color: color.textSecondary,
+                  fontSize: T.caption.size,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                <Plus size={11} /> New
+              </button>
+            )}
+          </div>
+        }
+      >
         {loading ? (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))", gap: space.md }}>
             {[1, 2, 3, 4].map((i) => (
@@ -644,91 +640,134 @@ export default function CompanyDetailPage() {
             {visibleProjects.map((project) => {
               const sprint = sprintSummaries[project.id] ?? buildProjectSprintSummary(project, []);
               const state = classifyProjectState(project.status);
-              const isActive = activeProjectRecord?.id === project.id;
+              const isSelected = activeProjectRecord?.id === project.id;
 
               return (
-                <Link
-                  key={project.id}
-                  href={buildCompanyPath(slug, `/projects/${encodeURIComponent(project.slug)}`)}
-                  style={{ textDecoration: "none" }}
-                  onClick={() => setActiveProject({ companySlug: slug, projectId: project.id, projectSlug: project.slug, projectName: project.name })}
-                >
-                  <Card hoverable style={isActive ? { borderColor: color.borderStrong } : undefined}>
-                    {/* Header row */}
-                    <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
-                      <span style={{
-                        display: "grid",
-                        placeItems: "center",
-                        width: 36,
-                        height: 36,
-                        borderRadius: radius.md,
-                        background: "rgba(255,255,255,0.06)",
-                        flexShrink: 0,
-                        color: color.text,
-                      }}>
-                        <FolderKanban size={16} />
-                      </span>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: space.sm,
-                        }}>
-                          <span style={{
-                            fontSize: T.cardTitle.size,
-                            fontWeight: T.cardTitle.weight,
-                            color: color.text,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}>
-                            {project.name}
-                          </span>
-                          {isActive && <Badge label="Active" tone="default" />}
-                        </div>
-                        <div style={{
-                          fontSize: T.bodySmall.size,
-                          color: color.textMuted,
+                <Card key={project.id} hoverable style={isSelected ? { borderColor: color.borderStrong } : undefined}>
+                  {/* Header row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.sm }}>
+                    <span style={{
+                      display: "grid",
+                      placeItems: "center",
+                      width: 36,
+                      height: 36,
+                      borderRadius: radius.md,
+                      background: "rgba(255,255,255,0.06)",
+                      flexShrink: 0,
+                      color: color.text,
+                    }}>
+                      <FolderKanban size={16} />
+                    </span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Link
+                        href={buildCompanyPath(slug, `/projects/${encodeURIComponent(project.slug)}`)}
+                        style={{ textDecoration: "none" }}
+                        onClick={() => setActiveProject({ companySlug: slug, projectId: project.id, projectSlug: project.slug, projectName: project.name })}
+                      >
+                        <span style={{
+                          fontSize: T.cardTitle.size,
+                          fontWeight: T.cardTitle.weight,
+                          color: color.text,
                           overflow: "hidden",
                           textOverflow: "ellipsis",
                           whiteSpace: "nowrap",
+                          display: "block",
                         }}>
-                          {project.description || "No description"}
-                        </div>
-                      </div>
-                      <Badge
-                        label={state}
-                        tone={state === "active" ? "default" : state === "paused" ? "warning" : "default"}
-                      />
-                    </div>
-                    {/* Metrics row */}
-                    <div style={{ display: "flex", gap: space.lg, fontSize: T.caption.size, color: color.textMuted, marginBottom: space.sm }}>
-                      <span>{project.taskCount ?? 0} tasks</span>
-                      <span>{project.inProgress ?? 0} active</span>
-                      <span>{project.review ?? 0} review</span>
-                    </div>
-                    {/* Sprint progress */}
-                    <div style={{ marginBottom: space.xs }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: T.caption.size, color: color.textMuted, marginBottom: 4 }}>
-                        <span>{sprint.name}</span>
-                        <span>{sprint.ratioLabel}</span>
-                      </div>
-                      <div style={{ height: 5, borderRadius: radius.full, background: color.border, overflow: "hidden" }}>
-                        <div style={{
-                          height: "100%",
-                          borderRadius: radius.full,
-                          width: `${sprint.percent}%`,
-                          background: color.textSecondary,
-                          transition: "width 0.5s ease",
-                        }} />
+                          {project.name}
+                        </span>
+                      </Link>
+                      <div style={{
+                        fontSize: T.bodySmall.size,
+                        color: color.textMuted,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}>
+                        {project.description || "No description"}
                       </div>
                     </div>
-                    {/* Owner */}
+                    <Badge
+                      label={state}
+                      tone={state === "paused" ? "warning" : state === "archived" ? "default" : "default"}
+                    />
+                  </div>
+                  {/* Metrics row */}
+                  <div style={{ display: "flex", gap: space.lg, fontSize: T.caption.size, color: color.textMuted, marginBottom: space.sm }}>
+                    <span>{project.taskCount ?? 0} tasks</span>
+                    <span>{project.inProgress ?? 0} active</span>
+                    <span>{project.review ?? 0} review</span>
+                  </div>
+                  {/* Sprint progress */}
+                  <div style={{ marginBottom: space.sm }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: T.caption.size, color: color.textMuted, marginBottom: 4 }}>
+                      <span>{sprint.name}</span>
+                      <span>{sprint.ratioLabel}</span>
+                    </div>
+                    <div style={{ height: 5, borderRadius: radius.full, background: color.border, overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%",
+                        borderRadius: radius.full,
+                        width: `${sprint.percent}%`,
+                        background: color.textSecondary,
+                        transition: "width 0.5s ease",
+                      }} />
+                    </div>
+                  </div>
+                  {/* Footer: owner + actions */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                     <div style={{ fontSize: T.caption.size, color: color.textMuted }}>
                       {project.owner ? `Owner: ${project.owner}` : "No owner assigned"}
                     </div>
-                  </Card>
-                </Link>
+                    <div style={{ display: "flex", alignItems: "center", gap: space.xs }}>
+                      {state !== "archived" && (
+                        <button
+                          type="button"
+                          title={state === "paused" ? "Resume project" : "Pause project"}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            const next = state === "paused" ? "active" : "paused";
+                            const updated = await updateProjectSettings({ projectIdOrSlug: project.slug || project.id, status: next as "active" | "paused" });
+                            if (updated) setProjects((prev) => prev.map((p) => p.id === project.id ? { ...p, status: next } : p));
+                          }}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            width: 24,
+                            height: 24,
+                            borderRadius: radius.sm,
+                            border: `0.5px solid ${color.border}`,
+                            background: "transparent",
+                            color: color.textMuted,
+                            cursor: "pointer",
+                            padding: 0,
+                          }}
+                        >
+                          {state === "paused" ? <Play size={12} /> : <Pause size={12} />}
+                        </button>
+                      )}
+                      <Link
+                        href={buildCompanyPath(slug, `/projects/${encodeURIComponent(project.slug)}`)}
+                        title="Open project"
+                        onClick={() => setActiveProject({ companySlug: slug, projectId: project.id, projectSlug: project.slug, projectName: project.name })}
+                        style={{
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 24,
+                          height: 24,
+                          borderRadius: radius.sm,
+                          border: `0.5px solid ${color.border}`,
+                          background: "transparent",
+                          color: color.textMuted,
+                          textDecoration: "none",
+                        }}
+                      >
+                        <ArrowRight size={12} />
+                      </Link>
+                    </div>
+                  </div>
+                </Card>
               );
             })}
           </div>
