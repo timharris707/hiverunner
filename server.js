@@ -1,10 +1,31 @@
 const http = require("http");
 const next = require("next");
 const { WebSocketServer } = require("ws");
+const v8 = require("v8");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3000", 10);
+
+// ── Dev-lane heap guard ──
+// Webpack dev mode for this app uses 2–3 GB RSS. The default Node heap
+// limit (~4 GB) leaves almost no headroom and causes OOM crashes after
+// ~2 hours. We can't set the limit from inside the process, but we can
+// detect it and warn loudly so unmanaged starts are immediately visible.
+if (dev) {
+  const heapLimitMB = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
+  if (heapLimitMB < 6000) {
+    console.warn("");
+    console.warn("╔════════════════════════════════════════════════════════════╗");
+    console.warn("║  ⚠  LOW HEAP LIMIT — dev server will likely OOM crash     ║");
+    console.warn(`║  Current: ${String(heapLimitMB).padEnd(5)}MB — Recommended: 8192MB${" ".repeat(15)}║`);
+    console.warn("║                                                            ║");
+    console.warn("║  Fix: node --max-old-space-size=8192 server.js             ║");
+    console.warn("║   Or: npm run dev                                          ║");
+    console.warn("╚════════════════════════════════════════════════════════════╝");
+    console.warn("");
+  }
+}
 
 // ── Engine tick ownership ──
 // MC_ENGINE_TICK controls whether this instance runs the autonomous
@@ -182,11 +203,13 @@ app.prepare().then(() => {
   }
 
   server.listen(port, hostname, () => {
+    const heapMB = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Mode: ${dev ? "development" : "production"}`);
-    console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"}`);
-    console.log(`> MC_ENGINE_TICK=${engineTickSetting}`);
-    console.log(`> Adapter registry initializes on first SSE connection (/api/orchestration/engine/live-stream)`);
+    console.log(`> Heap limit: ${heapMB}MB`);
+    console.log(`> Bundler: ${useWebpack ? "webpack" : "turbopack"}`);
+    console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
+    console.log(`> Snapshot poll: ${snapshotIntervalMs / 1000}s`);
 
     // Pre-warm: hit the SSE endpoint once to trigger adapter registry initialization.
     // This ensures provider adapters (including the OpenClaw gateway WS connection)
