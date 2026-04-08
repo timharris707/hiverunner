@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, User } from "lucide-react";
 import { InlineStatusPicker } from "./InlineStatusPicker";
 import { type TaskRow as TaskRowT, type InlineEditCallbacks, getTaskIdentifier, formatShortDate, assigneeInitials } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
@@ -46,7 +46,7 @@ export function TaskRow({
       style={{
         display: "flex", alignItems: "center", gap: "10px",
         height: "38px", padding: `0 16px 0 ${16 + depth * 20}px`,
-        borderBottom: `0.5px solid ${P.cardBorder}`,
+        borderBottom: "none",
         background: isSelected ? "rgba(255,255,255,0.03)" : "transparent",
         cursor: "pointer", userSelect: "none",
         transition: "background 60ms ease",
@@ -118,7 +118,7 @@ export function TaskRow({
 
       {/* Assignee avatar + name */}
       {assigneeName ? (
-        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", width: 120, flexShrink: 0 }}>
           {(() => {
             const avatarUrl = agent ? resolveAvatar(agent) : undefined;
             if (avatarUrl) {
@@ -140,12 +140,21 @@ export function TaskRow({
               </span>
             );
           })()}
-          <span style={{ fontSize: "12px", color: P.textSecondary, flexShrink: 0 }}>
+          <span style={{ fontSize: "12px", color: P.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {assigneeName}
           </span>
-        </div>
+        </span>
       ) : (
-        <span style={{ flexShrink: 0, width: "80px" }} />
+        <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", width: 120, flexShrink: 0 }}>
+          <span style={{
+            width: 22, height: 22, borderRadius: "50%",
+            display: "inline-flex", alignItems: "center", justifyContent: "center",
+            border: `1px dashed ${P.cardBorder}`, color: P.textMuted, flexShrink: 0,
+          }}>
+            <User size={11} />
+          </span>
+          <span style={{ fontSize: "12px", color: P.textMuted }}>Assignee</span>
+        </span>
       )}
 
       {/* Date */}

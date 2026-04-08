@@ -82,8 +82,7 @@ export function TaskListView({
         <div key={group.key}>
           {group.label !== null && (
             <div style={{
-              padding: "4px 16px", display: "flex", alignItems: "center", gap: "8px",
-              borderBottom: `0.5px solid ${P.cardBorder}`
+              padding: "4px 16px", display: "flex", alignItems: "center", gap: "8px"
             }}>
               <button
                 type="button"

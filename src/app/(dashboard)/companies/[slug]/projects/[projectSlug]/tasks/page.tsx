@@ -297,7 +297,7 @@ function IssueRow({
         padding: "8px 12px",
         textDecoration: "none",
         color: P.text,
-        borderBottom: isLast ? "none" : `0.5px solid ${P.cardBorder}`,
+        borderBottom: "none",
         transition: "background 120ms",
         fontSize: 13,
       }}
@@ -1155,7 +1155,6 @@ function CollapsibleGroup({
           gap: space.sm,
           padding: `${space.sm}px 0`,
           color: P.textSecondary,
-          borderBottom: `0.5px solid ${P.cardBorder}`,
         }}
       >
         <button
@@ -1181,7 +1180,7 @@ function CollapsibleGroup({
             }}
           />
           {label}
-          <span style={{ color: P.textMuted, marginLeft: 4, fontWeight: 400 }}>{count}</span>
+          <span style={{ color: P.textMuted, marginLeft: 4, fontWeight: 400 }}>({count})</span>
         </button>
 
         <Link

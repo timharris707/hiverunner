@@ -285,6 +285,7 @@ function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxE
     status: raw.status ? (String(raw.status) as TaskStatus) : undefined,
     agentId: raw.agentId ? String(raw.agentId) : raw.agent_id ? String(raw.agent_id) : undefined,
     agentName: raw.agentName ? String(raw.agentName) : raw.agent_name ? String(raw.agent_name) : undefined,
+    avatarUrl: raw.avatarUrl ? String(raw.avatarUrl) : raw.avatar_url ? String(raw.avatar_url) : undefined,
     provider:
       raw.provider === "openclaw" || raw.provider === "paperclip"
         ? raw.provider

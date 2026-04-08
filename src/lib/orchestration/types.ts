@@ -152,6 +152,7 @@ export interface OrchestrationCompanyInboxEvent {
   status?: TaskStatus;
   agentId?: string;
   agentName?: string;
+  avatarUrl?: string;
   provider?: "openclaw" | "paperclip";
   message: string;
   timestamp: string;

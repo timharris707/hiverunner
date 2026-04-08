@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
-import { LayoutList, Columns3, Table2, Plus, Search, SlidersHorizontal, ArrowUpDown, Layers } from "lucide-react";
+import { LayoutList, Columns3, Table2, Search, Filter, ArrowUpDown, Layers } from "lucide-react";
 import { FilterPills } from "./FilterPills";
 import { type TaskFilters, type TaskSort, type ViewMode, type GroupMode, type SortField, type SortDir } from "./types";
 import { STATUS_ORDER, STATUS_LABEL, TASK_TYPES, TYPE_LABEL } from "./types";
@@ -50,10 +50,10 @@ function Popover({ label, icon: Icon, children, isActive }: {
         type="button"
         onClick={() => setOpen(!open)}
         style={{
-          display: "inline-flex", alignItems: "center", gap: "5px",
-          padding: "0 10px", height: "28px", borderRadius: radius.md,
-          border: "none", background: "transparent",
-          fontSize: "12px", fontWeight: 500,
+          display: "inline-flex", alignItems: "center", gap: "6px",
+          padding: "0 10px", height: "34px", borderRadius: radius.md,
+          border: `0.5px solid ${P.cardBorder}`, background: "transparent",
+          fontSize: "13px", fontWeight: 500,
           color: isActive ? P.text : P.textSecondary,
           cursor: "pointer",
         }}
@@ -155,7 +155,7 @@ export function TasksToolbar({
 
   const viewBtnStyle = (v: ViewMode): React.CSSProperties => ({
     display: "inline-flex", alignItems: "center", justifyContent: "center",
-    width: "28px", height: "28px", borderRadius: radius.md,
+    width: "34px", height: "34px", borderRadius: radius.md,
     border: viewMode === v ? `0.5px solid ${P.cardBorderHover}` : "0.5px solid transparent",
     background: viewMode === v ? "rgba(255,255,255,0.08)" : "transparent",
     cursor: "pointer", color: viewMode === v ? P.text : P.textMuted,
@@ -167,36 +167,33 @@ export function TasksToolbar({
     <div>
       <div style={{
         display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "8px 16px", borderBottom: `0.5px solid ${P.cardBorder}`,
-        gap: "8px", background: "transparent"
+        padding: "8px 20px", borderBottom: `0.5px solid ${P.cardBorder}`,
+        gap: "12px", background: "transparent"
       }}>
-        {/* Left: New Task + Search + View toggles */}
-        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-          <button type="button" onClick={onNewTask} style={{
-            display: "inline-flex", alignItems: "center", gap: "4px",
-            padding: "0 10px", height: "28px", borderRadius: radius.md,
-            border: `0.5px solid ${P.cardBorder}`, background: "transparent",
-            fontSize: "12px", fontWeight: 600, color: P.text, cursor: "pointer",
-          }}>
-            <Plus size={13} /> New Task
-          </button>
-
-          <div style={{ position: "relative", marginLeft: "4px" }}>
-            <Search size={12} style={{ position: "absolute", left: "8px", top: "50%", transform: "translateY(-50%)", color: P.textMuted, pointerEvents: "none" }} />
+        {/* Left: Search */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", minWidth: 0, flex: 1 }}>
+          <div style={{ position: "relative", minWidth: 200, flex: "0 1 280px" }}>
+            <Search size={14} style={{ position: "absolute", left: "10px", top: "50%", transform: "translateY(-50%)", color: P.textMuted, pointerEvents: "none" }} />
             <input
               ref={searchRef}
               value={filters.query}
               onChange={(e) => setFilter("query", e.target.value)}
               placeholder="Search tasks..."
               style={{
-                height: "28px", width: "180px", borderRadius: radius.md,
+                width: "100%", height: "34px", borderRadius: radius.md,
                 border: `0.5px solid ${P.cardBorder}`, background: "transparent",
-                padding: "0 8px 0 26px", fontSize: "12px", color: P.text, outline: "none",
+                padding: "0 12px 0 32px", fontSize: "13px", color: P.text, outline: "none",
               }}
             />
           </div>
+        </div>
 
-          <div style={{ display: "flex", alignItems: "center", gap: "2px", marginLeft: "4px" }}>
+        {/* Right: View toggles + Filter / Sort / Group */}
+        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexShrink: 0 }}>
+          <div style={{
+            display: "inline-flex", alignItems: "center",
+            borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`,
+          }}>
             <button type="button" onClick={() => onViewModeChange("list")} style={viewBtnStyle("list")} title="List (1)">
               <LayoutList size={14} />
             </button>
@@ -207,11 +204,7 @@ export function TasksToolbar({
               <Table2 size={14} />
             </button>
           </div>
-        </div>
-
-        {/* Right: Filter / Sort / Group buttons */}
-        <div style={{ display: "flex", alignItems: "center", gap: "2px" }}>
-          <Popover label="Filter" icon={SlidersHorizontal} isActive={hasActiveFilters}>
+          <Popover label="Filters" icon={Filter} isActive={hasActiveFilters}>
             <div style={{ marginBottom: "8px" }}>
               <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Status

@@ -118,6 +118,7 @@ type CompanyInboxEventRow = {
   to_status: "backlog" | "on_deck" | "in_progress" | "review" | "done" | "blocked" | null;
   agent_id: string | null;
   agent_name: string | null;
+  avatar_url: string | null;
   provider: "openclaw" | "paperclip" | null;
   metadata_json: string;
   created_at: string;
@@ -202,6 +203,7 @@ function buildInboxFeedCte(
       te.to_status AS to_status,
       te.agent_id AS agent_id,
       a.name AS agent_name,
+      a.avatar_url AS avatar_url,
       NULL AS provider,
       te.metadata_json AS metadata_json,
       te.created_at AS created_at
@@ -236,6 +238,7 @@ function buildInboxFeedCte(
       NULL AS to_status,
       er.agent_id AS agent_id,
       a.name AS agent_name,
+      a.avatar_url AS avatar_url,
       er.provider AS provider,
       json_object(
         'sessionId', er.session_id,
@@ -275,6 +278,7 @@ function buildInboxFeedCte(
       NULL AS to_status,
       ap.requested_by_agent_id AS agent_id,
       ag.name AS agent_name,
+      ag.avatar_url AS avatar_url,
       NULL AS provider,
       json_object(
         'approvalId', ap.id,
@@ -1042,6 +1046,7 @@ export function listCompanyInbox(input: {
       status: row.task_status ? toApiStatus(row.task_status) : undefined,
       agentId: row.agent_id ?? undefined,
       agentName: row.agent_name ?? undefined,
+      avatarUrl: row.avatar_url ?? undefined,
       provider: row.provider ?? undefined,
       message: inboxEventMessage(row, metadata),
       timestamp: row.created_at,

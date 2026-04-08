@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 
+import { ListChecks, Plus } from "lucide-react";
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import { ActiveProjectBanner } from "@/components/orchestration/ActiveProjectBanner";
@@ -44,7 +45,8 @@ import {
   PRI_WEIGHT,
   getTaskIdentifier
 } from "@/components/tasks/types";
-import { font, P, space, type as tokenType } from "@/lib/ui/tokens";
+import { PageHeader } from "@/lib/ui/primitives";
+import { font, P, radius, space, type as tokenType } from "@/lib/ui/tokens";
 
 const STATUS_WEIGHT: Record<TaskStatus, number> = {
   backlog: 0, "on-deck": 1, "in-progress": 2, review: 3, blocked: 4, done: 5, cancelled: 6,
@@ -63,11 +65,27 @@ export default function CompanyTasksPage() {
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // Persist view/sort/group across sessions
+  const tasksStorageKey = `mc:tasks:prefs:${slug}`;
+  const loadTasksPrefs = () => {
+    try {
+      const raw = localStorage.getItem(tasksStorageKey);
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
+  };
+  const savedPrefs = useRef(loadTasksPrefs());
+
+  const [viewMode, setViewMode] = useState<ViewMode>((savedPrefs.current.viewMode as ViewMode) || "list");
   const [filters, setFilters] = useState<TaskFilters>({ status: "all", priority: "all", assignee: "all", type: "all", query: "" });
-  const [sort, setSort] = useState<TaskSort>({ field: "updated", dir: "desc" });
-  const [groupMode, setGroupMode] = useState<GroupMode>("status");
+  const [sort, setSort] = useState<TaskSort>(savedPrefs.current.sort || { field: "updated", dir: "desc" });
+  const [groupMode, setGroupMode] = useState<GroupMode>((savedPrefs.current.groupMode as GroupMode) || "none");
   const [createOpen, setCreateOpen] = useState(false);
+
+  // Save prefs on change
+  useEffect(() => {
+    try { localStorage.setItem(tasksStorageKey, JSON.stringify({ viewMode, sort, groupMode })); } catch {}
+  }, [viewMode, sort, groupMode, tasksStorageKey]);
   const [selectedIndex, setSelectedIndex] = useState(-1);
 
   const [ctxTask, setCtxTask] = useState<TaskRow | null>(null);
@@ -252,8 +270,33 @@ export default function CompanyTasksPage() {
       ) : null}
 
       {/* Page header */}
-      <div style={{ padding: activeProjectRecord ? "4px 24px 12px" : "8px 24px 12px" }}>
-        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 600, color: P.text, letterSpacing: "-0.01em" }}>Tasks</h1>
+      <div style={{ padding: activeProjectRecord ? `4px ${space.xl}px 0` : `${space.md}px ${space.xl}px 0` }}>
+        <PageHeader
+          icon={<ListChecks size={14} style={{ color: P.textSecondary }} />}
+          title="Tasks"
+          actions={
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
+                padding: "0 10px",
+                height: 34,
+                borderRadius: radius.md,
+                border: `0.5px solid ${P.cardBorder}`,
+                background: "transparent",
+                color: P.text,
+                fontSize: 13,
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={13} />
+              New Task
+            </button>
+          }
+        />
       </div>
 
       <TasksToolbar

@@ -3,8 +3,11 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Archive, Check, ChevronDown, Columns3, Lightbulb, Search, ShieldAlert, UserPlus } from "lucide-react";
+import { AlertTriangle, Archive, ArrowUpDown, Check, ChevronDown, Columns3, Filter, Inbox as InboxIcon, Layers, Lightbulb, Search, ShieldAlert, User, UserPlus } from "lucide-react";
+import { PageHeader } from "@/lib/ui/primitives";
+import { P, radius, space } from "@/lib/ui/tokens";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
+import { getAgentByAnyId } from "@/config/agents";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { formatAge } from "@/components/orchestration/ui";
@@ -16,6 +19,8 @@ import {
   markInboxThreadRead,
   approveApproval,
   rejectApproval,
+  wakeupAgent,
+  cancelTaskExecution,
 } from "@/lib/orchestration/client";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
@@ -47,7 +52,7 @@ const EMPTY: InboxState = { events: [], unreadCount: 0, hasMore: false };
 /* ------------------------------------------------------------------ */
 
 const COLUMNS_STORAGE_KEY = "mc:inbox:columns";
-const DEFAULT_COLUMNS: InboxColumn[] = ["status", "id", "type", "updated"];
+const DEFAULT_COLUMNS: InboxColumn[] = ["status", "id", "assignee", "updated"];
 
 function getStoredColumns(): InboxColumn[] {
   try {
@@ -284,6 +289,24 @@ export default function CompanyInboxPage() {
   const [visibleColumns, setVisibleColumns] = useState<InboxColumn[]>(DEFAULT_COLUMNS);
   const [columnsDropdownOpen, setColumnsDropdownOpen] = useState(false);
   const columnsDropdownRef = useRef<HTMLDivElement>(null);
+  // Persist sort/filter/group across sessions
+  const inboxPrefsKey = `mc:inbox:prefs:${slug}`;
+  const loadInboxPrefs = () => { try { const r = localStorage.getItem(inboxPrefsKey); if (r) return JSON.parse(r); } catch {} return {}; };
+  const savedInboxPrefs = useRef(loadInboxPrefs());
+
+  const [sortDir, setSortDir] = useState<"newest" | "oldest">(savedInboxPrefs.current.sortDir || "newest");
+  const [kindFilter, setKindFilter] = useState<"all" | "task" | "execution" | "approval">(savedInboxPrefs.current.kindFilter || "all");
+  const [groupBy, setGroupBy] = useState<"none" | "kind" | "project">(savedInboxPrefs.current.groupBy || "none");
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const [groupOpen, setGroupOpen] = useState(false);
+  const filterRef = useRef<HTMLDivElement>(null);
+  const sortRef = useRef<HTMLDivElement>(null);
+  const groupRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    try { localStorage.setItem(inboxPrefsKey, JSON.stringify({ sortDir, kindFilter, groupBy })); } catch {}
+  }, [sortDir, kindFilter, groupBy, inboxPrefsKey]);
 
   // Hydrate columns from localStorage on mount
   useEffect(() => {
@@ -300,6 +323,27 @@ export default function CompanyInboxPage() {
     return () => document.removeEventListener("mousedown", handler);
   }, [columnsDropdownOpen]);
 
+  useEffect(() => {
+    if (!filterOpen) return;
+    const handler = (e: MouseEvent) => { if (filterRef.current && !filterRef.current.contains(e.target as Node)) setFilterOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [filterOpen]);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+    const handler = (e: MouseEvent) => { if (sortRef.current && !sortRef.current.contains(e.target as Node)) setSortOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [sortOpen]);
+
+  useEffect(() => {
+    if (!groupOpen) return;
+    const handler = (e: MouseEvent) => { if (groupRef.current && !groupRef.current.contains(e.target as Node)) setGroupOpen(false); };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [groupOpen]);
+
   const toggleColumn = (col: InboxColumn) => {
     setVisibleColumns((prev) => {
       const next = prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col];
@@ -314,7 +358,7 @@ export default function CompanyInboxPage() {
   };
   /** Map active tab to the server `kinds` filter so the API returns only relevant threads. */
   const kindsForTab = (tab: TabKey): string | undefined => {
-    if (tab === "mine") return "task,approval";
+    if (tab === "mine") return "task,approval,execution";
     return undefined; // "all", "recent", "unread" show everything
   };
 
@@ -449,8 +493,18 @@ export default function CompanyInboxPage() {
       items = items.filter((e) => eventMatchesSearch(e, searchQuery.trim()));
     }
 
+    // Kind filter (toolbar)
+    if (kindFilter !== "all") {
+      items = items.filter((e) => e.kind === kindFilter);
+    }
+
+    // Sort
+    if (sortDir === "oldest") {
+      items = [...items].reverse();
+    }
+
     return items;
-  }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter]);
+  }, [inbox.events, activeTab, searchQuery, categoryFilter, approvalStatusFilter, kindFilter, sortDir]);
 
   // Persist the current visible inbox items for prev/next navigation on task detail pages
   useEffect(() => {
@@ -507,13 +561,15 @@ export default function CompanyInboxPage() {
   ];
 
   return (
-    <div style={{ padding: "8px 32px 24px" }}>
-      <h1 style={{ margin: "0 0 16px", fontSize: 17, fontWeight: 600, color: "#eae8e4", letterSpacing: "-0.01em" }}>Inbox</h1>
+    <div style={{ padding: `${space.md}px ${space.xl}px 24px` }}>
+      <PageHeader
+        icon={<InboxIcon size={14} style={{ color: P.textSecondary }} />}
+        title="Inbox"
+      />
 
-      {/* Toolbar: tabs left, search + actions right */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 0 }}>
-        {/* Tabs */}
-        <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      {/* Tab bar with underline */}
+      <div style={{ borderBottom: "0.5px solid rgba(222,220,209,0.10)", marginBottom: space.md }}>
+        <nav style={{ display: "flex", gap: 0 }}>
           {TABS.map((tab) => (
             <button
               key={tab.key}
@@ -522,41 +578,157 @@ export default function CompanyInboxPage() {
               aria-selected={activeTab === tab.key}
               onClick={() => setActiveTab(tab.key)}
               style={{
-                padding: "6px 12px",
-                fontSize: "14px",
-                fontWeight: activeTab === tab.key ? 600 : 400,
-                color: activeTab === tab.key ? "#f5f5f4" : "#78716c",
+                position: "relative",
+                padding: "8px 12px",
+                fontSize: 14,
+                fontWeight: 500,
+                color: activeTab === tab.key ? "#eae8e4" : "#7a7872",
                 background: "transparent",
                 border: "none",
                 cursor: "pointer",
                 transition: "color 150ms",
+                textDecoration: "none",
               }}
             >
               {tab.label}
+              {activeTab === tab.key && (
+                <span style={{
+                  position: "absolute",
+                  left: 0, right: 0, bottom: 0,
+                  height: 2,
+                  background: "#d97706",
+                }} />
+              )}
             </button>
           ))}
-        </div>
+        </nav>
+      </div>
 
-        {/* Right side: search + mark all read */}
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {/* Search */}
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            padding: "5px 10px", borderRadius: 6,
-            border: "0.5px solid rgba(120,113,108,0.2)",
-            background: "rgba(255,255,255,0.02)",
-          }}>
-            <Search size={13} color="#78716c" />
+      {/* Toolbar: search + actions */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: space.sm }}>
+
+        {/* Left: search */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flex: 1 }}>
+          <div style={{ position: "relative", minWidth: 200, flex: "0 1 280px" }}>
+            <Search size={14} style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: P.textMuted, pointerEvents: "none" }} />
             <input
               type="text"
               placeholder="Search inbox..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               style={{
-                border: "none", background: "transparent", outline: "none",
-                fontSize: 12, color: "#d6d3d1", width: 140,
+                width: "100%", height: 34, borderRadius: radius.md,
+                border: `0.5px solid ${P.cardBorder}`, background: "transparent",
+                padding: "0 12px 0 32px", fontSize: 13, color: P.text, outline: "none",
               }}
             />
+          </div>
+        </div>
+
+        {/* Right: filter/sort/group + columns + mark all read */}
+        <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+
+          {/* Filter */}
+          <div ref={filterRef} style={{ position: "relative" }}>
+            <button type="button" onClick={() => setFilterOpen(!filterOpen)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "0 10px", height: 34, fontSize: 13, fontWeight: 500,
+              borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`,
+              background: filterOpen ? "rgba(255,255,255,0.05)" : "transparent",
+              color: kindFilter !== "all" ? P.text : P.textSecondary, cursor: "pointer",
+            }}>
+              <Filter size={14} />
+              Filters{kindFilter !== "all" ? " (1)" : ""}
+            </button>
+            {filterOpen && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, marginTop: 4, minWidth: 180,
+                borderRadius: radius.md, border: `1px solid ${P.cardBorder}`,
+                background: P.surfaceElevated, boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
+                zIndex: 50, padding: 8,
+              }}>
+                <div style={{ fontSize: 10, fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Kind</div>
+                {(["all", "task", "execution", "approval"] as const).map((k) => (
+                  <button key={k} type="button" onClick={() => { setKindFilter(k); setFilterOpen(false); }} style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                    padding: "5px 8px", borderRadius: radius.sm, fontSize: 12,
+                    background: kindFilter === k ? "rgba(255,255,255,0.06)" : "transparent",
+                    border: "none", cursor: "pointer", color: kindFilter === k ? P.text : P.textSecondary,
+                    fontWeight: kindFilter === k ? 600 : 400,
+                  }}>
+                    {k === "all" ? "All" : k.charAt(0).toUpperCase() + k.slice(1) + "s"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sort */}
+          <div ref={sortRef} style={{ position: "relative" }}>
+            <button type="button" onClick={() => setSortOpen(!sortOpen)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "0 10px", height: 34, fontSize: 13, fontWeight: 500,
+              borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`,
+              background: sortOpen ? "rgba(255,255,255,0.05)" : "transparent",
+              color: sortDir !== "newest" ? P.text : P.textSecondary, cursor: "pointer",
+            }}>
+              <ArrowUpDown size={14} />
+              Sort
+            </button>
+            {sortOpen && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, marginTop: 4, minWidth: 160,
+                borderRadius: radius.md, border: `1px solid ${P.cardBorder}`,
+                background: P.surfaceElevated, boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
+                zIndex: 50, padding: 8,
+              }}>
+                {(["newest", "oldest"] as const).map((dir) => (
+                  <button key={dir} type="button" onClick={() => { setSortDir(dir); setSortOpen(false); }} style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                    padding: "5px 8px", borderRadius: radius.sm, fontSize: 12,
+                    background: sortDir === dir ? "rgba(255,255,255,0.06)" : "transparent",
+                    border: "none", cursor: "pointer", color: sortDir === dir ? P.text : P.textSecondary,
+                    fontWeight: sortDir === dir ? 600 : 400,
+                  }}>
+                    {dir === "newest" ? "Newest first" : "Oldest first"}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Group */}
+          <div ref={groupRef} style={{ position: "relative" }}>
+            <button type="button" onClick={() => setGroupOpen(!groupOpen)} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              padding: "0 10px", height: 34, fontSize: 13, fontWeight: 500,
+              borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`,
+              background: groupOpen ? "rgba(255,255,255,0.05)" : "transparent",
+              color: groupBy !== "none" ? P.text : P.textSecondary, cursor: "pointer",
+            }}>
+              <Layers size={14} />
+              Group
+            </button>
+            {groupOpen && (
+              <div style={{
+                position: "absolute", top: "100%", right: 0, marginTop: 4, minWidth: 160,
+                borderRadius: radius.md, border: `1px solid ${P.cardBorder}`,
+                background: P.surfaceElevated, boxShadow: "0 16px 36px rgba(0,0,0,0.35)",
+                zIndex: 50, padding: 8,
+              }}>
+                {([["none", "None"], ["kind", "Kind"], ["project", "Project"]] as const).map(([mode, label]) => (
+                  <button key={mode} type="button" onClick={() => { setGroupBy(mode as typeof groupBy); setGroupOpen(false); }} style={{
+                    display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+                    padding: "5px 8px", borderRadius: radius.sm, fontSize: 12,
+                    background: groupBy === mode ? "rgba(255,255,255,0.06)" : "transparent",
+                    border: "none", cursor: "pointer", color: groupBy === mode ? P.text : P.textSecondary,
+                    fontWeight: groupBy === mode ? 600 : 400,
+                  }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Show / hide columns */}
@@ -566,11 +738,11 @@ export default function CompanyInboxPage() {
               onClick={() => setColumnsDropdownOpen(!columnsDropdownOpen)}
               title="Show / hide columns"
               style={{
-                display: "flex", alignItems: "center", gap: 6,
-                padding: "5px 10px", fontSize: 12, fontWeight: 500,
-                borderRadius: 6, border: "0.5px solid rgba(120,113,108,0.25)",
+                display: "inline-flex", alignItems: "center", gap: 6,
+                padding: "0 10px", height: 34, fontSize: 13, fontWeight: 500,
+                borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`,
                 background: columnsDropdownOpen ? "rgba(255,255,255,0.05)" : "transparent",
-                color: "#a8a29e", cursor: "pointer",
+                color: P.textSecondary, cursor: "pointer",
               }}
             >
               <Columns3 size={13} />
@@ -648,13 +820,13 @@ export default function CompanyInboxPage() {
             onClick={() => void handleMarkAllRead()}
             disabled={inbox.unreadCount === 0}
             style={{
-              padding: "6px 14px",
-              fontSize: "13px",
-              fontWeight: 500,
-              borderRadius: 6,
-              border: "0.5px solid rgba(120,113,108,0.3)",
+              display: "inline-flex", alignItems: "center",
+              padding: "0 10px", height: 34,
+              fontSize: 13, fontWeight: 500,
+              borderRadius: radius.md,
+              border: `0.5px solid ${P.cardBorder}`,
               background: "transparent",
-              color: inbox.unreadCount > 0 ? "#d6d3d1" : "#57534e",
+              color: inbox.unreadCount > 0 ? P.text : "#57534e",
               cursor: inbox.unreadCount > 0 ? "pointer" : "default",
               opacity: inbox.unreadCount > 0 ? 1 : 0.5,
             }}
@@ -840,10 +1012,20 @@ function EventRow({
     }
   };
 
-  // Approval rows use a slightly different layout
+  // Approval rows — two-line Paperclip-style treatment
   if (isApproval) {
     const label = event.approvalLabel ?? event.message;
     const requester = event.requestedByName ?? event.agentName;
+
+    // Status badge colors
+    const statusBadge: Record<string, { color: string; bg: string; border: string }> = {
+      pending:             { color: "#fbbf24", bg: "rgba(251,191,36,0.10)", border: "rgba(251,191,36,0.30)" },
+      revision_requested:  { color: "#fbbf24", bg: "rgba(251,191,36,0.10)", border: "rgba(251,191,36,0.30)" },
+      approved:            { color: "#4ade80", bg: "rgba(74,222,128,0.10)", border: "rgba(74,222,128,0.30)" },
+      rejected:            { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)" },
+      cancelled:           { color: "#78716c", bg: "rgba(120,113,108,0.10)", border: "rgba(120,113,108,0.30)" },
+    };
+    const badge = statusBadge[approvalStatus] ?? statusBadge.pending;
 
     return (
       <div
@@ -853,18 +1035,17 @@ function EventRow({
       >
         <div
           style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "9px 4px", paddingRight: 30,
+            display: "flex", flexDirection: "column", gap: 2,
+            padding: "8px 4px 8px 20px", paddingRight: 30,
             borderBottom: "0.5px solid rgba(120,113,108,0.08)",
             transition: "background 100ms", cursor: "pointer",
             background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
           }}
           onClick={handleClick}
         >
-          {/* Left section */}
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0, overflow: "hidden" }}>
+          {/* Primary line: unread dot + icon + label + time */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
-            {/* Approval icon */}
             <div style={{ width: 20, height: 20, borderRadius: "50%", background: "rgba(120,113,108,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
               {approvalType === "approve_ceo_strategy" ? <Lightbulb size={11} color="#78716c" /> :
                approvalType === "budget_override_required" ? <ShieldAlert size={11} color="#78716c" /> :
@@ -878,49 +1059,43 @@ function EventRow({
             }}>
               {label}
             </span>
+            {showUpdated && (
+              <span style={{ fontSize: 11, color: "#57534e", whiteSpace: "nowrap", flexShrink: 0 }}>
+                {age} ago
+              </span>
+            )}
           </div>
 
-          {/* Right section */}
-          <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
-            {showAssignee && (
-              <span style={{ width: 100, fontSize: 11, color: "#78716c", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 8 }}>
-                {requester || ""}
+          {/* Secondary line: status badge + requester + time */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 34 }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "1px 7px", fontSize: 10, fontWeight: 600, borderRadius: 9999,
+              border: `0.5px solid ${badge.border}`, background: badge.bg, color: badge.color,
+              textTransform: "capitalize", whiteSpace: "nowrap", lineHeight: "16px",
+            }}>
+              {approvalStatus.replace(/_/g, " ")}
+            </span>
+            {requester && (
+              <span style={{ fontSize: 11, color: "#78716c" }}>
+                requested by {requester}
               </span>
             )}
-            {showProject && (
-              <span style={{ width: 160, display: "inline-flex", alignItems: "center", justifyContent: "flex-start", gap: 5, fontSize: 11, color: "#78716c", paddingLeft: 8, overflow: "hidden", whiteSpace: "nowrap" }}>
-                {event.projectName ? (
-                  <>
-                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: hashStringToColor(event.projectName), flexShrink: 0 }} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{event.projectName}</span>
-                  </>
-                ) : (
-                  <span style={{ color: "#57534e" }}>—</span>
-                )}
-              </span>
-            )}
+            <span style={{ fontSize: 11, color: "#57534e" }}>
+              updated {age} ago
+            </span>
             {showInlineActions && approvalId ? (
-              <div style={{ display: "flex", gap: 4, flexShrink: 0, paddingLeft: 8 }}>
+              <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
                 <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); void handleApprove(); }}
-                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.1)", color: "#4ade80", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                  style={{ padding: "2px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(34,197,94,0.4)", background: "rgba(34,197,94,0.1)", color: "#4ade80", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
                   Approve
                 </button>
                 <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); void handleReject(); }}
-                  style={{ padding: "3px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "#f87171", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
+                  style={{ padding: "2px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "#f87171", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}>
                   Reject
                 </button>
               </div>
             ) : null}
-            {showType && (
-              <span style={{ width: 80, fontSize: 11, color: "#78716c", textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, textTransform: "capitalize" }}>
-                {approvalStatus.replace(/_/g, " ")}
-              </span>
-            )}
-            {showUpdated && (
-              <span style={{ width: 90, fontSize: 11, color: "#57534e", textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8 }}>
-                {age} ago
-              </span>
-            )}
           </div>
         </div>
         {/* Archive button */}
@@ -937,6 +1112,112 @@ function EventRow({
   // Task / execution row
   const taskKey = event.taskKey ?? null;
 
+  // Resolve avatar: prefer dynamic from DB, fall back to static config
+  const agentConfig = event.agentName ? (getAgentByAnyId(event.agentName) ?? (event.agentId ? getAgentByAnyId(event.agentId) : undefined)) : undefined;
+  const avatarUrl = event.avatarUrl || agentConfig?.avatar;
+
+  // Failed execution two-line treatment (Paperclip-style, indented like approvals)
+  if (isFailed) {
+    const failBadge = { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)" };
+
+    const handleRetry = async () => {
+      if (!event.agentId || acting) return;
+      setActing(true);
+      await wakeupAgent(event.agentId, {
+        source: "on_demand",
+        reason: "retry_failed_run",
+        payload: { taskId: event.taskId, taskKey: event.taskKey },
+      });
+      onRefresh();
+      setActing(false);
+    };
+
+    const handleExit = async () => {
+      if (!event.taskId || acting) return;
+      setActing(true);
+      try { await cancelTaskExecution({ taskId: event.taskId, targetStatus: "on-deck" }); } catch {}
+      onRefresh();
+      setActing(false);
+    };
+
+    return (
+      <div
+        style={{ position: "relative" }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+      >
+        <Link
+          href={href}
+          onClick={() => { if (isUnread) void onMarkThreadRead(event); }}
+          style={{
+            display: "flex", flexDirection: "column", gap: 2,
+            padding: "8px 4px 8px 20px", paddingRight: 30,
+            borderBottom: "0.5px solid rgba(120,113,108,0.08)",
+            textDecoration: "none", transition: "background 100ms",
+            background: hovered ? "rgba(255,255,255,0.025)" : "transparent",
+          }}
+        >
+          {/* Primary line: unread dot + status + id + title + time */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 6, height: 6, borderRadius: "50%", background: isUnread ? "#3b82f6" : "transparent", flexShrink: 0 }} />
+            {visibleColumns.includes("status") && <StatusDot status={event.status} />}
+            {visibleColumns.includes("id") && taskKey ? (
+              <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>{taskKey}</span>
+            ) : null}
+            <span style={{
+              fontSize: 13, fontWeight: isUnread ? 500 : 400,
+              color: "#fca5a5",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
+            }}>
+              {event.taskTitle ?? event.message}
+            </span>
+          </div>
+
+          {/* Secondary line: fail badge + agent + time + actions */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14 }}>
+            <span style={{
+              display: "inline-flex", alignItems: "center",
+              padding: "1px 7px", fontSize: 10, fontWeight: 600, borderRadius: 9999,
+              border: `0.5px solid ${failBadge.border}`, background: failBadge.bg, color: failBadge.color,
+              whiteSpace: "nowrap", lineHeight: "16px",
+            }}>
+              {verb}
+            </span>
+            {event.agentName && (
+              <span style={{ fontSize: 11, color: "#78716c" }}>{event.agentName}</span>
+            )}
+            <span style={{ fontSize: 11, color: "#57534e" }}>{age} ago</span>
+
+            {/* Retry + Exit actions */}
+            <div style={{ display: "flex", gap: 4, marginLeft: "auto" }} onClick={(e) => e.preventDefault()}>
+              {event.agentId && (
+                <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); e.preventDefault(); void handleRetry(); }}
+                  style={{ padding: "2px 10px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: `0.5px solid ${P.cardBorder}`, background: "transparent", color: P.textSecondary, cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1, display: "inline-flex", alignItems: "center", gap: 4 }}>
+                  ↻ Retry
+                </button>
+              )}
+              {event.taskId && (
+                <button type="button" disabled={acting} onClick={(e) => { e.stopPropagation(); e.preventDefault(); void handleExit(); }}
+                  style={{ padding: "2px 8px", fontSize: 11, fontWeight: 500, borderRadius: 5, border: "0.5px solid rgba(120,113,108,0.25)", background: "transparent", color: "#78716c", cursor: acting ? "wait" : "pointer", opacity: acting ? 0.5 : 1 }}
+                  title="Stop retrying — return task to on-deck">
+                  ✕
+                </button>
+              )}
+            </div>
+          </div>
+        </Link>
+        {/* Archive button */}
+        <button type="button" onClick={(e) => { e.stopPropagation(); e.preventDefault(); onDismiss(event); }} title="Archive"
+          style={{ position: "absolute", right: 4, top: "50%", transform: "translateY(-50%)", width: 22, height: 22, display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 4, border: "none", background: hovered ? "rgba(120,113,108,0.15)" : "transparent", color: hovered ? "#78716c" : "transparent", cursor: "pointer", transition: "all 100ms", zIndex: 2 }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(120,113,108,0.3)"; e.currentTarget.style.color = "#d6d3d1"; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = hovered ? "rgba(120,113,108,0.15)" : "transparent"; e.currentTarget.style.color = hovered ? "#78716c" : "transparent"; }}>
+          <Archive size={12} />
+        </button>
+      </div>
+    );
+  }
+
+  // Normal task / execution row
   return (
     <div
       style={{ position: "relative" }}
@@ -962,7 +1243,7 @@ function EventRow({
             <span style={{ fontSize: 12, color: "#78716c", flexShrink: 0, fontFamily: "var(--font-mono, monospace)" }}>{taskKey}</span>
           ) : null}
           <span style={{
-            fontSize: 13, color: isFailed ? "#fca5a5" : isUnread ? "#f5f5f4" : "#d6d3d1",
+            fontSize: 13, color: isUnread ? "#f5f5f4" : "#d6d3d1",
             fontWeight: isUnread ? 500 : 400,
             overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0,
           }}>
@@ -973,8 +1254,38 @@ function EventRow({
         {/* Right section */}
         <div style={{ display: "flex", alignItems: "center", gap: 0, flexShrink: 0 }}>
           {showAssignee && (
-            <span style={{ width: 100, fontSize: 11, color: "#78716c", textAlign: "left", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingLeft: 8 }}>
-              {event.agentName || ""}
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 6, width: 120, flexShrink: 0, paddingLeft: 8 }}>
+              {event.agentName ? (
+                <>
+                  {avatarUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={avatarUrl} alt={event.agentName} style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                  ) : (
+                    <span style={{
+                      width: 20, height: 20, borderRadius: "50%",
+                      background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`,
+                      display: "inline-flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0,
+                    }}>
+                      {event.agentName.slice(0, 1).toUpperCase()}
+                    </span>
+                  )}
+                  <span style={{ fontSize: 12, color: P.textSecondary, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {event.agentName}
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span style={{
+                    width: 20, height: 20, borderRadius: "50%",
+                    display: "inline-flex", alignItems: "center", justifyContent: "center",
+                    border: `1px dashed ${P.cardBorder}`, color: P.textMuted, flexShrink: 0,
+                  }}>
+                    <User size={11} />
+                  </span>
+                  <span style={{ fontSize: 12, color: P.textMuted }}>Assignee</span>
+                </>
+              )}
             </span>
           )}
           {showProject && (
@@ -991,14 +1302,14 @@ function EventRow({
           )}
           {showType && (
             <span style={{
-              width: 80, fontSize: 11, color: isFailed ? "#f87171" : "#78716c",
+              width: 80, fontSize: 11, color: "#78716c",
               textAlign: "left", whiteSpace: "nowrap", paddingLeft: 8, textTransform: "capitalize",
             }}>
               {verb}
             </span>
           )}
           {showUpdated && (
-            <span style={{ width: 90, fontSize: 11, color: isFailed ? "#f87171" : "#57534e", textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8 }}>
+            <span style={{ width: 90, fontSize: 11, color: "#57534e", textAlign: "right", whiteSpace: "nowrap", paddingLeft: 8 }}>
               {age} ago
             </span>
           )}
