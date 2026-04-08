@@ -210,19 +210,7 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
     <div style={{ padding: "16px 20px", color: P.text, fontSize: 13, background: P.page, minHeight: "100%" }}>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "flex-end", justifyContent: "space-between", gap: 16, marginBottom: 18 }}>
         <div>
-          <p
-            style={{
-              margin: 0,
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: "0.16em",
-              textTransform: "uppercase",
-              color: P.ghost,
-            }}
-          >
-            Approvals
-          </p>
-          <h1 style={{ margin: "8px 0 4px", fontSize: 26, fontWeight: 600, letterSpacing: "-0.02em", color: P.text }}>
+          <h1 style={{ margin: "0 0 4px", fontSize: 22, fontWeight: 600, letterSpacing: "-0.02em", color: P.text }}>
             {queueTitle}
           </h1>
           <p style={{ margin: 0, color: P.muted, maxWidth: 620 }}>{queueDescription}</p>

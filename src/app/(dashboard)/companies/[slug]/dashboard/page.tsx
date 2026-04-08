@@ -432,8 +432,7 @@ export default function CompanyDashboardPage() {
     <div className="min-h-screen">
       <div className="mx-auto max-w-[1200px] px-4 py-5 md:px-6">
         {/* ── page heading ── */}
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-sm font-semibold uppercase tracking-[0.2em] text-stone-500">Dashboard</h1>
+        <div className="mb-4 flex items-center justify-between">
           <button
             type="button"
             onClick={() => setRefreshNonce((n) => n + 1)}

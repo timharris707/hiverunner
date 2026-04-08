@@ -125,14 +125,7 @@ export default function CompanyGoalsPage() {
 
   return (
     <div style={{ padding: "16px 20px", color: P.text, fontSize: 13 }}>
-      {/* Header */}
-      <h1 style={{
-        margin: "0 0 12px", fontSize: 13, fontWeight: 700,
-        letterSpacing: "0.12em", textTransform: "uppercase",
-        color: P.textSec, fontFamily: "var(--font-heading)",
-      }}>
-        Goals
-      </h1>
+      <div style={{ height: 4 }} />
 
       {/* New Goal button */}
       <button

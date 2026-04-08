@@ -55,6 +55,9 @@ const LABEL_MAP: Record<string, string> = {
 /** Segments that are structural routing and should be hidden from breadcrumbs. */
 const HIDDEN_SEGMENTS = new Set(["companies"]);
 
+/** Operations pages — these should show "Operations > Page" in the breadcrumb. */
+const OPERATIONS_PAGES = new Set(["tasks", "issues", "dashboard", "inbox", "approvals", "routines", "goals"]);
+
 /** Check if a segment looks like a short company code (e.g. NEV, TIM). */
 function isCompanyCode(seg: string): boolean {
   return /^[A-Z]{2,5}$/.test(seg);
@@ -74,10 +77,19 @@ export function PageBreadcrumbs() {
 
   // Build crumbs, skipping structural/noise segments
   const crumbs: { label: string; href: string; isLast: boolean }[] = [];
+  let operationsInserted = false;
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i];
     // Skip hidden structural segments and company codes
     if (HIDDEN_SEGMENTS.has(seg) || isCompanyCode(seg)) continue;
+
+    // Insert "Operations" parent crumb only when the Operations page is a top-level
+    // company route (the first meaningful segment after the company code), NOT when
+    // it appears nested under projects/ or agents/.
+    if (!operationsInserted && OPERATIONS_PAGES.has(seg) && crumbs.length === 0) {
+      operationsInserted = true;
+      crumbs.push({ label: "Operations", href: "", isLast: false });
+    }
 
     const label = LABEL_MAP[seg] ?? slugToLabel(seg);
     const href = "/" + segments.slice(0, i + 1).join("/");
@@ -98,7 +110,7 @@ export function PageBreadcrumbs() {
             <span style={{ color: "var(--text-secondary)", fontWeight: 500 }}>
               {crumb.label}
             </span>
-          ) : (
+          ) : crumb.href ? (
             <Link
               href={crumb.href}
               className="transition-opacity hover:opacity-80"
@@ -106,6 +118,10 @@ export function PageBreadcrumbs() {
             >
               {crumb.label}
             </Link>
+          ) : (
+            <span style={{ color: "var(--text-muted)" }}>
+              {crumb.label}
+            </span>
           )}
         </span>
       ))}

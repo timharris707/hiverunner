@@ -198,11 +198,8 @@ export default function CompanyRoutinesPage() {
 
   return (
     <div style={{ padding: "24px 32px" }}>
-      {/* ── Page header — matches Paperclip: eyebrow → title row → subtitle ── */}
+      {/* ── Page header ── */}
       <div style={{ marginBottom: "24px" }}>
-        <p style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.18em", fontWeight: 600, color: "#78716c", marginBottom: "6px" }}>
-          Routines
-        </p>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
           <div>
             <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.01em", color: "#f5f5f4", display: "flex", alignItems: "center", gap: "10px" }}>
