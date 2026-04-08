@@ -51,7 +51,9 @@ const STATUS_TONE: Record<string, { color: string; bg: string; label: string }> 
   completed: { color: "#4ade80", bg: "rgba(74,222,128,0.14)",  label: "Succeeded" },
   succeeded: { color: "#4ade80", bg: "rgba(74,222,128,0.14)",  label: "Succeeded" },
   failed:    { color: "#f87171", bg: "rgba(248,113,113,0.14)", label: "Failed" },
-  cancelled: { color: "#78716c", bg: "rgba(120,113,108,0.14)", label: "Cancelled" },
+  cancelled:  { color: "#78716c", bg: "rgba(120,113,108,0.14)", label: "Cancelled" },
+  timed_out:  { color: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "Timed Out" },
+  queued:     { color: "#a8a6a0", bg: "rgba(168,166,160,0.14)", label: "Queued" },
 };
 
 const TRIGGER_TONE: Record<string, { color: string; bg: string }> = {

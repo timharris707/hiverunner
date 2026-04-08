@@ -790,61 +790,104 @@ export function getCompanyAgentProfile(input: {
     project_name: string;
   }>;
 
+  // UNION execution_runs + heartbeat_runs to show the full run history.
+  // execution_runs are created by the orchestration bridge (Paperclip/Codex/Anthropic).
+  // heartbeat_runs are created by the OpenClaw heartbeat engine and represent
+  // the actual agent activity cycles. Without this union, agents using the
+  // heartbeat engine (adapter_type=openclaw) show only sparse/stale entries.
   const executionHistory = db
     .prepare(
-      `SELECT
-        er.id,
-        er.task_id,
-        er.provider,
-        er.status,
-        er.session_id,
-        er.started_at,
-        er.completed_at,
-        er.created_at,
-        er.duration_ms,
-        er.error_message,
-        er.token_usage_json,
-        t.title AS task_title,
-        t.task_key,
-        p.id AS project_id,
-        p.slug AS project_slug,
-        p.name AS project_name,
-        hb.invocation_source AS hb_invocation_source,
-        wr.source AS wr_source,
-        wr.reason AS wr_reason
-      FROM execution_runs er
-      INNER JOIN tasks t ON t.id = er.task_id
-      INNER JOIN projects p ON p.id = t.project_id
-      LEFT JOIN heartbeat_runs hb ON hb.session_id_after = er.session_id
-        AND hb.agent_id = er.agent_id
-      LEFT JOIN agent_wakeup_requests wr ON wr.id = hb.wakeup_request_id
-      WHERE er.agent_id = ?
-        AND p.company_id = ?
-        AND p.archived_at IS NULL
-        AND t.archived_at IS NULL
-      ORDER BY COALESCE(er.started_at, er.created_at) DESC, er.created_at DESC
+      `SELECT * FROM (
+        /* execution_runs — bridge-created runs (Paperclip, Codex, Anthropic) */
+        SELECT
+          er.id,
+          er.task_id,
+          er.provider,
+          CASE WHEN er.status = 'completed' THEN 'succeeded' ELSE er.status END AS status,
+          er.session_id,
+          er.started_at,
+          er.completed_at AS finished_at,
+          er.created_at,
+          er.duration_ms,
+          er.error_message,
+          er.token_usage_json,
+          t.title AS task_title,
+          t.task_key,
+          p.id AS project_id,
+          p.slug AS project_slug,
+          p.name AS project_name,
+          hb_link.invocation_source AS hb_invocation_source,
+          wr_link.source AS wr_source,
+          wr_link.reason AS wr_reason,
+          'execution_run' AS run_source
+        FROM execution_runs er
+        INNER JOIN tasks t ON t.id = er.task_id
+        INNER JOIN projects p ON p.id = t.project_id
+        LEFT JOIN heartbeat_runs hb_link ON hb_link.session_id_after = er.session_id
+          AND hb_link.agent_id = er.agent_id
+        LEFT JOIN agent_wakeup_requests wr_link ON wr_link.id = hb_link.wakeup_request_id
+        WHERE er.agent_id = ?
+          AND p.company_id = ?
+          AND p.archived_at IS NULL
+          AND t.archived_at IS NULL
+
+        UNION ALL
+
+        /* heartbeat_runs — engine-level activity cycles (OpenClaw heartbeat) */
+        SELECT
+          hb.id,
+          NULL AS task_id,
+          'openclaw' AS provider,
+          hb.status,
+          hb.session_id_after AS session_id,
+          hb.started_at,
+          hb.finished_at,
+          hb.created_at,
+          CASE
+            WHEN hb.started_at IS NOT NULL AND hb.finished_at IS NOT NULL
+            THEN CAST((julianday(hb.finished_at) - julianday(hb.started_at)) * 86400000 AS INTEGER)
+            ELSE NULL
+          END AS duration_ms,
+          hb.error AS error_message,
+          hb.usage_json AS token_usage_json,
+          NULL AS task_title,
+          NULL AS task_key,
+          NULL AS project_id,
+          NULL AS project_slug,
+          NULL AS project_name,
+          hb.invocation_source AS hb_invocation_source,
+          wr.source AS wr_source,
+          wr.reason AS wr_reason,
+          'heartbeat_run' AS run_source
+        FROM heartbeat_runs hb
+        LEFT JOIN agent_wakeup_requests wr ON wr.id = hb.wakeup_request_id
+        WHERE hb.agent_id = ?
+          AND hb.company_id = ?
+      )
+      ORDER BY COALESCE(started_at, created_at) DESC, created_at DESC
       LIMIT ?`
     )
-    .all(agentRow.id, companyRow.id, executionLimit) as Array<{
+    .all(agentRow.id, companyRow.id, agentRow.id, companyRow.id, executionLimit) as Array<{
     id: string;
-    task_id: string;
-    provider: "openclaw" | "paperclip";
-    status: "pending" | "running" | "completed" | "failed" | "cancelled";
+    task_id: string | null;
+    provider: string;
+    status: string;
     session_id: string | null;
     started_at: string | null;
-    completed_at: string | null;
+    finished_at: string | null;
     created_at: string;
     duration_ms: number | null;
     error_message: string | null;
     token_usage_json: string | null;
-    task_title: string;
+    task_title: string | null;
     task_key: string | null;
-    project_id: string;
-    project_slug: string;
-    project_name: string;
+    project_id: string | null;
+    project_slug: string | null;
+    project_name: string | null;
     hb_invocation_source: string | null;
     wr_source: string | null;
     wr_reason: string | null;
+    run_source: "execution_run" | "heartbeat_run";
   }>;
 
   const recentComments = db
@@ -976,17 +1019,17 @@ export function getCompanyAgentProfile(input: {
 
     return {
       id: row.id,
-      taskId: row.task_id,
-      taskTitle: row.task_title,
+      taskId: row.task_id ?? "",
+      taskTitle: row.task_title ?? (row.run_source === "heartbeat_run" ? "Heartbeat cycle" : "Untitled Task"),
       taskKey: row.task_key ?? undefined,
-      projectId: row.project_id,
-      projectSlug: row.project_slug,
-      projectName: row.project_name,
+      projectId: row.project_id ?? "",
+      projectSlug: row.project_slug ?? "",
+      projectName: row.project_name ?? "",
       provider: row.provider,
       status: row.status,
       sessionId: row.session_id ?? undefined,
       startedAt: row.started_at ?? undefined,
-      completedAt: row.completed_at ?? undefined,
+      completedAt: row.finished_at ?? undefined,
       createdAt: row.created_at,
       durationMs: row.duration_ms ?? undefined,
       errorMessage: row.error_message ?? undefined,
