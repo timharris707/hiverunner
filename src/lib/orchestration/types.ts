@@ -162,6 +162,10 @@ export interface OrchestrationCompanyInboxEvent {
   approvalStatus?: ApprovalStatus;
   approvalLabel?: string;
   requestedByName?: string;
+  /** Error message for failed executions */
+  errorMessage?: string;
+  /** Failure reason for failed/cancelled executions */
+  failureReason?: string;
 }
 
 export interface OrchestrationCompanyGoal {

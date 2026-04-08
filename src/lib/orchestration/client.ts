@@ -298,6 +298,8 @@ function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxE
     approvalStatus: raw.approvalStatus ? String(raw.approvalStatus) as OrchestrationCompanyInboxEvent["approvalStatus"] : undefined,
     approvalLabel: raw.approvalLabel ? String(raw.approvalLabel) : undefined,
     requestedByName: raw.requestedByName ? String(raw.requestedByName) : undefined,
+    errorMessage: raw.errorMessage ? String(raw.errorMessage) : undefined,
+    failureReason: raw.failureReason ? String(raw.failureReason) : undefined,
   };
   return event;
 }

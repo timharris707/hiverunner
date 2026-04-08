@@ -1,10 +1,10 @@
 import type { TaskPriority, TaskStatus, TaskType } from "@/lib/orchestration/types";
 
-export const priorityTheme: Record<TaskPriority, { label: string; color: string; bg: string }> = {
-  P0: { label: "P0", color: "#ff5f57", bg: "rgba(255,95,87,0.16)" },
-  P1: { label: "P1", color: "#ffbd2e", bg: "rgba(255,189,46,0.16)" },
-  P2: { label: "P2", color: "#f59e0b", bg: "rgba(245,158,11,0.16)" },
-  P3: { label: "P3", color: "#cbd5e1", bg: "rgba(148,163,184,0.14)" },
+export const priorityTheme: Record<TaskPriority, { label: string; shortLabel: string; color: string; bg: string; icon: string }> = {
+  P0: { label: "Critical", shortLabel: "P0", color: "#ff5f57", bg: "rgba(255,95,87,0.16)", icon: "\u26a0" },
+  P1: { label: "High", shortLabel: "P1", color: "#ffbd2e", bg: "rgba(255,189,46,0.16)", icon: "\u2191" },
+  P2: { label: "Medium", shortLabel: "P2", color: "#f59e0b", bg: "rgba(245,158,11,0.16)", icon: "\u2014" },
+  P3: { label: "Low", shortLabel: "P3", color: "#cbd5e1", bg: "rgba(148,163,184,0.14)", icon: "\u2193" },
 };
 
 export const statusTheme: Record<TaskStatus, { label: string; glow: string }> = {

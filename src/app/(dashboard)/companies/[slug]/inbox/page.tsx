@@ -527,6 +527,23 @@ export default function CompanyInboxPage() {
     return { todayEvents: today, earlierEvents: earlier };
   }, [filteredEvents]);
 
+  /* ---- Grouped event sections (for Group control) ---- */
+  const groupedSections = useMemo(() => {
+    if (groupBy === "none") return null;
+    const groups = new Map<string, OrchestrationCompanyInboxEvent[]>();
+    for (const event of filteredEvents) {
+      const key = groupBy === "kind"
+        ? (event.kind ?? "task")
+        : (event.projectName ?? "No project");
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(event);
+    }
+    return Array.from(groups.entries()).map(([label, items]) => ({
+      label: groupBy === "kind" ? (label.charAt(0).toUpperCase() + label.slice(1) + "s") : label,
+      items,
+    }));
+  }, [filteredEvents, groupBy]);
+
   /* ---- Render guards ---- */
   if (!loading && !company) {
     return (
@@ -637,7 +654,7 @@ export default function CompanyInboxPage() {
               background: filterOpen ? "rgba(255,255,255,0.05)" : "transparent",
               color: kindFilter !== "all" ? P.text : P.textSecondary, cursor: "pointer",
             }}>
-              <Filter size={14} />
+              <Filter size={13} />
               Filters{kindFilter !== "all" ? " (1)" : ""}
             </button>
             {filterOpen && (
@@ -672,7 +689,7 @@ export default function CompanyInboxPage() {
               background: sortOpen ? "rgba(255,255,255,0.05)" : "transparent",
               color: sortDir !== "newest" ? P.text : P.textSecondary, cursor: "pointer",
             }}>
-              <ArrowUpDown size={14} />
+              <ArrowUpDown size={13} />
               Sort
             </button>
             {sortOpen && (
@@ -706,7 +723,7 @@ export default function CompanyInboxPage() {
               background: groupOpen ? "rgba(255,255,255,0.05)" : "transparent",
               color: groupBy !== "none" ? P.text : P.textSecondary, cursor: "pointer",
             }}>
-              <Layers size={14} />
+              <Layers size={13} />
               Group
             </button>
             {groupOpen && (
@@ -887,38 +904,64 @@ export default function CompanyInboxPage() {
       {/* Event list — each event is one thread (server de-duplicated) */}
       {!loading && filteredEvents.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", marginTop: 4 }}>
-          {/* Today section */}
-          {todayEvents.map((event) => (
-            <EventRow
-              key={event.id}
-              event={event}
-              company={company}
-              slug={slug}
-              onMarkThreadRead={handleMarkThreadRead}
-              onRefresh={load}
-              onDismiss={handleDismiss}
-              visibleColumns={visibleColumns}
-            />
-          ))}
+          {groupedSections ? (
+            /* Grouped rendering */
+            groupedSections.map((section) => (
+              <div key={section.label}>
+                <div style={{ padding: "8px 4px 4px", display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: P.textSecondary, textTransform: "uppercase", letterSpacing: "0.02em" }}>
+                    {section.label}
+                  </span>
+                  <span style={{ fontSize: 11, color: P.textMuted }}>({section.items.length})</span>
+                </div>
+                {section.items.map((event) => (
+                  <EventRow
+                    key={event.id}
+                    event={event}
+                    company={company}
+                    slug={slug}
+                    onMarkThreadRead={handleMarkThreadRead}
+                    onRefresh={load}
+                    onDismiss={handleDismiss}
+                    visibleColumns={visibleColumns}
+                  />
+                ))}
+              </div>
+            ))
+          ) : (
+            /* Time-based rendering (default) */
+            <>
+              {todayEvents.map((event) => (
+                <EventRow
+                  key={event.id}
+                  event={event}
+                  company={company}
+                  slug={slug}
+                  onMarkThreadRead={handleMarkThreadRead}
+                  onRefresh={load}
+                  onDismiss={handleDismiss}
+                  visibleColumns={visibleColumns}
+                />
+              ))}
 
-          {/* Earlier divider */}
-          {earlierEvents.length > 0 && todayEvents.length > 0 && (
-            <TimeDivider label="Earlier" />
+              {earlierEvents.length > 0 && todayEvents.length > 0 && (
+                <TimeDivider label="Earlier" />
+              )}
+
+              {earlierEvents.map((event) => (
+                <EventRow
+                  key={event.id}
+                  event={event}
+                  company={company}
+                  slug={slug}
+                  onMarkThreadRead={handleMarkThreadRead}
+                  onRefresh={load}
+                  onDismiss={handleDismiss}
+                  visibleColumns={visibleColumns}
+                />
+              ))}
+            </>
           )}
-
-          {/* Earlier section */}
-          {earlierEvents.map((event) => (
-            <EventRow
-              key={event.id}
-              event={event}
-              company={company}
-              slug={slug}
-              onMarkThreadRead={handleMarkThreadRead}
-              onRefresh={load}
-              onDismiss={handleDismiss}
-              visibleColumns={visibleColumns}
-            />
-          ))}
 
           {/* Load more */}
           {inbox.hasMore && (
@@ -1119,6 +1162,7 @@ function EventRow({
   // Failed execution two-line treatment (Paperclip-style, indented like approvals)
   if (isFailed) {
     const failBadge = { color: "#f87171", bg: "rgba(248,113,113,0.10)", border: "rgba(248,113,113,0.30)" };
+    const isTimedOut = event.eventType === "execution.cancelled";
 
     const handleRetry = async () => {
       if (!event.agentId || acting) return;
@@ -1139,6 +1183,9 @@ function EventRow({
       onRefresh();
       setActing(false);
     };
+
+    // Error detail from event metadata
+    const errorDetail = event.errorMessage || event.failureReason || (isTimedOut ? "Execution timed out" : null);
 
     return (
       <div
@@ -1173,7 +1220,7 @@ function EventRow({
             </span>
           </div>
 
-          {/* Secondary line: fail badge + agent + time + actions */}
+          {/* Secondary line: fail badge + avatar + agent + error detail + time + actions */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 14 }}>
             <span style={{
               display: "inline-flex", alignItems: "center",
@@ -1184,7 +1231,21 @@ function EventRow({
               {verb}
             </span>
             {event.agentName && (
-              <span style={{ fontSize: 11, color: "#78716c" }}>{event.agentName}</span>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={event.agentName} style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                ) : (
+                  <span style={{ width: 16, height: 16, borderRadius: "50%", background: "rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
+                    {event.agentName.slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span style={{ fontSize: 11, color: "#a8a29e" }}>{event.agentName}</span>
+              </span>
+            )}
+            {errorDetail && (
+              <span style={{ fontSize: 11, color: "#78716c", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 200 }} title={errorDetail}>
+                — {errorDetail}
+              </span>
             )}
             <span style={{ fontSize: 11, color: "#57534e" }}>{age} ago</span>
 

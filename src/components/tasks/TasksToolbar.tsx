@@ -6,7 +6,8 @@ import { FilterPills } from "./FilterPills";
 import { type TaskFilters, type TaskSort, type ViewMode, type GroupMode, type SortField, type SortDir } from "./types";
 import { STATUS_ORDER, STATUS_LABEL, TASK_TYPES, TYPE_LABEL } from "./types";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
-import { STATUS_META } from "@/components/orchestration/task-display";
+import { STATUS_META, PRIORITY_META } from "@/components/orchestration/task-display";
+import { getAgentByAnyId } from "@/config/agents";
 import { P, radius } from "@/lib/ui/tokens";
 
 interface Props {
@@ -223,23 +224,44 @@ export function TasksToolbar({
               <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Priority
               </div>
-              {(["P0", "P1", "P2", "P3"] as const).map((p) => (
-                <CheckOption
-                  key={p}
-                  label={{ P0: "Critical", P1: "High", P2: "Medium", P3: "Low" }[p]}
-                  checked={filters.priority === p}
-                  onChange={() => togglePriorityFilter(p)}
-                />
-              ))}
+              {(["P0", "P1", "P2", "P3"] as const).map((p) => {
+                const meta = PRIORITY_META[p];
+                return (
+                  <label key={p} style={{
+                    display: "flex", alignItems: "center", gap: "8px", padding: "4px 6px",
+                    borderRadius: radius.sm, cursor: "pointer", fontSize: "12px", color: P.textSecondary,
+                  }}>
+                    <input type="checkbox" checked={filters.priority === p} onChange={() => togglePriorityFilter(p)} style={{ accentColor: meta.color }} />
+                    <span style={{ color: meta.color, fontSize: 13, flexShrink: 0, width: 14, textAlign: "center" }}>{meta.icon}</span>
+                    {meta.label}
+                  </label>
+                );
+              })}
             </div>
             <div>
               <div style={{ fontSize: "10px", fontWeight: 600, color: P.textMuted, padding: "4px 6px", textTransform: "uppercase", letterSpacing: "0.08em" }}>
                 Assignee
               </div>
               <CheckOption label="Unassigned" checked={filters.assignee === ""} onChange={() => toggleAssigneeFilter("")} />
-              {agents.map((a) => (
-                <CheckOption key={a.id} label={a.name} checked={filters.assignee === a.name} onChange={() => toggleAssigneeFilter(a.name)} />
-              ))}
+              {agents.map((a) => {
+                const cfg = getAgentByAnyId(a.id) ?? getAgentByAnyId(a.name);
+                return (
+                  <label key={a.id} style={{
+                    display: "flex", alignItems: "center", gap: "8px", padding: "4px 6px",
+                    borderRadius: radius.sm, cursor: "pointer", fontSize: "12px", color: P.textSecondary,
+                  }}>
+                    <input type="checkbox" checked={filters.assignee === a.name} onChange={() => toggleAssigneeFilter(a.name)} />
+                    {cfg?.avatar ? (
+                      <img src={cfg.avatar} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                    ) : (
+                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: `1px solid rgba(120,113,108,0.25)`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
+                        {a.name?.slice(0, 1).toUpperCase()}
+                      </span>
+                    )}
+                    {a.name}
+                  </label>
+                );
+              })}
             </div>
           </Popover>
 

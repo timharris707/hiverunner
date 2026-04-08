@@ -285,7 +285,7 @@ function buildInboxFeedCte(
         'approvalType', ap.type,
         'approvalStatus', ap.status,
         'approvalLabel', CASE ap.type
-          WHEN 'hire_agent' THEN 'Hire Agent: ' || COALESCE(json_extract(ap.payload_json, '$.agentName'), 'Unknown')
+          WHEN 'hire_agent' THEN 'Hire Agent: ' || COALESCE(json_extract(ap.payload_json, '$.name'), json_extract(ap.payload_json, '$.agentName'), 'Unknown')
           WHEN 'approve_ceo_strategy' THEN COALESCE(json_extract(ap.payload_json, '$.title'), 'CEO Strategy Approval')
           WHEN 'budget_override_required' THEN 'Budget Override: ' || COALESCE(json_extract(ap.payload_json, '$.scopeName'), 'Required')
           ELSE ap.type
@@ -1059,6 +1059,10 @@ export function listCompanyInbox(input: {
       event.approvalStatus = typeof metadata.approvalStatus === "string" ? metadata.approvalStatus as OrchestrationCompanyInboxEvent["approvalStatus"] : undefined;
       event.approvalLabel = typeof metadata.approvalLabel === "string" ? metadata.approvalLabel : undefined;
       event.requestedByName = typeof metadata.requestedByName === "string" ? metadata.requestedByName : undefined;
+    }
+
+    if (row.event_kind === "execution") {
+      event.errorMessage = typeof metadata.errorMessage === "string" ? metadata.errorMessage : undefined;
     }
 
     return event;

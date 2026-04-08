@@ -19,6 +19,7 @@ import {
 
 import { statusTheme, priorityTheme } from "@/components/orchestration/ui";
 import { STATUS_META } from "@/components/orchestration/task-display";
+import { getAgentByAnyId } from "@/config/agents";
 import {
   listCompanies,
   listCompanyAgents,
@@ -723,7 +724,7 @@ export default function ProjectTasksPage({
       }
       return PRIORITY_ORDER.filter((p) => groups[p]?.length).map((p) => ({
         key: p,
-        label: p,
+        label: priorityTheme[p].label,
         items: groups[p]!,
       }));
     }
@@ -932,7 +933,8 @@ export default function ProjectTasksPage({
                             checked={view.priorities.includes(p)}
                             onChange={() => updateView({ priorities: toggleIn(view.priorities, p) })}
                           />
-                          <span style={{ fontFamily: font.mono, color: priorityTheme[p].color, fontWeight: 600 }}>{p}</span>
+                          <span style={{ color: priorityTheme[p].color, fontSize: 13, flexShrink: 0 }}>{priorityTheme[p].icon}</span>
+                          <span style={{ color: P.textSecondary }}>{priorityTheme[p].label}</span>
                         </label>
                       ))}
                     </div>
@@ -948,7 +950,9 @@ export default function ProjectTasksPage({
                         />
                         <span>Unassigned</span>
                       </label>
-                      {agents.map((a) => (
+                      {agents.map((a) => {
+                        const cfg = getAgentByAnyId(a.id);
+                        return (
                         <label
                           key={a.id}
                           style={{ display: "flex", alignItems: "center", gap: 8, fontSize: tokenType.bodySmall.size, color: P.textSecondary, cursor: "pointer" }}
@@ -957,9 +961,17 @@ export default function ProjectTasksPage({
                             checked={view.assignees.includes(a.id)}
                             onChange={() => updateView({ assignees: toggleIn(view.assignees, a.id) })}
                           />
+                          {cfg?.avatar ? (
+                            <img src={cfg.avatar} alt={a.name} style={{ width: 18, height: 18, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                          ) : (
+                            <span style={{ width: 18, height: 18, borderRadius: "50%", background: "rgba(255,255,255,0.06)", border: `1px solid ${P.cardBorder}`, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 9, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
+                              {a.name?.slice(0, 1).toUpperCase()}
+                            </span>
+                          )}
                           <span>{a.name}</span>
                         </label>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
