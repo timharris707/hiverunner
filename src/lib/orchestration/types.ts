@@ -245,6 +245,12 @@ export interface OrchestrationAgentExecutionRun {
   outputTokens?: number;
   cacheReadTokens?: number;
   totalCostUsd?: number;
+  /** Task key (e.g. NEV-34) */
+  taskKey?: string;
+  /** Trigger type: Timer, Assignment, Automation, Kickoff, API */
+  triggerType?: string;
+  /** Human-readable trigger reason */
+  triggerReason?: string;
 }
 
 export interface OrchestrationAgentProfile {

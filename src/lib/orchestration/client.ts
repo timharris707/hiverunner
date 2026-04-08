@@ -975,6 +975,9 @@ export async function getCompanyAgentProfile(
     outputTokens: typeof raw.outputTokens === "number" ? raw.outputTokens : undefined,
     cacheReadTokens: typeof raw.cacheReadTokens === "number" ? raw.cacheReadTokens : undefined,
     totalCostUsd: typeof raw.totalCostUsd === "number" ? raw.totalCostUsd : undefined,
+    taskKey: raw.taskKey ? String(raw.taskKey) : undefined,
+    triggerType: raw.triggerType ? String(raw.triggerType) : undefined,
+    triggerReason: raw.triggerReason ? String(raw.triggerReason) : undefined,
   });
 
   return {
@@ -1079,6 +1082,9 @@ export async function getAgentProfileById(
     outputTokens: typeof raw.outputTokens === "number" ? raw.outputTokens : undefined,
     cacheReadTokens: typeof raw.cacheReadTokens === "number" ? raw.cacheReadTokens : undefined,
     totalCostUsd: typeof raw.totalCostUsd === "number" ? raw.totalCostUsd : undefined,
+    taskKey: raw.taskKey ? String(raw.taskKey) : undefined,
+    triggerType: raw.triggerType ? String(raw.triggerType) : undefined,
+    triggerReason: raw.triggerReason ? String(raw.triggerReason) : undefined,
   });
 
   return {

@@ -805,12 +805,19 @@ export function getCompanyAgentProfile(input: {
         er.error_message,
         er.token_usage_json,
         t.title AS task_title,
+        t.task_key,
         p.id AS project_id,
         p.slug AS project_slug,
-        p.name AS project_name
+        p.name AS project_name,
+        hb.invocation_source AS hb_invocation_source,
+        wr.source AS wr_source,
+        wr.reason AS wr_reason
       FROM execution_runs er
       INNER JOIN tasks t ON t.id = er.task_id
       INNER JOIN projects p ON p.id = t.project_id
+      LEFT JOIN heartbeat_runs hb ON hb.session_id_after = er.session_id
+        AND hb.agent_id = er.agent_id
+      LEFT JOIN agent_wakeup_requests wr ON wr.id = hb.wakeup_request_id
       WHERE er.agent_id = ?
         AND p.company_id = ?
         AND p.archived_at IS NULL
@@ -831,9 +838,13 @@ export function getCompanyAgentProfile(input: {
     error_message: string | null;
     token_usage_json: string | null;
     task_title: string;
+    task_key: string | null;
     project_id: string;
     project_slug: string;
     project_name: string;
+    hb_invocation_source: string | null;
+    wr_source: string | null;
+    wr_reason: string | null;
   }>;
 
   const recentComments = db
@@ -953,10 +964,21 @@ export function getCompanyAgentProfile(input: {
         totalCostUsd = typeof usage.totalCostUsd === "number" ? usage.totalCostUsd : undefined;
       } catch { /* ignore malformed JSON */ }
     }
+    // Derive trigger type from heartbeat invocation_source or wakeup_request source
+    const triggerSource = row.hb_invocation_source ?? row.wr_source ?? undefined;
+    let triggerType: string | undefined;
+    if (triggerSource === "timer") triggerType = "Timer";
+    else if (triggerSource === "issue_assigned") triggerType = "Assignment";
+    else if (triggerSource === "routine") triggerType = "Automation";
+    else if (triggerSource === "wakeup_request" || triggerSource === "on_demand" || triggerSource === "explicit") triggerType = "Automation";
+    else if (triggerSource === "kickoff") triggerType = "Kickoff";
+    else if (triggerSource === "api") triggerType = "API";
+
     return {
       id: row.id,
       taskId: row.task_id,
       taskTitle: row.task_title,
+      taskKey: row.task_key ?? undefined,
       projectId: row.project_id,
       projectSlug: row.project_slug,
       projectName: row.project_name,
@@ -972,6 +994,8 @@ export function getCompanyAgentProfile(input: {
       outputTokens,
       cacheReadTokens,
       totalCostUsd,
+      triggerType,
+      triggerReason: row.wr_reason ?? undefined,
     };
   });
 
