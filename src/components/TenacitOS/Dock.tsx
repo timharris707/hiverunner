@@ -884,9 +884,10 @@ export function Dock() {
 
     void loadProjects("initial");
 
+    const DOCK_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
     const interval = window.setInterval(() => {
       void loadProjects("poll");
-    }, 30_000);
+    }, DOCK_POLL_MS);
 
     return () => {
       cancelled = true;
@@ -910,9 +911,10 @@ export function Dock() {
     };
 
     void loadInboxCount();
+    const INBOX_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
     const interval = window.setInterval(() => {
       void loadInboxCount();
-    }, 30_000);
+    }, INBOX_POLL_MS);
 
     // Listen for immediate unread-count updates from the inbox page
     const handleUnreadChange = (e: Event) => {
@@ -952,9 +954,10 @@ export function Dock() {
 
     void loadAgents("initial");
 
+    const AGENTS_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
     const interval = window.setInterval(() => {
       void loadAgents("poll");
-    }, 30_000);
+    }, AGENTS_POLL_MS);
 
     return () => {
       cancelled = true;

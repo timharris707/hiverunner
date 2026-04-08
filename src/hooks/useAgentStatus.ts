@@ -21,7 +21,8 @@ export interface AgentStatusResponse {
   error?: string;
 }
 
-const DEFAULT_POLL_INTERVAL = 30_000; // 30 seconds
+// Dev mode: 60s to reduce webpack dev server pressure.
+const DEFAULT_POLL_INTERVAL = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
 
 /**
  * Hook that polls /api/agents/status every `intervalMs` (default 30s).

@@ -47,7 +47,8 @@ export function StatusBar() {
     };
 
     fetchStats();
-    const interval = setInterval(fetchStats, 10000); // Update every 10s
+    const STATS_POLL_MS = process.env.NODE_ENV === "development" ? 30_000 : 10_000;
+    const interval = setInterval(fetchStats, STATS_POLL_MS);
 
     return () => clearInterval(interval);
   }, [liveStats]);

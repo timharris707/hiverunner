@@ -61,7 +61,9 @@ interface UseLiveRunsResult {
   hasActiveRuns: boolean;
 }
 
-const POLL_INTERVAL_MS = 3000;
+// Dev mode: 15s to reduce webpack dev server allocation pressure.
+// Production: 3s for near-realtime run status.
+const POLL_INTERVAL_MS = process.env.NODE_ENV === "development" ? 15_000 : 3_000;
 const COOLDOWN_MS = 2 * 60 * 1000; // keep polling 2min after last active run
 
 /* ── hook ── */

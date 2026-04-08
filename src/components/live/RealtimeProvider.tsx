@@ -42,6 +42,10 @@ function relativeAgeLabel(timestampMs: number) {
   return `${hours}h ago`;
 }
 
+// Dev mode polls much slower to avoid hammering the webpack dev server
+// with 1.2 MB snapshot responses every 5 seconds.  Production keeps 5s.
+const SNAPSHOT_POLL_MS = process.env.NODE_ENV === "development" ? 30_000 : 5_000;
+
 export function MissionControlRealtimeProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<MissionControlRealtimeSnapshot | null>(() => readStoredSnapshot());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
@@ -130,7 +134,7 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
       clearPollInterval();
       pollIntervalRef.current = window.setInterval(() => {
         void pollSnapshot();
-      }, 5000);
+      }, SNAPSHOT_POLL_MS);
     };
 
     connect();

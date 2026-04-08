@@ -88,7 +88,9 @@ const RUN_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
   pending: { color: "#94a3b8", bg: "rgba(148,163,184,0.1)" },
 };
 
-const REFRESH_MS = 15_000;
+// Dev mode: 60s refresh to reduce webpack dev server pressure.
+// Production: 15s for responsive dashboard updates.
+const REFRESH_MS = process.env.NODE_ENV === "development" ? 60_000 : 15_000;
 
 type DailyCost = { date: string; cost: number; input: number; output: number };
 
