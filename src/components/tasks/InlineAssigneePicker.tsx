@@ -2,12 +2,31 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
+import { getAgentByAnyId } from "@/config/agents";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { P, radius } from "@/lib/ui/tokens";
 
 interface Props {
   current: string | undefined;
   agents: OrchestrationAgent[];
   onChange: (assignee: string) => void;
+}
+
+/** Resolve the best avatar: DB avatar first, then static config avatar. */
+function resolveAvatar(agent: OrchestrationAgent): string | undefined {
+  if (agent.avatar) return agent.avatar;
+  return getAgentByAnyId(agent.id)?.avatar ?? getAgentByAnyId(agent.name)?.avatar;
+}
+
+function AgentAvatarInline({ agent, size = 16 }: { agent: OrchestrationAgent; size?: number }) {
+  const avatar = resolveAvatar(agent);
+  if (avatar) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={avatar} alt="" style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+    );
+  }
+  return <AvatarGlyph value={agent.emoji} size={size} />;
 }
 
 export function InlineAssigneePicker({ current, agents, onChange }: Props) {
@@ -43,12 +62,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
       >
         {currentAgent ? (
           <>
-            {currentAgent.avatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={currentAgent.avatar} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-            ) : (
-              <span>{currentAgent.emoji}</span>
-            )}
+            <AgentAvatarInline agent={currentAgent} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{currentAgent.name}</span>
           </>
         ) : (
@@ -90,12 +104,7 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
               onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.08)"; }}
               onMouseLeave={(e) => { e.currentTarget.style.background = (current ?? "").toLowerCase() === a.name.toLowerCase() ? "rgba(255,255,255,0.05)" : "transparent"; }}
             >
-              {a.avatar ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={a.avatar} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
-              ) : (
-                <span>{a.emoji}</span>
-              )}
+              <AgentAvatarInline agent={a} />
               <span>{a.name}</span>
             </button>
           ))}
@@ -104,3 +113,6 @@ export function InlineAssigneePicker({ current, agents, onChange }: Props) {
     </div>
   );
 }
+
+/** Re-export for use by other task-page surfaces. */
+export { resolveAvatar };

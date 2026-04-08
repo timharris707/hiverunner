@@ -8,6 +8,7 @@ import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { PRIORITY_META, STATUS_META } from "@/components/orchestration/task-display";
 import {
@@ -23,7 +24,8 @@ import {
 } from "@/lib/orchestration/client";
 import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
-import { InlineAssigneePicker } from "@/components/tasks/InlineAssigneePicker";
+import { InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
+import { getAgentByAnyId } from "@/config/agents";
 import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
 import type {
   OrchestrationAgent,
@@ -659,10 +661,11 @@ export default function TaskDetailPage() {
                           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "8px" }}>
                             {(() => {
                               const commentAgent = agents.find((a) => a.name === c.author || a.slug === c.author);
-                              if (commentAgent?.avatar) {
+                              const avatarUrl = commentAgent ? resolveAvatar(commentAgent) : (getAgentByAnyId(c.author)?.avatar ?? undefined);
+                              if (avatarUrl) {
                                 return (
                                   // eslint-disable-next-line @next/next/no-img-element
-                                  <img src={commentAgent.avatar} alt={c.author} style={{
+                                  <img src={avatarUrl} alt={c.author} style={{
                                     width: 22, height: 22, borderRadius: "50%", objectFit: "cover", flexShrink: 0,
                                   }} />
                                 );
@@ -677,7 +680,7 @@ export default function TaskDetailPage() {
                                   fontSize: emoji ? 12 : 9, fontWeight: 700,
                                   color: emoji ? "#fbbf24" : color.textSecondary,
                                 }}>
-                                  {emoji ?? assigneeInitials(c.author)}
+                                  {emoji ? <AvatarGlyph value={emoji} size={12} /> : assigneeInitials(c.author)}
                                 </span>
                               );
                             })()}
@@ -812,7 +815,13 @@ export default function TaskDetailPage() {
                                       onMouseEnter={(e) => { e.currentTarget.style.background = "rgba(255,255,255,0.05)"; }}
                                       onMouseLeave={(e) => { e.currentTarget.style.background = selected ? "rgba(255,255,255,0.05)" : "transparent"; }}
                                     >
-                                      <span style={{ fontSize: "13px" }}>{a.emoji}</span>
+                                      {(() => {
+                                        const av = resolveAvatar(a);
+                                        return av
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          ? <img src={av} alt="" style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
+                                          : <AvatarGlyph value={a.emoji} size={13} />;
+                                      })()}
                                       {a.name}
                                     </button>
                                   );
