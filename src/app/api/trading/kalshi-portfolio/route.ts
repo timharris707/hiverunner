@@ -58,7 +58,7 @@ export async function GET() {
 
     let positionsData: Record<string, unknown>[] = [];
     try {
-      const posRes = await fetch("http://localhost:3000/api/trading/kalshi-positions", {
+      const posRes = await fetch(`http://localhost:${process.env.PORT || "3010"}/api/trading/kalshi-positions`, {
         signal: AbortSignal.timeout(8000),
       });
       if (posRes.ok) {

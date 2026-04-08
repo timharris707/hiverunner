@@ -536,7 +536,7 @@ test.describe("§6 — SSE stream lifecycle", () => {
     const controller = new AbortController();
     // Use fetch directly since playwright request doesn't stream
     const fetchPromise = fetch(
-      `${process.env.BASE_URL ?? "http://localhost:3000"}/api/activities/stream`,
+      `${process.env.BASE_URL ?? "http://localhost:3010"}/api/activities/stream`,
       { signal: controller.signal }
     );
     // Give it a tick to connect
@@ -563,7 +563,7 @@ test.describe("§6 — SSE stream lifecycle", () => {
     let firstChunk = "";
     try {
       const res = await fetch(
-        `${process.env.BASE_URL ?? "http://localhost:3000"}/api/activities/stream`,
+        `${process.env.BASE_URL ?? "http://localhost:3010"}/api/activities/stream`,
         { signal: controller.signal }
       );
       const reader = res.body!.getReader();

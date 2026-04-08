@@ -17,7 +17,7 @@
     <key>EnvironmentVariables</key>
     <dict>
       <key>PORT</key>
-      <string>3000</string>
+      <string>3010</string>
       <key>PATH</key>
       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
       <key>MC_WATCHDOG_INTERVAL</key>

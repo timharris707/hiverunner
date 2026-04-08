@@ -3,7 +3,7 @@ import { execSync } from "child_process";
 
 async function createNotification(title: string, message: string, type: "info" | "success" | "warning" | "error" = "info") {
   try {
-    await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || "http://localhost:3000"}/api/notifications`, {
+    await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || `http://localhost:${process.env.PORT || "3010"}`}/api/notifications`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, message, type }),

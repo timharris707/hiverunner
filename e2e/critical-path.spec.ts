@@ -34,7 +34,7 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const API = "/api/orchestration";
 const TAG = "[CP-TEST]";
 // Stable across module re-evaluations within a test run (set once in playwright.config.ts)

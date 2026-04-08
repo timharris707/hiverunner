@@ -6,7 +6,7 @@ LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-dev.pid"
 OUT_LOG="$LOG_DIR/mission-control-dev.log"
 ERR_LOG="$LOG_DIR/mission-control-dev.err.log"
-PORT="${PORT:-3000}"
+PORT="${PORT:-3010}"
 
 mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
@@ -54,6 +54,19 @@ if [ -n "$EXISTING_PID" ]; then
   echo "================================"
   exit 0
 fi
+
+# ── Orphan cleanup ──
+# Kill detached `node server.js` processes not bound to any managed port.
+STABLE_PORT=3001
+STABLE_PID="$(lsof -tiTCP:$STABLE_PORT -sTCP:LISTEN 2>/dev/null || true)"
+for ORPHAN in $(pgrep -f "node.*server\.js" 2>/dev/null || true); do
+  [ -n "$STABLE_PID" ] && [ "$ORPHAN" = "$STABLE_PID" ] && continue
+  ORPHAN_LISTEN="$(lsof -p "$ORPHAN" -iTCP -sTCP:LISTEN 2>/dev/null | grep -c LISTEN || true)"
+  if [ "$ORPHAN_LISTEN" = "0" ]; then
+    echo "  Note:   killing orphan node process PID $ORPHAN"
+    kill "$ORPHAN" 2>/dev/null || true
+  fi
+done
 
 # ── Clear stale lock ──
 if [ -f "$APP_DIR/.next/dev/lock" ]; then

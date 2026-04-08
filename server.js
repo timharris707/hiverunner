@@ -5,7 +5,7 @@ const v8 = require("v8");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
-const port = parseInt(process.env.PORT || "3000", 10);
+const port = parseInt(process.env.PORT || "3010", 10);
 
 // ── Dev-lane heap guard ──
 // Webpack dev mode for this app uses 2–3 GB RSS. The default Node heap
@@ -37,7 +37,7 @@ if (dev) {
 //   "auto" — tick if production, skip if development (default)
 //
 // In a two-lane setup:
-//   Dev  (:3000) → MC_ENGINE_TICK=off  (build/UI lane, no execution)
+//   Dev  (:3010) → MC_ENGINE_TICK=off  (build/UI lane, no execution)
 //   Stable (:3001) → MC_ENGINE_TICK=on (operator lane, owns execution)
 //
 // The atomic claim mechanism (UPDATE WHERE status='queued') prevents

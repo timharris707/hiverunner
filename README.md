@@ -147,14 +147,14 @@ openssl rand -base64 18
 ```bash
 # Development
 npm run dev
-# → http://localhost:3000
+# → http://localhost:3010
 
 # Production build
 npm run build
 npm start
 ```
 
-Login at `http://localhost:3000` with the `ADMIN_PASSWORD` you set.
+Login at `http://localhost:3010` with the `ADMIN_PASSWORD` you set.
 
 ---
 
@@ -202,7 +202,7 @@ sudo systemctl start mission-control
 
 ```caddy
 mission-control.yourdomain.com {
-    reverse_proxy localhost:3000
+    reverse_proxy localhost:3010
 }
 ```
 

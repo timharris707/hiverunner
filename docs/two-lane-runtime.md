@@ -4,7 +4,7 @@ Mission Control runs two independent lanes on the same machine:
 
 | Lane   | Port | Mode       | Directory    | Purpose                    |
 |--------|------|------------|--------------|----------------------------|
-| Dev    | 3000 | development| repo root    | Active development (HMR)   |
+| Dev    | 3010 | development| repo root    | Active development (HMR)   |
 | Stable | 3001 | production | `.stable/`   | Last-known-good build      |
 
 ## Quick Reference
@@ -56,7 +56,7 @@ Promotion is intentionally commit-backed. By default `scripts/promote_to_stable.
 ## Promotion Flow
 
 ```
-  repo (dev on :3000)
+  repo (dev on :3010)
        │
        │  scripts/promote_to_stable.sh
        │

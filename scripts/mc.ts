@@ -8,10 +8,10 @@
  *   mc reject --task TASK_ID --reason REASON_TEXT
  *
  * Environment:
- *   MC_API_URL  Base URL of the running MC server (default: http://localhost:3000)
+ *   MC_API_URL  Base URL of the running MC server (default: http://localhost:3010)
  */
 
-const BASE_URL = process.env.MC_API_URL?.replace(/\/$/, "") ?? "http://localhost:3000";
+const BASE_URL = process.env.MC_API_URL?.replace(/\/$/, "") ?? "http://localhost:3010";
 
 // ── ANSI helpers ──────────────────────────────────────────────────────────────
 const c = {
@@ -255,7 +255,7 @@ ${col(c.bold, "OPTIONS")}
   --reason        Rejection reason text (required for reject)
 
 ${col(c.bold, "ENV")}
-  MC_API_URL      Base URL of the MC server (default: http://localhost:3000)
+  MC_API_URL      Base URL of the MC server (default: http://localhost:3010)
 
 ${col(c.bold, "EXAMPLES")}
   mc tasks list

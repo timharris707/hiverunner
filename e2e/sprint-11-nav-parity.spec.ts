@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const API = "/api/orchestration";
 const COMPANY_SLUG = "neveridle-core";
 const TAG = "[S11-NAV]";

@@ -31,12 +31,12 @@ printf "\n${BOLD}=== Mission Control Doctor ===${NC}\n"
 printf "  %s\n\n" "$(date '+%Y-%m-%d %H:%M:%S')"
 
 # ────────────────────────────────────────
-# Dev Lane (port 3000)
+# Dev Lane (port 3010)
 # ────────────────────────────────────────
-printf "${BOLD}Dev Lane (:3000)${NC}\n"
+printf "${BOLD}Dev Lane (:3010)${NC}\n"
 
 DEV_PID_FILE="$APP_DIR/data/mission-control-dev.pid"
-DEV_PORT=3000
+DEV_PORT=3010
 
 # PID file
 if [ -f "$DEV_PID_FILE" ]; then

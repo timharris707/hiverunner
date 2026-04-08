@@ -23,7 +23,7 @@ if (!match) {
   process.exit(1);
 }
 const companySlug = match[1];
-const API_BASE = "http://localhost:3000/api/orchestration";
+const API_BASE = process.env.MC_API_URL?.replace(/\/$/, "") || "http://localhost:3010/api/orchestration";
 
 async function main() {
   const command = args[0];

@@ -52,7 +52,7 @@ test("canonical company-code URLs rewrite using the generated route map", () => 
   const rewritten = tryCanonicalRewrite(
     `/${company.code}/dashboard`,
     new URLSearchParams(),
-    "http://localhost:3000",
+    "http://localhost:3010",
     maps,
   );
 
@@ -64,7 +64,7 @@ test("legacy issue URLs redirect through the generated project compatibility map
   const redirected = tryLegacyRedirect(
     `/companies/${company.slug}/issues`,
     new URLSearchParams([["projectId", project.id]]),
-    "http://localhost:3000",
+    "http://localhost:3010",
     maps,
   );
 

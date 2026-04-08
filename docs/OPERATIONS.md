@@ -37,7 +37,7 @@ scripts/lane.sh rollback
 ## Architecture: Two-Lane Runtime
 
 ```
-Dev Lane (:3000)                    Stable Lane (:3001)
+Dev Lane (:3010)                    Stable Lane (:3001)
 ├── NODE_ENV=development            ├── NODE_ENV=production
 ├── MC_ENGINE_TICK=off              ├── MC_ENGINE_TICK=on
 ├── Role: observer (no execution)   ├── Role: executor (owns execution)
@@ -75,7 +75,7 @@ MC_ENGINE_TICK=on scripts/lane.sh dev start
 
 **Check current state:**
 ```bash
-curl http://127.0.0.1:3000/api/mc/health  # shows "role": "observer"
+curl http://127.0.0.1:3010/api/mc/health  # shows "role": "observer"
 curl http://127.0.0.1:3001/api/mc/health  # shows "role": "executor"
 scripts/lane.sh doctor                    # shows engine tick for both
 ```
@@ -90,7 +90,7 @@ scripts/lane.sh doctor
 
 This shows:
 - PID file state (present? alive? matching port listener?)
-- Port listener state (who's on :3000 and :3001?)
+- Port listener state (who's on :3010 and :3001?)
 - Healthcheck status (API responding? Pages rendering?)
 - Watchdog status (launchd loaded?)
 - Database state
@@ -103,7 +103,7 @@ scripts/lane.sh dev restart
 
 This will:
 1. Kill the tracked PID (graceful → force)
-2. Kill any orphan on port 3000
+2. Kill any orphan on port 3010
 3. Clear stale `.next/dev/lock`
 4. Start fresh
 
@@ -186,7 +186,7 @@ Turbopack corruption that leaves the API working but pages broken.
 ### Enable
 
 ```bash
-# Dev watchdog (checks :3000 every 15s, restarts on failure)
+# Dev watchdog (checks :3010 every 15s, restarts on failure)
 cp config/com.harris-autonomous.mc-dev.plist ~/Library/LaunchAgents/
 launchctl load ~/Library/LaunchAgents/com.harris-autonomous.mc-dev.plist
 

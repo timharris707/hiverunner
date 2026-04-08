@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { expect, test, type APIRequestContext, type TestInfo } from "@playwright/test";
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const API = "/api/orchestration";
 const COMPANY_SLUG = "neveridle-core";
 const TAG = "[VIGIL-TASKS]";

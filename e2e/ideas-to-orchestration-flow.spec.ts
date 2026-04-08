@@ -25,7 +25,7 @@ import os from "os";
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const TAG = "[IDEAS-FLOW]";
 const RUN_ID = Date.now();
 

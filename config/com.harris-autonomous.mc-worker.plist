@@ -17,7 +17,7 @@
   <key>EnvironmentVariables</key>
   <dict>
     <key>API_URL</key>
-    <string>http://localhost:3000</string>
+    <string>http://localhost:3010</string>
     <key>POLL_INTERVAL</key>
     <string>15</string>
   </dict>

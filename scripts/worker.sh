@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
-API_URL="${API_URL:-http://localhost:3000}"
+API_URL="${API_URL:-http://localhost:3010}"
 POLL_INTERVAL="${POLL_INTERVAL:-15}"
 echo "[worker] Starting background worker"
 echo "[worker] API target: $API_URL"

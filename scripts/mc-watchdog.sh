@@ -1,8 +1,8 @@
 #!/bin/bash
 # ─── Mission Control Dev Server Watchdog ───
 # Runs continuously. Every 15 seconds:
-#   1. Kills zombie node server.js processes (keeps only the one owning port 3000)
-#   2. If port 3000 is down entirely, cleans up lock files and restarts dev server
+#   1. Kills zombie node server.js processes (keeps only the one owning port 3010)
+#   2. If port 3010 is down entirely, cleans up lock files and restarts dev server
 #   3. Logs all actions to data/watchdog.log
 #
 # Usage: nohup bash scripts/mc-watchdog.sh &
@@ -31,9 +31,9 @@ restart_count=0
 last_restart_time=0
 
 kill_zombies() {
-  # Find the PID actually listening on port 3000
+  # Find the PID actually listening on port 3010
   local live_pid
-  live_pid=$(lsof -i :3000 -sTCP:LISTEN -t 2>/dev/null | head -1)
+  live_pid=$(lsof -i :3010 -sTCP:LISTEN -t 2>/dev/null | head -1)
 
   # Find all node server.js processes in our app dir
   local all_pids
@@ -61,7 +61,7 @@ kill_zombies() {
       continue
     fi
 
-    # Only kill if it's NOT the live 3000 process and NOT the 3001 stable process
+    # Only kill if it's NOT the live 3010 process and NOT the 3001 stable process
     if [ "$pid" != "$live_pid" ]; then
       kill "$pid" 2>/dev/null
       killed=$((killed + 1))
@@ -76,8 +76,8 @@ kill_zombies() {
 }
 
 check_and_restart() {
-  # Is port 3000 responding?
-  if curl -sf http://127.0.0.1:3000/NEV/dashboard -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null; then
+  # Is port 3010 responding?
+  if curl -sf http://127.0.0.1:3010/NEV/dashboard -o /dev/null --connect-timeout 5 --max-time 10 2>/dev/null; then
     # Healthy — reset restart counter
     restart_count=0
     return 0
@@ -100,16 +100,16 @@ check_and_restart() {
     return 1
   fi
 
-  log "DOWN: port 3000 not responding — attempting restart (#$((restart_count + 1)))"
+  log "DOWN: port 3010 not responding — attempting restart (#$((restart_count + 1)))"
 
-  # Kill everything on 3000 first
+  # Kill everything on 3010 first
   local stale_pids
-  stale_pids=$(lsof -i :3000 -t 2>/dev/null)
+  stale_pids=$(lsof -i :3010 -t 2>/dev/null)
   if [ -n "$stale_pids" ]; then
     echo "$stale_pids" | xargs kill 2>/dev/null
     sleep 2
     # Force kill if still around
-    stale_pids=$(lsof -i :3000 -t 2>/dev/null)
+    stale_pids=$(lsof -i :3010 -t 2>/dev/null)
     if [ -n "$stale_pids" ]; then
       echo "$stale_pids" | xargs kill -9 2>/dev/null
       sleep 1
@@ -136,7 +136,7 @@ check_and_restart() {
   while [ $wait -lt 30 ]; do
     sleep 2
     wait=$((wait + 2))
-    if curl -sf http://127.0.0.1:3000/NEV/dashboard -o /dev/null --connect-timeout 3 --max-time 5 2>/dev/null; then
+    if curl -sf http://127.0.0.1:3010/NEV/dashboard -o /dev/null --connect-timeout 3 --max-time 5 2>/dev/null; then
       log "RESTART: dev server healthy after ${wait}s"
       restart_count=0
       return 0

@@ -239,7 +239,7 @@ export async function GET() {
     try {
       // Add Mission Control itself
       try {
-        const { stdout: mcCheck } = await execAsync("curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/api/health 2>/dev/null || echo '000'");
+        const { stdout: mcCheck } = await execAsync(`curl -s -o /dev/null -w '%{http_code}' http://localhost:${process.env.PORT || "3010"}/api/health 2>/dev/null || echo '000'`);
         const mcStatus = mcCheck.trim() === "200" ? "active" : "unknown";
         services.push({
           name: "mission-control",

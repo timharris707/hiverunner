@@ -178,7 +178,7 @@ Be direct, specific, and crisp. No filler. Reference the actual content of the d
 
     // Auto-extract insights
     try {
-      const insightsUrl = new URL(`/api/advisory/sessions/${id}/insights`, "http://localhost:3000");
+      const insightsUrl = new URL(`/api/advisory/sessions/${id}/insights`, `http://localhost:${process.env.PORT || "3010"}`);
       fetch(insightsUrl.toString(), { method: "POST" }).catch((e) =>
         console.error("Auto-insights extraction failed:", e)
       );

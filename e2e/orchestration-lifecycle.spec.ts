@@ -23,7 +23,7 @@ import { test, expect, type Page, type APIRequestContext } from "@playwright/tes
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const API = "/api/orchestration";
 const TAG = "[LIFECYCLE]";
 const RUN_ID = Date.now();

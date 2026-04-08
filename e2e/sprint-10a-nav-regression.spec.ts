@@ -30,7 +30,7 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = process.env.BASE_URL || "http://localhost:3010";
 const API = "/api/orchestration";
 const TAG = "[S10A-TEST]";
 const COMPANY_SLUG = "neveridle-core";

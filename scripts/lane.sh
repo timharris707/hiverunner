@@ -15,7 +15,7 @@ usage() {
   echo "       $0 doctor    (diagnose both lanes, PIDs, health)"
   echo ""
   echo "Examples:"
-  echo "  $0 dev start       Start dev server on port 3000"
+  echo "  $0 dev start       Start dev server on port 3010"
   echo "  $0 stable restart  Restart stable server on port 3001"
   echo "  $0 stable status   Check if stable lane is running"
   echo "  $0 stable logs     Tail stable lane logs"
@@ -49,7 +49,7 @@ fi
 
 case "$LANE" in
   dev)
-    PORT=3000
+    PORT=3010
     PID_FILE="$APP_DIR/data/mission-control-dev.pid"
     LOG_FILE="$APP_DIR/data/mission-control-dev.log"
     START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"

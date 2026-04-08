@@ -133,7 +133,7 @@ async function searchTasks(params: Record<string, unknown>): Promise<unknown> {
   const query = typeof params.query === "string" ? params.query : "";
   const status = typeof params.status === "string" ? params.status : undefined;
   try {
-    const url = new URL("/api/orchestration/tasks", "http://localhost:3000");
+    const url = new URL("/api/orchestration/tasks", `http://localhost:${process.env.PORT || "3010"}`);
     if (status) url.searchParams.set("status", status);
     if (query) url.searchParams.set("search", query);
     url.searchParams.set("limit", "10");

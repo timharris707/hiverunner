@@ -32,7 +32,7 @@ export default defineConfig({
   ],
 
   use: {
-    baseURL: process.env.BASE_URL || "http://localhost:3000",
+    baseURL: process.env.BASE_URL || "http://localhost:3010",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
@@ -57,7 +57,7 @@ export default defineConfig({
           ...process.env,
           MISSION_CONTROL_E2E_BUILD_STUB: "1",
         },
-        url: "http://localhost:3000",
+        url: "http://localhost:3010",
         reuseExistingServer: true,
         timeout: 120_000,
       },

@@ -4,7 +4,7 @@ set -eu
 APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
 LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-dev.pid"
-PORT="${PORT:-3000}"
+PORT="${PORT:-3010}"
 URL="http://127.0.0.1:${PORT}"
 START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
 
@@ -31,8 +31,17 @@ in_boot_grace() {
 }
 
 is_healthy() {
-  # API health only — lightweight check that works even during compilation.
-  curl -sf --max-time 10 "$URL/api/mc/health" >/dev/null 2>&1
+  # Two-tier health check:
+  #   1. API health (fast, works even during recompilation)
+  #   2. Page-level check (verifies the server actually serves HTML,
+  #      catches the "API up but page hangs" failure mode)
+  curl -sf --max-time 10 "$URL/api/mc/health" >/dev/null 2>&1 || return 1
+
+  # Page check — only required after boot grace. During compilation the
+  # API may respond while pages are still compiling; that's expected.
+  # A 15s timeout catches the "page hangs indefinitely" symptom.
+  HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' --max-time 15 "$URL/" 2>/dev/null || echo "000")"
+  [ "$HTTP_CODE" != "000" ]
 }
 
 # ── PID reconciliation ──
@@ -96,9 +105,18 @@ if [ -n "$LISTEN_PID" ]; then
   kill -9 "$LISTEN_PID" 2>/dev/null || true
 fi
 
-# NOTE: Previously used `pkill -f "node server.js"` here, which could
-# kill the stable lane (:3001) too since both match that pattern.
-# Removed: port-specific kill above is sufficient and safe.
+# ── Orphan cleanup ──
+# Kill detached `node server.js` zombies not bound to any managed port.
+STABLE_PORT=3001
+STABLE_PID="$(lsof -tiTCP:$STABLE_PORT -sTCP:LISTEN 2>/dev/null || true)"
+for ORPHAN in $(pgrep -f "node.*server\.js" 2>/dev/null || true); do
+  [ -n "$STABLE_PID" ] && [ "$ORPHAN" = "$STABLE_PID" ] && continue
+  ORPHAN_LISTEN="$(lsof -p "$ORPHAN" -iTCP -sTCP:LISTEN 2>/dev/null | grep -c LISTEN || true)"
+  if [ "$ORPHAN_LISTEN" = "0" ]; then
+    echo "[mc-dev] killing orphan node process PID $ORPHAN"
+    kill "$ORPHAN" 2>/dev/null || true
+  fi
+done
 sleep 1
 
 # Clear corrupted Turbopack dev cache before restarting — this is the
