@@ -2,6 +2,8 @@ export type EdgeRouteMaps = {
   companyCodeToSlug: Record<string, string>;
   companySlugToCode: Record<string, string>;
   projectIdToSlugByCompany: Record<string, Record<string, string>>;
+  /** Maps old project slug → current canonical slug (cross-company). */
+  projectSlugAliasToCanonical: Record<string, string>;
   generatedAt?: string;
 };
 
@@ -15,6 +17,9 @@ export const COMPANY_CODE_TO_SLUG: Record<string, string> = {
 export const COMPANY_SLUG_TO_CODE: Record<string, string> = {
   "cascade-inc": "CAS",
   "neveridle-core": "NEV",
+  // Legacy slug alias — now DB-backed via company_slug_aliases table (migration 38).
+  // Kept here as a static fallback for edge middleware when the DB is unreachable.
+  "weather-edge": "NEV",
   "river-s-edge": "RIV",
   "virtual-design-house": "VIR",
 };
@@ -48,6 +53,7 @@ export const EDGE_ROUTE_MAPS_FALLBACK: EdgeRouteMaps = {
   companyCodeToSlug: COMPANY_CODE_TO_SLUG,
   companySlugToCode: COMPANY_SLUG_TO_CODE,
   projectIdToSlugByCompany: PROJECT_ID_TO_SLUG_BY_COMPANY,
+  projectSlugAliasToCanonical: {},
 };
 
 export function withEdgeRouteMapFallback(routeMaps?: Partial<EdgeRouteMaps> | null): EdgeRouteMaps {
@@ -72,6 +78,9 @@ export function withEdgeRouteMapFallback(routeMaps?: Partial<EdgeRouteMaps> | nu
       ...(routeMaps?.companySlugToCode ?? {}),
     },
     projectIdToSlugByCompany: mergedProjectMaps,
+    projectSlugAliasToCanonical: {
+      ...(routeMaps?.projectSlugAliasToCanonical ?? {}),
+    },
     generatedAt: routeMaps?.generatedAt,
   };
 }

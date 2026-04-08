@@ -1217,6 +1217,40 @@ const MIGRATIONS: Migration[] = [
       PRAGMA foreign_keys = ON;
     `,
   },
+  {
+    version: 38,
+    name: "company_slug_aliases",
+    sql: `
+      CREATE TABLE company_slug_aliases (
+        company_id  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        slug_alias  TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        PRIMARY KEY (slug_alias)
+      );
+
+      CREATE INDEX idx_company_slug_aliases_company_id
+        ON company_slug_aliases(company_id);
+
+      -- Seed the known legacy alias: weather-edge was the old slug for NeverIdle Core.
+      INSERT OR IGNORE INTO company_slug_aliases (company_id, slug_alias)
+      VALUES ('${DEFAULT_COMPANY_ID}', 'weather-edge');
+    `,
+  },
+  {
+    version: 39,
+    name: "project_slug_aliases",
+    sql: `
+      CREATE TABLE project_slug_aliases (
+        project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        slug_alias  TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        PRIMARY KEY (slug_alias)
+      );
+
+      CREATE INDEX idx_project_slug_aliases_project_id
+        ON project_slug_aliases(project_id);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

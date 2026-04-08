@@ -67,9 +67,12 @@ export function findProjectSlugById(companySlug: string, projectIdOrSlug: string
   return project?.slug ?? null;
 }
 
+// Stable ID for fallback resolution — never changes, unlike slugs.
+const FALLBACK_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+
 export function resolvePrimaryCompanySlug(): string {
   const { companies } = listCompanies();
-  const canonical = companies.find((company) => company.slug === FALLBACK_COMPANY_SLUG);
+  const canonical = companies.find((company) => company.id === FALLBACK_COMPANY_ID);
   return canonical?.slug ?? companies[0]?.slug ?? FALLBACK_COMPANY_SLUG;
 }
 

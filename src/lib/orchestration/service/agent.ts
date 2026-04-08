@@ -15,6 +15,7 @@ import {
   agentFromRow,
   getOrchestrationDb,
   getProjectRow,
+  resolveCompanyId,
   resolveProjectAvatarTheme,
   isNonProductionAgent,
   toApiPriority,
@@ -66,7 +67,8 @@ type AgentProfileExecutionRun = {
 const UUID_V4ISH_REGEX =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SEEDED_AGENT_ID_REGEX = /^[a-z][a-z0-9-]*(?:-\d{3})?$/i;
-const NEVERIDLE_CORE_SLUG = "neveridle-core";
+// Stable ID for the primary company — use this instead of slug for identity checks.
+const DEFAULT_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
 function hasCanonicalAgentId(id: string): boolean {
   return UUID_V4ISH_REGEX.test(id);
@@ -453,13 +455,11 @@ export function listCompanyAgents(
   const db = getOrchestrationDb();
   const includeNonProduction = options?.includeNonProduction ?? false;
 
-  const companyRow = db
-    .prepare("SELECT id FROM companies WHERE (id = ? OR slug = ?) AND archived_at IS NULL")
-    .get(companyIdOrSlug, companyIdOrSlug) as { id: string } | undefined;
-
-  if (!companyRow) {
+  const companyId = resolveCompanyId(db, companyIdOrSlug);
+  if (!companyId) {
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
+  const companyRow = { id: companyId };
 
   const rows = db
     .prepare(
@@ -534,21 +534,17 @@ export function syncCompanyAgentsFromOpenClaw(input: {
   allowNonDefaultCompanyImport?: boolean;
 }): { synced: number; inserted: number; updated: number; skipped: number } {
   const db = getOrchestrationDb();
-  const companyRow = db
-    .prepare(
-      `SELECT id, slug
-       FROM companies
-       WHERE archived_at IS NULL
-         AND (id = ? OR slug = ?)
-       LIMIT 1`
-    )
-    .get(input.companyIdOrSlug, input.companyIdOrSlug) as { id: string; slug: string } | undefined;
+  // Resolve via direct match or slug alias.
+  const resolvedId = resolveCompanyId(db, input.companyIdOrSlug);
+  const companyRow = resolvedId
+    ? (db.prepare("SELECT id, slug FROM companies WHERE id = ? AND archived_at IS NULL").get(resolvedId) as { id: string; slug: string } | undefined)
+    : undefined;
 
   if (!companyRow) {
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
 
-  if (!input.allowNonDefaultCompanyImport && companyRow.slug !== NEVERIDLE_CORE_SLUG) {
+  if (!input.allowNonDefaultCompanyImport && companyRow.id !== DEFAULT_COMPANY_ID) {
     return { synced: 0, inserted: 0, updated: 0, skipped: input.agents.length };
   }
 

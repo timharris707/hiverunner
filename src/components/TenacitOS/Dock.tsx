@@ -104,8 +104,8 @@ interface CompanyNavState {
 
 const DOCK_WIDTH = 204;
 const DOCK_COLLAPSED_WIDTH = 44;
-const FALLBACK_COMPANY_SLUG = "neveridle-core";
-const FALLBACK_COMPANY_CODE = "NEV";
+// Use stable company ID for fallback resolution, not mutable slug/code.
+const FALLBACK_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
 const OPERATIONS_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Tasks", icon: ListChecks },
@@ -592,9 +592,9 @@ export function Dock() {
   const [systemsOpen, setSystemsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
   const [company, setCompany] = useState<CompanyNavState>({
-    slug: FALLBACK_COMPANY_SLUG,
-    name: "NeverIdle Core",
-    code: FALLBACK_COMPANY_CODE,
+    slug: "",
+    name: "",
+    code: "",
     status: "active",
   });
   const [companies, setCompanies] = useState<(CompanyNavState & { code: string })[]>([]);
@@ -778,12 +778,12 @@ export function Dock() {
       if (!resolved) {
         // URL doesn't contain a company code — keep current selection if we have one.
         if (company.id) return;
-        const fallback = companies.find((candidate) => candidate.slug === FALLBACK_COMPANY_SLUG) ?? companies[0];
+        const fallback = companies.find((candidate) => candidate.id === FALLBACK_COMPANY_ID) ?? companies[0];
         resolved = {
           id: fallback?.id,
-          slug: fallback?.slug ?? FALLBACK_COMPANY_SLUG,
-          name: fallback?.name ?? "NeverIdle Core",
-          code: fallback?.code || (fallback?.slug ?? FALLBACK_COMPANY_SLUG).slice(0, 3).toUpperCase(),
+          slug: fallback?.slug ?? "",
+          name: fallback?.name ?? "",
+          code: fallback?.code ?? "",
           status: fallback?.status ?? "active",
         };
       }

@@ -212,9 +212,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unable to derive company slug" }, { status: 400 });
     }
 
-    // Check slug uniqueness
-    const existing = db.prepare("SELECT 1 FROM companies WHERE slug = ? LIMIT 1").get(companySlug);
-    if (existing) {
+    // Check slug uniqueness against both current slugs and historical aliases.
+    const existingSlug = db.prepare("SELECT 1 FROM companies WHERE slug = ? LIMIT 1").get(companySlug);
+    const existingAlias = db.prepare("SELECT 1 FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1").get(companySlug);
+    if (existingSlug || existingAlias) {
       return NextResponse.json({ error: `Company slug "${companySlug}" already exists` }, { status: 409 });
     }
 

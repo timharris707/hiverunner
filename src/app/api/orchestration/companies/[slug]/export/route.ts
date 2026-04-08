@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { handleRouteError, errorResponse } from "@/lib/orchestration/api";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
 
@@ -32,22 +33,26 @@ export async function GET(
     const { slug } = await params;
     const db = getOrchestrationDb();
 
-    // Resolve company
+    // Resolve company (alias-aware)
+    const resolved = resolveCompanyIdBySlug(slug, db);
+    if (!resolved) {
+      return errorResponse(404, "not_found", `Company "${slug}" not found`);
+    }
+    const companyId = resolved.id;
+
     const company = db
       .prepare(
         `SELECT id, slug, company_code, name, description, status,
                 workspace_root, workspace_source,
                 theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url,
                 settings_json, created_at, updated_at
-         FROM companies WHERE slug = ?`
+         FROM companies WHERE id = ?`
       )
-      .get(slug) as Record<string, unknown> | undefined;
+      .get(companyId) as Record<string, unknown> | undefined;
 
     if (!company) {
       return errorResponse(404, "not_found", `Company "${slug}" not found`);
     }
-
-    const companyId = company.id as string;
 
     // Parse requested categories
     const catParam = req.nextUrl.searchParams.get("categories");

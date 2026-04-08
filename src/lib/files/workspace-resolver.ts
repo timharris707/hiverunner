@@ -1,6 +1,6 @@
 import fs from "fs";
 import path from "path";
-import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 
@@ -22,14 +22,11 @@ export function resolveWorkspaceBase(inputWorkspace?: string | null): string | n
     return mapped;
   }
 
+  // Alias-aware company workspace resolution.
   try {
-    const db = getOrchestrationDb();
-    const company = db
-      .prepare("SELECT workspace_root FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1")
-      .get(workspace) as { workspace_root?: string | null } | undefined;
-
-    if (company?.workspace_root?.trim()) {
-      return company.workspace_root.trim();
+    const resolved = resolveCompanyIdBySlug(workspace);
+    if (resolved?.workspace_root?.trim()) {
+      return resolved.workspace_root.trim();
     }
   } catch (error) {
     console.warn("[workspace-resolver] Failed to resolve company workspace:", error);

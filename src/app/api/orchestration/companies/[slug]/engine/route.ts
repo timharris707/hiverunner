@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import {
   findCompanyCeo,
   listHeartbeatRuns,
@@ -17,13 +18,11 @@ export async function GET(
     const { slug } = await params;
     const db = getOrchestrationDb();
 
-    const company = db
-      .prepare("SELECT id, name FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1")
-      .get(slug) as { id: string; name: string } | undefined;
-
-    if (!company) {
+    const resolved = resolveCompanyIdBySlug(slug, db);
+    if (!resolved) {
       return errorResponse(404, "company_not_found", `Company '${slug}' not found`);
     }
+    const company = { id: resolved.id, name: resolved.name };
 
     const ceo = findCompanyCeo(company.id, db);
     const recentRuns = listHeartbeatRuns({ companyId: company.id, limit: 20 }, db);

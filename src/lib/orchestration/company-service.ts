@@ -124,7 +124,9 @@ type CompanyInboxEventRow = {
   created_at: string;
 };
 
-const NEVERIDLE_CORE_SLUG = "neveridle-core";
+// Stable ID for the primary company — never changes, unlike slugs or names.
+const DEFAULT_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+
 const OPENCLAW_WORKSPACE_ROOT =
   process.env.OPENCLAW_WORKSPACE_ROOT?.trim() || "/Users/timharris/.openclaw/workspace";
 
@@ -423,7 +425,8 @@ function inboxEventMessage(
 
 function getCompanyRowBySlug(slug: string): CompanyRow | undefined {
   const db = getOrchestrationDb();
-  return db
+  // Try the canonical slug first, then fall back to a stored slug alias.
+  const row = db
     .prepare(
       `SELECT
         c.id,
@@ -453,6 +456,16 @@ function getCompanyRowBySlug(slug: string): CompanyRow | undefined {
        GROUP BY c.id`
     )
     .get(slug) as CompanyRow | undefined;
+
+  if (row) return row;
+
+  // Resolve via slug alias (e.g. old slug after rename).
+  const aliasRow = db
+    .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
+    .get(slug) as { company_id: string } | undefined;
+  if (!aliasRow) return undefined;
+
+  return getCompanyRowById(aliasRow.company_id);
 }
 
 function getCompanyRowById(companyId: string): CompanyRow | undefined {
@@ -616,12 +629,14 @@ function getCompanyGoalBySprintId(
 }
 
 function companyFromRow(row: CompanyRow): OrchestrationCompany {
+  // Use stored workspace_root. Fallback derives from company ID (stable),
+  // not slug (mutable), to avoid breakage on rename.
   const workspaceRoot =
     row.workspace_root && row.workspace_root.trim()
       ? row.workspace_root
-      : row.slug === NEVERIDLE_CORE_SLUG
+      : row.id === DEFAULT_COMPANY_ID
       ? OPENCLAW_WORKSPACE_ROOT
-      : path.join(OPENCLAW_WORKSPACE_ROOT, "companies", row.slug);
+      : path.join(OPENCLAW_WORKSPACE_ROOT, "companies", row.id);
 
   return {
     id: row.id,
@@ -635,7 +650,7 @@ function companyFromRow(row: CompanyRow): OrchestrationCompany {
       root: workspaceRoot,
       source:
         row.workspace_source ??
-        (row.slug === NEVERIDLE_CORE_SLUG ? "openclaw" : "provisioned"),
+        (row.id === DEFAULT_COMPANY_ID ? "openclaw" : "provisioned"),
     },
     theme: {
       name: row.theme_name,
@@ -728,7 +743,10 @@ export function createCompany(input: {
 
   let slug = rootSlug;
   let i = 1;
-  while (db.prepare("SELECT 1 FROM companies WHERE slug = ? LIMIT 1").get(slug)) {
+  while (
+    db.prepare("SELECT 1 FROM companies WHERE slug = ? LIMIT 1").get(slug) ||
+    db.prepare("SELECT 1 FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1").get(slug)
+  ) {
     i += 1;
     slug = `${rootSlug}-${i}`;
   }
@@ -746,11 +764,9 @@ export function createCompany(input: {
     companyCode = `${baseCompanyCode}${companyCodeIndex}`;
   }
 
-  const workspaceRoot =
-    slug === NEVERIDLE_CORE_SLUG
-      ? OPENCLAW_WORKSPACE_ROOT
-      : path.join(OPENCLAW_WORKSPACE_ROOT, "companies", slug);
-  const workspaceSource = slug === NEVERIDLE_CORE_SLUG ? "openclaw" : "provisioned";
+  // Use company ID for workspace path — stable across renames.
+  const workspaceRoot = path.join(OPENCLAW_WORKSPACE_ROOT, "companies", companyId);
+  const workspaceSource = "provisioned";
 
   db.prepare(
     `INSERT INTO companies
@@ -812,6 +828,42 @@ export function createCompany(input: {
   return { company: companyFromRow(row) };
 }
 
+/**
+ * Lightweight alias-aware company resolver. Accepts a slug (current or historical)
+ * or a company UUID. Returns core identity fields without expensive joins.
+ * Use this in API route handlers instead of inline `WHERE slug = ?` queries.
+ */
+export function resolveCompanyIdBySlug(
+  slugOrId: string,
+  db = getOrchestrationDb()
+): { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined {
+  // Direct match on id or current slug.
+  const direct = db
+    .prepare(
+      `SELECT id, slug, company_code, name, workspace_root
+       FROM companies
+       WHERE (id = ? OR slug = ?) AND archived_at IS NULL
+       LIMIT 1`
+    )
+    .get(slugOrId, slugOrId) as { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined;
+  if (direct) return direct;
+
+  // Fall back to stored slug alias.
+  const alias = db
+    .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
+    .get(slugOrId) as { company_id: string } | undefined;
+  if (!alias) return undefined;
+
+  return db
+    .prepare(
+      `SELECT id, slug, company_code, name, workspace_root
+       FROM companies
+       WHERE id = ? AND archived_at IS NULL
+       LIMIT 1`
+    )
+    .get(alias.company_id) as { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined;
+}
+
 export function getCompany(companySlug: string): { company: OrchestrationCompany } {
   const row = getCompanyRowBySlug(companySlug);
   if (!row) {
@@ -850,9 +902,32 @@ export function updateCompany(input: {
     );
   }
 
+  // Also reject slugs that collide with an existing alias for a different company.
+  if (nextSlug !== current.slug) {
+    const aliasOwner = db
+      .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
+      .get(nextSlug) as { company_id: string } | undefined;
+    if (aliasOwner && aliasOwner.company_id !== current.id) {
+      throw new OrchestrationApiError(
+        409,
+        "company_slug_taken",
+        "Another company already uses this slug (via alias)"
+      );
+    }
+  }
+
   const nextStatus = input.status ?? current.status;
   const now = new Date().toISOString();
   db.transaction(() => {
+    // When the slug changes, preserve the old slug as a durable alias so old
+    // URLs continue to resolve through the edge route maps.
+    if (nextSlug !== current.slug) {
+      db.prepare(
+        `INSERT OR IGNORE INTO company_slug_aliases (company_id, slug_alias, created_at)
+         VALUES (?, ?, ?)`
+      ).run(current.id, current.slug, now);
+    }
+
     db.prepare(
       `UPDATE companies
        SET
@@ -877,6 +952,13 @@ export function updateCompany(input: {
     }
   })();
 
+  // If slug changed, immediately invalidate the edge route map cache so
+  // middleware picks up the new alias on the very next request.
+  if (nextSlug !== current.slug) {
+    const g = globalThis as typeof globalThis & { __mcEdgeRouteMapVersion?: number };
+    g.__mcEdgeRouteMapVersion = (g.__mcEdgeRouteMapVersion ?? 0) + 1;
+  }
+
   const row = getCompanyRowById(current.id);
   if (!row) {
     throw new OrchestrationApiError(
@@ -895,13 +977,11 @@ export function archiveCompany(companySlug: string): {
   archivedAt: string;
 } {
   const db = getOrchestrationDb();
-  const current = db
-    .prepare("SELECT id, slug FROM companies WHERE slug = ? AND archived_at IS NULL")
-    .get(companySlug) as { id: string; slug: string } | undefined;
-
-  if (!current) {
+  const resolved = resolveCompanyIdBySlug(companySlug, db);
+  if (!resolved) {
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
+  const current = { id: resolved.id, slug: resolved.slug };
 
   const archivedAt = new Date().toISOString();
   db.prepare(

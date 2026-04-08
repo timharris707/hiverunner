@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { handleRouteError, errorResponse } from "@/lib/orchestration/api";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
 
@@ -32,14 +33,12 @@ export async function POST(
     const { slug } = await params;
     const db = getOrchestrationDb();
 
-    // Resolve target company
-    const company = db
-      .prepare("SELECT id, slug, company_code FROM companies WHERE slug = ?")
-      .get(slug) as { id: string; slug: string; company_code: string } | undefined;
-
-    if (!company) {
+    // Resolve target company (alias-aware)
+    const resolved = resolveCompanyIdBySlug(slug, db);
+    if (!resolved) {
       return errorResponse(404, "not_found", `Company "${slug}" not found`);
     }
+    const company = { id: resolved.id, slug: resolved.slug, company_code: resolved.company_code ?? "" };
 
     const body = await req.json();
     const pkg = body.package;

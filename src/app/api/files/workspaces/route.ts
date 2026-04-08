@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { shouldIncludeWorkspaceInOperatorRails } from '@/lib/workspace-visibility';
-import { getOrchestrationDb } from '@/lib/orchestration/db';
+import { resolveCompanyIdBySlug } from '@/lib/orchestration/company-service';
 
 const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
 
@@ -49,17 +49,15 @@ export async function GET(req: NextRequest) {
     const workspaces: Workspace[] = [];
 
     if (companySlug) {
-      const db = getOrchestrationDb();
-      const company = db
-        .prepare('SELECT name, workspace_root FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1')
-        .get(companySlug) as { name: string; workspace_root: string } | undefined;
+      // Alias-aware company resolution.
+      const resolved = resolveCompanyIdBySlug(companySlug);
 
-      if (company?.workspace_root && fs.existsSync(company.workspace_root)) {
+      if (resolved?.workspace_root && fs.existsSync(resolved.workspace_root)) {
         workspaces.push({
-          id: companySlug,
-          name: company.name,
+          id: resolved.slug,
+          name: resolved.name,
           emoji: '🏢',
-          path: company.workspace_root,
+          path: resolved.workspace_root,
         });
       }
 

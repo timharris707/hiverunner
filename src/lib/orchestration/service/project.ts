@@ -139,9 +139,8 @@ export function createProject(input: {
   let slug = rootSlug;
   let i = 1;
   while (
-    db
-      .prepare("SELECT 1 FROM projects WHERE slug = ? LIMIT 1")
-      .get(slug)
+    db.prepare("SELECT 1 FROM projects WHERE slug = ? LIMIT 1").get(slug) ||
+    db.prepare("SELECT 1 FROM project_slug_aliases WHERE slug_alias = ? LIMIT 1").get(slug)
   ) {
     i += 1;
     slug = `${rootSlug}-${i}`;
@@ -214,7 +213,7 @@ export function createProject(input: {
 
 export function getProject(projectIdOrSlug: string): { project: OrchestrationProject } {
   const db = getOrchestrationDb();
-  const row = getProjectRow(db, projectIdOrSlug);
+  const row = resolveProjectRow(db, projectIdOrSlug);
   if (!row) {
     throw new OrchestrationApiError(404, "project_not_found", "Project not found");
   }
@@ -300,6 +299,8 @@ export function lookupProjectByName(input: {
 
 export function updateProjectSettings(input: {
   projectIdOrSlug: string;
+  name?: string;
+  slug?: string;
   emoji?: string;
   status?: ProjectStatusInput;
   staleAlertThresholdsHours?: {
@@ -309,9 +310,32 @@ export function updateProjectSettings(input: {
   };
 }): { project: OrchestrationProject } {
   const db = getOrchestrationDb();
-  const current = getProjectRow(db, input.projectIdOrSlug);
+  const current = resolveProjectRow(db, input.projectIdOrSlug);
   if (!current) {
     throw new OrchestrationApiError(404, "project_not_found", "Project not found");
+  }
+
+  // Slug rename handling.
+  const nextSlug = input.slug ? slugify(input.slug) : current.slug;
+  if (!nextSlug) {
+    throw new OrchestrationApiError(400, "invalid_slug", "Unable to derive project slug");
+  }
+
+  if (nextSlug !== current.slug) {
+    // Reject if new slug collides with another project's canonical slug.
+    const slugOwner = db
+      .prepare("SELECT id FROM projects WHERE slug = ? LIMIT 1")
+      .get(nextSlug) as { id: string } | undefined;
+    if (slugOwner && slugOwner.id !== current.id) {
+      throw new OrchestrationApiError(409, "project_slug_taken", "Another project already uses this slug");
+    }
+    // Reject if new slug collides with another project's alias.
+    const aliasOwner = db
+      .prepare("SELECT project_id FROM project_slug_aliases WHERE slug_alias = ? LIMIT 1")
+      .get(nextSlug) as { project_id: string } | undefined;
+    if (aliasOwner && aliasOwner.project_id !== current.id) {
+      throw new OrchestrationApiError(409, "project_slug_taken", "Another project already uses this slug (via alias)");
+    }
   }
 
   const parsed = parseProjectSettings(current.settings_json);
@@ -332,11 +356,34 @@ export function updateProjectSettings(input: {
   };
 
   const now = new Date().toISOString();
-  db.prepare(
-    `UPDATE projects
-     SET settings_json = ?, status = ?, updated_at = ?
-     WHERE id = ?`
-  ).run(JSON.stringify(nextSettings), input.status ?? current.status, now, current.id);
+  db.transaction(() => {
+    // Record old slug as alias when slug changes.
+    if (nextSlug !== current.slug) {
+      db.prepare(
+        `INSERT OR IGNORE INTO project_slug_aliases (project_id, slug_alias, created_at)
+         VALUES (?, ?, ?)`
+      ).run(current.id, current.slug, now);
+    }
+
+    db.prepare(
+      `UPDATE projects
+       SET name = ?, slug = ?, settings_json = ?, status = ?, updated_at = ?
+       WHERE id = ?`
+    ).run(
+      input.name ?? current.name,
+      nextSlug,
+      JSON.stringify(nextSettings),
+      input.status ?? current.status,
+      now,
+      current.id
+    );
+  })();
+
+  // Invalidate edge route map cache if slug changed.
+  if (nextSlug !== current.slug) {
+    const g = globalThis as typeof globalThis & { __mcEdgeRouteMapVersion?: number };
+    g.__mcEdgeRouteMapVersion = (g.__mcEdgeRouteMapVersion ?? 0) + 1;
+  }
 
   const row = getProjectRow(db, current.id);
   if (!row) {
@@ -350,23 +397,33 @@ export function updateProjectSettings(input: {
   return { project: projectFromRow(db, row) };
 }
 
+/**
+ * Alias-aware project row resolver. Checks canonical slug first,
+ * then falls back to project_slug_aliases.
+ */
+function resolveProjectRow(db: ReturnType<typeof getOrchestrationDb>, idOrSlug: string): ProjectAggregateRow | undefined {
+  const direct = getProjectRow(db, idOrSlug);
+  if (direct) return direct;
+
+  // Fall back to slug alias.
+  const alias = db
+    .prepare("SELECT project_id FROM project_slug_aliases WHERE slug_alias = ? LIMIT 1")
+    .get(idOrSlug) as { project_id: string } | undefined;
+  if (!alias) return undefined;
+
+  return getProjectRow(db, alias.project_id);
+}
+
 export function archiveProject(projectIdOrSlug: string): {
   projectId: string;
   archivedAt: string;
 } {
   const db = getOrchestrationDb();
-  const project = db
-    .prepare(
-      `SELECT id
-       FROM projects
-       WHERE (id = ? OR slug = ?)
-       LIMIT 1`
-    )
-    .get(projectIdOrSlug, projectIdOrSlug) as { id: string } | undefined;
-
-  if (!project) {
+  const resolved = resolveProjectRow(db, projectIdOrSlug);
+  if (!resolved) {
     throw new OrchestrationApiError(404, "project_not_found", "Project not found");
   }
+  const project = { id: resolved.id };
 
   const archivedAt = new Date().toISOString();
 

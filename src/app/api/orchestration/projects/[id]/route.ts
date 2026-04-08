@@ -41,6 +41,8 @@ export async function PATCH(
     return NextResponse.json(
       updateProjectSettings({
         projectIdOrSlug: id,
+        name: parsed.name,
+        slug: parsed.slug,
         emoji: parsed.emoji,
         status: parsed.status,
         staleAlertThresholdsHours: parsed.staleAlertThresholdsHours,

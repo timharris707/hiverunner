@@ -74,11 +74,18 @@ function commentFromRow(row: CommentRow): OrchestrationApprovalComment {
 /* ── Helpers ── */
 
 function resolveCompany(db: ReturnType<typeof getOrchestrationDb>, companyIdOrSlug: string) {
+  // Try direct match (id or current slug), then fall back to stored slug alias.
   const row = db
     .prepare("SELECT id FROM companies WHERE (id = ? OR slug = ?) AND archived_at IS NULL")
     .get(companyIdOrSlug, companyIdOrSlug) as { id: string } | undefined;
-  if (!row) throw new OrchestrationApiError(404, "company_not_found", "Company not found");
-  return row.id;
+  if (row) return row.id;
+
+  const alias = db
+    .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
+    .get(companyIdOrSlug) as { company_id: string } | undefined;
+  if (alias) return alias.company_id;
+
+  throw new OrchestrationApiError(404, "company_not_found", "Company not found");
 }
 
 /* ── Approval CRUD ── */

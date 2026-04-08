@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +21,12 @@ export async function GET(request: NextRequest) {
 
     const db = getOrchestrationDb();
 
-    // Resolve company
-    const company = db
-      .prepare("SELECT id FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1")
-      .get(companySlug) as { id: string } | undefined;
-
-    if (!company) {
+    // Resolve company (alias-aware)
+    const resolved = resolveCompanyIdBySlug(companySlug, db);
+    if (!resolved) {
       return NextResponse.json({ runs: [], timestamp: new Date().toISOString() });
     }
+    const company = { id: resolved.id };
 
     // Fetch active runs + recently completed (last 2 min)
     const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();

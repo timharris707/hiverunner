@@ -12,6 +12,16 @@ type ProjectRouteRow = {
   company_slug: string;
 };
 
+type SlugAliasRow = {
+  slug_alias: string;
+  company_code: string;
+};
+
+type ProjectAliasRow = {
+  slug_alias: string;
+  canonical_slug: string;
+};
+
 export function buildEdgeRouteMaps(): EdgeRouteMaps {
   const db = getOrchestrationDb();
 
@@ -30,9 +40,28 @@ export function buildEdgeRouteMaps(): EdgeRouteMaps {
         AND TRIM(p.slug) <> ''`
   ).all() as ProjectRouteRow[];
 
+  // Include durable slug aliases so old URLs resolve after renames.
+  const aliasRows = db.prepare(
+    `SELECT a.slug_alias, c.company_code
+       FROM company_slug_aliases a
+       INNER JOIN companies c ON c.id = a.company_id
+      WHERE c.company_code IS NOT NULL
+        AND TRIM(c.company_code) <> ''`
+  ).all() as SlugAliasRow[];
+
+  // Project slug aliases: old project slug → current canonical slug.
+  const projectAliasRows = db.prepare(
+    `SELECT pa.slug_alias, p.slug AS canonical_slug
+       FROM project_slug_aliases pa
+       INNER JOIN projects p ON p.id = pa.project_id
+      WHERE p.slug IS NOT NULL
+        AND TRIM(p.slug) <> ''`
+  ).all() as ProjectAliasRow[];
+
   const companyCodeToSlug: Record<string, string> = {};
   const companySlugToCode: Record<string, string> = {};
   const projectIdToSlugByCompany: Record<string, Record<string, string>> = {};
+  const projectSlugAliasToCanonical: Record<string, string> = {};
 
   for (const row of companyRows) {
     const slug = row.slug.trim();
@@ -40,6 +69,17 @@ export function buildEdgeRouteMaps(): EdgeRouteMaps {
     if (!slug || !code) continue;
     companyCodeToSlug[code] = slug;
     companySlugToCode[slug] = code;
+  }
+
+  // Aliases map old slugs → company code, enabling legacy redirect resolution.
+  // They never overwrite the canonical slug → code mapping.
+  for (const row of aliasRows) {
+    const alias = row.slug_alias.trim();
+    const code = row.company_code.trim().toUpperCase();
+    if (!alias || !code) continue;
+    if (!companySlugToCode[alias]) {
+      companySlugToCode[alias] = code;
+    }
   }
 
   for (const row of projectRows) {
@@ -52,10 +92,18 @@ export function buildEdgeRouteMaps(): EdgeRouteMaps {
     projectIdToSlugByCompany[companySlug][row.id] = projectSlug;
   }
 
+  for (const row of projectAliasRows) {
+    const alias = row.slug_alias.trim();
+    const canonical = row.canonical_slug.trim();
+    if (!alias || !canonical) continue;
+    projectSlugAliasToCanonical[alias] = canonical;
+  }
+
   return {
     companyCodeToSlug,
     companySlugToCode,
     projectIdToSlugByCompany,
+    projectSlugAliasToCanonical,
     generatedAt: new Date().toISOString(),
   };
 }

@@ -135,6 +135,8 @@ export const createProjectSchema = z.object({
 
 export const updateProjectSettingsSchema = z
   .object({
+    name: z.string().trim().min(2).max(120).optional(),
+    slug: z.string().trim().min(2).max(120).regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).optional(),
     emoji: z.string().trim().max(8).optional(),
     status: projectStatusSchema.optional(),
     staleAlertThresholdsHours: z
@@ -147,9 +149,13 @@ export const updateProjectSettingsSchema = z
   })
   .refine(
     (value) =>
-      value.emoji !== undefined || value.status !== undefined || value.staleAlertThresholdsHours !== undefined,
+      value.name !== undefined ||
+      value.slug !== undefined ||
+      value.emoji !== undefined ||
+      value.status !== undefined ||
+      value.staleAlertThresholdsHours !== undefined,
     {
-      message: "At least one settings field must be provided",
+      message: "At least one field must be provided",
       path: [],
     }
   );

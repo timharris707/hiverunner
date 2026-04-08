@@ -23,18 +23,40 @@ const EDGE_ROUTE_MAP_CACHE_TTL_MS = 30_000;
 type EdgeRouteMapCache = {
   maps: EdgeRouteMaps;
   expiresAt: number;
+  /** Monotonic version — bumped by service layer to force immediate refresh. */
+  version: number;
+};
+
+type GlobalCacheState = {
+  __mcEdgeRouteMapCache?: EdgeRouteMapCache;
+  /** Bumped by service layer when slug aliases change. */
+  __mcEdgeRouteMapVersion?: number;
 };
 
 function getEdgeRouteMapCacheStore(): { cache?: EdgeRouteMapCache } {
-  const scoped = globalThis as typeof globalThis & { __mcEdgeRouteMapCache?: EdgeRouteMapCache };
+  const scoped = globalThis as typeof globalThis & GlobalCacheState;
   return {
     get cache() {
-      return scoped.__mcEdgeRouteMapCache;
+      const c = scoped.__mcEdgeRouteMapCache;
+      // If the service layer bumped the version, treat cache as stale.
+      if (c && scoped.__mcEdgeRouteMapVersion !== undefined && c.version !== scoped.__mcEdgeRouteMapVersion) {
+        return undefined;
+      }
+      return c;
     },
     set cache(value: EdgeRouteMapCache | undefined) {
       scoped.__mcEdgeRouteMapCache = value;
     },
   };
+}
+
+/**
+ * Invalidate the edge route map cache immediately. Called by the service layer
+ * after slug changes so the next middleware request fetches fresh maps.
+ */
+export function invalidateEdgeRouteMapCache(): void {
+  const scoped = globalThis as typeof globalThis & GlobalCacheState;
+  scoped.__mcEdgeRouteMapVersion = (scoped.__mcEdgeRouteMapVersion ?? 0) + 1;
 }
 
 function hasOwnRecord(value: unknown): value is Record<string, unknown> {
@@ -97,9 +119,11 @@ async function getEdgeRouteMaps(request: NextRequest): Promise<EdgeRouteMaps> {
       const payload = await response.json();
       if (isEdgeRouteMapsPayload(payload)) {
         const merged = withEdgeRouteMapFallback(payload);
+        const scoped = globalThis as typeof globalThis & GlobalCacheState;
         cacheStore.cache = {
           maps: merged,
           expiresAt: now + EDGE_ROUTE_MAP_CACHE_TTL_MS,
+          version: scoped.__mcEdgeRouteMapVersion ?? 0,
         };
         return merged;
       }
@@ -140,7 +164,9 @@ export function tryCanonicalRewrite(pathname: string, searchParams: URLSearchPar
       return url;
     }
 
-    const projectSlug = segments[2];
+    // Resolve project slug alias if the slug is historical.
+    const rawProjectSlug = segments[2];
+    const projectSlug = routeMaps.projectSlugAliasToCanonical[rawProjectSlug] ?? rawProjectSlug;
     if (segments.length === 3) {
       return new URL(`/companies/${encodeURIComponent(companySlug)}/projects/${encodeURIComponent(projectSlug)}`, origin);
     }
@@ -213,7 +239,13 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   const qs = new URLSearchParams(searchParams);
 
   if (!rest || rest === "/") {
-    // Don't redirect bare /companies/{slug} — let it serve the company detail page directly
+    // Preserve canonical /companies/{slug} detail routes, but redirect known legacy aliases.
+    const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
+    if (canonicalSlugForCode && canonicalSlugForCode !== companySlug) {
+      const url = new URL(`/${companyCode}/dashboard`, origin);
+      copyQuery(url, qs);
+      return url;
+    }
     return null;
   }
 

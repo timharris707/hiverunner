@@ -10,7 +10,8 @@ import type { CompanyTheme, OrchestrationCompany } from "@/lib/orchestration/typ
 import { P, color, type as T, space, radius, font } from "@/lib/ui/tokens";
 import { PageHeader, Section, PropRow, ActionButton, InfoNote } from "@/lib/ui/primitives";
 
-const PROTECTED_COMPANY_SLUGS = new Set(["neveridle-core"]);
+// Use stable company ID for protection checks, not mutable slug.
+const PROTECTED_COMPANY_IDS = new Set(["6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f"]);
 
 /* ── Types for execution / heartbeat APIs ── */
 
@@ -48,7 +49,7 @@ export default function CompanySettingsPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const isProtected = PROTECTED_COMPANY_SLUGS.has(slug);
+  const isProtected = company ? PROTECTED_COMPANY_IDS.has(company.id) : false;
   const profileDirty = useMemo(() => {
     if (!company) return false;
     return name.trim() !== company.name || description.trim() !== (company.description ?? "");

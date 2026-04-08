@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
-import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { kickoffCompany } from "@/lib/orchestration/engine/engine";
 
 export const dynamic = "force-dynamic";
@@ -11,15 +11,12 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
-    const db = getOrchestrationDb();
 
-    const company = db
-      .prepare("SELECT id FROM companies WHERE slug = ? AND archived_at IS NULL LIMIT 1")
-      .get(slug) as { id: string } | undefined;
-
-    if (!company) {
+    const resolved = resolveCompanyIdBySlug(slug);
+    if (!resolved) {
       return errorResponse(404, "company_not_found", `Company '${slug}' not found`);
     }
+    const company = { id: resolved.id };
 
     const body = await request.json().catch(() => ({}));
     const direction = typeof body.direction === "string" ? body.direction.trim() : undefined;

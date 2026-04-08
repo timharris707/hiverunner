@@ -5,6 +5,7 @@ import path from "path";
 import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
 
@@ -32,12 +33,13 @@ export async function POST(
     }
 
     const db = getOrchestrationDb();
-    
-    // Find company
-    const company = db.prepare("SELECT id, name, description, workspace_root FROM companies WHERE slug = ? AND archived_at IS NULL").get(slug) as { id: string; name: string; description: string; workspace_root: string } | undefined;
-    if (!company) {
+
+    // Find company (alias-aware)
+    const resolved = resolveCompanyIdBySlug(slug, db);
+    if (!resolved) {
       return NextResponse.json({ error: "Company not found" }, { status: 404 });
     }
+    const company = db.prepare("SELECT id, name, description, workspace_root FROM companies WHERE id = ?").get(resolved.id) as { id: string; name: string; description: string; workspace_root: string };
 
     const agentSlug = slugify(name);
     const agentWorkspacePath = path.join(company.workspace_root, "agents", agentSlug);

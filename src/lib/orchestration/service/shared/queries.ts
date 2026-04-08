@@ -26,6 +26,24 @@ import type {
   TaskWithProjectRow,
 } from "./types";
 
+/**
+ * Resolve a company ID from an opaque identifier that may be an id, current slug,
+ * or a historical slug alias. Returns the company UUID or undefined.
+ */
+function resolveCompanyId(db: Database.Database, companyIdOrSlug: string): string | undefined {
+  // Try direct match first (id or current slug).
+  const direct = db
+    .prepare("SELECT id FROM companies WHERE (id = ? OR slug = ?) AND archived_at IS NULL")
+    .get(companyIdOrSlug, companyIdOrSlug) as { id: string } | undefined;
+  if (direct) return direct.id;
+
+  // Fall back to stored slug alias.
+  const alias = db
+    .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
+    .get(companyIdOrSlug) as { company_id: string } | undefined;
+  return alias?.company_id;
+}
+
 function generateTaskKey(db: Database.Database, projectId: string): { taskNumber: number; taskKey: string } {
   const companyRow = db
     .prepare(
@@ -566,6 +584,7 @@ export {
   projectFromRow,
   refreshAgentLoad,
   resolveAssigneeAgent,
+  resolveCompanyId,
   resolveProjectAvatarTheme,
   resolveSingleEligibleAssignee,
   sprintById,
