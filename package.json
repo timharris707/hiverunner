@@ -10,6 +10,8 @@
     "mc": "npx tsx scripts/mc.ts",
     "orchestration:migrate": "npx tsx scripts/orchestration-migrate.ts",
     "orchestration:seed": "npx tsx scripts/orchestration-seed.ts",
+    "orchestration:cleanup": "npx tsx scripts/cleanup-test-artifacts.ts",
+    "orchestration:cleanup:apply": "npx tsx scripts/cleanup-test-artifacts.ts --apply",
     "ideas:migrate-json-to-sqlite": "npx tsx scripts/ideas-json-to-sqlite.ts",
     "test:build-state": "node --import ./scripts/register-ts-paths.mjs src/lib/__tests__/build-state-terminal-transitions.test.ts",
     "test:orchestration:bridge": "ORCHESTRATION_DB_PATH=/tmp/orchestration-bridge-error-handling.db npx tsx src/lib/__tests__/orchestration-bridge-error-handling.test.ts",
