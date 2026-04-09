@@ -248,67 +248,74 @@ export async function POST(req: NextRequest) {
        VALUES (?, ?, ?, ?, ?, 'active', ?, 'provisioned', ?, ?)`,
     ).run(companyId, companySlug, companyCode, company.name.trim(), company.description?.trim() || "", workspacePath, now, now);
 
-    // ---------- 3. Create project (if provided) ----------
-    let projectId: string | null = null;
-    let projectSlug: string | null = null;
-    if (project && project.name?.trim()) {
-      projectId = randomUUID();
-      // Slug uniqueness is company-scoped (migration v40).
-      const rootProjectSlug = slugify(project.name);
-      projectSlug = rootProjectSlug;
-      let slugSuffix = 1;
-      while (
-        db.prepare(
-          "SELECT 1 FROM projects WHERE company_id = ? AND slug = ? AND archived_at IS NULL LIMIT 1"
-        ).get(companyId, projectSlug)
-      ) {
-        slugSuffix++;
-        projectSlug = `${rootProjectSlug}-${slugSuffix}`;
-      }
-      const projectDir = path.join(workspacePath, "projects", projectSlug);
-      fs.mkdirSync(projectDir, { recursive: true });
+    // ---------- 3. Create project ----------
+    // If the user provided a project, use it. Otherwise auto-create a
+    // default "Operations" project so the first task always has a home.
+    const effectiveProject = (project && project.name?.trim())
+      ? { name: project.name.trim(), description: project.description?.trim() || "", status: project.status || "active" }
+      : { name: "Operations", description: "Default project for company operations and CEO directives.", status: "active" };
 
+    const projectId = randomUUID();
+    // Slug uniqueness is company-scoped (migration v40).
+    const rootProjectSlug = slugify(effectiveProject.name);
+    let projectSlug = rootProjectSlug;
+    let slugSuffix = 1;
+    while (
       db.prepare(
-        `INSERT INTO projects
-          (id, slug, name, description, status, company_id, settings_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
-      ).run(
-        projectId,
-        projectSlug,
-        project.name.trim(),
-        project.description?.trim() || "",
-        project.status || "active",
-        companyId,
-        now,
-        now,
-      );
+        "SELECT 1 FROM projects WHERE company_id = ? AND slug = ? AND archived_at IS NULL LIMIT 1"
+      ).get(companyId, projectSlug)
+    ) {
+      slugSuffix++;
+      projectSlug = `${rootProjectSlug}-${slugSuffix}`;
     }
+    const projectDir = path.join(workspacePath, "projects", projectSlug);
+    fs.mkdirSync(projectDir, { recursive: true });
+
+    db.prepare(
+      `INSERT INTO projects
+        (id, slug, name, description, status, company_id, settings_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)`,
+    ).run(
+      projectId,
+      projectSlug,
+      effectiveProject.name,
+      effectiveProject.description,
+      effectiveProject.status,
+      companyId,
+      now,
+      now,
+    );
 
     // ---------- 4. Register CEO agent in OpenClaw ----------
     const ceoSlug = slugify(ceo.name.trim());
     const ceoWorkspacePath = path.join(workspacePath, "agents", ceoSlug);
     fs.mkdirSync(ceoWorkspacePath, { recursive: true });
     const model = ceo.model || "anthropic/claude-sonnet-4-6";
+
+    // Generate the orchestration agent ID first — it doubles as the
+    // immutable OpenClaw runtime identifier via the "mc-{uuid}" convention.
+    // This is rename-safe: renaming the company or agent display name has
+    // no effect on the runtime identity, and UUIDs cannot collide globally.
+    const agentId = randomUUID();
+    const openclawRuntimeId = `mc-${agentId}`;
     let openclawAgentId: string | null = null;
 
     try {
-      const cmd = `openclaw agents add ${ceoSlug} --workspace "${ceoWorkspacePath}" --model "${model}" --non-interactive --json`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 30000 });
+      const cmd = `openclaw agents add ${openclawRuntimeId} --workspace "${ceoWorkspacePath}" --model "${model}" --non-interactive --json`;
+      const output = execSync(cmd, { encoding: "utf-8", timeout: 60000 });
       try {
         const parsed = JSON.parse(output);
-        openclawAgentId = parsed.id || parsed.agentId || parsed.agent_id || null;
+        openclawAgentId = parsed.agentId || parsed.id || parsed.agent_id || null;
       } catch {
-        // JSON parse failed — try to extract ID from output
         const match = output.match(/[0-9a-f]{8,}/i);
         if (match) openclawAgentId = match[0];
       }
-    } catch {
-      // openclaw CLI not available or failed — continue without it
-      console.warn("[create-full] openclaw agents add failed — continuing without OpenClaw registration");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[create-full] openclaw agents add failed for "${openclawRuntimeId}": ${msg}`);
     }
 
     // ---------- 5. Create agent in orchestration DB ----------
-    const agentId = randomUUID();
     const ceoPersonality = `CEO of ${company.name.trim()}. ${company.description?.trim() || ""}`.trim();
     const ceoAvatarUrl = generateAgentAvatarDataUrl({
       name: ceo.name.trim(),
@@ -379,41 +386,56 @@ export async function POST(req: NextRequest) {
     // ---------- 8. Create first task ----------
     const taskId = randomUUID();
     const dbPriority = PRIORITY_MAP[task.priority] || "high";
-
-    if (projectId) {
-      const { taskNumber, taskKey } = generateTaskKey(db, projectId);
-      db.prepare(
-        `INSERT INTO tasks
-          (id, project_id, task_key, task_number, title, description, priority, type, status, assignee_agent_id, assigned_at, created_by, execution_mode, labels_json, depends_on_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'directive', 'backlog', ?, ?, 'mission-control', 'manual', '[]', '[]', ?, ?)`,
-      ).run(
-        taskId,
-        projectId,
-        taskKey,
-        taskNumber,
-        task.title.trim(),
-        task.description?.trim() || "",
-        dbPriority,
-        agentId,
-        now,
-        now,
-        now,
-      );
-    }
+    const { taskNumber, taskKey } = generateTaskKey(db, projectId);
+    db.prepare(
+      `INSERT INTO tasks
+        (id, project_id, task_key, task_number, title, description, priority, type, status, assignee_agent_id, assigned_at, created_by, execution_mode, labels_json, depends_on_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'directive', 'backlog', ?, ?, 'mission-control', 'manual', '[]', '[]', ?, ?)`,
+    ).run(
+      taskId,
+      projectId,
+      taskKey,
+      taskNumber,
+      task.title.trim(),
+      task.description?.trim() || "",
+      dbPriority,
+      agentId,
+      now,
+      now,
+      now,
+    );
 
     // ---------- 9. Refresh edge route map cache ----------
     refreshEdgeRouteMapCache();
+
+    // ---------- 9b. Wake up CEO to begin executing first task ----------
+    // Insert wakeup + heartbeat-run records directly (avoids self-fetch
+    // failures in production mode and circular import from engine.ts).
+    try {
+      const wakeupId = randomUUID();
+      const runId = randomUUID();
+      db.prepare(
+        `INSERT INTO agent_wakeup_requests
+           (id, agent_id, company_id, source, reason, payload_json, status, run_id, requested_at, created_at, updated_at)
+         VALUES (?, ?, ?, 'api', 'Initial CEO wakeup after company creation', '{}', 'queued', ?, ?, ?, ?)`
+      ).run(wakeupId, agentId, companyId, runId, now, now, now);
+      db.prepare(
+        `INSERT INTO heartbeat_runs
+           (id, agent_id, company_id, invocation_source, status, wakeup_request_id, context_snapshot_json, created_at, updated_at)
+         VALUES (?, ?, ?, 'kickoff', 'queued', ?, '{}', ?, ?)`
+      ).run(runId, agentId, companyId, wakeupId, now, now);
+    } catch (wakeupError) {
+      console.warn("[create-full] CEO wakeup insert failed (non-fatal):", wakeupError);
+    }
 
     // ---------- 10. Return success ----------
     return NextResponse.json(
       {
         success: true,
-        company: { id: companyId, slug: companySlug, name: company.name.trim() },
-        project: projectId
-          ? { id: projectId, slug: projectSlug, name: project.name.trim() }
-          : null,
+        company: { id: companyId, slug: companySlug, code: companyCode, name: company.name.trim() },
+        project: { id: projectId, slug: projectSlug, name: effectiveProject.name },
         agent: { id: agentId, name: ceo.name.trim(), openclawAgentId },
-        task: projectId ? { id: taskId, title: task.title.trim() } : null,
+        task: { id: taskId, title: task.title.trim() },
         workspace: workspacePath,
         agentDir,
         filesCreated: [

@@ -158,7 +158,7 @@ function StepReview({ data }: { data: WizardData }) {
   );
 }
 
-export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated?: () => void }) {
+export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated?: (companyCode?: string) => void }) {
   const [step, setStep] = useState(1);
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -169,8 +169,8 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
     project: null,
     ceo: { name: "", model: "anthropic/claude-sonnet-4-6", guidance: "" },
     task: {
-      title: "Review company mission and create initial plan",
-      description: "Read the company mission and all available context. Understand the project (if any). Create an execution plan with clear priorities, milestones, and next steps. Write your plan to memory.",
+      title: "Hire your first engineer and set up the company for execution",
+      description: "You are the founding CEO. Get this company operational:\n1. Hire one engineer agent to be your first teammate.\n2. Create your first project to organize the work.\n3. Break the company mission into 2-3 concrete tasks and assign them.\n4. Write a short operating plan to memory.\nDo not just plan — take real actions: hire, create, assign, delegate.",
       priority: "P1",
     },
   });
@@ -248,8 +248,9 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
       const res = await fetch("/api/orchestration/companies/create-full", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
+      const companyCode = json.company?.code;
       reset();
-      onCreated?.();
+      onCreated?.(companyCode);
       onClose();
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");

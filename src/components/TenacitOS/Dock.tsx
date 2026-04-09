@@ -1604,8 +1604,12 @@ export function Dock() {
       <CreateCompanyModal
         open={createCompanyOpen}
         onClose={() => setCreateCompanyOpen(false)}
-        onCreated={() => {
-          router.refresh();
+        onCreated={(companyCode) => {
+          if (companyCode) {
+            router.push(`/${companyCode}/dashboard`);
+          } else {
+            router.refresh();
+          }
         }}
       />
       <CreateTaskModal

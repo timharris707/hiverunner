@@ -281,8 +281,8 @@ export default function CompanyOnboardingWizard() {
     project: null,
     ceo: { name: "", model: "anthropic/claude-sonnet-4-6", guidance: "" },
     task: {
-      title: "Review company mission and create initial plan",
-      description: "Read the company mission and all available context. Understand the project (if any). Create an execution plan with clear priorities, milestones, and next steps. Write your plan to memory.",
+      title: "Hire your first engineer and set up the company for execution",
+      description: "You are the founding CEO. Get this company operational:\n1. Hire one engineer agent to be your first teammate.\n2. Create your first project to organize the work.\n3. Break the company mission into 2-3 concrete tasks and assign them.\n4. Write a short operating plan to memory.\nDo not just plan — take real actions: hire, create, assign, delegate.",
       priority: "P1",
     },
   });

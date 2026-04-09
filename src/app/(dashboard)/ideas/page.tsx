@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { Suspense, useState, useEffect, useMemo, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { buildTimestampedVideoUrl, normalizeVideoTimestampLabel } from "@/lib/ideas-processing";
@@ -1806,7 +1806,15 @@ function ReviewCard({
 
 /* ── main page ─────────────────────────────────────────────────── */
 
-export default function IdeasPage() {
+export default function IdeasPageWrapper() {
+  return (
+    <Suspense fallback={<div style={{ padding: 32 }}>Loading...</div>}>
+      <IdeasPage />
+    </Suspense>
+  );
+}
+
+function IdeasPage() {
   const searchParams = useSearchParams();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);

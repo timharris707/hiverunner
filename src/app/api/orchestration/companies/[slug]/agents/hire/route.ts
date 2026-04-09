@@ -45,37 +45,29 @@ export async function POST(
     const agentWorkspacePath = path.join(company.workspace_root, "agents", agentSlug);
     fs.mkdirSync(agentWorkspacePath, { recursive: true });
     const agentModel = model || "anthropic/claude-sonnet-4-6";
+
+    // Generate the orchestration agent ID first — it doubles as the
+    // immutable OpenClaw runtime identifier via the "mc-{uuid}" convention.
+    // This is rename-safe and collision-free by construction.
+    const now = new Date().toISOString();
+    const agentId = randomUUID();
+    const openclawRuntimeId = `mc-${agentId}`;
     let openclawAgentId: string | null = null;
 
     try {
-      const cmd = `openclaw agents add ${agentSlug} --workspace "${agentWorkspacePath}" --model "${agentModel}" --non-interactive --json`;
-      const output = execSync(cmd, { encoding: "utf-8", timeout: 30000 });
+      const cmd = `openclaw agents add ${openclawRuntimeId} --workspace "${agentWorkspacePath}" --model "${agentModel}" --non-interactive --json`;
+      const output = execSync(cmd, { encoding: "utf-8", timeout: 60000 });
       try {
         const parsed = JSON.parse(output);
-        openclawAgentId =
-          (typeof parsed.id === "string" && parsed.id.trim()) ||
-          (typeof parsed.agentId === "string" && parsed.agentId.trim()) ||
-          (typeof parsed.agent_id === "string" && parsed.agent_id.trim()) ||
-          agentSlug;
+        openclawAgentId = parsed.agentId || parsed.id || parsed.agent_id || null;
       } catch {
-        openclawAgentId = agentSlug;
+        const match = output.match(/[0-9a-f]{8,}/i);
+        if (match) openclawAgentId = match[0];
       }
-    } catch (e) {
-      console.warn("[agents/hire] openclaw agents add failed", e);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[agents/hire] openclaw agents add failed for "${openclawRuntimeId}": ${msg}`);
     }
-
-    // Ensure openclaw_agent_id uniqueness — if the same agent name exists in
-    // another company the UNIQUE constraint would fail. Append company slug to
-    // disambiguate when there's a collision.
-    if (openclawAgentId) {
-      const existing = db.prepare("SELECT 1 FROM agents WHERE openclaw_agent_id = ? LIMIT 1").get(openclawAgentId);
-      if (existing) {
-        openclawAgentId = `${openclawAgentId}-${resolved.slug.slice(0, 12)}`;
-      }
-    }
-
-    const now = new Date().toISOString();
-    const agentId = randomUUID();
 
     const resolvedEmoji = typeof emoji === "string" && emoji.trim() ? emoji.trim() : "pixel";
     const requestedReportsTo = typeof reportsTo === "string" && reportsTo.trim() ? reportsTo.trim() : "";
