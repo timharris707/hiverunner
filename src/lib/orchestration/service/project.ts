@@ -27,7 +27,9 @@ export function listProjects(input?: {
   const db = getOrchestrationDb();
   let scopedCompanyId: string | null = null;
   const includeArchived = input?.includeArchived ?? false;
-  const includeNonProduction = input?.includeNonProduction ?? false;
+  // When scoped to a specific company, always show all its projects.
+  // The non-production filter is only meaningful for the global unscoped list.
+  const includeNonProduction = input?.companyIdOrSlug ? true : (input?.includeNonProduction ?? false);
   const whereParts = [includeArchived ? "1=1" : "p.archived_at IS NULL"];
   const args: unknown[] = [];
 

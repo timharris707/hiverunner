@@ -812,7 +812,10 @@ export function Dock() {
       if (mode === "initial") {
         setProjectsLoading((prev) => projects.length === 0 ? true : prev);
       }
-      const rows = await listProjects({ company: company.slug });
+      // includeNonProduction: the company itself is the scoping boundary.
+      // Without this, projects whose description contains tokens like "test"
+      // are silently hidden from the Dock, causing "No projects found".
+      const rows = await listProjects({ company: company.slug, includeNonProduction: true });
       if (cancelled) return;
       const sorted = rows.sort((a, b) => a.name.localeCompare(b.name));
       const visibleSorted = sorted.filter((project) => !hiddenProjects[project.id]);

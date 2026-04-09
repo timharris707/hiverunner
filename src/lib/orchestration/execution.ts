@@ -1386,46 +1386,33 @@ export async function triggerTaskExecution(
       };
     }
 
-    try {
-      const spawnResult = await spawnOpenClawTaskSession(task.id, run.id, db);
+    // Route execution through the engine tick pipeline instead of spawning
+    // a fire-and-forget OpenClaw session directly. The engine tick's
+    // executeHeartbeatRun() properly awaits completion and bridges the
+    // result back to execution_runs via finishRun(). It finds the
+    // execution_run we just created (status='pending') and reuses its ID.
+    const wake = enqueueWakeup(
+      {
+        agentId: task.assigneeAgentId,
+        companyId: task.companyId,
+        source: "issue_assigned",
+        reason: input.reason ?? "task_created_in_progress",
+        payload: { taskId: task.id, executionRunId: run.id },
+        idempotencyKey: normalizedIdempotencyKey,
+      },
+      db
+    );
 
-      // Also enqueue a wakeup so the engine tick runs a heartbeat for this
-      // agent. The heartbeat execution path in executeHeartbeatRun() properly
-      // bridges completion back to execution_runs via finishRun(). Without
-      // this, the fire-and-forget spawn leaves execution_runs stuck at
-      // 'running' forever.
-      try {
-        enqueueWakeup(
-          {
-            agentId: task.assigneeAgentId,
-            companyId: task.companyId,
-            source: "issue_assigned",
-            reason: input.reason ?? "task_execution_heartbeat_bridge",
-            payload: { taskId: task.id, executionRunId: run.id },
-            idempotencyKey: input.idempotencyKey
-              ? `${input.idempotencyKey}:hb-bridge`
-              : undefined,
-          },
-          db
-        );
-      } catch {
-        // Non-fatal: wakeup enqueue failed, execution_run will need manual
-        // recovery but the spawn itself succeeded.
-      }
-
-      return spawnResult;
-    } catch (error) {
-      updateExecutionRun(
-        run.id,
-        {
-          status: "failed",
-          completedAt: new Date().toISOString(),
-          errorMessage: error instanceof Error ? error.message : String(error),
-        },
-        db
-      );
-      throw error;
-    }
+    return {
+      taskId: task.id,
+      mode: "openclaw",
+      queued: true,
+      status: wake.status === "coalesced" ? "queued" : wake.status,
+      runId: wake.heartbeatRunId || undefined,
+      reason: wake.status === "coalesced"
+        ? "idempotency_key_reused"
+        : (input.reason ?? "task_created_in_progress"),
+    };
   }
 
   const { run, reused } = createExecutionRunWithIdempotencyRecovery(
