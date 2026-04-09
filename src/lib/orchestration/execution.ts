@@ -1387,7 +1387,33 @@ export async function triggerTaskExecution(
     }
 
     try {
-      return await spawnOpenClawTaskSession(task.id, run.id, db);
+      const spawnResult = await spawnOpenClawTaskSession(task.id, run.id, db);
+
+      // Also enqueue a wakeup so the engine tick runs a heartbeat for this
+      // agent. The heartbeat execution path in executeHeartbeatRun() properly
+      // bridges completion back to execution_runs via finishRun(). Without
+      // this, the fire-and-forget spawn leaves execution_runs stuck at
+      // 'running' forever.
+      try {
+        enqueueWakeup(
+          {
+            agentId: task.assigneeAgentId,
+            companyId: task.companyId,
+            source: "issue_assigned",
+            reason: input.reason ?? "task_execution_heartbeat_bridge",
+            payload: { taskId: task.id, executionRunId: run.id },
+            idempotencyKey: input.idempotencyKey
+              ? `${input.idempotencyKey}:hb-bridge`
+              : undefined,
+          },
+          db
+        );
+      } catch {
+        // Non-fatal: wakeup enqueue failed, execution_run will need manual
+        // recovery but the spawn itself succeeded.
+      }
+
+      return spawnResult;
     } catch (error) {
       updateExecutionRun(
         run.id,

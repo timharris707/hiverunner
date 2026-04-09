@@ -775,7 +775,7 @@ export async function executeHeartbeatRun(
     result = await executeViaOpenClaw(agent, prompt, session, runtimeState);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return finishRun(runId, run, "failed", message, startTime, db);
+    return finishRun(runId, run, "failed", message, startTime, db, undefined, executionRunId);
   }
 
   // Capture session telemetry
@@ -892,7 +892,8 @@ export async function executeHeartbeatRun(
     result.error ?? null,
     startTime,
     db,
-    result.sessionId
+    result.sessionId,
+    executionRunId
   );
 }
 
@@ -2142,7 +2143,8 @@ function finishRun(
   error: string | null,
   startTime: number,
   db: Database.Database,
-  sessionId?: string
+  sessionId?: string,
+  executionRunId?: string | null
 ): ExecuteHeartbeatResult {
   const now = new Date().toISOString();
   const durationMs = Date.now() - startTime;
@@ -2160,6 +2162,22 @@ function finishRun(
     db.prepare(
       `UPDATE agent_wakeup_requests SET status = ?, finished_at = ?, updated_at = ? WHERE id = ?`
     ).run(wakeStatus, now, now, run.wakeup_request_id);
+  }
+
+  // Bridge: also finalize the corresponding execution_run so the MC dashboard
+  // reflects completion. Without this, execution_runs stay stuck at 'running'.
+  if (executionRunId) {
+    const execStatus = status === "succeeded" ? "completed" : "failed";
+    try {
+      db.prepare(
+        `UPDATE execution_runs
+         SET status = ?, completed_at = ?, duration_ms = ?,
+             error_message = ?, updated_at = ?
+         WHERE id = ? AND status IN ('pending', 'running')`
+      ).run(execStatus, now, durationMs, error, now, executionRunId);
+    } catch {
+      // Non-fatal: execution_run bridge update failed
+    }
   }
 
   return {
