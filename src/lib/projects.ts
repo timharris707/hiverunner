@@ -7,7 +7,11 @@ function readTasksSafely() {
   try {
     return readTasks();
   } catch (error) {
-    console.error("[projects] Falling back to empty tasks after readTasks failure:", error);
+    // Legacy tasks.db read — degrade gracefully but log loudly.
+    // This is the OLD task system (build-queue / tasks.db). Its failure must
+    // not crash the app or block project enrichment. The live task
+    // experience now runs on orchestration.db via /api/orchestration/tasks.
+    console.error("[projects] LEGACY tasks.db read failed — returning [] (legacy system degradation):", error);
     return [];
   }
 }

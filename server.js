@@ -218,6 +218,31 @@ app.prepare().then(() => {
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
     console.log(`> Snapshot poll: ${snapshotIntervalMs / 1000}s`);
 
+    // ── DB health check ──
+    // Log critical row counts at boot so unexpected drops (e.g. tasks going
+    // to 0 after a cleanup or promotion) are immediately visible in the log.
+    setTimeout(() => {
+      try {
+        const Database = require("better-sqlite3");
+        const orchDbPath = path.join(mcDataDir, "orchestration.db");
+        const db = new Database(orchDbPath, { readonly: true });
+        const q = (sql) => db.prepare(sql).get().n;
+        const counts = {
+          companies: q("SELECT COUNT(*) as n FROM companies"),
+          projects: q("SELECT COUNT(*) as n FROM projects"),
+          agents: q("SELECT COUNT(*) as n FROM agents WHERE archived_at IS NULL"),
+          tasks: q("SELECT COUNT(*) as n FROM tasks"),
+        };
+        db.close();
+        console.log(`> DB health: ${counts.companies} companies, ${counts.projects} projects, ${counts.agents} agents, ${counts.tasks} tasks`);
+        if (counts.tasks === 0 && counts.projects > 0) {
+          console.warn("> WARNING: 0 tasks in a system with active projects — verify this is intentional");
+        }
+      } catch (e) {
+        console.warn("> DB health check failed:", e.message || e);
+      }
+    }, 500);
+
     // Pre-warm edge route maps: populate the globalThis cache so the middleware
     // can resolve canonical company-code routes (e.g. /MER/org → /companies/meridian-labs/org)
     // without needing a self-fetch. The middleware and server share globalThis.

@@ -11,7 +11,11 @@ function readTasksSafely(): any[] {
   try {
     return readTasks();
   } catch (error) {
-    console.error("[realtime-snapshot] Falling back to empty tasks after readTasks failure:", error);
+    // Legacy tasks.db read — degrade gracefully but log loudly.
+    // This is the OLD task system (build-queue / tasks.db). Its failure must
+    // not crash the app or block the realtime snapshot. The live task
+    // experience now runs on orchestration.db via /api/orchestration/tasks.
+    console.error("[realtime-snapshot] LEGACY tasks.db read failed — returning [] (legacy system degradation):", error);
     return [];
   }
 }

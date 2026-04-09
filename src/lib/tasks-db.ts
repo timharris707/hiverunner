@@ -94,67 +94,86 @@ export function getDb(): Database.Database {
     fs.mkdirSync(dataDir, { recursive: true });
   }
 
-  _db = new Database(DB_PATH);
-
-  // WAL mode: writes go to WAL file first, then checkpoint to main DB.
-  // On crash, SQLite replays uncommitted WAL entries automatically on next open.
-  _db.pragma('journal_mode = WAL');
-  _db.pragma('synchronous = NORMAL');
-  _db.pragma('foreign_keys = ON');
-  // Reduce transient SQLITE_BUSY failures when API routes and background
-  // reconciler writes overlap under e2e load.
-  _db.pragma('busy_timeout = 5000');
-
-  _db.exec(`
-    CREATE TABLE IF NOT EXISTS tasks (
-      id      TEXT PRIMARY KEY,
-      data    TEXT NOT NULL,
-      status  TEXT NOT NULL,
-      project TEXT,
-      updated TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
-    CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
-    CREATE INDEX IF NOT EXISTS idx_tasks_updated ON tasks(updated DESC);
-
-    -- Application-level transition journal.
-    -- Written by transitionTask() BEFORE the task row is updated.
-    -- If the DB has task.status != the latest to_status, the transition
-    -- was lost in a crash and _replayCheck() will re-apply it on startup.
-    CREATE TABLE IF NOT EXISTS task_transitions (
-      id          TEXT PRIMARY KEY,
-      task_id     TEXT NOT NULL,
-      from_status TEXT NOT NULL,
-      to_status   TEXT NOT NULL,
-      actor       TEXT NOT NULL DEFAULT 'pipeline',
-      reason      TEXT,
-      ts          TEXT NOT NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_transitions_task_id ON task_transitions(task_id);
-    CREATE INDEX IF NOT EXISTS idx_transitions_ts      ON task_transitions(ts DESC);
-
-    -- Snapshot log: records every WAL checkpoint performed.
-    CREATE TABLE IF NOT EXISTS snapshots (
-      id         TEXT PRIMARY KEY,
-      ts         TEXT NOT NULL,
-      task_count INTEGER NOT NULL,
-      note       TEXT
-    );
-  `);
-
-  // Migrate from tasks.json on first run (DB is fresh / empty).
-  // Skip JSON backfill when MC_DATA_DIR is explicitly set (e.g., data-dev)
-  // so non-default data directories start with a clean slate.
-  const count = (_db.prepare('SELECT COUNT(*) as n FROM tasks').get() as { n: number }).n;
-  if (count === 0 && !MC_DATA_DIR_IS_NON_DEFAULT) {
-    _migrateFromJson(_db);
+  // Legacy tasks.db initialization. If the file is corrupt or unreadable,
+  // log loudly but do NOT let the error propagate — this is the old task
+  // system and its failure must not take down the app. Callers that get
+  // a thrown error here will hit the readTasksSafely() catch in
+  // realtime-snapshot.ts / projects.ts and degrade to empty legacy tasks.
+  try {
+    _db = new Database(DB_PATH);
+  } catch (e) {
+    console.error(`[tasks-db] LEGACY DB OPEN FAILED (${DB_PATH}):`, e);
+    throw e;
   }
 
-  // Crash replay: detect transitions journaled but not yet reflected in tasks.
-  _replayCheck(_db);
-  _normalizeStoredTaskStatuses(_db);
+  try {
+    // WAL mode: writes go to WAL file first, then checkpoint to main DB.
+    // On crash, SQLite replays uncommitted WAL entries automatically on next open.
+    _db.pragma('journal_mode = WAL');
+    _db.pragma('synchronous = NORMAL');
+    _db.pragma('foreign_keys = ON');
+    // Reduce transient SQLITE_BUSY failures when API routes and background
+    // reconciler writes overlap under e2e load.
+    _db.pragma('busy_timeout = 5000');
+
+    _db.exec(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id      TEXT PRIMARY KEY,
+        data    TEXT NOT NULL,
+        status  TEXT NOT NULL,
+        project TEXT,
+        updated TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_tasks_status  ON tasks(status);
+      CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project);
+      CREATE INDEX IF NOT EXISTS idx_tasks_updated ON tasks(updated DESC);
+
+      -- Application-level transition journal.
+      -- Written by transitionTask() BEFORE the task row is updated.
+      -- If the DB has task.status != the latest to_status, the transition
+      -- was lost in a crash and _replayCheck() will re-apply it on startup.
+      CREATE TABLE IF NOT EXISTS task_transitions (
+        id          TEXT PRIMARY KEY,
+        task_id     TEXT NOT NULL,
+        from_status TEXT NOT NULL,
+        to_status   TEXT NOT NULL,
+        actor       TEXT NOT NULL DEFAULT 'pipeline',
+        reason      TEXT,
+        ts          TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_transitions_task_id ON task_transitions(task_id);
+      CREATE INDEX IF NOT EXISTS idx_transitions_ts      ON task_transitions(ts DESC);
+
+      -- Snapshot log: records every WAL checkpoint performed.
+      CREATE TABLE IF NOT EXISTS snapshots (
+        id         TEXT PRIMARY KEY,
+        ts         TEXT NOT NULL,
+        task_count INTEGER NOT NULL,
+        note       TEXT
+      );
+    `);
+
+    // Migrate from tasks.json on first run (DB is fresh / empty).
+    // Skip JSON backfill when MC_DATA_DIR is explicitly set (e.g., data-dev)
+    // so non-default data directories start with a clean slate.
+    const count = (_db.prepare('SELECT COUNT(*) as n FROM tasks').get() as { n: number }).n;
+    if (count === 0 && !MC_DATA_DIR_IS_NON_DEFAULT) {
+      _migrateFromJson(_db);
+    }
+
+    // Crash replay: detect transitions journaled but not yet reflected in tasks.
+    _replayCheck(_db);
+    _normalizeStoredTaskStatuses(_db);
+  } catch (e) {
+    // Schema creation, migration, or replay failed — likely SQLITE_CORRUPT.
+    // Close the broken handle so the next getDb() attempt can retry.
+    console.error(`[tasks-db] LEGACY DB INIT FAILED (${DB_PATH}) — closing handle:`, e);
+    try { _db.close(); } catch { /* ignore close errors */ }
+    _db = null;
+    throw e;
+  }
 
   return _db;
 }

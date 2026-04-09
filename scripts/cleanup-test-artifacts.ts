@@ -256,6 +256,16 @@ if (!apply) {
   process.exit(0);
 }
 
+// ── Pre-mutation backup ────────────────────────────────────────────────
+// Automatically snapshot orchestration.db before any destructive operation.
+// This ensures a known-good restore point exists regardless of how the
+// script is invoked.
+const backupTimestamp = new Date().toISOString().replace(/[:.]/g, "").slice(0, 15);
+const backupPath = DB_PATH + `.backup-${backupTimestamp}-before-cleanup`;
+fs.copyFileSync(DB_PATH, backupPath);
+console.log(`Pre-cleanup backup: ${backupPath}`);
+console.log("");
+
 let deletedCompanies = 0;
 let deletedWorkspaces = 0;
 let deletedProjects = 0;
@@ -288,7 +298,7 @@ db.prepare("DELETE FROM project_slug_aliases WHERE project_id NOT IN (SELECT id 
 
 console.log(`Deleted: ${deletedCompanies} companies, ${deletedWorkspaces} workspaces, ${deletedProjects} NEV test projects`);
 
-// ── Final inventory ─────────────────────────────────────────────────────
+// ── Post-cleanup inventory and safety check ─────────────────────────────
 
 const remaining = db
   .prepare("SELECT slug, company_code FROM companies ORDER BY slug")
@@ -300,3 +310,22 @@ for (const co of remaining) {
 
 const nevProjectCount = (db.prepare("SELECT COUNT(*) as c FROM projects WHERE company_id = ?").get(DEFAULT_COMPANY_ID) as { c: number }).c;
 console.log(`NEV projects remaining: ${nevProjectCount}`);
+
+// Row count drop check: warn if tasks dropped to 0 in a system that still
+// has active projects, or if the total task count dropped by more than 50%.
+const preBackupDb = new Database(backupPath, { readonly: true });
+const preTasks = (preBackupDb.prepare("SELECT COUNT(*) as c FROM tasks").get() as { c: number }).c;
+preBackupDb.close();
+const postTasks = (db.prepare("SELECT COUNT(*) as c FROM tasks").get() as { c: number }).c;
+const postProjects = (db.prepare("SELECT COUNT(*) as c FROM projects").get() as { c: number }).c;
+
+console.log(`\nTask count: ${preTasks} -> ${postTasks}`);
+if (postTasks === 0 && postProjects > 0) {
+  console.warn("WARNING: task count is now 0 but projects still exist.");
+  console.warn("         If this is unintended, restore from: " + backupPath);
+}
+if (preTasks > 0 && postTasks < preTasks * 0.5) {
+  console.warn(`WARNING: task count dropped by more than 50% (${preTasks} -> ${postTasks}).`);
+  console.warn("         Verify no legitimate tasks were deleted.");
+  console.warn("         Restore from: " + backupPath);
+}
