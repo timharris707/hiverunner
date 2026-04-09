@@ -253,7 +253,18 @@ export async function POST(req: NextRequest) {
     let projectSlug: string | null = null;
     if (project && project.name?.trim()) {
       projectId = randomUUID();
-      projectSlug = slugify(project.name);
+      // Slug uniqueness is company-scoped (migration v40).
+      const rootProjectSlug = slugify(project.name);
+      projectSlug = rootProjectSlug;
+      let slugSuffix = 1;
+      while (
+        db.prepare(
+          "SELECT 1 FROM projects WHERE company_id = ? AND slug = ? AND archived_at IS NULL LIMIT 1"
+        ).get(companyId, projectSlug)
+      ) {
+        slugSuffix++;
+        projectSlug = `${rootProjectSlug}-${slugSuffix}`;
+      }
       const projectDir = path.join(workspacePath, "projects", projectSlug);
       fs.mkdirSync(projectDir, { recursive: true });
 

@@ -139,11 +139,18 @@ export function createProject(input: {
     throw new OrchestrationApiError(400, "invalid_slug", "Unable to derive project slug from name");
   }
 
+  // Slug uniqueness is company-scoped (migration v40).
   let slug = rootSlug;
   let i = 1;
   while (
-    db.prepare("SELECT 1 FROM projects WHERE slug = ? LIMIT 1").get(slug) ||
-    db.prepare("SELECT 1 FROM project_slug_aliases WHERE slug_alias = ? LIMIT 1").get(slug)
+    db.prepare(
+      "SELECT 1 FROM projects WHERE company_id = ? AND slug = ? AND archived_at IS NULL LIMIT 1"
+    ).get(input.companyId, slug) ||
+    db.prepare(
+      `SELECT 1 FROM project_slug_aliases pa
+       JOIN projects p ON p.id = pa.project_id
+       WHERE p.company_id = ? AND pa.slug_alias = ? LIMIT 1`
+    ).get(input.companyId, slug)
   ) {
     i += 1;
     slug = `${rootSlug}-${i}`;
@@ -325,17 +332,23 @@ export function updateProjectSettings(input: {
   }
 
   if (nextSlug !== current.slug) {
-    // Reject if new slug collides with another project's canonical slug.
+    // Reject if new slug collides with another project in the SAME company.
     const slugOwner = db
-      .prepare("SELECT id FROM projects WHERE slug = ? LIMIT 1")
-      .get(nextSlug) as { id: string } | undefined;
+      .prepare(
+        "SELECT id FROM projects WHERE company_id = ? AND slug = ? AND archived_at IS NULL LIMIT 1"
+      )
+      .get(current.company_id, nextSlug) as { id: string } | undefined;
     if (slugOwner && slugOwner.id !== current.id) {
       throw new OrchestrationApiError(409, "project_slug_taken", "Another project already uses this slug");
     }
-    // Reject if new slug collides with another project's alias.
+    // Reject if new slug collides with another project's alias in the same company.
     const aliasOwner = db
-      .prepare("SELECT project_id FROM project_slug_aliases WHERE slug_alias = ? LIMIT 1")
-      .get(nextSlug) as { project_id: string } | undefined;
+      .prepare(
+        `SELECT pa.project_id FROM project_slug_aliases pa
+         JOIN projects p ON p.id = pa.project_id
+         WHERE p.company_id = ? AND pa.slug_alias = ? LIMIT 1`
+      )
+      .get(current.company_id, nextSlug) as { project_id: string } | undefined;
     if (aliasOwner && aliasOwner.project_id !== current.id) {
       throw new OrchestrationApiError(409, "project_slug_taken", "Another project already uses this slug (via alias)");
     }

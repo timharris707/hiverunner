@@ -1264,6 +1264,52 @@ const MIGRATIONS: Migration[] = [
         ON project_slug_aliases(project_id);
     `,
   },
+  {
+    version: 40,
+    name: "project_slug_company_scoped_unique",
+    sql: `
+      -- Project slugs should be unique within a company, not globally.
+      -- URLs are /companies/{slug}/projects/{projectSlug} so two companies
+      -- can safely share a project slug.
+      --
+      -- SQLite cannot drop a column-level UNIQUE constraint, so we recreate
+      -- the table without it and add a compound unique index instead.
+
+      CREATE TABLE projects_new (
+        id              TEXT PRIMARY KEY,
+        slug            TEXT NOT NULL,
+        name            TEXT NOT NULL,
+        description     TEXT NOT NULL DEFAULT '',
+        color           TEXT NOT NULL DEFAULT '#0ea5e9',
+        status          TEXT NOT NULL DEFAULT 'active'
+                        CHECK (status IN ('active','paused','archived')),
+        owner_user_id   TEXT,
+        settings_json   TEXT NOT NULL DEFAULT '{}',
+        created_at      TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at      TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        archived_at     TEXT,
+        company_id      TEXT REFERENCES companies(id) ON DELETE SET NULL
+      );
+
+      INSERT INTO projects_new
+        SELECT id, slug, name, description, color, status,
+               owner_user_id, settings_json, created_at, updated_at,
+               archived_at, company_id
+        FROM projects;
+
+      DROP TABLE projects;
+      ALTER TABLE projects_new RENAME TO projects;
+
+      -- Company-scoped slug uniqueness (only for non-archived projects)
+      CREATE UNIQUE INDEX idx_projects_company_slug
+        ON projects(company_id, slug) WHERE archived_at IS NULL;
+
+      -- Restore the other indexes that were on the original table
+      CREATE INDEX idx_projects_status ON projects(status);
+      CREATE INDEX idx_projects_updated_at ON projects(updated_at DESC);
+      CREATE INDEX idx_projects_company_id ON projects(company_id);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
