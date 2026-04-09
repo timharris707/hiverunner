@@ -81,3 +81,6 @@ projects/panely-app/node_modules/
 projects/panely-app/.next/
 projects/panely-app/.agents/
 /data/locks/
+
+# Dev lane isolated data directory (databases only)
+/data-dev/

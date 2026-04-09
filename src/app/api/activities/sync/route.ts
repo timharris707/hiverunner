@@ -7,10 +7,11 @@ import { NextResponse } from 'next/server';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import Database from 'better-sqlite3';
+import { MC_DATA_DIR } from '@/lib/data-dir';
 
 const OPENCLAW_WORKSPACE = process.env.OPENCLAW_WORKSPACE || '/Users/timharris/.openclaw/workspace';
 const TASKS_LOG_PATH = path.join(OPENCLAW_WORKSPACE, 'memory', 'tasks-log.md');
-const DB_PATH = path.join(process.cwd(), 'data', 'activities.db');
+const DB_PATH = path.join(MC_DATA_DIR, 'activities.db');
 
 interface ParsedTask {
   id: string;

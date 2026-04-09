@@ -5,10 +5,10 @@
 import Database from "better-sqlite3";
 import path from "path";
 import fs from "fs";
+import { MC_DATA_DIR } from "./data-dir";
 
 const DEFAULT_DB_PATH = path.join(
-  process.cwd(),
-  "data",
+  MC_DATA_DIR,
   "usage-tracking.db"
 );
 

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import Database from "better-sqlite3";
+import { MC_DATA_DIR } from "../data-dir";
 
 type Migration = {
   version: number;
@@ -19,7 +20,7 @@ const DEFAULT_OPENCLAW_WORKSPACE_ROOT =
 
 const ORCHESTRATION_DB_PATH = process.env.ORCHESTRATION_DB_PATH
   ? path.resolve(process.env.ORCHESTRATION_DB_PATH)
-  : path.join(process.cwd(), "data", "orchestration.db");
+  : path.join(MC_DATA_DIR, "orchestration.db");
 const SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 const NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";

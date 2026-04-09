@@ -7,13 +7,14 @@ import { NextResponse } from 'next/server';
 import { getActivityStats } from '@/lib/activities-db';
 import Database from 'better-sqlite3';
 import path from 'path';
+import { MC_DATA_DIR } from '@/lib/data-dir';
 
 export async function GET() {
   try {
     const stats = getActivityStats();
 
     // Also get heatmap data (last 52 weeks = 364 days)
-    const DB_PATH = path.join(process.cwd(), 'data', 'activities.db');
+    const DB_PATH = path.join(MC_DATA_DIR, 'activities.db');
     const db = new Database(DB_PATH);
 
     const cutoff = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();

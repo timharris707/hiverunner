@@ -6,8 +6,9 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { MC_DATA_DIR, MC_DATA_DIR_IS_NON_DEFAULT } from './data-dir';
 
-const DB_PATH = path.join(process.cwd(), 'data', 'activities.db');
+const DB_PATH = path.join(MC_DATA_DIR, 'activities.db');
 
 export type ActivityType =
   | 'file'
@@ -77,9 +78,11 @@ function getDb(): Database.Database {
     CREATE INDEX IF NOT EXISTS idx_activities_status ON activities(status);
   `);
 
-  // Migrate from JSON if DB is empty and JSON exists
+  // Migrate from JSON if DB is empty and JSON exists.
+  // Skip JSON backfill when MC_DATA_DIR is explicitly set (e.g., data-dev)
+  // so non-default data directories start with a clean slate.
   const count = (_db.prepare('SELECT COUNT(*) as n FROM activities').get() as { n: number }).n;
-  if (count === 0) {
+  if (count === 0 && !MC_DATA_DIR_IS_NON_DEFAULT) {
     const jsonPath = path.join(process.cwd(), 'data', 'activities.json');
     if (fs.existsSync(jsonPath)) {
       try {

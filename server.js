@@ -202,10 +202,17 @@ app.prepare().then(() => {
     }, 10_000);
   }
 
+  const path = require("path");
+  const mcDataDir = process.env.MC_DATA_DIR
+    ? path.resolve(process.env.MC_DATA_DIR)
+    : path.join(process.cwd(), "data");
+  const mcDataDirSource = process.env.MC_DATA_DIR ? "MC_DATA_DIR" : "default";
+
   server.listen(port, hostname, () => {
     const heapMB = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Mode: ${dev ? "development" : "production"}`);
+    console.log(`> Data dir: ${mcDataDir} (${mcDataDirSource})`);
     console.log(`> Heap limit: ${heapMB}MB`);
     console.log(`> Bundler: ${useWebpack ? "webpack" : "turbopack"}`);
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);

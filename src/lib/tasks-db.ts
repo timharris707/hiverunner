@@ -27,12 +27,13 @@ import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
 import { randomUUID } from 'crypto';
+import { MC_DATA_DIR, MC_DATA_DIR_IS_NON_DEFAULT } from './data-dir';
 
 // On Vercel (and other serverless platforms), process.cwd() is read-only.
 // Use /tmp for the DB so SQLite writes succeed in preview deployments.
 const DATA_DIR = process.env.VERCEL
   ? '/tmp/mission-control'
-  : path.join(process.cwd(), 'data');
+  : MC_DATA_DIR;
 const DB_PATH = path.join(DATA_DIR, 'tasks.db');
 const TASKS_JSON_PATH = path.join(process.cwd(), 'data', 'tasks.json');
 
@@ -144,8 +145,10 @@ export function getDb(): Database.Database {
   `);
 
   // Migrate from tasks.json on first run (DB is fresh / empty).
+  // Skip JSON backfill when MC_DATA_DIR is explicitly set (e.g., data-dev)
+  // so non-default data directories start with a clean slate.
   const count = (_db.prepare('SELECT COUNT(*) as n FROM tasks').get() as { n: number }).n;
-  if (count === 0) {
+  if (count === 0 && !MC_DATA_DIR_IS_NON_DEFAULT) {
     _migrateFromJson(_db);
   }
 

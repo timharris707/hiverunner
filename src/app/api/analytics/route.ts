@@ -3,8 +3,9 @@ import { format, subDays } from "date-fns";
 import Database from "better-sqlite3";
 import path from "path";
 import { promises as fs } from "fs";
+import { MC_DATA_DIR } from "@/lib/data-dir";
 
-const DB_PATH = path.join(process.cwd(), "data", "activities.db");
+const DB_PATH = path.join(MC_DATA_DIR, "activities.db");
 
 interface AnalyticsData {
   byDay: { date: string; count: number }[];
