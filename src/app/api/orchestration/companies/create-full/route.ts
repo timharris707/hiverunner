@@ -326,13 +326,14 @@ export async function POST(req: NextRequest) {
     });
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, emoji, role, personality, avatar_url, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'CEO', ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
+        (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'CEO', ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
     ).run(
       agentId,
       companyId,
       projectId,
       ceo.name.trim(),
+      ceoSlug,
       "\u{1F3AF}",
       ceoPersonality,
       ceoAvatarUrl,
@@ -426,6 +427,21 @@ export async function POST(req: NextRequest) {
       ).run(runId, agentId, companyId, wakeupId, now, now);
     } catch (wakeupError) {
       console.warn("[create-full] CEO wakeup insert failed (non-fatal):", wakeupError);
+    }
+
+    // ---------- 9c. Dev-only: fire one-shot tick to process the CEO wakeup ----------
+    // In production, the background engine tick loop handles queued runs.
+    // In dev, the tick loop is disabled — fire a single tick so the CEO
+    // starts executing immediately after wizard completion.
+    if (process.env.NODE_ENV !== "production") {
+      setTimeout(async () => {
+        try {
+          const { tick } = await import("@/lib/orchestration/engine/engine");
+          await tick();
+        } catch (e) {
+          console.warn("[create-full] dev one-shot tick failed (non-fatal):", e);
+        }
+      }, 1000);
     }
 
     // ---------- 10. Return success ----------

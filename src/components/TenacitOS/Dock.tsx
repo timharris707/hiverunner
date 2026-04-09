@@ -111,7 +111,6 @@ const OPERATIONS_ITEMS: Omit<NavItem, "href">[] = [
   { label: "Tasks", icon: ListChecks },
   { label: "Dashboard", icon: Building2 },
   { label: "Inbox", icon: Inbox },
-  { label: "Approvals", icon: Check },
   { label: "Routines", icon: Workflow },
   { label: "Goals", icon: Goal },
 ];
@@ -606,6 +605,7 @@ export function Dock() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
+  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [projectStatusBusyId, setProjectStatusBusyId] = useState<string | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
@@ -913,10 +913,22 @@ export function Dock() {
       setInboxUnreadCount((prev) => prev === count ? prev : count);
     };
 
+    const loadApprovalCount = async () => {
+      try {
+        const resp = await fetch(`/api/orchestration/companies/${company.slug}/approvals?status=pending`);
+        if (!resp.ok || cancelled) return;
+        const data = await resp.json();
+        const count = Array.isArray(data.approvals) ? data.approvals.length : 0;
+        setPendingApprovalCount((prev) => prev === count ? prev : count);
+      } catch { /* non-critical */ }
+    };
+
     void loadInboxCount();
+    void loadApprovalCount();
     const INBOX_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
     const interval = window.setInterval(() => {
       void loadInboxCount();
+      void loadApprovalCount();
     }, INBOX_POLL_MS);
 
     // Listen for immediate unread-count updates from the inbox page

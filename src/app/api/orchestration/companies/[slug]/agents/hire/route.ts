@@ -109,12 +109,13 @@ export async function POST(
 
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, name, emoji, role, personality, model, status, avatar_url, openclaw_agent_id, reporting_to, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'paused', ?, ?, ?, '[]', ?, ?)`
+        (id, company_id, name, slug, emoji, role, personality, model, status, avatar_url, openclaw_agent_id, reporting_to, skills_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'paused', ?, ?, ?, '[]', ?, ?)`
     ).run(
       agentId,
       company.id,
       name.trim(),
+      agentSlug,
       resolvedEmoji,
       role.trim(),
       resolvedPersonality,

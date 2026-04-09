@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
+import { markInboxThreadRead } from "@/lib/orchestration/company-service";
 import type {
   OrchestrationApproval,
   OrchestrationApprovalComment,
@@ -116,11 +117,49 @@ export function createApproval(input: {
 }): { approval: OrchestrationApproval } {
   const db = getOrchestrationDb();
   const companyId = resolveCompany(db, input.companyIdOrSlug);
+
+  // ── Dedup: prevent duplicate pending approvals for the same target ──
+  // Key priority: linked_task_id > payload agent_id > payload name+role.
+  // Only pending/revision_requested approvals are considered open.
+  const payload = input.payload ?? {};
+  const existingId = (() => {
+    // Most specific: same type + same linked task
+    if (input.linkedTaskId) {
+      const row = db.prepare(
+        `SELECT id FROM approvals WHERE company_id = ? AND type = ? AND linked_task_id = ? AND status IN ('pending', 'revision_requested') LIMIT 1`
+      ).get(companyId, input.type, input.linkedTaskId) as { id: string } | undefined;
+      if (row) return row.id;
+    }
+    // For hire_agent: match on payload agent_id if present, else name+role
+    if (input.type === "hire_agent") {
+      const targetId = payload.agentId ?? payload.agent_id;
+      if (typeof targetId === "string" && targetId) {
+        const row = db.prepare(
+          `SELECT id FROM approvals WHERE company_id = ? AND type = 'hire_agent' AND status IN ('pending', 'revision_requested') AND json_extract(payload_json, '$.agentId') = ? LIMIT 1`
+        ).get(companyId, targetId) as { id: string } | undefined;
+        if (row) return row.id;
+      }
+      const name = typeof payload.name === "string" ? payload.name.trim().toLowerCase() : "";
+      const role = typeof payload.role === "string" ? payload.role.trim().toLowerCase() : "";
+      if (name) {
+        const row = db.prepare(
+          `SELECT id FROM approvals WHERE company_id = ? AND type = 'hire_agent' AND status IN ('pending', 'revision_requested') AND LOWER(TRIM(json_extract(payload_json, '$.name'))) = ? AND LOWER(TRIM(json_extract(payload_json, '$.role'))) = ? LIMIT 1`
+        ).get(companyId, name, role) as { id: string } | undefined;
+        if (row) return row.id;
+      }
+    }
+    return null;
+  })();
+
+  if (existingId) {
+    return getApproval(existingId);
+  }
+
   const id = randomUUID();
   const now = new Date().toISOString();
   db.prepare(
     `INSERT INTO approvals (id, company_id, type, status, requested_by_agent_id, payload_json, linked_task_id, created_at, updated_at) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)`
-  ).run(id, companyId, input.type, input.requestedByAgentId ?? null, JSON.stringify(input.payload ?? {}), input.linkedTaskId ?? null, now, now);
+  ).run(id, companyId, input.type, input.requestedByAgentId ?? null, JSON.stringify(payload), input.linkedTaskId ?? null, now, now);
   return getApproval(id);
 }
 
@@ -142,12 +181,26 @@ export function updateApprovalStatus(input: {
   decisionNote?: string;
 }): { approval: OrchestrationApproval } {
   const db = getOrchestrationDb();
-  const existing = db.prepare("SELECT id, status FROM approvals WHERE id = ?").get(input.approvalId) as { id: string; status: string } | undefined;
+  const existing = db.prepare("SELECT id, status, company_id FROM approvals WHERE id = ?").get(input.approvalId) as { id: string; status: string; company_id: string } | undefined;
   if (!existing) throw new OrchestrationApiError(404, "approval_not_found", "Approval not found");
   const now = new Date().toISOString();
   db.prepare(
     `UPDATE approvals SET status = ?, decided_by_user_id = ?, decision_note = ?, decided_at = ?, updated_at = ? WHERE id = ?`
   ).run(input.status, input.decidedByUserId ?? null, input.decisionNote ?? null, now, now, input.approvalId);
+
+  // Mark related inbox events as read when the approval is resolved
+  // (approved, rejected, cancelled) — keeps inbox count in sync
+  const resolved = ["approved", "rejected", "cancelled"].includes(input.status);
+  if (resolved) {
+    try {
+      markInboxThreadRead({
+        companyIdOrSlug: existing.company_id,
+        threadKey: input.approvalId,
+        threadKind: "approval",
+      });
+    } catch { /* non-fatal — inbox sync is best-effort */ }
+  }
+
   return getApproval(input.approvalId);
 }
 

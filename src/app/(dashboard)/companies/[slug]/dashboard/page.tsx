@@ -55,7 +55,7 @@ async function withTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
 }
 
 const STATUS_DOT_COLOR: Record<OrchestrationAgent["status"], string> = {
-  working: "#4ade80",
+  working: "#d97706",
   idle: "#a8a29e",
   paused: "#ca8a04",
   offline: "#57534e",
@@ -63,7 +63,7 @@ const STATUS_DOT_COLOR: Record<OrchestrationAgent["status"], string> = {
 };
 
 const STATUS_DOT_GLOW: Record<OrchestrationAgent["status"], string> = {
-  working: "0 0 6px rgba(74,222,128,0.6)",
+  working: "0 0 6px rgba(217,119,6,0.6)",
   idle: "none",
   paused: "none",
   offline: "none",
@@ -81,7 +81,7 @@ const TASK_STATUS_COLOR: Record<string, string> = {
 };
 
 const RUN_STATUS_STYLE: Record<string, { color: string; bg: string }> = {
-  running: { color: "#4ade80", bg: "rgba(74,222,128,0.12)" },
+  running: { color: "#d97706", bg: "rgba(217,119,6,0.12)" },
   completed: { color: "#a8a29e", bg: "rgba(168,162,158,0.1)" },
   failed: { color: "#ef4444", bg: "rgba(239,68,68,0.12)" },
   cancelled: { color: "#ca8a04", bg: "rgba(202,138,4,0.12)" },
@@ -172,23 +172,29 @@ export default function CompanyDashboardPage() {
           }
         }
 
-        // Fetch real cost data (non-blocking)
+        // Fetch real cost data (non-blocking).
+        // The /api/costs endpoint is global (not company-scoped), so only
+        // fetch for the default company (neveridle-core). Other companies
+        // would show misleading inherited numbers.
         let costs: CostSnapshot = null;
-        try {
-          const costResp = await withTimeout(
-            fetch("/api/costs?timeframe=30d", { cache: "no-store" }).then(async (r) => r.ok ? r.json() : null),
-            3000,
-          );
-          if (costResp && typeof costResp.thisMonth === "number") {
-            costs = {
-              thisMonth: costResp.thisMonth,
-              budget: costResp.budget ?? 0,
-              today: costResp.today ?? 0,
-              projected: costResp.projected ?? 0,
-              daily: Array.isArray(costResp.daily) ? costResp.daily : [],
-            };
-          }
-        } catch { /* cost fetch is non-critical */ }
+        const isDefaultCompany = slug === "neveridle-core" || slug === "NEV";
+        if (isDefaultCompany) {
+          try {
+            const costResp = await withTimeout(
+              fetch("/api/costs?timeframe=30d", { cache: "no-store" }).then(async (r) => r.ok ? r.json() : null),
+              3000,
+            );
+            if (costResp && typeof costResp.thisMonth === "number") {
+              costs = {
+                thisMonth: costResp.thisMonth,
+                budget: costResp.budget ?? 0,
+                today: costResp.today ?? 0,
+                projected: costResp.projected ?? 0,
+                daily: Array.isArray(costResp.daily) ? costResp.daily : [],
+              };
+            }
+          } catch { /* cost fetch is non-critical */ }
+        }
 
         if (cancelled) return;
         setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity, agentProfiles, costs });
@@ -572,7 +578,7 @@ export default function CompanyDashboardPage() {
                 Full log →
               </Link>
             </div>
-            <div className="max-h-[400px] divide-y overflow-y-auto" style={{ borderColor: "rgba(120,113,108,0.08)" }}>
+            <div className="max-h-[400px] divide-y divide-stone-800/20 overflow-y-auto">
               {(data?.activity ?? []).map((event) => {
                 const agent = event.agentId ? agentLookup.get(event.agentId.toLowerCase()) : null;
                 return (
@@ -612,7 +618,7 @@ export default function CompanyDashboardPage() {
                 All tasks →
               </Link>
             </div>
-            <div className="max-h-[400px] divide-y overflow-y-auto" style={{ borderColor: "rgba(120,113,108,0.08)" }}>
+            <div className="max-h-[400px] divide-y divide-stone-800/20 overflow-y-auto">
               {recentTasks.map((task) => {
                 const assigneeAgent = task.assignee ? agentLookup.get(task.assignee.toLowerCase()) : null;
                 const identifier = task.key ?? task.id.slice(0, 8);
@@ -700,8 +706,8 @@ function StreamingTextBlock({ text, isStreaming }: { text: string; isStreaming: 
       className="mx-3 mb-2 overflow-y-auto rounded-md px-2.5 py-2"
       style={{
         maxHeight: "120px",
-        background: "rgba(6,182,212,0.04)",
-        border: "0.5px solid rgba(6,182,212,0.12)",
+        background: "rgba(217,119,6,0.04)",
+        border: "0.5px solid rgba(217,119,6,0.12)",
       }}
     >
       <p className="whitespace-pre-wrap text-xs leading-relaxed text-stone-300">
@@ -709,7 +715,7 @@ function StreamingTextBlock({ text, isStreaming }: { text: string; isStreaming: 
         {isStreaming && (
           <span
             className="ml-0.5 inline-block h-3 w-0.5 animate-pulse"
-            style={{ backgroundColor: "#06b6d4", verticalAlign: "text-bottom" }}
+            style={{ backgroundColor: "#d97706", verticalAlign: "text-bottom" }}
           />
         )}
       </p>
@@ -773,8 +779,8 @@ function AgentTranscript({
       className="mx-3 mb-2 overflow-y-auto rounded-md"
       style={{
         maxHeight: "180px",
-        background: isLive ? "rgba(6,182,212,0.03)" : "transparent",
-        border: isLive ? "0.5px solid rgba(6,182,212,0.1)" : "0.5px solid rgba(120,113,108,0.08)",
+        background: isLive ? "rgba(217,119,6,0.03)" : "transparent",
+        border: isLive ? "0.5px solid rgba(217,119,6,0.1)" : "0.5px solid rgba(120,113,108,0.08)",
       }}
     >
       {mergedEntries.map((entry, i) => (
@@ -800,10 +806,10 @@ function AgentTranscript({
               <span className="text-[10px]" style={{
                 color: entry.type === "action_error" || entry.type === "lifecycle_error" || entry.type === "error" ? "#ef4444"
                   : entry.type === "action_skipped" ? "#ca8a04"
-                  : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "#06b6d4"
+                  : entry.type === "waiting" || entry.type === "session_start" || entry.type === "lifecycle_start" ? "#d97706"
                   : entry.type === "tool_start" || entry.type === "tool_end" ? "#a78bfa"
                   : entry.type === "action_detected" ? "#f59e0b"
-                  : entry.type === "lifecycle_end" || entry.type === "assistant_final" ? "#06b6d4"
+                  : entry.type === "lifecycle_end" || entry.type === "assistant_final" ? "#d97706"
                   : "#4ade80",
               }}>
                 {entry.type === "action_executed" ? "✓"
@@ -926,24 +932,26 @@ function AgentRunCard({
   const currentTasks = profile?.currentTasks ?? [];
 
   // Determine if this card is "live" — agent is running or has a recent live run
-  const isLive = liveRun != null && (liveRun.status === "running" || liveRun.status === "queued");
+  // Only 'running' counts as live — 'queued' means the engine hasn't claimed
+  // the run yet, so the agent isn't actually executing.
+  const isLive = liveRun != null && liveRun.status === "running";
   const justFinished = liveRun != null && (liveRun.status === "succeeded" || liveRun.status === "failed" || liveRun.status === "timed_out");
 
   // Status dot — cyan when live, otherwise standard
-  const dotColor = isLive ? "#06b6d4" : STATUS_DOT_COLOR[agent.status];
-  const dotGlow = isLive ? "0 0 8px rgba(6,182,212,0.6)" : STATUS_DOT_GLOW[agent.status];
+  const dotColor = isLive ? "#d97706" : STATUS_DOT_COLOR[agent.status];
+  const dotGlow = isLive ? "0 0 8px rgba(217,119,6,0.6)" : STATUS_DOT_GLOW[agent.status];
 
   // Card border/background — cyan glow when live
   const cardBorder = isLive
-    ? "rgba(6,182,212,0.25)"
+    ? "rgba(217,119,6,0.25)"
     : justFinished
       ? "rgba(74,222,128,0.2)"
       : "rgba(120,113,108,0.15)";
   const cardBg = isLive
-    ? "rgba(6,182,212,0.04)"
+    ? "rgba(217,119,6,0.04)"
     : "rgba(28,25,23,0.5)";
   const cardShadow = isLive
-    ? "0 8px 24px rgba(6,182,212,0.08)"
+    ? "0 8px 24px rgba(217,119,6,0.08)"
     : "none";
 
   // Build the run status label
@@ -985,11 +993,11 @@ function AgentRunCard({
             <span className="relative inline-flex h-2 w-2 shrink-0">
               <span
                 className="absolute inline-flex h-full w-full animate-ping rounded-full opacity-75"
-                style={{ backgroundColor: "#06b6d4" }}
+                style={{ backgroundColor: "#d97706" }}
               />
               <span
                 className="relative inline-flex h-2 w-2 rounded-full"
-                style={{ backgroundColor: "#06b6d4", boxShadow: "0 0 6px rgba(6,182,212,0.6)" }}
+                style={{ backgroundColor: "#d97706", boxShadow: "0 0 6px rgba(217,119,6,0.6)" }}
               />
             </span>
           ) : (
@@ -1019,7 +1027,7 @@ function AgentRunCard({
       {/* ── run status line ── */}
       {runStatusLabel && (
         <div className="px-3 pb-1">
-          <span className="text-[11px]" style={{ color: isLive ? "#06b6d4" : "#78716c" }}>
+          <span className="text-[11px]" style={{ color: isLive ? "#d97706" : "#78716c" }}>
             {runStatusLabel}
           </span>
         </div>
@@ -1028,8 +1036,8 @@ function AgentRunCard({
       {/* ── task context pill (latest run or current task) ── */}
       {latestRun ? (
         <div className="mx-3 mb-2 rounded-md px-2.5 py-1.5" style={{
-          background: isLive ? "rgba(6,182,212,0.06)" : "rgba(120,113,108,0.07)",
-          border: isLive ? "0.5px solid rgba(6,182,212,0.12)" : "none",
+          background: isLive ? "rgba(217,119,6,0.06)" : "rgba(120,113,108,0.07)",
+          border: isLive ? "0.5px solid rgba(217,119,6,0.12)" : "none",
         }}>
           <span className="text-xs text-stone-400">
             {latestRun.taskTitle}
@@ -1045,7 +1053,7 @@ function AgentRunCard({
 
       {/* ── LIVE: progress header ── */}
       {isLive && (
-        <div className="mx-3 mb-1 flex items-center gap-2 text-[11px]" style={{ color: "#06b6d4" }}>
+        <div className="mx-3 mb-1 flex items-center gap-2 text-[11px]" style={{ color: "#d97706" }}>
           <LoaderCircle className="h-3 w-3 animate-spin" />
           <span>Running… {formatElapsed(liveRun.durationMs)}</span>
         </div>

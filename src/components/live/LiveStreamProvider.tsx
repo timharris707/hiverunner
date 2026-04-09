@@ -92,8 +92,8 @@ export function LiveStreamProvider({ children }: { children: React.ReactNode }) 
   const liveAgentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const [agentId, state] of streamByAgentId) {
-      // Consider an agent "live" if it is streaming or had an event recently (< 2 min)
-      if (state.isStreaming || (Date.now() - state.lastEventTs < 120_000)) {
+      // Consider an agent "live" if it is streaming or had an event very recently (< 30s)
+      if (state.isStreaming || (Date.now() - state.lastEventTs < 30_000)) {
         ids.add(agentId);
       }
     }

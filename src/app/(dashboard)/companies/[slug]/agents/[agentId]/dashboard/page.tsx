@@ -122,7 +122,7 @@ export default function AgentDashboardPage() {
           ) : (
             executionHistory.slice(0, 10).map((run, i) => (
               <div
-                key={run.id}
+                key={`${run.id}-${i}`}
                 style={{
                   display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 80px",
                   padding: "8px 14px", fontSize: 12,

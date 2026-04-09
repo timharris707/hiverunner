@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Settings, LogOut, ChevronDown, Eye, EyeOff } from "lucide-react";
 import { GlobalSearch } from "@/components/GlobalSearch";
 import { NotificationDropdown } from "@/components/NotificationDropdown";
+import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { useDemoMode } from "@/lib/demo-mode";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -76,30 +77,9 @@ export function TopBar() {
           zIndex: 45,
         }}
       >
-        {/* Left: Brand */}
-        <div className="flex items-center gap-3" style={{ paddingLeft: "10px" }}>
-          <span
-            style={{
-              fontFamily: "var(--font-heading)",
-              fontSize: "13px",
-              fontWeight: 600,
-              color: "var(--text-primary)",
-              letterSpacing: "0.02em",
-            }}
-          >
-            Mission Control
-          </span>
-          <span
-            style={{
-              fontFamily: "var(--font-body)",
-              fontSize: "12px",
-              fontWeight: 400,
-              color: "var(--text-muted)",
-              marginLeft: "12px",
-            }}
-          >
-            Build an autonomous organization that produces value 24/7
-          </span>
+        {/* Left: Breadcrumb navigation */}
+        <div style={{ paddingLeft: "10px", minWidth: 0, flex: 1 }}>
+          <PageBreadcrumbs inline />
         </div>
 
         {/* Right: Demo Toggle + Notifications + User */}

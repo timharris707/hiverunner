@@ -33,6 +33,9 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   get_system_status: Server,
   get_project_summary: FolderKanban,
   search_tasks: Search,
+  search_workspace_memory: Search,
+  search_voice_memory: Search,
+  get_current_context: FolderKanban,
 };
 
 const TOOL_LABELS: Record<string, string> = {
@@ -41,6 +44,9 @@ const TOOL_LABELS: Record<string, string> = {
   get_system_status: "System",
   get_project_summary: "Projects",
   search_tasks: "Tasks",
+  search_workspace_memory: "Memory",
+  search_voice_memory: "Voice memory",
+  get_current_context: "Context",
 };
 
 export function ActiveToolStrip({ toolEvents }: { toolEvents: ToolDispatchEvent[] }) {

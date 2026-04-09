@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -25,7 +25,7 @@ interface WizardData {
   task: { title: string; description: string; priority: string };
 }
 
-const MODEL_OPTIONS = [
+const STATIC_MODEL_OPTIONS = [
   { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { value: "anthropic/claude-opus-4-6", label: "Claude Opus 4.6" },
   { value: "openai-codex/gpt-5.4", label: "GPT-5.4" },
@@ -170,7 +170,7 @@ function StepProject({ data, onChange }: { data: WizardData["project"]; onChange
   );
 }
 
-function StepCEO({ data, onChange }: { data: WizardData["ceo"]; onChange: (d: WizardData["ceo"]) => void }) {
+function StepCEO({ data, onChange, modelOptions }: { data: WizardData["ceo"]; onChange: (d: WizardData["ceo"]) => void; modelOptions: Array<{ value: string; label: string }> }) {
   const setField = (k: keyof WizardData["ceo"], v: string) => onChange({ ...data, [k]: v });
   return (
     <div className="space-y-5">
@@ -185,7 +185,7 @@ function StepCEO({ data, onChange }: { data: WizardData["ceo"]; onChange: (d: Wi
       </Field>
       <Field label="Model">
         <select className={selectClass} value={data.model} onChange={(e) => setField("model", e.target.value)}>
-          {MODEL_OPTIONS.map((m) => (
+          {modelOptions.map((m) => (
             <option key={m.value} value={m.value}>{m.label}</option>
           ))}
         </select>
@@ -232,7 +232,7 @@ function SummaryCard({ icon: Icon, title, children }: { icon: typeof Building2; 
   );
 }
 
-function StepReview({ data }: { data: WizardData }) {
+function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Array<{ value: string; label: string }> }) {
   return (
     <div className="space-y-5">
       <div>
@@ -257,7 +257,7 @@ function StepReview({ data }: { data: WizardData }) {
           <SummaryCard icon={FolderGit2} title="Project"><p className="italic text-stone-500">Skipped — no project</p></SummaryCard>
         )}
         <SummaryCard icon={Crown} title="CEO">
-          <p><strong className="text-stone-300">{data.ceo.name}</strong> <span className="text-stone-500">({MODEL_OPTIONS.find((m) => m.value === data.ceo.model)?.label})</span></p>
+          <p><strong className="text-stone-300">{data.ceo.name}</strong> <span className="text-stone-500">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p>
           <p className="flex items-center gap-1 text-amber-500/70"><Sparkles size={11} /> AI-generated identity files</p>
         </SummaryCard>
         <SummaryCard icon={ClipboardList} title="First Task">
@@ -275,6 +275,21 @@ export default function CompanyOnboardingWizard() {
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [highestStepVisited, setHighestStepVisited] = useState(1);
+  const [modelOptions, setModelOptions] = useState(STATIC_MODEL_OPTIONS);
+
+  useEffect(() => {
+    fetch("/api/orchestration/models")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.models) && d.models.length > 0) {
+          setModelOptions(d.models.map((m: { value: string; label: string }) => ({
+            value: m.value,
+            label: m.label,
+          })));
+        }
+      })
+      .catch(() => { /* fallback to static list */ });
+  }, []);
 
   const [data, setData] = useState<WizardData>({
     company: { name: "", description: "", slug: "" },
@@ -339,7 +354,11 @@ export default function CompanyOnboardingWizard() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
-      router.push(`/companies/${json.company.slug}`);
+      // Brief delay to let the edge route map cache propagate before
+      // navigating — prevents a transient 404 on the new company page.
+      await new Promise((r) => setTimeout(r, 1500));
+      const code = json.company?.code;
+      router.push(code ? `/${code}/dashboard` : `/companies/${json.company.slug}`);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -365,9 +384,9 @@ export default function CompanyOnboardingWizard() {
             </button>
             {step === 1 && <StepCompany data={data.company} onChange={(c) => setData((d) => ({ ...d, company: c }))} />}
             {step === 2 && <StepProject data={data.project} onChange={(p) => setData((d) => ({ ...d, project: p }))} />}
-            {step === 3 && <StepCEO data={data.ceo} onChange={(c) => setData((d) => ({ ...d, ceo: c }))} />}
+            {step === 3 && <StepCEO data={data.ceo} onChange={(c) => setData((d) => ({ ...d, ceo: c }))} modelOptions={modelOptions} />}
             {step === 4 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
-            {step === 5 && <StepReview data={data} />}
+            {step === 5 && <StepReview data={data} modelOptions={modelOptions} />}
             {error && <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-800/60 bg-red-900/20 p-3 text-sm text-red-300"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
             <div className="mt-8 flex items-center justify-between border-t border-stone-800/80 pt-5">
               <div>{step > 1 && <button onClick={back} disabled={launching} className="flex items-center gap-1.5 text-sm text-stone-400 transition-colors hover:text-white disabled:opacity-40"><ChevronLeft size={16} /> Back</button>}</div>

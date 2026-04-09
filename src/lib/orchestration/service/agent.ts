@@ -22,6 +22,7 @@ import {
   toApiStatus,
   toApiType,
 } from "./shared";
+import { createTaskComment } from "./comment";
 
 type AgentProfileTask = {
   id: string;
@@ -274,7 +275,7 @@ function loadActiveHeartbeatEvidence(
          updated_at
        FROM heartbeat_runs
        WHERE agent_id IN (${buildInClause(agentIds.length)})
-         AND status IN ('queued', 'running')
+         AND status = 'running'
        ORDER BY COALESCE(updated_at, started_at, created_at) DESC, created_at DESC`
     )
     .all(...agentIds) as ActiveHeartbeatEvidenceRow[];
@@ -493,6 +494,13 @@ export function listCompanyAgents(
        LEFT JOIN agents mgr ON mgr.id = a.reporting_to
        WHERE a.company_id = ?
          AND a.archived_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM approvals ap
+           WHERE ap.type = 'hire_agent'
+             AND ap.status IN ('pending', 'revision_requested')
+             AND ap.company_id = a.company_id
+             AND json_extract(ap.payload_json, '$.agentId') = a.id
+         )
        ORDER BY a.name ASC`
     )
     .all(companyRow.id) as AgentRow[];
@@ -1409,6 +1417,7 @@ export function heartbeatProjectAgent(input: {
   runtimeMinutesDelta?: number;
   observedAt?: string;
   source?: "cron" | "openclaw" | "manual";
+  progressComment?: string;
 }): {
   agent: OrchestrationAgent;
   heartbeat: {
@@ -1503,6 +1512,30 @@ export function heartbeatProjectAgent(input: {
 
   if (existing.project_id) {
     db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(now, existing.project_id);
+  }
+
+  const progressComment = input.progressComment?.trim();
+  if (progressComment) {
+    if (!nextTaskId) {
+      throw new OrchestrationApiError(
+        400,
+        "progress_comment_requires_task",
+        "progressComment requires a current task"
+      );
+    }
+
+    createTaskComment({
+      taskId: nextTaskId,
+      body: progressComment,
+      type: "comment",
+      authorAgentId: existing.id,
+      source: source === "openclaw" ? "openclaw" : "mission_control",
+      externalRef:
+        source === "openclaw"
+          ? `heartbeat:${existing.id}:${observedAt}:${progressComment}`
+          : undefined,
+      createdAt: observedAt,
+    });
   }
 
   const row = agentById(db, existing.id);

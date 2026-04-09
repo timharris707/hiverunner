@@ -265,6 +265,16 @@ app.prepare().then(() => {
       }
     }, 1500);
 
+    // Pre-warm models cache so the wizard dropdown loads instantly.
+    setTimeout(async () => {
+      try {
+        await fetch(`${origin}/api/orchestration/models`);
+        console.log("> Models cache: pre-warmed");
+      } catch {
+        // Non-critical
+      }
+    }, 2000);
+
     // Pre-warm: hit the SSE endpoint once to trigger adapter registry initialization.
     // This ensures provider adapters (including the OpenClaw gateway WS connection)
     // are established before the operator opens the dashboard, reducing first-event latency.

@@ -1128,8 +1128,11 @@ export default function TaskDetailPage() {
               <span style={{ display: "inline-flex", alignItems: "center", gap: "6px", fontSize: "12px", color: color.textMuted }}>
                 <User size={12} />
                 {(() => {
-                  const firstComment = comments.find((c) => c.type === "note" || !c.type);
-                  return firstComment?.author ?? task.assignee ?? "System";
+                  const raw = task.createdBy;
+                  if (raw === "mission-control" || raw === "pixel-ui") return "Mission Control";
+                  if (raw === "system") return "System";
+                  if (raw) return raw;
+                  return task.assignee ?? "System";
                 })()}
               </span>
             </PropertyRow>

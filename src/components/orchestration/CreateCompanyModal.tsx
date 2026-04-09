@@ -10,7 +10,7 @@ interface WizardData {
   task: { title: string; description: string; priority: string };
 }
 
-const MODEL_OPTIONS = [
+const STATIC_MODEL_OPTIONS = [
   { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6" },
   { value: "anthropic/claude-opus-4-6", label: "Claude Opus 4.6" },
   { value: "openai-codex/gpt-5.4", label: "GPT-5.4" },
@@ -107,7 +107,7 @@ function StepProject({ data, onChange }: { data: WizardData["project"]; onChange
   );
 }
 
-function StepCEO({ data, onChange }: { data: WizardData["ceo"]; onChange: (d: WizardData["ceo"]) => void }) {
+function StepCEO({ data, onChange, modelOptions }: { data: WizardData["ceo"]; onChange: (d: WizardData["ceo"]) => void; modelOptions: Array<{ value: string; label: string }> }) {
   const setField = (k: keyof WizardData["ceo"], v: string) => onChange({ ...data, [k]: v });
   return (
     <div className="space-y-5">
@@ -116,7 +116,7 @@ function StepCEO({ data, onChange }: { data: WizardData["ceo"]; onChange: (d: Wi
         <p className="mt-1 text-sm text-stone-400">Your CEO will lead this company, manage the team, and execute on the mission.</p>
       </div>
       <Field label="CEO Name" required><input className={inputClass} placeholder='e.g. "Ridge", "Atlas", "Nova"' value={data.name} onChange={(e) => setField("name", e.target.value)} /></Field>
-      <Field label="Model"><select className={selectClass} value={data.model} onChange={(e) => setField("model", e.target.value)}>{MODEL_OPTIONS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></Field>
+      <Field label="Model"><select className={selectClass} value={data.model} onChange={(e) => setField("model", e.target.value)}>{modelOptions.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</select></Field>
       <Field label="Additional Guidance"><textarea className={inputClass} rows={3} placeholder="Any specific instructions, personality traits, or leadership style notes for the CEO..." value={data.guidance} onChange={(e) => setField("guidance", e.target.value)} /></Field>
       <div className="flex items-start gap-2.5 rounded-xl border border-amber-800/40 bg-amber-950/20 p-3"><Sparkles size={16} className="mt-0.5 shrink-0 text-amber-400" /><p className="text-xs leading-relaxed text-stone-400">Role, capabilities, SOUL.md, AGENTS.md, and HEARTBEAT.md will be <strong className="text-stone-300">AI-generated</strong> from your company mission. You don&apos;t need to write them.</p></div>
     </div>
@@ -141,7 +141,7 @@ function SummaryCard({ icon: Icon, title, children }: { icon: typeof Building2; 
   return <div className="space-y-2 rounded-xl border border-stone-800/80 bg-[rgba(28,25,23,0.84)] p-4"><h3 className="flex items-center gap-2 text-sm font-semibold text-stone-200"><Icon size={15} className="text-amber-400" /> {title}</h3><div className="space-y-0.5 text-xs text-stone-400">{children}</div></div>;
 }
 
-function StepReview({ data }: { data: WizardData }) {
+function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Array<{ value: string; label: string }> }) {
   return (
     <div className="space-y-5">
       <div>
@@ -151,7 +151,7 @@ function StepReview({ data }: { data: WizardData }) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <SummaryCard icon={Building2} title="Company"><p><strong className="text-stone-300">{data.company.name}</strong></p>{data.company.description && <p className="line-clamp-2">{data.company.description}</p>}<p className="text-stone-500">slug: {data.company.slug}</p></SummaryCard>
         {data.project ? <SummaryCard icon={FolderGit2} title="Project"><p><strong className="text-stone-300">{data.project.name}</strong></p>{data.project.description && <p className="line-clamp-2">{data.project.description}</p>}{data.project.repoUrl && <p className="truncate">{data.project.repoUrl}</p>}</SummaryCard> : <SummaryCard icon={FolderGit2} title="Project"><p className="italic text-stone-500">Skipped — no project</p></SummaryCard>}
-        <SummaryCard icon={Crown} title="CEO"><p><strong className="text-stone-300">{data.ceo.name}</strong> <span className="text-stone-500">({MODEL_OPTIONS.find((m) => m.value === data.ceo.model)?.label})</span></p><p className="flex items-center gap-1 text-amber-500/70"><Sparkles size={11} /> AI-generated identity files</p></SummaryCard>
+        <SummaryCard icon={Crown} title="CEO"><p><strong className="text-stone-300">{data.ceo.name}</strong> <span className="text-stone-500">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p><p className="flex items-center gap-1 text-amber-500/70"><Sparkles size={11} /> AI-generated identity files</p></SummaryCard>
         <SummaryCard icon={ClipboardList} title="First Task"><p><strong className="text-stone-300">{data.task.title}</strong></p><p>Priority: {data.task.priority}</p></SummaryCard>
       </div>
     </div>
@@ -163,6 +163,19 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
   const [launching, setLaunching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [highestStepVisited, setHighestStepVisited] = useState(1);
+  const [modelOptions, setModelOptions] = useState(STATIC_MODEL_OPTIONS);
+
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/orchestration/models")
+      .then((r) => r.json())
+      .then((d) => {
+        if (Array.isArray(d.models) && d.models.length > 0) {
+          setModelOptions(d.models.map((m: { value: string; label: string }) => ({ value: m.value, label: m.label })));
+        }
+      })
+      .catch(() => { /* fallback to static */ });
+  }, [open]);
 
   const [data, setData] = useState<WizardData>({
     company: { name: "", description: "", slug: "" },
@@ -249,6 +262,8 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
       const companyCode = json.company?.code;
+      // Brief delay to let edge route map cache propagate
+      await new Promise((r) => setTimeout(r, 1500));
       reset();
       onCreated?.(companyCode);
       onClose();
@@ -276,9 +291,9 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
           <button type="button" onClick={handleClose} className="absolute right-4 top-4 inline-flex h-7 w-7 items-center justify-center rounded-lg border border-stone-700/60 bg-transparent text-stone-500 transition hover:border-stone-500 hover:text-white" aria-label="Close company wizard"><X size={14} /></button>
           {step === 1 && <StepCompany data={data.company} onChange={(c) => setData((d) => ({ ...d, company: c }))} />}
           {step === 2 && <StepProject data={data.project} onChange={(p) => setData((d) => ({ ...d, project: p }))} />}
-          {step === 3 && <StepCEO data={data.ceo} onChange={(c) => setData((d) => ({ ...d, ceo: c }))} />}
+          {step === 3 && <StepCEO data={data.ceo} onChange={(c) => setData((d) => ({ ...d, ceo: c }))} modelOptions={modelOptions} />}
           {step === 4 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
-          {step === 5 && <StepReview data={data} />}
+          {step === 5 && <StepReview data={data} modelOptions={modelOptions} />}
           {error && <div className="mt-4 flex items-start gap-2 rounded-xl border border-red-800/60 bg-red-900/20 p-3 text-sm text-red-300"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
           <div className="mt-8 flex items-center justify-between border-t border-stone-800/80 pt-5">
             <div>{step > 1 && <button onClick={back} disabled={launching} className="flex items-center gap-1.5 text-sm text-stone-400 transition-colors hover:text-white disabled:opacity-40"><ChevronLeft size={16} /> Back</button>}</div>

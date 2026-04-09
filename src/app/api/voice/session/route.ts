@@ -14,18 +14,19 @@ import {
   buildWebSocketUrl,
   HENRY_VOICE_SYSTEM_PROMPT,
 } from "@/lib/gemini-live";
+import { buildCurrentVoiceContext } from "@/lib/voice-memory";
 
 export async function POST() {
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     return NextResponse.json(
       {
-        error: "GOOGLE_AI_API_KEY not configured",
+        error: "GOOGLE_AI_API_KEY or GEMINI_API_KEY not configured",
         setup: {
           steps: [
             "1. Get an API key from https://aistudio.google.com/apikey",
-            "2. Add GOOGLE_AI_API_KEY=your-key to .env.local",
+            "2. Add GOOGLE_AI_API_KEY=your-key (or GEMINI_API_KEY=your-key) to .env.local",
             "3. Restart the dev server",
           ],
           note: "Gemini 2.0 Flash Live is available on the free tier with rate limits.",
@@ -40,11 +41,13 @@ export async function POST() {
     apiKey,
     model: GEMINI_LIVE_MODEL,
   });
+  const currentContext = await buildCurrentVoiceContext();
+  const systemPrompt = `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh startup context\nThe following context was loaded fresh at voice-session startup. Treat it as more current than any older recollection.\n\n${currentContext}`;
 
   return NextResponse.json({
     wsUrl,
     model: GEMINI_LIVE_MODEL,
-    systemPrompt: HENRY_VOICE_SYSTEM_PROMPT,
+    systemPrompt,
     voiceName: "Charon",
     capabilities: {
       audioInput: true,

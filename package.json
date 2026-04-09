@@ -20,6 +20,7 @@
     "test:orchestration:heartbeat": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-heartbeat.db npx tsx src/lib/__tests__/orchestration-openclaw-heartbeat.test.ts",
     "test:orchestration:company-heartbeats": "ORCHESTRATION_DB_PATH=/tmp/orchestration-company-heartbeats.db npx tsx src/lib/__tests__/orchestration-company-heartbeats-route.test.ts",
     "test:orchestration:heartbeat-settings": "npx tsx src/lib/__tests__/orchestration-heartbeat-settings-contract.test.ts",
+    "test:orchestration:execution-heartbeat-bridge": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-execution-heartbeat-bridge-$$.db\" npx tsx src/lib/__tests__/orchestration-execution-heartbeat-bridge.test.ts'",
     "test:orchestration:openclaw-monitor": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-session-monitoring.db npx tsx src/lib/__tests__/orchestration-openclaw-session-monitoring.test.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",

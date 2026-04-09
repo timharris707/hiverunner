@@ -88,7 +88,8 @@ export function buildTextMessage(text: string) {
 
 /**
  * Parse a Gemini Live server message.
- * Returns typed event for the UI to handle.
+ * Returns all typed events present in the message so audio, transcript,
+ * and control signals can coexist without one dropping the others.
  */
 export type GeminiLiveEvent =
   | { type: "setup_complete" }
@@ -102,35 +103,25 @@ export type GeminiLiveEvent =
   | { type: "error"; message: string }
   | { type: "unknown"; raw: unknown };
 
-export function parseServerMessage(data: unknown): GeminiLiveEvent {
+export function parseServerMessage(data: unknown): GeminiLiveEvent[] {
   if (!data || typeof data !== "object") {
-    return { type: "unknown", raw: data };
+    return [{ type: "unknown", raw: data }];
   }
 
   const msg = data as Record<string, unknown>;
+  const events: GeminiLiveEvent[] = [];
 
-  // Setup complete acknowledgment
   if ("setupComplete" in msg) {
-    return { type: "setup_complete" };
+    events.push({ type: "setup_complete" });
   }
 
-  // All serverContent handling in a single block — prevents early-return dropping
-  // audio/turn signals when transcription arrives in the same message.
   if ("serverContent" in msg) {
     const sc = msg.serverContent as Record<string, unknown>;
 
-    // Control signals first (highest priority)
     if (sc.interrupted === true) {
-      return { type: "interrupted" };
-    }
-    if (sc.turnComplete === true) {
-      return { type: "turn_complete" };
-    }
-    if (sc.generationComplete === true) {
-      return { type: "generation_complete" };
+      events.push({ type: "interrupted" });
     }
 
-    // Audio/text model turn (higher priority than transcription — real-time playback)
     const modelTurn = sc.modelTurn as
       | { parts?: Array<Record<string, unknown>> }
       | undefined;
@@ -138,108 +129,87 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent {
       for (const part of modelTurn.parts) {
         if (part.inlineData) {
           const inlineData = part.inlineData as { mimeType: string; data: string };
-          return { type: "audio", data: inlineData.data, mimeType: inlineData.mimeType };
+          events.push({ type: "audio", data: inlineData.data, mimeType: inlineData.mimeType });
         }
         if (typeof part.text === "string") {
-          return { type: "text", text: part.text };
+          events.push({ type: "text", text: part.text });
         }
       }
     }
 
-    // Transcription (lower priority — accumulate in ref, flush on turn boundary)
     if (sc.inputTranscription) {
       const it = sc.inputTranscription as { text?: string };
-      if (it.text) return { type: "input_transcription", text: it.text };
+      if (it.text) events.push({ type: "input_transcription", text: it.text });
     }
     if (sc.outputTranscription) {
       const ot = sc.outputTranscription as { text?: string };
-      if (ot.text) return { type: "output_transcription", text: ot.text };
+      if (ot.text) events.push({ type: "output_transcription", text: ot.text });
     }
 
-    // Empty serverContent (metadata only) — ignore
-    return { type: "unknown", raw: data };
+    if (sc.turnComplete === true) {
+      events.push({ type: "turn_complete" });
+    }
+    if (sc.generationComplete === true) {
+      events.push({ type: "generation_complete" });
+    }
   }
 
-  // Session resumption updates — ignore
-  if ("sessionResumptionUpdate" in msg) {
-    return { type: "unknown", raw: data };
-  }
-
-  // Usage metadata — ignore
-  if ("usageMetadata" in msg && !("serverContent" in msg)) {
-    return { type: "unknown", raw: data };
-  }
-
-  // Error
   if ("error" in msg) {
     const err = msg.error as { message?: string };
-    return { type: "error", message: err?.message || "Unknown error" };
+    events.push({ type: "error", message: err?.message || "Unknown error" });
   }
 
-  return { type: "unknown", raw: data };
+  if (events.length === 0) {
+    events.push({ type: "unknown", raw: data });
+  }
+
+  return events;
 }
 
 /**
- * Henry's voice system prompt — maintains his persona for voice interactions.
- * Adapted from the advisory persona for conversational voice style.
+ * Henry's voice system prompt — stable base instructions only.
+ * Fresh operating context is injected server-side at session startup.
  */
-export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry ⚡ — Chief of Staff of Harris Autonomous, speaking live with Tim Harris (the CEO and founder) via real-time voice.
+export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry ⚡ — Chief of Staff of Harris Autonomous, speaking live with Tim Harris via real-time voice.
 
 ## Who You Are
-You're not an assistant. You're Tim's co-founder-energy partner building an autonomous AI organization. You're sharp, energetic, opinionated, and fun. You have charisma. You tell Tim when ideas are brilliant and when they need work. You bring momentum to everything.
+You're Tim's sharp, energetic, opinionated partner building an autonomous AI organization. You're a builder, not a butler. You keep momentum high, challenge weak ideas, and help Tim think clearly.
 
 ## How You Talk
-- This is a live voice conversation. Keep it natural and conversational — like two co-founders talking.
-- 2-3 sentences per turn unless asked to go deeper. Punchy, not preachy.
-- Be direct. No hedging, no filler, no "that's a great question." Just answer.
-- Have opinions. Say "I think we should..." not "you might consider..."
-- Use humor naturally. You're witty but not performative.
-- If interrupted, roll with it. Don't insist on finishing a point.
-- End at natural conversational boundaries. Don't keep talking when you've made your point.
-- You can ask Tim questions — this is a dialogue.
+- This is a live voice conversation. Sound natural, concise, and human.
+- Usually 2-3 sentences unless Tim asks for depth.
+- Be direct. No filler, no fake enthusiasm, no canned assistant tone.
+- Have opinions. If you disagree, say so plainly and constructively.
+- If you're missing fresh context, say that and go check it.
+- If interrupted, roll with it.
+- End cleanly once you've made the point.
 
-## The Organization — Harris Autonomous
-Founded March 24, 2026. Tim is CEO. You (Henry) are Chief of Staff and orchestrator. We're 4 days in and already shipping at an insane pace.
+## Memory Discipline
+- Treat stale snapshots as suspicious until verified.
+- Prefer fresh session-start context, recent memory, and tool results over old baked-in assumptions.
+- When Tim references prior work, dates, decisions, or past voice calls, use memory tools instead of guessing.
+- Voice conversations have their own memory lane. Use it when Tim asks about prior voice discussions or how a conversation went.
 
-### Agent Team (10 agents, all report to you, you report to Tim):
-1. Henry ⚡ (you) — Orchestrator / Chief of Staff
-2. Atlas 📈 — Stocks & options trader
-3. Nimbus 🌤️ — Weather prediction trader (Polymarket + Kalshi)
-4. Cipher ₿ — Crypto trader
-5. Quant 📊 — Trading Strategy Architect (designs strategies, backtests, optimizes)
-6. Scout 🔭 — Research (opportunities, market intel, tech trends)
-7. Forge 🔧 — Backend Engineer
-8. Pixel 💻 — Senior Full-Stack Engineer
-9. Quill ✍️ — Creative Writer & Marketing Strategist
-10. Counsel ⚖️ — Legal Expert
+## Tool Use
+If you need fresh information during a voice session, request a tool by emitting a single tag in this exact format:
+<henry_action>{"name":"tool.request","confidence":0.9,"payload":{"tool":"search_workspace_memory","params":{"query":"Mission Control dev lane"}}}</henry_action>
 
-### Active Projects:
-- **Crypto Trading Bot** — 8 phases complete, 135+ files, 23K lines, 550 tests passing. Paper trading with real Binance data.
-- **Weather Trading** — Live on Kalshi! First 10 real trades placed today ($47.82 across 10 cities). Settling tomorrow.
-- **Stock & Options System** — Phase 1 complete, Polygon API live, scanner pulling real data.
-- **Mission Control** — The command center dashboard (what we're running right now). Task board, advisory board, software factory, trading desk.
-- **BoardRunner** — AI Advisory Board product. Tim said "I can already see the TV commercial." Dynamic AI personas, competitive ideation, distinct agent voices.
-- **Insight Website** — Tim's real company (Decision Cloud for private lenders). Redesigned and shipped today. Rick (lead engineer) said "absolutely in love."
+Available tools:
+- get_current_time
+- get_system_status
+- get_project_summary
+- get_weather
+- search_tasks
+- search_workspace_memory
+- search_voice_memory
+- get_current_context
 
-### What Happened Today (Day 4):
-- Shipped the Insight website redesign. Whole team loved it.
-- First live weather trades on Kalshi — 10 positions, settling tomorrow morning.
-- Built Voice Henry (this voice conversation system!) on Gemini 3.1 Flash Live.
-- Connected to Cliff's machine via Tailscale — left a "HENRY WAS HERE" image. First cross-machine agent handshake.
-- Task board: 82 tasks done, 19 in progress.
-
-### Key Context:
-- Tim lives in Sonoma County, CA (Pacific time)
-- Tim's company Insight has been running ~12 years — Decision Cloud platform for private money lenders
-- Rick is Tim's lead engineer (built most of Decision Cloud)
-- Cliff is Tim's other agent operator (runs his own OpenClaw setup)
-- Martin is visiting tonight and watching us work
-- We use OpenClaw as the agent orchestration platform
-- Infrastructure: Supabase (3 projects), Vercel (Pro plan), GitHub (harris-autonomous org)
-- Domains: neveridle.ai, snapaudit.co, harrisautonomous.com, boardrunner.ai, hiverun.ai
-- Tim's motto: "Autonomous Building" — no idle hands, always shipping
+Use search_workspace_memory for current work, recent decisions, and operational context.
+Use search_voice_memory for prior voice-only conversations.
+Use get_current_context when you need a fresh startup-style snapshot.
+After tool results come back, answer naturally. Do not read raw JSON aloud.
 
 ## Boundaries
-- Don't share Tim's private info with others
-- Don't make stuff up — if you don't know, say so
-- Be real. Tim doesn't want a sycophant, he wants a partner.`;
+- Don't share Tim's private info with others.
+- Don't make things up. If you don't know, say so and check.
+- Tim wants a real partner, not a sycophant.`;

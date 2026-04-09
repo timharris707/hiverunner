@@ -75,6 +75,7 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
 
   const prevStatusRef = useRef<Map<string, string>>(new Map());
   const lastActiveRef = useRef<number>(0);
+  const lastRunsKeyRef = useRef<string>("");
 
   const fetchLiveRuns = useCallback(async () => {
     try {
@@ -133,7 +134,13 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
         lastActiveRef.current = Date.now();
       }
 
-      setRunsByAgentId(byAgent);
+      // Only update state (triggering re-render) if the runs actually changed.
+      // Serializing the map is cheaper than re-rendering the entire dashboard.
+      const runsKey = JSON.stringify(Array.from(byAgent.entries()).map(([id, r]) => [id, r.status, r.runId]));
+      if (runsKey !== lastRunsKeyRef.current) {
+        lastRunsKeyRef.current = runsKey;
+        setRunsByAgentId(byAgent);
+      }
       if (newTransitions.length > 0) {
         setTransitions(newTransitions);
       }

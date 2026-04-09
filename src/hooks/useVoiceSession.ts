@@ -148,6 +148,9 @@ export function useVoiceSession() {
   const transcriptRef = useRef<TranscriptEntry[]>([]);
   const currentInputTranscript = useRef("");
   const currentOutputTranscript = useRef("");
+  const pendingUserIndexRef = useRef<number | null>(null);
+  const pendingHenryIndexRef = useRef<number | null>(null);
+  const lastSavedTranscriptLengthRef = useRef(0);
 
   // Keep transcriptRef in sync
   const updateTranscript = useCallback((updater: (prev: TranscriptEntry[]) => TranscriptEntry[]) => {
@@ -156,6 +159,19 @@ export function useVoiceSession() {
       transcriptRef.current = next;
       return next;
     });
+  }, []);
+
+  const persistTranscript = useCallback(() => {
+    if (transcriptRef.current.length === 0) return;
+    if (transcriptRef.current.length === lastSavedTranscriptLengthRef.current) return;
+
+    const snapshot = [...transcriptRef.current];
+    lastSavedTranscriptLengthRef.current = snapshot.length;
+    fetch("/api/voice/transcript", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ transcript: snapshot }),
+    }).catch(() => {});
   }, []);
 
   const connect = useCallback(async () => {
@@ -239,80 +255,111 @@ export function useVoiceSession() {
         const raw = typeof event.data === "string"
           ? event.data
           : new TextDecoder().decode(event.data);
-        const parsed = parseServerMessage(JSON.parse(raw));
+        const parsedEvents = parseServerMessage(JSON.parse(raw));
 
-        switch (parsed.type) {
-          case "setup_complete":
-            setState("listening");
-            // Wire up mic capture → WebSocket
-            captureNode.port.onmessage = (e: MessageEvent) => {
-              if (ws.readyState === WebSocket.OPEN) {
-                ws.send(JSON.stringify(buildAudioMessage(arrayBufferToBase64(e.data))));
-              }
-            };
-            micSource.connect(captureNode);
-            break;
-
-          case "audio": {
-            // Decode and stream into playback worklet ring buffer
-            const float32 = base64ToFloat32(parsed.data);
-            playbackNode.port.postMessage(float32.buffer, [float32.buffer]);
-            setState("speaking");
-            break;
-          }
-
-          case "input_transcription":
-            currentInputTranscript.current += parsed.text;
-            break;
-
-          case "output_transcription":
-            currentOutputTranscript.current += parsed.text;
-            break;
-
-          case "text":
-            currentTextRef.current += parsed.text;
-            break;
-
-          case "turn_complete":
-          case "generation_complete":
-            if (currentInputTranscript.current.trim()) {
-              updateTranscript((prev) => [
-                ...prev,
-                { role: "user", text: currentInputTranscript.current.trim(), timestamp: Date.now() },
-              ]);
-              currentInputTranscript.current = "";
-            }
-            if (currentOutputTranscript.current.trim()) {
-              updateTranscript((prev) => [
-                ...prev,
-                { role: "henry", text: currentOutputTranscript.current.trim(), timestamp: Date.now() },
-              ]);
-              currentOutputTranscript.current = "";
-            }
-            if (currentTextRef.current.trim()) {
-              updateTranscript((prev) => [
-                ...prev,
-                { role: "henry", text: currentTextRef.current.trim(), timestamp: Date.now() },
-              ]);
-              currentTextRef.current = "";
-            }
-            if (ws.readyState === WebSocket.OPEN) {
+        for (const parsed of parsedEvents) {
+          switch (parsed.type) {
+            case "setup_complete":
               setState("listening");
+              // Wire up mic capture → WebSocket
+              captureNode.port.onmessage = (e: MessageEvent) => {
+                if (ws.readyState === WebSocket.OPEN) {
+                  ws.send(JSON.stringify(buildAudioMessage(arrayBufferToBase64(e.data))));
+                }
+              };
+              micSource.connect(captureNode);
+              break;
+
+            case "audio": {
+              // Decode and stream into playback worklet ring buffer
+              const float32 = base64ToFloat32(parsed.data);
+              playbackNode.port.postMessage(float32.buffer, [float32.buffer]);
+              setState("speaking");
+              break;
             }
-            break;
 
-          case "interrupted":
-            // Clear the playback ring buffer and in-flight transcript accumulation
-            playbackNode.port.postMessage("clear");
-            currentTextRef.current = "";
-            currentOutputTranscript.current = "";
-            setState("listening");
-            break;
+            case "input_transcription": {
+              currentInputTranscript.current += parsed.text;
+              const nextText = currentInputTranscript.current.trim();
+              if (!nextText) break;
+              updateTranscript((prev) => {
+                const next = [...prev];
+                const pendingIndex = pendingUserIndexRef.current;
+                if (pendingIndex != null && next[pendingIndex]?.role === "user") {
+                  next[pendingIndex] = { ...next[pendingIndex], text: nextText };
+                  return next;
+                }
+                pendingUserIndexRef.current = next.length;
+                next.push({ role: "user", text: nextText, timestamp: Date.now() });
+                return next;
+              });
+              break;
+            }
 
-          case "error":
-            setError(parsed.message);
-            setState("error");
-            break;
+            case "output_transcription": {
+              currentOutputTranscript.current += parsed.text;
+              const nextText = currentOutputTranscript.current.trim();
+              if (!nextText) break;
+              updateTranscript((prev) => {
+                const next = [...prev];
+                const pendingIndex = pendingHenryIndexRef.current;
+                if (pendingIndex != null && next[pendingIndex]?.role === "henry") {
+                  next[pendingIndex] = { ...next[pendingIndex], text: nextText };
+                  return next;
+                }
+                pendingHenryIndexRef.current = next.length;
+                next.push({ role: "henry", text: nextText, timestamp: Date.now() });
+                return next;
+              });
+              break;
+            }
+
+            case "text":
+              currentTextRef.current += parsed.text;
+              break;
+
+            case "turn_complete":
+            case "generation_complete": {
+              const henryTranscript = currentOutputTranscript.current.trim();
+              const henryTextFallback = currentTextRef.current.trim();
+              if (!henryTranscript && henryTextFallback) {
+                updateTranscript((prev) => {
+                  const next = [...prev];
+                  const pendingIndex = pendingHenryIndexRef.current;
+                  if (pendingIndex != null && next[pendingIndex]?.role === "henry") {
+                    next[pendingIndex] = { ...next[pendingIndex], text: henryTextFallback };
+                    return next;
+                  }
+                  pendingHenryIndexRef.current = next.length;
+                  next.push({ role: "henry", text: henryTextFallback, timestamp: Date.now() });
+                  return next;
+                });
+              }
+              currentInputTranscript.current = "";
+              currentOutputTranscript.current = "";
+              currentTextRef.current = "";
+              pendingUserIndexRef.current = null;
+              pendingHenryIndexRef.current = null;
+              if (ws.readyState === WebSocket.OPEN) {
+                setState("listening");
+              }
+              break;
+            }
+
+            case "interrupted":
+              // Clear the playback ring buffer and in-flight transcript accumulation
+              playbackNode.port.postMessage("clear");
+              currentTextRef.current = "";
+              currentOutputTranscript.current = "";
+              pendingHenryIndexRef.current = null;
+              setState("listening");
+              break;
+
+            case "error":
+              setError(parsed.message);
+              setState("error");
+              break;
+          }
         }
       };
 
@@ -322,6 +369,7 @@ export function useVoiceSession() {
       };
 
       ws.onclose = () => {
+        persistTranscript();
         setState((prev) => prev === "error" ? prev : "idle");
       };
 
@@ -331,17 +379,10 @@ export function useVoiceSession() {
       setError(msg);
       setState("error");
     }
-  }, [state, updateTranscript]);
+  }, [persistTranscript, state, updateTranscript]);
 
   const disconnect = useCallback(() => {
-    // Save transcript to Henry's memory before disconnecting
-    if (transcriptRef.current.length > 0) {
-      fetch("/api/voice/transcript", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ transcript: transcriptRef.current }),
-      }).catch(() => {});
-    }
+    persistTranscript();
 
     if (wsRef.current) {
       wsRef.current.close();
@@ -374,8 +415,12 @@ export function useVoiceSession() {
     }
 
     currentTextRef.current = "";
+    currentInputTranscript.current = "";
+    currentOutputTranscript.current = "";
+    pendingUserIndexRef.current = null;
+    pendingHenryIndexRef.current = null;
     setState("idle");
-  }, []);
+  }, [persistTranscript]);
 
   const sendText = useCallback(
     (text: string) => {

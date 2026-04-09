@@ -358,6 +358,7 @@ export const agentHeartbeatSchema = z.object({
   runtimeMinutesDelta: z.number().int().min(0).max(1_440).optional().default(0),
   observedAt: z.string().datetime({ offset: true }).optional(),
   source: z.enum(["cron", "openclaw", "manual"]).optional().default("cron"),
+  progressComment: z.string().trim().min(1).max(10_000).optional(),
 });
 
 export const updateCompanyHeartbeatSettingsSchema = z

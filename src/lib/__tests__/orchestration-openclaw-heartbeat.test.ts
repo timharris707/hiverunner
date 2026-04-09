@@ -8,7 +8,13 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 
-import { createProject, createProjectAgent, createTask, heartbeatProjectAgent } from "@/lib/orchestration/service";
+import {
+  createProject,
+  createProjectAgent,
+  createTask,
+  heartbeatProjectAgent,
+  listTaskComments,
+} from "@/lib/orchestration/service";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 
 let passed = 0;
@@ -115,6 +121,28 @@ async function run() {
       assert.strictEqual(second.agent.currentTask, fixture.task.title);
       assert.strictEqual(second.agent.totalRuntimeMinutes, 5);
       assert.strictEqual(second.agent.status, "working");
+    });
+
+    await test("OpenClaw heartbeat can acknowledge progress on the current task", () => {
+      const fixture = createFixture();
+      const observedAt = "2026-04-08T23:59:00.000Z";
+
+      const result = heartbeatProjectAgent({
+        agentId: fixture.agent.id,
+        source: "openclaw",
+        status: "working",
+        currentTaskId: fixture.task.id,
+        observedAt,
+        progressComment: "Acknowledged heartbeat proof task and marked execution progress.",
+      });
+
+      assert.strictEqual(result.agent.currentTask, fixture.task.title);
+
+      const comments = listTaskComments(fixture.task.id).comments;
+      assert.strictEqual(comments.length, 1);
+      assert.match(comments[0]?.text ?? "", /Acknowledged heartbeat proof task/);
+      assert.strictEqual(comments[0]?.author, fixture.agent.name);
+      assert.strictEqual(comments[0]?.timestamp, observedAt);
     });
 
     await test("Heartbeat rejects task outside agent project", () => {

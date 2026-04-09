@@ -13,6 +13,11 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import {
+  buildCurrentVoiceContext,
+  searchVoiceMemory,
+  searchWorkspaceMemory,
+} from "@/lib/voice-memory";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -159,6 +164,31 @@ async function searchTasks(params: Record<string, unknown>): Promise<unknown> {
   }
 }
 
+async function searchWorkspaceMemoryTool(params: Record<string, unknown>): Promise<unknown> {
+  const query = typeof params.query === "string" ? params.query.trim() : "";
+  const limit = typeof params.limit === "number" ? params.limit : 5;
+  if (!query) {
+    return { count: 0, results: [], note: "Provide a query string" };
+  }
+  return searchWorkspaceMemory(query, Math.max(1, Math.min(limit, 10)));
+}
+
+async function searchVoiceMemoryTool(params: Record<string, unknown>): Promise<unknown> {
+  const query = typeof params.query === "string" ? params.query.trim() : "";
+  const limit = typeof params.limit === "number" ? params.limit : 5;
+  if (!query) {
+    return { count: 0, results: [], note: "Provide a query string" };
+  }
+  return searchVoiceMemory(query, Math.max(1, Math.min(limit, 10)));
+}
+
+async function getCurrentContext(): Promise<unknown> {
+  return {
+    generatedAt: Date.now(),
+    context: await buildCurrentVoiceContext(),
+  };
+}
+
 // ─── Allowlist + Registry ────────────────────────────────────────────────────
 
 const TOOL_REGISTRY: Record<string, ToolHandler> = {
@@ -167,6 +197,9 @@ const TOOL_REGISTRY: Record<string, ToolHandler> = {
   get_project_summary: getProjectSummary,
   get_weather: getWeather,
   search_tasks: searchTasks,
+  search_workspace_memory: searchWorkspaceMemoryTool,
+  search_voice_memory: searchVoiceMemoryTool,
+  get_current_context: getCurrentContext,
 };
 
 const ALLOWED_TOOLS = new Set(Object.keys(TOOL_REGISTRY));
@@ -260,4 +293,7 @@ const TOOL_DESCRIPTIONS: Record<string, string> = {
   get_project_summary: "Get a summary of active Harris Autonomous projects",
   get_weather: "Get current weather for a location (default: Santa Rosa, CA)",
   search_tasks: "Search orchestration tasks by query or status",
+  search_workspace_memory: "Search fresh workspace memory and recent operating notes",
+  search_voice_memory: "Search the voice-only conversation memory lane and transcripts",
+  get_current_context: "Load a fresh current-context snapshot for Voice Henry startup/refresh",
 };

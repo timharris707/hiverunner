@@ -6,9 +6,8 @@
  */
 
 import { NextResponse } from "next/server";
-import { writeFile, mkdir } from "fs/promises";
-import path from "path";
 import { execSync } from "child_process";
+import { persistVoiceTranscript } from "@/lib/voice-memory";
 
 export async function POST(req: Request) {
   try {
@@ -18,40 +17,12 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "No transcript data" }, { status: 400 });
     }
 
-    const workspacePath = process.env.OPENCLAW_WORKSPACE || "/Users/timharris/.openclaw/workspace";
-    const voiceDir = path.join(workspacePath, "memory", "voice");
-
-    // Ensure directory exists
-    await mkdir(voiceDir, { recursive: true });
-
-    // Generate filename
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const filename = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}.md`;
-
-    // Format transcript as markdown
-    const duration = transcript.length > 1
-      ? Math.round((transcript[transcript.length - 1].timestamp - transcript[0].timestamp) / 1000)
-      : 0;
-    const minutes = Math.floor(duration / 60);
-    const seconds = duration % 60;
-
-    let md = `# Voice Session — ${now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: "America/Los_Angeles" })}\n\n`;
-    md += `**Duration:** ${minutes}m ${seconds}s · **Messages:** ${transcript.length}\n\n---\n\n`;
-
-    for (const entry of transcript) {
-      const speaker = entry.role === "user" ? "**Tim:**" : "**Henry ⚡:**";
-      md += `${speaker} ${entry.text}\n\n`;
-    }
-
-    const filePath = path.join(voiceDir, filename);
-    await writeFile(filePath, md, "utf-8");
+    const saved = await persistVoiceTranscript(transcript);
 
     // Notify Henry's main session so he can read the transcript immediately
     try {
-      const relativePath = `memory/voice/${filename}`;
       execSync(
-        `openclaw system event --text "Voice session transcript saved: ${relativePath}" --mode now`,
+        `openclaw system event --text "Voice session transcript saved: ${saved.relativePath}" --mode now`,
         { timeout: 10000 }
       );
     } catch {
@@ -61,8 +32,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       saved: true,
-      path: filePath,
-      messages: transcript.length,
+      path: saved.filePath,
+      relativePath: saved.relativePath,
+      messages: saved.messages,
+      durationSeconds: saved.durationSeconds,
     });
   } catch (err) {
     console.error("Failed to save voice transcript:", err);

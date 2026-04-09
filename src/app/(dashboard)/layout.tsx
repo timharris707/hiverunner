@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import { Dock, TopBar, StatusBar } from "@/components/TenacitOS";
 import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
-import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import { MissionControlRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
 import { LiveStreamProvider } from "@/components/live/LiveStreamProvider";
 import { NotificationProvider } from "@/components/notifications/NotificationToast";
@@ -47,7 +46,6 @@ export default function DashboardLayout({
             }}
           >
             <RealtimeStatusBanner />
-            <PageBreadcrumbs />
             {children}
           </main>
 

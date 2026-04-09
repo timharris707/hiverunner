@@ -19,7 +19,10 @@ export type ToolName =
   | "get_system_status"
   | "get_project_summary"
   | "get_weather"
-  | "search_tasks";
+  | "search_tasks"
+  | "search_workspace_memory"
+  | "search_voice_memory"
+  | "get_current_context";
 
 export interface ToolRequest {
   /** Tool name from the action intent payload */
@@ -52,6 +55,9 @@ const CLIENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set<ToolName>([
   "get_project_summary",
   "get_weather",
   "search_tasks",
+  "search_workspace_memory",
+  "search_voice_memory",
+  "get_current_context",
 ]);
 
 export function isAllowedTool(name: string): name is ToolName {

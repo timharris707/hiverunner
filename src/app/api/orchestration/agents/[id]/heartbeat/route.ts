@@ -44,6 +44,7 @@ export async function POST(
       runtimeMinutesDelta: parsed.runtimeMinutesDelta,
       observedAt: parsed.observedAt,
       source: parsed.source,
+      progressComment: parsed.progressComment,
     });
 
     return NextResponse.json(result, { status: 202 });

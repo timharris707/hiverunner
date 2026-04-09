@@ -37,6 +37,9 @@ const TOOL_DISPLAY: Record<string, { icon: typeof Wrench; label: string; verb: s
   get_system_status: { icon: Server, label: "System", verb: "Checking system status" },
   get_project_summary: { icon: FolderKanban, label: "Projects", verb: "Reviewing projects" },
   search_tasks: { icon: Search, label: "Tasks", verb: "Searching tasks" },
+  search_workspace_memory: { icon: Search, label: "Memory", verb: "Searching memory" },
+  search_voice_memory: { icon: Search, label: "Voice memory", verb: "Searching voice memory" },
+  get_current_context: { icon: FolderKanban, label: "Context", verb: "Refreshing current context" },
 };
 
 function getToolDisplay(tool: string) {
@@ -82,6 +85,16 @@ function summarizeResult(tool: string, output: unknown): string {
       const count = typeof o.count === "number" ? o.count : 0;
       const q = o.query ? ` for "${o.query}"` : "";
       return `${count} task${count !== 1 ? "s" : ""} found${q}`;
+    }
+    case "search_workspace_memory":
+    case "search_voice_memory": {
+      const count = typeof o.count === "number" ? o.count : 0;
+      const q = o.query ? ` for "${o.query}"` : "";
+      return `${count} memory match${count !== 1 ? "es" : ""}${q}`;
+    }
+    case "get_current_context": {
+      const context = typeof o.context === "string" ? o.context : "";
+      return context ? `Fresh context loaded (${Math.min(context.length, 9999)} chars)` : "Fresh context loaded";
     }
     default:
       return "Result received";

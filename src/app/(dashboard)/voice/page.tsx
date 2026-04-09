@@ -7,7 +7,7 @@
  * Supports voice input, text fallback, live transcript, and interruption.
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Mic,
   MicOff,
@@ -107,34 +107,22 @@ function TranscriptPanel({
 }: {
   transcript: Array<{ role: "user" | "henry"; text: string; timestamp: number }>;
 }) {
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [transcript.length]);
-
   if (transcript.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm">
-        Transcript will appear here during conversation
+      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm text-center px-6">
+        Transcript will appear here for capture debugging while we verify Henry’s side is being saved properly.
       </div>
     );
   }
 
   return (
-    <div className="flex-1 overflow-y-auto space-y-3 pr-2">
+    <div className="flex-1 overflow-y-auto space-y-3 pr-2 min-h-0">
       {transcript.map((entry, i) => (
         <div
           key={i}
           className={`flex ${entry.role === "user" ? "justify-end" : "justify-start"}`}
         >
-          <div
-            className={`max-w-[80%] rounded-lg px-3 py-2 text-sm ${
-              entry.role === "user"
-                ? "bg-stone-800/40 text-stone-300 border border-stone-600/30"
-                : "bg-stone-800/40 text-stone-300 border border-stone-600/30"
-            }`}
-          >
+          <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-stone-800/40 text-stone-300 border border-stone-600/30">
             <div className="text-xs opacity-50 mb-1">
               {entry.role === "user" ? "You" : "Henry ⚡"}
             </div>
@@ -142,7 +130,6 @@ function TranscriptPanel({
           </div>
         </div>
       ))}
-      <div ref={bottomRef} />
     </div>
   );
 }
@@ -329,8 +316,7 @@ export default function VoiceHenryPage() {
       {showArchitecture && <BoardRunnerArchitecture />}
 
       {/* Main voice interface */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: Voice controls */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
         <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-6 flex flex-col items-center">
           <VoiceVisualizer state={state} />
 
@@ -411,10 +397,9 @@ export default function VoiceHenryPage() {
           </div>
         </div>
 
-        {/* Right: Transcript */}
-        <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4 flex flex-col min-h-[400px]">
+        <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4 flex flex-col min-h-[400px] lg:max-h-[680px]">
           <div className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
-            Live Transcript
+            Diagnostic Transcript
             {transcript.length > 0 && (
               <span className="text-xs text-zinc-600">
                 ({transcript.length} message{transcript.length !== 1 ? "s" : ""})

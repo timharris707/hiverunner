@@ -49,16 +49,20 @@ const SNAPSHOT_POLL_MS = process.env.NODE_ENV === "development" ? 30_000 : 5_000
 export function MissionControlRealtimeProvider({ children }: { children: React.ReactNode }) {
   const [snapshot, setSnapshot] = useState<MissionControlRealtimeSnapshot | null>(() => readStoredSnapshot());
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>("connecting");
-  const [lastMessageAt, setLastMessageAt] = useState<number | null>(() => {
-    const stored = readStoredSnapshot();
-    return stored?.generatedAt ? new Date(stored.generatedAt).getTime() : null;
-  });
+  // lastMessageAt is stored as a ref instead of state to avoid triggering
+  // re-renders every poll cycle. It's only used by the (suppressed) status
+  // banner and doesn't need to drive component updates.
+  const lastMessageAtRef = useRef<number | null>(
+    (() => { const s = readStoredSnapshot(); return s?.generatedAt ? new Date(s.generatedAt).getTime() : null; })()
+  );
   const [staleSince, setStaleSince] = useState<number | null>(null);
 
   const pollIntervalRef = useRef<number | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
   const reconnectAttemptRef = useRef(0);
+  const consecutiveFailuresRef = useRef(0);
   const hasConnectedRef = useRef(false);
+  const lastSnapshotJsonRef = useRef<string>("");
 
   useEffect(() => {
     if (!snapshot) return;
@@ -79,7 +83,7 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
         const data = await response.json() as MissionControlRealtimeSnapshot;
         if (cancelled) return;
         setSnapshot(data);
-        setLastMessageAt(new Date(data.generatedAt).getTime());
+        lastMessageAtRef.current =(new Date(data.generatedAt).getTime());
       } catch {
         // Keep rendering cached data if the bootstrap fetch fails.
       }
@@ -112,19 +116,36 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
       try {
         const response = await fetch(getSnapshotUrl(), { cache: "no-store" });
         if (!response.ok) throw new Error(`snapshot request failed: ${response.status}`);
-        const data = await response.json() as MissionControlRealtimeSnapshot;
+        const raw = await response.text();
         if (disposed) return;
 
-        setSnapshot(data);
-        setLastMessageAt(new Date(data.generatedAt).getTime());
+        // Skip re-render if the snapshot payload is materially identical.
+        // generatedAt changes every poll, so strip it before comparing.
+        // This prevents the entire component tree from re-rendering every
+        // poll cycle when nothing has actually changed.
+        const data = JSON.parse(raw) as MissionControlRealtimeSnapshot;
+        const contentKey = raw.replace(/"generatedAt":"[^"]*"/, "");
+        if (contentKey !== lastSnapshotJsonRef.current) {
+          lastSnapshotJsonRef.current = contentKey;
+          setSnapshot(data);
+        }
+        lastMessageAtRef.current =(new Date(data.generatedAt).getTime());
+
         reconnectAttemptRef.current = 0;
+        consecutiveFailuresRef.current = 0;
         hasConnectedRef.current = true;
         setConnectionStatus("connected");
         setStaleSince(null);
       } catch {
         if (disposed) return;
-        setStaleSince((current) => current ?? Date.now());
-        setConnectionStatus(hasConnectedRef.current ? "reconnecting" : "disconnected");
+        consecutiveFailuresRef.current += 1;
+        // Only show the disconnection banner after 3+ consecutive failures.
+        // A single transient miss (server busy, HMR recompile) is not worth
+        // alarming the user about.
+        if (consecutiveFailuresRef.current >= 3) {
+          setStaleSince((current) => current ?? Date.now());
+          setConnectionStatus(hasConnectedRef.current ? "reconnecting" : "disconnected");
+        }
       }
     };
 
@@ -149,9 +170,9 @@ export function MissionControlRealtimeProvider({ children }: { children: React.R
   const value = useMemo<RealtimeContextValue>(() => ({
     snapshot,
     connectionStatus,
-    lastMessageAt,
+    lastMessageAt: lastMessageAtRef.current as number | null,
     staleSince,
-  }), [snapshot, connectionStatus, lastMessageAt, staleSince]);
+  }), [snapshot, connectionStatus, staleSince]);
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
 }
@@ -160,48 +181,12 @@ export function useMissionControlRealtime() {
   return useContext(RealtimeContext);
 }
 
+/**
+ * RealtimeStatusBanner — suppressed.
+ * The yellow reconnection banner flashed constantly due to transient poll
+ * failures and made the app look broken. The component is kept as a no-op
+ * export so existing imports don't break.
+ */
 export function RealtimeStatusBanner() {
-  const realtime = useMissionControlRealtime();
-  if (!realtime) return null;
-
-  const { connectionStatus, lastMessageAt, staleSince } = realtime;
-  if (connectionStatus === "connected") {
-    return null;
-  }
-
-  const liveUpdatesUnavailable = connectionStatus === "disconnected";
-  // Suppress SSR to avoid hydration mismatch on time-dependent text
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-
-  const detail = lastMessageAt && mounted
-    ? `Showing last-known state from ${relativeAgeLabel(lastMessageAt)} while the socket reconnects.`
-    : "Live data is temporarily unavailable. The dashboard stays usable and will resume live updates automatically.";
-  const staleLabel = staleSince && mounted ? relativeAgeLabel(staleSince) : "waiting";
-
-  return (
-    <div
-      role="status"
-      className="mb-4 rounded-xl border px-4 py-3"
-      style={{
-        backgroundColor: "rgba(245, 158, 11, 0.12)",
-        borderColor: "rgba(245, 158, 11, 0.35)",
-        color: "#fcd34d",
-      }}
-    >
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-semibold">
-            Live updates {liveUpdatesUnavailable ? "unavailable" : "disconnected"}.
-          </p>
-          <p className="text-xs" style={{ color: "rgba(253, 224, 71, 0.88)" }}>
-            {detail}
-          </p>
-        </div>
-        <span className="text-xs font-semibold uppercase tracking-[0.18em]">
-          stale {staleLabel}
-        </span>
-      </div>
-    </div>
-  );
+  return null;
 }
