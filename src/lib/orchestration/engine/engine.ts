@@ -899,7 +899,10 @@ export async function executeHeartbeatRun(
 
 /* ── Automatic Execution Tick ── */
 
-const STALE_RUN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+// Heartbeat runs typically take 6–7 minutes (LLM prompt + response).
+// The previous 5-minute timeout was too aggressive and caused false
+// stale-run recoveries on every successful execution.
+const STALE_RUN_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
 
 export type TickResult = {
   tickedAt: string;
