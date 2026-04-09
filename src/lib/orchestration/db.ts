@@ -805,12 +805,25 @@ const MIGRATIONS: Migration[] = [
     version: 25,
     name: "inbox_read_state_canonical_event_ids",
     sql: `
+      CREATE TABLE IF NOT EXISTS inbox_read_state (
+        id          TEXT PRIMARY KEY,
+        company_id  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_id     TEXT NOT NULL,
+        event_id    TEXT NOT NULL,
+        read_at     TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_inbox_read_state_company_user_event
+        ON inbox_read_state(company_id, user_id, event_id);
+
       -- Clear stale read-state entries that used hashed UUIDs as event_id.
       -- The canonical format is now the raw composite key ('task:uuid' / 'execution:uuid').
       -- Entries with hashed UUIDs will never match the feed CTE's composite keys.
       DELETE FROM inbox_read_state
       WHERE event_id NOT LIKE 'task:%' AND event_id NOT LIKE 'execution:%';
     `,
+    // Legacy checksum from initial DB initialization (pre-Turbopack build context).
+    compatibleChecksums: ["5f37d971bb1bda4882c518a36053a9ac7e13c8fb5f2ecb9b0cb8b246b3539e75"],
   },
   {
     version: 26,
