@@ -65,8 +65,10 @@ release_paths_are_dirty() {
     server.js \
     docs/two-lane-runtime.md \
     config/com.harris-autonomous.mc-stable.plist \
+    config/com.harrisautonomous.mission-control-stable.watchdog.plist \
     scripts/lane.sh \
     scripts/promote_to_stable.sh \
+    scripts/run_stable_service.sh \
     scripts/rollback_stable.sh \
     scripts/start_stable_service.sh \
     scripts/stop_stable_service.sh \

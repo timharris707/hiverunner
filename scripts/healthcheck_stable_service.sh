@@ -8,7 +8,10 @@ LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-stable.pid"
 PORT="${PORT:-3001}"
 URL="http://127.0.0.1:${PORT}"
-START_SCRIPT="$APP_DIR/scripts/start_stable_service.sh"
+DOMAIN="gui/$(id -u)"
+STABLE_LABEL="com.harris-autonomous.mc-stable"
+STABLE_TARGET="$DOMAIN/$STABLE_LABEL"
+STABLE_PLIST="$APP_DIR/config/com.harris-autonomous.mc-stable.plist"
 
 mkdir -p "$LOG_DIR"
 
@@ -18,6 +21,20 @@ if [ ! -d "$STABLE_DIR/.next" ]; then
   exit 0
 fi
 
+launchd_loaded() {
+  launchctl print "$1" >/dev/null 2>&1
+}
+
+ensure_service_loaded() {
+  if ! launchd_loaded "$STABLE_TARGET"; then
+    launchctl bootstrap "$DOMAIN" "$STABLE_PLIST"
+  fi
+}
+
+service_pid() {
+  launchctl print "$STABLE_TARGET" 2>/dev/null | awk '/^[[:space:]]*pid = / { print $3; exit }'
+}
+
 is_healthy() {
   curl -sf --max-time 5 "$URL/api/mc/health" >/dev/null 2>&1 \
     || curl -sf --max-time 5 "$URL/api/orchestration/companies" >/dev/null 2>&1
@@ -26,6 +43,12 @@ is_healthy() {
 # ── PID reconciliation ──
 reconcile_pid() {
   ACTUAL_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+  SERVICE_PID="$(service_pid || true)"
+
+  if [ -n "$ACTUAL_PID" ] && [ -n "$SERVICE_PID" ] && [ "$ACTUAL_PID" != "$SERVICE_PID" ]; then
+    echo "[mc-stable] listener PID $ACTUAL_PID is not launchd-owned service PID $SERVICE_PID"
+    return
+  fi
 
   if [ -f "$PID_FILE" ]; then
     FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -46,9 +69,14 @@ reconcile_pid() {
   fi
 }
 
+ensure_service_loaded
 reconcile_pid
 
-if is_healthy; then
+ACTUAL_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+SERVICE_PID="$(service_pid || true)"
+if [ -n "$ACTUAL_PID" ] && [ -n "$SERVICE_PID" ] && [ "$ACTUAL_PID" != "$SERVICE_PID" ]; then
+  echo "[mc-stable] unhealthy ownership; replacing unmanaged listener PID $ACTUAL_PID"
+elif is_healthy; then
   echo "[mc-stable] healthy"
   exit 0
 fi
@@ -74,4 +102,6 @@ if [ -n "$LISTEN_PID" ]; then
   kill -9 "$LISTEN_PID" 2>/dev/null || true
 fi
 
-exec "$START_SCRIPT"
+ensure_service_loaded
+launchctl kickstart -k "$STABLE_TARGET"
+exit 0

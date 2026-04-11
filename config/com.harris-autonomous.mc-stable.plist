@@ -8,7 +8,7 @@
   <key>ProgramArguments</key>
   <array>
     <string>/bin/sh</string>
-    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/healthcheck_stable_service.sh</string>
+    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/run_stable_service.sh</string>
   </array>
 
   <key>WorkingDirectory</key>
@@ -18,17 +18,23 @@
   <dict>
     <key>PORT</key>
     <string>3001</string>
+    <key>PATH</key>
+    <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <key>MC_ENGINE_TICK</key>
+    <string>on</string>
+    <key>MC_DATA_DIR</key>
+    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data</string>
   </dict>
 
   <key>RunAtLoad</key>
   <true/>
 
-  <key>StartInterval</key>
-  <integer>15</integer>
+  <key>KeepAlive</key>
+  <true/>
 
   <key>StandardOutPath</key>
-  <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-stable-watchdog.out.log</string>
+  <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mission-control-stable.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-stable-watchdog.err.log</string>
+  <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mission-control-stable.err.log</string>
 </dict>
 </plist>

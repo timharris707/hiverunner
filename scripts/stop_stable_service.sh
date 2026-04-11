@@ -6,6 +6,11 @@ APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
 LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-stable.pid"
 PORT="${PORT:-3001}"
+DOMAIN="gui/$(id -u)"
+STABLE_LABEL="com.harris-autonomous.mc-stable"
+WATCHDOG_LABEL="com.harrisautonomous.mission-control-stable.watchdog"
+STABLE_TARGET="$DOMAIN/$STABLE_LABEL"
+WATCHDOG_TARGET="$DOMAIN/$WATCHDOG_LABEL"
 
 stop_pid() {
   PID="$1"
@@ -33,6 +38,9 @@ if [ -f "$PID_FILE" ]; then
   fi
   rm -f "$PID_FILE"
 fi
+
+launchctl bootout "$WATCHDOG_TARGET" >/dev/null 2>&1 || true
+launchctl bootout "$STABLE_TARGET" >/dev/null 2>&1 || true
 
 # ── Catch orphaned listener on the port ──
 LISTEN_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"

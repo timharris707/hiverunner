@@ -37,10 +37,18 @@ function isCodexManagedAncestor(pid) {
   return false;
 }
 
-if (dev && port === 3010 && isCodexManagedAncestor(process.ppid)) {
+if (port === 3010 && isCodexManagedAncestor(process.ppid)) {
   console.error("");
   console.error("[mc-dev] Refusing to start port 3010 under a Codex-managed exec session.");
   console.error("[mc-dev] Use scripts/start_dev_service.sh so launchd owns the dev lane.");
+  console.error("");
+  process.exit(1);
+}
+
+if (port === 3001 && isCodexManagedAncestor(process.ppid)) {
+  console.error("");
+  console.error("[mc-stable] Refusing to start port 3001 under a Codex-managed exec session.");
+  console.error("[mc-stable] Use scripts/start_stable_service.sh so launchd owns the stable lane.");
   console.error("");
   process.exit(1);
 }
