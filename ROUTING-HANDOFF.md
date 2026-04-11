@@ -105,7 +105,7 @@ Currently `/{code}/projects/{slug}/issues` redirects to `/companies/{companySlug
 
 ## Acceptance criteria
 1. ✅ Build passes
-2. ✅ Port 3000 live: `/NEV/projects/boardrunner/issues` resolves (307 → `/companies/neveridle-core/issues?project=boardrunner`)
+2. ✅ Port 3010 live: `/NEV/projects/boardrunner/issues` resolves (307 → `/companies/neveridle-core/issues?project=boardrunner`)
 3. ✅ Legacy `/companies/neveridle-core/projects/boardrunner` redirects to `/NEV/projects/boardrunner/issues`
 4. ✅ Internal navigation keeps browser on canonical URLs (especially Dock — fully converted)
 5. ✅ No workspace root changes

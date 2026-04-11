@@ -34,7 +34,7 @@ export function GET() {
     ts: new Date().toISOString(),
     pid: process.pid,
     mode: isDev ? "dev" : "stable",
-    port: process.env.PORT || "3000",
+    port: process.env.PORT || "3010",
     uptime: Math.floor(process.uptime()),
     engineTick: engineTickActive ? "active" : "disabled",
     engineTickSetting,

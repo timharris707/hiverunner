@@ -44,7 +44,7 @@ Recommended deterministic mapping for `openclaw_agent_id`:
 For each project, export current agent linkage from Mission Control:
 
 ```bash
-curl -sS "http://localhost:3000/api/orchestration/projects/<project-id-or-slug>/agents" | jq
+curl -sS "http://localhost:3010/api/orchestration/projects/<project-id-or-slug>/agents" | jq
 ```
 
 Record for each agent:
@@ -107,7 +107,7 @@ If an agent does not already have `openclawAgentId`, recreate or update agent re
 Create example (new agent):
 
 ```bash
-curl -sS -X POST "http://localhost:3000/api/orchestration/projects/<project-id>/agents" \
+curl -sS -X POST "http://localhost:3010/api/orchestration/projects/<project-id>/agents" \
   -H "Content-Type: application/json" \
   -d '{
     "name": "Forge",
@@ -146,7 +146,7 @@ Workspace expectations:
 2. Move task to `in-progress` using reorder endpoint:
 
 ```bash
-curl -sS -X PATCH "http://localhost:3000/api/orchestration/tasks/reorder" \
+curl -sS -X PATCH "http://localhost:3010/api/orchestration/tasks/reorder" \
   -H "Content-Type: application/json" \
   -d '{
     "taskId": "<task-id>",
@@ -158,7 +158,7 @@ curl -sS -X PATCH "http://localhost:3000/api/orchestration/tasks/reorder" \
 4. Poll execution:
 
 ```bash
-curl -sS "http://localhost:3000/api/orchestration/tasks/<task-id>/execution" | jq
+curl -sS "http://localhost:3010/api/orchestration/tasks/<task-id>/execution" | jq
 ```
 
 Expected:
@@ -171,7 +171,7 @@ Expected:
 If heartbeat token is enabled, test agent liveness updates:
 
 ```bash
-curl -sS -X POST "http://localhost:3000/api/orchestration/agents/<agent-id>/heartbeat" \
+curl -sS -X POST "http://localhost:3010/api/orchestration/agents/<agent-id>/heartbeat" \
   -H "Content-Type: application/json" \
   -H "x-orchestration-heartbeat-token: <token>" \
   -d '{

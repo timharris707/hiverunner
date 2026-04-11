@@ -317,7 +317,7 @@
 
 ### 2026-03-30 — CLI wrapper for board operations — mc tasks list, assign, reject
 **Project:** mission-control
-**Summary:** n` comment with the supplied reason - `MC_API_URL` env var overrides default `http://localhost:3000`  ### Caveats - `reject` only works if the task is currently in `review` status — the state machine will return a 400 otherwise; the CLI surfaces the API error clearly - Agent name resolution requires the server to be running; if the registry is unreachable, the `--to` value is passed through unchan
+**Summary:** n` comment with the supplied reason - `MC_API_URL` env var overrides default `http://localhost:3010`  ### Caveats - `reject` only works if the task is currently in `review` status — the state machine will return a 400 otherwise; the CLI surfaces the API error clearly - Agent name resolution requires the server to be running; if the registry is unreachable, the `--to` value is passed through unchan
 
 ---
 

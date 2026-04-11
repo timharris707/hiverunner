@@ -53,7 +53,7 @@ Status: Approved by Tim to proceed through items 1–15 without additional permi
   - Identify anything still fragile or fake
 
 - [x] 10. Check dev lane fragility separately
-  - Confirm 3000 can stay messy without poisoning stable
+  - Confirm 3010 can stay messy without poisoning stable
   - Inspect lockfile / PID / watchdog failure modes
   - Define what needs hardening vs what can remain intentionally rough
   - *Result*: Hardened `start_dev_service.sh` and `stop_dev_service.sh` to clear stale `.next/dev/lock` files.

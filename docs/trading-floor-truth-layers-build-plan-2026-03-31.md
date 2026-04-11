@@ -161,10 +161,10 @@ Cards:
 ## Test / Verification Checklist
 
 ### API verification
-- `curl http://127.0.0.1:3000/api/trading/kalshi-portfolio`
+- `curl http://127.0.0.1:3010/api/trading/kalshi-portfolio`
   - grouped sections present
   - flat compatibility keys still present if needed
-- `curl http://127.0.0.1:3000/api/trading/weather-stats`
+- `curl http://127.0.0.1:3010/api/trading/weather-stats`
   - realized-only semantics explicit
   - `awaitingSettlement` and `openBreakdown` intact
 - `curl http://127.0.0.1:8050/api/bankroll`

@@ -1,7 +1,7 @@
 # Paperclip Parity Audit
 
 Date: 2026-04-06
-Lane: DEV Mission Control `http://127.0.0.1:3000`
+Lane: DEV Mission Control `http://127.0.0.1:3010`
 Reference: Paperclip `http://127.0.0.1:3101`
 
 ## Scope
@@ -17,7 +17,7 @@ Route evidence came from:
 
 - Mission Control route tree under `src/app/(dashboard)/companies/[slug]/...`
 - Paperclip board routes in `ui/src/App.tsx`
-- Live browser inspection on `3000` and `3101`
+- Live browser inspection on `3010` and `3101`
 
 Live coverage:
 

@@ -1707,7 +1707,7 @@ async function runReviewLoop(
 ) {
   // The review-loop route handles individual steps.
   // When "run" is called on a review-loop session, we auto-advance through all tasks.
-  const baseUrl = `http://127.0.0.1:${process.env.PORT || 3000}`;
+  const baseUrl = `http://127.0.0.1:${process.env.PORT || 3010}`;
 
   const sessionId = session.id as string;
   const loop = session.reviewLoop as {

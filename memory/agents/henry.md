@@ -43,7 +43,7 @@
 - Agent memory: `data/agent-memory/{agentId}.json` + `memory/agents/{name}.md`
 
 ### Mission Control App
-- Next.js 14 dashboard at port 3000 (dev) or built static/server
+- Next.js 14 dashboard at port 3010 (dev) or built static/server
 - Key dashboard pages: `/` (overview), `/agents`, `/tasks`, `/memory`, `/office`, `/advisory`
 
 ---

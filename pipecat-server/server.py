@@ -56,7 +56,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000",
+        "http://localhost:3010",
         "http://localhost:3001",
         "https://mission-control-app-iota.vercel.app",
         "https://*.vercel.app",
