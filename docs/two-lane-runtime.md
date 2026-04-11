@@ -7,6 +7,8 @@ Mission Control runs two independent lanes on the same machine:
 | Dev    | 3010 | development| repo root    | Active development (HMR)   |
 | Stable | 3001 | production | `.stable/`   | Last-known-good build      |
 
+Port `3000` is retired for Mission Control. It is not a supported dev lane or stable lane. If anything is listening on `3000`, treat that as a separate app or an accidental/manual compatibility run, not part of the two-lane runtime.
+
 ## Quick Reference
 
 ```sh

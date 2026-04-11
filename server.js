@@ -8,6 +8,15 @@ const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3010", 10);
 
+if (port === 3000 && process.env.MC_ALLOW_PORT_3000_COMPAT !== "1") {
+  console.error("");
+  console.error("[mc-runtime] Port 3000 is retired for Mission Control.");
+  console.error("[mc-runtime] Use port 3010 for dev or port 3001 for stable.");
+  console.error("[mc-runtime] If you intentionally need a one-off compatibility run, set MC_ALLOW_PORT_3000_COMPAT=1.");
+  console.error("");
+  process.exit(1);
+}
+
 function isCodexManagedAncestor(pid) {
   let currentPid = pid;
   let depth = 0;

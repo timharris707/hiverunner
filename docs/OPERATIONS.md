@@ -54,6 +54,8 @@ Both lanes:
 └── Are independently startable, stoppable, and watchdog-able
 ```
 
+Port `3000` is retired for Mission Control itself. The only supported local lanes are `3010` for dev and `3001` for stable.
+
 ## Execution Ownership
 
 By default, **only the stable lane executes orchestration work**.
