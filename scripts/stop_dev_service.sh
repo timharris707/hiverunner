@@ -6,6 +6,11 @@ APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
 LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-dev.pid"
 PORT="${PORT:-3010}"
+DOMAIN="gui/$(id -u)"
+DEV_LABEL="com.harris-autonomous.mc-dev"
+WATCHDOG_LABEL="com.harrisautonomous.mission-control-dev.watchdog"
+DEV_TARGET="$DOMAIN/$DEV_LABEL"
+WATCHDOG_TARGET="$DOMAIN/$WATCHDOG_LABEL"
 
 stop_pid() {
   PID="$1"
@@ -31,6 +36,9 @@ if [ -f "$PID_FILE" ]; then
   fi
   rm -f "$PID_FILE"
 fi
+
+launchctl bootout "$WATCHDOG_TARGET" >/dev/null 2>&1 || true
+launchctl bootout "$DEV_TARGET" >/dev/null 2>&1 || true
 
 LISTEN_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$LISTEN_PID" ]; then

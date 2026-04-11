@@ -6,7 +6,10 @@ LOG_DIR="$APP_DIR/data"
 PID_FILE="$LOG_DIR/mission-control-dev.pid"
 PORT="${PORT:-3010}"
 URL="http://127.0.0.1:${PORT}"
-START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
+DOMAIN="gui/$(id -u)"
+DEV_LABEL="com.harris-autonomous.mc-dev"
+DEV_TARGET="$DOMAIN/$DEV_LABEL"
+DEV_PLIST="$APP_DIR/config/com.harris-autonomous.mc-dev.plist"
 
 mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
@@ -30,6 +33,20 @@ in_boot_grace() {
   [ "$AGE" -lt "$BOOT_GRACE_SECS" ]
 }
 
+launchd_loaded() {
+  launchctl print "$1" >/dev/null 2>&1
+}
+
+ensure_service_loaded() {
+  if ! launchd_loaded "$DEV_TARGET"; then
+    launchctl bootstrap "$DOMAIN" "$DEV_PLIST"
+  fi
+}
+
+service_pid() {
+  launchctl print "$DEV_TARGET" 2>/dev/null | awk '/^[[:space:]]*pid = / { print $3; exit }'
+}
+
 is_healthy() {
   # Two-tier health check:
   #   1. API health (fast, works even during recompilation)
@@ -50,6 +67,12 @@ is_healthy() {
 # was started outside managed scripts (e.g., by Claude or npm run dev).
 reconcile_pid() {
   ACTUAL_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+  SERVICE_PID="$(service_pid || true)"
+
+  if [ -n "$ACTUAL_PID" ] && [ -n "$SERVICE_PID" ] && [ "$ACTUAL_PID" != "$SERVICE_PID" ]; then
+    echo "[mc-dev] listener PID $ACTUAL_PID is not launchd-owned service PID $SERVICE_PID"
+    return
+  fi
 
   if [ -f "$PID_FILE" ]; then
     FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -72,9 +95,14 @@ reconcile_pid() {
   fi
 }
 
+ensure_service_loaded
 reconcile_pid
 
-if is_healthy; then
+ACTUAL_PID="$(lsof -tiTCP:$PORT -sTCP:LISTEN 2>/dev/null || true)"
+SERVICE_PID="$(service_pid || true)"
+if [ -n "$ACTUAL_PID" ] && [ -n "$SERVICE_PID" ] && [ "$ACTUAL_PID" != "$SERVICE_PID" ]; then
+  echo "[mc-dev] unhealthy ownership; replacing unmanaged listener PID $ACTUAL_PID"
+elif is_healthy; then
   echo "[mc-dev] healthy"
   exit 0
 fi
@@ -105,20 +133,6 @@ if [ -n "$LISTEN_PID" ]; then
   kill -9 "$LISTEN_PID" 2>/dev/null || true
 fi
 
-# ── Orphan cleanup ──
-# Kill detached `node server.js` zombies not bound to any managed port.
-STABLE_PORT=3001
-STABLE_PID="$(lsof -tiTCP:$STABLE_PORT -sTCP:LISTEN 2>/dev/null || true)"
-for ORPHAN in $(pgrep -f "node.*server\.js" 2>/dev/null || true); do
-  [ -n "$STABLE_PID" ] && [ "$ORPHAN" = "$STABLE_PID" ] && continue
-  ORPHAN_LISTEN="$(lsof -p "$ORPHAN" -iTCP -sTCP:LISTEN 2>/dev/null | grep -c LISTEN || true)"
-  if [ "$ORPHAN_LISTEN" = "0" ]; then
-    echo "[mc-dev] killing orphan node process PID $ORPHAN"
-    kill "$ORPHAN" 2>/dev/null || true
-  fi
-done
-sleep 1
-
 # Clear corrupted Turbopack dev cache before restarting — this is the
 # key step that prevents resurrecting a corrupted .next/dev state
 if [ -d "$APP_DIR/.next/dev" ]; then
@@ -126,4 +140,6 @@ if [ -d "$APP_DIR/.next/dev" ]; then
   rm -rf "$APP_DIR/.next/dev"
 fi
 
-exec "$START_SCRIPT"
+ensure_service_loaded
+launchctl kickstart -k "$DEV_TARGET"
+exit 0

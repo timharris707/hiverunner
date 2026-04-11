@@ -8,7 +8,7 @@
     <key>ProgramArguments</key>
     <array>
       <string>/bin/sh</string>
-      <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/mission_control_watchdog.sh</string>
+      <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/healthcheck_dev_service.sh</string>
     </array>
 
     <key>WorkingDirectory</key>
@@ -27,8 +27,8 @@
     <key>RunAtLoad</key>
     <true/>
 
-    <key>KeepAlive</key>
-    <true/>
+    <key>StartInterval</key>
+    <integer>15</integer>
 
     <key>StandardOutPath</key>
     <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-dev-watchdog.out.log</string>

@@ -2,10 +2,48 @@ const http = require("http");
 const next = require("next");
 const { WebSocketServer } = require("ws");
 const v8 = require("v8");
+const { execFileSync } = require("child_process");
 
 const dev = process.env.NODE_ENV !== "production";
 const hostname = "0.0.0.0";
 const port = parseInt(process.env.PORT || "3010", 10);
+
+function isCodexManagedAncestor(pid) {
+  let currentPid = pid;
+  let depth = 0;
+  while (Number.isInteger(currentPid) && currentPid > 1 && depth < 12) {
+    try {
+      const output = execFileSync("ps", ["-p", String(currentPid), "-o", "ppid=,command="], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+      }).trim();
+      if (!output) return false;
+      const match = output.match(/^\s*(\d+)\s+(.*)$/s);
+      if (!match) return false;
+      const nextPid = Number.parseInt(match[1], 10);
+      const command = match[2] || "";
+      if (command.includes("/Applications/Codex.app/Contents/Resources/codex app-server")) {
+        return true;
+      }
+      if (!Number.isInteger(nextPid) || nextPid <= 0 || nextPid === currentPid) {
+        return false;
+      }
+      currentPid = nextPid;
+      depth += 1;
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+if (dev && port === 3010 && isCodexManagedAncestor(process.ppid)) {
+  console.error("");
+  console.error("[mc-dev] Refusing to start port 3010 under a Codex-managed exec session.");
+  console.error("[mc-dev] Use scripts/start_dev_service.sh so launchd owns the dev lane.");
+  console.error("");
+  process.exit(1);
+}
 
 // ── Dev-lane heap guard ──
 // Webpack dev mode for this app uses 2–3 GB RSS. The default Node heap
