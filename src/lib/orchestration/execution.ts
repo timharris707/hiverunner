@@ -828,8 +828,79 @@ async function fetchSessionHistory(sessionId: string): Promise<unknown> {
     if (!(error instanceof OrchestrationApiError) || error.code !== "openclaw_gateway_call_failed") {
       throw error;
     }
-    return callGatewayMethod<unknown>("sessions_history", { sessionId, limit: 200 });
   }
+
+  try {
+    return await callGatewayMethod<unknown>("sessions_history", { sessionId, limit: 200 });
+  } catch (error) {
+    if (!(error instanceof OrchestrationApiError) || error.code !== "openclaw_gateway_call_failed") {
+      throw error;
+    }
+  }
+
+  const listPayload = await callGatewayMethod<
+    { sessions?: Array<{ key?: string; sessionId?: string; status?: string | null }> } |
+    Array<{ key?: string; sessionId?: string; status?: string | null }>
+  >("sessions.list", {});
+  const sessions = Array.isArray(listPayload)
+    ? listPayload
+    : Array.isArray(listPayload?.sessions)
+      ? listPayload.sessions
+      : [];
+  const sessionEntry = sessions.find((entry) => entry.sessionId === sessionId);
+
+  if (!sessionEntry?.key) {
+    throw new OrchestrationApiError(
+      502,
+      "openclaw_gateway_call_failed",
+      `OpenClaw gateway call failed for session history lookup: session ${sessionId} not found in sessions.list`
+    );
+  }
+
+  const sessionPayload = await callGatewayMethod<Record<string, unknown>>("sessions.get", { key: sessionEntry.key });
+  const rawMessages = Array.isArray(sessionPayload?.messages) ? sessionPayload.messages : [];
+  const fallbackCreatedAt = (() => {
+    const raw = sessionEntry.endedAt ?? sessionEntry.startedAt;
+    if (typeof raw === "number" && Number.isFinite(raw)) {
+      return new Date(raw).toISOString();
+    }
+    if (typeof raw === "string") {
+      const numeric = Number(raw);
+      if (Number.isFinite(numeric)) {
+        return new Date(numeric).toISOString();
+      }
+      const parsed = new Date(raw);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    }
+    return new Date().toISOString();
+  })();
+  const assistantMessages = rawMessages.flatMap((entry, index) => {
+    const record = asRecord(entry);
+    if (!record || record.role !== "assistant") {
+      return [];
+    }
+    return [{
+      ...record,
+      id: asString(record.id) ?? `sessions.get:${sessionId}:${index}`,
+      createdAt:
+        asString(record.createdAt) ??
+        asString(record.created_at) ??
+        asString(record.timestamp) ??
+        fallbackCreatedAt,
+    }];
+  });
+
+  return {
+    ...(sessionPayload ?? {}),
+    sessionId,
+    status:
+      normalizeStatusToken(sessionPayload?.status) ??
+      normalizeStatusToken(sessionEntry.status) ??
+      undefined,
+    messages: assistantMessages,
+  };
 }
 
 function parseCancelAcknowledged(payload: unknown): { acknowledged: boolean; raw?: string } {
@@ -1041,6 +1112,35 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         changed: false,
         skipped: true,
         skipReason: "execution_session_missing",
+      },
+      task: getTask(task.id).task,
+    };
+  }
+
+  if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+    return {
+      taskId: task.id,
+      mode: "openclaw",
+      runId: run.id,
+      agentId: run.agentId,
+      sessionId: run.sessionId,
+      polledAt,
+      status: {
+        state: "completed",
+        terminal: true,
+        raw: run.status,
+      },
+      comments: {
+        imported: 0,
+        skippedDuplicates: 0,
+      },
+      transition: {
+        attempted: false,
+        from: getTask(task.id).task.status,
+        to: getTask(task.id).task.status,
+        changed: false,
+        skipped: true,
+        skipReason: "execution_run_already_terminal",
       },
       task: getTask(task.id).task,
     };

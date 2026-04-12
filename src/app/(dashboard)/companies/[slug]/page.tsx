@@ -59,6 +59,8 @@ import { color, type as T, space, radius, font, pageStyle } from "@/lib/ui/token
 
 /* ── Types ── */
 
+const PROTECTED_COMPANY_IDS = new Set(["6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f"]);
+
 type CompanyRosterAgent = OrchestrationAgent & {
   projectId?: string;
   projectName: string;
@@ -487,19 +489,21 @@ export default function CompanyDetailPage() {
   };
 
   const handleDeleteCompany = async () => {
-    if (!company) return;
+    if (!company || PROTECTED_COMPANY_IDS.has(company.id)) return;
     setDeleteBusy(true);
     try {
       const response = await fetch(`/api/orchestration/companies/${company.slug}?hard=true`, {
         method: "DELETE",
       });
-      if (!response.ok) throw new Error("Failed to delete company");
+      const body = await response.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!response.ok) throw new Error(body?.error?.message ?? "Failed to delete company");
       setDeleteOpen(false);
       router.push("/companies");
-    } catch {
-      setError("Could not delete company.");
-      setDeleteBusy(false);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete company.");
       setDeleteOpen(false);
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -518,6 +522,7 @@ export default function CompanyDetailPage() {
   /* ── Derived ── */
 
   const otherCompanies = companies.filter((c) => c.slug !== slug);
+  const isProtected = company ? PROTECTED_COMPANY_IDS.has(company.id) : false;
 
   /* ── Render ── */
 
@@ -1042,6 +1047,7 @@ export default function CompanyDetailPage() {
             <button
               type="button"
               onClick={() => setDeleteOpen(true)}
+              disabled={isProtected}
               style={{
                 display: "inline-flex",
                 alignItems: "center",
@@ -1052,11 +1058,12 @@ export default function CompanyDetailPage() {
                 background: "transparent",
                 color: color.textMuted,
                 fontSize: T.caption.size,
-                cursor: "pointer",
+                cursor: isProtected ? "not-allowed" : "pointer",
+                opacity: isProtected ? 0.5 : 1,
               }}
             >
               <Trash2 size={12} />
-              Delete Company
+              {isProtected ? "Delete disabled for core company" : "Delete Company"}
             </button>
           </div>
         </div>

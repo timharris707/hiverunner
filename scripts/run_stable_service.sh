@@ -1,9 +1,13 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
 STABLE_DIR="$APP_DIR/.stable"
-LOG_DIR="$APP_DIR/data"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 PID_FILE="$LOG_DIR/mission-control-stable.pid"
 PORT="${PORT:-3001}"
 
@@ -36,14 +40,20 @@ if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ]; then
 fi
 
 MC_ENGINE_TICK="${MC_ENGINE_TICK:-on}"
-MC_DATA_DIR="${MC_DATA_DIR:-$APP_DIR/data}"
+MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "data")"
+MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "${HOME:-/Users/timharris}/.mission-control/stable/workspaces")"
+mkdir -p "$MC_DATA_DIR"
+mkdir -p "$MC_WORKSPACE_ROOT"
 
 echo "$$" > "$PID_FILE"
-echo "[mc-stable] launchd service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, data: $MC_DATA_DIR)"
+echo "[mc-stable] launchd service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT)"
 
 exec env \
   NODE_ENV=production \
   PORT="$PORT" \
+  MC_APP_ROOT="$APP_DIR" \
+  MC_LOG_DIR="$LOG_DIR" \
   MC_ENGINE_TICK="$MC_ENGINE_TICK" \
   MC_DATA_DIR="$MC_DATA_DIR" \
+  MC_WORKSPACE_ROOT="$MC_WORKSPACE_ROOT" \
   "$NODE_BIN" "$APP_DIR/server.js"

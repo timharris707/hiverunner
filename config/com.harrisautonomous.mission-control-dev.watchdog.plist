@@ -8,11 +8,9 @@
     <key>ProgramArguments</key>
     <array>
       <string>/bin/sh</string>
-      <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/scripts/healthcheck_dev_service.sh</string>
+      <string>-lc</string>
+      <string>exec "$MC_APP_ROOT/scripts/healthcheck_dev_service.sh"</string>
     </array>
-
-    <key>WorkingDirectory</key>
-    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app</string>
 
     <key>EnvironmentVariables</key>
     <dict>
@@ -20,6 +18,10 @@
       <string>3010</string>
       <key>PATH</key>
       <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+      <key>MC_APP_ROOT</key>
+      <string>/Users/timharris/.mission-control/app</string>
+      <key>MC_LOG_DIR</key>
+      <string>/Users/timharris/.mission-control/logs</string>
       <key>MC_WATCHDOG_INTERVAL</key>
       <string>15</string>
     </dict>
@@ -31,9 +33,9 @@
     <integer>15</integer>
 
     <key>StandardOutPath</key>
-    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-dev-watchdog.out.log</string>
+    <string>/Users/timharris/.mission-control/logs/mc-dev-watchdog.out.log</string>
 
     <key>StandardErrorPath</key>
-    <string>/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/mc-dev-watchdog.err.log</string>
+    <string>/Users/timharris/.mission-control/logs/mc-dev-watchdog.err.log</string>
   </dict>
 </plist>

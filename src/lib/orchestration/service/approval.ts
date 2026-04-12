@@ -23,6 +23,8 @@ type ApprovalRow = {
   decided_by_user_id: string | null;
   decided_at: string | null;
   linked_task_id: string | null;
+  linked_task_key?: string | null;
+  linked_task_title?: string | null;
   created_at: string;
   updated_at: string;
   agent_name?: string | null;
@@ -55,6 +57,8 @@ function approvalFromRow(row: ApprovalRow): OrchestrationApproval {
     decidedByUserId: row.decided_by_user_id,
     decidedAt: row.decided_at,
     linkedTaskId: row.linked_task_id,
+    linkedTaskKey: row.linked_task_key ?? null,
+    linkedTaskTitle: row.linked_task_title ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -95,6 +99,7 @@ export function listApprovals(input: {
   companyIdOrSlug: string;
   status?: string;
   type?: string;
+  linkedTaskId?: string;
 }): { approvals: OrchestrationApproval[] } {
   const db = getOrchestrationDb();
   const companyId = resolveCompany(db, input.companyIdOrSlug);
@@ -102,8 +107,18 @@ export function listApprovals(input: {
   const args: unknown[] = [companyId];
   if (input.status) { where.push("a.status = ?"); args.push(input.status); }
   if (input.type) { where.push("a.type = ?"); args.push(input.type); }
+  if (input.linkedTaskId) { where.push("a.linked_task_id = ?"); args.push(input.linkedTaskId); }
   const rows = db.prepare(
-    `SELECT a.*, ag.name AS agent_name FROM approvals a LEFT JOIN agents ag ON ag.id = a.requested_by_agent_id WHERE ${where.join(" AND ")} ORDER BY a.created_at DESC`
+    `SELECT
+       a.*,
+       ag.name AS agent_name,
+       t.task_key AS linked_task_key,
+       t.title AS linked_task_title
+     FROM approvals a
+     LEFT JOIN agents ag ON ag.id = a.requested_by_agent_id
+     LEFT JOIN tasks t ON t.id = a.linked_task_id
+     WHERE ${where.join(" AND ")}
+     ORDER BY a.created_at DESC`
   ).all(...args) as ApprovalRow[];
   return { approvals: rows.map(approvalFromRow) };
 }
@@ -139,7 +154,11 @@ export function createApproval(input: {
         ).get(companyId, targetId) as { id: string } | undefined;
         if (row) return row.id;
       }
-      const name = typeof payload.name === "string" ? payload.name.trim().toLowerCase() : "";
+      const name = typeof payload.name === "string"
+        ? payload.name.trim().toLowerCase()
+        : typeof payload.agentName === "string"
+          ? payload.agentName.trim().toLowerCase()
+          : "";
       const role = typeof payload.role === "string" ? payload.role.trim().toLowerCase() : "";
       if (name) {
         const row = db.prepare(
@@ -166,12 +185,62 @@ export function createApproval(input: {
 export function getApproval(approvalId: string): { approval: OrchestrationApproval } {
   const db = getOrchestrationDb();
   const row = db.prepare(
-    `SELECT a.*, ag.name AS agent_name FROM approvals a LEFT JOIN agents ag ON ag.id = a.requested_by_agent_id WHERE a.id = ?`
+    `SELECT
+       a.*,
+       ag.name AS agent_name,
+       t.task_key AS linked_task_key,
+       t.title AS linked_task_title
+     FROM approvals a
+     LEFT JOIN agents ag ON ag.id = a.requested_by_agent_id
+     LEFT JOIN tasks t ON t.id = a.linked_task_id
+     WHERE a.id = ?`
   ).get(approvalId) as ApprovalRow | undefined;
   if (!row) throw new OrchestrationApiError(404, "approval_not_found", "Approval not found");
   const approval = approvalFromRow(row);
   approval.comments = listApprovalComments(approvalId);
   return { approval };
+}
+
+export function resolveApprovalByTaskKey(input: {
+  companyIdOrSlug: string;
+  taskKey: string;
+}):
+  | { status: "not_found" }
+  | { status: "ambiguous"; approvalIds: string[] }
+  | { status: "unique"; approvalId: string } {
+  const db = getOrchestrationDb();
+  const companyId = resolveCompany(db, input.companyIdOrSlug);
+  const taskKey = input.taskKey.trim();
+
+  if (!taskKey) {
+    return { status: "not_found" };
+  }
+
+  const rows = db.prepare(
+    `SELECT a.id
+     FROM approvals a
+     INNER JOIN tasks t ON t.id = a.linked_task_id
+     WHERE a.company_id = ?
+       AND t.task_key = ?
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT 2`
+  ).all(companyId, taskKey) as Array<{ id: string }>;
+
+  if (rows.length === 0) {
+    return { status: "not_found" };
+  }
+
+  if (rows.length > 1) {
+    return {
+      status: "ambiguous",
+      approvalIds: rows.map((row) => row.id),
+    };
+  }
+
+  return {
+    status: "unique",
+    approvalId: rows[0].id,
+  };
 }
 
 export function updateApprovalStatus(input: {

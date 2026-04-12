@@ -99,10 +99,15 @@ if (dev) {
 // duplicate execution even if both lanes tick, but disabling the dev
 // lane's tick loop is cleaner and avoids noisy log competition.
 const engineTickSetting = (process.env.MC_ENGINE_TICK || "auto").toLowerCase();
-const engineTickEnabled =
+const baseEngineTickEnabled =
   engineTickSetting === "on" ? true :
   engineTickSetting === "off" ? false :
   /* auto */ !dev;
+const devExecutionTestModeGateEnabled =
+  dev &&
+  port === 3010 &&
+  (process.env.MC_DEV_EXECUTION_TEST_MODE || "").trim() === "1";
+const engineTickEnabled = baseEngineTickEnabled || devExecutionTestModeGateEnabled;
 
 // ── Bundler selection ──
 // Next.js 16 defaults to Turbopack for dev. Turbopack's persistent cache
@@ -258,19 +263,41 @@ app.prepare().then(() => {
   }
 
   const path = require("path");
+  const mcAppRoot = process.env.MC_APP_ROOT
+    ? path.resolve(process.env.MC_APP_ROOT)
+    : path.resolve(process.cwd());
+  const mcAppRootSource = process.env.MC_APP_ROOT ? "MC_APP_ROOT" : "process.cwd()";
   const mcDataDir = process.env.MC_DATA_DIR
     ? path.resolve(process.env.MC_DATA_DIR)
-    : path.join(process.cwd(), "data");
-  const mcDataDirSource = process.env.MC_DATA_DIR ? "MC_DATA_DIR" : "default";
+    : path.join(mcAppRoot, "data");
+  const mcDataDirSource = process.env.MC_DATA_DIR
+    ? "MC_DATA_DIR"
+    : `default via ${mcAppRootSource}`;
+  const mcLane = process.env.MC_WORKSPACE_ROOT
+    ? process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.mission-control${path.sep}dev${path.sep}`)
+      ? "dev"
+      : process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.mission-control${path.sep}stable${path.sep}`)
+        ? "stable"
+        : (dev ? "dev" : "stable")
+    : (dev ? "dev" : "stable");
+  const mcWorkspaceRoot = process.env.MC_WORKSPACE_ROOT
+    ? path.resolve(process.env.MC_WORKSPACE_ROOT)
+    : path.join(process.env.HOME || "/Users/timharris", ".mission-control", mcLane, "workspaces");
+  const mcWorkspaceRootSource = process.env.MC_WORKSPACE_ROOT ? "MC_WORKSPACE_ROOT" : "default";
 
   server.listen(port, hostname, () => {
     const heapMB = Math.round(v8.getHeapStatistics().heap_size_limit / 1024 / 1024);
     console.log(`> Ready on http://${hostname}:${port}`);
     console.log(`> Mode: ${dev ? "development" : "production"}`);
+    console.log(`> App root: ${mcAppRoot} (${mcAppRootSource})`);
     console.log(`> Data dir: ${mcDataDir} (${mcDataDirSource})`);
+    console.log(`> Workspace root: ${mcWorkspaceRoot} (${mcWorkspaceRootSource}, lane=${mcLane})`);
     console.log(`> Heap limit: ${heapMB}MB`);
     console.log(`> Bundler: ${useWebpack ? "webpack" : "turbopack"}`);
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
+    if (dev && port === 3010) {
+      console.log(`> Dev execution test mode: ${devExecutionTestModeGateEnabled ? "AVAILABLE (company-scoped, auto-expiring)" : "DISABLED"}`);
+    }
     console.log(`> Snapshot poll: ${snapshotIntervalMs / 1000}s`);
 
     // ── DB health check ──

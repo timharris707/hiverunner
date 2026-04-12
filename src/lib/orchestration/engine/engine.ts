@@ -10,18 +10,21 @@
  * Heartbeat model: Wakeup requests queue → heartbeat runs → adapter execution.
  */
 
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
+import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
 
 /* ── Constants ── */
 
 const NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
 const ONBOARDING_DIR = path.join(__dirname, "onboarding-assets");
+const OPENCLAW_HOME = process.env.OPENCLAW_HOME?.trim() || path.join(process.env.HOME || "/Users/timharris", ".openclaw");
 
 /* ── Types ── */
 
@@ -849,6 +852,10 @@ export async function executeHeartbeatRun(
       });
       const importDurationMs = Date.now() - importStart;
 
+      if (taskKey !== "__heartbeat__") {
+        moveTaskToReviewIfAwaitingApproval(taskKey, agent.id, runId, db);
+      }
+
       // Finalize telemetry
       telemetry.importDurationMs = importDurationMs;
       telemetry.totalDurationMs = Date.now() - startTime;
@@ -1001,6 +1008,11 @@ type ClaimedRun = {
  */
 function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
   const now = new Date().toISOString();
+  const claimCompanyId = resolveQueuedHeartbeatClaimCompanyId(db);
+
+  if (claimCompanyId === "__disabled__") {
+    return null;
+  }
 
   // Find the oldest queued run
   const candidate = db
@@ -1008,10 +1020,11 @@ function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
       `SELECT id, agent_id, wakeup_request_id
        FROM heartbeat_runs
        WHERE status = 'queued'
+         ${claimCompanyId ? "AND company_id = ?" : ""}
        ORDER BY created_at ASC
        LIMIT 1`
     )
-    .get() as ClaimedRun | undefined;
+    .get(...(claimCompanyId ? [claimCompanyId] : [])) as ClaimedRun | undefined;
 
   if (!candidate) return null;
 
@@ -1454,6 +1467,14 @@ type SessionGetMessage = {
   content?: string | Array<{ type?: string; text?: string; name?: string; arguments?: Record<string, unknown> }>;
 };
 
+type SessionListEntry = {
+  key?: string;
+  sessionId?: string;
+  status?: string | null;
+  startedAt?: number | string | null;
+  endedAt?: number | string | null;
+};
+
 async function importSessionOutputAndExecuteActions(input: {
   sessionKey: string;
   sessionId: string;
@@ -1498,25 +1519,29 @@ async function importSessionOutputAndExecuteActions(input: {
   // When reusing a session, messages[0..messageCountBefore-1] are from prior
   // runs and must be skipped to avoid re-importing old actions/reports.
   const allMessages: SessionGetMessage[] = (sessionData as Record<string, unknown>).messages as SessionGetMessage[] ?? [];
-  const messages = allMessages.slice(input.messageCountBefore);
-  const assistantTexts: string[] = [];
+  let messages = allMessages.slice(input.messageCountBefore);
+  let assistantTexts = extractAssistantTexts(messages);
 
   if (input.messageCountBefore > 0) {
     console.log(`[engine:import] session reuse — skipping ${input.messageCountBefore} prior messages, processing ${messages.length} new`);
   }
 
-  for (const msg of messages) {
-    if (msg.role !== "assistant") continue;
-    const content = msg.content;
-    if (typeof content === "string") {
-      assistantTexts.push(content);
-    } else if (Array.isArray(content)) {
-      for (const block of content) {
-        if (block.type === "text" && block.text) {
-          assistantTexts.push(block.text);
-        }
-      }
-    }
+  const storedMessages = loadStoredSessionMessages(input.sessionId, input.sessionKey).slice(input.messageCountBefore);
+  const storedAssistantTexts = extractAssistantTexts(storedMessages);
+
+  const currentAssistantChars = assistantTexts.reduce((sum, text) => sum + text.length, 0);
+  const storedAssistantChars = storedAssistantTexts.reduce((sum, text) => sum + text.length, 0);
+  const shouldUseStoredTranscript =
+    storedMessages.length > messages.length
+    || storedAssistantTexts.length > assistantTexts.length
+    || storedAssistantChars > currentAssistantChars;
+
+  if (shouldUseStoredTranscript) {
+    console.log(
+      `[engine:import] using stored transcript for ${input.sessionKey} (${storedMessages.length} messages / ${storedAssistantChars} chars > ${messages.length} / ${currentAssistantChars})`,
+    );
+    messages = storedMessages;
+    assistantTexts = storedAssistantTexts;
   }
 
   if (assistantTexts.length === 0) {
@@ -1582,7 +1607,7 @@ async function importSessionOutputAndExecuteActions(input: {
       switch (action.action) {
         case "create_task":
           {
-            const taskId = executeCreateTask(action, input, input.db);
+            const taskId = await executeCreateTask(action, input, input.db);
             if (taskId) {
               results.tasksCreated.push(taskId);
               results.actionsExecuted++;
@@ -1725,6 +1750,82 @@ function actionFingerprint(action: McAction): string {
   }
 }
 
+function assistantMessageFingerprint(messages: SessionGetMessage[]): string {
+  return JSON.stringify(extractAssistantTexts(messages));
+}
+
+function extractAssistantTexts(messages: SessionGetMessage[]): string[] {
+  return messages
+    .filter((message) => message.role === "assistant")
+    .flatMap((message) => {
+      if (typeof message.content === "string") {
+        return [message.content];
+      }
+      if (Array.isArray(message.content)) {
+        return message.content
+          .filter((block) => block.type === "text" && typeof block.text === "string")
+          .map((block) => block.text as string);
+      }
+      return [];
+    })
+    .map((text) => text.trim())
+    .filter(Boolean);
+}
+
+function loadStoredSessionMessages(sessionId: string, sessionKey: string): SessionGetMessage[] {
+  const openclawAgentId = sessionKey.match(/^agent:([^:]+):/)?.[1];
+  const candidatePaths = [
+    openclawAgentId ? path.join(OPENCLAW_HOME, "agents", openclawAgentId, "sessions", `${sessionId}.jsonl`) : null,
+    path.join(OPENCLAW_HOME, "agents", "main", "sessions", `${sessionId}.jsonl`),
+  ].filter((value): value is string => Boolean(value));
+
+  for (const filePath of candidatePaths) {
+    try {
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, "utf-8");
+      const lines = raw.split("\n").filter(Boolean);
+      const messages: SessionGetMessage[] = [];
+      for (const line of lines) {
+        const parsed = JSON.parse(line) as {
+          type?: string;
+          message?: SessionGetMessage;
+        };
+        if (parsed.type !== "message" || !parsed.message) continue;
+        messages.push(parsed.message);
+      }
+      if (messages.length > 0) {
+        return messages;
+      }
+    } catch {
+      // Keep fallback silent — gateway payload remains the primary source.
+    }
+  }
+
+  return [];
+}
+
+async function getSessionListEntry(
+  sessionKey: string,
+  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
+): Promise<SessionListEntry | undefined> {
+  const payload = await callGateway<{ sessions?: SessionListEntry[] } | SessionListEntry[]>(
+    OPENCLAW_BIN,
+    "sessions.list",
+    {},
+    execFileAsync
+  );
+
+  if (!payload) return undefined;
+
+  const sessions = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload.sessions)
+      ? payload.sessions
+      : [];
+
+  return sessions.find((session) => session?.key === sessionKey);
+}
+
 async function waitForSessionCompletion(
   _command: string,
   sessionKey: string,
@@ -1736,36 +1837,82 @@ async function waitForSessionCompletion(
   //   (agent finished a quick turn without the status reaching "done")
   const maxAttempts = 60; // 60 * 2s = 120s max wait
   let sawRunning = false;
+  let lastAssistantFingerprint = "";
+  let stableAssistantPolls = 0;
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const { stdout } = await execFileAsync(
+      const data = await callGateway<Record<string, unknown>>(
         OPENCLAW_BIN,
-        ["gateway", "call", "sessions.get", "--json", "--params", JSON.stringify({ key: sessionKey })],
-        { maxBuffer: 4 * 1024 * 1024, env: GATEWAY_ENV }
+        "sessions.get",
+        { key: sessionKey },
+        execFileAsync
       );
-      const data = JSON.parse(stdout);
-      const status = data?.status;
-      const messages = Array.isArray(data?.messages) ? data.messages : [];
+      const listEntry = await getSessionListEntry(sessionKey, execFileAsync);
+      const status = typeof data?.status === "string" ? data.status.toLowerCase() : undefined;
+      const listStatus = typeof listEntry?.status === "string" ? listEntry.status.toLowerCase() : undefined;
+      const messages = Array.isArray(data?.messages) ? data.messages as SessionGetMessage[] : [];
+      const assistantFingerprint = assistantMessageFingerprint(messages);
+      const hasAssistantOutput = assistantFingerprint !== "[]";
+      const merged = {
+        ...(data ?? {}),
+        ...(listEntry?.sessionId ? { sessionId: data?.sessionId ?? listEntry.sessionId } : {}),
+        ...(listStatus ? { status: listStatus } : {}),
+      };
 
       // Explicit terminal
       if (status === "done" || status === "completed" || status === "failed" || status === "error" || status === "cancelled") {
-        return data;
+        return merged;
+      }
+      if (listStatus === "done" || listStatus === "completed" || listStatus === "failed" || listStatus === "error" || listStatus === "cancelled") {
+        if (hasAssistantOutput || attempt > 0) {
+          return merged;
+        }
       }
 
       // Track if we've seen the session enter "running" state
-      if (status === "running" || status === "started") {
+      if (status === "running" || status === "started" || listStatus === "running" || listStatus === "started") {
         sawRunning = true;
       }
 
-      // Idle heuristic: if we saw running and now status is null/absent,
-      // and there are assistant messages, the turn completed
-      if (sawRunning && !status && messages.length > 0) {
-        const hasAssistantOutput = messages.some(
-          (m: { role?: string }) => m.role === "assistant"
-        );
-        if (hasAssistantOutput) {
-          return data;
+      if (assistantFingerprint && assistantFingerprint === lastAssistantFingerprint) {
+        stableAssistantPolls += 1;
+      } else {
+        stableAssistantPolls = 0;
+        lastAssistantFingerprint = assistantFingerprint;
+      }
+
+      // Idle heuristic: if the gateway stops reporting status but assistant
+      // output is stable across polls, treat the turn as complete.
+      if (hasAssistantOutput && !status && !listStatus && (sawRunning || stableAssistantPolls >= 1)) {
+        return merged;
+      }
+
+      // sessions.get can stay blank while sessions.list has already moved on.
+      // Once list reports a different session or endedAt timestamp for this key,
+      // we treat the prior turn as done if assistant output exists.
+      if (hasAssistantOutput && listEntry && listEntry.endedAt && !listStatus) {
+        return merged;
+      }
+      if (hasAssistantOutput && listEntry?.startedAt && !listEntry.endedAt && stableAssistantPolls >= 2) {
+        return merged;
+      }
+
+      if (!data && listEntry && isFinite(Number(listEntry.endedAt))) {
+        return { ...merged };
+      }
+
+      if (!data && listEntry?.status && ["done", "completed", "failed", "error", "cancelled"].includes(listEntry.status.toLowerCase())) {
+        return { ...merged };
+      }
+
+      if (!data && listEntry?.status && ["running", "started"].includes(listEntry.status.toLowerCase())) {
+        sawRunning = true;
+      }
+
+      if (!data && !listEntry) {
+        if (attempt >= 2) {
+          return null;
         }
       }
 
@@ -1777,12 +1924,18 @@ async function waitForSessionCompletion(
   }
   // Timeout — return whatever state is available
   try {
-    const { stdout } = await execFileAsync(
+    const data = await callGateway<Record<string, unknown>>(
       OPENCLAW_BIN,
-      ["gateway", "call", "sessions.get", "--json", "--params", JSON.stringify({ key: sessionKey })],
-      { maxBuffer: 4 * 1024 * 1024, env: GATEWAY_ENV }
+      "sessions.get",
+      { key: sessionKey },
+      execFileAsync
     );
-    return JSON.parse(stdout);
+    const listEntry = await getSessionListEntry(sessionKey, execFileAsync);
+    return {
+      ...(data ?? {}),
+      ...(listEntry?.sessionId ? { sessionId: (data as Record<string, unknown> | undefined)?.sessionId ?? listEntry.sessionId } : {}),
+      ...(listEntry?.status ? { status: (data as Record<string, unknown> | undefined)?.status ?? listEntry.status } : {}),
+    };
   } catch {
     return null;
   }
@@ -1882,7 +2035,6 @@ function importCommentOnTask(
   // Use resolved task.id for all DB operations (caller may have passed a task_key)
   const resolvedId = task.id;
 
-  const { createHash } = require("crypto");
   const bodyFingerprint = createHash("sha1").update(body.slice(0, 200).toLowerCase().trim()).digest("hex").slice(0, 16);
   const externalRef = `engine:comment:${resolvedId.slice(0, 8)}:${bodyFingerprint}`;
 
@@ -1914,11 +2066,116 @@ function importCommentOnTask(
   ).run(randomUUID(), task.project_id, resolvedId, agentId, JSON.stringify({ source: "engine_heartbeat", runId }), now);
 }
 
-function executeCreateTask(
+async function autoStartAssignedTask(input: {
+  taskId: string;
+  projectId: string;
+  companyId: string;
+  assigneeId: string;
+  sourceAgentId: string;
+  runId: string;
+  initialStatus: "on_deck" | "in_progress";
+  db: Database.Database;
+}): Promise<void> {
+  const db = input.db;
+  const assignee = db.prepare(
+    `SELECT
+       a.status,
+       EXISTS(
+         SELECT 1
+         FROM approvals ap
+         WHERE ap.type = 'hire_agent'
+           AND ap.company_id = a.company_id
+           AND ap.status IN ('pending', 'revision_requested')
+           AND json_extract(ap.payload_json, '$.agentId') = a.id
+       ) AS has_pending_hire_approval
+     FROM agents a
+     WHERE a.id = ? AND a.archived_at IS NULL
+     LIMIT 1`
+  ).get(input.assigneeId) as { status: string; has_pending_hire_approval: number } | undefined;
+
+  if (!assignee) return;
+  if (assignee.status === "paused" || assignee.status === "offline" || assignee.status === "error") return;
+  if (assignee.has_pending_hire_approval) return;
+
+  const now = new Date().toISOString();
+  if (input.initialStatus === "on_deck") {
+    const taskRow = db.prepare(
+      `SELECT status FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1`
+    ).get(input.taskId) as { status: string } | undefined;
+
+    if (taskRow?.status === "on_deck") {
+      db.prepare(
+        `UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'on_deck'`
+      ).run(now, input.taskId);
+
+      db.prepare(
+        `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, 'task.status_changed', 'on_deck', 'in_progress', ?, ?)`
+      ).run(
+        randomUUID(),
+        input.projectId,
+        input.taskId,
+        input.sourceAgentId,
+        JSON.stringify({ source: "engine_auto_assignment", runId: input.runId }),
+        now,
+      );
+    }
+  }
+
+  const existingExecutionRun = db.prepare(
+    `SELECT id
+     FROM execution_runs
+     WHERE task_id = ? AND provider = 'openclaw' AND status IN ('pending', 'running')
+     ORDER BY created_at DESC
+     LIMIT 1`
+  ).get(input.taskId) as { id: string } | undefined;
+
+  const idempotencyKey = `engine-auto-task:${input.taskId}`;
+  const executionRunId = existingExecutionRun?.id ?? randomUUID();
+  if (!existingExecutionRun) {
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, status, idempotency_key, created_at, updated_at)
+       VALUES (?, ?, ?, 'openclaw', 'pending', ?, ?, ?)`
+    ).run(executionRunId, input.taskId, input.assigneeId, idempotencyKey, now, now);
+  }
+
+  const wake = enqueueWakeup(
+    {
+      agentId: input.assigneeId,
+      companyId: input.companyId,
+      source: "issue_assigned",
+      reason: "engine_auto_task_assignment",
+      payload: {
+        taskId: input.taskId,
+        taskStatus: "in_progress",
+        projectId: input.projectId,
+        executionRunId,
+      },
+      idempotencyKey,
+    },
+    db,
+  );
+
+  if (wake.heartbeatRunId && (wake.status === "queued" || wake.status === "coalesced")) {
+    // Do not execute nested heartbeats inline.
+    // Let the engine tick pick this run up automatically so the parent agent
+    // can finish importing its own actions and clear live state truthfully.
+    emitRunEvent(
+      input.runId,
+      input.sourceAgentId,
+      "action_executed",
+      `Queued ${input.assigneeId === input.sourceAgentId ? "self" : "agent"} wakeup for assigned task`,
+      db,
+    );
+  }
+}
+
+async function executeCreateTask(
   action: Extract<McAction, { action: "create_task" }>,
   input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
   db: Database.Database
-): string | null {
+): Promise<string | null> {
   // ── Cross-run dedup: check if a task with the same normalized title already exists ──
   const normalizedTitle = (action.title ?? "").trim().toLowerCase().replace(/\s+/g, " ");
   if (normalizedTitle) {
@@ -2030,12 +2287,25 @@ function executeCreateTask(
     ).run(randomUUID(), projectId, taskId, input.agentId, JSON.stringify({ assignee: action.assignee, source: "ceo_heartbeat" }), now);
   }
 
+  if (assigneeId && assigneeId !== input.agentId) {
+    await autoStartAssignedTask({
+      taskId,
+      projectId,
+      companyId: input.companyId,
+      assigneeId,
+      sourceAgentId: input.agentId,
+      runId: input.runId,
+      initialStatus: status as "on_deck" | "in_progress",
+      db,
+    });
+  }
+
   return taskId;
 }
 
 function executeHireAgent(
   action: Extract<McAction, { action: "hire_agent" }>,
-  input: { agentId: string; agentName: string; companyId: string; runId: string },
+  input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
   db: Database.Database
 ): string | null {
   // ── Cross-run dedup: check for existing hire approval with same name+role ──
@@ -2060,10 +2330,23 @@ function executeHireAgent(
   }
 
   const now = new Date().toISOString();
+  const stagedAgent = stagePendingHireAgent({
+    approvalCompanyId: input.companyId,
+    requestedByAgentId: input.agentId,
+    payload: {
+      name: action.name ?? "Unnamed Agent",
+      role: action.role ?? "General",
+      capabilities: action.capabilities ?? "",
+      reason: action.reason ?? "Requested by CEO during heartbeat",
+      requestedDuring: input.runId,
+    },
+    db,
+  });
   const approvalId = randomUUID();
 
   const payload = {
     name: action.name ?? "Unnamed Agent",
+    agentId: stagedAgent.agentId,
     role: action.role ?? "General",
     capabilities: action.capabilities ?? "",
     reason: action.reason ?? "Requested by CEO during heartbeat",
@@ -2072,9 +2355,9 @@ function executeHireAgent(
 
   db.prepare(
     `INSERT INTO approvals
-       (id, company_id, type, status, requested_by_agent_id, payload_json, created_at, updated_at)
-     VALUES (?, ?, 'hire_agent', 'pending', ?, ?, ?, ?)`
-  ).run(approvalId, input.companyId, input.agentId, JSON.stringify(payload), now, now);
+       (id, company_id, type, status, requested_by_agent_id, payload_json, linked_task_id, created_at, updated_at)
+     VALUES (?, ?, 'hire_agent', 'pending', ?, ?, ?, ?, ?)`
+  ).run(approvalId, input.companyId, input.agentId, JSON.stringify(payload), input.taskKey, now, now);
 
   return approvalId;
 }
@@ -2134,6 +2417,59 @@ function executeAddComment(
   if (!task || !task.id) return false;
 
   importCommentOnTask(task.id, input.agentId, action.body.slice(0, 9000), "comment", input.runId, db);
+  return true;
+}
+
+function moveTaskToReviewIfAwaitingApproval(
+  taskId: string,
+  agentId: string,
+  runId: string,
+  db: Database.Database,
+): boolean {
+  const pendingApprovalCount = db
+    .prepare(
+      `SELECT COUNT(*) AS count
+       FROM approvals
+       WHERE linked_task_id = ?
+         AND status IN ('pending', 'revision_requested')`
+    )
+    .get(taskId) as { count: number } | undefined;
+
+  if (!pendingApprovalCount || pendingApprovalCount.count === 0) {
+    return false;
+  }
+
+  const task = db
+    .prepare("SELECT id, project_id, status FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+    .get(taskId) as { id: string; project_id: string; status: string } | undefined;
+
+  if (!task || task.status !== "in_progress") {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+  const updated = db
+    .prepare("UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ? AND status = 'in_progress'")
+    .run(now, task.id);
+
+  if (updated.changes === 0) {
+    return false;
+  }
+
+  db.prepare(
+    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`
+  ).run(
+    randomUUID(),
+    task.project_id,
+    task.id,
+    agentId,
+    "in_progress",
+    "review",
+    JSON.stringify({ source: "engine_approval_hold", runId }),
+    now,
+  );
+
   return true;
 }
 

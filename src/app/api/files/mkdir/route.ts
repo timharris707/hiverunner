@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
-import { resolveWorkspaceBase } from '@/lib/files/workspace-resolver';
+import { resolveWorkspacePath } from '@/lib/files/workspace-resolver';
 
 export async function POST(request: NextRequest) {
   try {
@@ -12,18 +12,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing path or name' }, { status: 400 });
     }
 
-    const base = resolveWorkspaceBase(workspace);
-    if (!base) {
-      return NextResponse.json({ error: 'Unknown workspace' }, { status: 400 });
-    }
-
-    const targetPath = name
-      ? path.resolve(base, dirPath || '', name)
-      : path.resolve(base, dirPath);
-
-    if (!targetPath.startsWith(base)) {
+    const resolved = resolveWorkspacePath(
+      workspace,
+      name ? path.join(dirPath || '', name) : dirPath,
+    );
+    if (!resolved) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }
+    const { base, fullPath: targetPath } = resolved;
 
     await fs.mkdir(targetPath, { recursive: true });
 

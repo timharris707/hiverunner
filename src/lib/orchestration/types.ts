@@ -46,6 +46,8 @@ export interface OrchestrationProject {
 export interface OrchestrationCompany {
   id: string;
   slug: string;
+  workspaceSlug: string;
+  runtimeSlug: string;
   code: string;
   name: string;
   description: string;
@@ -194,10 +196,13 @@ export interface OrchestrationAgent {
   model?: string;
   /** Execution provider. Source of truth for provider identity (Phase 1). */
   adapterType?: string;
+  runtimeSlug?: string;
   paperclipAgentId?: string;
   openclawAgentId?: string;
   reportingTo?: string;
   reportingToName?: string;
+  hireApprovalId?: string;
+  hireApprovalStatus?: ApprovalStatus;
   skills?: string[];
   tasksCompleted?: number;
   totalRuntimeMinutes?: number;
@@ -341,6 +346,8 @@ export interface OrchestrationApproval {
   decidedByUserId: string | null;
   decidedAt: string | null;
   linkedTaskId: string | null;
+  linkedTaskKey?: string | null;
+  linkedTaskTitle?: string | null;
   createdAt: string;
   updatedAt: string;
   comments?: OrchestrationApprovalComment[];

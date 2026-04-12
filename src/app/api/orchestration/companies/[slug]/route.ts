@@ -1,12 +1,17 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
-import fs from "fs";
-import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { updateCompanySchema } from "@/lib/orchestration/contracts";
-import { archiveCompany, getCompany, resolveCompanyIdBySlug, updateCompany } from "@/lib/orchestration/company-service";
+import {
+  archiveCompany,
+  cleanupDeletedCompanyOpenClawAgents,
+  getCompany,
+  hardDeleteCompany,
+  resolveCompanyIdBySlug,
+  updateCompany,
+} from "@/lib/orchestration/company-service";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +63,7 @@ export async function DELETE(
     const db = getOrchestrationDb();
 
     // Resolve through alias-aware lookup, then check protection by stable ID.
-    const resolved = resolveCompanyIdBySlug(slug, db);
+    const resolved = resolveCompanyIdBySlug(slug, db, { includeArchived: true });
     if (!resolved) {
       return errorResponse(404, "not_found", "Company not found");
     }
@@ -73,39 +78,15 @@ export async function DELETE(
     const hard = req.nextUrl.searchParams.get("hard") === "true";
 
     if (hard) {
-      const current = { id: resolved.id, workspace_root: resolved.workspace_root ?? "" };
-
-      // 1. Unregister agents in OpenClaw
-      const agents = db.prepare("SELECT openclaw_agent_id FROM agents WHERE company_id = ?").all(current.id) as { openclaw_agent_id: string | null }[];
-      for (const agent of agents) {
-        if (agent.openclaw_agent_id) {
-          try {
-            execSync(`openclaw agents delete ${agent.openclaw_agent_id} --force`, { encoding: "utf-8", timeout: 15000 });
-          } catch (e) {
-            console.warn(`Failed to delete openclaw agent ${agent.openclaw_agent_id}:`, e);
-          }
-        }
-      }
-
-      // 2. Wipe DB records
-      db.transaction(() => {
-        db.prepare(`DELETE FROM tasks WHERE assignee_agent_id IN (SELECT id FROM agents WHERE company_id = ?)`).run(current.id);
-        db.prepare(`DELETE FROM tasks WHERE project_id IN (SELECT id FROM projects WHERE company_id = ?)`).run(current.id);
-        db.prepare(`DELETE FROM agents WHERE company_id = ?`).run(current.id);
-        db.prepare(`DELETE FROM projects WHERE company_id = ?`).run(current.id);
-        db.prepare(`DELETE FROM companies WHERE id = ?`).run(current.id);
-      })();
-
-      // 3. Remove filesystem workspace
-      if (current.workspace_root && (current.workspace_root.includes("workspaces/") || current.workspace_root.includes("workspace-"))) {
+      const result = hardDeleteCompany(slug);
+      after(async () => {
         try {
-          fs.rmSync(current.workspace_root, { recursive: true, force: true });
-        } catch (e) {
-          console.warn(`Failed to rm workspace_root ${current.workspace_root}:`, e);
+          await cleanupDeletedCompanyOpenClawAgents(result.openclawAgents.queued);
+        } catch (cleanupError) {
+          console.error("[company:delete] OpenClaw cleanup failed:", cleanupError);
         }
-      }
-
-      return NextResponse.json({ success: true, deleted: true, slug });
+      });
+      return NextResponse.json({ success: true, deleted: true, company: result });
     }
 
     return NextResponse.json(archiveCompany(slug));

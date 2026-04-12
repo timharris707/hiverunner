@@ -6,7 +6,12 @@ set -eu
 #   lane:   dev | stable
 #   action: start | stop | restart | status | logs | rollback
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 
 usage() {
   echo "Usage: $0 <dev|stable> <start|stop|restart|status|logs|rollback>"
@@ -50,15 +55,15 @@ fi
 case "$LANE" in
   dev)
     PORT=3010
-    PID_FILE="$APP_DIR/data/mission-control-dev.pid"
-    LOG_FILE="$APP_DIR/data/mission-control-dev.log"
+    PID_FILE="$LOG_DIR/mission-control-dev.pid"
+    LOG_FILE="$LOG_DIR/mission-control-dev.log"
     START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
     STOP_SCRIPT="$APP_DIR/scripts/stop_dev_service.sh"
     ;;
   stable)
     PORT=3001
-    PID_FILE="$APP_DIR/data/mission-control-stable.pid"
-    LOG_FILE="$APP_DIR/data/mission-control-stable.log"
+    PID_FILE="$LOG_DIR/mission-control-stable.pid"
+    LOG_FILE="$LOG_DIR/mission-control-stable.log"
     START_SCRIPT="$APP_DIR/scripts/start_stable_service.sh"
     STOP_SCRIPT="$APP_DIR/scripts/stop_stable_service.sh"
     ;;

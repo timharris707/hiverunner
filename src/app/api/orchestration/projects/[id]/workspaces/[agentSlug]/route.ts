@@ -4,10 +4,9 @@ import path from "path";
 
 import { handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveAgentWorkspacePathWithLegacyFallback } from "@/lib/workspaces/company-paths";
 
 export const dynamic = "force-dynamic";
-
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 
 type RunRow = {
   id: string;
@@ -74,10 +73,21 @@ export async function GET(
       return NextResponse.json({ error: "agent_not_found" }, { status: 404 });
     }
 
-    // Workspace directory — convention-derived, not persisted.
-    // No workspace_path column exists on agents; adapter_config_json is typically empty.
-    const workspaceDir = path.join(OPENCLAW_DIR, `workspace-${agent.slug}`);
-    const exists = fs.existsSync(workspaceDir);
+    const company = db
+      .prepare(
+        `SELECT workspace_root
+         FROM companies
+         WHERE id = ? AND archived_at IS NULL
+         LIMIT 1`
+      )
+      .get(project.company_id) as { workspace_root: string | null } | undefined;
+
+    const workspace = resolveAgentWorkspacePathWithLegacyFallback(
+      company?.workspace_root ?? null,
+      agent.slug,
+    );
+    const workspaceDir = workspace.path;
+    const exists = workspace.exists;
 
     // Filesystem contents (top-level only)
     let files: { name: string; type: "file" | "directory"; size?: number }[] = [];
@@ -122,7 +132,7 @@ export async function GET(
     }
 
     // Git status
-    let gitInfo: { branch?: string; hasRepo: boolean } = { hasRepo: false };
+    const gitInfo: { branch?: string; hasRepo: boolean } = { hasRepo: false };
     if (exists && fs.existsSync(path.join(workspaceDir, ".git"))) {
       gitInfo.hasRepo = true;
       try {
@@ -181,7 +191,7 @@ export async function GET(
         files,
         identity,
         git: gitInfo,
-        source: "convention",
+        source: workspace.source,
         verified: exists,
       },
       recentRuns: recentRuns.map((r) => {

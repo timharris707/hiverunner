@@ -126,10 +126,13 @@ export type AgentRow = {
   current_task_title: string | null;
   model: string | null;
   adapter_type: string;
+  runtime_slug: string | null;
   paperclip_agent_id: string | null;
   openclaw_agent_id: string | null;
   reporting_to: string | null;
   reporting_to_name?: string | null;
+  hire_approval_id?: string | null;
+  hire_approval_status?: "pending" | "revision_requested" | "approved" | "rejected" | "cancelled" | null;
   skills_json: string;
   tasks_completed: number;
   total_runtime_minutes: number;

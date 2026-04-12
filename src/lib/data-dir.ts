@@ -4,25 +4,31 @@
  * Controls where SQLite databases (orchestration.db, tasks.db, activities.db,
  * usage-tracking.db) are stored. Each lane sets MC_DATA_DIR in its start script:
  *
- *   Stable (:3001) → MC_DATA_DIR=$APP_DIR/data      (production data)
- *   Dev    (:3010) → MC_DATA_DIR=$APP_DIR/data-dev   (isolated dev data)
+ *   Stable (:3001) → MC_DATA_DIR=$MC_APP_ROOT/data
+ *   Dev    (:3010) → MC_DATA_DIR=$MC_APP_ROOT/data-dev
  *
- * When MC_DATA_DIR is not set, falls back to process.cwd()/data (legacy default).
+ * When MC_DATA_DIR is not set, falls back to MC_APP_ROOT/data. If MC_APP_ROOT
+ * is also unset, the final legacy fallback is process.cwd().
  */
-import path from "path";
+import { resolveMissionControlAppRoot, resolveMissionControlDataDir } from "./runtime-paths";
 
-const DEFAULT_DATA_DIR = path.join(process.cwd(), "data");
+const DEFAULT_DATA_DIR = resolveMissionControlDataDir({
+  ...process.env,
+  MC_DATA_DIR: undefined,
+});
 
 export const MC_DATA_DIR = process.env.MC_DATA_DIR
-  ? path.resolve(process.env.MC_DATA_DIR)
+  ? resolveMissionControlDataDir(process.env)
   : DEFAULT_DATA_DIR;
+
+export const MC_APP_ROOT = resolveMissionControlAppRoot();
 
 /**
  * True when MC_DATA_DIR resolves to a non-default directory (e.g., data-dev).
  * Used to suppress legacy JSON backfill so non-default data directories
  * start with a clean slate instead of importing shared JSON from data/.
  *
- * The stable lane sets MC_DATA_DIR=$APP_DIR/data explicitly — that resolves
+ * The stable lane sets MC_DATA_DIR=$MC_APP_ROOT/data explicitly — that resolves
  * to the same path as the default, so MC_DATA_DIR_IS_NON_DEFAULT is false
  * and JSON backfill still works for stable.
  */

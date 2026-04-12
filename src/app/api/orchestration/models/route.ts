@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { execSync } from "child_process";
 
+import { COMPANY_WIZARD_MODEL_FALLBACK } from "@/lib/orchestration/company-wizard";
+
 export const dynamic = "force-dynamic";
 
 interface OpenClawModel {
@@ -13,14 +15,6 @@ interface OpenClawModel {
   tags: string[];
   missing: boolean;
 }
-
-const STATIC_FALLBACK = [
-  { value: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic" },
-  { value: "anthropic/claude-opus-4-6", label: "Claude Opus 4.6", provider: "anthropic" },
-  { value: "anthropic/claude-haiku-4-5", label: "Claude Haiku 4.5", provider: "anthropic" },
-  { value: "openai-codex/gpt-5.4", label: "GPT-5.4", provider: "openai-codex" },
-  { value: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro", provider: "google" },
-];
 
 function friendlyLabel(model: OpenClawModel): string {
   const alias = model.tags.find((t) => t.startsWith("alias:"));
@@ -74,6 +68,10 @@ export async function GET() {
     cachedModels = { models, fetchedAt: Date.now() };
     return NextResponse.json({ models, source: "openclaw", count: models.length });
   } catch {
-    return NextResponse.json({ models: STATIC_FALLBACK, source: "fallback", count: STATIC_FALLBACK.length });
+    return NextResponse.json({
+      models: COMPANY_WIZARD_MODEL_FALLBACK,
+      source: "fallback",
+      count: COMPANY_WIZARD_MODEL_FALLBACK.length,
+    });
   }
 }

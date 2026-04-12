@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-import { resolveWorkspaceBase } from "@/lib/files/workspace-resolver";
+import {
+  resolveWorkspaceBase,
+  resolveWorkspacePath,
+} from "@/lib/files/workspace-resolver";
 
 interface FileEntry {
   name: string;
@@ -38,15 +41,14 @@ export async function GET(request: NextRequest) {
     
     // Normalize and validate path to prevent directory traversal
     const normalizedPath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, "");
-    const fullPath = path.join(BASE_PATH, normalizedPath);
-    
-    // Ensure the path is within BASE_PATH
-    if (!fullPath.startsWith(BASE_PATH)) {
+    const resolvedPath = resolveWorkspacePath(workspace, normalizedPath);
+    if (!resolvedPath) {
       return NextResponse.json(
         { error: "Access denied: Path outside workspace" },
         { status: 403 }
       );
     }
+    const fullPath = resolvedPath.fullPath;
 
     const stats = await fs.stat(fullPath);
 

@@ -29,24 +29,47 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function createStubOpenClawCli(): string {
+function createStubOpenClawCli(): { filePath: string; statePath: string } {
   const filePath = path.join(
     os.tmpdir(),
     `mc-openclaw-heartbeat-bridge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`
   );
+  const statePath = path.join(
+    os.tmpdir(),
+    `mc-openclaw-heartbeat-bridge-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
+  );
 
   const script = `#!/bin/sh
 METHOD="$3"
+PARAMS="$6"
+STATE_FILE="${statePath}"
+
+extract_key() {
+  printf '%s' "$PARAMS" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p'
+}
+
 if [ "$METHOD" = "sessions.create" ]; then
-  echo '{"ok":true,"key":"agent:forge-heartbeat:heartbeat:stub","sessionId":"session-heartbeat-bridge-123"}'
+  KEY="$(extract_key)"
+  if [ -n "$KEY" ]; then
+    printf '%s' "$KEY" > "$STATE_FILE"
+  fi
+  printf '{"ok":true,"key":"%s","sessionId":"session-heartbeat-bridge-123"}\n' "$KEY"
   exit 0
 fi
 if [ "$METHOD" = "sessions.send" ]; then
   echo '{"runId":"run-heartbeat-bridge-456","status":"started"}'
   exit 0
 fi
+if [ "$METHOD" = "sessions.list" ] || [ "$METHOD" = "sessions_list" ]; then
+  KEY="$(cat "$STATE_FILE" 2>/dev/null)"
+  if [ -z "$KEY" ]; then
+    KEY="agent:forge-heartbeat:heartbeat:stub"
+  fi
+  printf '{"sessions":[{"key":"%s","sessionId":"session-heartbeat-bridge-123","status":"done","startedAt":1775790000000,"endedAt":1775790005000}]}\n' "$KEY"
+  exit 0
+fi
 if [ "$METHOD" = "sessions.get" ] || [ "$METHOD" = "sessions_get" ]; then
-  echo '{"sessionId":"session-heartbeat-bridge-123","status":"completed","messages":[{"role":"assistant","content":"Execution bridge proof complete. Imported through heartbeat run."}]}'
+  echo '{"messages":[{"role":"assistant","content":"Execution bridge proof complete. Imported through heartbeat run."}]}'
   exit 0
 fi
 if [ "$METHOD" = "sessions.history" ] || [ "$METHOD" = "sessions_history" ]; then
@@ -60,7 +83,7 @@ exit 1
 
   writeFileSync(filePath, script, "utf8");
   chmodSync(filePath, 0o755);
-  return filePath;
+  return { filePath, statePath };
 }
 
 console.log("\nOrchestration Execution Heartbeat Bridge Contract Test\n");
@@ -68,7 +91,8 @@ console.log("\nOrchestration Execution Heartbeat Bridge Contract Test\n");
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   const originalCli = process.env.ORCHESTRATION_OPENCLAW_CLI;
-  const stubCli = createStubOpenClawCli();
+  const stub = createStubOpenClawCli();
+  const stubCli = stub.filePath;
 
   try {
     if (dbPath) {
@@ -183,6 +207,7 @@ async function run() {
   } finally {
     process.env.ORCHESTRATION_OPENCLAW_CLI = originalCli;
     rmSync(stubCli, { force: true });
+    rmSync(stub.statePath, { force: true });
     if (dbPath) {
       rmSync(dbPath, { force: true });
     }

@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
-REPO_DIR="$APP_DIR"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+MC_APP_ROOT="${MC_APP_ROOT:-}"
 TMP_ROOT="${TMPDIR:-/tmp}"
 ALLOW_DIRTY=0
 DRY_RUN=0
@@ -11,7 +11,9 @@ TARGET_TAG=""
 TARGET_COMMIT=""
 
 # shellcheck disable=SC1091
-. "$APP_DIR/scripts/stable_release_common.sh"
+. "$SCRIPT_DIR/stable_release_common.sh"
+
+REPO_DIR="$APP_DIR"
 
 usage() {
   EXIT_CODE="${1:-1}"

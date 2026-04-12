@@ -32,6 +32,17 @@ scripts/promote_to_stable.sh --reconcile-live --allow-dirty
 scripts/rollback_stable.sh
 ```
 
+## Path Contract
+
+Local runtime path ownership is now explicit:
+
+- `MC_APP_ROOT` identifies the Mission Control checkout root
+- `MC_DATA_DIR` identifies the lane data directory
+- `MC_LOG_DIR` identifies the service/watchdog PID and log directory
+- `MC_WORKSPACE_ROOT` identifies the Mission Control-owned company workspace root
+
+The checked-in scripts derive `MC_APP_ROOT` from their own location when it is unset, so the current checkout still works in place. Launchd plists set `MC_APP_ROOT` explicitly so repo relocation only needs a controlled config change rather than hidden path edits.
+
 ## Recommended Workflow
 
 ```sh
@@ -119,7 +130,7 @@ Use `scripts/rollback_stable.sh --inspect` to view the recorded current and prev
 ## File Layout
 
 ```
-data/
+$MC_LOG_DIR or $MC_APP_ROOT/data
   mission-control-dev.pid         # dev PID
   mission-control-dev.log         # dev stdout
   mission-control-dev.err.log     # dev stderr
@@ -131,6 +142,8 @@ data/
   mc-stable-watchdog.out.log      # stable watchdog output
   mc-stable-watchdog.err.log      # stable watchdog errors
 ```
+
+The launchd plist files are prepared to use `MC_LOG_DIR=/Users/timharris/.mission-control/logs`. Manual script execution still defaults to `$MC_APP_ROOT/data` unless `MC_LOG_DIR` is set.
 
 ## Watchdog (launchd)
 
@@ -152,7 +165,39 @@ The stable watchdog gracefully skips if no `.stable/.next` build exists yet.
 
 ## Databases
 
-Both lanes share the same SQLite databases in `data/` (symlinked from `.stable/`). SQLite WAL mode handles concurrent readers safely. Avoid running writes from both lanes simultaneously on the same table.
+Mission Control separates lane data with `MC_DATA_DIR`:
+
+- Dev uses `data-dev/`
+- Stable uses `data/`
+
+Stable still deploys from `.stable/`, but the lanes no longer share the same orchestration SQLite path by default.
+
+## Workspace Roots
+
+Mission Control separates company workspace storage with `MC_WORKSPACE_ROOT`:
+
+- Dev defaults to `~/.mission-control/dev/workspaces`
+- Stable defaults to `~/.mission-control/stable/workspaces`
+
+Company rows now persist an immutable `workspace_slug` alongside the mutable route `slug`.
+Managed company rows still resolve from persisted `workspace_root`, and the canonical on-disk folder shape is now:
+
+```text
+${MC_WORKSPACE_ROOT}/companies/<workspace_slug>--<companyId>
+```
+
+Existing persisted `workspace_root` values are still honored during the transition. `neveridle-core` remains explicitly backed by the OpenClaw default workspace for compatibility and is not auto-migrated by this phase.
+
+Phase 3 tooling for this migration:
+
+```sh
+npm run workspace:migration:inventory
+npm run workspace:migration:dry-run
+npm run workspace:migration:snapshot
+npm run workspace:migration:verify
+```
+
+Use [workspace-migration-rollback.md](workspace-migration-rollback.md) for workspace-cutover rollback and [repo-relocation-runbook.md](repo-relocation-runbook.md) for the repo move procedure and rollback checklist.
 
 ## Caveats
 

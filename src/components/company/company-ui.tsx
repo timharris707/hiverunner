@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 export function DeleteCompanyModal({
@@ -18,6 +18,8 @@ export function DeleteCompanyModal({
   companyName: string;
   busy: boolean;
 }) {
+  const [confirmationValue, setConfirmationValue] = useState("");
+
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;
@@ -36,7 +38,16 @@ export function DeleteCompanyModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose, busy]);
 
+  useEffect(() => {
+    if (!open) {
+      setConfirmationValue("");
+    }
+  }, [open]);
+
   if (!open) return null;
+
+  const normalizedCompanyName = companyName.trim();
+  const canConfirm = !busy && confirmationValue.trim() === normalizedCompanyName;
 
   return (
     <div
@@ -57,12 +68,32 @@ export function DeleteCompanyModal({
           </div>
           <h2 className="text-center text-xl font-semibold text-white">Delete {companyName}?</h2>
           <p className="mt-2 text-center text-sm text-slate-300">
-            This will permanently erase all projects, agents, tasks, and the complete physical file workspace associated with this company.
+            This will permanently remove the company from Mission Control and destroy its company-scoped resources.
           </p>
-          <p className="mt-2 text-center text-sm font-semibold text-rose-300">
+          <ul className="mt-4 space-y-2 rounded-2xl border border-rose-500/15 bg-black/20 px-4 py-3 text-left text-sm text-slate-200">
+            <li>Remove the company record and related company data from Mission Control.</li>
+            <li>Delete the company workspace from disk.</li>
+            <li>Remove associated OpenClaw agent registrations for this company.</li>
+          </ul>
+          <p className="mt-4 text-center text-sm font-semibold text-rose-300">
             This action cannot be undone.
           </p>
         </div>
+
+        <label className="block rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
+          <span className="mb-2 block text-xs font-medium uppercase tracking-[0.08em] text-slate-400">
+            Type the company name to confirm
+          </span>
+          <input
+            autoFocus
+            type="text"
+            value={confirmationValue}
+            onChange={(event) => setConfirmationValue(event.target.value)}
+            disabled={busy}
+            placeholder={normalizedCompanyName}
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-white outline-none placeholder:text-slate-500"
+          />
+        </label>
 
         <div className="mt-6 flex items-center justify-center gap-3">
           <button
@@ -76,7 +107,7 @@ export function DeleteCompanyModal({
           <button
             type="button"
             onClick={onConfirm}
-            disabled={busy}
+            disabled={!canConfirm}
             className="rounded-xl border border-rose-500/40 bg-rose-500/20 px-4 py-2.5 text-sm font-medium text-rose-100 shadow-[0_12px_26px_rgba(225,29,72,0.25)] hover:bg-rose-500/30 disabled:opacity-50"
           >
             {busy ? "Deleting..." : "Yes, delete company"}

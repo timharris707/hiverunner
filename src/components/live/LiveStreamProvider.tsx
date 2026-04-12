@@ -24,7 +24,7 @@ interface LiveStreamContextValue {
   streamByAgentId: Map<string, AgentStreamState>;
   /** Whether the SSE connection is active */
   connected: boolean;
-  /** Set of agent IDs that are currently live (streaming or recently active) */
+  /** Set of agent IDs that are currently executing a live run */
   liveAgentIds: Set<string>;
 }
 
@@ -92,8 +92,7 @@ export function LiveStreamProvider({ children }: { children: React.ReactNode }) 
   const liveAgentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const [agentId, state] of streamByAgentId) {
-      // Consider an agent "live" if it is streaming or had an event very recently (< 30s)
-      if (state.isStreaming || (Date.now() - state.lastEventTs < 30_000)) {
+      if (state.isActive) {
         ids.add(agentId);
       }
     }

@@ -1,4 +1,10 @@
+import path from "path";
 import { test, expect } from "@playwright/test";
+
+const QUOTA_STATE_SOURCE = path.join(
+  process.env.MC_DATA_DIR ?? path.join(process.env.MC_APP_ROOT ?? process.cwd(), "data"),
+  "quota-state.json",
+);
 
 test.describe("Dashboard metrics", () => {
   test("dashboard stats API documents every homepage metric", async ({ request }) => {
@@ -75,7 +81,7 @@ test.describe("Dashboard metrics", () => {
               label: "Approved Spend",
               subtitle: "Quota state for 2026-03-30 UTC",
               definition: "Shows quota-approved estimated build spend accumulated in the daily quota ledger, not downstream provider invoices.",
-              source: "/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/quota-state.json",
+              source: QUOTA_STATE_SOURCE,
               timeRange: "2026-03-30 UTC quota day (March 30, 2026 local when rendered)",
               verification: "Read from the live quota ledger and summed with the same normalization used on the Costs page.",
             },

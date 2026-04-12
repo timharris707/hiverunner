@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { logActivity } from '@/lib/activities-db';
-import { resolveWorkspaceBase } from '@/lib/files/workspace-resolver';
+import { resolveWorkspacePath } from '@/lib/files/workspace-resolver';
 
 function getMimeType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
@@ -44,15 +44,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing path parameter' }, { status: 400 });
     }
 
-    const base = resolveWorkspaceBase(workspace);
-    if (!base) {
-      return NextResponse.json({ error: 'Unknown workspace' }, { status: 400 });
-    }
-
-    const fullPath = path.resolve(base, filePath);
-    if (!fullPath.startsWith(base)) {
+    const resolved = resolveWorkspacePath(workspace, filePath);
+    if (!resolved) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }
+    const { fullPath } = resolved;
 
     const stat = await fs.stat(fullPath);
     if (!stat.isFile()) {

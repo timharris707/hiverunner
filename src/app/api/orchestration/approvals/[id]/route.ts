@@ -1,7 +1,5 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { ZodError, z } from "zod";
-import { randomUUID } from "crypto";
-
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import {
@@ -11,10 +9,22 @@ import {
   resubmitApproval,
   addApprovalComment,
 } from "@/lib/orchestration/service/approval";
-import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
-import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
+import { enqueueWakeup, executeHeartbeatRun } from "@/lib/orchestration/engine/engine";
+import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { materializeApprovedHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 
 export const dynamic = "force-dynamic";
+
+async function triggerImmediateHeartbeatRun(runId: string) {
+  try {
+    const result = await executeHeartbeatRun(runId);
+    if (result.status === "failed") {
+      console.warn("[approval] immediate heartbeat execution failed:", result.error);
+    }
+  } catch (error) {
+    console.warn("[approval] immediate heartbeat execution failed (non-fatal):", error);
+  }
+}
 
 const commentSchema = z.object({
   body: z.string().trim().min(1).max(10000),
@@ -73,45 +83,18 @@ function handleApprove(approvalId: string, body: Record<string, unknown>) {
   });
 
   if (approval.type === "hire_agent") {
-    const agentId = typeof approval.payload.agentId === "string" ? approval.payload.agentId : null;
-    if (agentId) {
-      // Agent was pre-created by the hire API — just unpause it
-      db.prepare(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ? AND status = 'paused'`)
-        .run(new Date().toISOString(), agentId);
-    } else {
-      // Agent was requested by the engine (executeHireAgent) which only
-      // created the approval, not the agent record. Materialize the agent
-      // now from the approval payload.
-      const p = approval.payload;
-      const name = typeof p.name === "string" ? p.name.trim() : "Unnamed Agent";
-      const role = typeof p.role === "string" ? p.role.trim() : "General";
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-      const model = typeof p.model === "string" ? p.model : "anthropic/claude-sonnet-4-6";
-      const emoji = typeof p.emoji === "string" ? p.emoji : "pixel";
-      const personality = typeof p.capabilities === "string" && p.capabilities
-        ? `Role: ${role}. ${p.capabilities}`
-        : `Role: ${role} at the company`;
-      const now = new Date().toISOString();
-      const newAgentId = randomUUID();
-      const avatarUrl = generateAgentAvatarDataUrl({
-        name, role, personality, emoji,
-        theme: { name: "Corporate Noir", promptTemplate: "dark premium portrait", keywords: [] },
-      });
-      db.prepare(
-        `INSERT INTO agents
-          (id, company_id, name, slug, emoji, role, personality, avatar_url, model, status, reporting_to, skills_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?, '[]', ?, ?)`
-      ).run(
-        newAgentId, approval.companyId, name, slug, emoji, role, personality,
-        avatarUrl, model, approval.requestedByAgentId ?? null, now, now,
-      );
-    }
+    materializeApprovedHireAgent({
+      approvalCompanyId: approval.companyId,
+      requestedByAgentId: approval.requestedByAgentId,
+      payload: approval.payload,
+      db,
+    });
   }
 
   // Approval feedback loop: queue wakeup for the requesting agent so they can act on the decision
   if (approval.requestedByAgentId) {
     try {
-      enqueueWakeup({
+      const wake = enqueueWakeup({
         agentId: approval.requestedByAgentId,
         companyId: approval.companyId,
         source: "explicit",
@@ -124,6 +107,15 @@ function handleApprove(approvalId: string, body: Record<string, unknown>) {
         },
         idempotencyKey: `approval-feedback:${approvalId}:approved`,
       }, db);
+      if (
+        (wake.status === "queued" || wake.status === "coalesced") &&
+        wake.heartbeatRunId &&
+        canAutonomouslyExecuteCompany(approval.companyId)
+      ) {
+        after(async () => {
+          await triggerImmediateHeartbeatRun(wake.heartbeatRunId!);
+        });
+      }
     } catch (wakeErr) {
       console.error("[approval] feedback wakeup failed:", wakeErr instanceof Error ? wakeErr.message : String(wakeErr));
     }
@@ -159,7 +151,7 @@ function handleReject(approvalId: string, body: Record<string, unknown>) {
   // Approval feedback loop: queue wakeup for the requesting agent so they can adjust
   if (approval.requestedByAgentId) {
     try {
-      enqueueWakeup({
+      const wake = enqueueWakeup({
         agentId: approval.requestedByAgentId,
         companyId: approval.companyId,
         source: "explicit",
@@ -172,6 +164,15 @@ function handleReject(approvalId: string, body: Record<string, unknown>) {
         },
         idempotencyKey: `approval-feedback:${approvalId}:rejected`,
       }, db);
+      if (
+        (wake.status === "queued" || wake.status === "coalesced") &&
+        wake.heartbeatRunId &&
+        canAutonomouslyExecuteCompany(approval.companyId)
+      ) {
+        after(async () => {
+          await triggerImmediateHeartbeatRun(wake.heartbeatRunId!);
+        });
+      }
     } catch (wakeErr) {
       console.error("[approval] feedback wakeup failed:", wakeErr instanceof Error ? wakeErr.message : String(wakeErr));
     }

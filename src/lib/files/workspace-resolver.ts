@@ -1,38 +1,176 @@
 import fs from "fs";
 import path from "path";
+
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  resolveLegacyOpenClawAgentWorkspacePath,
+  resolveCompanyProjectWorkspacePath,
+  resolveCompanyWorkspaceRoot,
+} from "@/lib/workspaces/company-paths";
+import { isPathContained } from "@/lib/workspaces/delete-safety";
+import {
+  resolveMissionControlWorkspaceRoot,
+  resolveOpenClawDir,
+  resolveOpenClawWorkspaceRoot,
+} from "@/lib/workspaces/root";
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
+function resolveProjectWorkspaceBase(workspace: string): string | null {
+  if (!workspace.startsWith("project-")) {
+    return null;
+  }
 
-const WORKSPACE_MAP: Record<string, string> = {
-  workspace: path.join(OPENCLAW_DIR, "workspace"),
-  "mission-control": path.join(OPENCLAW_DIR, "workspace", "mission-control"),
-};
+  const projectIdOrSlug = workspace.slice("project-".length).trim();
+  if (!projectIdOrSlug) {
+    return null;
+  }
+
+  try {
+    const db = getOrchestrationDb();
+    const byId = db.prepare(
+      `SELECT
+         p.id,
+         p.slug,
+         p.name,
+         c.id AS company_id,
+         c.workspace_slug,
+         c.workspace_root,
+         c.workspace_source
+       FROM projects p
+       INNER JOIN companies c ON c.id = p.company_id
+       WHERE p.id = ?
+         AND p.archived_at IS NULL
+         AND c.archived_at IS NULL
+       LIMIT 1`
+    ).get(projectIdOrSlug) as
+      | {
+          id: string;
+          slug: string;
+          name: string;
+          company_id: string;
+          workspace_slug: string | null;
+          workspace_root: string | null;
+          workspace_source: string | null;
+        }
+      | undefined;
+
+    const row =
+      byId ??
+      (() => {
+        const matches = db.prepare(
+          `SELECT
+             p.id,
+             p.slug,
+             p.name,
+             c.id AS company_id,
+             c.workspace_slug,
+             c.workspace_root,
+             c.workspace_source
+           FROM projects p
+           INNER JOIN companies c ON c.id = p.company_id
+           WHERE p.slug = ?
+             AND p.archived_at IS NULL
+             AND c.archived_at IS NULL
+           LIMIT 2`
+        ).all(projectIdOrSlug) as Array<{
+          id: string;
+          slug: string;
+          name: string;
+          company_id: string;
+          workspace_slug: string | null;
+          workspace_root: string | null;
+          workspace_source: string | null;
+        }>;
+        return matches.length === 1 ? matches[0] : undefined;
+      })();
+
+    if (!row) {
+      return null;
+    }
+
+    const companyWorkspaceRoot = resolveCompanyWorkspaceRoot({
+      companyId: row.company_id,
+      workspaceSlug: row.workspace_slug,
+      workspaceRoot: row.workspace_root,
+      workspaceSource: row.workspace_source,
+    });
+
+    return resolveCompanyProjectWorkspacePath(companyWorkspaceRoot, {
+      slug: row.slug,
+      name: row.name,
+    }).path;
+  } catch (error) {
+    console.warn("[workspace-resolver] Failed to resolve project workspace:", error);
+    return null;
+  }
+}
+
+function resolveLegacyWorkspaceAlias(workspace: string): string | null {
+  if (workspace === "workspace") {
+    return resolveOpenClawWorkspaceRoot();
+  }
+
+  if (workspace === "mission-control") {
+    return path.join(resolveOpenClawWorkspaceRoot(), "mission-control");
+  }
+
+  if (workspace.startsWith("workspace-")) {
+    const agentSlug = workspace.slice("workspace-".length).trim();
+    if (!agentSlug) {
+      return path.join(resolveOpenClawDir(), workspace);
+    }
+    return resolveLegacyOpenClawAgentWorkspacePath(agentSlug).path;
+  }
+
+  // Transitional compatibility: operator/file APIs historically accepted
+  // arbitrary workspace names under OPENCLAW_DIR.
+  return path.join(resolveOpenClawDir(), workspace);
+}
 
 export function resolveWorkspaceBase(inputWorkspace?: string | null): string | null {
   const workspace = (inputWorkspace || "workspace").trim();
   if (!workspace) return null;
 
   if (path.isAbsolute(workspace)) {
-    return workspace;
+    if (
+      isPathContained(resolveMissionControlWorkspaceRoot(), workspace) ||
+      isPathContained(resolveOpenClawDir(), workspace)
+    ) {
+      return path.resolve(workspace);
+    }
+    return null;
   }
 
-  const mapped = WORKSPACE_MAP[workspace];
+  const projectWorkspace = resolveProjectWorkspaceBase(workspace);
+  if (projectWorkspace) {
+    return projectWorkspace;
+  }
+  if (workspace.startsWith("project-")) {
+    return null;
+  }
+
+  const mapped = resolveLegacyWorkspaceAlias(workspace);
   if (mapped) {
-    return mapped;
+    if (workspace === "workspace" || workspace === "mission-control" || workspace.startsWith("workspace-")) {
+      return mapped;
+    }
   }
 
-  // Alias-aware company workspace resolution.
   try {
     const resolved = resolveCompanyIdBySlug(workspace);
-    if (resolved?.workspace_root?.trim()) {
-      return resolved.workspace_root.trim();
+    if (resolved) {
+      return resolveCompanyWorkspaceRoot({
+        companyId: resolved.id,
+        workspaceSlug: resolved.workspace_slug,
+        workspaceRoot: resolved.workspace_root,
+        workspaceSource: resolved.workspace_source,
+      });
     }
   } catch (error) {
     console.warn("[workspace-resolver] Failed to resolve company workspace:", error);
   }
 
-  return path.join(OPENCLAW_DIR, workspace);
+  return mapped;
 }
 
 export function resolveWorkspacePath(inputWorkspace: string | null | undefined, targetPath = ""): { base: string; fullPath: string } | null {
@@ -42,7 +180,7 @@ export function resolveWorkspacePath(inputWorkspace: string | null | undefined, 
   const safeTarget = path.normalize(targetPath || "");
   const fullPath = path.resolve(base, safeTarget);
 
-  if (!fullPath.startsWith(base)) {
+  if (!isPathContained(base, fullPath)) {
     return null;
   }
 

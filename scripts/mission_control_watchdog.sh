@@ -1,8 +1,12 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
-LOG_DIR="$APP_DIR/data"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 OUT_LOG="$LOG_DIR/mc-dev-watchdog.out.log"
 ERR_LOG="$LOG_DIR/mc-dev-watchdog.err.log"
 HEALTHCHECK_SCRIPT="$APP_DIR/scripts/healthcheck_dev_service.sh"

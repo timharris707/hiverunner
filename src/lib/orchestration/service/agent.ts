@@ -2,6 +2,7 @@ import { randomUUID } from "crypto";
 
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
 import { ensureOpenClawAgentScaffold } from "@/lib/orchestration/openclaw-agent-scaffold";
+import { ensureUniqueAgentRuntimeSlug } from "@/lib/orchestration/runtime-identifiers";
 
 import {
   type AgentRow,
@@ -416,6 +417,7 @@ export function listProjectAgents(
         t.title AS current_task_title,
         a.model,
         a.adapter_type,
+        a.runtime_slug,
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
@@ -445,7 +447,7 @@ export function listProjectAgents(
         if (includeNonProduction) return true;
         return !isNonProductionAgent({ name: row.name, role: row.role });
       })
-    ).map(agentFromRow),
+    ).map((row) => agentFromRow(row)),
   };
 }
 
@@ -479,10 +481,13 @@ export function listCompanyAgents(
         t.title AS current_task_title,
         a.model,
         a.adapter_type,
+        a.runtime_slug,
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
         mgr.name AS reporting_to_name,
+        hap.id AS hire_approval_id,
+        hap.status AS hire_approval_status,
         a.skills_json,
         a.tasks_completed,
         a.total_runtime_minutes,
@@ -492,15 +497,13 @@ export function listCompanyAgents(
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
        LEFT JOIN agents mgr ON mgr.id = a.reporting_to
+       LEFT JOIN approvals hap
+         ON hap.company_id = a.company_id
+        AND hap.type = 'hire_agent'
+        AND hap.status IN ('pending', 'revision_requested')
+        AND json_extract(hap.payload_json, '$.agentId') = a.id
        WHERE a.company_id = ?
          AND a.archived_at IS NULL
-         AND NOT EXISTS (
-           SELECT 1 FROM approvals ap
-           WHERE ap.type = 'hire_agent'
-             AND ap.status IN ('pending', 'revision_requested')
-             AND ap.company_id = a.company_id
-             AND json_extract(ap.payload_json, '$.agentId') = a.id
-         )
        ORDER BY a.name ASC`
     )
     .all(companyRow.id) as AgentRow[];
@@ -570,6 +573,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         personality,
         emoji,
         model,
+        runtime_slug,
         openclaw_agent_id
        FROM agents
        WHERE company_id = ?
@@ -583,9 +587,9 @@ export function syncCompanyAgentsFromOpenClaw(input: {
 
     const insertAgent = db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
+        (id, company_id, project_id, name, slug, runtime_slug, emoji, role, personality, avatar_url, status, model, openclaw_agent_id, skills_json, created_at, updated_at)
        VALUES
-        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
+        (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
     );
 
     // Resolve company avatar theme once for all inserts
@@ -607,6 +611,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         personality = ?,
         status = ?,
         model = ?,
+        runtime_slug = COALESCE(runtime_slug, ?),
         openclaw_agent_id = ?,
         archived_at = NULL,
         updated_at = ?
@@ -634,6 +639,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
             personality: string;
             emoji: string | null;
             model: string | null;
+            runtime_slug: string | null;
             openclaw_agent_id: string | null;
           }
         | undefined;
@@ -643,6 +649,9 @@ export function syncCompanyAgentsFromOpenClaw(input: {
       const personality = existing?.personality ?? "";
       const model = rawAgent.model?.trim() || existing?.model || "unknown";
       const status = openClawStatusToAgentStatus(rawAgent.status?.trim() ?? "offline");
+      const runtimeSlug =
+        existing?.runtime_slug?.trim() ||
+        ensureUniqueAgentRuntimeSlug(db, companyRow.id, normalizedName);
 
       if (existing) {
         updateAgent.run(
@@ -652,6 +661,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
           personality,
           status,
           model,
+          runtimeSlug,
           openclawId,
           now,
           existing.id
@@ -672,6 +682,7 @@ export function syncCompanyAgentsFromOpenClaw(input: {
         companyRow.id,
         normalizedName,
         normalizedName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""),
+        runtimeSlug,
         emoji,
         role,
         personality,
@@ -743,6 +754,7 @@ export function getCompanyAgentProfile(input: {
         t.title AS current_task_title,
         a.model,
         a.adapter_type,
+        a.runtime_slug,
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
@@ -1291,17 +1303,19 @@ export function createProjectAgent(input: {
     });
 
   const createAgentTx = db.transaction(() => {
+    const companyId = project.company_id;
     const agentSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+    const runtimeSlug = ensureUniqueAgentRuntimeSlug(db, companyId, input.name);
     db.prepare(
       `INSERT INTO agents
         (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, status, current_task_id, model,
-         openclaw_agent_id, paperclip_agent_id, reporting_to, skills_json, tasks_completed, total_runtime_minutes,
+         runtime_slug, openclaw_agent_id, paperclip_agent_id, reporting_to, skills_json, tasks_completed, total_runtime_minutes,
          last_heartbeat, created_at, updated_at, archived_at)
        VALUES
-        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, NULL)`
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, ?, NULL)`
     ).run(
       agentId,
-      project.company_id,
+      companyId,
       project.id,
       input.name,
       agentSlug,
@@ -1311,6 +1325,7 @@ export function createProjectAgent(input: {
       avatarUrl,
       input.status,
       input.model ?? null,
+      runtimeSlug,
       input.openclawAgentId ?? null,
       input.paperclipAgentId ?? null,
       input.reportingTo ?? null,

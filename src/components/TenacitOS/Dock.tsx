@@ -73,6 +73,7 @@ import {
   buildCanonicalManageProjectsPath,
 } from "@/lib/orchestration/route-paths";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
+import { isAgentLive } from "@/lib/orchestration/live-status";
 
 interface NavItem {
   href: string;
@@ -136,6 +137,7 @@ const COMPANY_ITEMS: Omit<NavItem, "href">[] = [
 ];
 
 const SYSTEM_ITEMS: NavItem[] = [
+  { href: "/systems/companies", label: "Manage Companies", icon: Building2 },
   { href: "/terminal", label: "Terminal", icon: Terminal },
   { href: "/sessions", label: "Sessions", icon: Monitor },
   { href: "/logs", label: "Logs", icon: Logs },
@@ -529,10 +531,6 @@ function shimmerStyle() {
   } as const;
 }
 
-function isAgentActive(agent: OrchestrationAgent): boolean {
-  return agent.status === "working";
-}
-
 function isProjectPaused(project: OrchestrationProject): boolean {
   return project.status === "paused" || project.status === "on-hold" || project.status === "inactive";
 }
@@ -545,8 +543,6 @@ function operationsItemHref(code: string, itemLabel: string): string {
       return buildCanonicalDashboardPath(code);
     case "Inbox":
       return buildCanonicalInboxPath(code);
-    case "Approvals":
-      return `/${code}/approvals/pending`;
     case "Routines":
       return `/${code}/routines`;
     case "Goals":
@@ -605,7 +601,6 @@ export function Dock() {
   const [projectsLoading, setProjectsLoading] = useState(true);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [inboxUnreadCount, setInboxUnreadCount] = useState(0);
-  const [pendingApprovalCount, setPendingApprovalCount] = useState(0);
   const [projectStatusBusyId, setProjectStatusBusyId] = useState<string | null>(null);
   const [createProjectOpen, setCreateProjectOpen] = useState(false);
   const [createAgentOpen, setCreateAgentOpen] = useState(false);
@@ -677,6 +672,17 @@ export function Dock() {
     },
     [pathname]
   );
+
+  const isApprovalPathForCurrentCompany = useMemo(() => {
+    if (!company.slug || !company.code) return false;
+
+    const canonicalPrefix = `/${company.code}/approvals`;
+    const legacyPrefix = `/companies/${company.slug}/approvals`;
+    return pathname === canonicalPrefix
+      || pathname.startsWith(`${canonicalPrefix}/`)
+      || pathname === legacyPrefix
+      || pathname.startsWith(`${legacyPrefix}/`);
+  }, [company.code, company.slug, pathname]);
 
   const handleToggleCompanyPause = async () => {
     if (!company || companyPauseBusy) return;
@@ -913,22 +919,10 @@ export function Dock() {
       setInboxUnreadCount((prev) => prev === count ? prev : count);
     };
 
-    const loadApprovalCount = async () => {
-      try {
-        const resp = await fetch(`/api/orchestration/companies/${company.slug}/approvals?status=pending`);
-        if (!resp.ok || cancelled) return;
-        const data = await resp.json();
-        const count = Array.isArray(data.approvals) ? data.approvals.length : 0;
-        setPendingApprovalCount((prev) => prev === count ? prev : count);
-      } catch { /* non-critical */ }
-    };
-
     void loadInboxCount();
-    void loadApprovalCount();
     const INBOX_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
     const interval = window.setInterval(() => {
       void loadInboxCount();
-      void loadApprovalCount();
     }, INBOX_POLL_MS);
 
     // Listen for immediate unread-count updates from the inbox page
@@ -937,19 +931,29 @@ export function Dock() {
       if (typeof count === "number") setInboxUnreadCount(count);
     };
     window.addEventListener("inbox-unread-change", handleUnreadChange);
+    const handleCompanyRefresh = (event: Event) => {
+      const companySlug = (event as CustomEvent<{ companySlug?: string }>).detail?.companySlug;
+      if (companySlug && companySlug !== company.slug) return;
+      void loadInboxCount();
+    };
+    window.addEventListener("orchestration-company-refresh", handleCompanyRefresh);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("inbox-unread-change", handleUnreadChange);
+      window.removeEventListener("orchestration-company-refresh", handleCompanyRefresh);
     };
   }, [company.slug]);
 
   const activeAgentCount = useMemo(() => {
-    // Prefer real-time SSE-based liveness (shared with dashboard)
-    if (liveAgentIds.size > 0) return liveAgentIds.size;
-    // Fallback: DB-polled agent.status
-    return agents.filter((agent) => isAgentActive(agent)).length;
+    return agents.filter((agent) =>
+      isAgentLive({
+        agentId: agent.id,
+        agentStatus: agent.status,
+        liveAgentIds,
+      })
+    ).length;
   }, [liveAgentIds, agents]);
 
   useEffect(() => {
@@ -974,9 +978,17 @@ export function Dock() {
       void loadAgents("poll");
     }, AGENTS_POLL_MS);
 
+    const handleCompanyRefresh = (event: Event) => {
+      const companySlug = (event as CustomEvent<{ companySlug?: string }>).detail?.companySlug;
+      if (companySlug && companySlug !== company.slug) return;
+      void loadAgents("poll");
+    };
+    window.addEventListener("orchestration-company-refresh", handleCompanyRefresh);
+
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.removeEventListener("orchestration-company-refresh", handleCompanyRefresh);
     };
   }, [company.slug]);
 
@@ -1162,7 +1174,7 @@ export function Dock() {
               onRowMouseEnter: isTasks ? () => setShowCreateTaskAction(true) : undefined,
               onRowMouseLeave: isTasks ? () => setShowCreateTaskAction(false) : undefined,
             }}
-            active={checkActive(href)}
+            active={entry.label === "Inbox" ? (checkActive(href) || isApprovalPathForCurrentCompany) : checkActive(href)}
           />
         );
       })}
@@ -1234,6 +1246,11 @@ export function Dock() {
           const href = currentAgentSubpage
             ? `${basePath}/${currentAgentSubpage}`
             : basePath;
+          const agentIsLive = isAgentLive({
+            agentId: agent.id,
+            agentStatus: agent.status,
+            liveAgentIds,
+          });
           return (
             <NavRow
               key={agent.id}
@@ -1241,6 +1258,11 @@ export function Dock() {
                 href,
                 label: agent.name,
                 leadingNode: <AgentNavAvatar agent={agent} />,
+                badgeText: agentIsLive
+                  ? "Live"
+                  : (agent.hireApprovalStatus === "pending" || agent.hireApprovalStatus === "revision_requested")
+                    ? "Pending"
+                    : undefined,
               }}
               active={checkActive(href)}
             />
@@ -1616,9 +1638,10 @@ export function Dock() {
       <CreateCompanyModal
         open={createCompanyOpen}
         onClose={() => setCreateCompanyOpen(false)}
-        onCreated={(companyCode) => {
-          if (companyCode) {
-            router.push(`/${companyCode}/dashboard`);
+        onCreated={(result) => {
+          const launchHref = result?.dashboardHref ?? result?.taskHref;
+          if (launchHref) {
+            router.push(launchHref);
           } else {
             router.refresh();
           }

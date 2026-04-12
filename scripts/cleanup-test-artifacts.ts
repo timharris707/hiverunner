@@ -21,10 +21,13 @@ import Database from "better-sqlite3";
 import fs from "fs";
 import path from "path";
 
+import { resolveMissionControlDataDir } from "../src/lib/runtime-paths";
+import { isSafeManagedCompanyWorkspacePath } from "../src/lib/workspaces/delete-safety";
+
 // ── Config ──────────────────────────────────────────────────────────────────
 
 const DB_PATH = process.env.ORCHESTRATION_DB_PATH
-  ?? path.join(process.cwd(), "data", "orchestration.db");
+  ?? path.join(resolveMissionControlDataDir(process.env), "orchestration.db");
 
 /** Companies that must never be deleted regardless of name patterns. */
 const PROTECTED_SLUGS = new Set([
@@ -277,7 +280,11 @@ const deleteCompanyTx = db.transaction((co: CompanyRow) => {
 for (const { company: co } of toDelete) {
   deleteCompanyTx(co);
   deletedCompanies++;
-  if (co.workspace_root && fs.existsSync(co.workspace_root)) {
+  if (
+    co.workspace_root &&
+    isSafeManagedCompanyWorkspacePath(co.workspace_root) &&
+    fs.existsSync(co.workspace_root)
+  ) {
     fs.rmSync(co.workspace_root, { recursive: true, force: true });
     deletedWorkspaces++;
   }

@@ -82,6 +82,17 @@ curl http://127.0.0.1:3001/api/mc/health  # shows "role": "executor"
 scripts/lane.sh doctor                    # shows engine tick for both
 ```
 
+### Dev Autonomous Test Mode
+
+Dev can be made test-ready without turning it into a permanent executor lane:
+
+- `MC_DEV_EXECUTION_TEST_MODE=1` exposes a dev-only company settings control on `:3010`
+- execution is still OFF by default until a company-scoped lease is enabled in the UI
+- only one dev company can hold the lease at a time
+- leases auto-expire, so dev falls back to observer-only without manual cleanup
+
+Stable ignores this mode completely.
+
 ## Common Scenarios
 
 ### "Is it running?"

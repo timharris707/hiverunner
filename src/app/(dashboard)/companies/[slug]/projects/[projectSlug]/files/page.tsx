@@ -34,7 +34,7 @@ export default function ProjectFilesPage({
   if (loading) return <div style={{ padding: 32, color: P.muted, fontSize: 13 }}>Loading files...</div>;
   if (!project) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Project not found.</div>;
 
-  const workspaceId = `project-${project.slug ?? project.id}`;
+  const workspaceId = `project-${project.id}`;
 
   return (
     <div style={{ minHeight: "100%", padding: `${space.md}px ${space.xl}px`, color: P.text, fontFamily: font.body }}>

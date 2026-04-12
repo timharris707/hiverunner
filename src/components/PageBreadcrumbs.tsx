@@ -30,6 +30,7 @@ const LABEL_MAP: Record<string, string> = {
   cron: "Cron Jobs",
   settings: "Settings",
   terminal: "Terminal",
+  systems: "Systems",
   office: "3D Office",
   factory: "Factory Floor",
   pipeline: "Pipeline",
@@ -84,6 +85,7 @@ const SECTION_FOR_PAGE: Record<string, string> = {
  * Maps pathname → { section, label } to render exactly two crumbs.
  */
 const PATH_CRUMBS: Record<string, { section: string; label: string }> = {
+  "/systems/companies": { section: "Systems", label: "Manage Companies" },
   "/trading/floor": { section: "Apps", label: "Trading Floor" },
   "/trading/terminal": { section: "Apps", label: "Trading Terminal" },
 };

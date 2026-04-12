@@ -69,6 +69,8 @@ function normalizeCompany(raw: JsonRecord): OrchestrationCompany {
   return {
     id: String(raw.id ?? ""),
     slug,
+    workspaceSlug: String(raw.workspaceSlug ?? raw.workspace_slug ?? slug),
+    runtimeSlug: String(raw.runtimeSlug ?? raw.runtime_slug ?? raw.workspaceSlug ?? raw.workspace_slug ?? slug),
     code: String(raw.code ?? slug.slice(0, 3).toUpperCase()),
     name: String(raw.name ?? "Untitled Company"),
     description: String(raw.description ?? ""),
@@ -108,9 +110,38 @@ function normalizeThemePreset(raw: JsonRecord): AvatarThemePreset {
   };
 }
 
-export async function listCompanies(): Promise<OrchestrationCompany[]> {
-  const data = await fetchJson<{ companies: JsonRecord[] }>("/api/orchestration/companies?includeNonProduction=true");
+export async function listCompanies(input?: {
+  includeArchived?: boolean;
+  includeNonProduction?: boolean;
+}): Promise<OrchestrationCompany[]> {
+  const params = new URLSearchParams();
+  params.set("includeNonProduction", input?.includeNonProduction === false ? "false" : "true");
+  if (typeof input?.includeArchived === "boolean") {
+    params.set("includeArchived", input.includeArchived ? "true" : "false");
+  }
+  const data = await fetchJson<{ companies: JsonRecord[] }>(`/api/orchestration/companies?${params.toString()}`);
   return (data?.companies ?? []).map(normalizeCompany);
+}
+
+export async function archiveCompanyBySlug(companySlug: string): Promise<boolean> {
+  const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}`, {
+    method: "DELETE",
+  }).catch(() => null);
+  return Boolean(response?.ok);
+}
+
+export async function restoreCompanyBySlug(companySlug: string): Promise<boolean> {
+  const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/restore`, {
+    method: "POST",
+  }).catch(() => null);
+  return Boolean(response?.ok);
+}
+
+export async function hardDeleteCompanyBySlug(companySlug: string): Promise<boolean> {
+  const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}?hard=true`, {
+    method: "DELETE",
+  }).catch(() => null);
+  return Boolean(response?.ok);
 }
 
 export async function createCompany(input: {
@@ -842,6 +873,7 @@ export async function listProjectAgents(projectId: string, tasks: OrchestrationT
         currentTask: a.currentTask ? String(a.currentTask) : undefined,
         personality: a.personality ? String(a.personality) : undefined,
         model: a.model ? String(a.model) : undefined,
+        runtimeSlug: a.runtimeSlug ? String(a.runtimeSlug) : undefined,
         paperclipAgentId: a.paperclipAgentId ? String(a.paperclipAgentId) : undefined,
         openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
         reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
@@ -897,10 +929,13 @@ export async function listCompanyAgents(companySlug: string): Promise<Orchestrat
       currentTask: a.currentTask ? String(a.currentTask) : undefined,
       personality: a.personality ? String(a.personality) : undefined,
       model: a.model ? String(a.model) : undefined,
+      runtimeSlug: a.runtimeSlug ? String(a.runtimeSlug) : undefined,
       paperclipAgentId: a.paperclipAgentId ? String(a.paperclipAgentId) : undefined,
       openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
       reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
       reportingToName: a.reportingToName ? String(a.reportingToName) : undefined,
+      hireApprovalId: a.hireApprovalId ? String(a.hireApprovalId) : undefined,
+      hireApprovalStatus: a.hireApprovalStatus ? String(a.hireApprovalStatus) as OrchestrationAgent["hireApprovalStatus"] : undefined,
       skills: Array.isArray(a.skills) ? a.skills.map((skill) => String(skill)) : undefined,
       tasksCompleted: a.tasksCompleted ? Number(a.tasksCompleted) : undefined,
       totalRuntimeMinutes: a.totalRuntimeMinutes ? Number(a.totalRuntimeMinutes) : undefined,
@@ -1001,9 +1036,12 @@ export async function getCompanyAgentProfile(
       currentTask: agentRaw.currentTask ? String(agentRaw.currentTask) : undefined,
       personality: agentRaw.personality ? String(agentRaw.personality) : undefined,
       model: agentRaw.model ? String(agentRaw.model) : undefined,
+      runtimeSlug: agentRaw.runtimeSlug ? String(agentRaw.runtimeSlug) : undefined,
       paperclipAgentId: agentRaw.paperclipAgentId ? String(agentRaw.paperclipAgentId) : undefined,
       openclawAgentId: agentRaw.openclawAgentId ? String(agentRaw.openclawAgentId) : undefined,
       reportingTo: agentRaw.reportingTo ? String(agentRaw.reportingTo) : undefined,
+      hireApprovalId: agentRaw.hireApprovalId ? String(agentRaw.hireApprovalId) : undefined,
+      hireApprovalStatus: agentRaw.hireApprovalStatus ? String(agentRaw.hireApprovalStatus) as OrchestrationAgent["hireApprovalStatus"] : undefined,
       skills: Array.isArray(agentRaw.skills) ? agentRaw.skills.map((value) => String(value)) : [],
       tasksCompleted: Number(agentRaw.tasksCompleted ?? 0),
       totalRuntimeMinutes: Number(agentRaw.totalRuntimeMinutes ?? 0),
@@ -1111,6 +1149,8 @@ export async function getAgentProfileById(
       paperclipAgentId: agentRaw.paperclipAgentId ? String(agentRaw.paperclipAgentId) : undefined,
       openclawAgentId: agentRaw.openclawAgentId ? String(agentRaw.openclawAgentId) : undefined,
       reportingTo: agentRaw.reportingTo ? String(agentRaw.reportingTo) : undefined,
+      hireApprovalId: agentRaw.hireApprovalId ? String(agentRaw.hireApprovalId) : undefined,
+      hireApprovalStatus: agentRaw.hireApprovalStatus ? String(agentRaw.hireApprovalStatus) as OrchestrationAgent["hireApprovalStatus"] : undefined,
       skills: Array.isArray(agentRaw.skills) ? agentRaw.skills.map((value) => String(value)) : [],
       tasksCompleted: Number(agentRaw.tasksCompleted ?? 0),
       totalRuntimeMinutes: Number(agentRaw.totalRuntimeMinutes ?? 0),
@@ -1159,6 +1199,7 @@ export async function createProjectAgent(input: {
     currentTask: a.currentTask ? String(a.currentTask) : undefined,
     personality: a.personality ? String(a.personality) : undefined,
     model: a.model ? String(a.model) : undefined,
+    runtimeSlug: a.runtimeSlug ? String(a.runtimeSlug) : undefined,
     paperclipAgentId: a.paperclipAgentId ? String(a.paperclipAgentId) : undefined,
     openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
     reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
@@ -1196,6 +1237,7 @@ export async function regenerateProjectAgentAvatar(
     currentTask: a.currentTask ? String(a.currentTask) : undefined,
     personality: a.personality ? String(a.personality) : undefined,
     model: a.model ? String(a.model) : undefined,
+    runtimeSlug: a.runtimeSlug ? String(a.runtimeSlug) : undefined,
     paperclipAgentId: a.paperclipAgentId ? String(a.paperclipAgentId) : undefined,
     openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
     reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
@@ -1763,9 +1805,12 @@ export async function triggerAgentHeartbeat(
       currentTask: agentRaw.currentTask ? String(agentRaw.currentTask) : undefined,
       personality: agentRaw.personality ? String(agentRaw.personality) : undefined,
       model: agentRaw.model ? String(agentRaw.model) : undefined,
+      runtimeSlug: agentRaw.runtimeSlug ? String(agentRaw.runtimeSlug) : undefined,
       paperclipAgentId: agentRaw.paperclipAgentId ? String(agentRaw.paperclipAgentId) : undefined,
       openclawAgentId: agentRaw.openclawAgentId ? String(agentRaw.openclawAgentId) : undefined,
       reportingTo: agentRaw.reportingTo ? String(agentRaw.reportingTo) : undefined,
+      hireApprovalId: agentRaw.hireApprovalId ? String(agentRaw.hireApprovalId) : undefined,
+      hireApprovalStatus: agentRaw.hireApprovalStatus ? String(agentRaw.hireApprovalStatus) as OrchestrationAgent["hireApprovalStatus"] : undefined,
       skills: Array.isArray(agentRaw.skills) ? agentRaw.skills.map((v) => String(v)) : [],
       tasksCompleted: Number(agentRaw.tasksCompleted ?? 0),
       totalRuntimeMinutes: Number(agentRaw.totalRuntimeMinutes ?? 0),
@@ -1957,10 +2002,12 @@ export async function listCompanyApprovals(input: {
   companySlug: string;
   status?: ApprovalStatus;
   type?: ApprovalType;
+  linkedTaskId?: string;
 }): Promise<OrchestrationApproval[]> {
   const params = new URLSearchParams();
   if (input.status) params.set("status", input.status);
   if (input.type) params.set("type", input.type);
+  if (input.linkedTaskId) params.set("linkedTaskId", input.linkedTaskId);
   const suffix = params.size > 0 ? `?${params.toString()}` : "";
   const data = await fetchJson<{ approvals: OrchestrationApproval[] }>(
     `/api/orchestration/companies/${encodeURIComponent(input.companySlug)}/approvals${suffix}`

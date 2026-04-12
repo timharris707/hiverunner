@@ -10,7 +10,12 @@ set -eu
 #   scripts/doctor.sh          # Full report
 #   scripts/doctor.sh --fix    # Report + fix stale PIDs
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 FIX_MODE="${1:-}"
 
 RED='\033[0;31m'
@@ -35,7 +40,7 @@ printf "  %s\n\n" "$(date '+%Y-%m-%d %H:%M:%S')"
 # ────────────────────────────────────────
 printf "${BOLD}Dev Lane (:3010)${NC}\n"
 
-DEV_PID_FILE="$APP_DIR/data/mission-control-dev.pid"
+DEV_PID_FILE="$LOG_DIR/mission-control-dev.pid"
 DEV_PORT=3010
 
 # PID file
@@ -84,11 +89,16 @@ if [ -n "$DEV_HEALTH_JSON" ]; then
   ok "Healthcheck: /api/mc/health OK"
   DEV_ROLE="$(echo "$DEV_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('role','?'))" 2>/dev/null || echo "?")"
   DEV_TICK="$(echo "$DEV_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('engineTick','?'))" 2>/dev/null || echo "?")"
+  DEV_TEST_GATE="$(echo "$DEV_HEALTH_JSON" | python3 -c "import json,sys; print(json.load(sys.stdin).get('devExecutionTestModeGate','disabled'))" 2>/dev/null || echo "disabled")"
   if [ "$DEV_TICK" = "disabled" ]; then
     ok "Engine tick: disabled (observer-only)"
   elif [ "$DEV_TICK" = "active" ]; then
-    warn "Engine tick: ACTIVE — dev lane is executing orchestration work"
-    issues=$((issues + 1))
+    if [ "$DEV_TEST_GATE" = "enabled" ] && [ "$DEV_ROLE" = "observer" ]; then
+      info "Engine tick: active (dev test mode ready; execution still company-scoped)"
+    else
+      warn "Engine tick: ACTIVE — dev lane is executing orchestration work"
+      issues=$((issues + 1))
+    fi
   else
     info "Engine tick: $DEV_TICK (role: $DEV_ROLE)"
   fi
@@ -123,7 +133,7 @@ echo ""
 # ────────────────────────────────────────
 printf "${BOLD}Stable Lane (:3001)${NC}\n"
 
-STABLE_PID_FILE="$APP_DIR/data/mission-control-stable.pid"
+STABLE_PID_FILE="$LOG_DIR/mission-control-stable.pid"
 STABLE_DIR="$APP_DIR/.stable"
 STABLE_PORT=3001
 

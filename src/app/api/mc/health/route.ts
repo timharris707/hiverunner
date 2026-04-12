@@ -24,10 +24,15 @@ export const dynamic = "force-dynamic";
 export function GET() {
   const engineTickSetting = (process.env.MC_ENGINE_TICK || "auto").toLowerCase();
   const isDev = process.env.NODE_ENV !== "production";
-  const engineTickActive =
+  const baseEngineTickActive =
     engineTickSetting === "on" ? true :
     engineTickSetting === "off" ? false :
     /* auto */ !isDev;
+  const devExecutionTestModeGateEnabled =
+    isDev &&
+    (process.env.PORT || "3010") === "3010" &&
+    (process.env.MC_DEV_EXECUTION_TEST_MODE || "").trim() === "1";
+  const engineTickActive = baseEngineTickActive || devExecutionTestModeGateEnabled;
 
   return NextResponse.json({
     status: "ok",
@@ -38,6 +43,7 @@ export function GET() {
     uptime: Math.floor(process.uptime()),
     engineTick: engineTickActive ? "active" : "disabled",
     engineTickSetting,
-    role: engineTickActive ? "executor" : "observer",
+    role: baseEngineTickActive ? "executor" : "observer",
+    devExecutionTestModeGate: devExecutionTestModeGateEnabled ? "enabled" : "disabled",
   });
 }

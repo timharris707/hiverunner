@@ -1,8 +1,9 @@
 # TenacitOS — Mission Control
 
-A real-time dashboard and control center for [OpenClaw](https://openclaw.ai) AI agent instances. Built with Next.js, React 19, and Tailwind CSS v4.
+A real-time dashboard and control center for [OpenClaw](https://openclaw.ai) AI agent instances, with Mission Control-owned company workspace storage. Built with Next.js, React 19, and Tailwind CSS v4.
 
-> **TenacitOS** lives inside your OpenClaw workspace and reads its configuration, agents, sessions, memory, and logs directly from the host. No extra database or backend required — OpenClaw is the backend.
+> Mission Control still integrates with OpenClaw runtime state, but company workspaces are now intended to live under `MC_WORKSPACE_ROOT` rather than being owned by the OpenClaw workspace namespace.
+> Company rows now persist an immutable `workspace_slug`, and managed Mission Control company roots now use the canonical human-readable layout `companies/<workspace_slug>--<companyId>`. Persisted `workspace_root` remains the live runtime source of truth.
 
 ---
 
@@ -70,7 +71,7 @@ TenacitOS reads directly from your OpenClaw installation:
 └── workspace/mission-control/ ← TenacitOS lives here
 ```
 
-The app uses `OPENCLAW_DIR` to locate `openclaw.json` and all workspaces. **No manual agent configuration needed** — agents are auto-discovered from `openclaw.json`.
+The app uses `OPENCLAW_DIR` to locate OpenClaw runtime state such as `openclaw.json`, sessions, cron data, and provider config. Mission Control company workspaces are configured separately through `MC_WORKSPACE_ROOT`.
 
 ---
 
@@ -104,6 +105,9 @@ AUTH_SECRET=your-random-32-char-secret-here
 
 # --- OpenClaw paths (optional — defaults work for standard installs) ---
 # OPENCLAW_DIR=/root/.openclaw
+
+# --- Mission Control workspace storage (optional — lane defaults are used when unset) ---
+# MC_WORKSPACE_ROOT=~/.mission-control/stable/workspaces
 
 # --- Branding (customize for your instance) ---
 NEXT_PUBLIC_AGENT_NAME=Mission Control
@@ -158,7 +162,52 @@ Login at `http://localhost:3010` with the `ADMIN_PASSWORD` you set.
 
 ---
 
+## Workspace Migration Tooling
+
+Phase 3 adds dry-run-first tooling for the workspace separation migration:
+
+```bash
+# Inventory current DB-backed company roots, orphaned directories, and legacy agent dirs
+npm run workspace:migration:inventory
+
+# Full dry-run report with proposed destinations and snapshot preflight
+npm run workspace:migration:dry-run
+
+# Preview backup/snapshot contents without writing anything
+npm run workspace:migration:snapshot
+
+# Verify company/project/agent resolution and compatibility behavior
+npm run workspace:migration:verify
+```
+
+Snapshot flow stays dry-run by default. To write a backup manifest and row snapshot explicitly, run:
+
+```bash
+npx tsx scripts/workspace-migration.ts snapshot --write
+```
+
+To include orphaned directories in the snapshot plan or copy workspace trees into the snapshot output, add `--include-orphaned-directories` and `--copy-workspaces`.
+
+Rollback guidance for the eventual workspace cutover is documented in [docs/workspace-migration-rollback.md](docs/workspace-migration-rollback.md). Repo relocation guidance is documented in [docs/repo-relocation-runbook.md](docs/repo-relocation-runbook.md).
+
+For agent-driven dev verification runs: if you create disposable companies for wizard, routing, or model-list testing, delete them through the supported company delete flow before ending the run unless you were explicitly told to keep them, and report any intentionally retained test companies in the handoff.
+
+Follow-up note: the legacy project-agent create route (`POST /api/orchestration/projects/[id]/agents`) is not a supported user-facing Add Agent path. Keep it internal-only until it is either removed or brought onto the same company-hire provisioning contract. All user-facing Add Agent flows must route through `POST /api/orchestration/companies/[slug]/agents/hire` so runtime slug assignment, OpenClaw provisioning, and human-readable `openclaw_agent_id` generation stay consistent.
+
+---
+
 ## Production Deployment
+
+## Local Runtime Paths
+
+The local dev/stable runtime now supports an explicit app-root contract for relocation safety:
+
+- `MC_APP_ROOT` controls the Mission Control checkout path used by service scripts and launchd wrappers
+- `MC_DATA_DIR` controls lane-specific SQLite/data state
+- `MC_LOG_DIR` controls PID and service/watchdog log files
+- `MC_WORKSPACE_ROOT` controls Mission Control-owned company workspaces
+
+The checked-in service scripts derive `MC_APP_ROOT` from their own location when the variable is unset, so the current checkout still works in place. The launchd plist files are prepared to use `MC_APP_ROOT` explicitly, which is what the repo-relocation runbook updates during the actual move.
 
 ### PM2 (recommended)
 

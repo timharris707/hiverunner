@@ -30,6 +30,8 @@ export interface AgentStreamState {
   streamingText: string;
   /** Active run ID for the current stream, when known */
   runId?: string;
+  /** True while the provider is actively executing this agent's run */
+  isActive: boolean;
   /** Whether the agent is actively generating text */
   isStreaming: boolean;
   /** Recent stream events (tool calls, lifecycle, etc.) — last 20 */
@@ -158,6 +160,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
     const current = stateRef.current.get(agentId) ?? {
       streamingText: "",
       runId: undefined,
+      isActive: false,
       isStreaming: false,
       events: [],
       lastEventTs: 0,
@@ -177,6 +180,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
       case "assistant_delta": {
         current.streamingText = event.text ?? current.streamingText + (event.delta ?? "");
         current.runId = event.runId ?? current.runId;
+        current.isActive = true;
         current.isStreaming = true;
         current.lastEventTs = ts;
 
@@ -205,6 +209,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
       case "assistant_final":
         current.streamingText = event.text ?? current.streamingText;
         current.runId = event.runId ?? current.runId;
+        current.isActive = true;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Response complete";
@@ -212,12 +217,14 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
       case "tool_start":
         current.runId = event.runId ?? current.runId;
+        current.isActive = true;
         entry.message = event.detail ?? `Tool: ${event.toolName ?? "unknown"}`;
         current.lastEventTs = ts;
         break;
 
       case "tool_end":
         current.runId = event.runId ?? current.runId;
+        current.isActive = true;
         entry.message = event.detail ?? `Tool complete: ${event.toolName ?? "unknown"}`;
         current.lastEventTs = ts;
         break;
@@ -225,6 +232,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
       case "lifecycle_start":
         current.streamingText = "";
         current.runId = event.runId;
+        current.isActive = true;
         current.isStreaming = false;
         current.lastEventTs = ts;
         detectedActionCountRef.current.set(agentId, 0);
@@ -233,6 +241,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
       case "lifecycle_end":
         current.runId = event.runId ?? current.runId;
+        current.isActive = false;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Session ended";
@@ -240,6 +249,7 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
       case "lifecycle_error":
         current.runId = event.runId ?? current.runId;
+        current.isActive = false;
         current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Session error";
@@ -247,6 +257,8 @@ export function useLiveRunStream({ companySlug, enabled }: UseLiveRunStreamOptio
 
       case "error":
         current.runId = event.runId ?? current.runId;
+        current.isActive = false;
+        current.isStreaming = false;
         current.lastEventTs = ts;
         entry.message = event.detail ?? "Stream error";
         break;

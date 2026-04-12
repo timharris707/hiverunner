@@ -18,15 +18,17 @@ import {
 } from "lucide-react";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
-import { formatAge, statusTheme } from "@/components/orchestration/ui";
+import { formatAge } from "@/components/orchestration/ui";
 import {
   getCompanyAgentProfile,
   listActivityFeed,
   listCompanies,
   listCompanyAgents,
+  listCompanyApprovals,
   listProjects,
   listTasks,
 } from "@/lib/orchestration/client";
+import { isAgentLive } from "@/lib/orchestration/live-status";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
@@ -37,7 +39,7 @@ import type {
   OrchestrationAgent,
   OrchestrationAgentExecutionRun,
   OrchestrationAgentProfile,
-  OrchestrationAgentProfileActivity,
+  OrchestrationApproval,
   OrchestrationCompany,
   OrchestrationProject,
   OrchestrationTask,
@@ -109,6 +111,7 @@ type DashboardData = {
   tasks: OrchestrationTask[];
   activity: OrchestrationActivityEvent[];
   agentProfiles: Map<string, OrchestrationAgentProfile>;
+  pendingApprovals: OrchestrationApproval[];
   costs: CostSnapshot;
 };
 
@@ -131,12 +134,13 @@ export default function CompanyDashboardPage() {
       if (mode === "manual") setRefreshing(true);
 
       try {
-        const [companies, projects, agents, tasks, activityFeed] = await Promise.all([
+        const [companies, projects, agents, tasks, activityFeed, pendingApprovals] = await Promise.all([
           withTimeout(listCompanies(), 5000),
           withTimeout(listProjects(), 5000),
           withTimeout(listCompanyAgents(slug), 5000),
           withTimeout(listTasks({ company: slug, sort: "updated-desc", includeNonProduction: true }), 5000),
           withTimeout(listActivityFeed({ limit: 40 }), 5000),
+          withTimeout(listCompanyApprovals({ companySlug: slug, status: "pending" }), 5000),
         ]);
 
         const company = companies.find((c) => c.slug === slug);
@@ -197,7 +201,16 @@ export default function CompanyDashboardPage() {
         }
 
         if (cancelled) return;
-        setData({ company, projects: companyProjects, agents, tasks, activity: recentActivity, agentProfiles, costs });
+        setData({
+          company,
+          projects: companyProjects,
+          agents,
+          tasks,
+          activity: recentActivity,
+          agentProfiles,
+          pendingApprovals,
+          costs,
+        });
         setError(null);
       } catch (err) {
         if (!cancelled) {
@@ -360,22 +373,24 @@ export default function CompanyDashboardPage() {
   }, [data]);
 
   /* ── live runs polling (3s, always active when dashboard loaded) ── */
-  const { runsByAgentId, transitions, hasActiveRuns } = useLiveRuns({
+  const { runsByAgentId, transitions } = useLiveRuns({
     companySlug: slug,
     enabled: !!data,
   });
 
   /* ── live run streaming (shared context — SSE managed at layout level) ── */
-  const { streamByAgentId } = useLiveStream();
+  const { streamByAgentId, liveAgentIds } = useLiveStream();
 
   const { push: pushToast } = useNotifications();
 
   // Fire toasts on run state transitions
   useEffect(() => {
+    let shouldRefresh = false;
     for (const t of transitions) {
       if (t.toStatus === "succeeded") {
         const actionCount = t.result?.actionsExecuted ?? 0;
         const reportCount = t.result?.reportsImported ?? 0;
+        shouldRefresh = true;
         pushToast({
           title: `${t.agentName} completed run`,
           body: `${actionCount} action${actionCount !== 1 ? "s" : ""}, ${reportCount} report${reportCount !== 1 ? "s" : ""}`,
@@ -385,6 +400,7 @@ export default function CompanyDashboardPage() {
           ttl: 8000,
         });
       } else if (t.toStatus === "failed" || t.toStatus === "timed_out") {
+        shouldRefresh = true;
         pushToast({
           title: `${t.agentName} run ${t.toStatus === "timed_out" ? "timed out" : "failed"}`,
           body: t.error?.slice(0, 120) ?? "Check agent detail for error info.",
@@ -394,6 +410,12 @@ export default function CompanyDashboardPage() {
           ttl: 10000,
         });
       }
+    }
+    if (shouldRefresh) {
+      setRefreshNonce((prev) => prev + 1);
+      window.dispatchEvent(new CustomEvent("orchestration-company-refresh", {
+        detail: { companySlug: slug },
+      }));
     }
   }, [transitions, slug, pushToast]);
 
@@ -430,6 +452,18 @@ export default function CompanyDashboardPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, runsByAgentId]);
 
+  const runningAgentCount = useMemo(() => {
+    if (!data) return 0;
+    return data.agents.filter((agent) =>
+      isAgentLive({
+        agentId: agent.id,
+        agentStatus: agent.status,
+        liveAgentIds,
+        liveRunsByAgentId: runsByAgentId,
+      })
+    ).length;
+  }, [data, liveAgentIds, runsByAgentId]);
+
   /* ── render ── */
 
   if (!loading && !data) {
@@ -453,6 +487,37 @@ export default function CompanyDashboardPage() {
             Refresh
           </button>
         </div>
+
+        {data && data.pendingApprovals.length > 0 && (
+          <section
+            className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3"
+            style={{ borderColor: "rgba(245,158,11,0.24)", background: "rgba(245,158,11,0.08)" }}
+          >
+            <div>
+              <p className="text-sm font-medium text-amber-200">
+                {data.pendingApprovals.length} approval{data.pendingApprovals.length === 1 ? "" : "s"} waiting
+              </p>
+              <p className="mt-1 text-xs text-amber-100/80">
+                Pending hires appear in Agents as pending approval until approved. Review them from Approvals or Inbox.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link
+                href={buildCompanyPath(slug, "/approvals/pending")}
+                className="rounded-md border px-2.5 py-1.5 text-[11px] font-medium text-amber-100 no-underline transition hover:text-white"
+                style={{ borderColor: "rgba(245,158,11,0.28)" }}
+              >
+                Review approvals
+              </Link>
+              <Link
+                href={buildCompanyPath(slug, "/inbox")}
+                className="text-[11px] text-amber-100/80 no-underline hover:text-white"
+              >
+                Open inbox
+              </Link>
+            </div>
+          </section>
+        )}
 
         {/* ── agent run cards ── */}
         <section className="mb-6">
@@ -495,7 +560,7 @@ export default function CompanyDashboardPage() {
             value={agentMetrics.enabled}
             label="Agents Enabled"
             icon={<Users className="h-4 w-4" />}
-            detail={`${agentMetrics.running} running, ${agentMetrics.paused} paused, ${agentMetrics.errors} errors`}
+            detail={`${runningAgentCount} live, ${agentMetrics.paused} paused, ${agentMetrics.errors} errors`}
           />
           <MetricCard
             value={taskMetrics.inProgress}
@@ -930,6 +995,7 @@ function AgentRunCard({
   const latestRun = profile?.liveSession ?? profile?.executionHistory?.[0] ?? null;
   const recentActivity = profile?.recentActivity ?? [];
   const currentTasks = profile?.currentTasks ?? [];
+  const hasPendingHireApproval = agent.hireApprovalStatus === "pending" || agent.hireApprovalStatus === "revision_requested";
 
   // Determine if this card is "live" — agent is running or has a recent live run
   // Only 'running' counts as live — 'queued' means the engine hasn't claimed
@@ -957,6 +1023,8 @@ function AgentRunCard({
   // Build the run status label
   const runStatusLabel = isLive
     ? "Running"
+    : hasPendingHireApproval
+      ? "Pending approval"
     : latestRun
       ? latestRun.status === "running"
         ? "Running"
@@ -1109,7 +1177,11 @@ function AgentRunCard({
         </div>
       ) : !isLive && !outputText && !latestRun ? (
         <div className="mx-3 mb-2">
-          <p className="text-xs text-stone-500">{agent.role}</p>
+          <p className="text-xs text-stone-500">
+            {hasPendingHireApproval
+              ? "Waiting for operator approval before this hire can start work."
+              : agent.role}
+          </p>
         </div>
       ) : null}
 

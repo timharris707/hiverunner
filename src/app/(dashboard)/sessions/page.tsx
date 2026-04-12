@@ -53,6 +53,24 @@ interface Message {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function isInternalControlMessage(msg: Message): boolean {
+  const text = msg.content.trim();
+  if (!text) return false;
+
+  if (msg.type === "tool_use" || msg.type === "tool_result" || msg.type === "system") {
+    return false;
+  }
+
+  return (
+    text.startsWith("System: [") ||
+    text.startsWith("A new session was started via /new or /reset") ||
+    text.startsWith("Read HEARTBEAT.md if it exists") ||
+    text.includes("When reading HEARTBEAT.md, use workspace file") ||
+    text.includes("Do not read docs/heartbeat.md.") ||
+    text.startsWith("Current time:")
+  );
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}k`;
@@ -229,9 +247,11 @@ function SessionDetail({
       .finally(() => setLoading(false));
   }, [session.sessionId]);
 
-  const userCount = messages.filter((m) => m.type === "user").length;
-  const assistantCount = messages.filter((m) => m.type === "assistant").length;
-  const toolCount = messages.filter((m) => m.type === "tool_use").length;
+  const visibleMessages = messages.filter((m) => !isInternalControlMessage(m));
+
+  const userCount = visibleMessages.filter((m) => m.type === "user").length;
+  const assistantCount = visibleMessages.filter((m) => m.type === "assistant").length;
+  const toolCount = visibleMessages.filter((m) => m.type === "tool_use").length;
 
   return (
     <div
@@ -428,7 +448,7 @@ function SessionDetail({
             </div>
           )}
 
-          {!loading && !error && messages.length === 0 && (
+          {!loading && !error && visibleMessages.length === 0 && (
             <div
               style={{
                 textAlign: "center",
@@ -444,7 +464,7 @@ function SessionDetail({
           )}
 
           {!loading &&
-            messages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
+            visibleMessages.map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
         </div>
       </div>
     </div>

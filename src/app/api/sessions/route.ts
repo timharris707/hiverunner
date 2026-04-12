@@ -199,19 +199,46 @@ async function listSessions(): Promise<NextResponse> {
   }
 }
 
+interface JsonlContentBlock {
+  type: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+  id?: string;
+  arguments?: unknown;
+}
+
 interface JsonlLine {
   type: string;
   id?: string;
   timestamp?: string;
   message?: {
     role: string;
-    content: string | Array<{ type: string; text?: string; name?: string; input?: unknown; id?: string }>;
+    content: string | JsonlContentBlock[];
     timestamp?: number;
+    toolName?: string;
+    toolCallId?: string;
   };
   provider?: string;
   modelId?: string;
   customType?: string;
   data?: unknown;
+}
+
+function isInternalControlUserText(text: string): boolean {
+  const normalized = text.trim();
+  return normalized.startsWith('A new session was started via /new or /reset.')
+    || normalized.startsWith('Read HEARTBEAT.md if it exists')
+    || normalized.startsWith('[Subagent Context]')
+    || normalized.includes('[Subagent Task]:')
+    || normalized.startsWith('System: [') && normalized.includes('Exec completed');
+}
+
+function classifyMessageRole(role: string | undefined, content: string): 'user' | 'assistant' | 'system' | 'tool_result' {
+  if (role === 'toolResult') return 'tool_result';
+  if (role === 'user') return isInternalControlUserText(content) ? 'system' : 'user';
+  if (role === 'system') return 'system';
+  return 'assistant';
 }
 
 async function getSessionMessages(sessionId: string): Promise<NextResponse> {
@@ -261,7 +288,7 @@ async function getSessionMessages(sessionId: string): Promise<NextResponse> {
         if (typeof msg.content === 'string') {
           messages.push({
             id: obj.id || Math.random().toString(),
-            type: role === 'user' ? 'user' : 'assistant',
+            type: classifyMessageRole(role, msg.content),
             role,
             content: msg.content,
             timestamp,
@@ -269,35 +296,37 @@ async function getSessionMessages(sessionId: string): Promise<NextResponse> {
           });
         } else if (Array.isArray(msg.content)) {
           for (const block of msg.content) {
+            if (block.type === 'thinking') continue;
+
             if (block.type === 'text' && block.text) {
               messages.push({
                 id: (obj.id || '') + '-text',
-                type: role === 'user' ? 'user' : 'assistant',
+                type: classifyMessageRole(role, block.text),
                 role,
                 content: block.text,
                 timestamp,
                 model: currentModel || undefined,
               });
-            } else if (block.type === 'tool_use' && block.name) {
+            } else if ((block.type === 'tool_use' || block.type === 'toolCall') && block.name) {
+              const input = block.input ?? block.arguments;
               messages.push({
                 id: block.id || (obj.id || '') + '-tool',
                 type: 'tool_use',
                 role,
-                content: `${block.name}(${block.input ? JSON.stringify(block.input).slice(0, 200) : ''})`,
+                content: `${block.name}(${input ? JSON.stringify(input).slice(0, 200) : ''})`,
                 timestamp,
                 toolName: block.name,
                 model: currentModel || undefined,
               });
-            } else if (block.type === 'tool_result') {
-              const resultContent = Array.isArray(block.text)
-                ? (block.text as Array<{ type: string; text?: string }>).map((b) => b.text || '').join('\n')
-                : (block.text as string) || '';
+            } else if (block.type === 'tool_result' || role === 'toolResult') {
+              const resultContent = (block.text as string) || '';
               messages.push({
                 id: (obj.id || '') + '-result',
                 type: 'tool_result',
                 role,
                 content: resultContent.slice(0, 500),
                 timestamp,
+                toolName: msg.toolName,
                 model: currentModel || undefined,
               });
             }

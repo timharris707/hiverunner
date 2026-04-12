@@ -8,7 +8,7 @@ import { ChevronRight, Lightbulb, ShieldAlert, UserPlus } from "lucide-react";
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { formatAge } from "@/components/orchestration/ui";
 import { listCompanies, listCompanyApprovals } from "@/lib/orchestration/client";
-import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { buildApprovalDetailPath } from "@/lib/orchestration/route-paths";
 import type {
   ApprovalStatus,
   ApprovalType,
@@ -283,7 +283,12 @@ export function ApprovalsQueuePage({ view }: { view: QueueView }) {
         ) : (
           visibleApprovals.map((approval) => {
             const summary = approvalSummary(approval);
-            const href = buildCompanyPath(slug, `/approvals/${encodeURIComponent(approval.id)}`);
+            const href = buildApprovalDetailPath({
+              companyCode: company?.code,
+              companySlug: slug,
+              approvalId: approval.id,
+              linkedTaskKey: approval.linkedTaskKey,
+            });
             return (
               <Link
                 key={approval.id}

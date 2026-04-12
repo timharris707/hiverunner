@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 const listQuerySchema = z.object({
   status: z.enum(["pending", "revision_requested", "approved", "rejected", "cancelled"]).optional(),
   type: z.enum(["hire_agent", "approve_ceo_strategy", "budget_override_required"]).optional(),
+  linkedTaskId: z.string().trim().min(1).optional(),
 });
 
 const createBaseSchema = z.object({
@@ -26,6 +27,7 @@ export async function GET(
     const query = listQuerySchema.parse({
       status: req.nextUrl.searchParams.get("status") ?? undefined,
       type: req.nextUrl.searchParams.get("type") ?? undefined,
+      linkedTaskId: req.nextUrl.searchParams.get("linkedTaskId") ?? undefined,
     });
     return NextResponse.json(listApprovals({ companyIdOrSlug: slug, ...query }));
   } catch (error) {

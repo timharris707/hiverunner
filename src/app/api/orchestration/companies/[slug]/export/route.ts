@@ -42,10 +42,10 @@ export async function GET(
 
     const company = db
       .prepare(
-        `SELECT id, slug, company_code, name, description, status,
-                workspace_root, workspace_source,
-                theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url,
-                settings_json, created_at, updated_at
+          `SELECT id, slug, company_code, name, description, status,
+                  workspace_root, workspace_source, workspace_slug, runtime_slug,
+                  theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url,
+                  created_at, updated_at
          FROM companies WHERE id = ?`
       )
       .get(companyId) as Record<string, unknown> | undefined;
@@ -79,10 +79,13 @@ export async function GET(
     };
 
     if (requested.has("company")) {
-      pkg.company = {
-        name: company.name,
-        slug: company.slug,
-        companyCode: company.company_code,
+          pkg.company = {
+            id: company.id,
+            name: company.name,
+            slug: company.slug,
+            workspaceSlug: company.workspace_slug,
+            runtimeSlug: company.runtime_slug,
+            companyCode: company.company_code,
         description: company.description,
         status: company.status,
         workspaceSource: company.workspace_source,
@@ -92,7 +95,7 @@ export async function GET(
           keywords: safeJsonParse(company.theme_keywords_json as string, []),
           sampleUrl: company.theme_sample_url,
         },
-        settings: safeJsonParse(company.settings_json as string, {}),
+        settings: {},
       };
     }
 
@@ -122,7 +125,7 @@ export async function GET(
       const rows = db
         .prepare(
           `SELECT id, slug, name, emoji, role, personality,
-                  status, model, adapter_type,
+                  status, model, adapter_type, runtime_slug, openclaw_agent_id,
                   adapter_config_json, runtime_config_json,
                   permissions_json, capabilities, instructions_mode,
                   reporting_to, skills_json, project_id, created_at
@@ -141,6 +144,8 @@ export async function GET(
         status: r.status,
         model: r.model,
         adapterType: r.adapter_type,
+        runtimeSlug: r.runtime_slug,
+        openclawAgentId: r.openclaw_agent_id,
         adapterConfig: safeJsonParse(r.adapter_config_json as string, {}),
         runtimeConfig: safeJsonParse(r.runtime_config_json as string, {}),
         permissions: safeJsonParse(r.permissions_json as string, {}),

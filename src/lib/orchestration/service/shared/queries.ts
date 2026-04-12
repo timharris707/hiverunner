@@ -457,10 +457,13 @@ function agentFromRow(
     personality: row.personality,
     model: row.model ?? undefined,
     adapterType: row.adapter_type ?? "openclaw",
+    runtimeSlug: row.runtime_slug ?? undefined,
     paperclipAgentId: row.paperclip_agent_id ?? undefined,
     openclawAgentId: row.openclaw_agent_id ?? undefined,
     reportingTo: row.reporting_to ?? undefined,
     reportingToName: row.reporting_to_name ?? undefined,
+    hireApprovalId: row.hire_approval_id ?? undefined,
+    hireApprovalStatus: row.hire_approval_status ?? undefined,
     skills: parseJsonArray(row.skills_json),
     tasksCompleted: Number(row.tasks_completed ?? 0),
     totalRuntimeMinutes: Number(row.total_runtime_minutes ?? 0),
@@ -488,10 +491,13 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
         t.title AS current_task_title,
         a.model,
         a.adapter_type,
+        a.runtime_slug,
         a.paperclip_agent_id,
         a.openclaw_agent_id,
         a.reporting_to,
         mgr.name AS reporting_to_name,
+        hap.id AS hire_approval_id,
+        hap.status AS hire_approval_status,
         a.skills_json,
         a.tasks_completed,
         a.total_runtime_minutes,
@@ -501,6 +507,11 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
        LEFT JOIN agents mgr ON mgr.id = a.reporting_to
+       LEFT JOIN approvals hap
+         ON hap.company_id = a.company_id
+        AND hap.type = 'hire_agent'
+        AND hap.status IN ('pending', 'revision_requested')
+        AND json_extract(hap.payload_json, '$.agentId') = a.id
        WHERE a.id = ? AND a.archived_at IS NULL`
     )
     .get(agentId) as AgentRow | undefined;

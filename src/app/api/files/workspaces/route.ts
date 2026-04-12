@@ -3,8 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { shouldIncludeWorkspaceInOperatorRails } from '@/lib/workspace-visibility';
 import { resolveCompanyIdBySlug } from '@/lib/orchestration/company-service';
+import {
+  resolveCompanyWorkspaceRoot,
+  resolveLegacyOpenClawAgentWorkspacePath,
+} from '@/lib/workspaces/company-paths';
+import { resolveOpenClawDir } from '@/lib/workspaces/root';
 
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || '/Users/timharris/.openclaw';
+const OPENCLAW_DIR = resolveOpenClawDir();
 
 interface Workspace {
   id: string;
@@ -51,13 +56,21 @@ export async function GET(req: NextRequest) {
     if (companySlug) {
       // Alias-aware company resolution.
       const resolved = resolveCompanyIdBySlug(companySlug);
+      const companyWorkspaceRoot = resolved
+        ? resolveCompanyWorkspaceRoot({
+            companyId: resolved.id,
+            workspaceSlug: resolved.workspace_slug,
+            workspaceRoot: resolved.workspace_root,
+            workspaceSource: resolved.workspace_source,
+          })
+        : null;
 
-      if (resolved?.workspace_root && fs.existsSync(resolved.workspace_root)) {
+      if (resolved && companyWorkspaceRoot && fs.existsSync(companyWorkspaceRoot)) {
         workspaces.push({
           id: resolved.slug,
           name: resolved.name,
           emoji: '🏢',
-          path: resolved.workspace_root,
+          path: companyWorkspaceRoot,
         });
       }
 
@@ -82,7 +95,8 @@ export async function GET(req: NextRequest) {
     
     for (const entry of entries) {
       if (entry.isDirectory() && entry.name.startsWith('workspace-')) {
-        const workspacePath = path.join(OPENCLAW_DIR, entry.name);
+        const agentId = entry.name.replace('workspace-', '');
+        const workspacePath = resolveLegacyOpenClawAgentWorkspacePath(agentId).path;
         const agentInfo = getAgentInfo(workspacePath);
 
         if (
@@ -93,8 +107,7 @@ export async function GET(req: NextRequest) {
         ) {
           continue;
         }
-        
-        const agentId = entry.name.replace('workspace-', '');
+
         // Friendly workspace name: capitalize the directory id (e.g. "academic" → "Academic")
         const workspaceLabel = agentId.charAt(0).toUpperCase() + agentId.slice(1);
 

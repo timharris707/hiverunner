@@ -1,8 +1,12 @@
 #!/bin/sh
 set -eu
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
-LOG_DIR="$APP_DIR/data"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 PID_FILE="$LOG_DIR/mission-control-dev.pid"
 PORT="${PORT:-3010}"
 
@@ -32,16 +36,23 @@ if [ -f "$APP_DIR/.next/dev/lock" ] && [ -z "$EXISTING_PID" ]; then
 fi
 
 MC_ENGINE_TICK="${MC_ENGINE_TICK:-off}"
-MC_DATA_DIR="${MC_DATA_DIR:-$APP_DIR/data-dev}"
+MC_DEV_EXECUTION_TEST_MODE="${MC_DEV_EXECUTION_TEST_MODE:-0}"
+MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "data-dev")"
+MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "${HOME:-/Users/timharris}/.mission-control/dev/workspaces")"
 NODE_HEAP_SIZE="${NODE_HEAP_SIZE:-8192}"
 mkdir -p "$MC_DATA_DIR"
+mkdir -p "$MC_WORKSPACE_ROOT"
 
 echo "$$" > "$PID_FILE"
-echo "[mc-dev] launchd service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, data: $MC_DATA_DIR)"
+echo "[mc-dev] launchd service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT)"
 
 exec env \
   NODE_ENV=development \
   PORT="$PORT" \
+  MC_APP_ROOT="$APP_DIR" \
+  MC_LOG_DIR="$LOG_DIR" \
   MC_ENGINE_TICK="$MC_ENGINE_TICK" \
+  MC_DEV_EXECUTION_TEST_MODE="$MC_DEV_EXECUTION_TEST_MODE" \
   MC_DATA_DIR="$MC_DATA_DIR" \
+  MC_WORKSPACE_ROOT="$MC_WORKSPACE_ROOT" \
   "$NODE_BIN" --max-old-space-size="$NODE_HEAP_SIZE" server.js

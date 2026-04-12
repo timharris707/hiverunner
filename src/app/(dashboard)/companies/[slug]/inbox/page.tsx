@@ -22,7 +22,7 @@ import {
   wakeupAgent,
   cancelTaskExecution,
 } from "@/lib/orchestration/client";
-import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { buildApprovalDetailPath, buildCompanyPath } from "@/lib/orchestration/route-paths";
 import type {
   OrchestrationCompany,
   OrchestrationCompanyInboxEvent,
@@ -1045,7 +1045,12 @@ function EventRow({
   };
 
   const href = isApproval && approvalId
-    ? `/${company?.code ?? slug}/approvals/${approvalId}`
+    ? buildApprovalDetailPath({
+        companyCode: company?.code,
+        companySlug: company?.slug ?? slug,
+        approvalId,
+        linkedTaskKey: event.taskKey,
+      })
     : eventTargetHref(company?.slug ?? slug, event);
 
   const handleClick = () => {

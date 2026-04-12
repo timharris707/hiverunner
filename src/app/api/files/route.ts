@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
-
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
+import {
+  resolveWorkspaceBase,
+  resolveWorkspacePath,
+} from "@/lib/files/workspace-resolver";
 
 // Files to show in the memory browser
 const ROOT_FILES = ["MEMORY.md", "SOUL.md", "USER.md", "AGENTS.md", "TOOLS.md", "IDENTITY.md"];
@@ -100,8 +102,13 @@ export async function GET(request: NextRequest) {
   const filePath = searchParams.get("path");
 
   try {
-    // Determine workspace path
-    const workspacePath = path.join(OPENCLAW_DIR, workspace);
+    const workspacePath = resolveWorkspaceBase(workspace);
+    if (!workspacePath) {
+      return NextResponse.json(
+        { error: "Workspace not found" },
+        { status: 404 }
+      );
+    }
     
     // Validate workspace exists
     if (!(await fileExists(workspacePath))) {
@@ -126,7 +133,14 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const fullPath = path.join(workspacePath, safePath);
+    const resolvedFilePath = resolveWorkspacePath(workspace, safePath);
+    if (!resolvedFilePath) {
+      return NextResponse.json(
+        { error: "Invalid file path" },
+        { status: 400 }
+      );
+    }
+    const fullPath = resolvedFilePath.fullPath;
     if (!(await fileExists(fullPath))) {
       return NextResponse.json(
         { error: "File not found" },
@@ -165,7 +179,13 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const workspacePath = path.join(OPENCLAW_DIR, workspace);
+    const workspacePath = resolveWorkspaceBase(workspace);
+    if (!workspacePath) {
+      return NextResponse.json(
+        { error: "Workspace not found" },
+        { status: 404 }
+      );
+    }
     
     // Validate workspace exists
     if (!(await fileExists(workspacePath))) {
@@ -175,7 +195,15 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const fullPath = path.join(workspacePath, safePath);
+    const resolvedFilePath = resolveWorkspacePath(workspace, safePath);
+    if (!resolvedFilePath) {
+      return NextResponse.json(
+        { error: "Invalid file path" },
+        { status: 400 }
+      );
+    }
+
+    const fullPath = resolvedFilePath.fullPath;
 
     // Create memory directory if needed
     const dir = path.dirname(fullPath);

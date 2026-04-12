@@ -1,5 +1,7 @@
 import { randomUUID } from "crypto";
-import path from "path";
+import { execFile } from "child_process";
+import fs from "fs";
+import { promisify } from "util";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
@@ -23,10 +25,20 @@ import {
 } from "@/lib/orchestration/theme-presets";
 import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
+import {
+  resolveCanonicalCompanyWorkspaceRoot,
+  resolveCompanyWorkspaceRoot,
+} from "@/lib/workspaces/company-paths";
+import { isSafeManagedCompanyWorkspacePath } from "@/lib/workspaces/delete-safety";
+import { ensureUniqueCompanyRuntimeSlug } from "@/lib/orchestration/runtime-identifiers";
+
+const execFileAsync = promisify(execFile);
 
 type CompanyRow = {
   id: string;
   slug: string;
+  workspace_slug: string | null;
+  runtime_slug: string | null;
   company_code: string | null;
   name: string;
   description: string;
@@ -127,9 +139,6 @@ type CompanyInboxEventRow = {
 
 // Stable ID for the primary company — never changes, unlike slugs or names.
 const DEFAULT_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
-
-const OPENCLAW_WORKSPACE_ROOT =
-  process.env.OPENCLAW_WORKSPACE_ROOT?.trim() || "/Users/timharris/.openclaw/workspace";
 
 /**
  * Builds the reusable inbox feed CTE SQL and its parameter list.
@@ -432,6 +441,8 @@ function getCompanyRowBySlug(slug: string): CompanyRow | undefined {
       `SELECT
         c.id,
         c.slug,
+        c.workspace_slug,
+        c.runtime_slug,
         c.company_code,
         c.name,
         c.description,
@@ -476,6 +487,8 @@ function getCompanyRowById(companyId: string): CompanyRow | undefined {
       `SELECT
         c.id,
         c.slug,
+        c.workspace_slug,
+        c.runtime_slug,
         c.company_code,
         c.name,
         c.description,
@@ -630,18 +643,21 @@ function getCompanyGoalBySprintId(
 }
 
 function companyFromRow(row: CompanyRow): OrchestrationCompany {
-  // Use stored workspace_root. Fallback derives from company ID (stable),
-  // not slug (mutable), to avoid breakage on rename.
-  const workspaceRoot =
-    row.workspace_root && row.workspace_root.trim()
-      ? row.workspace_root
-      : row.id === DEFAULT_COMPANY_ID
-      ? OPENCLAW_WORKSPACE_ROOT
-      : path.join(OPENCLAW_WORKSPACE_ROOT, "companies", row.id);
+  const workspaceSlug = row.workspace_slug?.trim() || row.slug;
+  const runtimeSlug = row.runtime_slug?.trim() || workspaceSlug;
+  const workspaceRoot = resolveCompanyWorkspaceRoot({
+    companyId: row.id,
+    workspaceSlug,
+    workspaceRoot: row.workspace_root,
+    workspaceSource: row.workspace_source,
+    isDefaultCompany: row.id === DEFAULT_COMPANY_ID,
+  });
 
   return {
     id: row.id,
     slug: row.slug,
+    workspaceSlug,
+    runtimeSlug,
     code: row.company_code?.trim() || row.slug.slice(0, 3).toUpperCase(),
     name: row.name,
     description: row.description,
@@ -681,6 +697,8 @@ export function listCompanies(input?: {
       `SELECT
         c.id,
         c.slug,
+        c.workspace_slug,
+        c.runtime_slug,
         c.company_code,
         c.name,
         c.description,
@@ -765,18 +783,22 @@ export function createCompany(input: {
     companyCode = `${baseCompanyCode}${companyCodeIndex}`;
   }
 
-  // Use company ID for workspace path — stable across renames.
-  const workspaceRoot = path.join(OPENCLAW_WORKSPACE_ROOT, "companies", companyId);
+  const workspaceSlug = slug;
+  const runtimeSlug = ensureUniqueCompanyRuntimeSlug(db, workspaceSlug);
+
+  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(companyId, workspaceSlug);
   const workspaceSource = "provisioned";
 
   db.prepare(
     `INSERT INTO companies
-      (id, slug, company_code, name, description, status, workspace_root, workspace_source, theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url, created_at, updated_at)
+      (id, slug, workspace_slug, runtime_slug, company_code, name, description, status, workspace_root, workspace_source, theme_name, theme_prompt_template, theme_keywords_json, theme_sample_url, created_at, updated_at)
      VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     companyId,
     slug,
+    workspaceSlug,
+    runtimeSlug,
     companyCode,
     input.name,
     input.description,
@@ -796,6 +818,8 @@ export function createCompany(input: {
       `SELECT
         c.id,
         c.slug,
+        c.workspace_slug,
+        c.runtime_slug,
         c.company_code,
         c.name,
         c.description,
@@ -836,17 +860,39 @@ export function createCompany(input: {
  */
 export function resolveCompanyIdBySlug(
   slugOrId: string,
-  db = getOrchestrationDb()
-): { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined {
+  db = getOrchestrationDb(),
+  input?: { includeArchived?: boolean }
+): {
+  id: string;
+  slug: string;
+  workspace_slug: string | null;
+  runtime_slug: string | null;
+  company_code: string | null;
+  name: string;
+  workspace_root: string | null;
+  workspace_source: "openclaw" | "provisioned" | "imported" | "manual" | null;
+} | undefined {
+  const includeArchived = input?.includeArchived ?? false;
+  const archivedClause = includeArchived ? "1=1" : "archived_at IS NULL";
   // Direct match on id or current slug.
   const direct = db
     .prepare(
-      `SELECT id, slug, company_code, name, workspace_root
+      `SELECT id, slug, company_code, name, workspace_root, workspace_source
+       , workspace_slug, runtime_slug
        FROM companies
-       WHERE (id = ? OR slug = ?) AND archived_at IS NULL
+       WHERE (id = ? OR slug = ?) AND ${archivedClause}
        LIMIT 1`
     )
-    .get(slugOrId, slugOrId) as { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined;
+    .get(slugOrId, slugOrId) as {
+      id: string;
+      slug: string;
+      workspace_slug: string | null;
+      runtime_slug: string | null;
+      company_code: string | null;
+      name: string;
+      workspace_root: string | null;
+      workspace_source: "openclaw" | "provisioned" | "imported" | "manual" | null;
+    } | undefined;
   if (direct) return direct;
 
   // Fall back to stored slug alias.
@@ -857,12 +903,22 @@ export function resolveCompanyIdBySlug(
 
   return db
     .prepare(
-      `SELECT id, slug, company_code, name, workspace_root
+      `SELECT id, slug, company_code, name, workspace_root, workspace_source
+       , workspace_slug, runtime_slug
        FROM companies
-       WHERE id = ? AND archived_at IS NULL
+       WHERE id = ? AND ${archivedClause}
        LIMIT 1`
     )
-    .get(alias.company_id) as { id: string; slug: string; company_code: string | null; name: string; workspace_root: string | null } | undefined;
+    .get(alias.company_id) as {
+      id: string;
+      slug: string;
+      workspace_slug: string | null;
+      runtime_slug: string | null;
+      company_code: string | null;
+      name: string;
+      workspace_root: string | null;
+      workspace_source: "openclaw" | "provisioned" | "imported" | "manual" | null;
+    } | undefined;
 }
 
 export function getCompany(companySlug: string): { company: OrchestrationCompany } {
@@ -994,6 +1050,187 @@ export function archiveCompany(companySlug: string): {
     companyId: current.id,
     companySlug: current.slug,
     archivedAt,
+  };
+}
+
+export function restoreCompany(companySlug: string): {
+  companyId: string;
+  companySlug: string;
+  restoredAt: string;
+} {
+  const db = getOrchestrationDb();
+  const resolved = resolveCompanyIdBySlug(companySlug, db, { includeArchived: true });
+  if (!resolved) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+
+  const current = db
+    .prepare("SELECT id, slug, status, archived_at FROM companies WHERE id = ? LIMIT 1")
+    .get(resolved.id) as { id: string; slug: string; status: CompanyStatusInput; archived_at: string | null } | undefined;
+  if (!current) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+
+  const restoredAt = new Date().toISOString();
+  db.prepare(
+    `UPDATE companies
+     SET status = 'active', archived_at = NULL, updated_at = ?
+     WHERE id = ?`
+  ).run(restoredAt, current.id);
+
+  refreshEdgeRouteMapCache();
+
+  return {
+    companyId: current.id,
+    companySlug: current.slug,
+    restoredAt,
+  };
+}
+
+type HardDeleteCompanyResult = {
+  companyId: string;
+  companySlug: string;
+  workspace: {
+    root: string | null;
+    existed: boolean;
+    deleted: boolean;
+  };
+  openclawAgents: {
+    queued: string[];
+  };
+  deletedCounts: {
+    approvals: number;
+    projects: number;
+    tasks: number;
+    agents: number;
+  };
+};
+
+function isSafeCompanyWorkspacePath(workspaceRoot: string): boolean {
+  return isSafeManagedCompanyWorkspacePath(workspaceRoot);
+}
+
+async function deleteOpenClawAgent(runtimeId: string): Promise<"deleted" | "missing"> {
+  try {
+    await execFileAsync("openclaw", ["agents", "delete", runtimeId, "--force"], {
+      encoding: "utf-8",
+      timeout: 15_000,
+    });
+    return "deleted";
+  } catch (error) {
+    const stderr =
+      error && typeof error === "object" && "stderr" in error && typeof error.stderr === "string"
+        ? error.stderr
+        : "";
+    const stdout =
+      error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string"
+        ? error.stdout
+        : "";
+    const combined = `${stdout}\n${stderr}`.toLowerCase();
+    if (combined.includes("not found") || combined.includes("no such agent")) {
+      return "missing";
+    }
+
+    throw new OrchestrationApiError(500, "openclaw_agent_delete_failed", `Failed to remove OpenClaw agent ${runtimeId}`);
+  }
+}
+
+export async function cleanupDeletedCompanyOpenClawAgents(runtimeIds: string[]): Promise<{
+  deleted: string[];
+  missing: string[];
+}> {
+  const result = { deleted: [] as string[], missing: [] as string[] };
+  for (const runtimeId of runtimeIds) {
+    const status = await deleteOpenClawAgent(runtimeId);
+    if (status === "deleted") {
+      result.deleted.push(runtimeId);
+    } else {
+      result.missing.push(runtimeId);
+    }
+  }
+  return result;
+}
+
+export function hardDeleteCompany(companySlug: string): HardDeleteCompanyResult {
+  const db = getOrchestrationDb();
+  const resolved = resolveCompanyIdBySlug(companySlug, db, { includeArchived: true });
+  if (!resolved) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+
+  const current = {
+    id: resolved.id,
+    slug: resolved.slug,
+    workspaceRoot: resolved.workspace_root?.trim() || null,
+  };
+  if (current.workspaceRoot && !isSafeCompanyWorkspacePath(current.workspaceRoot)) {
+    throw new OrchestrationApiError(
+      400,
+      "unsafe_workspace_root",
+      "Refusing to delete a workspace outside the managed Mission Control or legacy OpenClaw company roots"
+    );
+  }
+
+  const openclawAgentRows = db
+    .prepare("SELECT openclaw_agent_id FROM agents WHERE company_id = ? AND openclaw_agent_id IS NOT NULL")
+    .all(current.id) as { openclaw_agent_id: string }[];
+  const deletedCounts = {
+    approvals: Number((db.prepare("SELECT COUNT(*) AS count FROM approvals WHERE company_id = ?").get(current.id) as { count?: number } | undefined)?.count ?? 0),
+    projects: Number((db.prepare("SELECT COUNT(*) AS count FROM projects WHERE company_id = ?").get(current.id) as { count?: number } | undefined)?.count ?? 0),
+    tasks: Number(
+      (db
+        .prepare(
+          `SELECT COUNT(*) AS count
+             FROM tasks
+            WHERE project_id IN (SELECT id FROM projects WHERE company_id = ?)`
+        )
+        .get(current.id) as { count?: number } | undefined)?.count ?? 0
+    ),
+    agents: Number((db.prepare("SELECT COUNT(*) AS count FROM agents WHERE company_id = ?").get(current.id) as { count?: number } | undefined)?.count ?? 0),
+  };
+
+  const openclawAgents = {
+    queued: openclawAgentRows.map((row) => row.openclaw_agent_id),
+  };
+
+  let workspaceExisted = false;
+  let workspaceDeleted = false;
+  if (current.workspaceRoot) {
+    workspaceExisted = fs.existsSync(current.workspaceRoot);
+    if (workspaceExisted) {
+      fs.rmSync(current.workspaceRoot, { recursive: true, force: true });
+      workspaceDeleted = !fs.existsSync(current.workspaceRoot);
+      if (!workspaceDeleted) {
+        throw new OrchestrationApiError(500, "workspace_delete_failed", "Failed to delete company workspace");
+      }
+    }
+  }
+
+  db.transaction(() => {
+    db.prepare("DELETE FROM approval_comments WHERE company_id = ?").run(current.id);
+    db.prepare("DELETE FROM approvals WHERE company_id = ?").run(current.id);
+    db.prepare(
+      `DELETE FROM tasks
+        WHERE assignee_agent_id IN (SELECT id FROM agents WHERE company_id = ?)
+           OR project_id IN (SELECT id FROM projects WHERE company_id = ?)`
+    ).run(current.id, current.id);
+    db.prepare("DELETE FROM agents WHERE company_id = ?").run(current.id);
+    db.prepare("DELETE FROM projects WHERE company_id = ?").run(current.id);
+    db.prepare("DELETE FROM companies WHERE id = ?").run(current.id);
+  })();
+
+  refreshEdgeRouteMapCache();
+
+  return {
+    companyId: current.id,
+    companySlug: current.slug,
+    workspace: {
+      root: current.workspaceRoot,
+      existed: workspaceExisted,
+      deleted: workspaceDeleted || !workspaceExisted,
+    },
+    openclawAgents,
+    deletedCounts,
   };
 }
 

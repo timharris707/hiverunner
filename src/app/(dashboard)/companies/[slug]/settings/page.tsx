@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { AlertTriangle, Settings } from "lucide-react";
+import { AlertTriangle, Archive, Settings, Trash2 } from "lucide-react";
 
 import { CompanyErrorState, DeleteCompanyModal } from "@/components/company/company-ui";
 import { getCompanyTheme, listCompanies } from "@/lib/orchestration/client";
 import type { CompanyTheme, OrchestrationCompany } from "@/lib/orchestration/types";
 import { P, color, type as T, space, radius, font } from "@/lib/ui/tokens";
-import { PageHeader, Section, PropRow, ActionButton, InfoNote } from "@/lib/ui/primitives";
+import { PageHeader, Section, PropRow, ActionButton, InfoNote, Badge } from "@/lib/ui/primitives";
 
 // Use stable company ID for protection checks, not mutable slug.
 const PROTECTED_COMPANY_IDS = new Set(["6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f"]);
@@ -19,6 +19,48 @@ type ExecAgent = { agentId: string; agentName?: string; name?: string; modelId: 
 type ExecSettings = { agents?: ExecAgent[] };
 type HbAgent = { agentId: string; agentName?: string; name?: string; heartbeatEnabled: boolean; intervalSeconds: number };
 type HbSettings = { agents?: HbAgent[] };
+type DevExecutionCompanyIdentity = { id: string; slug: string; code: string; name: string };
+type DevExecutionLease = {
+  company: DevExecutionCompanyIdentity;
+  enabledAt: string;
+  enabledUntil: string;
+  remainingSeconds: number;
+  enabledBy?: string;
+  note?: string;
+};
+type DevExecutionTestModeView = {
+  lane: "dev" | "stable";
+  gateEnabled: boolean;
+  available: boolean;
+  reason?: string;
+  company: DevExecutionCompanyIdentity;
+  activeLease: DevExecutionLease | null;
+  activeForCurrentCompany: boolean;
+  activeCompany: DevExecutionCompanyIdentity | null;
+  defaultDurationMinutes: number;
+  maxDurationMinutes: number;
+};
+
+function formatLeaseExpiry(iso: string): string {
+  const parsed = new Date(iso);
+  if (Number.isNaN(parsed.getTime())) return iso;
+  return parsed.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatRemainingSeconds(totalSeconds: number): string {
+  if (totalSeconds <= 0) return "expired";
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  if (hours > 0) {
+    return `${hours}h ${minutes}m remaining`;
+  }
+  return `${Math.max(1, minutes)}m remaining`;
+}
 
 /* ── Page ── */
 
@@ -31,6 +73,7 @@ export default function CompanySettingsPage() {
   const [theme, setTheme] = useState<CompanyTheme | null>(null);
   const [execSettings, setExecSettings] = useState<ExecSettings | null>(null);
   const [hbSettings, setHbSettings] = useState<HbSettings | null>(null);
+  const [devExecutionTestMode, setDevExecutionTestMode] = useState<DevExecutionTestModeView | null>(null);
   const [loading, setLoading] = useState(true);
 
   /* profile draft */
@@ -44,7 +87,10 @@ export default function CompanySettingsPage() {
   /* danger zone */
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
   const [pauseBusy, setPauseBusy] = useState(false);
+  const [devExecutionBusy, setDevExecutionBusy] = useState(false);
+  const [devExecutionDurationMinutes, setDevExecutionDurationMinutes] = useState(15);
 
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -60,11 +106,12 @@ export default function CompanySettingsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [companies, themeData, execResp, hbResp] = await Promise.all([
+        const [companies, themeData, execResp, hbResp, devExecutionResp] = await Promise.all([
           listCompanies(),
           getCompanyTheme(slug),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/execution`).then((r) => r.ok ? r.json() : null),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/heartbeats`).then((r) => r.ok ? r.json() : null),
+          fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/dev-execution-test-mode`).then((r) => r.ok ? r.json() : null),
         ]);
         if (cancelled) return;
         const c = companies.find((e) => e.slug === slug) ?? null;
@@ -72,6 +119,10 @@ export default function CompanySettingsPage() {
         setTheme(themeData);
         setExecSettings(execResp);
         setHbSettings(hbResp);
+        setDevExecutionTestMode(devExecutionResp as DevExecutionTestModeView | null);
+        if (devExecutionResp?.defaultDurationMinutes) {
+          setDevExecutionDurationMinutes(devExecutionResp.defaultDurationMinutes);
+        }
         if (c) { setName(c.name); setDescription(c.description ?? ""); }
       } finally { if (!cancelled) setLoading(false); }
     };
@@ -121,10 +172,77 @@ export default function CompanySettingsPage() {
     setDeleteBusy(true);
     try {
       const r = await fetch(`/api/orchestration/companies/${company.slug}?hard=true`, { method: "DELETE" });
-      if (!r.ok) throw new Error("failed");
-      setDeleteOpen(false); router.push("/companies");
-    } catch { setError("Could not delete company."); setDeleteOpen(false); }
-    finally { setDeleteBusy(false); }
+      const body = await r.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!r.ok) {
+        throw new Error(body?.error?.message ?? "Could not delete company.");
+      }
+      setDeleteOpen(false);
+      router.push("/companies");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Could not delete company.");
+      setDeleteOpen(false);
+    } finally { setDeleteBusy(false); }
+  };
+
+  const handleArchive = async () => {
+    if (!company) return;
+    setArchiveBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const r = await fetch(`/api/orchestration/companies/${company.slug}`, { method: "DELETE" });
+      const body = await r.json().catch(() => null) as { error?: { message?: string } } | null;
+      if (!r.ok) {
+        throw new Error(body?.error?.message ?? "Could not archive company.");
+      }
+      router.push("/companies");
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "Could not archive company.");
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  const handleDevExecutionToggle = async (enabled: boolean) => {
+    if (!company) return;
+    setDevExecutionBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(
+        `/api/orchestration/companies/${encodeURIComponent(company.slug)}/settings/dev-execution-test-mode`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            enabled,
+            durationMinutes: enabled ? devExecutionDurationMinutes : undefined,
+            actor: "operator",
+          }),
+        }
+      );
+      const body = await response.json().catch(() => null) as
+        | DevExecutionTestModeView
+        | { error?: { message?: string } }
+        | null;
+      if (!response.ok) {
+        throw new Error(body && "error" in body ? body.error?.message ?? "Could not update dev execution test mode." : "Could not update dev execution test mode.");
+      }
+      const next = body as DevExecutionTestModeView;
+      setDevExecutionTestMode(next);
+      if (next.defaultDurationMinutes && !next.activeForCurrentCompany) {
+        setDevExecutionDurationMinutes(next.defaultDurationMinutes);
+      }
+      setNotice(
+        enabled
+          ? `Dev autonomous test mode enabled for ${next.company.name} until ${next.activeLease ? formatLeaseExpiry(next.activeLease.enabledUntil) : "it is disabled"}.`
+          : "Dev autonomous test mode disabled for this company."
+      );
+    } catch (toggleError) {
+      setError(toggleError instanceof Error ? toggleError.message : "Could not update dev execution test mode.");
+    } finally {
+      setDevExecutionBusy(false);
+    }
   };
 
   if (!loading && !company) {
@@ -264,6 +382,112 @@ export default function CompanySettingsPage() {
             )}
           </Section>
 
+          {/* ── DEV AUTONOMOUS TEST MODE ── */}
+          {devExecutionTestMode ? (
+            <Section
+              title="Dev Autonomous Test Mode"
+              trailing={
+                <Badge
+                  label={
+                    devExecutionTestMode.activeForCurrentCompany
+                      ? "Active"
+                      : devExecutionTestMode.available
+                      ? "Off"
+                      : "Unavailable"
+                  }
+                  tone={
+                    devExecutionTestMode.activeForCurrentCompany
+                      ? "positive"
+                      : devExecutionTestMode.available
+                      ? "default"
+                      : "warning"
+                  }
+                />
+              }
+            >
+              <InfoNote tone="warning">
+                Dev-only execution sandbox. This never activates on stable, only one company can run at a time on port 3010, and every enablement auto-expires.
+              </InfoNote>
+              <div style={{ height: 12 }} />
+              {devExecutionTestMode.available ? (
+                <>
+                  {devExecutionTestMode.activeForCurrentCompany && devExecutionTestMode.activeLease ? (
+                    <>
+                      <PropRow label="Current lease">
+                        <span style={{ fontSize: 13, color: P.textSec }}>
+                          Active until {formatLeaseExpiry(devExecutionTestMode.activeLease.enabledUntil)} · {formatRemainingSeconds(devExecutionTestMode.activeLease.remainingSeconds)}
+                        </span>
+                      </PropRow>
+                      <PropRow label="Scope">
+                        <span style={{ fontSize: 13, color: P.textSec }}>
+                          {devExecutionTestMode.company.code} only on dev lane
+                        </span>
+                      </PropRow>
+                    </>
+                  ) : devExecutionTestMode.activeLease ? (
+                    <InfoNote tone="warning">
+                      Dev autonomous test mode is currently reserved by {devExecutionTestMode.activeLease.company.name} until {formatLeaseExpiry(devExecutionTestMode.activeLease.enabledUntil)}.
+                    </InfoNote>
+                  ) : (
+                    <p style={{ fontSize: 13, color: P.textSec, margin: 0 }}>
+                      Observer-only right now. Assigned tasks will queue work on dev, but nothing executes until you enable a temporary company-scoped lease here.
+                    </p>
+                  )}
+
+                  <div style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    alignItems: "center",
+                    gap: 10,
+                    marginTop: 14,
+                  }}>
+                    <label style={{ fontSize: 12, color: P.textSec }}>
+                      Window (minutes)
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={devExecutionTestMode.maxDurationMinutes}
+                      value={devExecutionDurationMinutes}
+                      onChange={(event) => {
+                        const next = Number.parseInt(event.target.value, 10);
+                        if (Number.isFinite(next)) {
+                          setDevExecutionDurationMinutes(
+                            Math.max(1, Math.min(devExecutionTestMode.maxDurationMinutes, next))
+                          );
+                        }
+                      }}
+                      style={{
+                        ...inputStyle,
+                        width: 92,
+                        padding: "8px 12px",
+                        fontFamily: "var(--font-mono, monospace)",
+                      }}
+                    />
+                    <ActionButton
+                      label={devExecutionTestMode.activeForCurrentCompany ? "Extend Window" : `Enable for ${devExecutionDurationMinutes}m`}
+                      onClick={() => void handleDevExecutionToggle(true)}
+                      disabled={
+                        devExecutionBusy ||
+                        Boolean(devExecutionTestMode.activeLease && !devExecutionTestMode.activeForCurrentCompany)
+                      }
+                    />
+                    <ActionButton
+                      label={devExecutionBusy ? "Updating..." : "Disable"}
+                      variant="ghost"
+                      onClick={() => void handleDevExecutionToggle(false)}
+                      disabled={devExecutionBusy || !devExecutionTestMode.activeForCurrentCompany}
+                    />
+                  </div>
+                </>
+              ) : (
+                <InfoNote tone="warning">
+                  {devExecutionTestMode.reason ?? "Dev execution test mode is unavailable on this lane."}
+                </InfoNote>
+              )}
+            </Section>
+          ) : null}
+
           {/* ── WORKSPACE ── */}
           <Section title="Workspace">
             <PropRow label="Workspace root"><span style={{ fontSize: 12, fontFamily: "var(--font-mono, monospace)", color: P.textSec }}>{company?.workspace?.root ?? "—"}</span></PropRow>
@@ -281,18 +505,25 @@ export default function CompanySettingsPage() {
               <AlertTriangle size={14} /> Danger Zone
             </h3>
             <p style={{ margin: "0 0 12px", fontSize: 13, color: P.textSec }}>
-              Archive this company to hide it from the sidebar. This persists in the database.
+              Archive hides the company from normal navigation. Delete permanently removes it from Mission Control, deletes its workspace, removes associated OpenClaw agents, and erases related company data.
             </p>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button type="button" onClick={() => void handleTogglePause()} disabled={pauseBusy} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer",
                 border: `0.5px solid ${P.cardBorderHover}`, background: "rgba(255,255,255,0.08)", color: P.text,
               }}>{pauseBusy ? "Updating..." : company?.status === "paused" ? "Resume Company" : "Pause Company"}</button>
-              <button type="button" onClick={() => setDeleteOpen(true)} disabled={isProtected} style={{
+              <button type="button" onClick={() => void handleArchive()} disabled={archiveBusy} style={{
+                padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
+                border: `0.5px solid ${P.cardBorderHover}`, background: "rgba(255,255,255,0.08)", color: P.text,
+                cursor: archiveBusy ? "not-allowed" : "pointer", opacity: archiveBusy ? 0.6 : 1,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}><Archive size={12} />{archiveBusy ? "Archiving..." : "Archive Company"}</button>
+              <button type="button" onClick={() => setDeleteOpen(true)} disabled={deleteBusy || isProtected} style={{
                 padding: "8px 16px", borderRadius: 8, fontSize: 12, fontWeight: 600,
                 border: "0.5px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.08)", color: "#ef4444",
-                cursor: isProtected ? "not-allowed" : "pointer", opacity: isProtected ? 0.5 : 1,
-              }}>{isProtected ? "Delete disabled for core company" : "Archive company"}</button>
+                cursor: isProtected || deleteBusy ? "not-allowed" : "pointer", opacity: isProtected || deleteBusy ? 0.5 : 1,
+                display: "inline-flex", alignItems: "center", gap: 6,
+              }}><Trash2 size={12} />{isProtected ? "Delete disabled for core company" : "Delete Company"}</button>
             </div>
           </div>
         </>

@@ -26,6 +26,8 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nOrchestration Company Workspace & Project Scope Tests\n");
 
+  process.env.MC_WORKSPACE_ROOT = "/tmp/mission-control-phase2-workspaces";
+
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   if (dbPath) {
     rmSync(dbPath, { force: true });
@@ -42,9 +44,18 @@ async function run() {
   const freshCompanyView = getCompany(freshCompany.slug).company;
 
   await test("new company gets an isolated workspace binding", () => {
+    assert.strictEqual(
+      freshCompanyView.workspaceSlug,
+      freshCompany.slug,
+      "Expected new company workspace_slug to freeze the creation-time route slug",
+    );
     assert.ok(
-      freshCompanyView.workspace.root.endsWith(`/companies/${freshCompany.slug}`),
-      "Expected non-default company workspace root under /companies/<slug>"
+      freshCompanyView.workspace.root.endsWith(`/companies/${freshCompany.id}`),
+      "Expected non-default company workspace root under /companies/<company-id>"
+    );
+    assert.ok(
+      freshCompanyView.workspace.root.startsWith(process.env.MC_WORKSPACE_ROOT || ""),
+      "Expected non-default company workspace root under MC_WORKSPACE_ROOT"
     );
     assert.strictEqual(freshCompanyView.workspace.source, "provisioned");
   });

@@ -15,6 +15,7 @@ import {
   getTask,
   listCompanies,
   listCompanyAgents,
+  listCompanyApprovals,
   listProjects,
   listTaskComments,
   addTaskComment,
@@ -32,6 +33,7 @@ import type {
   OrchestrationCompany,
   OrchestrationProject,
   OrchestrationTask,
+  OrchestrationApproval,
   TaskStatus,
   TaskPriority,
 } from "@/lib/orchestration/types";
@@ -138,6 +140,7 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<OrchestrationTask | null>(null);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [linkedApprovals, setLinkedApprovals] = useState<OrchestrationApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -257,6 +260,38 @@ export default function TaskDetailPage() {
     };
   }, [task?.id]);
 
+  useEffect(() => {
+    if (!task?.id || !slug) {
+      setLinkedApprovals([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollApprovals = async () => {
+      try {
+        const approvals = await listCompanyApprovals({
+          companySlug: slug,
+          linkedTaskId: task.id,
+        });
+        if (!cancelled) {
+          setLinkedApprovals(approvals);
+        }
+      } catch {
+        if (!cancelled) {
+          setLinkedApprovals([]);
+        }
+      }
+    };
+
+    void pollApprovals();
+    const interval = window.setInterval(() => { void pollApprovals(); }, 3000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [slug, task?.id]);
+
   const assignedAgent = useMemo(() => {
     const preferredAgentId = execution?.agentId;
     if (preferredAgentId) {
@@ -375,6 +410,23 @@ export default function TaskDetailPage() {
   const tasksHref = `/${encodeURIComponent(companyCode.toUpperCase())}/tasks`;
   const priorityMeta = task ? PRIORITY_META[task.priority] : null;
   const statusMeta = task ? STATUS_META[task.status] : null;
+  const pendingLinkedApprovals = linkedApprovals.filter((approval) => approval.status === "pending" || approval.status === "revision_requested");
+  const runStateLabel =
+    execution?.state === "completed" && pendingLinkedApprovals.length > 0
+      ? "Awaiting approval"
+      : execution?.state === "running"
+        ? "Running"
+        : execution?.state === "completed"
+          ? "Completed"
+          : execution?.state;
+  const runStateColor =
+    execution?.state === "completed" && pendingLinkedApprovals.length > 0
+      ? "#fbbf24"
+      : execution?.state === "running"
+        ? "#22c55e"
+        : execution?.state === "completed"
+          ? color.textMuted
+          : "#f87171";
 
   return (
     <div
@@ -649,12 +701,12 @@ export default function TaskDetailPage() {
                     }}>
                       <span style={{
                         width: 5, height: 5, borderRadius: "50%",
-                        background: execution.state === "running" ? "#22c55e" : execution.state === "completed" ? color.textMuted : "#f87171",
+                        background: runStateColor,
                         animation: execution.state === "running" ? "pulse 1.5s ease-in-out infinite" : undefined,
                         flexShrink: 0,
                       }} />
                       <span style={{ fontWeight: 500 }}>
-                        {execution.state === "running" ? "Running" : execution.state === "completed" ? "Completed" : execution.state}
+                        {runStateLabel}
                       </span>
                       <span style={{ fontFamily: font.mono, fontSize: 10 }}>{execution.runId.slice(0, 8)}</span>
                       {execution.sessionId && (
@@ -664,13 +716,54 @@ export default function TaskDetailPage() {
                       )}
                     </div>
                   )}
+                  {pendingLinkedApprovals.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        gap: 10,
+                        alignItems: "flex-start",
+                        padding: "12px 14px",
+                        marginBottom: 14,
+                        borderRadius: 10,
+                        border: "0.5px solid rgba(251,191,36,0.28)",
+                        background: "rgba(251,191,36,0.08)",
+                      }}
+                    >
+                      <AlertCircle size={15} color="#fbbf24" style={{ marginTop: 1, flexShrink: 0 }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#fcd34d", marginBottom: 4 }}>
+                          {pendingLinkedApprovals.length} approval{pendingLinkedApprovals.length === 1 ? "" : "s"} requested
+                        </div>
+                        <div style={{ fontSize: 12, color: color.textSecondary, lineHeight: 1.5 }}>
+                          {assignedAgent?.name ?? "This agent"} finished the current pass and is waiting on operator review before these hires appear under Agents.
+                        </div>
+                        <div style={{ fontSize: 12, color: color.textMuted, marginTop: 6, lineHeight: 1.5 }}>
+                          {pendingLinkedApprovals.map((approval) => {
+                            const name = typeof approval.payload.name === "string" ? approval.payload.name : "Unnamed agent";
+                            const role = typeof approval.payload.role === "string" ? approval.payload.role : approval.type;
+                            return `${name} (${role})`;
+                          }).join(" • ")}
+                        </div>
+                        <div style={{ marginTop: 8 }}>
+                          <Link
+                            href={buildCompanyPath(slug, "/approvals/pending")}
+                            style={{ color: "#fcd34d", fontSize: 12, fontWeight: 600, textDecoration: "none" }}
+                          >
+                            Review pending approvals
+                          </Link>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   <div style={{ fontSize: "13px", fontWeight: 600, color: color.text, marginBottom: "12px" }}>
                     Comments ({comments.length})
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
                     {comments.length === 0 ? (
                       <div style={{ padding: "16px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
-                        No comments yet.
+                        {pendingLinkedApprovals.length > 0
+                          ? "Execution completed and is waiting on approval. Review the pending approvals to continue."
+                          : "No comments yet."}
                       </div>
                     ) : (
                       comments.map((c) => (

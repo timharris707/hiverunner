@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
@@ -6,8 +6,24 @@ import { execSync } from "child_process";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
+import { createCompany } from "@/lib/orchestration/company-service";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
-import { generateTaskKey } from "@/lib/orchestration/service/shared/queries";
+import { triggerTaskExecution } from "@/lib/orchestration/execution";
+import {
+  buildOpenClawRuntimeId,
+  ensureUniqueAgentRuntimeSlug,
+  resolveProvisionedOpenClawAgentId,
+} from "@/lib/orchestration/runtime-identifiers";
+import {
+  buildCanonicalCompanyPath,
+  buildCanonicalDashboardPath,
+} from "@/lib/orchestration/route-paths";
+import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { createTask } from "@/lib/orchestration/service/task";
+import {
+  ensureCompanyWorkspaceScaffold,
+  resolveCompanyAgentWorkspacePath,
+} from "@/lib/workspaces/company-paths";
 
 export const dynamic = "force-dynamic";
 
@@ -26,12 +42,17 @@ function slugify(s: string) {
     .slice(0, 48);
 }
 
-const PRIORITY_MAP: Record<string, string> = {
-  P0: "critical",
-  P1: "high",
-  P2: "medium",
-  P3: "low",
-};
+async function triggerImmediateHeartbeatRun(runId: string) {
+  try {
+    const { executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+    const result = await executeHeartbeatRun(runId);
+    if (result.status === "failed") {
+      console.warn("[create-full] immediate heartbeat execution failed:", result.error);
+    }
+  } catch (error) {
+    console.warn("[create-full] immediate heartbeat execution failed (non-fatal):", error);
+  }
+}
 
 /* ------------------------------------------------------------------ */
 /*  CEO file generators                                                */
@@ -221,34 +242,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Company slug "${companySlug}" already exists` }, { status: 409 });
     }
 
-    // ---------- 1. Create workspace directory ----------
-    const workspacePath = path.join(HOME, ".openclaw", "workspaces", companySlug);
-    fs.mkdirSync(path.join(workspacePath, "projects"), { recursive: true });
-    fs.mkdirSync(path.join(workspacePath, "memory"), { recursive: true });
-    fs.mkdirSync(path.join(workspacePath, "scripts"), { recursive: true });
+    // ---------- 1. Create company via canonical workspace contract ----------
+    const createdCompany = createCompany({
+      name: company.name.trim(),
+      slug: companySlug,
+      description: company.description?.trim() || "",
+      status: "active",
+    }).company;
+    const companyId = createdCompany.id;
+    const workspacePath = createdCompany.workspace.root;
+    ensureCompanyWorkspaceScaffold(workspacePath);
 
-    // ---------- 2. Create company in orchestration DB ----------
-    const companyId = randomUUID();
-
-    // Generate unique company code for canonical routing (e.g. /MER/dashboard)
-    const baseCompanyCode = (company.name.trim())
-      .replace(/[^a-zA-Z0-9]/g, "")
-      .slice(0, 3)
-      .toUpperCase() || "CMP";
-    let companyCode = baseCompanyCode;
-    let companyCodeIndex = 1;
-    while (db.prepare("SELECT 1 FROM companies WHERE company_code = ? LIMIT 1").get(companyCode)) {
-      companyCodeIndex += 1;
-      companyCode = `${baseCompanyCode}${companyCodeIndex}`;
-    }
-
-    db.prepare(
-      `INSERT INTO companies
-        (id, slug, company_code, name, description, status, workspace_root, workspace_source, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'active', ?, 'provisioned', ?, ?)`,
-    ).run(companyId, companySlug, companyCode, company.name.trim(), company.description?.trim() || "", workspacePath, now, now);
-
-    // ---------- 3. Create project ----------
+    // ---------- 2. Create project ----------
     // If the user provided a project, use it. Otherwise auto-create a
     // default "Operations" project so the first task always has a home.
     const effectiveProject = (project && project.name?.trim())
@@ -286,36 +291,36 @@ export async function POST(req: NextRequest) {
       now,
     );
 
-    // ---------- 4. Register CEO agent in OpenClaw ----------
+    // ---------- 3. Register CEO agent in OpenClaw ----------
     const ceoSlug = slugify(ceo.name.trim());
-    const ceoWorkspacePath = path.join(workspacePath, "agents", ceoSlug);
+    const ceoWorkspacePath = resolveCompanyAgentWorkspacePath(workspacePath, ceoSlug);
+    if (!ceoWorkspacePath) {
+      return NextResponse.json({ error: "Company workspace root is missing" }, { status: 500 });
+    }
     fs.mkdirSync(ceoWorkspacePath, { recursive: true });
     const model = ceo.model || "anthropic/claude-sonnet-4-6";
 
-    // Generate the orchestration agent ID first — it doubles as the
-    // immutable OpenClaw runtime identifier via the "mc-{uuid}" convention.
-    // This is rename-safe: renaming the company or agent display name has
-    // no effect on the runtime identity, and UUIDs cannot collide globally.
     const agentId = randomUUID();
-    const openclawRuntimeId = `mc-${agentId}`;
+    const agentRuntimeSlug = ensureUniqueAgentRuntimeSlug(db, companyId, ceo.name.trim());
+    const openclawRuntimeId = buildOpenClawRuntimeId({
+      db,
+      companyId,
+      companyRuntimeSlug: createdCompany.runtimeSlug,
+      agentId,
+      agentRuntimeSlug,
+    });
     let openclawAgentId: string | null = null;
 
     try {
       const cmd = `openclaw agents add ${openclawRuntimeId} --workspace "${ceoWorkspacePath}" --model "${model}" --non-interactive --json`;
       const output = execSync(cmd, { encoding: "utf-8", timeout: 60000 });
-      try {
-        const parsed = JSON.parse(output);
-        openclawAgentId = parsed.agentId || parsed.id || parsed.agent_id || null;
-      } catch {
-        const match = output.match(/[0-9a-f]{8,}/i);
-        if (match) openclawAgentId = match[0];
-      }
+      openclawAgentId = resolveProvisionedOpenClawAgentId(output, openclawRuntimeId);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[create-full] openclaw agents add failed for "${openclawRuntimeId}": ${msg}`);
     }
 
-    // ---------- 5. Create agent in orchestration DB ----------
+    // ---------- 4. Create agent in orchestration DB ----------
     const ceoPersonality = `CEO of ${company.name.trim()}. ${company.description?.trim() || ""}`.trim();
     const ceoAvatarUrl = generateAgentAvatarDataUrl({
       name: ceo.name.trim(),
@@ -326,14 +331,15 @@ export async function POST(req: NextRequest) {
     });
     db.prepare(
       `INSERT INTO agents
-        (id, company_id, project_id, name, slug, emoji, role, personality, avatar_url, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'CEO', ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
+        (id, company_id, project_id, name, slug, runtime_slug, emoji, role, personality, avatar_url, model, status, openclaw_agent_id, skills_json, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'CEO', ?, ?, ?, 'idle', ?, '[]', ?, ?)`,
     ).run(
       agentId,
       companyId,
       projectId,
       ceo.name.trim(),
       ceoSlug,
+      agentRuntimeSlug,
       "\u{1F3AF}",
       ceoPersonality,
       ceoAvatarUrl,
@@ -343,7 +349,7 @@ export async function POST(req: NextRequest) {
       now,
     );
 
-    // ---------- 6. Generate CEO instruction files ----------
+    // ---------- 5. Generate CEO instruction files ----------
     const agentDir = ceoWorkspacePath;
 
     const companyDesc = company.description?.trim() || "";
@@ -369,7 +375,7 @@ export async function POST(req: NextRequest) {
       generateHeartbeatMd(companyDesc),
     );
 
-    // ---------- 7. Create workspace-level files ----------
+    // ---------- 6. Create workspace-level files ----------
     fs.writeFileSync(
       path.join(workspacePath, "AGENTS.md"),
       generateWorkspaceAgentsMd(company.name.trim(), companyDesc, ceo.name.trim()),
@@ -384,74 +390,68 @@ export async function POST(req: NextRequest) {
     );
     fs.chmodSync(mcToolTarget, "755");
 
-    // ---------- 8. Create first task ----------
-    const taskId = randomUUID();
-    const dbPriority = PRIORITY_MAP[task.priority] || "high";
-    const { taskNumber, taskKey } = generateTaskKey(db, projectId);
-    db.prepare(
-      `INSERT INTO tasks
-        (id, project_id, task_key, task_number, title, description, priority, type, status, assignee_agent_id, assigned_at, created_by, execution_mode, labels_json, depends_on_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'directive', 'backlog', ?, ?, 'mission-control', 'manual', '[]', '[]', ?, ?)`,
-    ).run(
-      taskId,
+    // ---------- 7. Create and start first task ----------
+    const createdTask = createTask({
       projectId,
-      taskKey,
-      taskNumber,
-      task.title.trim(),
-      task.description?.trim() || "",
-      dbPriority,
-      agentId,
-      now,
-      now,
-      now,
-    );
+      title: task.title.trim(),
+      description: task.description?.trim() || "",
+      priority: task.priority || "P1",
+      type: "directive",
+      status: "in-progress",
+      assignee: agentId,
+      labels: [],
+      createdBy: "mission-control",
+    });
+    const taskId = createdTask.task.id;
+    const taskKey = createdTask.task.key;
+    if (!taskKey) {
+      throw new Error("Initial company task was created without a task key.");
+    }
 
-    // ---------- 9. Refresh edge route map cache ----------
+    // ---------- 8. Refresh edge route map cache ----------
     refreshEdgeRouteMapCache();
 
-    // ---------- 9b. Wake up CEO to begin executing first task ----------
-    // Insert wakeup + heartbeat-run records directly (avoids self-fetch
-    // failures in production mode and circular import from engine.ts).
-    try {
-      const wakeupId = randomUUID();
-      const runId = randomUUID();
-      db.prepare(
-        `INSERT INTO agent_wakeup_requests
-           (id, agent_id, company_id, source, reason, payload_json, status, run_id, requested_at, created_at, updated_at)
-         VALUES (?, ?, ?, 'api', 'Initial CEO wakeup after company creation', '{}', 'queued', ?, ?, ?, ?)`
-      ).run(wakeupId, agentId, companyId, runId, now, now, now);
-      db.prepare(
-        `INSERT INTO heartbeat_runs
-           (id, agent_id, company_id, invocation_source, status, wakeup_request_id, context_snapshot_json, created_at, updated_at)
-         VALUES (?, ?, ?, 'kickoff', 'queued', ?, '{}', ?, ?)`
-      ).run(runId, agentId, companyId, wakeupId, now, now);
-    } catch (wakeupError) {
-      console.warn("[create-full] CEO wakeup insert failed (non-fatal):", wakeupError);
+    // ---------- 8b. Kick off execution for the first task ----------
+    const initialExecution = await triggerTaskExecution({
+      taskId,
+      idempotencyKey: `company-launch:${companyId}:initial-task`,
+      reason: "company_creation_kickoff",
+    });
+
+    // Claim the queued run immediately so dashboard-first landing feels alive.
+    if (
+      initialExecution.status === "queued" &&
+      initialExecution.runId &&
+      canAutonomouslyExecuteCompany(companyId)
+    ) {
+      after(async () => {
+        await triggerImmediateHeartbeatRun(initialExecution.runId!);
+      });
     }
 
-    // ---------- 9c. Dev-only: fire one-shot tick to process the CEO wakeup ----------
-    // In production, the background engine tick loop handles queued runs.
-    // In dev, the tick loop is disabled — fire a single tick so the CEO
-    // starts executing immediately after wizard completion.
-    if (process.env.NODE_ENV !== "production") {
-      setTimeout(async () => {
-        try {
-          const { tick } = await import("@/lib/orchestration/engine/engine");
-          await tick();
-        } catch (e) {
-          console.warn("[create-full] dev one-shot tick failed (non-fatal):", e);
-        }
-      }, 1000);
-    }
+    // ---------- 9. Return success ----------
+    const dashboardHref = buildCanonicalDashboardPath(createdCompany.code);
+    const taskHref = buildCanonicalCompanyPath(
+      createdCompany.code,
+      `/tasks/${encodeURIComponent(taskKey)}`,
+    );
 
-    // ---------- 10. Return success ----------
     return NextResponse.json(
       {
         success: true,
-        company: { id: companyId, slug: companySlug, code: companyCode, name: company.name.trim() },
+        company: {
+          id: companyId,
+          slug: createdCompany.slug,
+          code: createdCompany.code,
+          name: company.name.trim(),
+        },
         project: { id: projectId, slug: projectSlug, name: effectiveProject.name },
         agent: { id: agentId, name: ceo.name.trim(), openclawAgentId },
-        task: { id: taskId, title: task.title.trim() },
+        task: { id: taskId, key: taskKey, title: task.title.trim(), href: taskHref },
+        taskKey,
+        taskHref,
+        dashboardHref,
+        initialExecution,
         workspace: workspacePath,
         agentDir,
         filesCreated: [

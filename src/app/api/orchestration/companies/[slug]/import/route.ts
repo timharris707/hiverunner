@@ -3,6 +3,10 @@ import { randomUUID } from "crypto";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { handleRouteError, errorResponse } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import {
+  normalizeAgentRuntimeSlug,
+  normalizeCompanyRuntimeSlug,
+} from "@/lib/orchestration/runtime-identifiers";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +76,10 @@ export async function POST(
           if (strategy === "overwrite") {
             const updates: string[] = [];
             const vals: unknown[] = [];
+            const packageCompanyId =
+              typeof pkg.company.id === "string" && pkg.company.id.trim()
+                ? pkg.company.id.trim()
+                : null;
 
             if (pkg.company.description != null) {
               updates.push("description = ?");
@@ -91,12 +99,12 @@ export async function POST(
                 vals.push(JSON.stringify(pkg.company.theme.keywords));
               }
             }
-            if (pkg.company.settings != null) {
-              updates.push("settings_json = ?");
-              vals.push(JSON.stringify(pkg.company.settings));
-            }
+              if (pkg.company.runtimeSlug != null && packageCompanyId === company.id) {
+                updates.push("runtime_slug = COALESCE(runtime_slug, ?)");
+                vals.push(normalizeCompanyRuntimeSlug(String(pkg.company.runtimeSlug)));
+              }
 
-            if (updates.length > 0) {
+              if (updates.length > 0) {
               updates.push("updated_at = ?");
               vals.push(now);
               vals.push(company.id);
@@ -171,13 +179,18 @@ export async function POST(
               if (strategy === "overwrite") {
                 db.prepare(
                   `UPDATE agents SET name = ?, emoji = ?, role = ?, personality = ?,
-                   model = ?, adapter_type = ?, adapter_config_json = ?,
+                   model = ?, runtime_slug = COALESCE(?, runtime_slug),
+                   openclaw_agent_id = COALESCE(?, openclaw_agent_id),
+                   adapter_type = ?, adapter_config_json = ?,
                    runtime_config_json = ?, permissions_json = ?,
                    capabilities = ?, instructions_mode = ?,
                    skills_json = ?, updated_at = ? WHERE id = ?`
                 ).run(
                   a.name, a.emoji ?? "", a.role, a.personality ?? "",
-                  a.model ?? null, a.adapterType ?? null,
+                  a.model ?? null,
+                  a.runtimeSlug ? normalizeAgentRuntimeSlug(String(a.runtimeSlug)) : null,
+                  a.openclawAgentId ? String(a.openclawAgentId) : null,
+                  a.adapterType ?? null,
                   JSON.stringify(a.adapterConfig ?? {}),
                   JSON.stringify(a.runtimeConfig ?? {}),
                   JSON.stringify(a.permissions ?? {}),
@@ -191,16 +204,19 @@ export async function POST(
             } else {
               const agentId = a.id || randomUUID();
               db.prepare(
-                `INSERT INTO agents (id, company_id, project_id, slug, name, emoji, role, personality,
-                 status, model, adapter_type, adapter_config_json, runtime_config_json,
+                `INSERT INTO agents (id, company_id, project_id, slug, runtime_slug, name, emoji, role, personality,
+                 status, model, openclaw_agent_id, adapter_type, adapter_config_json, runtime_config_json,
                  permissions_json, capabilities, instructions_mode, skills_json,
                  created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
                 agentId, company.id, a.projectId ?? null,
                 a.slug ?? a.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+                a.runtimeSlug
+                  ? normalizeAgentRuntimeSlug(String(a.runtimeSlug))
+                  : normalizeAgentRuntimeSlug(String(a.slug ?? a.name ?? "agent")),
                 a.name, a.emoji ?? "", a.role, a.personality ?? "",
-                "idle", a.model ?? null, a.adapterType ?? null,
+                "idle", a.model ?? null, a.openclawAgentId ? String(a.openclawAgentId) : null, a.adapterType ?? null,
                 JSON.stringify(a.adapterConfig ?? {}),
                 JSON.stringify(a.runtimeConfig ?? {}),
                 JSON.stringify(a.permissions ?? {}),

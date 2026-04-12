@@ -10,6 +10,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 
+import { resolveMissionControlAppRoot } from '@/lib/runtime-paths';
+
 const execAsync = promisify(exec);
 
 // Allowlist of allowed base commands (first word of command)
@@ -101,10 +103,12 @@ export async function POST(request: NextRequest) {
 
     const start = Date.now();
     const { stdout, stderr } = await execAsync(command, {
+      cwd: resolveMissionControlAppRoot(),
       timeout: 15000,
       maxBuffer: 1024 * 1024,
       env: {
         ...process.env,
+        MC_APP_ROOT: process.env.MC_APP_ROOT || resolveMissionControlAppRoot(),
         PATH: `/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${process.env.PATH || ''}`,
       },
     });

@@ -13,15 +13,24 @@ import { createProject } from "@/lib/orchestration/service";
 let passed = 0;
 let failed = 0;
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function errorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? error.code : undefined;
+}
+
 function test(name: string, fn: () => void) {
   try {
     fn();
     passed += 1;
     console.log(`  ✓ ${name}`);
-  } catch (error: any) {
+  } catch (error: unknown) {
     failed += 1;
     console.error(`  ✗ ${name}`);
-    console.error(`    ${error?.message || String(error)}`);
+    console.error(`    ${errorMessage(error)}`);
   }
 }
 
@@ -42,6 +51,8 @@ const company = createCompany({
 
 const originalSlug = company.slug;
 const originalCode = company.code;
+const originalWorkspaceSlug = company.workspaceSlug;
+const originalRuntimeSlug = company.runtimeSlug;
 
 const project = createProject({
   companyId: company.id,
@@ -59,6 +70,8 @@ test("name-only change: company is retrievable by original slug", () => {
   const { company: fetched } = getCompany(originalSlug);
   assert.strictEqual(fetched.name, `Rename Labs Rebranded ${SUFFIX}`);
   assert.strictEqual(fetched.slug, originalSlug);
+  assert.strictEqual(fetched.workspaceSlug, originalWorkspaceSlug);
+  assert.strictEqual(fetched.runtimeSlug, originalRuntimeSlug);
   assert.strictEqual(fetched.code, originalCode);
 });
 
@@ -99,12 +112,16 @@ test("slug change: update succeeds", () => {
     slug: newSlug,
   });
   assert.strictEqual(updated.slug, newSlug);
+  assert.strictEqual(updated.workspaceSlug, originalWorkspaceSlug);
+  assert.strictEqual(updated.runtimeSlug, originalRuntimeSlug);
   assert.strictEqual(updated.code, originalCode);
 });
 
 test("slug change: company is retrievable by NEW slug", () => {
   const { company: fetched } = getCompany(newSlug);
   assert.strictEqual(fetched.slug, newSlug);
+  assert.strictEqual(fetched.workspaceSlug, originalWorkspaceSlug);
+  assert.strictEqual(fetched.runtimeSlug, originalRuntimeSlug);
   assert.strictEqual(fetched.code, originalCode);
 });
 
@@ -112,6 +129,8 @@ test("slug change: company is STILL retrievable by OLD slug via alias", () => {
   const { company: fetched } = getCompany(originalSlug);
   // getCompany resolves via alias, but returns the canonical (current) slug.
   assert.strictEqual(fetched.slug, newSlug);
+  assert.strictEqual(fetched.workspaceSlug, originalWorkspaceSlug);
+  assert.strictEqual(fetched.runtimeSlug, originalRuntimeSlug);
   assert.strictEqual(fetched.code, originalCode);
 });
 
@@ -183,6 +202,9 @@ test("second slug change: company fetchable by any historical slug", () => {
   assert.strictEqual(c1.company.slug, thirdSlug);
   assert.strictEqual(c2.company.slug, thirdSlug);
   assert.strictEqual(c3.company.slug, thirdSlug);
+  assert.strictEqual(c1.company.runtimeSlug, originalRuntimeSlug);
+  assert.strictEqual(c2.company.runtimeSlug, originalRuntimeSlug);
+  assert.strictEqual(c3.company.runtimeSlug, originalRuntimeSlug);
 });
 
 // ---------- 4. Slug collision protection ----------
@@ -197,10 +219,11 @@ test("slug change: rejects slug already used by another company", () => {
   try {
     updateCompany({ companySlug: thirdSlug, slug: other.slug });
     assert.fail("Expected slug collision error");
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = errorMessage(error);
     assert.ok(
-      error.message?.includes("slug") || error.code === "company_slug_taken",
-      `Unexpected error: ${error.message}`,
+      message.includes("slug") || errorCode(error) === "company_slug_taken",
+      `Unexpected error: ${message}`,
     );
   }
 });
@@ -217,10 +240,11 @@ test("slug change: rejects slug that collides with an existing alias for another
   try {
     updateCompany({ companySlug: other2.slug, slug: originalSlug });
     assert.fail("Expected alias collision error");
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const message = errorMessage(error);
     assert.ok(
-      error.message?.includes("slug") || error.code === "company_slug_taken",
-      `Unexpected error: ${error.message}`,
+      message.includes("slug") || errorCode(error) === "company_slug_taken",
+      `Unexpected error: ${message}`,
     );
   }
 });

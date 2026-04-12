@@ -39,6 +39,23 @@ export function buildCanonicalCompanyPath(companyCode: string, subpath = ""): st
   return `/${encodeURIComponent(sanitizeCodeSegment(companyCode))}${subpath}`;
 }
 
+export function buildApprovalDetailPath(input: {
+  companyCode?: string | null;
+  companySlug: string;
+  approvalId: string;
+  linkedTaskKey?: string | null;
+}): string {
+  const approvalSubpath = input.linkedTaskKey
+    ? `/approvals/task/${encodeURIComponent(input.linkedTaskKey)}`
+    : `/approvals/${encodeURIComponent(input.approvalId)}`;
+
+  if (input.companyCode?.trim()) {
+    return buildCanonicalCompanyPath(input.companyCode, approvalSubpath);
+  }
+
+  return buildCompanyPath(input.companySlug, approvalSubpath);
+}
+
 export function buildCanonicalDashboardPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/dashboard");
 }

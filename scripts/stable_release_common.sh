@@ -5,7 +5,11 @@ set -eu
 # Scripts may run from launchd or nohup with minimal PATH.
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
 STABLE_DIR="$APP_DIR/.stable"
 LOG_DIR="$APP_DIR/data"
 RELEASES_DIR="$LOG_DIR/releases/stable"

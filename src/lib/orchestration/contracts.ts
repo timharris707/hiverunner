@@ -68,6 +68,13 @@ export const listCompanyExecutionSettingsQuerySchema = z.object({
   includeNonProduction: queryBooleanSchema.optional().default(false),
 });
 
+export const updateDevExecutionTestModeSchema = z.object({
+  enabled: z.boolean(),
+  durationMinutes: z.number().int().min(1).max(120).optional(),
+  actor: z.string().trim().min(1).max(120).optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
 export const listTasksQuerySchema = z.object({
   company: z.string().trim().min(1).optional(),
   projectId: z.string().min(1).optional(),

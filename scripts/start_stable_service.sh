@@ -2,9 +2,13 @@
 set -eu
 
 # ─── Stable lane: runs a production build on port 3001 ───
-APP_DIR="/Users/timharris/.openclaw/workspace/projects/mission-control-app"
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
 STABLE_DIR="$APP_DIR/.stable"
-LOG_DIR="$APP_DIR/data"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 PID_FILE="$LOG_DIR/mission-control-stable.pid"
 PORT="${PORT:-3001}"
 DOMAIN="gui/$(id -u)"

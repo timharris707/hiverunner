@@ -61,7 +61,7 @@ writeFileSync(fakeClaudeBinPath, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
 chmodSync(fakeClaudeBinPath, 0o755);
 
 const fullEnv: Record<string, string | undefined> = {
-  OPENCLAW_WORKSPACE_ROOT: "/Users/test/.openclaw/workspace",
+  OPENCLAW_DIR: "/Users/test/.openclaw",
   PAPERCLIP_API_URL: "https://paperclip.example.com",
   PAPERCLIP_API_KEY: "pk-test-key",
   PAPERCLIP_COMPANY_ID: "company-123",
@@ -71,7 +71,7 @@ const fullEnv: Record<string, string | undefined> = {
 };
 
 const openclawOnlyEnv: Record<string, string | undefined> = {
-  OPENCLAW_WORKSPACE_ROOT: "/Users/test/.openclaw/workspace",
+  OPENCLAW_DIR: "/Users/test/.openclaw",
   PATH: fakeClaudeBinDir,
   HOME: "/Users/test",
 };

@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
-import path from "path";
 
 import { handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  resolveAgentWorkspacePathWithLegacyFallback,
+  resolveCompanyProjectWorkspacePath,
+} from "@/lib/workspaces/company-paths";
 
 export const dynamic = "force-dynamic";
-
-const OPENCLAW_DIR = process.env.OPENCLAW_DIR || "/Users/timharris/.openclaw";
 
 type AgentWorkspaceRow = {
   id: string;
@@ -73,24 +74,10 @@ export async function GET(
     // Check if the project has a subdirectory in the workspace.
     // There is no persisted project workspace path in the projects table,
     // so the path is inferred from naming convention and then filesystem-checked.
-    let projectDir: string | null = null;
-    let projectDirExists = false;
-    if (companyWorkspaceRoot && companyRootExists) {
-      const candidatePaths = [
-        path.join(companyWorkspaceRoot, "projects", project.slug),
-        path.join(companyWorkspaceRoot, "projects", project.name.toLowerCase().replace(/\s+/g, "-")),
-      ];
-      for (const candidate of candidatePaths) {
-        if (fs.existsSync(candidate)) {
-          projectDir = candidate;
-          projectDirExists = true;
-          break;
-        }
-      }
-      if (!projectDir) {
-        projectDir = candidatePaths[0];
-      }
-    }
+    const projectDirectory = resolveCompanyProjectWorkspacePath(companyWorkspaceRoot, {
+      slug: project.slug,
+      name: project.name,
+    });
 
     // Get agents assigned to this project
     const agents = db
@@ -103,17 +90,17 @@ export async function GET(
       )
       .all(project.id) as AgentWorkspaceRow[];
 
-    // Build agent workspace info.
-    // Agent workspace paths are convention-derived (~/.openclaw/workspace-{slug}),
-    // not persisted. The agents table has no workspace_path column, and
-    // adapter_config_json does not currently store workspace paths.
+    // Build agent workspace info. Company-scoped agents live under the
+    // company's workspace root. Legacy global workspaces are only a fallback.
     const agentWorkspaces = agents.map((agent) => {
-      const agentWorkspaceDir = path.join(OPENCLAW_DIR, `workspace-${agent.slug}`);
-      const exists = fs.existsSync(agentWorkspaceDir);
+      const agentWorkspace = resolveAgentWorkspacePathWithLegacyFallback(
+        companyWorkspaceRoot,
+        agent.slug,
+      );
 
       let hasIdentity = false;
-      if (exists) {
-        hasIdentity = fs.existsSync(path.join(agentWorkspaceDir, "IDENTITY.md"));
+      if (agentWorkspace.exists) {
+        hasIdentity = fs.existsSync(`${agentWorkspace.path}/IDENTITY.md`);
       }
 
       return {
@@ -122,11 +109,11 @@ export async function GET(
         agentSlug: agent.slug,
         agentRole: agent.role,
         agentStatus: agent.status,
-        workspacePath: agentWorkspaceDir,
-        exists,
+        workspacePath: agentWorkspace.path,
+        exists: agentWorkspace.exists,
         hasIdentity,
-        source: "convention" as const,
-        verified: exists,
+        source: agentWorkspace.source,
+        verified: agentWorkspace.exists,
       };
     });
 
@@ -167,10 +154,10 @@ export async function GET(
         source: "persisted" as const,
       },
       projectDirectory: {
-        path: projectDir,
-        exists: projectDirExists,
+        path: projectDirectory.path,
+        exists: projectDirectory.exists,
         source: "convention" as const,
-        verified: projectDirExists,
+        verified: projectDirectory.exists,
       },
       agentWorkspaces,
       recentExecutionContext: recentRuns.map((run) => ({

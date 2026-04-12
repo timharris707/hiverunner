@@ -207,7 +207,7 @@ export default function CompanyTeamPage() {
                         </div>
                         <p className="mt-1 text-sm text-slate-300">{agent.role}</p>
                       </div>
-                      <StatusPill status={agent.status} />
+                      <StatusPill status={agent.status} hireApprovalStatus={agent.hireApprovalStatus} />
                     </div>
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       <InfoRow icon={<BriefcaseBusiness className="h-4 w-4" />} label="Project" value={agent.projectName} />
@@ -254,7 +254,27 @@ function enrichAgent(
   };
 }
 
-function StatusPill({ status }: { status: OrchestrationAgent["status"] }) {
+function StatusPill({
+  status,
+  hireApprovalStatus,
+}: {
+  status: OrchestrationAgent["status"];
+  hireApprovalStatus?: OrchestrationAgent["hireApprovalStatus"];
+}) {
+  if (hireApprovalStatus === "pending" || hireApprovalStatus === "revision_requested") {
+    return (
+      <span
+        className="rounded-full px-2 py-1 text-[11px] font-medium"
+        style={{
+          color: "#fbbf24",
+          backgroundColor: "rgba(251,191,36,0.16)",
+        }}
+      >
+        Pending approval
+      </span>
+    );
+  }
+
   const tones: Record<OrchestrationAgent["status"], { color: string; bg: string; label: string }> = {
     working: { color: "#4ade80", bg: "rgba(74,222,128,0.16)", label: "Working" },
     idle: { color: "#d97706", bg: "rgba(217,119,6,0.16)", label: "Idle" },

@@ -1311,6 +1311,129 @@ const MIGRATIONS: Migration[] = [
       CREATE INDEX idx_projects_company_id ON projects(company_id);
     `,
   },
+  {
+    version: 41,
+    name: "companies_add_workspace_slug",
+    sql: `
+      ALTER TABLE companies ADD COLUMN workspace_slug TEXT;
+
+      UPDATE companies
+      SET workspace_slug = slug
+      WHERE workspace_slug IS NULL OR TRIM(workspace_slug) = '';
+    `,
+  },
+  {
+    version: 42,
+    name: "dev_execution_test_leases",
+    sql: `
+      CREATE TABLE IF NOT EXISTS dev_execution_test_leases (
+        company_id     TEXT PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+        enabled_at     TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        enabled_until  TEXT NOT NULL,
+        enabled_by     TEXT,
+        note           TEXT,
+        created_at     TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at     TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_dev_execution_test_leases_enabled_until
+        ON dev_execution_test_leases(enabled_until);
+    `,
+  },
+  {
+    version: 43,
+    name: "runtime_identity_slugs",
+    sql: `
+      ALTER TABLE companies ADD COLUMN runtime_slug TEXT;
+
+      UPDATE companies
+      SET runtime_slug = COALESCE(
+        NULLIF(TRIM(workspace_slug), ''),
+        NULLIF(TRIM(slug), ''),
+        'company-' || substr(lower(replace(id, '-', '')), 1, 8)
+      )
+      WHERE runtime_slug IS NULL OR TRIM(runtime_slug) = '';
+
+      WITH company_dupes AS (
+        SELECT
+          id,
+          runtime_slug,
+          substr(lower(replace(id, '-', '')), 1, 8) AS suffix,
+          row_number() OVER (
+            PARTITION BY runtime_slug
+            ORDER BY created_at ASC, id ASC
+          ) AS rn
+        FROM companies
+        WHERE runtime_slug IS NOT NULL AND TRIM(runtime_slug) != ''
+      )
+      UPDATE companies
+      SET runtime_slug = runtime_slug || '-' || (
+        SELECT suffix
+        FROM company_dupes
+        WHERE company_dupes.id = companies.id
+      )
+      WHERE id IN (
+        SELECT id
+        FROM company_dupes
+        WHERE rn > 1
+      );
+
+      CREATE UNIQUE INDEX idx_companies_runtime_slug
+        ON companies(runtime_slug);
+
+      ALTER TABLE agents ADD COLUMN runtime_slug TEXT;
+
+      UPDATE agents
+      SET runtime_slug = COALESCE(
+        NULLIF(TRIM(slug), ''),
+        NULLIF(
+          lower(
+            replace(
+              replace(
+                replace(trim(name), ' ', '-'),
+                '_',
+                '-'
+              ),
+              '.',
+              '-'
+            )
+          ),
+          ''
+        ),
+        'agent-' || substr(lower(replace(id, '-', '')), 1, 8)
+      )
+      WHERE runtime_slug IS NULL OR TRIM(runtime_slug) = '';
+
+      WITH agent_dupes AS (
+        SELECT
+          id,
+          company_id,
+          runtime_slug,
+          substr(lower(replace(id, '-', '')), 1, 8) AS suffix,
+          row_number() OVER (
+            PARTITION BY company_id, runtime_slug
+            ORDER BY created_at ASC, id ASC
+          ) AS rn
+        FROM agents
+        WHERE runtime_slug IS NOT NULL AND TRIM(runtime_slug) != ''
+      )
+      UPDATE agents
+      SET runtime_slug = runtime_slug || '-' || (
+        SELECT suffix
+        FROM agent_dupes
+        WHERE agent_dupes.id = agents.id
+      )
+      WHERE id IN (
+        SELECT id
+        FROM agent_dupes
+        WHERE rn > 1
+      );
+
+      CREATE UNIQUE INDEX idx_agents_company_runtime_slug
+        ON agents(company_id, runtime_slug)
+        WHERE runtime_slug IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

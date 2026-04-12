@@ -1,11 +1,21 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
-import { kickoffCompany, tick } from "@/lib/orchestration/engine/engine";
+import { executeHeartbeatRun, kickoffCompany } from "@/lib/orchestration/engine/engine";
+import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 
 export const dynamic = "force-dynamic";
 
-const dev = process.env.NODE_ENV !== "production";
+async function triggerImmediateHeartbeatRun(runId: string) {
+  try {
+    const result = await executeHeartbeatRun(runId);
+    if (result.status === "failed") {
+      console.warn("[kickoff] immediate heartbeat execution failed:", result.error);
+    }
+  } catch (error) {
+    console.warn("[kickoff] immediate heartbeat execution failed (non-fatal):", error);
+  }
+}
 
 export async function POST(
   request: NextRequest,
@@ -33,16 +43,14 @@ export async function POST(
       return errorResponse(422, "no_ceo_agent", result.message);
     }
 
-    // Dev-only: fire a one-shot tick to process the queued heartbeat run
-    // immediately. In production, the background engine tick loop (server.js)
-    // handles this. This is gated to dev so stable keeps its normal executor
-    // path with no hidden duplicate execution.
-    if (dev && (result.status === "queued" || result.status === "already_active")) {
-      setTimeout(() => {
-        tick().catch((e) =>
-          console.warn("[kickoff] dev one-shot tick failed (non-fatal):", e)
-        );
-      }, 500);
+    if (
+      result.status === "queued" &&
+      result.heartbeatRunId &&
+      canAutonomouslyExecuteCompany(company.id)
+    ) {
+      after(async () => {
+        await triggerImmediateHeartbeatRun(result.heartbeatRunId);
+      });
     }
 
     return NextResponse.json(result, { status: result.status === "queued" ? 202 : 200 });

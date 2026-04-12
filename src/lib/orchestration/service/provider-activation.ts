@@ -129,10 +129,10 @@ export function checkProviderEnvConfigured(
   if (providerId === "openclaw-heartbeat" || providerId === "openclaw") {
     // OpenClaw needs a gateway URL (token is optional — falls back to config file)
     const missing: string[] = [];
-    // Gateway URL has a default (ws://127.0.0.1:18789), so it's technically always "configured"
-    // But we check if the workspace root exists as a proxy for real OpenClaw setup
-    if (!env.OPENCLAW_WORKSPACE_ROOT && !env.HOME) {
-      missing.push("OPENCLAW_WORKSPACE_ROOT");
+    // Gateway URL has a default (ws://127.0.0.1:18789), so it's technically always "configured".
+    // We only require enough environment to resolve the OpenClaw home/config location.
+    if (!env.OPENCLAW_DIR && !env.HOME) {
+      missing.push("OPENCLAW_DIR");
     }
     return { configured: missing.length === 0, missing };
   }

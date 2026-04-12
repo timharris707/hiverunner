@@ -1,7 +1,11 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
-const DB_PATH = "/Users/timharris/.openclaw/workspace/projects/mission-control-app/data/orchestration.db";
+import { resolveMissionControlDataDir } from "../src/lib/runtime-paths";
+
+const DB_PATH = process.env.ORCHESTRATION_DB_PATH
+  ? process.env.ORCHESTRATION_DB_PATH
+  : `${resolveMissionControlDataDir(process.env)}/orchestration.db`;
 const db = new Database(DB_PATH);
 
 // Check if perf-audit project already exists
