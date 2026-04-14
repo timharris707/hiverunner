@@ -14,16 +14,19 @@ import { createHash, randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
 import type Database from "better-sqlite3";
+import { fileURLToPath } from "url";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
 
 /* ── Constants ── */
 
 const NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
-const ONBOARDING_DIR = path.join(__dirname, "onboarding-assets");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const ONBOARDING_DIR = path.join(MODULE_DIR, "onboarding-assets");
 const OPENCLAW_HOME = process.env.OPENCLAW_HOME?.trim() || path.join(process.env.HOME || "/Users/timharris", ".openclaw");
 
 /* ── Types ── */
@@ -860,11 +863,41 @@ export async function executeHeartbeatRun(
       telemetry.importDurationMs = importDurationMs;
       telemetry.totalDurationMs = Date.now() - startTime;
 
-      // Store action results + usage telemetry
       const now = new Date().toISOString();
+      if (taskKey !== "__heartbeat__" && isInsufficientProgress(taskKey, actionResults, db)) {
+        actionResults.errors.push("Insufficient progress: passive report without task-side action on assigned unfinished task");
+        emitRunEvent(runId, agent.id, "action_error", "Marked insufficient progress: no task-side action emitted", db);
+        db.prepare(
+          "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'review'"
+        ).run(now, taskKey);
+      }
+
+      // Store action results + usage telemetry after insufficiency classification
       db.prepare(
         `UPDATE heartbeat_runs SET result_json = ?, usage_json = ?, updated_at = ? WHERE id = ?`
       ).run(JSON.stringify(actionResults), JSON.stringify(telemetry), now, runId);
+
+      if (taskKey !== "__heartbeat__") {
+        const continuation = decideTaskContinuation(taskKey, actionResults, db);
+        if (continuation.shouldContinue) {
+          enqueueWakeup(
+            {
+              agentId: agent.id,
+              companyId: agent.company_id,
+              source: "api",
+              reason: continuation.reason ?? "task_not_finished",
+              payload: {
+                taskId: taskKey,
+                taskStatus: db.prepare("SELECT status FROM tasks WHERE id = ? LIMIT 1").get(taskKey)?.status ?? null,
+                continuedFromRunId: runId,
+              },
+              idempotencyKey: `continuation:${runId}`,
+            },
+            db,
+          );
+          emitRunEvent(runId, agent.id, "action_executed", `Queued continuation wake: ${continuation.reason ?? "task_not_finished"}`, db);
+        }
+      }
     } catch (importError) {
       const msg = importError instanceof Error ? importError.message : String(importError);
       console.error("[engine] output import failed:", msg);
@@ -892,11 +925,34 @@ export async function executeHeartbeatRun(
     `UPDATE agents SET last_heartbeat = ?, status = 'idle', updated_at = ? WHERE id = ?`
   ).run(new Date().toISOString(), new Date().toISOString(), agent.id);
 
+  let finalStatus: HeartbeatRunStatus = result.error ? "failed" : "succeeded";
+  let finalError: string | null = result.error ?? null;
+
+  if (!result.error && taskKey !== "__heartbeat__") {
+    try {
+      const stored = db.prepare("SELECT result_json FROM heartbeat_runs WHERE id = ? LIMIT 1").get(runId) as { result_json: string | null } | undefined;
+      const parsed = stored?.result_json ? JSON.parse(stored.result_json) as Partial<ActionResults> : null;
+      if (parsed && isInsufficientProgress(taskKey, {
+        messagesImported: Number(parsed.messagesImported ?? 0),
+        actionsFound: Number(parsed.actionsFound ?? 0),
+        actionsExecuted: Number(parsed.actionsExecuted ?? 0),
+        actionsSkippedDedup: Number(parsed.actionsSkippedDedup ?? 0),
+        tasksCreated: Array.isArray(parsed.tasksCreated) ? parsed.tasksCreated as string[] : [],
+        approvalsCreated: Array.isArray(parsed.approvalsCreated) ? parsed.approvalsCreated as string[] : [],
+        reportsImported: Number(parsed.reportsImported ?? 0),
+        errors: Array.isArray(parsed.errors) ? parsed.errors as string[] : [],
+      }, db)) {
+        finalStatus = "failed";
+        finalError = "insufficient_progress_passive_report_only";
+      }
+    } catch {}
+  }
+
   return finishRun(
     runId,
     run,
-    result.error ? "failed" : "succeeded",
-    result.error ?? null,
+    finalStatus,
+    finalError,
     startTime,
     db,
     result.sessionId,
@@ -1460,6 +1516,31 @@ type ActionResults = {
   approvalsCreated: string[];
   reportsImported: number;
   errors: string[];
+};
+
+function isInsufficientProgress(
+  taskId: string,
+  actionResults: ActionResults,
+  db: Database.Database,
+): boolean {
+  const task = db
+    .prepare("SELECT status, assignee_agent_id FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+    .get(taskId) as { status: string; assignee_agent_id: string | null } | undefined;
+
+  if (!task?.assignee_agent_id) return false;
+  if (["done", "blocked", "review"].includes(task.status)) return false;
+
+  // A persisted report/comment on the task is already concrete task-side evidence.
+  // Do not fail runs that leave definitive proof on the task even when no separate
+  // mc-action block was emitted.
+  if (actionResults.reportsImported > 0) return false;
+
+  return actionResults.actionsExecuted === 0;
+}
+
+type ContinuationDecision = {
+  shouldContinue: boolean;
+  reason?: string;
 };
 
 type SessionGetMessage = {
@@ -2420,6 +2501,33 @@ function executeAddComment(
   return true;
 }
 
+function decideTaskContinuation(
+  taskId: string,
+  actionResults: ActionResults,
+  db: Database.Database,
+): ContinuationDecision {
+  const task = db
+    .prepare("SELECT id, status, assignee_agent_id FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+    .get(taskId) as { id: string; status: string; assignee_agent_id: string | null } | undefined;
+
+  if (!task || !task.assignee_agent_id) return { shouldContinue: false };
+  if (task.status === "done" || task.status === "blocked") return { shouldContinue: false };
+
+  if (task.status === "on_deck") return { shouldContinue: true, reason: "continuation_on_deck_assignee" };
+  if (task.status === "review") return { shouldContinue: true, reason: "continuation_review_assignee" };
+
+  if (task.status === "in_progress") {
+    if (actionResults.actionsExecuted > 0) {
+      return { shouldContinue: true, reason: "continuation_in_progress_after_actions" };
+    }
+    if (actionResults.reportsImported > 0 && actionResults.actionsExecuted === 0) {
+      return { shouldContinue: true, reason: "continuation_passive_report_only" };
+    }
+  }
+
+  return { shouldContinue: false };
+}
+
 function moveTaskToReviewIfAwaitingApproval(
   taskId: string,
   agentId: string,
@@ -2514,6 +2622,69 @@ function finishRun(
              error_message = ?, updated_at = ?
          WHERE id = ? AND status IN ('pending', 'running')`
       ).run(execStatus, now, durationMs, error, now, executionRunId);
+      const executionRunRow = db
+        .prepare(
+          `SELECT task_id
+           FROM execution_runs
+           WHERE id = ?
+           LIMIT 1`
+        )
+        .get(executionRunId) as { task_id: string | null } | undefined;
+      if (executionRunRow?.task_id) {
+        reconcileTerminalOpenClawTaskState(executionRunRow.task_id, db);
+
+        const postTask = db
+          .prepare("SELECT id, status, assignee_agent_id, project_id FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1")
+          .get(executionRunRow.task_id) as { id: string; status: string; assignee_agent_id: string | null; project_id: string } | undefined;
+        const projectRow = postTask
+          ? db.prepare("SELECT company_id FROM projects WHERE id = ? LIMIT 1").get(postTask.project_id) as { company_id: string | null } | undefined
+          : undefined;
+
+        if (postTask?.assignee_agent_id && projectRow?.company_id) {
+          let continuationStatus = postTask.status;
+
+          // Hard enforcement: assigned work must not silently park in review.
+          // If the run finished but the task is still review/on_deck/in_progress,
+          // push it back to active work unless it is truly terminal.
+          if (postTask.status === "review") {
+            const movedBack = db.prepare(
+              "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'review'"
+            ).run(now, postTask.id);
+            if (movedBack.changes > 0) {
+              db.prepare(
+                `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+                 VALUES (?, ?, ?, ?, 'task.status_changed', 'review', 'in_progress', ?, ?)`
+              ).run(
+                randomUUID(),
+                postTask.project_id,
+                postTask.id,
+                postTask.assignee_agent_id,
+                JSON.stringify({ source: 'engine_finish_run_enforcement', executionRunId, heartbeatRunId: runId }),
+                now,
+              );
+              continuationStatus = 'in_progress';
+            }
+          }
+
+          if (["in_progress", "review", "on_deck"].includes(continuationStatus)) {
+            enqueueWakeup(
+              {
+                agentId: postTask.assignee_agent_id,
+                companyId: projectRow.company_id,
+                source: "api",
+                reason: `finish_run_continue_${continuationStatus}`,
+                payload: {
+                  taskId: postTask.id,
+                  taskStatus: continuationStatus,
+                  continuedFromExecutionRunId: executionRunId,
+                },
+                idempotencyKey: `finish-run-continuation:${executionRunId}:${continuationStatus}`,
+              },
+              db,
+            );
+          }
+        }
+      }
     } catch {
       // Non-fatal: execution_run bridge update failed
     }
@@ -2544,6 +2715,11 @@ function resolveTaskKey(
   if (issueId) return issueId;
 
   const taskKey = contextSnapshot.taskKey as string | undefined;
+  // WARNING: despite the name, this path expects the canonical tasks.id UUID.
+  // Passing a human task key like "VIR-5" will later be bridged into
+  // execution_runs.task_id and fail foreign-key checks. External/manual wake
+  // callers should either pass the real task UUID here or omit taskKey so the
+  // engine can resolve the assigned in_progress/on_deck task automatically.
   if (taskKey) return taskKey;
 
   // Fallback: find the agent's highest-priority active task

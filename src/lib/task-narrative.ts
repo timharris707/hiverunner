@@ -81,11 +81,14 @@ export function buildNarrativeItems(tasks: NarrativeTask[], activities: Narrativ
   for (const task of tasks) {
     const updated = task.updated ? new Date(task.updated) : null;
     const ageMs = updated ? now - updated.getTime() : Infinity;
+    const status = task.status ?? "";
+    const hasActiveReviewSignal = status === "review" || Boolean(task.lastReviewAt && task.lastReviewVerdict);
+    const isOngoingTask = status === "in-progress" || status === "blocked" || hasActiveReviewSignal;
 
-    if (ageMs > 7 * 24 * 60 * 60 * 1000) {
-      if (task.status === "done" && updated && updated >= today) doneToday++;
-      if (task.status === "in-progress") inProgressCount++;
-      if (task.status === "blocked") blockedCount++;
+    if (ageMs > 7 * 24 * 60 * 60 * 1000 && !isOngoingTask) {
+      if (status === "done" && updated && updated >= today) doneToday++;
+      if (status === "in-progress") inProgressCount++;
+      if (status === "blocked") blockedCount++;
       continue;
     }
 
