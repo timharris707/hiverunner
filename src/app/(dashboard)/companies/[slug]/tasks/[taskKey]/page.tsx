@@ -13,6 +13,7 @@ import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { PRIORITY_META, STATUS_META } from "@/components/orchestration/task-display";
 import {
   getTask,
+  getTaskDetail,
   listCompanies,
   listCompanyAgents,
   listCompanyApprovals,
@@ -34,6 +35,8 @@ import type {
   OrchestrationProject,
   OrchestrationTask,
   OrchestrationApproval,
+  OrchestrationTaskDetail,
+  OrchestrationTaskTimelineItem,
   TaskStatus,
   TaskPriority,
 } from "@/lib/orchestration/types";
@@ -140,17 +143,12 @@ export default function TaskDetailPage() {
   const [task, setTask] = useState<OrchestrationTask | null>(null);
   const [agents, setAgents] = useState<OrchestrationAgent[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [taskDetail, setTaskDetail] = useState<OrchestrationTaskDetail | null>(null);
   const [linkedApprovals, setLinkedApprovals] = useState<OrchestrationApproval[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [activityTimeline, setActivityTimeline] = useState<Array<{
-    id: string; kind: "event" | "comment"; eventType?: string;
-    fromStatus?: string | null; toStatus?: string | null;
-    body?: string; commentType?: string | null; commentSource?: string | null;
-    actorName: string | null; actorEmoji: string | null; actorId: string | null;
-    metadata?: Record<string, unknown>; timestamp: string;
-  }>>([]);
+  const [activityTimeline, setActivityTimeline] = useState<OrchestrationTaskTimelineItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<Tab>("comments");
   const [commentDraft, setCommentDraft] = useState("");
@@ -170,24 +168,27 @@ export default function TaskDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [companies, fetchedTask] = await Promise.all([
+      const [companies, fetchedTaskDetail] = await Promise.all([
         listCompanies(),
-        getTask(taskKey),
+        getTaskDetail(taskKey),
       ]);
       const curCompany = companies.find((c) => c.slug === slug) ?? null;
       setCompany(curCompany);
-      if (!fetchedTask) {
+      if (!fetchedTaskDetail) {
         setError("Task not found.");
         setTask(null);
+        setTaskDetail(null);
         return;
       }
-      setTask(fetchedTask);
+      setTask(fetchedTaskDetail.task);
+      setTaskDetail(fetchedTaskDetail.detail);
+      setActivityTimeline(fetchedTaskDetail.detail.timeline);
       const [projectRows, agentRows, commentRows] = await Promise.all([
         listProjects({ company: slug }),
         curCompany ? listCompanyAgents(curCompany.slug) : Promise.resolve([]),
-        listTaskComments(fetchedTask.id),
+        listTaskComments(fetchedTaskDetail.task.id),
       ]);
-      const proj = projectRows.find((p) => p.id === fetchedTask.project) ?? null;
+      const proj = projectRows.find((p) => p.id === fetchedTaskDetail.task.project) ?? null;
       setProject(proj);
       setAgents(agentRows);
       setComments(commentRows);
@@ -200,20 +201,11 @@ export default function TaskDetailPage() {
 
   useEffect(() => { void loadTask(); }, [loadTask]);
 
-  // Fetch real activity timeline when Activity tab is shown
+  // Unified task detail timeline now comes from the main task detail payload.
   useEffect(() => {
-    if (activeTab !== "activity" || !task?.id) return;
-    let cancelled = false;
-    setActivityLoading(true);
-    fetch(`/api/orchestration/tasks/${task.id}/activity`)
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => {
-        if (!cancelled && data?.timeline) setActivityTimeline(data.timeline);
-      })
-      .catch(() => {})
-      .finally(() => { if (!cancelled) setActivityLoading(false); });
-    return () => { cancelled = true; };
-  }, [activeTab, task?.id]);
+    if (activeTab !== "activity") return;
+    setActivityLoading(false);
+  }, [activeTab]);
 
   useEffect(() => {
     if (!task?.id) {
@@ -997,9 +989,37 @@ export default function TaskDetailPage() {
                 </>
               )}
               {activeTab === "subtasks" && (
-                <div style={{ padding: "24px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
-                  No sub-tasks.
-                </div>
+                taskDetail?.childTasks && taskDetail.childTasks.length > 0 ? (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    {taskDetail.childTasks.map((child) => (
+                      <Link
+                        key={child.id}
+                        href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(child.key ?? child.id)}`)}
+                        style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                          padding: "10px 12px", borderRadius: 8, textDecoration: "none",
+                          border: `0.5px solid ${color.border}`, background: "rgba(255,255,255,0.02)",
+                        }}
+                      >
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: color.textSecondary }}>
+                            {child.key ? `${child.key} · ${child.title}` : child.title}
+                          </div>
+                          <div style={{ fontSize: 11, color: color.textMuted }}>
+                            {STATUS_LABEL[child.status] ?? child.status} · {child.priority} · {child.assignee ?? "Unassigned"}
+                          </div>
+                        </div>
+                        <div style={{ fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
+                          {relativeAge(child.updated)}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ padding: "24px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
+                    No sub-tasks.
+                  </div>
+                )
               )}
               {activeTab === "activity" && (
                 <div style={{ fontSize: "12px", color: color.textMuted }}>
@@ -1009,6 +1029,14 @@ export default function TaskDetailPage() {
                     <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>No activity recorded yet.</div>
                   ) : (
                     <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {taskDetail?.runSummary && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingBottom: 12, marginBottom: 8, borderBottom: `0.5px solid ${color.border}` }}>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Runs: {taskDetail.runSummary.totalRuns}</span>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Actions: {taskDetail.runSummary.structuredActionCount}</span>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Imported reports: {taskDetail.runSummary.importedReportCount}</span>
+                          {taskDetail.runSummary.activeRun && <span style={{ fontSize: 10, color: "#f59e0b" }}>Active: {taskDetail.runSummary.activeRun.status}</span>}
+                        </div>
+                      )}
                       {activityTimeline.map((entry) => (
                         <div
                           key={entry.id}
@@ -1017,73 +1045,36 @@ export default function TaskDetailPage() {
                             borderBottom: `0.5px solid ${color.border}`,
                           }}
                         >
-                          {/* Actor badge */}
                           <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
-                            {entry.actorName ? (
-                              <span style={{
-                                width: 22, height: 22, borderRadius: "50%",
-                                background: "rgba(217,119,6,0.15)",
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                fontSize: 10, fontWeight: 700, color: "#fbbf24",
-                              }}>
-                                {entry.actorName.slice(0, 2).toUpperCase()}
-                              </span>
-                            ) : (
-                              <span style={{
-                                width: 22, height: 22, borderRadius: "50%",
-                                background: "rgba(120,113,108,0.2)",
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                fontSize: 10, color: color.textMuted,
-                              }}>
-                                <User size={10} />
-                              </span>
-                            )}
+                            <span style={{
+                              width: 22, height: 22, borderRadius: "50%",
+                              background: "rgba(217,119,6,0.15)",
+                              display: "inline-flex", alignItems: "center", justifyContent: "center",
+                              fontSize: 9, fontWeight: 700, color: "#fbbf24",
+                            }}>
+                              {(entry.actorLabel ?? entry.provenance).slice(0, 2).toUpperCase()}
+                            </span>
                           </div>
-
-                          {/* Content */}
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              {entry.actorName && (
-                                <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorName}</span>
+                              {entry.actorLabel && (
+                                <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorLabel}</span>
                               )}
-                              <span style={{ color: color.text, fontSize: 11 }}>
-                                {entry.kind === "comment" ? (
-                                  "added a comment"
-                                ) : entry.eventType === "task.created" ? (
-                                  "created the task"
-                                ) : entry.eventType === "task.status_changed" ? (
-                                  <>changed status from <StatusLabel s={entry.fromStatus} /> to <StatusLabel s={entry.toStatus} /></>
-                                ) : entry.eventType === "task.assigned" ? (
-                                  (() => {
-                                    const meta = entry.metadata as Record<string, unknown> | undefined;
-                                    const assignee = meta?.assignee ? String(meta.assignee) : null;
-                                    return assignee ? <>assigned to <span style={{ fontWeight: 600, color: color.textSecondary }}>{assignee}</span></> : "updated assignment";
-                                  })()
-                                ) : entry.eventType === "task.unassigned" ? (
-                                  "removed assignment"
-                                ) : entry.eventType === "task.comment_added" ? (
-                                  "added a comment"
-                                ) : entry.eventType === "task.reordered" ? (
-                                  "reordered the task"
-                                ) : (
-                                  (entry.eventType ?? "unknown event").replace("task.", "")
-                                )}
-                              </span>
+                              <span style={{ fontSize: 10, color: color.textMuted, textTransform: "uppercase" }}>{entry.provenance.replace(/_/g, " ")}</span>
+                              <span style={{ color: color.text, fontSize: 11 }}>{entry.summary}</span>
                               <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
                                 {relativeAge(entry.timestamp)}
                               </span>
                             </div>
-                            {/* Comment body preview */}
-                            {entry.kind === "comment" && entry.body && (
+                            {entry.body && (
                               <div style={{
                                 marginTop: 4, padding: "6px 8px", borderRadius: 4,
                                 background: "rgba(255,255,255,0.02)",
                                 border: `0.5px solid ${color.border}`,
                                 fontSize: 11, color: color.textSecondary,
                                 lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                                maxHeight: 80, overflow: "hidden",
                               }}>
-                                {entry.body.length > 200 ? entry.body.slice(0, 197) + "..." : entry.body}
+                                {entry.body}
                               </div>
                             )}
                           </div>

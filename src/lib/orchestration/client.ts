@@ -266,6 +266,57 @@ function normalizeTask(raw: JsonRecord): OrchestrationTask {
   };
 }
 
+function normalizeTaskDetailSummary(raw: JsonRecord) {
+  return {
+    id: String(raw.id ?? ""),
+    key: raw.key ? String(raw.key) : undefined,
+    title: String(raw.title ?? "Untitled Task"),
+    status: (String(raw.status ?? "backlog") as OrchestrationTask["status"]),
+    priority: (String(raw.priority ?? "P2") as OrchestrationTask["priority"]),
+    type: (String(raw.type ?? "feature") as OrchestrationTask["type"]),
+    assignee: raw.assignee ? String(raw.assignee) : undefined,
+    created: String(raw.created ?? raw.created_at ?? new Date().toISOString()),
+    updated: String(raw.updated ?? raw.updated_at ?? new Date().toISOString()),
+  };
+}
+
+function normalizeTaskDetail(raw: JsonRecord) {
+  return {
+    task: normalizeTaskDetailSummary((raw.task ?? {}) as JsonRecord),
+    parentTask: raw.parentTask ? normalizeTaskDetailSummary(raw.parentTask as JsonRecord) : undefined,
+    childTasks: Array.isArray(raw.childTasks)
+      ? raw.childTasks.map((item) => normalizeTaskDetailSummary(item as JsonRecord))
+      : [],
+    timeline: Array.isArray(raw.timeline)
+      ? raw.timeline.map((item) => {
+          const row = item as JsonRecord;
+          return {
+            id: String(row.id ?? crypto.randomUUID()),
+            taskId: String(row.taskId ?? row.task_id ?? ""),
+            timestamp: String(row.timestamp ?? new Date().toISOString()),
+            kind: String(row.kind ?? "comment") as import("@/lib/orchestration/types").OrchestrationTaskTimelineItem["kind"],
+            source: String(row.source ?? "unknown"),
+            actorLabel: row.actorLabel ? String(row.actorLabel) : undefined,
+            summary: String(row.summary ?? ""),
+            body: row.body ? String(row.body) : undefined,
+            metadata: (row.metadata && typeof row.metadata === "object" ? row.metadata : {}) as Record<string, unknown>,
+            linkedRunId: row.linkedRunId ? String(row.linkedRunId) : undefined,
+            linkedApprovalId: row.linkedApprovalId ? String(row.linkedApprovalId) : undefined,
+            linkedTaskId: row.linkedTaskId ? String(row.linkedTaskId) : undefined,
+            provenance: String(row.provenance ?? "comment") as import("@/lib/orchestration/types").OrchestrationTaskTimelineItem["provenance"],
+          };
+        })
+      : [],
+    runSummary: {
+      totalRuns: Number((raw.runSummary as JsonRecord | undefined)?.totalRuns ?? 0),
+      structuredActionCount: Number((raw.runSummary as JsonRecord | undefined)?.structuredActionCount ?? 0),
+      importedReportCount: Number((raw.runSummary as JsonRecord | undefined)?.importedReportCount ?? 0),
+      latestRun: (raw.runSummary as JsonRecord | undefined)?.latestRun as import("@/lib/orchestration/types").OrchestrationTaskRunSummary["latestRun"],
+      activeRun: (raw.runSummary as JsonRecord | undefined)?.activeRun as import("@/lib/orchestration/types").OrchestrationTaskRunSummary["activeRun"],
+    },
+  };
+}
+
 function normalizeSprint(raw: JsonRecord): OrchestrationSprint {
   return {
     id: String(raw.id ?? ""),
@@ -1353,6 +1404,15 @@ export async function getTask(taskId: string): Promise<OrchestrationTask | null>
   const data = await fetchJson<{ task?: JsonRecord }>(`/api/orchestration/tasks/${taskId}`);
   if (!data?.task) return null;
   return normalizeTask(data.task);
+}
+
+export async function getTaskDetail(taskId: string): Promise<{ task: OrchestrationTask; detail: import("@/lib/orchestration/types").OrchestrationTaskDetail } | null> {
+  const data = await fetchJson<{ task?: JsonRecord; detail?: JsonRecord }>(`/api/orchestration/tasks/${taskId}`);
+  if (!data?.task || !data?.detail) return null;
+  return {
+    task: normalizeTask(data.task),
+    detail: normalizeTaskDetail(data.detail),
+  };
 }
 
 export async function updateTask(input: {
