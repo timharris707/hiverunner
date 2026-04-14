@@ -560,6 +560,36 @@ export default function TaskDetailPage() {
               </span>
             </div>
 
+            {taskDetail?.parentTask && (
+              <Link
+                href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(taskDetail.parentTask.key ?? taskDetail.parentTask.id)}`)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                  marginBottom: space.md,
+                  padding: "10px 12px",
+                  borderRadius: radius.md,
+                  border: `0.5px solid ${color.border}`,
+                  background: "rgba(255,255,255,0.03)",
+                  textDecoration: "none",
+                }}
+              >
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: typeScale.caption.size, color: color.textMuted, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 2 }}>
+                    Parent task
+                  </div>
+                  <div style={{ fontSize: typeScale.bodySmall.size, color: color.textSecondary, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {taskDetail.parentTask.key ? `${taskDetail.parentTask.key} · ${taskDetail.parentTask.title}` : taskDetail.parentTask.title}
+                  </div>
+                </div>
+                <div style={{ fontSize: 11, color: color.textMuted, flexShrink: 0 }}>
+                  {STATUS_LABEL[taskDetail.parentTask.status] ?? taskDetail.parentTask.status}
+                </div>
+              </Link>
+            )}
+
             {/* Meta row: status, priority, key, project */}
             <div style={{ display: "flex", alignItems: "center", gap: space.md, marginBottom: space.md }}>
               <StatusCircle status={task.status} size={16} />
