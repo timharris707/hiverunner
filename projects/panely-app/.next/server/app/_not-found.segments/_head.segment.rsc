@@ -1,5 +1,0 @@
-1:"$Sreact.fragment"
-2:I[51290,["/_next/static/chunks/111199f55580ec1b.js"],"ViewportBoundary"]
-3:I[51290,["/_next/static/chunks/111199f55580ec1b.js"],"MetadataBoundary"]
-4:"$Sreact.suspense"
-0:{"buildId":"tpizpkHuZ4wJePYM6zFOs","rsc":["$","$1","h",{"children":[["$","meta",null,{"name":"robots","content":"noindex"}],["$","$L2",null,{"children":[["$","meta","0",{"charSet":"utf-8"}],["$","meta","1",{"name":"viewport","content":"width=device-width, initial-scale=1"}],["$","meta","2",{"name":"theme-color","content":"#0C0C0C"}]]}],["$","div",null,{"hidden":true,"children":["$","$L3",null,{"children":["$","$4",null,{"name":"Next.Metadata","children":[["$","title","0",{"children":"Panely — AI Advisory Board"}],["$","meta","1",{"name":"description","content":"Structured AI deliberation. Submit decisions, AI panels debate from multiple perspectives, get a premium Board Brief."}]]}]}]}],["$","meta",null,{"name":"next-size-adjust","content":""}]]}],"loading":null,"isPartial":false}
