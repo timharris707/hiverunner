@@ -137,7 +137,7 @@ async function run() {
     assert.equal(task?.assignee, createAgentPayload.agent.name);
   });
 
-  await test("detail route includes comments needed by the drawer", async () => {
+  await test("detail route includes unified task detail payload for the drawer", async () => {
     const commentRes = await createTaskCommentRoute(
       makeJsonRequest(`http://localhost/api/orchestration/tasks/${taskId}/comments`, {
         body: "QA note: task opened from workflow regression test.",
@@ -166,9 +166,22 @@ async function run() {
     assert.equal(detailRes.status, 200);
     const detailPayload = (await detailRes.json()) as {
       task: { id: string; comments?: Array<{ text: string }> };
+      detail?: {
+        task: { id: string; title: string };
+        timeline: Array<{ summary: string; provenance: string; body?: string }>;
+        childTasks: Array<{ id: string }>;
+        runSummary: { totalRuns: number; structuredActionCount: number; importedReportCount: number };
+      };
     };
     assert.equal(detailPayload.task.id, taskId);
     assert.equal(detailPayload.task.comments?.[0]?.text, "QA note: task opened from workflow regression test.");
+    assert.equal(detailPayload.detail?.task.id, taskId);
+    assert.ok(Array.isArray(detailPayload.detail?.timeline));
+    assert.ok(detailPayload.detail!.timeline.some((item) => item.provenance === "comment" && item.body === "QA note: task opened from workflow regression test."));
+    assert.ok(Array.isArray(detailPayload.detail?.childTasks));
+    assert.equal(typeof detailPayload.detail?.runSummary.totalRuns, "number");
+    assert.equal(typeof detailPayload.detail?.runSummary.structuredActionCount, "number");
+    assert.equal(typeof detailPayload.detail?.runSummary.importedReportCount, "number");
   });
 
   await test("board move flows backlog -> on-deck -> in-progress and marks the agent working", async () => {
