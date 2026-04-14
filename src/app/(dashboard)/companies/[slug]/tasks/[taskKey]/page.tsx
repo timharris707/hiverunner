@@ -44,7 +44,7 @@ import { useLiveRunStream, type StreamTranscriptEntry } from "@/hooks/useLiveRun
 
 type Comment = NonNullable<OrchestrationTask["comments"]>[number];
 
-type Tab = "comments" | "subtasks" | "activity";
+type Tab = "timeline" | "comments" | "subtasks";
 type ExecutionSnapshot = {
   state: "running" | "completed" | "unknown" | "skipped";
   terminal: boolean;
@@ -181,7 +181,7 @@ export default function TaskDetailPage() {
 
   const [activityTimeline, setActivityTimeline] = useState<OrchestrationTaskTimelineItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>("comments");
+  const [activeTab, setActiveTab] = useState<Tab>("timeline");
   const [commentDraft, setCommentDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [propsOpen, setPropsOpen] = useState(true);
@@ -234,7 +234,7 @@ export default function TaskDetailPage() {
 
   // Unified task detail timeline now comes from the main task detail payload.
   useEffect(() => {
-    if (activeTab !== "activity") return;
+    if (activeTab !== "timeline") return;
     setActivityLoading(false);
   }, [activeTab]);
 
@@ -739,9 +739,9 @@ export default function TaskDetailPage() {
               borderBottom: `0.5px solid ${color.border}`,
             }}>
               {([
+                ["timeline", "Timeline", Clock] as const,
                 ["comments", "Comments", MessageSquare] as const,
                 ["subtasks", "Sub-tasks", GitBranch] as const,
-                ["activity", "Activity", Clock] as const,
               ]).map(([key, label, TabIcon]) => (
                 <button
                   key={key}
@@ -764,9 +764,8 @@ export default function TaskDetailPage() {
 
             {/* Tab content */}
             <div style={{ paddingTop: "16px" }}>
-              {activeTab === "comments" && (
-                <>
-                  {/* Run info bar */}
+              {activeTab === "timeline" && (
+                <div style={{ fontSize: "12px", color: color.textMuted }}>
                   {execution && execution.state !== "unknown" && execution.runId && (
                     <div style={{
                       display: "flex", alignItems: "center", gap: 8,
@@ -830,8 +829,99 @@ export default function TaskDetailPage() {
                       </div>
                     </div>
                   )}
-                  <div style={{ fontSize: "13px", fontWeight: 600, color: color.text, marginBottom: "12px" }}>
-                    Comments ({comments.length})
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: color.text, marginBottom: 4 }}>
+                      Unified timeline
+                    </div>
+                    <div style={{ fontSize: 11, color: color.textMuted, lineHeight: 1.5 }}>
+                      This is the primary task narrative, merged from comments, task events, approvals, run lifecycle, and linked subtasks.
+                    </div>
+                  </div>
+                  {activityLoading && activityTimeline.length === 0 ? (
+                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>Loading timeline...</div>
+                  ) : activityTimeline.length === 0 ? (
+                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>No timeline activity recorded yet.</div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+                      {taskDetail?.runSummary && (
+                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingBottom: 12, marginBottom: 8, borderBottom: `0.5px solid ${color.border}` }}>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Runs: {taskDetail.runSummary.totalRuns}</span>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Actions: {taskDetail.runSummary.structuredActionCount}</span>
+                          <span style={{ fontSize: 10, color: color.textMuted }}>Imported reports: {taskDetail.runSummary.importedReportCount}</span>
+                          {taskDetail.runSummary.activeRun && <span style={{ fontSize: 10, color: "#f59e0b" }}>Active: {taskDetail.runSummary.activeRun.status}</span>}
+                        </div>
+                      )}
+                      {activityTimeline.map((entry) => {
+                        const tone = timelineTone(entry);
+                        return (
+                          <div
+                            key={entry.id}
+                            style={{
+                              display: "flex", gap: "10px", padding: "10px 0",
+                              borderBottom: `0.5px solid ${color.border}`,
+                            }}
+                          >
+                            <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
+                              <span style={{
+                                width: 22, height: 22, borderRadius: "50%",
+                                background: tone.bg,
+                                border: `0.5px solid ${tone.border}`,
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                color: tone.fg,
+                              }}>
+                                {timelineGlyph(entry)}
+                              </span>
+                            </div>
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  color: tone.fg,
+                                  background: tone.bg,
+                                  border: `0.5px solid ${tone.border}`,
+                                  borderRadius: 999,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                }}>
+                                  {tone.label}
+                                </span>
+                                {entry.actorLabel && (
+                                  <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorLabel}</span>
+                                )}
+                                <span style={{ color: color.text, fontSize: 11 }}>{entry.summary}</span>
+                                <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }} title={formatTimestamp(entry.timestamp)}>
+                                  {relativeAge(entry.timestamp)}
+                                </span>
+                              </div>
+                              {entry.body && (
+                                <div style={{
+                                  marginTop: 6, padding: "8px 10px", borderRadius: 6,
+                                  background: "rgba(255,255,255,0.02)",
+                                  border: `0.5px solid ${color.border}`,
+                                  fontSize: 11, color: color.textSecondary,
+                                  lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                                }}>
+                                  <LinkedText text={entry.body} companySlug={slug} />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+              {activeTab === "comments" && (
+                <>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontSize: "13px", fontWeight: 600, color: color.text, marginBottom: "4px" }}>
+                      Comments ({comments.length})
+                    </div>
+                    <div style={{ fontSize: 11, color: color.textMuted, lineHeight: 1.5 }}>
+                      Discussion stays here, but the merged timeline is now the default surface for reconstructing task truth.
+                    </div>
                   </div>
                   <div style={{ display: "flex", flexDirection: "column", gap: "12px", marginBottom: "20px" }}>
                     {comments.length === 0 ? (
@@ -1103,84 +1193,6 @@ export default function TaskDetailPage() {
                     No sub-tasks.
                   </div>
                 )
-              )}
-              {activeTab === "activity" && (
-                <div style={{ fontSize: "12px", color: color.textMuted }}>
-                  {activityLoading && activityTimeline.length === 0 ? (
-                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>Loading activity...</div>
-                  ) : activityTimeline.length === 0 ? (
-                    <div style={{ padding: "16px 0", textAlign: "center", color: color.textMuted }}>No activity recorded yet.</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-                      {taskDetail?.runSummary && (
-                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingBottom: 12, marginBottom: 8, borderBottom: `0.5px solid ${color.border}` }}>
-                          <span style={{ fontSize: 10, color: color.textMuted }}>Runs: {taskDetail.runSummary.totalRuns}</span>
-                          <span style={{ fontSize: 10, color: color.textMuted }}>Actions: {taskDetail.runSummary.structuredActionCount}</span>
-                          <span style={{ fontSize: 10, color: color.textMuted }}>Imported reports: {taskDetail.runSummary.importedReportCount}</span>
-                          {taskDetail.runSummary.activeRun && <span style={{ fontSize: 10, color: "#f59e0b" }}>Active: {taskDetail.runSummary.activeRun.status}</span>}
-                        </div>
-                      )}
-                      {activityTimeline.map((entry) => {
-                        const tone = timelineTone(entry);
-                        return (
-                          <div
-                            key={entry.id}
-                            style={{
-                              display: "flex", gap: "10px", padding: "10px 0",
-                              borderBottom: `0.5px solid ${color.border}`,
-                            }}
-                          >
-                            <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
-                              <span style={{
-                                width: 22, height: 22, borderRadius: "50%",
-                                background: tone.bg,
-                                border: `0.5px solid ${tone.border}`,
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                color: tone.fg,
-                              }}>
-                                {timelineGlyph(entry)}
-                              </span>
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                <span style={{
-                                  fontSize: 10,
-                                  color: tone.fg,
-                                  background: tone.bg,
-                                  border: `0.5px solid ${tone.border}`,
-                                  borderRadius: 999,
-                                  padding: "2px 6px",
-                                  textTransform: "uppercase",
-                                  letterSpacing: "0.04em",
-                                }}>
-                                  {tone.label}
-                                </span>
-                                {entry.actorLabel && (
-                                  <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorLabel}</span>
-                                )}
-                                <span style={{ color: color.text, fontSize: 11 }}>{entry.summary}</span>
-                                <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }} title={formatTimestamp(entry.timestamp)}>
-                                  {relativeAge(entry.timestamp)}
-                                </span>
-                              </div>
-                              {entry.body && (
-                                <div style={{
-                                  marginTop: 6, padding: "8px 10px", borderRadius: 6,
-                                  background: "rgba(255,255,255,0.02)",
-                                  border: `0.5px solid ${color.border}`,
-                                  fontSize: 11, color: color.textSecondary,
-                                  lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                                }}>
-                                  {entry.body}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
               )}
             </div>
           </>

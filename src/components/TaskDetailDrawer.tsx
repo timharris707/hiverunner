@@ -390,6 +390,9 @@ function CommentThread({
       <label style={{ ...DRAWER_LABEL_STYLE, display: "flex", alignItems: "center", gap: "0.375rem" }}>
         <MessageSquare className="w-3.5 h-3.5" /> Comments ({comments.length})
       </label>
+      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", marginBottom: "0.5rem", lineHeight: 1.5 }}>
+        Comments are discussion only. Use the task timeline as the primary record of status, runs, and task history.
+      </div>
 
       {/* Thread */}
       <div
