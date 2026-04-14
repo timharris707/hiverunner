@@ -674,6 +674,28 @@ export default function TaskDetailPage() {
               </div>
             )}
 
+            {taskDetail?.runSummary && (
+              <div style={{
+                display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16, marginBottom: 16,
+                padding: "10px 12px", borderRadius: radius.md,
+                border: `0.5px solid ${color.border}`, background: "rgba(255,255,255,0.02)",
+              }}>
+                <span style={{ fontSize: 11, color: color.textMuted }}>Runs {taskDetail.runSummary.totalRuns}</span>
+                <span style={{ fontSize: 11, color: color.textMuted }}>Structured actions {taskDetail.runSummary.structuredActionCount}</span>
+                <span style={{ fontSize: 11, color: color.textMuted }}>Imported reports {taskDetail.runSummary.importedReportCount}</span>
+                {taskDetail.runSummary.latestRun && (
+                  <span style={{ fontSize: 11, color: color.textSecondary }}>
+                    Latest {taskDetail.runSummary.latestRun.provider} {taskDetail.runSummary.latestRun.status}
+                  </span>
+                )}
+                {taskDetail.runSummary.activeRun && (
+                  <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600 }}>
+                    Active run {taskDetail.runSummary.activeRun.status}
+                  </span>
+                )}
+              </div>
+            )}
+
             {execution?.state === "running" && assignedAgent && (
               <LiveActivityPanel
                 agentName={assignedAgent.name}
