@@ -78,6 +78,37 @@ function relativeAge(iso: string): string {
   return `${days}d ago`;
 }
 
+function timelineTone(entry: OrchestrationTaskTimelineItem): { bg: string; fg: string; border: string; label: string } {
+  switch (entry.provenance) {
+    case "comment":
+      return { bg: "rgba(59,130,246,0.14)", fg: "#93c5fd", border: "rgba(59,130,246,0.28)", label: "Comment" };
+    case "imported_report":
+      return { bg: "rgba(168,85,247,0.14)", fg: "#d8b4fe", border: "rgba(168,85,247,0.28)", label: "Imported report" };
+    case "approval_event":
+      return { bg: "rgba(245,158,11,0.14)", fg: "#fcd34d", border: "rgba(245,158,11,0.28)", label: "Approval" };
+    case "status_change":
+      return { bg: "rgba(34,197,94,0.14)", fg: "#86efac", border: "rgba(34,197,94,0.28)", label: "Status" };
+    case "run_event":
+      return { bg: "rgba(217,119,6,0.14)", fg: "#fbbf24", border: "rgba(217,119,6,0.28)", label: "Run" };
+    case "subtask_event":
+      return { bg: "rgba(148,163,184,0.14)", fg: "#cbd5e1", border: "rgba(148,163,184,0.28)", label: "Subtask" };
+    default:
+      return { bg: "rgba(120,113,108,0.14)", fg: color.textMuted, border: "rgba(120,113,108,0.28)", label: "Event" };
+  }
+}
+
+function timelineGlyph(entry: OrchestrationTaskTimelineItem) {
+  switch (entry.provenance) {
+    case "comment": return <MessageSquare size={11} />;
+    case "imported_report": return <Paperclip size={11} />;
+    case "approval_event": return <AlertCircle size={11} />;
+    case "status_change": return <CheckCircle2 size={11} />;
+    case "run_event": return <Bot size={11} />;
+    case "subtask_event": return <GitBranch size={11} />;
+    default: return <Clock size={11} />;
+  }
+}
+
 /** Render text with task-key references (e.g. NEV-34) auto-linked. */
 function LinkedText({ text, companySlug }: { text: string; companySlug: string }) {
   // Match task keys: 2-5 uppercase letters, dash, 1+ digits
@@ -1067,49 +1098,64 @@ export default function TaskDetailPage() {
                           {taskDetail.runSummary.activeRun && <span style={{ fontSize: 10, color: "#f59e0b" }}>Active: {taskDetail.runSummary.activeRun.status}</span>}
                         </div>
                       )}
-                      {activityTimeline.map((entry) => (
-                        <div
-                          key={entry.id}
-                          style={{
-                            display: "flex", gap: "10px", padding: "8px 0",
-                            borderBottom: `0.5px solid ${color.border}`,
-                          }}
-                        >
-                          <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
-                            <span style={{
-                              width: 22, height: 22, borderRadius: "50%",
-                              background: "rgba(217,119,6,0.15)",
-                              display: "inline-flex", alignItems: "center", justifyContent: "center",
-                              fontSize: 9, fontWeight: 700, color: "#fbbf24",
-                            }}>
-                              {(entry.actorLabel ?? entry.provenance).slice(0, 2).toUpperCase()}
-                            </span>
-                          </div>
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                              {entry.actorLabel && (
-                                <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorLabel}</span>
-                              )}
-                              <span style={{ fontSize: 10, color: color.textMuted, textTransform: "uppercase" }}>{entry.provenance.replace(/_/g, " ")}</span>
-                              <span style={{ color: color.text, fontSize: 11 }}>{entry.summary}</span>
-                              <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
-                                {relativeAge(entry.timestamp)}
+                      {activityTimeline.map((entry) => {
+                        const tone = timelineTone(entry);
+                        return (
+                          <div
+                            key={entry.id}
+                            style={{
+                              display: "flex", gap: "10px", padding: "10px 0",
+                              borderBottom: `0.5px solid ${color.border}`,
+                            }}
+                          >
+                            <div style={{ width: 24, flexShrink: 0, display: "flex", justifyContent: "center", paddingTop: 2 }}>
+                              <span style={{
+                                width: 22, height: 22, borderRadius: "50%",
+                                background: tone.bg,
+                                border: `0.5px solid ${tone.border}`,
+                                display: "inline-flex", alignItems: "center", justifyContent: "center",
+                                color: tone.fg,
+                              }}>
+                                {timelineGlyph(entry)}
                               </span>
                             </div>
-                            {entry.body && (
-                              <div style={{
-                                marginTop: 4, padding: "6px 8px", borderRadius: 4,
-                                background: "rgba(255,255,255,0.02)",
-                                border: `0.5px solid ${color.border}`,
-                                fontSize: 11, color: color.textSecondary,
-                                lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
-                              }}>
-                                {entry.body}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                <span style={{
+                                  fontSize: 10,
+                                  color: tone.fg,
+                                  background: tone.bg,
+                                  border: `0.5px solid ${tone.border}`,
+                                  borderRadius: 999,
+                                  padding: "2px 6px",
+                                  textTransform: "uppercase",
+                                  letterSpacing: "0.04em",
+                                }}>
+                                  {tone.label}
+                                </span>
+                                {entry.actorLabel && (
+                                  <span style={{ fontWeight: 600, color: color.textSecondary, fontSize: 11 }}>{entry.actorLabel}</span>
+                                )}
+                                <span style={{ color: color.text, fontSize: 11 }}>{entry.summary}</span>
+                                <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted, flexShrink: 0 }} title={formatTimestamp(entry.timestamp)}>
+                                  {relativeAge(entry.timestamp)}
+                                </span>
                               </div>
-                            )}
+                              {entry.body && (
+                                <div style={{
+                                  marginTop: 6, padding: "8px 10px", borderRadius: 6,
+                                  background: "rgba(255,255,255,0.02)",
+                                  border: `0.5px solid ${color.border}`,
+                                  fontSize: 11, color: color.textSecondary,
+                                  lineHeight: 1.4, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                                }}>
+                                  {entry.body}
+                                </div>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
