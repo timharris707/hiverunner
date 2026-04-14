@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { updateTaskSchema } from "@/lib/orchestration/contracts";
-import { archiveTask, getTask, updateTask } from "@/lib/orchestration/service";
+import { archiveTask, getTaskDetail, updateTask } from "@/lib/orchestration/service";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +13,7 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    return NextResponse.json(getTask(id));
+    return NextResponse.json(getTaskDetail(id));
   } catch (error) {
     return handleRouteError(error, "task:get");
   }

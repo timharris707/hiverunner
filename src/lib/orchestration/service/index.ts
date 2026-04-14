@@ -29,6 +29,7 @@ import {
   moveTask as moveTaskRaw,
   assignTask as assignTaskRaw,
 } from "./task";
+import { getTaskDetail as getTaskDetailRaw } from "./task-detail";
 import {
   listProjectSprints as listProjectSprintsRaw,
   createProjectSprint as createProjectSprintRaw,
@@ -121,6 +122,7 @@ export const heartbeatProjectAgent = withServiceContext(
 
 export const listTasks = withServiceContext("task.listTasks", listTasksRaw);
 export const getTask = withServiceContext("task.getTask", getTaskRaw);
+export const getTaskDetail = withServiceContext("task.getTaskDetail", getTaskDetailRaw);
 export const createTask = withServiceContext("task.createTask", createTaskRaw);
 export const updateTask = withServiceContext("task.updateTask", updateTaskRaw);
 export const archiveTask = withServiceContext("task.archiveTask", archiveTaskRaw);

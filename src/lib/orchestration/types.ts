@@ -97,6 +97,64 @@ export interface OrchestrationTask {
   }>;
 }
 
+export interface OrchestrationTaskDetailSummary {
+  id: string;
+  key?: string;
+  title: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  type: TaskType;
+  assignee?: string;
+  created: string;
+  updated: string;
+}
+
+export interface OrchestrationTaskTimelineItem {
+  id: string;
+  taskId: string;
+  timestamp: string;
+  kind: "comment" | "imported_report" | "engine_event" | "run_event" | "approval_event" | "status_change" | "subtask_event";
+  source: string;
+  actorLabel?: string;
+  summary: string;
+  body?: string;
+  metadata: Record<string, unknown>;
+  linkedRunId?: string;
+  linkedApprovalId?: string;
+  linkedTaskId?: string;
+  provenance: "comment" | "imported_report" | "engine_event" | "run_event" | "approval_event" | "status_change" | "subtask_event";
+}
+
+export interface OrchestrationTaskRunSummary {
+  totalRuns: number;
+  structuredActionCount: number;
+  importedReportCount: number;
+  latestRun?: {
+    id: string;
+    provider: string;
+    status: string;
+    startedAt?: string;
+    finishedAt?: string | null;
+    error?: string | null;
+  };
+  activeRun?: {
+    id: string;
+    provider: string;
+    status: string;
+    startedAt?: string;
+    finishedAt?: string | null;
+    error?: string | null;
+  };
+}
+
+export interface OrchestrationTaskDetail {
+  task: OrchestrationTaskDetailSummary;
+  parentTask?: OrchestrationTaskDetailSummary;
+  childTasks: OrchestrationTaskDetailSummary[];
+  timeline: OrchestrationTaskTimelineItem[];
+  runSummary: OrchestrationTaskRunSummary;
+}
+
 export interface OrchestrationSprint {
   id: string;
   projectId: string;
