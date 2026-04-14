@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 import { execFile } from "child_process";
 import fs from "fs";
+import path from "path";
 import { promisify } from "util";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -30,6 +31,7 @@ import {
   resolveCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { isSafeManagedCompanyWorkspacePath } from "@/lib/workspaces/delete-safety";
+import { resolveOpenClawDir } from "@/lib/workspaces/root";
 import { ensureUniqueCompanyRuntimeSlug } from "@/lib/orchestration/runtime-identifiers";
 
 const execFileAsync = promisify(execFile);
@@ -1135,17 +1137,74 @@ async function deleteOpenClawAgent(runtimeId: string): Promise<"deleted" | "miss
   }
 }
 
+type OpenClawAgentDirCleanupStatus =
+  | "deleted"
+  | "missing"
+  | "retained_non_empty"
+  | "unsafe";
+
+function cleanupDeletedOpenClawAgentDir(runtimeId: string): OpenClawAgentDirCleanupStatus {
+  const openclawAgentsRoot = path.resolve(resolveOpenClawDir(), "agents");
+  const agentDir = path.resolve(path.join(openclawAgentsRoot, runtimeId));
+
+  if (path.dirname(agentDir) !== openclawAgentsRoot || path.basename(agentDir) !== runtimeId) {
+    console.warn(`[company-delete] Refusing to clean unsafe OpenClaw agent dir target for ${runtimeId}`);
+    return "unsafe";
+  }
+
+  if (!fs.existsSync(agentDir)) {
+    return "missing";
+  }
+
+  const entries = fs.readdirSync(agentDir);
+  if (entries.length > 0) {
+    console.warn(`[company-delete] OpenClaw agent dir ${agentDir} not empty after unregister; leaving it in place`);
+    return "retained_non_empty";
+  }
+
+  fs.rmdirSync(agentDir);
+  return "deleted";
+}
+
 export async function cleanupDeletedCompanyOpenClawAgents(runtimeIds: string[]): Promise<{
   deleted: string[];
   missing: string[];
+  failed: string[];
+  deletedAgentDirs: string[];
+  missingAgentDirs: string[];
+  retainedAgentDirs: string[];
 }> {
-  const result = { deleted: [] as string[], missing: [] as string[] };
+  const result = {
+    deleted: [] as string[],
+    missing: [] as string[],
+    failed: [] as string[],
+    deletedAgentDirs: [] as string[],
+    missingAgentDirs: [] as string[],
+    retainedAgentDirs: [] as string[],
+  };
   for (const runtimeId of runtimeIds) {
-    const status = await deleteOpenClawAgent(runtimeId);
-    if (status === "deleted") {
-      result.deleted.push(runtimeId);
-    } else {
-      result.missing.push(runtimeId);
+    try {
+      const status = await deleteOpenClawAgent(runtimeId);
+      if (status === "deleted") {
+        result.deleted.push(runtimeId);
+      } else {
+        result.missing.push(runtimeId);
+      }
+
+      const dirCleanup = cleanupDeletedOpenClawAgentDir(runtimeId);
+      if (dirCleanup === "deleted") {
+        result.deletedAgentDirs.push(runtimeId);
+      } else if (dirCleanup === "missing") {
+        result.missingAgentDirs.push(runtimeId);
+      } else {
+        result.retainedAgentDirs.push(runtimeId);
+      }
+    } catch (error) {
+      result.failed.push(runtimeId);
+      console.error(
+        `[company-delete] OpenClaw unregister failed for ${runtimeId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
     }
   }
   return result;
