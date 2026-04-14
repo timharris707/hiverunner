@@ -73,6 +73,7 @@ import {
   buildCanonicalManageProjectsPath,
 } from "@/lib/orchestration/route-paths";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
+import { useLiveRuns } from "@/hooks/useLiveRuns";
 import { isAgentLive } from "@/lib/orchestration/live-status";
 
 interface NavItem {
@@ -946,15 +947,21 @@ export function Dock() {
     };
   }, [company.slug]);
 
+  const { runsByAgentId } = useLiveRuns({
+    companySlug: company.slug,
+    enabled: true,
+  });
+
   const activeAgentCount = useMemo(() => {
     return agents.filter((agent) =>
       isAgentLive({
         agentId: agent.id,
         agentStatus: agent.status,
         liveAgentIds,
+        liveRunsByAgentId: runsByAgentId,
       })
     ).length;
-  }, [liveAgentIds, agents]);
+  }, [liveAgentIds, runsByAgentId, agents]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1250,6 +1257,7 @@ export function Dock() {
             agentId: agent.id,
             agentStatus: agent.status,
             liveAgentIds,
+            liveRunsByAgentId: runsByAgentId,
           });
           return (
             <NavRow
