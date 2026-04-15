@@ -721,6 +721,8 @@ export async function executeHeartbeatRun(
   // Determine task key for session persistence
   const taskKey = resolveTaskKey(contextSnapshot, agent.id, db);
 
+  maybeResetTaskSessionForFreshAssignment(agent.id, agent.company_id, taskKey, contextSnapshot, db);
+
   // Get or create persistent session
   const session = getOrCreateTaskSession(
     { agentId: agent.id, companyId: agent.company_id, taskKey },
@@ -930,18 +932,8 @@ export async function executeHeartbeatRun(
 
   if (!result.error && taskKey !== "__heartbeat__") {
     try {
-      const stored = db.prepare("SELECT result_json FROM heartbeat_runs WHERE id = ? LIMIT 1").get(runId) as { result_json: string | null } | undefined;
-      const parsed = stored?.result_json ? JSON.parse(stored.result_json) as Partial<ActionResults> : null;
-      if (parsed && isInsufficientProgress(taskKey, {
-        messagesImported: Number(parsed.messagesImported ?? 0),
-        actionsFound: Number(parsed.actionsFound ?? 0),
-        actionsExecuted: Number(parsed.actionsExecuted ?? 0),
-        actionsSkippedDedup: Number(parsed.actionsSkippedDedup ?? 0),
-        tasksCreated: Array.isArray(parsed.tasksCreated) ? parsed.tasksCreated as string[] : [],
-        approvalsCreated: Array.isArray(parsed.approvalsCreated) ? parsed.approvalsCreated as string[] : [],
-        reportsImported: Number(parsed.reportsImported ?? 0),
-        errors: Array.isArray(parsed.errors) ? parsed.errors as string[] : [],
-      }, db)) {
+      const parsed = loadStoredActionResults(runId, db);
+      if (parsed && isInsufficientProgress(taskKey, parsed, db)) {
         finalStatus = "failed";
         finalError = "insufficient_progress_passive_report_only";
       }
@@ -1115,14 +1107,32 @@ function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
 function recoverStaleRuns(db: Database.Database): number {
   const cutoff = new Date(Date.now() - STALE_RUN_TIMEOUT_MS).toISOString();
   const now = new Date().toISOString();
+  const timeoutMessage = "Timed out: run exceeded 5 minute limit";
+
+  const staleRuns = db
+    .prepare(
+      `SELECT id, agent_id, started_at, context_snapshot_json
+       FROM heartbeat_runs
+       WHERE status = 'running' AND started_at < ? AND started_at IS NOT NULL`
+    )
+    .all(cutoff) as Array<{
+      id: string;
+      agent_id: string;
+      started_at: string | null;
+      context_snapshot_json: string | null;
+    }>;
+
+  if (staleRuns.length === 0) {
+    return 0;
+  }
 
   const result = db
     .prepare(
       `UPDATE heartbeat_runs
-       SET status = 'timed_out', finished_at = ?, error = 'Timed out: run exceeded 5 minute limit', updated_at = ?
+       SET status = 'timed_out', finished_at = ?, error = ?, updated_at = ?
        WHERE status = 'running' AND started_at < ? AND started_at IS NOT NULL`
     )
-    .run(now, now, cutoff);
+    .run(now, timeoutMessage, now, cutoff);
 
   if (result.changes > 0) {
     // Also fail the linked wakeup requests
@@ -1131,6 +1141,33 @@ function recoverStaleRuns(db: Database.Database): number {
        SET status = 'failed', finished_at = ?, updated_at = ?
        WHERE status = 'claimed' AND claimed_at < ?`
     ).run(now, now, cutoff);
+
+    for (const run of staleRuns) {
+      let taskId: string | null = null;
+      try {
+        const snapshot = run.context_snapshot_json ? JSON.parse(run.context_snapshot_json) as Record<string, unknown> : null;
+        const candidate = typeof snapshot?.taskId === "string" ? snapshot.taskId : null;
+        taskId = candidate && candidate !== "__heartbeat__" ? candidate : null;
+      } catch {
+        taskId = null;
+      }
+
+      if (!taskId) continue;
+
+      const startedAt = run.started_at ? Date.parse(run.started_at) : Number.NaN;
+      const durationMs = Number.isFinite(startedAt) ? Math.max(0, Date.now() - startedAt) : STALE_RUN_TIMEOUT_MS;
+
+      db.prepare(
+        `UPDATE execution_runs
+         SET status = 'failed', completed_at = ?, duration_ms = ?, error_message = ?, updated_at = ?
+         WHERE task_id = ?
+           AND agent_id = ?
+           AND provider = 'openclaw'
+           AND status IN ('pending', 'running')`
+      ).run(now, durationMs, timeoutMessage, now, taskId, run.agent_id);
+
+      reconcileTerminalOpenClawTaskState(taskId, db);
+    }
   }
 
   return result.changes;
@@ -1138,13 +1175,34 @@ function recoverStaleRuns(db: Database.Database): number {
 
 /* ── Prompt Building ── */
 
-function buildHeartbeatPrompt(
+export function buildHeartbeatPrompt(
   agent: AgentRow,
   contextSnapshot: Record<string, unknown>,
   session: TaskSession,
   db: Database.Database
 ): string {
   const sections: string[] = [];
+  const focusedTaskId = session.taskKey !== "__heartbeat__" ? session.taskKey : resolveTaskKey(contextSnapshot, agent.id, db);
+  const focusedTask = focusedTaskId && focusedTaskId !== "__heartbeat__"
+    ? db.prepare(
+        `SELECT t.id, t.title, t.description, t.status, t.priority, t.type, t.task_key,
+                p.name AS project_name, p.slug AS project_slug
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE t.id = ? AND t.archived_at IS NULL
+         LIMIT 1`
+      ).get(focusedTaskId) as {
+        id: string;
+        title: string;
+        description: string;
+        status: string;
+        priority: string;
+        type: string;
+        task_key: string;
+        project_name: string;
+        project_slug: string;
+      } | undefined
+    : undefined;
 
   // Load onboarding assets based on agent role
   const assets = loadOnboardingAssets(agent.role.toLowerCase());
@@ -1211,17 +1269,31 @@ function buildHeartbeatPrompt(
       project_slug: string;
     }>;
 
-  if (tasks.length > 0) {
+  if (focusedTask) {
+    sections.push("\n## Current Task Focus\n");
+    sections.push(`- [${focusedTask.task_key}] ${focusedTask.title} (${focusedTask.status}, ${focusedTask.priority}, ${focusedTask.type})`);
+    sections.push(`  Project: ${focusedTask.project_name}`);
+    if (focusedTask.description) {
+      sections.push(`  Description: ${focusedTask.description}`);
+    }
+    sections.push("  Instruction: Stay centered on this task. Do not drift into other projects unless this task explicitly requires it.");
+  }
+
+  const otherTasks = focusedTask ? tasks.filter((task) => task.id !== focusedTask.id) : tasks;
+
+  if (otherTasks.length > 0) {
     sections.push("\n## Your Assigned Tasks\n");
-    for (const task of tasks) {
+    for (const task of otherTasks.slice(0, focusedTask ? 8 : 20)) {
       sections.push(`- [${task.task_key}] ${task.title} (${task.status}, ${task.priority}, ${task.type})`);
-      sections.push(`  Project: ${task.project_name}`);
-      if (task.description) {
-        const desc = task.description.length > 200 ? task.description.slice(0, 200) + "..." : task.description;
-        sections.push(`  Description: ${desc}`);
+      if (!focusedTask) {
+        sections.push(`  Project: ${task.project_name}`);
+        if (task.description) {
+          const desc = task.description.length > 200 ? task.description.slice(0, 200) + "..." : task.description;
+          sections.push(`  Description: ${desc}`);
+        }
       }
     }
-  } else {
+  } else if (!focusedTask) {
     sections.push("\n## Your Assigned Tasks\nNo tasks currently assigned. Check the company backlog or create new tasks based on direction.");
   }
 
@@ -1244,10 +1316,18 @@ function buildHeartbeatPrompt(
       task_key: string; title: string; status: string; priority: string; assignee_name: string | null;
     }>;
 
-  if (companyTasks.length > 0) {
+  if (companyTasks.length > 0 && !focusedTask) {
     sections.push("\n## All Open Tasks in Company (DO NOT recreate these)\n");
     for (const t of companyTasks) {
       sections.push(`- [${t.task_key}] ${t.title} (${t.status}, ${t.priority}, assigned: ${t.assignee_name ?? "unassigned"})`);
+    }
+  } else if (companyTasks.length > 0 && focusedTask) {
+    const relatedCompanyTasks = companyTasks.filter((task) => task.task_key !== focusedTask.task_key).slice(0, 8);
+    if (relatedCompanyTasks.length > 0) {
+      sections.push("\n## Nearby Open Tasks (context only, do not switch unless needed)\n");
+      for (const t of relatedCompanyTasks) {
+        sections.push(`- [${t.task_key}] ${t.title} (${t.status}, ${t.priority}, assigned: ${t.assignee_name ?? "unassigned"})`);
+      }
     }
   }
 
@@ -1328,6 +1408,35 @@ function buildHeartbeatPrompt(
   }
 
   return sections.join("\n").trim();
+}
+
+function maybeResetTaskSessionForFreshAssignment(
+  agentId: string,
+  companyId: string,
+  taskKey: string,
+  contextSnapshot: Record<string, unknown>,
+  db: Database.Database,
+): void {
+  if (!taskKey || taskKey === "__heartbeat__") return;
+
+  const wakeSource = String(contextSnapshot.wakeSource ?? "").trim().toLowerCase();
+  const wakeReason = String(contextSnapshot.wakeReason ?? "").trim().toLowerCase();
+  const resetReasons = new Set([
+    "issue_assigned",
+    "task_created_in_progress",
+    "mission_control_comment",
+    "user_comment_on_assigned_task",
+  ]);
+
+  if (wakeSource !== "issue_assigned" && !resetReasons.has(wakeReason)) {
+    return;
+  }
+
+  db.prepare(
+    `UPDATE agent_task_sessions
+     SET session_params_json = '{}', session_display_id = NULL, last_error = NULL, updated_at = ?
+     WHERE company_id = ? AND agent_id = ? AND adapter_type = 'openclaw' AND task_key = ?`
+  ).run(new Date().toISOString(), companyId, agentId, taskKey);
 }
 
 /* ── OpenClaw Gateway Execution ── */
@@ -1530,11 +1639,9 @@ function isInsufficientProgress(
   if (!task?.assignee_agent_id) return false;
   if (["done", "blocked", "review"].includes(task.status)) return false;
 
-  // A persisted report/comment on the task is already concrete task-side evidence.
-  // Do not fail runs that leave definitive proof on the task even when no separate
-  // mc-action block was emitted.
-  if (actionResults.reportsImported > 0) return false;
-
+  // Plain imported reports/status text are not enough. Unfinished assigned work
+  // must include at least one concrete structured action (for example add_comment
+  // or update_task), otherwise the run is insufficient progress.
   return actionResults.actionsExecuted === 0;
 }
 
@@ -1542,6 +1649,49 @@ type ContinuationDecision = {
   shouldContinue: boolean;
   reason?: string;
 };
+
+function loadStoredActionResults(
+  runId: string,
+  db: Database.Database,
+): ActionResults | null {
+  try {
+    const stored = db
+      .prepare("SELECT result_json FROM heartbeat_runs WHERE id = ? LIMIT 1")
+      .get(runId) as { result_json: string | null } | undefined;
+
+    if (!stored?.result_json) return null;
+
+    const parsed = JSON.parse(stored.result_json) as Partial<ActionResults>;
+    return {
+      messagesImported: Number(parsed.messagesImported ?? 0),
+      actionsFound: Number(parsed.actionsFound ?? 0),
+      actionsExecuted: Number(parsed.actionsExecuted ?? 0),
+      actionsSkippedDedup: Number(parsed.actionsSkippedDedup ?? 0),
+      tasksCreated: Array.isArray(parsed.tasksCreated) ? parsed.tasksCreated as string[] : [],
+      approvalsCreated: Array.isArray(parsed.approvalsCreated) ? parsed.approvalsCreated as string[] : [],
+      reportsImported: Number(parsed.reportsImported ?? 0),
+      errors: Array.isArray(parsed.errors) ? parsed.errors as string[] : [],
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function decideFinishRunContinuation(
+  taskId: string,
+  runId: string,
+  finalStatus: HeartbeatRunStatus,
+  db = getOrchestrationDb(),
+): ContinuationDecision {
+  // Never auto-requeue failed/timed-out runs. They need intervention, not a
+  // fresh queue entry that can starve real work behind a retry storm.
+  if (finalStatus !== "succeeded") return { shouldContinue: false };
+
+  const actionResults = loadStoredActionResults(runId, db);
+  if (!actionResults) return { shouldContinue: false };
+
+  return decideTaskContinuation(taskId, actionResults, db);
+}
 
 type SessionGetMessage = {
   role?: string;
@@ -2513,7 +2663,15 @@ function decideTaskContinuation(
   if (!task || !task.assignee_agent_id) return { shouldContinue: false };
   if (task.status === "done" || task.status === "blocked") return { shouldContinue: false };
 
-  if (task.status === "on_deck") return { shouldContinue: true, reason: "continuation_on_deck_assignee" };
+  if (task.status === "on_deck") {
+    // Do not endlessly requeue untouched on-deck tasks. They need either a real
+    // state transition into active work or a fresh human/manager nudge, not an
+    // automatic continuation storm.
+    if (actionResults.actionsExecuted > 0) {
+      return { shouldContinue: true, reason: "continuation_on_deck_after_actions" };
+    }
+    return { shouldContinue: false };
+  }
   if (task.status === "review") return { shouldContinue: true, reason: "continuation_review_assignee" };
 
   if (task.status === "in_progress") {
@@ -2666,19 +2824,22 @@ function finishRun(
             }
           }
 
-          if (["in_progress", "review", "on_deck"].includes(continuationStatus)) {
+          const continuation = decideFinishRunContinuation(postTask.id, runId, status, db);
+
+          if (continuation.shouldContinue && ["in_progress", "review", "on_deck"].includes(continuationStatus)) {
+            const continuationReason = continuation.reason ?? `finish_run_continue_${continuationStatus}`;
             enqueueWakeup(
               {
                 agentId: postTask.assignee_agent_id,
                 companyId: projectRow.company_id,
                 source: "api",
-                reason: `finish_run_continue_${continuationStatus}`,
+                reason: continuationReason,
                 payload: {
                   taskId: postTask.id,
                   taskStatus: continuationStatus,
                   continuedFromExecutionRunId: executionRunId,
                 },
-                idempotencyKey: `finish-run-continuation:${executionRunId}:${continuationStatus}`,
+                idempotencyKey: `finish-run-continuation:${postTask.id}:${continuationReason}`,
               },
               db,
             );

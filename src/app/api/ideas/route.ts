@@ -1,16 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { queueOrStartBuild, readTasks, writeTasks } from "@/lib/build-queue";
 import { readReviews, writeReviews } from "@/lib/ideas-store";
+import { createTask, listTasks, lookupAgentByName, lookupProjectByName } from "@/lib/orchestration/service";
 
-function hasProcessingTaskForReview(reviewId: string) {
-  const tasks = readTasks();
-  return tasks.some(
-    (task) =>
-      (task.reviewId === reviewId ||
-        String(task.description || "").includes(`**Review ID:** ${reviewId}`)) &&
-      !["done", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
-  );
-}
+const IDEAS_PIPELINE_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
 async function enqueueProcessingTaskForReview(review: {
   id: string;
@@ -18,14 +10,33 @@ async function enqueueProcessingTaskForReview(review: {
   url?: string;
   title?: string;
 }) {
-  if (review.type !== "youtube" || hasProcessingTaskForReview(review.id)) {
-    return false;
+  if (review.type !== "youtube") {
+    return { created: false, deduplicated: false };
   }
 
-  const tasks = readTasks();
-  const processingTask = {
-    id: `TASK-${Date.now()}`,
-    title: `Process YouTube video: ${review.title}`,
+  const existingTask = listTasks({
+    companyIdOrSlug: IDEAS_PIPELINE_COMPANY_ID,
+    sourceReviewId: review.id,
+    includeArchived: false,
+  }).tasks.find((task) => !["done"].includes(String(task.status || "").toLowerCase()));
+
+  if (existingTask) {
+    return { created: false, deduplicated: true, taskId: existingTask.id };
+  }
+
+  const project = lookupProjectByName({
+    name: "ideas-pipeline",
+    companyId: IDEAS_PIPELINE_COMPANY_ID,
+  }).project;
+
+  const scout = lookupAgentByName({
+    name: "Scout",
+    companyId: project.companyId,
+  }).agent;
+
+  const createdTask = createTask({
+    projectId: project.id,
+    title: `Process YouTube video: ${review.title || "Untitled Review"}`,
     description: [
       `A new YouTube video was added to Ideas and needs to be processed.`,
       ``,
@@ -45,20 +56,16 @@ async function enqueueProcessingTaskForReview(review: {
       `   - Set \`takeaways\` array with objects matching the existing takeaway schema (id, title, description, video_timestamp, video_url, video_context, priority, effort, status: "idea")`,
       `   - Set \`title\` and \`channel\` if they can be extracted from the video metadata`,
     ].join("\n"),
-    status: "in-progress",
-    priority: "P2",
-    project: "idea-intake",
+    priority: "P1",
     type: "feature",
-    tags: ["youtube", "processing", "auto"],
-    reviewId: review.id,
-    created: new Date().toISOString(),
-    updated: new Date().toISOString(),
-  };
+    status: "in-progress",
+    assignee: scout.id,
+    labels: ["youtube", "processing", "auto", "ideas"],
+    createdBy: "ideas-pipeline",
+    sourceReviewId: review.id,
+  }).task;
 
-  tasks.unshift(processingTask);
-  writeTasks(tasks);
-  await queueOrStartBuild(processingTask.id, { source: "ideas-post-youtube" });
-  return true;
+  return { created: true, deduplicated: false, taskId: createdTask.id };
 }
 
 async function backfillProcessingTasksForExistingReviews(data: { reviews?: Array<Record<string, unknown>> }) {
@@ -147,10 +154,20 @@ export async function POST(req: NextRequest) {
 
   await writeReviews(data);
 
-  // When a YouTube video is added, automatically create a processing task
+  let processingTask: Awaited<ReturnType<typeof enqueueProcessingTaskForReview>> | null = null;
+
+  // When a YouTube video is added, automatically create a processing task.
+  // This hook is intentionally non-fatal because the review write already succeeded.
   if (newReview.type === "youtube") {
-    await enqueueProcessingTaskForReview(newReview);
+    try {
+      processingTask = await enqueueProcessingTaskForReview(newReview);
+    } catch (error) {
+      console.error("[ideas] failed to enqueue processing task", {
+        reviewId: newReview.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  return NextResponse.json(newReview, { status: 201 });
+  return NextResponse.json({ ...newReview, processingTask }, { status: 201 });
 }
