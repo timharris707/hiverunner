@@ -2872,6 +2872,9 @@ function resolveTaskKey(
   const directionTaskId = contextSnapshot.directionTaskId as string | undefined;
   if (directionTaskId) return directionTaskId;
 
+  const taskId = contextSnapshot.taskId as string | undefined;
+  if (taskId) return taskId;
+
   const issueId = contextSnapshot.issueId as string | undefined;
   if (issueId) return issueId;
 
