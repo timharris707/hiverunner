@@ -44,7 +44,7 @@ import { useLiveRunStream, type StreamTranscriptEntry } from "@/hooks/useLiveRun
 
 type Comment = NonNullable<OrchestrationTask["comments"]>[number];
 
-type Tab = "timeline" | "comments" | "subtasks";
+type Tab = "comments" | "subissues" | "activities";
 type ExecutionSnapshot = {
   state: "running" | "completed" | "unknown" | "skipped";
   terminal: boolean;
@@ -181,7 +181,7 @@ export default function TaskDetailPage() {
 
   const [activityTimeline, setActivityTimeline] = useState<OrchestrationTaskTimelineItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>("timeline");
+  const [activeTab, setActiveTab] = useState<Tab>("activities");
   const [commentDraft, setCommentDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [propsOpen, setPropsOpen] = useState(true);
@@ -234,7 +234,7 @@ export default function TaskDetailPage() {
 
   // Unified task detail timeline now comes from the main task detail payload.
   useEffect(() => {
-    if (activeTab !== "timeline") return;
+    if (activeTab !== "activities") return;
     setActivityLoading(false);
   }, [activeTab]);
 
@@ -739,9 +739,9 @@ export default function TaskDetailPage() {
               borderBottom: `0.5px solid ${color.border}`,
             }}>
               {([
-                ["timeline", "Timeline", Clock] as const,
+                ["activities", "Timeline", Clock] as const,
                 ["comments", "Comments", MessageSquare] as const,
-                ["subtasks", "Sub-tasks", GitBranch] as const,
+                ["subissues", "Sub-Issues", GitBranch] as const,
               ]).map(([key, label, TabIcon]) => (
                 <button
                   key={key}
@@ -764,7 +764,7 @@ export default function TaskDetailPage() {
 
             {/* Tab content */}
             <div style={{ paddingTop: "16px" }}>
-              {activeTab === "timeline" && (
+              {activeTab === "activities" && (
                 <div style={{ fontSize: "12px", color: color.textMuted }}>
                   {execution && execution.state !== "unknown" && execution.runId && (
                     <div style={{
@@ -1161,7 +1161,7 @@ export default function TaskDetailPage() {
                   </div>
                 </>
               )}
-              {activeTab === "subtasks" && (
+              {activeTab === "subissues" && (
                 taskDetail?.childTasks && taskDetail.childTasks.length > 0 ? (
                   <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                     {taskDetail.childTasks.map((child) => (
