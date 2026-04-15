@@ -94,6 +94,35 @@ function stableSortTimeline(items: OrchestrationTaskTimelineItem[]): Orchestrati
   });
 }
 
+function childTaskStatusRank(status: string): number {
+  switch (status) {
+    case "in-progress":
+      return 0;
+    case "review":
+      return 1;
+    case "blocked":
+      return 2;
+    case "on-deck":
+      return 3;
+    case "backlog":
+      return 4;
+    case "done":
+      return 5;
+    default:
+      return 99;
+  }
+}
+
+function sortChildTasks(items: OrchestrationTaskDetailSummary[]): OrchestrationTaskDetailSummary[] {
+  return [...items].sort((a, b) => {
+    const byStatus = childTaskStatusRank(a.status) - childTaskStatusRank(b.status);
+    if (byStatus !== 0) return byStatus;
+    const byUpdated = new Date(b.updated).getTime() - new Date(a.updated).getTime();
+    if (byUpdated !== 0) return byUpdated;
+    return a.id.localeCompare(b.id);
+  });
+}
+
 export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail: OrchestrationTaskDetail } {
   const db = getOrchestrationDb();
   const task = taskById(db, taskId);
@@ -364,7 +393,7 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
       `SELECT id, task_key FROM tasks WHERE parent_task_id = ? AND archived_at IS NULL ORDER BY updated_at DESC, created_at DESC`
     )
     .all(task.id) as Array<{ id: string; task_key: string | null }>;
-  const childTasks = childRows.map((row) => asSummary(taskById(db, row.id)));
+  const childTasks = sortChildTasks(childRows.map((row) => asSummary(taskById(db, row.id))));
 
   for (const child of childTasks) {
     timeline.push({
