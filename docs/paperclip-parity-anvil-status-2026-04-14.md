@@ -42,11 +42,13 @@ Primary files touched:
 Shipped:
 - dock now consults live run status map, not just stale persisted agent status
 - terminal run truth now overrides stale SSE / persisted `working` state
+- queued and pending run states now count as live, matching real run/session freshness
 - added live-status regression tests
 
 Key commits:
 - `3589fc10` Use live run status for dock agent indicators
 - `e040f043` Make terminal run status authoritative for live agents
+- `2b6bf190` Treat queued and pending runs as live
 
 Primary files touched:
 - `src/components/TenacitOS/Dock.tsx`
@@ -68,6 +70,11 @@ ORCHESTRATION_DB_PATH=/tmp/orchestration-foundation-workflow.db npx tsx src/lib/
 ### Live-status regression
 ```bash
 npx tsx src/lib/__tests__/orchestration-live-status.test.ts
+```
+
+### Unified route workflow regression
+```bash
+ORCHESTRATION_DB_PATH=/tmp/orchestration-foundation-workflow.db npx tsx src/lib/__tests__/orchestration-foundation-workflow.test.ts
 ```
 
 ## Known caveats
