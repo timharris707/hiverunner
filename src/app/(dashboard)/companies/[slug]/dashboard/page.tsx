@@ -30,6 +30,7 @@ import {
 } from "@/lib/orchestration/client";
 import { isAgentLive } from "@/lib/orchestration/live-status";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { isRunLive } from "@/lib/orchestration/live-status";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
@@ -918,9 +919,10 @@ function ActionBadge({ result, status }: { result: NonNullable<LiveRun["result"]
   const [expanded, setExpanded] = useState(false);
   const isRunning = status === "running" || status === "queued";
   const total = result.actionsExecuted + result.actionsSkippedDedup;
+  const reportCount = result.reportsImported ?? 0;
   const label = isRunning
-    ? `Executing ${total > 0 ? total : ""} action${total !== 1 ? "s" : ""}…`
-    : `Executed ${result.actionsExecuted} action${result.actionsExecuted !== 1 ? "s" : ""}`;
+    ? `Executing ${total > 0 ? total : ""} structured action${total !== 1 ? "s" : ""}…`
+    : `Executed ${result.actionsExecuted} structured action${result.actionsExecuted !== 1 ? "s" : ""}${reportCount > 0 ? `, imported ${reportCount} report${reportCount !== 1 ? "s" : ""}` : ""}`;
 
   return (
     <div className="mx-3 mb-1.5">
@@ -997,10 +999,9 @@ function AgentRunCard({
   const currentTasks = profile?.currentTasks ?? [];
   const hasPendingHireApproval = agent.hireApprovalStatus === "pending" || agent.hireApprovalStatus === "revision_requested";
 
-  // Determine if this card is "live" — agent is running or has a recent live run
-  // Only 'running' counts as live — 'queued' means the engine hasn't claimed
-  // the run yet, so the agent isn't actually executing.
-  const isLive = liveRun != null && liveRun.status === "running";
+  // Determine if this card is live from the same shared run-status truth used by
+  // the dock and other orchestration surfaces.
+  const isLive = liveRun != null && isRunLive(liveRun.status);
   const justFinished = liveRun != null && (liveRun.status === "succeeded" || liveRun.status === "failed" || liveRun.status === "timed_out");
 
   // Status dot — cyan when live, otherwise standard
@@ -1153,7 +1154,7 @@ function AgentRunCard({
             color: liveRun.status === "succeeded" ? "#4ade80" : "#ef4444",
           }}>
             {liveRun.status === "succeeded" ? "✓" : "✗"}{" "}
-            {liveRun.result.actionsExecuted} action{liveRun.result.actionsExecuted !== 1 ? "s" : ""},{" "}
+            {liveRun.result.actionsExecuted} structured action{liveRun.result.actionsExecuted !== 1 ? "s" : ""},{" "}
             {liveRun.result.reportsImported} report{liveRun.result.reportsImported !== 1 ? "s" : ""}
             {liveRun.result.errors.length > 0 && ` · ${liveRun.result.errors.length} error${liveRun.result.errors.length !== 1 ? "s" : ""}`}
           </span>

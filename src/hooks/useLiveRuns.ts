@@ -129,7 +129,7 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
       prevStatusRef.current = nextStatuses;
 
       // Track last time we saw active runs
-      const hasActive = runs.some((r) => r.status === "running" || r.status === "queued");
+      const hasActive = runs.some((r) => r.status === "running" || r.status === "queued" || r.status === "pending");
       if (hasActive) {
         lastActiveRef.current = Date.now();
       }
@@ -185,7 +185,7 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
   }, [transitions]);
 
   const hasActiveRuns = Array.from(runsByAgentId.values()).some(
-    (r) => r.status === "running" || r.status === "queued"
+    (r) => r.status === "running" || r.status === "queued" || r.status === "pending"
   );
 
   return { runsByAgentId, transitions, isPolling, hasActiveRuns };
