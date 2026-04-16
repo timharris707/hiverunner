@@ -19,6 +19,18 @@ import {
   parseServerMessage,
   HENRY_VOICE_SYSTEM_PROMPT,
 } from "@/lib/gemini-live";
+import {
+  extractActionIntents,
+  type HenryActionIntent,
+} from "@/lib/voice-action-intent";
+import {
+  normalizeVoiceSessionBootstrap,
+} from "@/lib/voice-session-bootstrap";
+import {
+  normalizeResolvedVoiceBinding,
+  type ResolvedVoiceBinding,
+  type VoiceBindingRequest,
+} from "@/lib/voice-binding";
 
 export type VoiceState =
   | "idle"
@@ -38,6 +50,42 @@ interface SessionConfig {
   wsUrl: string;
   systemPrompt: string;
   voiceName: string;
+}
+
+export interface UseVoiceSessionInput {
+  bindingRequest?: VoiceBindingRequest;
+}
+
+export function parseHenryTurnOutput(
+  transcriptText: string,
+  turnId: string,
+  now = Date.now(),
+  textFallback = ""
+): {
+  cleanedText: string;
+  intents: HenryActionIntent[];
+  hasTranscriptText: boolean;
+} {
+  const normalizedTranscriptText = transcriptText.trim();
+  const normalizedTextFallback = textFallback.trim();
+  const parsedTranscript = normalizedTranscriptText
+    ? extractActionIntents(normalizedTranscriptText, turnId, now)
+    : null;
+  const parsedFallback = normalizedTextFallback
+    ? extractActionIntents(normalizedTextFallback, turnId, now)
+    : null;
+
+  const cleanedTranscript = parsedTranscript?.cleanedText?.trim() ?? "";
+  const cleanedFallback = parsedFallback?.cleanedText?.trim() ?? "";
+  const cleanedText = cleanedTranscript || cleanedFallback;
+
+  return {
+    cleanedText,
+    intents: parsedFallback?.intents.length
+      ? parsedFallback.intents
+      : (parsedTranscript?.intents ?? []),
+    hasTranscriptText: cleanedText.length > 0,
+  };
 }
 
 // AudioWorklet processor code for CAPTURE — inlined as a blob URL
@@ -132,9 +180,15 @@ function base64ToFloat32(base64: string): Float32Array {
   return float32;
 }
 
-export function useVoiceSession() {
+export function useVoiceSession(input?: UseVoiceSessionInput) {
   const [state, setState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [intents, setIntents] = useState<HenryActionIntent[]>([]);
+  const [binding, setBinding] = useState<ResolvedVoiceBinding | undefined>(() => {
+    return input?.bindingRequest
+      ? normalizeResolvedVoiceBinding(input.bindingRequest)
+      : undefined;
+  });
   const [error, setError] = useState<string | null>(null);
   const [isSetupRequired, setIsSetupRequired] = useState(false);
 
@@ -151,6 +205,8 @@ export function useVoiceSession() {
   const pendingUserIndexRef = useRef<number | null>(null);
   const pendingHenryIndexRef = useRef<number | null>(null);
   const lastSavedTranscriptLengthRef = useRef(0);
+  const henryTurnCounterRef = useRef(0);
+  const bindingRequest = input?.bindingRequest;
 
   // Keep transcriptRef in sync
   const updateTranscript = useCallback((updater: (prev: TranscriptEntry[]) => TranscriptEntry[]) => {
@@ -174,14 +230,48 @@ export function useVoiceSession() {
     }).catch(() => {});
   }, []);
 
+  const finalizeHenryOutput = useCallback((transcriptText: string, textFallback = "") => {
+    const now = Date.now();
+    henryTurnCounterRef.current += 1;
+    const turnId = `voice-turn:${henryTurnCounterRef.current}:${now.toString(36)}`;
+    const parsed = parseHenryTurnOutput(transcriptText, turnId, now, textFallback);
+
+    if (parsed.intents.length > 0) {
+      setIntents((prev) => [...prev, ...parsed.intents]);
+    }
+
+    if (!parsed.hasTranscriptText) {
+      return;
+    }
+
+    updateTranscript((prev) => {
+      const next = [...prev];
+      const pendingIndex = pendingHenryIndexRef.current;
+      if (pendingIndex != null && next[pendingIndex]?.role === "henry") {
+        next[pendingIndex] = { ...next[pendingIndex], text: parsed.cleanedText };
+        return next;
+      }
+      pendingHenryIndexRef.current = next.length;
+      next.push({ role: "henry", text: parsed.cleanedText, timestamp: now });
+      return next;
+    });
+  }, [updateTranscript]);
+
   const connect = useCallback(async () => {
     setState("connecting");
     setError(null);
     setIsSetupRequired(false);
+    setBinding(bindingRequest ? normalizeResolvedVoiceBinding(bindingRequest) : undefined);
 
     try {
+      const sessionRequestBody = bindingRequest ?? {};
+
       // 1. Get session config from server
-      const res = await fetch("/api/voice/session", { method: "POST" });
+      const res = await fetch("/api/voice/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sessionRequestBody),
+      });
       const data = await res.json();
 
       if (!res.ok) {
@@ -194,7 +284,9 @@ export function useVoiceSession() {
         throw new Error(data.error || "Failed to get session config");
       }
 
-      const config: SessionConfig = data;
+      const bootstrap = normalizeVoiceSessionBootstrap(data);
+      const config: SessionConfig = bootstrap;
+      setBinding(bootstrap.binding);
 
       // 2. Request mic access
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -298,19 +390,7 @@ export function useVoiceSession() {
 
             case "output_transcription": {
               currentOutputTranscript.current += parsed.text;
-              const nextText = currentOutputTranscript.current.trim();
-              if (!nextText) break;
-              updateTranscript((prev) => {
-                const next = [...prev];
-                const pendingIndex = pendingHenryIndexRef.current;
-                if (pendingIndex != null && next[pendingIndex]?.role === "henry") {
-                  next[pendingIndex] = { ...next[pendingIndex], text: nextText };
-                  return next;
-                }
-                pendingHenryIndexRef.current = next.length;
-                next.push({ role: "henry", text: nextText, timestamp: Date.now() });
-                return next;
-              });
+              setState("speaking");
               break;
             }
 
@@ -322,18 +402,8 @@ export function useVoiceSession() {
             case "generation_complete": {
               const henryTranscript = currentOutputTranscript.current.trim();
               const henryTextFallback = currentTextRef.current.trim();
-              if (!henryTranscript && henryTextFallback) {
-                updateTranscript((prev) => {
-                  const next = [...prev];
-                  const pendingIndex = pendingHenryIndexRef.current;
-                  if (pendingIndex != null && next[pendingIndex]?.role === "henry") {
-                    next[pendingIndex] = { ...next[pendingIndex], text: henryTextFallback };
-                    return next;
-                  }
-                  pendingHenryIndexRef.current = next.length;
-                  next.push({ role: "henry", text: henryTextFallback, timestamp: Date.now() });
-                  return next;
-                });
+              if (henryTranscript || henryTextFallback) {
+                finalizeHenryOutput(henryTranscript, henryTextFallback);
               }
               currentInputTranscript.current = "";
               currentOutputTranscript.current = "";
@@ -379,7 +449,7 @@ export function useVoiceSession() {
       setError(msg);
       setState("error");
     }
-  }, [persistTranscript, state, updateTranscript]);
+  }, [bindingRequest, finalizeHenryOutput, persistTranscript, updateTranscript]);
 
   const disconnect = useCallback(() => {
     persistTranscript();
@@ -431,12 +501,14 @@ export function useVoiceSession() {
         { role: "user", text, timestamp: Date.now() },
       ]);
     },
-    []
+    [updateTranscript]
   );
 
   return {
     state,
     transcript,
+    intents,
+    binding,
     error,
     isSetupRequired,
     connect,

@@ -1,13 +1,15 @@
 "use client";
 
 /**
- * Voice Henry — realtime voice conversation with Henry (Chief of Staff).
+ * Henry Voice — realtime voice conversation with Henry (Chief of Staff).
  *
- * Uses Gemini 2.0 Flash Live API for low-latency bidirectional audio streaming.
- * Supports voice input, text fallback, live transcript, and interruption.
+ * Uses Gemini 3.1 Flash Live for low-latency bidirectional audio streaming.
+ * Supports voice input, text fallback, bound task/project context, live
+ * conversation flow, and structured Henry action markers.
  */
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
   Mic,
   MicOff,
@@ -18,8 +20,177 @@ import {
   Zap,
   AlertCircle,
   Info,
+  FolderKanban,
+  ListTodo,
+  UserRound,
 } from "lucide-react";
+import { ConversationFlow } from "@/components/voice/ConversationFlow";
+import { ToolOutcomePanel } from "@/components/voice/ToolOutcomePanel";
+import { useConversationFlow } from "@/hooks/useConversationFlow";
 import { useVoiceSession, type VoiceState } from "@/hooks/useVoiceSession";
+import type { ToolDispatchEvent } from "@/lib/voice-tool-dispatch";
+import {
+  normalizeResolvedVoiceBinding,
+  type ResolvedVoiceBinding,
+  type VoiceBindingRequest,
+} from "@/lib/voice-binding";
+import type { VoiceRuntimeMode } from "@/lib/voice-runtime";
+
+const EMPTY_TOOL_EVENTS: ToolDispatchEvent[] = [];
+
+interface SearchParamReader {
+  get(name: string): string | null;
+}
+
+function getOptionalQueryValue(searchParams: SearchParamReader, key: string): string | undefined {
+  const value = searchParams.get(key);
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function buildBindingRequestFromSearchParams(searchParams: SearchParamReader): VoiceBindingRequest | undefined {
+  const request: VoiceBindingRequest = {};
+
+  const companySlug = getOptionalQueryValue(searchParams, "companySlug");
+  const projectId = getOptionalQueryValue(searchParams, "projectId");
+  const projectSlug = getOptionalQueryValue(searchParams, "projectSlug");
+  const taskId = getOptionalQueryValue(searchParams, "taskId");
+  const taskKey = getOptionalQueryValue(searchParams, "taskKey");
+  const agentId = getOptionalQueryValue(searchParams, "agentId");
+  const source = getOptionalQueryValue(searchParams, "source");
+  const mode = getOptionalQueryValue(searchParams, "mode");
+
+  if (companySlug) request.companySlug = companySlug;
+  if (projectId) request.projectId = projectId;
+  if (projectSlug) request.projectSlug = projectSlug;
+  if (taskId) request.taskId = taskId;
+  if (taskKey) request.taskKey = taskKey;
+  if (agentId) request.agentId = agentId;
+  if (source) request.source = source as VoiceBindingRequest["source"];
+  if (mode) request.mode = mode as VoiceBindingRequest["mode"];
+
+  return Object.keys(request).length > 0 ? request : undefined;
+}
+
+function formatTitleToken(value: string | undefined): string {
+  if (!value) {
+    return "Discuss";
+  }
+
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function deriveRuntimeMode(state: VoiceState): VoiceRuntimeMode {
+  switch (state) {
+    case "speaking":
+      return "speaking";
+    case "connected":
+    case "listening":
+      return "listening";
+    case "error":
+      return "error";
+    case "connecting":
+    case "idle":
+    default:
+      return "idle";
+  }
+}
+
+function buildTaskLabel(binding: ResolvedVoiceBinding): string | null {
+  if (binding.taskTitle && binding.taskKey) {
+    return `[${binding.taskKey}] ${binding.taskTitle}`;
+  }
+
+  return binding.taskTitle ?? binding.taskKey ?? binding.taskId ?? null;
+}
+
+function buildProjectLabel(binding: ResolvedVoiceBinding): string {
+  return binding.projectName ?? binding.projectSlug ?? binding.projectId ?? "Unscoped project";
+}
+
+function buildAgentFallback(binding: ResolvedVoiceBinding): string | null {
+  return binding.agentName ?? binding.agentId ?? null;
+}
+
+function BoundContextCard({ binding }: { binding: ResolvedVoiceBinding }) {
+  const taskLabel = buildTaskLabel(binding);
+  const projectLabel = buildProjectLabel(binding);
+  const agentLabel = buildAgentFallback(binding);
+  const modeLabel = formatTitleToken(binding.mode);
+  const scopeLabel = binding.scope === "task" ? "Task-bound session" : "Project-bound session";
+  const statusLabel = binding.taskStatus ?? null;
+  const companyLabel = binding.companySlug ?? "mission-control";
+
+  return (
+    <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-amber-200">
+          {scopeLabel}
+        </span>
+        <span className="rounded-full border border-zinc-700 bg-zinc-900/80 px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-zinc-300">
+          {modeLabel}
+        </span>
+        <span className="rounded-full border border-zinc-700/80 bg-zinc-950/80 px-2 py-1 text-[10px] font-medium text-zinc-500">
+          {companyLabel}
+        </span>
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+          <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+            <FolderKanban size={12} />
+            Project
+          </div>
+          <div className="text-sm font-medium text-zinc-100">{projectLabel}</div>
+        </div>
+
+        {taskLabel && (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+            <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+              <ListTodo size={12} />
+              Task
+            </div>
+            <div className="text-sm font-medium text-zinc-100">{taskLabel}</div>
+            {statusLabel && (
+              <div className="mt-1 text-[11px] text-zinc-500">Status: {statusLabel}</div>
+            )}
+          </div>
+        )}
+
+        {agentLabel && (
+          <div className="rounded-md border border-zinc-800 bg-zinc-950/70 p-3">
+            <div className="mb-1 flex items-center gap-2 text-[10px] font-medium uppercase tracking-wide text-zinc-500">
+              <UserRound size={12} />
+              Agent
+            </div>
+            <div className="flex items-center gap-2">
+              {binding.agentAvatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={binding.agentAvatarUrl}
+                  alt={agentLabel}
+                  className="h-8 w-8 rounded-full border border-zinc-700 object-cover"
+                />
+              ) : (
+                <div className="flex h-8 w-8 items-center justify-center rounded-full border border-zinc-700 bg-zinc-900 text-[10px] font-semibold text-zinc-300">
+                  {agentLabel.slice(0, 2).toUpperCase()}
+                </div>
+              )}
+              <div className="text-sm font-medium text-zinc-100">{agentLabel}</div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Voice State Indicator ───────────────────────────────────────────────────
 
@@ -63,11 +234,10 @@ function StateIndicator({ state }: { state: VoiceState }) {
 
 function VoiceVisualizer({ state }: { state: VoiceState }) {
   const isActive = state === "listening" || state === "speaking";
-  const color = state === "speaking" ? "#d97706" : "#d97706";
+  const color = "#d97706";
 
   return (
     <div className="relative flex items-center justify-center w-48 h-48 mx-auto my-8">
-      {/* Outer rings */}
       {[1, 2, 3].map((i) => (
         <div
           key={i}
@@ -85,7 +255,6 @@ function VoiceVisualizer({ state }: { state: VoiceState }) {
         />
       ))}
 
-      {/* Center avatar */}
       <div
         className="relative z-10 w-20 h-20 rounded-full flex items-center justify-center text-3xl border-2 transition-all duration-300"
         style={{
@@ -100,40 +269,6 @@ function VoiceVisualizer({ state }: { state: VoiceState }) {
   );
 }
 
-// ─── Transcript Panel ────────────────────────────────────────────────────────
-
-function TranscriptPanel({
-  transcript,
-}: {
-  transcript: Array<{ role: "user" | "henry"; text: string; timestamp: number }>;
-}) {
-  if (transcript.length === 0) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-zinc-500 text-sm text-center px-6">
-        Transcript will appear here for capture debugging while we verify Henry’s side is being saved properly.
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 overflow-y-auto space-y-3 pr-2 min-h-0">
-      {transcript.map((entry, i) => (
-        <div
-          key={i}
-          className={`flex ${entry.role === "user" ? "justify-end" : "justify-start"}`}
-        >
-          <div className="max-w-[80%] rounded-lg px-3 py-2 text-sm bg-stone-800/40 text-stone-300 border border-stone-600/30">
-            <div className="text-xs opacity-50 mb-1">
-              {entry.role === "user" ? "You" : "Henry ⚡"}
-            </div>
-            {entry.text}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Setup Guide ─────────────────────────────────────────────────────────────
 
 function SetupGuide() {
@@ -144,7 +279,7 @@ function SetupGuide() {
         Google AI API Key Required
       </div>
       <div className="text-sm text-zinc-300 space-y-2">
-        <p>To use Voice Henry, you need a Google AI API key with Gemini Live access:</p>
+        <p>To use Henry Voice, you need a Google AI API key with Gemini Live access:</p>
         <ol className="list-decimal list-inside space-y-1 text-zinc-400">
           <li>
             Go to{" "}
@@ -152,20 +287,18 @@ function SetupGuide() {
               https://aistudio.google.com/apikey
             </span>
           </li>
-          <li>
-            Create or select an API key
-          </li>
+          <li>Create or select an API key</li>
           <li>
             Add{" "}
             <code className="bg-zinc-800 px-1 py-0.5 rounded text-xs">
-              GOOGLE_AI_API_KEY=your-key
+              GOOGLE_AI_API_KEY=***
             </code>{" "}
             to <code className="bg-zinc-800 px-1 py-0.5 rounded text-xs">.env.local</code>
           </li>
           <li>Restart the dev server</li>
         </ol>
         <p className="text-xs text-zinc-500 mt-2">
-          Gemini 2.0 Flash Live is available on the free tier with generous rate limits.
+          Gemini 3.1 Flash Live is available on the free tier with generous rate limits.
         </p>
       </div>
     </div>
@@ -201,7 +334,7 @@ function BoardRunnerArchitecture() {
 
         <div className="text-sm font-sans text-zinc-300 space-y-2">
           <p>
-            <strong>Phase 1 (this prototype):</strong> Voice Henry — direct 1:1 voice
+            <strong>Phase 1 (this prototype):</strong> Henry Voice — direct 1:1 voice
             conversation with Henry via Gemini Live WebSocket. Validates audio I/O,
             latency, interruption handling, and persona consistency.
           </p>
@@ -230,27 +363,13 @@ function BoardRunnerArchitecture() {
             <strong>Key findings:</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 text-zinc-400 ml-2">
-            <li>
-              Gemini 2.0 Flash Live supports bidirectional audio streaming via WebSocket
-            </li>
-            <li>
-              Interruption is native — client can speak over server audio, server detects and stops
-            </li>
-            <li>
-              Audio format: PCM16 @ 16kHz input, PCM16 @ 24kHz output
-            </li>
-            <li>
-              System instruction sets persona at connection time (no per-turn system prompts)
-            </li>
-            <li>
-              Function calling is supported — enables tool-use patterns for agent delegation
-            </li>
-            <li>
-              Session duration: ~15 min default, extendable. Reconnect logic needed for long sessions.
-            </li>
-            <li>
-              Recommended architecture: browser-direct WebSocket (no server proxy needed for audio)
-            </li>
+            <li>Gemini 3.1 Flash Live supports bidirectional audio streaming via WebSocket</li>
+            <li>Interruption is native — client can speak over server audio, server detects and stops</li>
+            <li>Audio format: PCM16 @ 16kHz input, PCM16 @ 24kHz output</li>
+            <li>System instruction sets persona at connection time (no per-turn system prompts)</li>
+            <li>Function calling is supported — enables tool-use patterns for agent delegation</li>
+            <li>Session duration: ~15 min default, extendable. Reconnect logic needed for long sessions.</li>
+            <li>Recommended architecture: browser-direct WebSocket (no server proxy needed for audio)</li>
           </ul>
         </div>
       </div>
@@ -260,21 +379,50 @@ function BoardRunnerArchitecture() {
 
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
-export default function VoiceHenryPage() {
+export default function HenryVoicePage() {
+  const searchParams = useSearchParams();
+  const bindingRequest = useMemo(
+    () => buildBindingRequestFromSearchParams(searchParams),
+    [searchParams]
+  );
+  const requestedBinding = useMemo(
+    () => (bindingRequest ? normalizeResolvedVoiceBinding(bindingRequest) : undefined),
+    [bindingRequest]
+  );
+
   const {
     state,
     transcript,
+    intents,
+    binding,
     error,
     isSetupRequired,
     connect,
     disconnect,
     sendText,
-  } = useVoiceSession();
+  } = useVoiceSession({ bindingRequest });
 
   const [textInput, setTextInput] = useState("");
   const [showArchitecture, setShowArchitecture] = useState(false);
 
   const isConnected = state !== "idle" && state !== "error";
+  const runtimeMode = useMemo(() => deriveRuntimeMode(state), [state]);
+  const conversationEntries = useConversationFlow(transcript, EMPTY_TOOL_EVENTS);
+  const visibleIntents = useMemo(
+    () => intents.filter((intent) => intent.name === "session.marker" || intent.name === "tool.request"),
+    [intents]
+  );
+  const displayBinding = useMemo(() => {
+    if (binding && binding.scope !== "global") {
+      return binding;
+    }
+
+    if (requestedBinding && requestedBinding.scope !== "global") {
+      return requestedBinding;
+    }
+
+    return null;
+  }, [binding, requestedBinding]);
 
   function handleSendText() {
     if (!textInput.trim()) return;
@@ -284,12 +432,11 @@ export default function VoiceHenryPage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <Zap className="text-stone-400" size={24} />
-            Voice Henry
+            Henry Voice
             <span className="text-sm font-normal text-zinc-500 ml-2">
               Gemini Live prototype
             </span>
@@ -297,6 +444,25 @@ export default function VoiceHenryPage() {
           <p className="text-sm text-zinc-400 mt-1">
             Realtime voice conversation with Henry — Chief of Staff
           </p>
+          {displayBinding ? (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
+              <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-amber-200">
+                {displayBinding.scope === "task" ? "Task session" : "Project session"}
+              </span>
+              <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-1">
+                {formatTitleToken(displayBinding.mode)} mode
+              </span>
+            </div>
+          ) : (
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-1">
+                Voice lab
+              </span>
+              <span className="rounded-full border border-zinc-800 bg-zinc-950 px-2 py-1">
+                Unbound session
+              </span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           <StateIndicator state={state} />
@@ -309,18 +475,13 @@ export default function VoiceHenryPage() {
         </div>
       </div>
 
-      {/* Setup guide if needed */}
       {isSetupRequired && <SetupGuide />}
-
-      {/* Architecture panel */}
       {showArchitecture && <BoardRunnerArchitecture />}
 
-      {/* Main voice interface */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-6 items-stretch">
         <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-6 flex flex-col items-center">
           <VoiceVisualizer state={state} />
 
-          {/* Connect/disconnect button */}
           <div className="flex items-center gap-4 mt-4">
             {!isConnected ? (
               <button
@@ -329,7 +490,7 @@ export default function VoiceHenryPage() {
                 className="flex items-center gap-2 px-6 py-3 rounded-full bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium transition-colors"
               >
                 <Phone size={18} />
-                {state === "connecting" ? "Connecting..." : "Start Voice Session"}
+                {state === "connecting" ? "Connecting..." : displayBinding ? "Start Bound Session" : "Start Voice Session"}
               </button>
             ) : (
               <button
@@ -342,7 +503,6 @@ export default function VoiceHenryPage() {
             )}
           </div>
 
-          {/* Status indicators */}
           <div className="flex items-center gap-6 mt-6 text-xs text-zinc-500">
             <div className="flex items-center gap-1.5">
               {state === "listening" ? (
@@ -361,7 +521,6 @@ export default function VoiceHenryPage() {
             </div>
           </div>
 
-          {/* Text input fallback */}
           {isConnected && (
             <div className="mt-6 w-full max-w-md">
               <div className="flex gap-2">
@@ -384,33 +543,42 @@ export default function VoiceHenryPage() {
             </div>
           )}
 
-          {/* Error display */}
           {error && !isSetupRequired && (
             <div className="mt-4 text-sm text-red-400 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 w-full max-w-md text-center">
               {error}
             </div>
           )}
 
-          {/* Model info */}
           <div className="mt-6 text-xs text-zinc-600 text-center">
             Gemini 3.1 Flash Live · PCM16 @ 16kHz in / 24kHz out · WebSocket direct
           </div>
         </div>
 
-        <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4 flex flex-col min-h-[400px] lg:max-h-[680px]">
-          <div className="text-sm font-medium text-zinc-400 mb-3 flex items-center gap-2">
-            Diagnostic Transcript
-            {transcript.length > 0 && (
-              <span className="text-xs text-zinc-600">
-                ({transcript.length} message{transcript.length !== 1 ? "s" : ""})
-              </span>
-            )}
+        <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4 flex flex-col gap-4 min-h-[400px] lg:max-h-[720px]">
+          {displayBinding && <BoundContextCard binding={displayBinding} />}
+
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-sm font-medium text-zinc-300 flex items-center gap-2">
+              Conversation
+              {transcript.length > 0 && (
+                <span className="text-xs text-zinc-600">
+                  {transcript.length} message{transcript.length !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <div className="text-[11px] text-zinc-500">
+              {displayBinding ? "Bound Mission Control context" : "Henry Voice lab"}
+            </div>
           </div>
-          <TranscriptPanel transcript={transcript} />
+
+          <div className="min-h-[260px] flex-1 overflow-hidden rounded-lg border border-zinc-800/80 bg-zinc-950/60 p-3">
+            <ConversationFlow entries={conversationEntries} runtimeMode={runtimeMode} />
+          </div>
+
+          <ToolOutcomePanel intents={visibleIntents} />
         </div>
       </div>
 
-      {/* Feasibility summary */}
       <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4">
         <h3 className="text-sm font-medium text-zinc-300 mb-2">
           Feasibility Assessment
@@ -419,7 +587,7 @@ export default function VoiceHenryPage() {
           <div className="space-y-1">
             <div className="text-green-400 font-medium">Confirmed</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>Gemini 2.0 Flash Live model available</li>
+              <li>Gemini 3.1 Flash Live model available</li>
               <li>WebSocket bidirectional audio streaming</li>
               <li>Native interruption support (VAD)</li>
               <li>System instruction for persona injection</li>
@@ -440,7 +608,7 @@ export default function VoiceHenryPage() {
           <div className="space-y-1">
             <div className="text-stone-300 font-medium">BoardRunner Path</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>Phase 1: Voice Henry (this prototype)</li>
+              <li>Phase 1: Henry Voice (this prototype)</li>
               <li>Phase 2: Henry as voice moderator for advisory</li>
               <li>Phase 3: Multi-agent voice with agent-switching</li>
               <li>Reconnect logic for 15min+ sessions</li>
