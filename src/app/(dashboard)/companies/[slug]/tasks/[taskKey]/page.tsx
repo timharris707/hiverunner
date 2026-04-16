@@ -181,7 +181,7 @@ export default function TaskDetailPage() {
 
   const [activityTimeline, setActivityTimeline] = useState<OrchestrationTaskTimelineItem[]>([]);
   const [activityLoading, setActivityLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<Tab>("activities");
+  const [activeTab, setActiveTab] = useState<Tab>("comments");
   const [commentDraft, setCommentDraft] = useState("");
   const [posting, setPosting] = useState(false);
   const [propsOpen, setPropsOpen] = useState(true);
@@ -739,9 +739,9 @@ export default function TaskDetailPage() {
               borderBottom: `0.5px solid ${color.border}`,
             }}>
               {([
-                ["activities", "Timeline", Clock] as const,
                 ["comments", "Comments", MessageSquare] as const,
                 ["subissues", "Sub-Issues", GitBranch] as const,
+                ["activities", "Activity", Clock] as const,
               ]).map(([key, label, TabIcon]) => (
                 <button
                   key={key}
