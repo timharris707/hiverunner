@@ -4,7 +4,8 @@
  * Returns the Gemini Live API connection parameters for the client.
  * The actual WebSocket connection happens client-side (browser → Gemini directly).
  *
- * Security: API key is passed server-side so it's not bundled in client JS.
+ * Security note: the API key is loaded server-side so it is not bundled into client JS,
+ * but this endpoint still returns that key inside wsUrl for the browser's direct Gemini connection.
  * In production, this should use ephemeral tokens or a server-side WS proxy.
  */
 
@@ -14,9 +15,20 @@ import {
   buildWebSocketUrl,
   HENRY_VOICE_SYSTEM_PROMPT,
 } from "@/lib/gemini-live";
+import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
+import { normalizeResolvedVoiceBinding, normalizeVoiceBindingRequest } from "@/lib/voice-binding";
 import { buildCurrentVoiceContext } from "@/lib/voice-memory";
+import { resolveVoiceTaskContext } from "@/lib/voice-task-context";
 
-export async function POST() {
+function buildGlobalSystemPrompt(currentContext: string): string {
+  return `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh startup context\nThe following context was loaded fresh at voice-session startup. Treat it as more current than any older recollection.\n\n${currentContext}`;
+}
+
+function buildScopedSystemPrompt(promptContext: string): string {
+  return `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh bound session context\nThe following context was resolved live from Mission Control for this bound voice session. Treat it as the current operating context for the conversation.\n\n${promptContext}`;
+}
+
+export async function POST(req: Request) {
   const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
@@ -36,25 +48,52 @@ export async function POST() {
     );
   }
 
-  // Return connection config — client will open WebSocket directly
-  const wsUrl = buildWebSocketUrl({
-    apiKey,
-    model: GEMINI_LIVE_MODEL,
-  });
-  const currentContext = await buildCurrentVoiceContext();
-  const systemPrompt = `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh startup context\nThe following context was loaded fresh at voice-session startup. Treat it as more current than any older recollection.\n\n${currentContext}`;
+  try {
+    let requestBody: unknown = {};
 
-  return NextResponse.json({
-    wsUrl,
-    model: GEMINI_LIVE_MODEL,
-    systemPrompt,
-    voiceName: "Charon",
-    capabilities: {
-      audioInput: true,
-      audioOutput: true,
-      textInput: true,
-      textOutput: true,
-      interruption: true,
-    },
-  });
+    try {
+      const rawBody = await req.text();
+      if (rawBody.trim()) {
+        requestBody = JSON.parse(rawBody);
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        return errorResponse(400, "invalid_json", "Request body must be valid JSON");
+      }
+      throw error;
+    }
+
+    const bindingRequest = normalizeVoiceBindingRequest(requestBody);
+
+    // Return connection config — client will open WebSocket directly
+    const wsUrl = buildWebSocketUrl({
+      apiKey,
+      model: GEMINI_LIVE_MODEL,
+    });
+
+    const scopedContext = bindingRequest.scope === "global"
+      ? null
+      : resolveVoiceTaskContext(bindingRequest);
+    const binding = scopedContext?.binding ?? normalizeResolvedVoiceBinding(bindingRequest);
+    const systemPrompt = bindingRequest.scope === "global"
+      ? buildGlobalSystemPrompt(await buildCurrentVoiceContext())
+      : buildScopedSystemPrompt(scopedContext!.promptContext);
+
+    return NextResponse.json({
+      wsUrl,
+      model: GEMINI_LIVE_MODEL,
+      systemPrompt,
+      voiceName: "Charon",
+      binding,
+      capabilities: {
+        audioInput: true,
+        audioOutput: true,
+        textInput: true,
+        textOutput: true,
+        interruption: true,
+      },
+    });
+  } catch (error) {
+    return handleRouteError(error, "voice-session:post");
+  }
 }
