@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
 import { ProjectTabBar } from "../ProjectTabBar";
+import { LaunchHenryLink } from "@/components/voice/LaunchHenryLink";
 import { PageHeader } from "@/lib/ui/primitives";
 import { P, color, font, radius, space } from "@/lib/ui/tokens";
 
@@ -15,20 +16,33 @@ export default function ProjectOverviewPage({
   const { slug, projectSlug } = use(params);
   const [project, setProject] = useState<OrchestrationProject | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
-      const projects = await listProjects({ company: slug });
-      if (cancelled) return;
-      setProject(projects.find((p) => p.slug === projectSlug || p.id === projectSlug) ?? null);
-      setLoading(false);
+      try {
+        setLoading(true);
+        setError(null);
+        const projects = await listProjects({ company: slug });
+        if (cancelled) return;
+        setProject(projects.find((p) => p.slug === projectSlug || p.id === projectSlug) ?? null);
+      } catch (err) {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : "Failed to load project.");
+        setProject(null);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
     };
     void load();
     return () => { cancelled = true; };
   }, [slug, projectSlug]);
 
   if (loading) return <div style={{ padding: 32, color: P.muted, fontSize: 13 }}>Loading...</div>;
+  if (error) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>{error}</div>;
   if (!project) return <div style={{ padding: 32, color: P.error, fontSize: 13 }}>Project not found.</div>;
 
   const STATUS_STYLE: Record<string, { color: string; bg: string }> = {
@@ -44,6 +58,16 @@ export default function ProjectOverviewPage({
       <PageHeader
         icon={<span style={{ display: "inline-block", width: 14, height: 14, borderRadius: radius.full, background: project.color ?? P.accent }} />}
         title={project.name}
+        actions={(
+          <LaunchHenryLink
+            label="Talk to Project"
+            companySlug={slug}
+            projectId={project.id}
+            projectSlug={project.slug}
+            mode="discuss"
+            source="project-overview"
+          />
+        )}
       />
 
       <div style={{ marginTop: space.xs, marginBottom: space.md }}>
@@ -72,12 +96,6 @@ export default function ProjectOverviewPage({
         </PropRow>
 
         <PropRow label="Created" divider>
-          <span style={{ fontSize: 13, color: P.textSec }}>
-            {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
-          </span>
-        </PropRow>
-
-        <PropRow label="Updated" divider>
           <span style={{ fontSize: 13, color: P.textSec }}>
             {project.created ? new Date(project.created).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "\u2014"}
           </span>

@@ -1,0 +1,97 @@
+"use client";
+
+import Link from "next/link";
+import type { CSSProperties } from "react";
+import { Mic } from "lucide-react";
+
+import { color, radius, space, type as typeScale } from "@/lib/ui/tokens";
+import type { VoiceBindingSource, VoiceSessionMode } from "@/lib/voice-binding";
+
+type LaunchHenryLinkProps = {
+  label: string;
+  companySlug?: string;
+  projectId?: string;
+  projectSlug?: string;
+  taskId?: string;
+  taskKey?: string;
+  agentId?: string;
+  mode?: VoiceSessionMode;
+  source?: VoiceBindingSource;
+  style?: CSSProperties;
+};
+
+function buildVoiceHref({
+  companySlug,
+  projectId,
+  projectSlug,
+  taskId,
+  taskKey,
+  agentId,
+  mode = "discuss",
+  source,
+}: Omit<LaunchHenryLinkProps, "label" | "style">): string {
+  const params = new URLSearchParams();
+
+  if (companySlug) params.set("companySlug", companySlug);
+  if (projectId) params.set("projectId", projectId);
+  if (projectSlug) params.set("projectSlug", projectSlug);
+  if (taskId) params.set("taskId", taskId);
+  if (taskKey) params.set("taskKey", taskKey);
+  if (agentId) params.set("agentId", agentId);
+  if (mode) params.set("mode", mode);
+  if (source) params.set("source", source);
+
+  const query = params.toString();
+  return query ? `/voice?${query}` : "/voice";
+}
+
+export function LaunchHenryLink({
+  label,
+  companySlug,
+  projectId,
+  projectSlug,
+  taskId,
+  taskKey,
+  agentId,
+  mode = "discuss",
+  source,
+  style,
+}: LaunchHenryLinkProps) {
+  const href = buildVoiceHref({
+    companySlug,
+    projectId,
+    projectSlug,
+    taskId,
+    taskKey,
+    agentId,
+    mode,
+    source,
+  });
+
+  return (
+    <Link
+      href={href}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: space.xs,
+        padding: `${space.sm}px ${space.md}px`,
+        borderRadius: radius.md,
+        border: `0.5px solid ${color.border}`,
+        background: "transparent",
+        color: color.textSecondary,
+        fontSize: typeScale.bodySmall.size,
+        fontWeight: 500,
+        textDecoration: "none",
+        whiteSpace: "nowrap",
+        transition: "background 120ms ease, border-color 120ms ease, color 120ms ease",
+        ...style,
+      }}
+      aria-label={label}
+      title={`${label} in Henry Voice`}
+    >
+      <Mic size={14} />
+      {label}
+    </Link>
+  );
+}

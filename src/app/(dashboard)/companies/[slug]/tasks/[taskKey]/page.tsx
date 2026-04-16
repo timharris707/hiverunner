@@ -12,7 +12,6 @@ import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
 import { PRIORITY_META, STATUS_META } from "@/components/orchestration/task-display";
 import {
-  getTask,
   getTaskDetail,
   listCompanies,
   listCompanyAgents,
@@ -27,6 +26,7 @@ import {
 import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
 import { InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
+import { LaunchHenryLink } from "@/components/voice/LaunchHenryLink";
 import { getAgentByAnyId } from "@/config/agents";
 import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
 import type {
@@ -329,6 +329,15 @@ export default function TaskDetailPage() {
       agent.slug === task.assignee
     ) ?? null;
   }, [agents, execution?.agentId, task?.assignee]);
+
+  const voiceLaunchAgent = useMemo(() => {
+    if (!task?.assignee) return null;
+    return agents.find((agent) =>
+      agent.id === task.assignee ||
+      agent.name === task.assignee ||
+      agent.slug === task.assignee
+    ) ?? null;
+  }, [agents, task?.assignee]);
 
   const liveActivityEnabled = Boolean(slug && execution?.state === "running" && assignedAgent?.id);
   const { streamByAgentId, connected: liveActivityConnected } = useLiveRunStream({
@@ -709,6 +718,17 @@ export default function TaskDetailPage() {
 
             {/* Action buttons row */}
             <div style={{ display: "flex", gap: "10px", margin: "16px 0", flexWrap: "wrap" }}>
+              <LaunchHenryLink
+                label="Talk to Agent"
+                companySlug={slug}
+                projectId={project?.id ?? task.project}
+                projectSlug={project?.slug}
+                taskId={task.id}
+                taskKey={task.key ?? taskKey}
+                agentId={voiceLaunchAgent?.id}
+                mode="discuss"
+                source="task-detail"
+              />
               <label
                 style={{
                   display: "inline-flex", alignItems: "center", gap: "6px",
@@ -1368,13 +1388,6 @@ export default function TaskDetailPage() {
       )}
     </div>
   );
-}
-
-/* ── Property row helper ── */
-function StatusLabel({ s }: { s: string | null | undefined }) {
-  if (!s) return <span style={{ color: color.textMuted }}>—</span>;
-  const label = STATUS_LABEL[s as keyof typeof STATUS_LABEL] ?? s;
-  return <span style={{ fontWeight: 500, color: color.textSecondary }}>{label}</span>;
 }
 
 function PropertyRow({ label, children }: { label: string; children: React.ReactNode }) {
