@@ -209,6 +209,8 @@ export function enqueueWakeup(
 ): EnqueueWakeupResult {
   const now = new Date().toISOString();
 
+  pruneSupersededQueuedWakeups(input.agentId, now, db);
+
   // Check for existing queued wakeup we can coalesce
   if (input.idempotencyKey) {
     const existing = db
@@ -291,6 +293,38 @@ function mapSourceToInvocation(source: WakeupSource): InvocationSource {
       return "kickoff";
     default:
       return "wakeup_request";
+  }
+}
+
+function pruneSupersededQueuedWakeups(
+  agentId: string,
+  now: string,
+  db: Database.Database,
+): void {
+  const queued = db.prepare(
+    `SELECT id, run_id
+     FROM agent_wakeup_requests
+     WHERE agent_id = ? AND status = 'queued'`
+  ).all(agentId) as Array<{ id: string; run_id: string | null }>;
+
+  if (queued.length === 0) {
+    return;
+  }
+
+  for (const wake of queued) {
+    db.prepare(
+      `UPDATE agent_wakeup_requests
+       SET status = 'failed', finished_at = ?, updated_at = ?
+       WHERE id = ? AND status = 'queued'`
+    ).run(now, now, wake.id);
+
+    if (wake.run_id) {
+      db.prepare(
+        `UPDATE heartbeat_runs
+         SET status = 'failed', finished_at = ?, error = 'superseded_by_newer_wake', updated_at = ?
+         WHERE id = ? AND status = 'queued'`
+      ).run(now, now, wake.run_id);
+    }
   }
 }
 
@@ -1062,14 +1096,20 @@ function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
     return null;
   }
 
-  // Find the oldest queued run
+  // Find the oldest queued run whose agent is not already running another heartbeat.
   const candidate = db
     .prepare(
-      `SELECT id, agent_id, wakeup_request_id
-       FROM heartbeat_runs
-       WHERE status = 'queued'
-         ${claimCompanyId ? "AND company_id = ?" : ""}
-       ORDER BY created_at ASC
+      `SELECT hr.id, hr.agent_id, hr.wakeup_request_id
+       FROM heartbeat_runs hr
+       WHERE hr.status = 'queued'
+         ${claimCompanyId ? "AND hr.company_id = ?" : ""}
+         AND NOT EXISTS (
+           SELECT 1
+           FROM heartbeat_runs hr_running
+           WHERE hr_running.agent_id = hr.agent_id
+             AND hr_running.status = 'running'
+         )
+       ORDER BY hr.created_at ASC
        LIMIT 1`
     )
     .get(...(claimCompanyId ? [claimCompanyId] : [])) as ClaimedRun | undefined;
@@ -1104,6 +1144,10 @@ function claimNextQueuedRun(db: Database.Database): ClaimedRun | null {
  * Recover runs stuck in 'running' for longer than the stale timeout.
  * Marks them as 'timed_out' so they don't block the queue forever.
  */
+export const __testHooks = {
+  claimNextQueuedRun,
+};
+
 function recoverStaleRuns(db: Database.Database): number {
   const cutoff = new Date(Date.now() - STALE_RUN_TIMEOUT_MS).toISOString();
   const now = new Date().toISOString();
