@@ -24,6 +24,7 @@
     "test:orchestration:company-creation-wiring": "sh -c 'MC_WORKSPACE_ROOT=\"/tmp/mc-company-wiring-$$\" ORCHESTRATION_DB_PATH=\"/tmp/orchestration-company-creation-wiring-$$.db\" npx tsx src/lib/__tests__/orchestration-company-creation-wiring.test.ts'",
     "test:orchestration:provisioning-scaffold": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-provisioning-scaffold-$$.db\" npx tsx src/lib/__tests__/orchestration-provisioning-openclaw-scaffold.test.ts'",
     "test:orchestration:effective-status": "ORCHESTRATION_DB_PATH=/tmp/orchestration-effective-status.db npx tsx src/lib/__tests__/orchestration-agent-effective-status.test.ts",
+    "test:orchestration:paperclip-filter": "ORCHESTRATION_DB_PATH=/tmp/orchestration-paperclip-filter.db npx tsx src/lib/__tests__/orchestration-paperclip-comment-filter.test.ts",
     "test:orchestration:type-mappings": "ORCHESTRATION_DB_PATH=/tmp/orchestration-type-mappings.db npx tsx src/lib/__tests__/orchestration-type-mappings.test.ts",
     "test:orchestration:openclaw": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-execution.db npx tsx src/lib/__tests__/orchestration-openclaw-execution.test.ts",
     "test:orchestration:heartbeat": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-heartbeat.db npx tsx src/lib/__tests__/orchestration-openclaw-heartbeat.test.ts",

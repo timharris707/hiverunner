@@ -37,6 +37,7 @@ export function listTaskComments(taskId: string): {
        FROM comments c
        LEFT JOIN agents a ON a.id = c.author_agent_id
        WHERE c.task_id = ?
+         AND COALESCE(c.source, '') <> 'paperclip'
        ORDER BY c.created_at ASC`
     )
     .all(taskId) as CommentRow[];

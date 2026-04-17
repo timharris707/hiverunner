@@ -416,6 +416,7 @@ function commentsForTasks(
        FROM comments c
        LEFT JOIN agents a ON a.id = c.author_agent_id
        WHERE c.task_id IN (${placeholders})
+         AND COALESCE(c.source, '') <> 'paperclip'
        ORDER BY c.created_at ASC`
     )
     .all(...taskIds) as CommentRow[];
