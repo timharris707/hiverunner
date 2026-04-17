@@ -27,6 +27,7 @@ import {
 import { isNonProductionCompany } from "@/lib/orchestration/service/shared";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
 import {
+  ensureCompanyWorkspaceScaffold,
   resolveCanonicalCompanyWorkspaceRoot,
   resolveCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
@@ -790,6 +791,12 @@ export function createCompany(input: {
 
   const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(companyId, workspaceSlug);
   const workspaceSource = "provisioned";
+
+  // Materialize the filesystem scaffold before the DB INSERT so any
+  // downstream reader that assumes workspace_root exists on disk (agent
+  // hire flows, memory ops) finds it. mkdirSync is idempotent; failure
+  // here aborts creation before leaving a half-wired row behind.
+  ensureCompanyWorkspaceScaffold(workspaceRoot);
 
   db.prepare(
     `INSERT INTO companies
