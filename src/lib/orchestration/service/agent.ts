@@ -304,11 +304,20 @@ function resolveEffectiveAgentStatus(
   hasFreshExecution: boolean,
   hasFreshHeartbeat: boolean,
 ): AgentStatusInput {
+  // Operator-explicit states beat fresh-evidence overrides. A paused agent
+  // stays paused even if a still-running heartbeat_run or execution_run is
+  // mid-flight: the operator's Pause click is the source of truth, and
+  // letting stale activity re-label the agent "working" makes the button
+  // appear broken on the dashboard. Same logic for offline.
+  if (persistedStatus === "paused" || persistedStatus === "offline") {
+    return persistedStatus;
+  }
+
   if (hasFreshExecution || hasFreshHeartbeat) {
     return "working";
   }
 
-  if (persistedStatus === "paused" || persistedStatus === "offline" || persistedStatus === "error") {
+  if (persistedStatus === "error") {
     return persistedStatus;
   }
 
