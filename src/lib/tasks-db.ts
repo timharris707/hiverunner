@@ -39,6 +39,41 @@ const TASKS_JSON_PATH = path.join(process.cwd(), 'data', 'tasks.json');
 
 let _db: Database.Database | null = null;
 let _transitionIdUsesIntegerPk: boolean | null = null;
+
+// Legacy tasks.db has been corrupt since March; the app keeps running because
+// live flows route through orchestration.db. To stop the corrupt file from
+// spamming ~87K "database disk image is malformed" lines into the logs, each
+// exported operation short-circuits to an empty/no-op result once corruption
+// has been observed, and the first failure is logged exactly once. B4-proper
+// (retiring build-queue + its 13 legacy API routes) is tracked in the
+// roadmap; this is the narrow noise-suppression fix.
+let _corrupted = false;
+let _corruptionLogged = false;
+
+function isLegacyDbCorruptionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  const code = (err as { code?: string }).code ?? "";
+  return (
+    msg.includes("malformed") ||
+    msg.includes("corrupt") ||
+    code === "SQLITE_CORRUPT" ||
+    code === "SQLITE_NOTADB" ||
+    code === "SQLITE_IOERR_SHORT_READ"
+  );
+}
+
+function markLegacyDbCorruptedOnce(err: unknown, context: string): void {
+  _corrupted = true;
+  if (!_corruptionLogged) {
+    _corruptionLogged = true;
+    console.error(
+      `[tasks-db] LEGACY tasks.db IS CORRUPT — further failures from ${context} and other tasks-db operations will be silently no-oped. Data flows via orchestration.db.`,
+      err,
+    );
+  }
+}
+
 const VALID_TASK_STATUSES = new Set([
   "backlog",
   "on-deck",
@@ -88,6 +123,13 @@ function normalizeTaskRecord(task: any, fallbackStatus?: unknown): { task: any; 
 
 export function getDb(): Database.Database {
   if (_db) return _db;
+  if (_corrupted) {
+    // Short-circuit: we've already observed this file is corrupt and
+    // legacy tasks.db is not used by live flows. Throwing is fine —
+    // every exported tasks-db function guards with `if (_corrupted) return …`
+    // before ever reaching getDb().
+    throw new Error("legacy tasks.db is offline (corrupt)");
+  }
 
   const dataDir = path.dirname(DB_PATH);
   if (!fs.existsSync(dataDir)) {
@@ -102,7 +144,11 @@ export function getDb(): Database.Database {
   try {
     _db = new Database(DB_PATH);
   } catch (e) {
-    console.error(`[tasks-db] LEGACY DB OPEN FAILED (${DB_PATH}):`, e);
+    if (isLegacyDbCorruptionError(e)) {
+      markLegacyDbCorruptedOnce(e, "getDb:open");
+    } else {
+      console.error(`[tasks-db] LEGACY DB OPEN FAILED (${DB_PATH}):`, e);
+    }
     throw e;
   }
 
@@ -167,9 +213,17 @@ export function getDb(): Database.Database {
     _replayCheck(_db);
     _normalizeStoredTaskStatuses(_db);
   } catch (e) {
-    // Schema creation, migration, or replay failed — likely SQLITE_CORRUPT.
-    // Close the broken handle so the next getDb() attempt can retry.
-    console.error(`[tasks-db] LEGACY DB INIT FAILED (${DB_PATH}) — closing handle:`, e);
+    // Schema creation, migration, or replay failed — almost always
+    // SQLITE_CORRUPT. Close the broken handle, mark the module corrupt so
+    // subsequent exports short-circuit without retrying the open (which is
+    // what produced ~87K log lines previously), and throw for the current
+    // caller. After this point, getDb() is a no-op throw and every wrapped
+    // export returns empty/no-op silently.
+    if (isLegacyDbCorruptionError(e)) {
+      markLegacyDbCorruptedOnce(e, "getDb:init");
+    } else {
+      console.error(`[tasks-db] LEGACY DB INIT FAILED (${DB_PATH}) — closing handle:`, e);
+    }
     try { _db.close(); } catch { /* ignore close errors */ }
     _db = null;
     throw e;
@@ -330,14 +384,23 @@ function _normalizeStoredTaskStatuses(db: Database.Database): void {
  * old tasks.json which stored tasks in insertion/updated order).
  */
 export function dbReadTasks(): any[] {
-  const db = getDb();
-  const rows = db.prepare(
-    'SELECT data FROM tasks ORDER BY updated DESC'
-  ).all() as Array<{ data: string }>;
-  return rows.map((row) => {
-    const parsed = JSON.parse(row.data);
-    return normalizeTaskRecord(parsed, parsed?.status).task;
-  });
+  if (_corrupted) return [];
+  try {
+    const db = getDb();
+    const rows = db.prepare(
+      'SELECT data FROM tasks ORDER BY updated DESC'
+    ).all() as Array<{ data: string }>;
+    return rows.map((row) => {
+      const parsed = JSON.parse(row.data);
+      return normalizeTaskRecord(parsed, parsed?.status).task;
+    });
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbReadTasks");
+      return [];
+    }
+    throw err;
+  }
 }
 
 /**
@@ -346,31 +409,40 @@ export function dbReadTasks(): any[] {
  * none do. After a crash, SQLite replays the WAL and the DB is left clean.
  */
 export function dbWriteTasks(tasks: any[]): void {
-  const db = getDb();
+  if (_corrupted) return;
+  try {
+    const db = getDb();
 
-  const upsert = db.prepare(`
-    INSERT INTO tasks (id, data, status, project, updated)
-    VALUES (@id, @data, @status, @project, @updated)
-    ON CONFLICT(id) DO UPDATE SET
-      data    = excluded.data,
-      status  = excluded.status,
-      project = excluded.project,
-      updated = excluded.updated
-  `);
+    const upsert = db.prepare(`
+      INSERT INTO tasks (id, data, status, project, updated)
+      VALUES (@id, @data, @status, @project, @updated)
+      ON CONFLICT(id) DO UPDATE SET
+        data    = excluded.data,
+        status  = excluded.status,
+        project = excluded.project,
+        updated = excluded.updated
+    `);
 
-  db.transaction((items: any[]) => {
-    for (const t of items) {
-      if (!t.id) continue;
-      const normalized = normalizeTaskRecord(t, t.status || "backlog");
-      upsert.run({
-        id:      normalized.task.id,
-        data:    JSON.stringify(normalized.task),
-        status:  normalized.status,
-        project: normalized.task.project || null,
-        updated: normalized.task.updated || new Date().toISOString(),
-      });
+    db.transaction((items: any[]) => {
+      for (const t of items) {
+        if (!t.id) continue;
+        const normalized = normalizeTaskRecord(t, t.status || "backlog");
+        upsert.run({
+          id:      normalized.task.id,
+          data:    JSON.stringify(normalized.task),
+          status:  normalized.status,
+          project: normalized.task.project || null,
+          updated: normalized.task.updated || new Date().toISOString(),
+        });
+      }
+    })(tasks);
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbWriteTasks");
+      return;
     }
-  })(tasks);
+    throw err;
+  }
 }
 
 /**
@@ -395,31 +467,40 @@ export function dbJournalTransition(
   actor: string = 'pipeline',
   reason?: string
 ): void {
-  const db = getDb();
+  if (_corrupted) return;
+  try {
+    const db = getDb();
 
-  if (_transitionIdUsesIntegerPk === null) {
-    const cols = db.prepare("PRAGMA table_info(task_transitions)").all() as Array<{
-      name: string;
-      type: string;
-      pk: number;
-    }>;
-    const idCol = cols.find((col) => col.name === "id");
-    _transitionIdUsesIntegerPk = Boolean(idCol && idCol.pk === 1 && /INT/i.test(idCol.type || ""));
-  }
+    if (_transitionIdUsesIntegerPk === null) {
+      const cols = db.prepare("PRAGMA table_info(task_transitions)").all() as Array<{
+        name: string;
+        type: string;
+        pk: number;
+      }>;
+      const idCol = cols.find((col) => col.name === "id");
+      _transitionIdUsesIntegerPk = Boolean(idCol && idCol.pk === 1 && /INT/i.test(idCol.type || ""));
+    }
 
-  const ts = new Date().toISOString();
-  if (_transitionIdUsesIntegerPk) {
+    const ts = new Date().toISOString();
+    if (_transitionIdUsesIntegerPk) {
+      db.prepare(`
+        INSERT INTO task_transitions (task_id, from_status, to_status, actor, reason, ts)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(taskId, fromStatus, toStatus, actor, reason ?? null, ts);
+      return;
+    }
+
     db.prepare(`
-      INSERT INTO task_transitions (task_id, from_status, to_status, actor, reason, ts)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(taskId, fromStatus, toStatus, actor, reason ?? null, ts);
-    return;
+      INSERT INTO task_transitions (id, task_id, from_status, to_status, actor, reason, ts)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(randomUUID(), taskId, fromStatus, toStatus, actor, reason ?? null, ts);
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbJournalTransition");
+      return;
+    }
+    throw err;
   }
-
-  db.prepare(`
-    INSERT INTO task_transitions (id, task_id, from_status, to_status, actor, reason, ts)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(randomUUID(), taskId, fromStatus, toStatus, actor, reason ?? null, ts);
 }
 
 /**
@@ -437,15 +518,24 @@ export function dbGetTransitions(
   reason: string | null;
   ts: string;
 }> {
-  const db = getDb();
-  if (taskId) {
+  if (_corrupted) return [];
+  try {
+    const db = getDb();
+    if (taskId) {
+      return db
+        .prepare('SELECT * FROM task_transitions WHERE task_id = ? ORDER BY ts DESC LIMIT ?')
+        .all(taskId, limit) as any[];
+    }
     return db
-      .prepare('SELECT * FROM task_transitions WHERE task_id = ? ORDER BY ts DESC LIMIT ?')
-      .all(taskId, limit) as any[];
+      .prepare('SELECT * FROM task_transitions ORDER BY ts DESC LIMIT ?')
+      .all(limit) as any[];
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbGetTransitions");
+      return [];
+    }
+    throw err;
   }
-  return db
-    .prepare('SELECT * FROM task_transitions ORDER BY ts DESC LIMIT ?')
-    .all(limit) as any[];
 }
 
 // ── Snapshot / Checkpoint ──────────────────────────────────────────────────────
@@ -460,29 +550,38 @@ export function dbCheckpoint(note?: string): {
   pagesRemaining: number;
   taskCount: number;
 } {
-  const db = getDb();
+  if (_corrupted) return { pagesWritten: 0, pagesRemaining: 0, taskCount: 0 };
+  try {
+    const db = getDb();
 
-  // TRUNCATE: write all WAL pages to main DB, then zero-out the WAL file
-  const result = db.pragma('wal_checkpoint(TRUNCATE)') as Array<{
-    busy: number;
-    log: number;
-    checkpointed: number;
-  }>;
-  const row = result[0] ?? { busy: 0, log: 0, checkpointed: 0 };
+    // TRUNCATE: write all WAL pages to main DB, then zero-out the WAL file
+    const result = db.pragma('wal_checkpoint(TRUNCATE)') as Array<{
+      busy: number;
+      log: number;
+      checkpointed: number;
+    }>;
+    const row = result[0] ?? { busy: 0, log: 0, checkpointed: 0 };
 
-  const taskCount = (
-    db.prepare('SELECT COUNT(*) as n FROM tasks').get() as { n: number }
-  ).n;
+    const taskCount = (
+      db.prepare('SELECT COUNT(*) as n FROM tasks').get() as { n: number }
+    ).n;
 
-  db.prepare(
-    'INSERT INTO snapshots (id, ts, task_count, note) VALUES (?, ?, ?, ?)'
-  ).run(randomUUID(), new Date().toISOString(), taskCount, note ?? null);
+    db.prepare(
+      'INSERT INTO snapshots (id, ts, task_count, note) VALUES (?, ?, ?, ?)'
+    ).run(randomUUID(), new Date().toISOString(), taskCount, note ?? null);
 
-  return {
-    pagesWritten:    row.checkpointed,
-    pagesRemaining:  row.log - row.checkpointed,
-    taskCount,
-  };
+    return {
+      pagesWritten:    row.checkpointed,
+      pagesRemaining:  row.log - row.checkpointed,
+      taskCount,
+    };
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbCheckpoint");
+      return { pagesWritten: 0, pagesRemaining: 0, taskCount: 0 };
+    }
+    throw err;
+  }
 }
 
 /**
@@ -494,8 +593,17 @@ export function dbGetSnapshots(limit = 10): Array<{
   task_count: number;
   note: string | null;
 }> {
-  const db = getDb();
-  return db
-    .prepare('SELECT * FROM snapshots ORDER BY ts DESC LIMIT ?')
-    .all(limit) as any[];
+  if (_corrupted) return [];
+  try {
+    const db = getDb();
+    return db
+      .prepare('SELECT * FROM snapshots ORDER BY ts DESC LIMIT ?')
+      .all(limit) as any[];
+  } catch (err) {
+    if (isLegacyDbCorruptionError(err)) {
+      markLegacyDbCorruptedOnce(err, "dbGetSnapshots");
+      return [];
+    }
+    throw err;
+  }
 }
