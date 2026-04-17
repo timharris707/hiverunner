@@ -6,7 +6,6 @@ import {
   lookupProjectByName as lookupProjectByNameRaw,
   updateProjectSettings as updateProjectSettingsRaw,
   archiveProject as archiveProjectRaw,
-  cleanupDeletedProjectOpenClawAgents as cleanupDeletedProjectOpenClawAgentsRaw,
   getProjectBoard as getProjectBoardRaw,
   getProjectBoardUpdatedAt as getProjectBoardUpdatedAtRaw,
 } from "./project";
@@ -95,10 +94,6 @@ export const updateProjectSettings = withServiceContext(
   updateProjectSettingsRaw
 );
 export const archiveProject = withServiceContext("project.archiveProject", archiveProjectRaw);
-export const cleanupDeletedProjectOpenClawAgents = withServiceContext(
-  "project.cleanupDeletedProjectOpenClawAgents",
-  cleanupDeletedProjectOpenClawAgentsRaw
-);
 export const getProjectBoard = withServiceContext("project.getProjectBoard", getProjectBoardRaw);
 export const getProjectBoardUpdatedAt = withServiceContext(
   "project.getProjectBoardUpdatedAt",
