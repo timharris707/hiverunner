@@ -456,10 +456,10 @@ export function getOrCreateRuntimeState(
 }
 
 // Null the agent's runtime session_id so the next wake opens a fresh
-// OpenClaw session. Used as a self-heal for terminal failures whose
-// symptoms compound on a reused session (e.g. empty_assistant_output).
-// Failures here are logged but never re-thrown — we don't want a
-// bookkeeping hiccup to destabilize the caller's error path.
+// session. Adapter-agnostic: the signal "start clean" is generic; each
+// adapter interprets it in its own way. Failures here are logged but
+// never re-thrown — a bookkeeping hiccup shouldn't destabilize the
+// caller's error path.
 export function resetAgentRuntimeSessionForSelfHeal(
   db: Database.Database,
   agentId: string,
@@ -474,6 +474,42 @@ export function resetAgentRuntimeSessionForSelfHeal(
   } catch (err) {
     console.warn(
       `[engine:runtime] failed to null session_id for ${agentId} (${reason}):`,
+      err,
+    );
+  }
+}
+
+// Wipe the OpenClaw-specific task-session params for (company, agent,
+// task) so the next wake lands on the adapter's fresh-session branch
+// instead of resuming a degraded session by stored id + key. Scoped
+// narrowly by adapter_type='openclaw' so a hypothetical future-adapter
+// row for the same task is untouched. Same swallow-on-error posture as
+// resetAgentRuntimeSessionForSelfHeal.
+export function clearOpenClawTaskSessionForSelfHeal(
+  db: Database.Database,
+  input: { companyId: string; agentId: string; taskKey: string; reason: string },
+): void {
+  try {
+    db.prepare(
+      `UPDATE agent_task_sessions
+       SET session_params_json = '{}',
+           session_display_id = NULL,
+           last_error = ?,
+           updated_at = ?
+       WHERE company_id = ?
+         AND agent_id = ?
+         AND adapter_type = 'openclaw'
+         AND task_key = ?`,
+    ).run(
+      `self_heal:${input.reason}`,
+      new Date().toISOString(),
+      input.companyId,
+      input.agentId,
+      input.taskKey,
+    );
+  } catch (err) {
+    console.warn(
+      `[engine:runtime] failed to clear openclaw task session for ${input.agentId}/${input.taskKey} (${input.reason}):`,
       err,
     );
   }
@@ -871,12 +907,20 @@ export async function executeHeartbeatRun(
     ).run(result.sessionId, new Date().toISOString(), taskKey);
   }
 
-  // Persist session state
+  // Persist session state. sessionKey is stored alongside sessionId so
+  // subsequent wakes resume with the exact key the adapter used for create
+  // — the deterministic key was bitten by silent collision during fresh
+  // creates after a self-heal. Legacy rows that lack sessionKey fall back
+  // to the deterministic form inside executeViaOpenClaw.
   if (result.sessionId) {
     updateTaskSession(
       session.id,
       {
-        sessionParams: { ...session.sessionParams, sessionId: result.sessionId },
+        sessionParams: {
+          ...session.sessionParams,
+          sessionId: result.sessionId,
+          ...(result.sessionKey ? { sessionKey: result.sessionKey } : {}),
+        },
         lastRunId: runId,
         lastError: result.error ?? null,
       },
@@ -1535,14 +1579,14 @@ async function executeViaOpenClaw(
   prompt: string,
   session: TaskSession,
   runtimeState: RuntimeState
-): Promise<{ sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> }> {
+): Promise<{ sessionId?: string; sessionKey?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> }> {
   // Import the gateway call function from the existing execution module
   const { execFile } = await import("child_process");
   const { promisify } = await import("util");
   const execFileAsync = promisify(execFile);
 
-  // Determine if we should resume an existing session
   const existingSessionId = session.sessionParams.sessionId as string | undefined;
+  const existingSessionKey = session.sessionParams.sessionKey as string | undefined;
   const openclawAgentId = agent.openclaw_agent_id;
 
   if (!openclawAgentId) {
@@ -1550,37 +1594,37 @@ async function executeViaOpenClaw(
   }
 
   try {
-    // Session key is deterministic per agent + task key.
-    // The gateway routes by key, so we MUST only reuse a sessionId that was
-    // created under the same key.  Never fall back to a sessionId from a
-    // different task — that routes to a different (possibly empty) session.
-    const sessionKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
-    const candidateSessionId = existingSessionId;
+    // Session keys: resumes use the stored key (or a deterministic legacy
+    // key if the stored value is missing, so pre-existing rows still
+    // resolve their OpenClaw session). Fresh creates use a random-suffix
+    // key so `sessions.create` cannot collide with a degraded session
+    // still living under a stale deterministic key — that silent
+    // collision was the 2026-04-17 live-test failure mode.
+    const deterministicKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
+    const resumeSessionKey = existingSessionKey ?? deterministicKey;
+    const freshSessionKey = `${deterministicKey}:${randomUUID().slice(0, 8)}`;
+
     let messageCountBefore = 0;
 
-    // ── Reuse path: check live session status, record message count ──
-    if (candidateSessionId) {
-      // Read live state so we know how many messages existed BEFORE our send.
-      // This lets the output importer skip old messages and only process
-      // the fresh turn produced by this run.
+    // ── Reuse path: existing sessionId → send to the stored key. ──
+    if (existingSessionId) {
       const liveState = await callGateway<{
         sessionId?: string; status?: string; messages?: unknown[];
-      }>(OPENCLAW_BIN, "sessions.get", { key: sessionKey }, execFileAsync);
+      }>(OPENCLAW_BIN, "sessions.get", { key: resumeSessionKey }, execFileAsync);
 
       messageCountBefore = Array.isArray(liveState?.messages) ? liveState.messages.length : 0;
 
-      // Send new turn. The gateway accepts sends to done/idle sessions and
-      // starts a new agent run, so we do NOT need to check status first.
       const sendResult = await callGateway<{ runId?: string; status?: string }>(
         OPENCLAW_BIN,
         "sessions.send",
-        { key: sessionKey, message: prompt },
+        { key: resumeSessionKey, message: prompt },
         execFileAsync
       );
 
       if (sendResult?.runId || sendResult?.status === "started") {
         return {
-          sessionId: candidateSessionId,
+          sessionId: existingSessionId,
+          sessionKey: resumeSessionKey,
           messageCountBefore,
           usage: {
             openclawRunId: sendResult.runId ?? null,
@@ -1589,48 +1633,49 @@ async function executeViaOpenClaw(
           },
         };
       }
-      // Send returned nothing — fall through to create new
-      console.log("[engine] session send returned no runId, falling through to create");
+      // Resume send returned nothing — treat as stale session and fall
+      // through to a fresh create with a NEW random-suffix key. We do
+      // NOT re-derive to `resumeSessionKey` because that's the
+      // potentially-degraded key we just failed to send to.
+      console.log(
+        `[engine] openclaw resume send returned no runId on ${resumeSessionKey}; creating fresh session instead`,
+      );
     }
 
-    // ── Create path: new session for this task ──
+    // ── Fresh create path: random-suffix key guarantees no silent collision. ──
     const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
       OPENCLAW_BIN,
       "sessions.create",
-      { key: sessionKey, agentId: openclawAgentId, label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}]` },
-      execFileAsync
+      {
+        key: freshSessionKey,
+        agentId: openclawAgentId,
+        label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}]`,
+      },
+      execFileAsync,
     );
-    let newSessionId = createResult?.sessionId;
-
-    // If create failed (label collision), look up existing by key and send
-    if (!newSessionId) {
-      const existing = await callGateway<{ sessionId?: string; messages?: unknown[] }>(
-        OPENCLAW_BIN,
-        "sessions.get",
-        { key: sessionKey },
-        execFileAsync
-      );
-      if (existing?.sessionId) {
-        newSessionId = existing.sessionId;
-        messageCountBefore = Array.isArray(existing.messages) ? existing.messages.length : 0;
-      }
-    }
+    const newSessionId = createResult?.sessionId;
 
     if (!newSessionId) {
-      return { error: "Failed to create or resolve OpenClaw session" };
+      // Do NOT fall back to sessions.get-by-key. A silent fallback is what
+      // defeated the empty_assistant_output self-heal in the 2026-04-17
+      // live test: MC thought it was getting a fresh session, OpenClaw
+      // handed back the degraded one.
+      return {
+        error: `Failed to create OpenClaw session under fresh key ${freshSessionKey}`,
+      };
     }
 
-    // Send prompt
     const sendResult = await callGateway<{ runId?: string; status?: string }>(
       OPENCLAW_BIN,
       "sessions.send",
-      { key: sessionKey, message: prompt },
-      execFileAsync
+      { key: freshSessionKey, message: prompt },
+      execFileAsync,
     );
 
     return {
       sessionId: newSessionId,
-      messageCountBefore,
+      sessionKey: freshSessionKey,
+      messageCountBefore: 0,
       usage: {
         openclawRunId: sendResult?.runId ?? null,
         openclawStatus: sendResult?.status ?? null,
@@ -1901,18 +1946,31 @@ async function importSessionOutputAndExecuteActions(input: {
     results.fatalError = EMPTY_ASSISTANT_OUTPUT_ERROR;
     results.errors.push(EMPTY_ASSISTANT_OUTPUT_ERROR);
 
-    // Self-heal: null the agent's runtime session_id so the next wake opens
-    // a fresh OpenClaw session. Empirically the "thinking-only, no text"
-    // failure mode compounds on a reused session — once Claude lands there,
-    // subsequent wakes on the same session tend to repeat it (see the live
-    // nudge round against Barometer/Nimbus on 2026-04-17). Mirrors the
-    // cascade's post-fire session reset (commit b3f4c96e) without
-    // disturbing any other agents in the company.
+    // Self-heal: force the NEXT wake onto a genuinely fresh session.
+    //
+    // Two signals are sent so the adapter layer has no way to silently
+    // resume the degraded session:
+    //   1. Null agent_runtime_state.session_id — adapter-agnostic
+    //      "start clean" signal.
+    //   2. Wipe the OpenClaw task-session params blob so the adapter's
+    //      fresh-session branch runs instead of its resume branch.
+    //
+    // Round-2 of the 2026-04-17 live test proved (1) alone isn't enough:
+    // the OpenClaw adapter used a deterministic session key, so even with
+    // a null stored sessionId it silently fell back to the existing
+    // OpenClaw-side session via a create-collision. Fix lands alongside
+    // the adapter's new random-suffix-on-fresh-create behavior.
     resetAgentRuntimeSessionForSelfHeal(
       input.db,
       input.agentId,
       "empty_assistant_output",
     );
+    clearOpenClawTaskSessionForSelfHeal(input.db, {
+      companyId: input.companyId,
+      agentId: input.agentId,
+      taskKey: input.taskKey,
+      reason: "empty_assistant_output",
+    });
 
     emitRunEvent(
       input.runId,
