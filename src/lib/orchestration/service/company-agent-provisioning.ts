@@ -6,6 +6,7 @@ import path from "path";
 import type Database from "better-sqlite3";
 
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
+import { ensureOpenClawAgentScaffold } from "@/lib/orchestration/openclaw-agent-scaffold";
 import {
   buildOpenClawRuntimeId,
   ensureUniqueAgentRuntimeSlug,
@@ -340,6 +341,30 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
     personality,
     mission,
   });
+
+  // Idempotent scaffold of ~/.openclaw/agents/{openclawAgentId}/ so agent.json
+  // and SOUL.md exist whenever the row has an openclaw_agent_id — including
+  // the re-provision case where the CLI was skipped because the ID already
+  // existed in the row. Failure here is non-fatal: row + workspace are fine.
+  if (openclawAgentId) {
+    try {
+      ensureOpenClawAgentScaffold({
+        openclawAgentId,
+        name,
+        role,
+        personality,
+        projectName: project.name,
+        projectSlug: project.slug,
+        model,
+        skills: [],
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `[company-agent-provisioning] openclaw scaffold failed for "${openclawAgentId}": ${message}`,
+      );
+    }
+  }
 
   return {
     agentId,
