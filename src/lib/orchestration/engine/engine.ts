@@ -900,7 +900,8 @@ export async function executeHeartbeatRun(
       telemetry.totalDurationMs = Date.now() - startTime;
 
       const now = new Date().toISOString();
-      if (taskKey !== "__heartbeat__" && isInsufficientProgress(taskKey, actionResults, db)) {
+      const terminalFailure = getActionResultsTerminalFailure(actionResults);
+      if (!terminalFailure && taskKey !== "__heartbeat__" && isInsufficientProgress(taskKey, actionResults, db)) {
         actionResults.errors.push("Insufficient progress: passive report without task-side action on assigned unfinished task");
         emitRunEvent(runId, agent.id, "action_error", "Marked insufficient progress: no task-side action emitted", db);
         db.prepare(
@@ -908,32 +909,22 @@ export async function executeHeartbeatRun(
         ).run(now, taskKey);
       }
 
+      if (terminalFailure) {
+        telemetry.terminalFailure = terminalFailure;
+      }
+
       // Store action results + usage telemetry after insufficiency classification
       db.prepare(
         `UPDATE heartbeat_runs SET result_json = ?, usage_json = ?, updated_at = ? WHERE id = ?`
       ).run(JSON.stringify(actionResults), JSON.stringify(telemetry), now, runId);
 
-      if (taskKey !== "__heartbeat__") {
-        const continuation = decideTaskContinuation(taskKey, actionResults, db);
-        if (continuation.shouldContinue) {
-          enqueueWakeup(
-            {
-              agentId: agent.id,
-              companyId: agent.company_id,
-              source: "api",
-              reason: continuation.reason ?? "task_not_finished",
-              payload: {
-                taskId: taskKey,
-                taskStatus: db.prepare("SELECT status FROM tasks WHERE id = ? LIMIT 1").get(taskKey)?.status ?? null,
-                continuedFromRunId: runId,
-              },
-              idempotencyKey: `continuation:${runId}`,
-            },
-            db,
-          );
-          emitRunEvent(runId, agent.id, "action_executed", `Queued continuation wake: ${continuation.reason ?? "task_not_finished"}`, db);
-        }
+      if (terminalFailure) {
+        emitRunEvent(runId, agent.id, "error", `Run marked terminal: ${terminalFailure}`, db);
       }
+
+      // Continuation is decided only after final run classification inside finishRun().
+      // That single post-classification gate prevents passive-report-only failures from
+      // queuing themselves before the final failed status is known.
     } catch (importError) {
       const msg = importError instanceof Error ? importError.message : String(importError);
       console.error("[engine] output import failed:", msg);
@@ -964,10 +955,14 @@ export async function executeHeartbeatRun(
   let finalStatus: HeartbeatRunStatus = result.error ? "failed" : "succeeded";
   let finalError: string | null = result.error ?? null;
 
-  if (!result.error && taskKey !== "__heartbeat__") {
+  if (!result.error) {
     try {
       const parsed = loadStoredActionResults(runId, db);
-      if (parsed && isInsufficientProgress(taskKey, parsed, db)) {
+      const terminalFailure = getActionResultsTerminalFailure(parsed);
+      if (terminalFailure) {
+        finalStatus = "failed";
+        finalError = terminalFailure;
+      } else if (taskKey !== "__heartbeat__" && parsed && isInsufficientProgress(taskKey, parsed, db)) {
         finalStatus = "failed";
         finalError = "insufficient_progress_passive_report_only";
       }
@@ -1669,7 +1664,30 @@ type ActionResults = {
   approvalsCreated: string[];
   reportsImported: number;
   errors: string[];
+  fatalError?: string | null;
 };
+
+const MISSING_SESSION_OUTPUT_ERROR = "missing_session_output: could not retrieve session data after execution";
+const EMPTY_ASSISTANT_OUTPUT_ERROR = "empty_assistant_output: session completed without any assistant text output";
+const NO_REPLY_SENTINEL = "NO_REPLY";
+
+function isNoReplyPlainText(text: string): boolean {
+  return text.trim().toUpperCase() === NO_REPLY_SENTINEL;
+}
+
+function getActionResultsTerminalFailure(actionResults: ActionResults | null | undefined): string | null {
+  if (!actionResults) return null;
+  if (typeof actionResults.fatalError === "string" && actionResults.fatalError.trim()) {
+    return actionResults.fatalError;
+  }
+  if (actionResults.errors.includes(EMPTY_ASSISTANT_OUTPUT_ERROR) || actionResults.errors.includes("No assistant text output found in session")) {
+    return EMPTY_ASSISTANT_OUTPUT_ERROR;
+  }
+  if (actionResults.errors.includes(MISSING_SESSION_OUTPUT_ERROR) || actionResults.errors.includes("Could not retrieve session data after execution")) {
+    return MISSING_SESSION_OUTPUT_ERROR;
+  }
+  return null;
+}
 
 function isInsufficientProgress(
   taskId: string,
@@ -1715,6 +1733,7 @@ function loadStoredActionResults(
       approvalsCreated: Array.isArray(parsed.approvalsCreated) ? parsed.approvalsCreated as string[] : [],
       reportsImported: Number(parsed.reportsImported ?? 0),
       errors: Array.isArray(parsed.errors) ? parsed.errors as string[] : [],
+      fatalError: typeof parsed.fatalError === "string" ? parsed.fatalError : null,
     };
   } catch {
     return null;
@@ -1733,6 +1752,7 @@ export function decideFinishRunContinuation(
 
   const actionResults = loadStoredActionResults(runId, db);
   if (!actionResults) return { shouldContinue: false };
+  if (getActionResultsTerminalFailure(actionResults)) return { shouldContinue: false };
 
   return decideTaskContinuation(taskId, actionResults, db);
 }
@@ -1786,7 +1806,15 @@ async function importSessionOutputAndExecuteActions(input: {
     input.telemetry.thinkingDurationMs = thinkingDurationMs;
   }
   if (!sessionData) {
-    results.errors.push("Could not retrieve session data after execution");
+    results.fatalError = MISSING_SESSION_OUTPUT_ERROR;
+    results.errors.push(MISSING_SESSION_OUTPUT_ERROR);
+    emitRunEvent(
+      input.runId,
+      input.agentId,
+      "error",
+      "FATAL: Session output could not be retrieved after execution. Marking run failed to stop continuation/retry waste.",
+      input.db,
+    );
     return results;
   }
 
@@ -1820,7 +1848,15 @@ async function importSessionOutputAndExecuteActions(input: {
   }
 
   if (assistantTexts.length === 0) {
-    results.errors.push("No assistant text output found in session");
+    results.fatalError = EMPTY_ASSISTANT_OUTPUT_ERROR;
+    results.errors.push(EMPTY_ASSISTANT_OUTPUT_ERROR);
+    emitRunEvent(
+      input.runId,
+      input.agentId,
+      "error",
+      "FATAL: Session completed with no assistant text output. Marking run failed to stop continuation/retry waste.",
+      input.db,
+    );
     return results;
   }
 
@@ -1829,12 +1865,18 @@ async function importSessionOutputAndExecuteActions(input: {
   // Parse all mc-action blocks from assistant output (single pass)
   const allActions: McAction[] = [];
   const allPlainText: string[] = [];
+  let noReplySentinelsSkipped = 0;
 
   for (const text of assistantTexts) {
     const { actions, plainText, parseErrors } = parseActionsFromText(text);
     allActions.push(...actions);
-    if (plainText.trim()) {
-      allPlainText.push(plainText.trim());
+    const trimmedPlainText = plainText.trim();
+    if (trimmedPlainText) {
+      if (isNoReplyPlainText(trimmedPlainText)) {
+        noReplySentinelsSkipped += 1;
+      } else {
+        allPlainText.push(trimmedPlainText);
+      }
     }
     results.errors.push(...parseErrors);
   }
@@ -1849,6 +1891,17 @@ async function importSessionOutputAndExecuteActions(input: {
   emitRunEvent(input.runId, input.agentId, "parsing_complete",
     `Parsed ${assistantTexts.length} message${assistantTexts.length !== 1 ? "s" : ""}, found ${allActions.length} action${allActions.length !== 1 ? "s" : ""} (${totalAssistantChars} chars)`,
     input.db);
+
+  if (noReplySentinelsSkipped > 0) {
+    (results as Record<string, unknown>).noReplySentinelsSkipped = noReplySentinelsSkipped;
+    emitRunEvent(
+      input.runId,
+      input.agentId,
+      "action_skipped",
+      `Skipped ${noReplySentinelsSkipped} ${NO_REPLY_SENTINEL} sentinel${noReplySentinelsSkipped === 1 ? "" : "s"} from report import`,
+      input.db,
+    );
+  }
 
   // Import plain text as a report comment on the direction task
   if (allPlainText.length > 0) {
@@ -2706,6 +2759,7 @@ function decideTaskContinuation(
 
   if (!task || !task.assignee_agent_id) return { shouldContinue: false };
   if (task.status === "done" || task.status === "blocked") return { shouldContinue: false };
+  if (getActionResultsTerminalFailure(actionResults)) return { shouldContinue: false };
 
   if (task.status === "on_deck") {
     // Do not endlessly requeue untouched on-deck tasks. They need either a real
@@ -2722,9 +2776,7 @@ function decideTaskContinuation(
     if (actionResults.actionsExecuted > 0) {
       return { shouldContinue: true, reason: "continuation_in_progress_after_actions" };
     }
-    if (actionResults.reportsImported > 0 && actionResults.actionsExecuted === 0) {
-      return { shouldContinue: true, reason: "continuation_passive_report_only" };
-    }
+    return { shouldContinue: false };
   }
 
   return { shouldContinue: false };
