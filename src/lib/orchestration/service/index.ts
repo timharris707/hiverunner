@@ -6,8 +6,10 @@ import {
   lookupProjectByName as lookupProjectByNameRaw,
   updateProjectSettings as updateProjectSettingsRaw,
   archiveProject as archiveProjectRaw,
+  cleanupDeletedProjectOpenClawAgents as cleanupDeletedProjectOpenClawAgentsRaw,
   getProjectBoard as getProjectBoardRaw,
   getProjectBoardUpdatedAt as getProjectBoardUpdatedAtRaw,
+  hardDeleteProject as hardDeleteProjectRaw,
 } from "./project";
 import {
   listProjectAgents as listProjectAgentsRaw,
@@ -19,6 +21,7 @@ import {
   createProjectAgent as createProjectAgentRaw,
   regenerateProjectAgentAvatar as regenerateProjectAgentAvatarRaw,
   heartbeatProjectAgent as heartbeatProjectAgentRaw,
+  fireCompanyAgent as fireCompanyAgentRaw,
 } from "./agent";
 import {
   listTasks as listTasksRaw,
@@ -92,6 +95,11 @@ export const updateProjectSettings = withServiceContext(
   updateProjectSettingsRaw
 );
 export const archiveProject = withServiceContext("project.archiveProject", archiveProjectRaw);
+export const hardDeleteProject = withServiceContext("project.hardDeleteProject", hardDeleteProjectRaw);
+export const cleanupDeletedProjectOpenClawAgents = withServiceContext(
+  "project.cleanupDeletedProjectOpenClawAgents",
+  cleanupDeletedProjectOpenClawAgentsRaw
+);
 export const getProjectBoard = withServiceContext("project.getProjectBoard", getProjectBoardRaw);
 export const getProjectBoardUpdatedAt = withServiceContext(
   "project.getProjectBoardUpdatedAt",
@@ -118,6 +126,10 @@ export const regenerateProjectAgentAvatar = withServiceContext(
 export const heartbeatProjectAgent = withServiceContext(
   "agent.heartbeatProjectAgent",
   heartbeatProjectAgentRaw
+);
+export const fireCompanyAgent = withServiceContext(
+  "agent.fireCompanyAgent",
+  fireCompanyAgentRaw
 );
 
 export const listTasks = withServiceContext("task.listTasks", listTasksRaw);

@@ -1590,3 +1590,268 @@ export function heartbeatProjectAgent(input: {
     },
   };
 }
+
+export type FireCompanyAgentCascade = {
+  tasksReassigned: number;
+  titlesRewritten: number;
+  descriptionsRewritten: number;
+  reportsToUpdated: number;
+  sessionsCleared: number;
+  failedRunsReset: number;
+};
+
+export type FireCompanyAgentResult = {
+  archivedAgent: OrchestrationAgent;
+  replacement: OrchestrationAgent | null;
+  cascade: FireCompanyAgentCascade;
+  archivedAt: string;
+};
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function rewriteNameInText(text: string, fromName: string, toName: string): string {
+  if (!text || !fromName) return text;
+  const trimmed = fromName.trim();
+  if (!trimmed) return text;
+  const pattern = new RegExp(`\\b${escapeRegExp(trimmed)}\\b`, "g");
+  return text.replace(pattern, toName);
+}
+
+export function fireCompanyAgent(input: {
+  agentId: string;
+  replacementAgentId?: string;
+  replacementFallback?: string;
+}): FireCompanyAgentResult {
+  const db = getOrchestrationDb();
+
+  const agent = db
+    .prepare(
+      `SELECT id, name, role, company_id, archived_at
+       FROM agents
+       WHERE id = ? LIMIT 1`
+    )
+    .get(input.agentId) as
+    | { id: string; name: string; role: string; company_id: string; archived_at: string | null }
+    | undefined;
+
+  if (!agent) {
+    throw new OrchestrationApiError(404, "agent_not_found", "Agent not found");
+  }
+  if (agent.archived_at) {
+    throw new OrchestrationApiError(409, "agent_already_archived", "Agent is already archived");
+  }
+
+  let replacement:
+    | { id: string; name: string; company_id: string; role: string }
+    | null = null;
+
+  if (input.replacementAgentId) {
+    if (input.replacementAgentId === agent.id) {
+      throw new OrchestrationApiError(
+        400,
+        "replacement_invalid",
+        "replacementAgentId must differ from the agent being fired"
+      );
+    }
+    const repRow = db
+      .prepare(
+        `SELECT id, name, company_id, role
+         FROM agents
+         WHERE id = ? AND archived_at IS NULL LIMIT 1`
+      )
+      .get(input.replacementAgentId) as
+      | { id: string; name: string; company_id: string; role: string }
+      | undefined;
+    if (!repRow) {
+      throw new OrchestrationApiError(
+        400,
+        "replacement_not_found",
+        "Replacement agent not found or archived"
+      );
+    }
+    if (repRow.company_id !== agent.company_id) {
+      throw new OrchestrationApiError(
+        400,
+        "replacement_company_mismatch",
+        "Replacement agent must be in the same company"
+      );
+    }
+    replacement = repRow;
+  }
+
+  const replacementLabel =
+    replacement?.name ?? input.replacementFallback?.trim() ?? "the team";
+  const archivedAt = new Date().toISOString();
+
+  const cascade: FireCompanyAgentCascade = {
+    tasksReassigned: 0,
+    titlesRewritten: 0,
+    descriptionsRewritten: 0,
+    reportsToUpdated: 0,
+    sessionsCleared: 0,
+    failedRunsReset: 0,
+  };
+
+  const tx = db.transaction(() => {
+    // 1. Reassign open tasks where the departed agent was assignee.
+    const reassignResult = db
+      .prepare(
+        `UPDATE tasks
+         SET assignee_agent_id = ?, updated_at = ?
+         WHERE assignee_agent_id = ? AND archived_at IS NULL`
+      )
+      .run(replacement?.id ?? null, archivedAt, agent.id);
+    cascade.tasksReassigned = reassignResult.changes;
+
+    // 2. Word-boundary rewrite of the departed name in task titles/descriptions
+    //    across the company. Comments are intentionally left alone as historical record.
+    const likePattern = `%${agent.name}%`;
+    const taskRows = db
+      .prepare(
+        `SELECT t.id, t.title, t.description
+         FROM tasks t
+         INNER JOIN projects p ON p.id = t.project_id
+         WHERE p.company_id = ?
+           AND t.archived_at IS NULL
+           AND (t.title LIKE ? OR t.description LIKE ?)`
+      )
+      .all(agent.company_id, likePattern, likePattern) as Array<{
+        id: string;
+        title: string;
+        description: string | null;
+      }>;
+
+    const updateTaskStmt = db.prepare(
+      `UPDATE tasks SET title = ?, description = ?, updated_at = ? WHERE id = ?`
+    );
+
+    for (const t of taskRows) {
+      const newTitle = rewriteNameInText(t.title, agent.name, replacementLabel);
+      const newDescription = rewriteNameInText(
+        t.description ?? "",
+        agent.name,
+        replacementLabel
+      );
+      const titleChanged = newTitle !== t.title;
+      const descChanged = newDescription !== (t.description ?? "");
+      if (!titleChanged && !descChanged) continue;
+      updateTaskStmt.run(
+        newTitle,
+        descChanged ? newDescription : t.description,
+        archivedAt,
+        t.id
+      );
+      if (titleChanged) cascade.titlesRewritten += 1;
+      if (descChanged) cascade.descriptionsRewritten += 1;
+    }
+
+    // 3. Reporting-to cascade: any agent reporting to the departed agent now reports
+    //    to the replacement (or no one if unspecified).
+    const reportsResult = db
+      .prepare(
+        `UPDATE agents
+         SET reporting_to = ?, updated_at = ?
+         WHERE reporting_to = ? AND archived_at IS NULL`
+      )
+      .run(replacement?.id ?? null, archivedAt, agent.id);
+    cascade.reportsToUpdated = reportsResult.changes;
+
+    // 4. Clear in-flight task sessions for all agents in the company so OpenClaw
+    //    session history referencing the departed agent is not replayed.
+    const sessionsResult = db
+      .prepare(
+        `DELETE FROM agent_task_sessions
+         WHERE company_id = ?`
+      )
+      .run(agent.company_id);
+    cascade.sessionsCleared = sessionsResult.changes;
+
+    // 5. Reset agents stuck in insufficient_progress_passive_report_only so they get
+    //    a fresh shot under the new CEO / replacement.
+    const runsResult = db
+      .prepare(
+        `UPDATE heartbeat_runs
+         SET status = 'cancelled', error = 'reset_after_agent_fire', updated_at = ?
+         WHERE company_id = ? AND status = 'failed'
+           AND error = 'insufficient_progress_passive_report_only'`
+      )
+      .run(archivedAt, agent.company_id);
+    cascade.failedRunsReset = runsResult.changes;
+
+    // 6. Archive the departed agent.
+    db.prepare(
+      `UPDATE agents
+       SET archived_at = ?, updated_at = ?, status = 'offline'
+       WHERE id = ?`
+    ).run(archivedAt, archivedAt, agent.id);
+  });
+
+  tx();
+
+  const archivedRow = loadAgentRowIncludingArchived(db, agent.id);
+  if (!archivedRow) {
+    throw new OrchestrationApiError(
+      500,
+      "agent_fire_failed",
+      "Agent archived but reload failed"
+    );
+  }
+
+  const replacementRow = replacement ? agentById(db, replacement.id) : null;
+
+  return {
+    archivedAgent: agentFromRow(archivedRow),
+    replacement: replacementRow ? agentFromRow(replacementRow) : null,
+    cascade,
+    archivedAt,
+  };
+}
+
+function loadAgentRowIncludingArchived(
+  db: ReturnType<typeof getOrchestrationDb>,
+  agentId: string
+): AgentRow | undefined {
+  return db
+    .prepare(
+      `SELECT
+        a.id,
+        a.company_id,
+        a.project_id,
+        a.name,
+        a.slug,
+        a.emoji,
+        a.role,
+        a.personality,
+        a.avatar_url,
+        a.status,
+        a.current_task_id,
+        t.title AS current_task_title,
+        a.model,
+        a.adapter_type,
+        a.runtime_slug,
+        a.paperclip_agent_id,
+        a.openclaw_agent_id,
+        a.reporting_to,
+        mgr.name AS reporting_to_name,
+        hap.id AS hire_approval_id,
+        hap.status AS hire_approval_status,
+        a.skills_json,
+        a.tasks_completed,
+        a.total_runtime_minutes,
+        a.last_heartbeat,
+        a.created_at,
+        a.updated_at
+       FROM agents a
+       LEFT JOIN tasks t ON t.id = a.current_task_id
+       LEFT JOIN agents mgr ON mgr.id = a.reporting_to
+       LEFT JOIN approvals hap
+         ON hap.company_id = a.company_id
+        AND hap.type = 'hire_agent'
+        AND hap.status IN ('pending', 'revision_requested')
+        AND json_extract(hap.payload_json, '$.agentId') = a.id
+       WHERE a.id = ?`
+    )
+    .get(agentId) as AgentRow | undefined;
+}

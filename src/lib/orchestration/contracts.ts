@@ -359,6 +359,14 @@ export const createProjectAgentSchema = z.object({
   status: agentStatusSchema.optional().default("idle"),
 });
 
+export const fireCompanyAgentSchema = z
+  .object({
+    replacementAgentId: z.string().trim().min(1).optional(),
+    replacementFallback: z.string().trim().min(1).max(120).optional(),
+  })
+  .optional()
+  .default({});
+
 export const agentHeartbeatSchema = z.object({
   status: agentStatusSchema.optional(),
   currentTaskId: z.string().trim().min(1).nullable().optional(),
