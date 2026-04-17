@@ -1602,7 +1602,8 @@ async function executeViaOpenClaw(
     // collision was the 2026-04-17 live-test failure mode.
     const deterministicKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
     const resumeSessionKey = existingSessionKey ?? deterministicKey;
-    const freshSessionKey = `${deterministicKey}:${randomUUID().slice(0, 8)}`;
+    const freshSuffix = randomUUID().slice(0, 8);
+    const freshSessionKey = `${deterministicKey}:${freshSuffix}`;
 
     let messageCountBefore = 0;
 
@@ -1643,13 +1644,15 @@ async function executeViaOpenClaw(
     }
 
     // ── Fresh create path: random-suffix key guarantees no silent collision. ──
+    // Label must also be unique per OpenClaw — include the fresh suffix so
+    // post-self-heal creates don't collide with prior sessions' labels.
     const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
       OPENCLAW_BIN,
       "sessions.create",
       {
         key: freshSessionKey,
         agentId: openclawAgentId,
-        label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}]`,
+        label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}·${freshSuffix}]`,
       },
       execFileAsync,
     );
