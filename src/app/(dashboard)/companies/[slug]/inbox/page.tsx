@@ -1173,7 +1173,7 @@ function EventRow({
       if (!event.agentId || acting) return;
       setActing(true);
       await wakeupAgent(event.agentId, {
-        source: "on_demand",
+        source: "explicit",
         reason: "retry_failed_run",
         payload: { taskId: event.taskId, taskKey: event.taskKey },
       });

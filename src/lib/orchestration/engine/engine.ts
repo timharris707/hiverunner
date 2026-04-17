@@ -1446,6 +1446,25 @@ export function buildHeartbeatPrompt(
     sections.push(`\n## Session\nResuming session: ${session.sessionDisplayId ?? session.sessionParams.sessionId}`);
   }
 
+  // Final response-format reminder — placed last so it is the most recent
+  // instruction the model reads before generating. The earlier onboarding
+  // assets describe mc-action blocks, but by the time the model has read the
+  // full context it tends to default to narrative prose. This short reminder
+  // makes the structured-output requirement unmissable.
+  sections.push("\n---");
+  sections.push("## REQUIRED Response Format");
+  sections.push(
+    "Your response MUST include at least one ```mc-action``` fenced block for every directive, assignment, status update, or status report. Prose-only output is logged as a passive report, and on a task-bound heartbeat it fails the run."
+  );
+  sections.push("Quick reference (each block wraps a single JSON object):");
+  sections.push("- Comment on a task: `add_comment` with `{ \"taskKey\": \"WEA-XXX\", \"body\": \"...\" }`");
+  sections.push("- Create new work: `create_task` with `{ \"title\", \"assignee\", \"priority\", \"type\" }`");
+  sections.push("- Move status: `update_task` with `{ \"taskKey\", \"status\" }` (or `comment`)");
+  sections.push("- Hire an agent: `hire_agent` with `{ \"name\", \"role\", \"capabilities\", \"reason\" }`");
+  sections.push("- Report only (no action needed): `report` with `{ \"summary\" }`");
+  sections.push("Even if your only output is a status report, wrap it in an `mc-action` `report` block. Narrative paragraphs outside blocks do NOT count.");
+  sections.push("Example:\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"WEA-211\",\"body\":\"Barometer handoff — Flux to own next execution slice.\"}\n```");
+
   return sections.join("\n").trim();
 }
 
