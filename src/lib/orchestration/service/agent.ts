@@ -1715,6 +1715,17 @@ function applyDepartureCascadeTx(
     .run(input.companyId);
   cascade.sessionsCleared = sessionsResult.changes;
 
+  // 4b. Force fresh OpenClaw sessions by nulling the per-agent runtime session_id.
+  //     Without this, agents resume the session they were in pre-fire, which may
+  //     have ended mid-turn (the MC loop stops consuming on fire) and produce
+  //     empty assistant output on the next wake. A null session_id makes the
+  //     adapter create a new session from scratch.
+  db.prepare(
+    `UPDATE agent_runtime_state
+     SET session_id = NULL, updated_at = ?
+     WHERE company_id = ?`
+  ).run(input.archivedAt, input.companyId);
+
   // 5. Reset agents stuck in insufficient_progress_passive_report_only.
   const runsResult = db
     .prepare(
