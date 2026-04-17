@@ -455,6 +455,30 @@ export function getOrCreateRuntimeState(
   };
 }
 
+// Null the agent's runtime session_id so the next wake opens a fresh
+// OpenClaw session. Used as a self-heal for terminal failures whose
+// symptoms compound on a reused session (e.g. empty_assistant_output).
+// Failures here are logged but never re-thrown — we don't want a
+// bookkeeping hiccup to destabilize the caller's error path.
+export function resetAgentRuntimeSessionForSelfHeal(
+  db: Database.Database,
+  agentId: string,
+  reason: string,
+): void {
+  try {
+    db.prepare(
+      `UPDATE agent_runtime_state
+       SET session_id = NULL, updated_at = ?
+       WHERE agent_id = ?`,
+    ).run(new Date().toISOString(), agentId);
+  } catch (err) {
+    console.warn(
+      `[engine:runtime] failed to null session_id for ${agentId} (${reason}):`,
+      err,
+    );
+  }
+}
+
 export function updateRuntimeState(
   agentId: string,
   patch: {
@@ -1876,11 +1900,25 @@ async function importSessionOutputAndExecuteActions(input: {
   if (assistantTexts.length === 0) {
     results.fatalError = EMPTY_ASSISTANT_OUTPUT_ERROR;
     results.errors.push(EMPTY_ASSISTANT_OUTPUT_ERROR);
+
+    // Self-heal: null the agent's runtime session_id so the next wake opens
+    // a fresh OpenClaw session. Empirically the "thinking-only, no text"
+    // failure mode compounds on a reused session — once Claude lands there,
+    // subsequent wakes on the same session tend to repeat it (see the live
+    // nudge round against Barometer/Nimbus on 2026-04-17). Mirrors the
+    // cascade's post-fire session reset (commit b3f4c96e) without
+    // disturbing any other agents in the company.
+    resetAgentRuntimeSessionForSelfHeal(
+      input.db,
+      input.agentId,
+      "empty_assistant_output",
+    );
+
     emitRunEvent(
       input.runId,
       input.agentId,
       "error",
-      "FATAL: Session completed with no assistant text output. Marking run failed to stop continuation/retry waste.",
+      "FATAL: Session completed with no assistant text output. Session reset; next wake will start fresh.",
       input.db,
     );
     return results;
