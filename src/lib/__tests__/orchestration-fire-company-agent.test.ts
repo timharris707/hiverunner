@@ -379,6 +379,101 @@ async function run() {
     );
   });
 
+  await test("fire-without-replacement writes $-containing fallback verbatim", () => {
+    const doomed = createProjectAgent({
+      projectId: primary.id,
+      name: `DollarCeo ${stamp}`,
+      emoji: "💵",
+      role: "CEO",
+      personality: "",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    const task = createTask({
+      projectId: primary.id,
+      title: `${doomed.name} to review the budget`,
+      description: `Ping ${doomed.name} about the budget`,
+      priority: "P1",
+      type: "feature",
+      status: "on-deck",
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    // $100, $&, $1 would all be interpreted as replacement-string backreferences
+    // if rewriteNameInText passed toName directly into String.replace. Guard the
+    // caller by asserting the label reaches the stored row exactly.
+    const fallback = "the $100 ops team ($&)";
+    const result = fireCompanyAgent({
+      agentId: doomed.id,
+      replacementFallback: fallback,
+    });
+
+    assert.strictEqual(result.cascade.titlesRewritten, 1);
+    assert.strictEqual(result.cascade.descriptionsRewritten, 1);
+
+    const loaded = getTask(task.id).task;
+    assert.ok(
+      loaded.title.includes(fallback),
+      `title must contain fallback verbatim, got: ${loaded.title}`
+    );
+    assert.ok(
+      loaded.description.includes(fallback),
+      `description must contain fallback verbatim, got: ${loaded.description}`
+    );
+  });
+
+  await test("fire cascade nulls agent_runtime_state.session_id across the company", () => {
+    const victim = createProjectAgent({
+      projectId: primary.id,
+      name: `SessionVictim ${stamp}`,
+      emoji: "🎭",
+      role: "Engineer",
+      personality: "",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    const bystander = createProjectAgent({
+      projectId: primary.id,
+      name: `SessionBystander ${stamp}`,
+      emoji: "🎪",
+      role: "Engineer",
+      personality: "",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    const nowSeed = new Date().toISOString();
+    const upsertRuntimeState = db.prepare(
+      `INSERT OR REPLACE INTO agent_runtime_state
+        (agent_id, company_id, adapter_type, session_id, state_json, updated_at)
+       VALUES (?, ?, 'openclaw', ?, '{}', ?)`
+    );
+    upsertRuntimeState.run(victim.id, DEFAULT_COMPANY, "victim-sess-123", nowSeed);
+    upsertRuntimeState.run(bystander.id, DEFAULT_COMPANY, "bystander-sess-456", nowSeed);
+
+    fireCompanyAgent({ agentId: victim.id });
+
+    const readSession = db.prepare(
+      "SELECT session_id FROM agent_runtime_state WHERE agent_id = ?"
+    );
+    const victimRow = readSession.get(victim.id) as { session_id: string | null } | undefined;
+    const bystanderRow = readSession.get(bystander.id) as { session_id: string | null } | undefined;
+
+    assert.strictEqual(
+      victimRow?.session_id ?? null,
+      null,
+      "fired agent's runtime_state.session_id must be nulled"
+    );
+    assert.strictEqual(
+      bystanderRow?.session_id ?? null,
+      null,
+      "bystander agent in same company must also have session_id nulled"
+    );
+  });
+
   console.log(`\n  ${passed} passed, ${failed} failed\n`);
   if (failed > 0) {
     process.exit(1);

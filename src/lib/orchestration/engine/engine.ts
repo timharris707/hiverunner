@@ -1463,7 +1463,7 @@ export function buildHeartbeatPrompt(
   sections.push("- Hire an agent: `hire_agent` with `{ \"name\", \"role\", \"capabilities\", \"reason\" }`");
   sections.push("- Report only (no action needed): `report` with `{ \"summary\" }`");
   sections.push("Even if your only output is a status report, wrap it in an `mc-action` `report` block. Narrative paragraphs outside blocks do NOT count.");
-  sections.push("Example:\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"WEA-211\",\"body\":\"Barometer handoff — Flux to own next execution slice.\"}\n```");
+  sections.push("Example:\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"WEA-XXX\",\"body\":\"Barometer handoff — Flux to own next execution slice.\"}\n```");
 
   return sections.join("\n").trim();
 }

@@ -1616,7 +1616,7 @@ function rewriteNameInText(text: string, fromName: string, toName: string): stri
   const trimmed = fromName.trim();
   if (!trimmed) return text;
   const pattern = new RegExp(`\\b${escapeRegExp(trimmed)}\\b`, "g");
-  return text.replace(pattern, toName);
+  return text.replace(pattern, () => toName);
 }
 
 function applyDepartureCascadeTx(
