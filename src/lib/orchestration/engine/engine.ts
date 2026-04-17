@@ -407,6 +407,13 @@ export function updateTaskSession(
 
 /* ── Runtime State ��─ */
 
+// Fallback initializer — NOT the primary seed path. createProjectAgent
+// inserts the agent_runtime_state row inside its creation transaction, so
+// under normal flow this function returns the existing row on the first
+// engine tick. The INSERT branch below exists only for legacy agents that
+// pre-date the eager seed (fix 49c122e3) and for any code paths that still
+// bypass createProjectAgent. Do not rely on the INSERT never running; do
+// rely on this function being idempotent.
 export function getOrCreateRuntimeState(
   agentId: string,
   companyId: string,

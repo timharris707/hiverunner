@@ -79,6 +79,13 @@ export function resolveCompanyWorkspaceRoot(
   return resolveCanonicalCompanyWorkspaceRoot(input.companyId, input.workspaceSlug, input.env);
 }
 
+// Fallback initializer — NOT the primary seed path. createCompany calls this
+// eagerly before inserting the companies row (fix 1219863f), so under normal
+// flow the dirs already exist by the time later consumers (agent hire,
+// memory ops, voice-memory) reach for them. Calling this again is safe:
+// mkdirSync({recursive: true}) is idempotent. Keep it around for legacy
+// companies created before the eager seed and as a defense-in-depth layer
+// in paths that can't assume the creator ran.
 export function ensureCompanyWorkspaceScaffold(companyWorkspaceRoot: string): {
   root: string;
   projectsDir: string;
