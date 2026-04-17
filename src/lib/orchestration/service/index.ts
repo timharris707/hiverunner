@@ -9,7 +9,6 @@ import {
   cleanupDeletedProjectOpenClawAgents as cleanupDeletedProjectOpenClawAgentsRaw,
   getProjectBoard as getProjectBoardRaw,
   getProjectBoardUpdatedAt as getProjectBoardUpdatedAtRaw,
-  hardDeleteProject as hardDeleteProjectRaw,
 } from "./project";
 import {
   listProjectAgents as listProjectAgentsRaw,
@@ -96,7 +95,6 @@ export const updateProjectSettings = withServiceContext(
   updateProjectSettingsRaw
 );
 export const archiveProject = withServiceContext("project.archiveProject", archiveProjectRaw);
-export const hardDeleteProject = withServiceContext("project.hardDeleteProject", hardDeleteProjectRaw);
 export const cleanupDeletedProjectOpenClawAgents = withServiceContext(
   "project.cleanupDeletedProjectOpenClawAgents",
   cleanupDeletedProjectOpenClawAgentsRaw
