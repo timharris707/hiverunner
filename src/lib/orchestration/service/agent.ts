@@ -1619,6 +1619,154 @@ function rewriteNameInText(text: string, fromName: string, toName: string): stri
   return text.replace(pattern, toName);
 }
 
+function applyDepartureCascadeTx(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: {
+    departedName: string;
+    departedAgentId: string | null;
+    companyId: string;
+    replacementId: string | null;
+    replacementLabel: string;
+    archivedAt: string;
+  }
+): FireCompanyAgentCascade {
+  const cascade: FireCompanyAgentCascade = {
+    tasksReassigned: 0,
+    titlesRewritten: 0,
+    descriptionsRewritten: 0,
+    reportsToUpdated: 0,
+    sessionsCleared: 0,
+    failedRunsReset: 0,
+  };
+
+  // 1. Reassign open tasks where the departed agent was assignee. Only meaningful
+  //    if the agent row still existed and had assignments pointing at its id.
+  if (input.departedAgentId) {
+    const reassignResult = db
+      .prepare(
+        `UPDATE tasks
+         SET assignee_agent_id = ?, updated_at = ?
+         WHERE assignee_agent_id = ? AND archived_at IS NULL`
+      )
+      .run(input.replacementId, input.archivedAt, input.departedAgentId);
+    cascade.tasksReassigned = reassignResult.changes;
+  }
+
+  // 2. Word-boundary rewrite of the departed name in task titles/descriptions
+  //    across the company. Comments are intentionally left alone as historical record.
+  const likePattern = `%${input.departedName}%`;
+  const taskRows = db
+    .prepare(
+      `SELECT t.id, t.title, t.description
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       WHERE p.company_id = ?
+         AND t.archived_at IS NULL
+         AND (t.title LIKE ? OR t.description LIKE ?)`
+    )
+    .all(input.companyId, likePattern, likePattern) as Array<{
+      id: string;
+      title: string;
+      description: string | null;
+    }>;
+
+  const updateTaskStmt = db.prepare(
+    `UPDATE tasks SET title = ?, description = ?, updated_at = ? WHERE id = ?`
+  );
+
+  for (const t of taskRows) {
+    const newTitle = rewriteNameInText(t.title, input.departedName, input.replacementLabel);
+    const newDescription = rewriteNameInText(
+      t.description ?? "",
+      input.departedName,
+      input.replacementLabel
+    );
+    const titleChanged = newTitle !== t.title;
+    const descChanged = newDescription !== (t.description ?? "");
+    if (!titleChanged && !descChanged) continue;
+    updateTaskStmt.run(
+      newTitle,
+      descChanged ? newDescription : t.description,
+      input.archivedAt,
+      t.id
+    );
+    if (titleChanged) cascade.titlesRewritten += 1;
+    if (descChanged) cascade.descriptionsRewritten += 1;
+  }
+
+  // 3. Reporting-to cascade.
+  if (input.departedAgentId) {
+    const reportsResult = db
+      .prepare(
+        `UPDATE agents
+         SET reporting_to = ?, updated_at = ?
+         WHERE reporting_to = ? AND archived_at IS NULL`
+      )
+      .run(input.replacementId, input.archivedAt, input.departedAgentId);
+    cascade.reportsToUpdated = reportsResult.changes;
+  }
+
+  // 4. Clear in-flight task sessions for all agents in the company.
+  const sessionsResult = db
+    .prepare(
+      `DELETE FROM agent_task_sessions
+       WHERE company_id = ?`
+    )
+    .run(input.companyId);
+  cascade.sessionsCleared = sessionsResult.changes;
+
+  // 5. Reset agents stuck in insufficient_progress_passive_report_only.
+  const runsResult = db
+    .prepare(
+      `UPDATE heartbeat_runs
+       SET status = 'cancelled', error = 'reset_after_agent_fire', updated_at = ?
+       WHERE company_id = ? AND status = 'failed'
+         AND error = 'insufficient_progress_passive_report_only'`
+    )
+    .run(input.archivedAt, input.companyId);
+  cascade.failedRunsReset = runsResult.changes;
+
+  return cascade;
+}
+
+function resolveReplacement(
+  db: ReturnType<typeof getOrchestrationDb>,
+  input: { replacementAgentId?: string; companyId: string; departedAgentId: string | null }
+): { id: string; name: string; company_id: string; role: string } | null {
+  if (!input.replacementAgentId) return null;
+  if (input.departedAgentId && input.replacementAgentId === input.departedAgentId) {
+    throw new OrchestrationApiError(
+      400,
+      "replacement_invalid",
+      "replacementAgentId must differ from the agent being fired"
+    );
+  }
+  const repRow = db
+    .prepare(
+      `SELECT id, name, company_id, role
+       FROM agents
+       WHERE id = ? AND archived_at IS NULL LIMIT 1`
+    )
+    .get(input.replacementAgentId) as
+    | { id: string; name: string; company_id: string; role: string }
+    | undefined;
+  if (!repRow) {
+    throw new OrchestrationApiError(
+      400,
+      "replacement_not_found",
+      "Replacement agent not found or archived"
+    );
+  }
+  if (repRow.company_id !== input.companyId) {
+    throw new OrchestrationApiError(
+      400,
+      "replacement_company_mismatch",
+      "Replacement agent must be in the same company"
+    );
+  }
+  return repRow;
+}
+
 export function fireCompanyAgent(input: {
   agentId: string;
   replacementAgentId?: string;
@@ -1643,144 +1791,28 @@ export function fireCompanyAgent(input: {
     throw new OrchestrationApiError(409, "agent_already_archived", "Agent is already archived");
   }
 
-  let replacement:
-    | { id: string; name: string; company_id: string; role: string }
-    | null = null;
-
-  if (input.replacementAgentId) {
-    if (input.replacementAgentId === agent.id) {
-      throw new OrchestrationApiError(
-        400,
-        "replacement_invalid",
-        "replacementAgentId must differ from the agent being fired"
-      );
-    }
-    const repRow = db
-      .prepare(
-        `SELECT id, name, company_id, role
-         FROM agents
-         WHERE id = ? AND archived_at IS NULL LIMIT 1`
-      )
-      .get(input.replacementAgentId) as
-      | { id: string; name: string; company_id: string; role: string }
-      | undefined;
-    if (!repRow) {
-      throw new OrchestrationApiError(
-        400,
-        "replacement_not_found",
-        "Replacement agent not found or archived"
-      );
-    }
-    if (repRow.company_id !== agent.company_id) {
-      throw new OrchestrationApiError(
-        400,
-        "replacement_company_mismatch",
-        "Replacement agent must be in the same company"
-      );
-    }
-    replacement = repRow;
-  }
+  const replacement = resolveReplacement(db, {
+    replacementAgentId: input.replacementAgentId,
+    companyId: agent.company_id,
+    departedAgentId: agent.id,
+  });
 
   const replacementLabel =
     replacement?.name ?? input.replacementFallback?.trim() ?? "the team";
   const archivedAt = new Date().toISOString();
 
-  const cascade: FireCompanyAgentCascade = {
-    tasksReassigned: 0,
-    titlesRewritten: 0,
-    descriptionsRewritten: 0,
-    reportsToUpdated: 0,
-    sessionsCleared: 0,
-    failedRunsReset: 0,
-  };
+  let cascade!: FireCompanyAgentCascade;
 
   const tx = db.transaction(() => {
-    // 1. Reassign open tasks where the departed agent was assignee.
-    const reassignResult = db
-      .prepare(
-        `UPDATE tasks
-         SET assignee_agent_id = ?, updated_at = ?
-         WHERE assignee_agent_id = ? AND archived_at IS NULL`
-      )
-      .run(replacement?.id ?? null, archivedAt, agent.id);
-    cascade.tasksReassigned = reassignResult.changes;
+    cascade = applyDepartureCascadeTx(db, {
+      departedName: agent.name,
+      departedAgentId: agent.id,
+      companyId: agent.company_id,
+      replacementId: replacement?.id ?? null,
+      replacementLabel,
+      archivedAt,
+    });
 
-    // 2. Word-boundary rewrite of the departed name in task titles/descriptions
-    //    across the company. Comments are intentionally left alone as historical record.
-    const likePattern = `%${agent.name}%`;
-    const taskRows = db
-      .prepare(
-        `SELECT t.id, t.title, t.description
-         FROM tasks t
-         INNER JOIN projects p ON p.id = t.project_id
-         WHERE p.company_id = ?
-           AND t.archived_at IS NULL
-           AND (t.title LIKE ? OR t.description LIKE ?)`
-      )
-      .all(agent.company_id, likePattern, likePattern) as Array<{
-        id: string;
-        title: string;
-        description: string | null;
-      }>;
-
-    const updateTaskStmt = db.prepare(
-      `UPDATE tasks SET title = ?, description = ?, updated_at = ? WHERE id = ?`
-    );
-
-    for (const t of taskRows) {
-      const newTitle = rewriteNameInText(t.title, agent.name, replacementLabel);
-      const newDescription = rewriteNameInText(
-        t.description ?? "",
-        agent.name,
-        replacementLabel
-      );
-      const titleChanged = newTitle !== t.title;
-      const descChanged = newDescription !== (t.description ?? "");
-      if (!titleChanged && !descChanged) continue;
-      updateTaskStmt.run(
-        newTitle,
-        descChanged ? newDescription : t.description,
-        archivedAt,
-        t.id
-      );
-      if (titleChanged) cascade.titlesRewritten += 1;
-      if (descChanged) cascade.descriptionsRewritten += 1;
-    }
-
-    // 3. Reporting-to cascade: any agent reporting to the departed agent now reports
-    //    to the replacement (or no one if unspecified).
-    const reportsResult = db
-      .prepare(
-        `UPDATE agents
-         SET reporting_to = ?, updated_at = ?
-         WHERE reporting_to = ? AND archived_at IS NULL`
-      )
-      .run(replacement?.id ?? null, archivedAt, agent.id);
-    cascade.reportsToUpdated = reportsResult.changes;
-
-    // 4. Clear in-flight task sessions for all agents in the company so OpenClaw
-    //    session history referencing the departed agent is not replayed.
-    const sessionsResult = db
-      .prepare(
-        `DELETE FROM agent_task_sessions
-         WHERE company_id = ?`
-      )
-      .run(agent.company_id);
-    cascade.sessionsCleared = sessionsResult.changes;
-
-    // 5. Reset agents stuck in insufficient_progress_passive_report_only so they get
-    //    a fresh shot under the new CEO / replacement.
-    const runsResult = db
-      .prepare(
-        `UPDATE heartbeat_runs
-         SET status = 'cancelled', error = 'reset_after_agent_fire', updated_at = ?
-         WHERE company_id = ? AND status = 'failed'
-           AND error = 'insufficient_progress_passive_report_only'`
-      )
-      .run(archivedAt, agent.company_id);
-    cascade.failedRunsReset = runsResult.changes;
-
-    // 6. Archive the departed agent.
     db.prepare(
       `UPDATE agents
        SET archived_at = ?, updated_at = ?, status = 'offline'
@@ -1806,6 +1838,86 @@ export function fireCompanyAgent(input: {
     replacement: replacementRow ? agentFromRow(replacementRow) : null,
     cascade,
     archivedAt,
+  };
+}
+
+export type CleanupDepartedAgentResult = {
+  companyId: string;
+  departedName: string;
+  replacement: OrchestrationAgent | null;
+  cascade: FireCompanyAgentCascade;
+  appliedAt: string;
+};
+
+export function cleanupDepartedAgentReferences(input: {
+  companyId: string;
+  departedName: string;
+  replacementAgentId?: string;
+  replacementFallback?: string;
+}): CleanupDepartedAgentResult {
+  const db = getOrchestrationDb();
+
+  const trimmedName = input.departedName.trim();
+  if (!trimmedName) {
+    throw new OrchestrationApiError(
+      400,
+      "departed_name_required",
+      "departedName must be a non-empty string"
+    );
+  }
+
+  const company = resolveCompanyId(db, input.companyId);
+  if (!company) {
+    throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+  }
+
+  const activeConflict = db
+    .prepare(
+      `SELECT id FROM agents
+       WHERE company_id = ? AND archived_at IS NULL AND LOWER(name) = LOWER(?) LIMIT 1`
+    )
+    .get(company, trimmedName) as { id: string } | undefined;
+  if (activeConflict) {
+    throw new OrchestrationApiError(
+      409,
+      "departed_agent_still_active",
+      "An active agent with that name still exists in the company; fire that agent directly via DELETE /api/orchestration/agents/:id"
+    );
+  }
+
+  const replacement = resolveReplacement(db, {
+    replacementAgentId: input.replacementAgentId,
+    companyId: company,
+    departedAgentId: null,
+  });
+
+  const replacementLabel =
+    replacement?.name ?? input.replacementFallback?.trim() ?? "the team";
+  const appliedAt = new Date().toISOString();
+
+  let cascade!: FireCompanyAgentCascade;
+
+  const tx = db.transaction(() => {
+    cascade = applyDepartureCascadeTx(db, {
+      departedName: trimmedName,
+      departedAgentId: null,
+      companyId: company,
+      replacementId: replacement?.id ?? null,
+      replacementLabel,
+      archivedAt: appliedAt,
+    });
+  });
+
+  tx();
+
+  const replacementRow = replacement ? agentById(db, replacement.id) : null;
+
+  return {
+    companyId: company,
+    departedName: trimmedName,
+    replacement: replacementRow ? agentFromRow(replacementRow) : null,
+    cascade,
+    appliedAt,
   };
 }
 

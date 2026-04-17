@@ -367,6 +367,13 @@ export const fireCompanyAgentSchema = z
   .optional()
   .default({});
 
+export const cleanupDepartedAgentSchema = z.object({
+  companyId: z.string().trim().min(1),
+  departedName: z.string().trim().min(1).max(120),
+  replacementAgentId: z.string().trim().min(1).optional(),
+  replacementFallback: z.string().trim().min(1).max(120).optional(),
+});
+
 export const agentHeartbeatSchema = z.object({
   status: agentStatusSchema.optional(),
   currentTaskId: z.string().trim().min(1).nullable().optional(),

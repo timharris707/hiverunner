@@ -3,6 +3,7 @@ import { rmSync } from "node:fs";
 
 import {
   assignTask,
+  cleanupDepartedAgentReferences,
   createProject,
   createProjectAgent,
   createTask,
@@ -292,6 +293,89 @@ async function run() {
       () => fireCompanyAgent({ agentId: doomed.id }),
       (err: unknown) =>
         err instanceof OrchestrationApiError && err.code === "agent_already_archived"
+    );
+  });
+
+  await test("cleanupDepartedAgentReferences rewrites text after agent row is gone", () => {
+    const orphanName = `GhostCeo ${stamp}`;
+
+    const newCeo = createProjectAgent({
+      projectId: primary.id,
+      name: `Replacement ${stamp}`,
+      emoji: "🌅",
+      role: "CEO",
+      personality: "New CEO after hard-delete",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    const task = createTask({
+      projectId: primary.id,
+      title: `${orphanName} to review launch`,
+      description: `Blocked: ${orphanName} has not responded. Bridge stays intact.`,
+      priority: "P1",
+      type: "feature",
+      status: "on-deck",
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    // Simulate an agent that was hard-deleted: no row exists for orphanName.
+    const conflict = db
+      .prepare("SELECT id FROM agents WHERE company_id = ? AND LOWER(name) = LOWER(?)")
+      .get(DEFAULT_COMPANY, orphanName) as { id: string } | undefined;
+    assert.ok(!conflict, "test fixture must not have an active agent with the orphan name");
+
+    const result = cleanupDepartedAgentReferences({
+      companyId: DEFAULT_COMPANY,
+      departedName: orphanName,
+      replacementAgentId: newCeo.id,
+    });
+
+    assert.strictEqual(result.cascade.tasksReassigned, 0, "orphan cleanup cannot reassign by id");
+    assert.ok(result.cascade.titlesRewritten >= 1);
+    assert.ok(result.cascade.descriptionsRewritten >= 1);
+    assert.ok(result.replacement);
+    assert.strictEqual(result.replacement!.id, newCeo.id);
+
+    const loaded = getTask(task.id).task;
+    assert.ok(loaded.title.includes(newCeo.name));
+    assert.ok(!loaded.title.includes(orphanName));
+    assert.ok(loaded.description.includes(newCeo.name));
+    assert.ok(loaded.description.includes("Bridge stays intact"));
+  });
+
+  await test("cleanupDepartedAgentReferences rejects when active agent with same name still exists", () => {
+    const stillHere = createProjectAgent({
+      projectId: primary.id,
+      name: `ActiveStillHere ${stamp}`,
+      emoji: "🟢",
+      role: "Engineer",
+      personality: "",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    assert.throws(
+      () =>
+        cleanupDepartedAgentReferences({
+          companyId: DEFAULT_COMPANY,
+          departedName: stillHere.name,
+        }),
+      (err: unknown) =>
+        err instanceof OrchestrationApiError && err.code === "departed_agent_still_active"
+    );
+  });
+
+  await test("cleanupDepartedAgentReferences rejects blank departedName", () => {
+    assert.throws(
+      () =>
+        cleanupDepartedAgentReferences({
+          companyId: DEFAULT_COMPANY,
+          departedName: "   ",
+        }),
+      (err: unknown) =>
+        err instanceof OrchestrationApiError && err.code === "departed_name_required"
     );
   });
 

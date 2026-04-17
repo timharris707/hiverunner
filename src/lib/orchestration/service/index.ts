@@ -22,6 +22,7 @@ import {
   regenerateProjectAgentAvatar as regenerateProjectAgentAvatarRaw,
   heartbeatProjectAgent as heartbeatProjectAgentRaw,
   fireCompanyAgent as fireCompanyAgentRaw,
+  cleanupDepartedAgentReferences as cleanupDepartedAgentReferencesRaw,
 } from "./agent";
 import {
   listTasks as listTasksRaw,
@@ -130,6 +131,10 @@ export const heartbeatProjectAgent = withServiceContext(
 export const fireCompanyAgent = withServiceContext(
   "agent.fireCompanyAgent",
   fireCompanyAgentRaw
+);
+export const cleanupDepartedAgentReferences = withServiceContext(
+  "agent.cleanupDepartedAgentReferences",
+  cleanupDepartedAgentReferencesRaw
 );
 
 export const listTasks = withServiceContext("task.listTasks", listTasksRaw);
