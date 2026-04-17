@@ -1356,6 +1356,15 @@ export function createProjectAgent(input: {
       now
     );
 
+    // Seed agent_runtime_state eagerly so readers don't race against the
+    // engine's lazy getOrCreateRuntimeState. Same column set and defaults
+    // as engine.ts:431 so the lazy path stays a no-op for future agents.
+    db.prepare(
+      `INSERT INTO agent_runtime_state
+        (agent_id, company_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?)`
+    ).run(agentId, companyId, now, now);
+
     db.prepare("UPDATE projects SET updated_at = ? WHERE id = ?").run(now, project.id);
   });
   createAgentTx();

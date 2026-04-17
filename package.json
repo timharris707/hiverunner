@@ -20,6 +20,7 @@
     "test:build-state": "node --import ./scripts/register-ts-paths.mjs src/lib/__tests__/build-state-terminal-transitions.test.ts",
     "test:orchestration:bridge": "ORCHESTRATION_DB_PATH=/tmp/orchestration-bridge-error-handling.db npx tsx src/lib/__tests__/orchestration-bridge-error-handling.test.ts",
     "test:orchestration:fire-agent": "ORCHESTRATION_DB_PATH=/tmp/orchestration-fire-agent.db npx tsx src/lib/__tests__/orchestration-fire-company-agent.test.ts",
+    "test:orchestration:agent-creation-wiring": "ORCHESTRATION_DB_PATH=/tmp/orchestration-agent-creation-wiring.db npx tsx src/lib/__tests__/orchestration-agent-creation-wiring.test.ts",
     "test:orchestration:type-mappings": "ORCHESTRATION_DB_PATH=/tmp/orchestration-type-mappings.db npx tsx src/lib/__tests__/orchestration-type-mappings.test.ts",
     "test:orchestration:openclaw": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-execution.db npx tsx src/lib/__tests__/orchestration-openclaw-execution.test.ts",
     "test:orchestration:heartbeat": "ORCHESTRATION_DB_PATH=/tmp/orchestration-openclaw-heartbeat.db npx tsx src/lib/__tests__/orchestration-openclaw-heartbeat.test.ts",
