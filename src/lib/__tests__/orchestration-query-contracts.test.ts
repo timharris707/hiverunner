@@ -7,6 +7,7 @@ import {
   createProject,
   createProjectAgent,
   createTask,
+  getTask,
   listCompanyAgents,
   listProjects,
   listTasks,
@@ -219,6 +220,129 @@ async function run() {
       agents.length,
       "Expected roster names to be de-duplicated"
     );
+  });
+
+  await test("company agent/task queries reconcile stale terminal openclaw state", () => {
+    const staleAgent = qaRoleAgent;
+
+    const staleTask = createTask({
+      projectId: defaultProject.id,
+      title: "Stale terminal run should self-heal",
+      description: "Regression fixture for stale live-state cleanup.",
+      priority: "P1",
+      type: "infrastructure",
+      status: "in-progress",
+      assignee: staleAgent.id,
+      labels: ["scope", "stale-live"],
+      createdBy: "test",
+    }).task;
+
+    const db = getOrchestrationDb();
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE tasks
+       SET execution_mode = 'openclaw',
+           execution_session_id = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run("session-stale-live-123", now, staleTask.id);
+
+    db.prepare(
+      `UPDATE agents
+       SET status = 'idle',
+           current_task_id = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(staleTask.id, now, staleAgent.id);
+
+    db.prepare(
+      `INSERT INTO execution_runs
+        (id, task_id, agent_id, provider, session_id, status, started_at, completed_at, error_message,
+         token_usage_json, duration_ms, idempotency_key, created_at, updated_at)
+       VALUES
+        (?, ?, ?, 'openclaw', ?, 'completed', ?, ?, NULL,
+         '{}', ?, NULL, ?, ?)`
+    ).run(
+      `run-stale-${staleTask.id}`,
+      staleTask.id,
+      staleAgent.id,
+      "session-stale-live-123",
+      now,
+      now,
+      1_000,
+      now,
+      now,
+    );
+
+    const refreshedTask = getTask(staleTask.id).task;
+    assert.strictEqual(refreshedTask.status, "review");
+
+    const taskRow = db
+      .prepare("SELECT execution_session_id FROM tasks WHERE id = ?")
+      .get(staleTask.id) as { execution_session_id: string | null } | undefined;
+    assert.strictEqual(taskRow?.execution_session_id ?? null, null);
+
+    const agents = listCompanyAgents(defaultCompanySlug, { includeNonProduction: true }).agents;
+    const reconciledAgent = agents.find((agent) => agent.id === staleAgent.id);
+    assert.ok(reconciledAgent, "Expected reconciled agent in company roster");
+    assert.strictEqual(reconciledAgent?.status, "idle");
+    assert.strictEqual(reconciledAgent?.currentTask, undefined);
+
+    const scopedTasks = listTasks({
+      companyIdOrSlug: defaultCompanySlug,
+      includeNonProduction: true,
+    }).tasks;
+    const reconciledTask = scopedTasks.find((task) => task.id === staleTask.id);
+    assert.strictEqual(reconciledTask?.status, "review");
+  });
+
+  await test("company roster ignores openclaw execution rows missing session truth", () => {
+    const staleAgent = defaultAgent;
+    const staleTask = createTask({
+      projectId: defaultProject.id,
+      title: "Orphaned openclaw execution row",
+      description: "Should not keep agent working without session truth.",
+      priority: "P1",
+      type: "infrastructure",
+      status: "in-progress",
+      assignee: staleAgent.id,
+      labels: ["scope", "stale-live", "orphaned-session"],
+      createdBy: "test",
+    }).task;
+
+    const db = getOrchestrationDb();
+    const now = new Date().toISOString();
+
+    db.prepare(
+      `UPDATE agents
+       SET status = 'working',
+           current_task_id = ?,
+           updated_at = ?
+       WHERE id = ?`
+    ).run(staleTask.id, now, staleAgent.id);
+
+    db.prepare(
+      `INSERT INTO execution_runs
+        (id, task_id, agent_id, provider, session_id, status, started_at, completed_at, error_message,
+         token_usage_json, duration_ms, idempotency_key, created_at, updated_at)
+       VALUES
+        (?, ?, ?, 'openclaw', NULL, 'running', ?, NULL, NULL,
+         '{}', NULL, NULL, ?, ?)`
+    ).run(
+      `run-orphaned-${staleTask.id}`,
+      staleTask.id,
+      staleAgent.id,
+      now,
+      now,
+      now,
+    );
+
+    const agents = listCompanyAgents(defaultCompanySlug, { includeNonProduction: true }).agents;
+    const reconciledAgent = agents.find((agent) => agent.id === staleAgent.id);
+    assert.ok(reconciledAgent, "Expected agent in company roster");
+    assert.strictEqual(reconciledAgent?.status, "idle");
+    assert.strictEqual(reconciledAgent?.currentTask, undefined);
   });
 
   await test("avatar theme catalog is company-scoped in schema and data writes", () => {

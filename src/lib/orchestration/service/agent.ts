@@ -1,6 +1,7 @@
 import { randomUUID } from "crypto";
 
 import { generateAgentAvatarDataUrl } from "@/lib/orchestration/avatar";
+import { reconcileScopedTerminalOpenClawTasks } from "@/lib/orchestration/openclaw-reconciliation";
 import { ensureOpenClawAgentScaffold } from "@/lib/orchestration/openclaw-agent-scaffold";
 import { ensureUniqueAgentRuntimeSlug } from "@/lib/orchestration/runtime-identifiers";
 
@@ -241,6 +242,10 @@ function loadActiveExecutionEvidence(
        LEFT JOIN projects p ON p.id = t.project_id
        WHERE er.agent_id IN (${buildInClause(agentIds.length)})
          AND er.status IN ('pending', 'running')
+         AND (
+           er.provider <> 'openclaw'
+           OR NULLIF(trim(COALESCE(er.session_id, '')), '') IS NOT NULL
+         )
        ORDER BY COALESCE(er.updated_at, er.started_at, er.created_at) DESC, er.created_at DESC`
     )
     .all(...agentIds) as ActiveExecutionEvidenceRow[];
@@ -400,6 +405,8 @@ export function listProjectAgents(
     throw new OrchestrationApiError(500, "project_company_missing", "Project has no company");
   }
 
+  reconcileScopedTerminalOpenClawTasks({ projectId: projectRow.id }, db);
+
   const rows = db
     .prepare(
       `SELECT
@@ -463,6 +470,8 @@ export function listCompanyAgents(
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
   const companyRow = { id: companyId };
+
+  reconcileScopedTerminalOpenClawTasks({ companyId: companyRow.id }, db);
 
   const rows = db
     .prepare(
@@ -737,43 +746,56 @@ export function getCompanyAgentProfile(input: {
     throw new OrchestrationApiError(404, "company_not_found", "Company not found");
   }
 
-  const agentRow = db
-    .prepare(
-      `SELECT
-        a.id,
-        a.company_id,
-        a.project_id,
-        a.name,
-        a.slug,
-        a.emoji,
-        a.role,
-        a.personality,
-        a.avatar_url,
-        a.status,
-        a.current_task_id,
-        t.title AS current_task_title,
-        a.model,
-        a.adapter_type,
-        a.runtime_slug,
-        a.paperclip_agent_id,
-        a.openclaw_agent_id,
-        a.reporting_to,
-        a.skills_json,
-        a.tasks_completed,
-        a.total_runtime_minutes,
-        a.last_heartbeat,
-        a.created_at,
-        a.updated_at
-       FROM agents a
-       LEFT JOIN tasks t ON t.id = a.current_task_id
-       WHERE a.archived_at IS NULL
-         AND a.company_id = ?
-         AND (a.id = ? OR lower(a.name) = lower(?) OR lower(a.slug) = lower(?))
+  const loadAgentRow = () =>
+    db
+      .prepare(
+        `SELECT
+          a.id,
+          a.company_id,
+          a.project_id,
+          a.name,
+          a.slug,
+          a.emoji,
+          a.role,
+          a.personality,
+          a.avatar_url,
+          a.status,
+          a.current_task_id,
+          t.title AS current_task_title,
+          a.model,
+          a.adapter_type,
+          a.runtime_slug,
+          a.paperclip_agent_id,
+          a.openclaw_agent_id,
+          a.reporting_to,
+          a.skills_json,
+          a.tasks_completed,
+          a.total_runtime_minutes,
+          a.last_heartbeat,
+          a.created_at,
+          a.updated_at
+         FROM agents a
+         LEFT JOIN tasks t ON t.id = a.current_task_id
+         WHERE a.archived_at IS NULL
+           AND a.company_id = ?
+           AND (a.id = ? OR lower(a.name) = lower(?) OR lower(a.slug) = lower(?))
 
-       ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.updated_at DESC
-       LIMIT 1`
-    )
-    .get(companyRow.id, input.agentId, input.agentId, input.agentId, input.agentId) as AgentRow | undefined;
+         ORDER BY CASE WHEN a.id = ? THEN 0 ELSE 1 END, a.updated_at DESC
+         LIMIT 1`
+      )
+      .get(companyRow.id, input.agentId, input.agentId, input.agentId, input.agentId) as AgentRow | undefined;
+
+  let agentRow = loadAgentRow();
+
+  if (!agentRow) {
+    throw new OrchestrationApiError(404, "agent_not_found", "Agent not found");
+  }
+
+  reconcileScopedTerminalOpenClawTasks(
+    { companyId: companyRow.id, agentId: agentRow.id },
+    db,
+  );
+  agentRow = loadAgentRow();
 
   if (!agentRow) {
     throw new OrchestrationApiError(404, "agent_not_found", "Agent not found");
