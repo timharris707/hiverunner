@@ -22,5 +22,5 @@ export function isAgentLive(input: {
     return true;
   }
 
-  return input.agentStatus === "working";
+  return false;
 }

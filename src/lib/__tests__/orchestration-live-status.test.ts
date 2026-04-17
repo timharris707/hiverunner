@@ -55,6 +55,18 @@ test("SSE-only signal still marks agent live when no run snapshot exists yet", (
   );
 });
 
+test("persisted working status alone does not keep an agent live in navigation", () => {
+  assert.strictEqual(
+    isAgentLive({
+      agentId: "agent-3",
+      agentStatus: "working",
+      liveAgentIds: new Set<string>(),
+      liveRunsByAgentId: new Map(),
+    }),
+    false,
+  );
+});
+
 console.log(`\nPassed: ${passed}`);
 console.log(`Failed: ${failed}`);
 if (failed > 0) process.exit(1);
