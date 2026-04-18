@@ -1633,7 +1633,14 @@ function rewriteNameInText(text: string, fromName: string, toName: string): stri
   if (!text || !fromName) return text;
   const trimmed = fromName.trim();
   if (!trimmed) return text;
-  const pattern = new RegExp(`\\b${escapeRegExp(trimmed)}\\b`, "g");
+  // JS `\b` is ASCII-only, so "José" would match inside "Joséphine" (the
+  // é→p transition sits on an ASCII word boundary). Lookaround against
+  // \p{L}/\p{N}/_ treats any Unicode letter or digit as a word char, which
+  // prevents substring corruption for accented, non-Latin, or ideographic names.
+  const pattern = new RegExp(
+    `(?<=^|[^\\p{L}\\p{N}_])${escapeRegExp(trimmed)}(?=$|[^\\p{L}\\p{N}_])`,
+    "gu"
+  );
   return text.replace(pattern, () => toName);
 }
 

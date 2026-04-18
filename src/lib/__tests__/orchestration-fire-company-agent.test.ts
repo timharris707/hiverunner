@@ -424,6 +424,59 @@ async function run() {
     );
   });
 
+  await test("fire rewrite uses Unicode-aware word boundaries (no substring corruption on accented names)", () => {
+    const jose = createProjectAgent({
+      projectId: primary.id,
+      name: `José ${stamp}`,
+      emoji: "🧑",
+      role: "Engineer",
+      personality: "",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    const task = createTask({
+      projectId: primary.id,
+      // Standalone occurrence should rewrite; "Joséphine" must stay intact
+      // because "José" is a substring inside a longer Unicode word.
+      title: `Call ${jose.name} today`,
+      description: `Joséphine already signed off; only ${jose.name} is left.`,
+      priority: "P1",
+      type: "feature",
+      status: "on-deck",
+      labels: [],
+      createdBy: "test",
+    }).task;
+
+    assignTask({ taskId: task.id, assignee: jose.id, actorUserId: "test" });
+
+    const result = fireCompanyAgent({
+      agentId: jose.id,
+      replacementFallback: "the operator",
+    });
+
+    assert.strictEqual(result.cascade.titlesRewritten, 1);
+    assert.strictEqual(result.cascade.descriptionsRewritten, 1);
+
+    const loaded = getTask(task.id).task;
+    assert.ok(
+      loaded.title.includes("the operator"),
+      `expected standalone name rewritten to fallback, got: ${loaded.title}`
+    );
+    assert.ok(
+      !loaded.title.includes(jose.name),
+      `expected departed name removed from title, got: ${loaded.title}`
+    );
+    assert.ok(
+      loaded.description.includes("Joséphine already signed off"),
+      `Unicode substring must not be corrupted, got: ${loaded.description}`
+    );
+    assert.ok(
+      loaded.description.includes("the operator"),
+      `standalone Unicode match must be rewritten, got: ${loaded.description}`
+    );
+  });
+
   await test("fire cascade nulls agent_runtime_state.session_id across the company", () => {
     const victim = createProjectAgent({
       projectId: primary.id,
