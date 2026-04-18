@@ -45,6 +45,52 @@ function wantsComment(userText: string): boolean {
   return /\b(?:comment|note|notes)\b/.test(normalized) && /\b(?:leave|add|post|put|update|write|say)\b/.test(normalized);
 }
 
+function detectRequestedPriority(userText: string): string | null {
+  const normalized = normalizeText(userText);
+  const hasPriorityWord = /\bpriority\b|\bpriorit(?:ize|ise)\b/.test(normalized);
+  const hasActionVerb = /\b(?:set|make|change|move|bump|raise|lower|mark|put|switch)\b/.test(normalized);
+
+  const pCodeMatch = normalized.match(/\bp[\s-]?([0-3])\b/);
+  if (pCodeMatch && (hasPriorityWord || hasActionVerb)) {
+    return `P${pCodeMatch[1]}`;
+  }
+
+  if (!hasPriorityWord && !hasActionVerb) return null;
+
+  if (/\b(?:urgent|critical|highest)\b/.test(normalized)) return "P0";
+  if (hasPriorityWord && /\bhigh\b/.test(normalized)) return "P1";
+  if (hasPriorityWord && /\b(?:medium|med|normal)\b/.test(normalized)) return "P2";
+  if (hasPriorityWord && /\b(?:low|lowest)\b/.test(normalized)) return "P3";
+  return null;
+}
+
+function detectReassignAssignee(userText: string): string | null {
+  const cleaned = userText.replace(/[“”]/g, '"').replace(/[\n\r]+/g, ' ').trim();
+  const lower = cleaned.toLowerCase();
+  if (!/\b(?:reassign|re-assign|assign|give|hand(?:\s+(?:this|it|task))?\s+(?:over|off)?\s*(?:to)?)\b/.test(lower)) {
+    return null;
+  }
+
+  const patterns = [
+    /\b(?:reassign|re-assign)\s+(?:this\s+|task\s+|it\s+)?(?:to\s+)?([a-z][a-z0-9 .'_-]{0,40})/i,
+    /\bassign\s+(?:this\s+|task\s+|it\s+)?to\s+([a-z][a-z0-9 .'_-]{0,40})/i,
+    /\bgive\s+(?:this|it|task)\s+to\s+([a-z][a-z0-9 .'_-]{0,40})/i,
+    /\bhand\s+(?:this|it|task)\s+(?:over|off)?\s*to\s+([a-z][a-z0-9 .'_-]{0,40})/i,
+  ];
+  for (const pattern of patterns) {
+    const match = cleaned.match(pattern);
+    if (match?.[1]) {
+      const raw = match[1]
+        .replace(/[?!.,]+\s*$/, '')
+        .replace(/\b(?:please|instead|now|for me|okay|ok)\b.*$/i, '')
+        .trim();
+      const firstWord = raw.split(/\s+/)[0];
+      if (firstWord && firstWord.length >= 2) return firstWord;
+    }
+  }
+  return null;
+}
+
 function buildSyntheticIntent(turnId: string, now: number, index: number, tool: string, params: Record<string, unknown>): HenryActionIntent {
   return {
     id: `${turnId}:synthetic:${index}`,
@@ -81,6 +127,16 @@ export function synthesizeDirectTaskActionIntents(
     if (body) {
       results.push(buildSyntheticIntent(turnId, now, results.length, "add_task_comment", { body }));
     }
+  }
+
+  const priority = detectRequestedPriority(userText);
+  if (priority && !existingTools.has("set_task_priority")) {
+    results.push(buildSyntheticIntent(turnId, now, results.length, "set_task_priority", { priority }));
+  }
+
+  const assignee = detectReassignAssignee(userText);
+  if (assignee && !existingTools.has("reassign_task")) {
+    results.push(buildSyntheticIntent(turnId, now, results.length, "reassign_task", { assignee }));
   }
 
   return results;

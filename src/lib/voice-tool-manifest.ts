@@ -9,6 +9,8 @@ export type VoiceToolName =
   | "get_current_context"
   | "add_task_comment"
   | "move_task_status"
+  | "reassign_task"
+  | "set_task_priority"
   | "remember";
 
 interface LiveApiParameterSchema {
@@ -117,6 +119,30 @@ export const VOICE_TOOL_DEFINITIONS: VoiceToolDefinition[] = [
         blockedReason: { type: "STRING", description: "Optional blocked reason when moving to blocked." },
       },
       required: ["status"],
+    },
+  },
+  {
+    name: "reassign_task",
+    description: "Reassign the currently bound task to a different agent. Accepts the agent's name or id; resolves to a company agent. Pass null/empty to unassign.",
+    kind: "action",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        assignee: { type: "STRING", description: "Agent name or id to assign the task to. Leave empty to unassign." },
+      },
+      required: ["assignee"],
+    },
+  },
+  {
+    name: "set_task_priority",
+    description: "Set the priority on the currently bound task. Accepts P0/P1/P2/P3 or urgent/high/medium/low.",
+    kind: "action",
+    parameters: {
+      type: "OBJECT",
+      properties: {
+        priority: { type: "STRING", description: "Target priority. P0 or 'urgent' = highest, P3 or 'low' = lowest." },
+      },
+      required: ["priority"],
     },
   },
   {

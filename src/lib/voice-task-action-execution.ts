@@ -1,10 +1,20 @@
 import { OrchestrationApiError } from "@/lib/orchestration/api";
-import type { TaskStatusInput } from "@/lib/orchestration/contracts";
+import type { TaskPriorityInput, TaskStatusInput } from "@/lib/orchestration/contracts";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
+import {
+  assignTask,
+  createTaskComment,
+  getTask,
+  moveTask,
+  updateTask,
+} from "@/lib/orchestration/service";
 import type { ResolvedVoiceBinding } from "@/lib/voice-binding";
 
-export type VoiceActionToolName = "add_task_comment" | "move_task_status";
+export type VoiceActionToolName =
+  | "add_task_comment"
+  | "move_task_status"
+  | "reassign_task"
+  | "set_task_priority";
 
 export interface ExecuteVoiceActionToolInput {
   tool: VoiceActionToolName;
@@ -25,6 +35,12 @@ export interface VoiceActionToolResult {
   status?: TaskStatusInput;
   fromStatus?: TaskStatusInput;
   toStatus?: TaskStatusInput;
+  assignee?: string | null;
+  fromAssignee?: string | null;
+  toAssignee?: string | null;
+  priority?: TaskPriorityInput;
+  fromPriority?: TaskPriorityInput;
+  toPriority?: TaskPriorityInput;
 }
 
 const VOICE_ACTION_AUTHOR = "Tim via Henry Voice";
@@ -81,6 +97,51 @@ function normalizeOptionalText(value: unknown): string | null | undefined {
   }
   const normalized = value.trim();
   return normalized.length > 0 ? normalized : null;
+}
+
+const TASK_PRIORITY_VALUES: TaskPriorityInput[] = ["P0", "P1", "P2", "P3"];
+const TASK_PRIORITY_ALIASES: Record<string, TaskPriorityInput> = {
+  p0: "P0",
+  p1: "P1",
+  p2: "P2",
+  p3: "P3",
+  urgent: "P0",
+  critical: "P0",
+  highest: "P0",
+  high: "P1",
+  medium: "P2",
+  med: "P2",
+  normal: "P2",
+  default: "P2",
+  low: "P3",
+  lowest: "P3",
+};
+
+function normalizeTaskPriority(value: unknown): TaskPriorityInput {
+  if (typeof value !== "string") {
+    throw new OrchestrationApiError(400, "voice_action_priority_required", "Voice priority changes require a target priority");
+  }
+  const token = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  const normalized = TASK_PRIORITY_ALIASES[token];
+  if (!normalized || !TASK_PRIORITY_VALUES.includes(normalized)) {
+    throw new OrchestrationApiError(
+      400,
+      "voice_action_invalid_priority",
+      `Unsupported task priority '${value}'. Expected one of: P0, P1, P2, P3 (or urgent/high/medium/low)`,
+    );
+  }
+  return normalized;
+}
+
+function normalizeAssigneeInput(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") {
+    throw new OrchestrationApiError(400, "voice_action_invalid_assignee", "Assignee must be an agent name or id");
+  }
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^(none|unassign|unassigned|nobody|no one|clear)$/i.test(trimmed)) return null;
+  return trimmed;
 }
 
 function normalizeTaskStatus(value: unknown): TaskStatusInput {
@@ -195,6 +256,66 @@ export function executeVoiceActionTool(input: ExecuteVoiceActionToolInput): Voic
         status,
         fromStatus: moved.transition.from,
         toStatus: moved.transition.to,
+      };
+    }
+
+    case "reassign_task": {
+      const requested = normalizeAssigneeInput(input.params?.assignee);
+      const currentTask = getTask(binding.taskId).task;
+      const fromAssignee = currentTask.assignee ?? null;
+
+      const result = assignTask({
+        taskId: binding.taskId,
+        assignee: requested,
+        actorUserId: VOICE_ACTION_AUTHOR,
+      });
+
+      const toAssignee = result.task.assignee ?? null;
+
+      return {
+        action: input.tool,
+        taskId: binding.taskId,
+        taskKey: binding.taskKey,
+        changed: result.assignmentChanged,
+        reason: result.assignmentChanged ? undefined : "already_assigned_to_target",
+        assignee: toAssignee,
+        fromAssignee,
+        toAssignee,
+      };
+    }
+
+    case "set_task_priority": {
+      const priority = normalizeTaskPriority(input.params?.priority);
+      const currentTask = getTask(binding.taskId).task;
+      const fromPriority = currentTask.priority;
+
+      if (fromPriority === priority) {
+        return {
+          action: input.tool,
+          taskId: binding.taskId,
+          taskKey: binding.taskKey,
+          changed: false,
+          reason: "already_at_requested_priority",
+          priority,
+          fromPriority,
+          toPriority: priority,
+        };
+      }
+
+      const updated = updateTask({
+        taskId: binding.taskId,
+        priority,
+        actorUserId: VOICE_ACTION_AUTHOR,
+      });
+
+      return {
+        action: input.tool,
+        taskId: binding.taskId,
+        taskKey: binding.taskKey,
+        changed: true,
+        priority,
+        fromPriority,
+        toPriority: updated.task.priority,
       };
     }
 

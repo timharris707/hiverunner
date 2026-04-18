@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Phone, PhoneOff, X } from "lucide-react";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { useVoiceSession, type VoiceState } from "@/hooks/useVoiceSession";
@@ -32,12 +32,116 @@ function stateLabel(state: VoiceState): { label: string; tone: "idle" | "active"
   switch (state) {
     case "idle": return { label: "Ready", tone: "idle" };
     case "connecting": return { label: "Connecting…", tone: "active" };
-    case "connected": return { label: "Connected", tone: "active" };
+    case "connected": return { label: "Ready", tone: "active" };
     case "listening": return { label: "Listening", tone: "active" };
     case "speaking": return { label: "Speaking", tone: "active" };
     case "error": return { label: "Error", tone: "error" };
     default: return { label: state, tone: "idle" };
   }
+}
+
+const CONNECTING_PROGRESS = [
+  { afterMs: 0, label: "Connecting…" },
+  { afterMs: 800, label: "Warming up the line…" },
+  { afterMs: 2200, label: "Almost there…" },
+  { afterMs: 4500, label: "Hang tight, still dialing…" },
+];
+
+function pickConnectingLabel(elapsedMs: number): string {
+  let label = CONNECTING_PROGRESS[0].label;
+  for (const step of CONNECTING_PROGRESS) {
+    if (elapsedMs >= step.afterMs) label = step.label;
+  }
+  return label;
+}
+
+const VOICE_MODAL_KEYFRAMES_ID = "task-voice-modal-keyframes";
+const VOICE_MODAL_KEYFRAMES = `
+@keyframes taskVoiceConnectingPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.55), 0 0 0 0 rgba(16,185,129,0.0); }
+  60%  { box-shadow: 0 0 0 10px rgba(16,185,129,0.0),  0 0 0 16px rgba(16,185,129,0.0); }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.0),    0 0 0 0 rgba(16,185,129,0.0); }
+}
+@keyframes taskVoiceListeningGlow {
+  0%   { box-shadow: 0 0 0 0 rgba(16,185,129,0.45); }
+  50%  { box-shadow: 0 0 0 6px rgba(16,185,129,0.0); }
+  100% { box-shadow: 0 0 0 0 rgba(16,185,129,0.0); }
+}`;
+
+function ensureVoiceModalKeyframes() {
+  if (typeof document === "undefined") return;
+  if (document.getElementById(VOICE_MODAL_KEYFRAMES_ID)) return;
+  const style = document.createElement("style");
+  style.id = VOICE_MODAL_KEYFRAMES_ID;
+  style.textContent = VOICE_MODAL_KEYFRAMES;
+  document.head.appendChild(style);
+}
+
+interface RingingHandle {
+  stop: () => void;
+}
+
+function startRingingTone(): RingingHandle {
+  if (typeof window === "undefined") return { stop: () => {} };
+  const AudioCtx: typeof AudioContext | undefined =
+    window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioCtx) return { stop: () => {} };
+
+  let stopped = false;
+  let ctx: AudioContext;
+  try {
+    ctx = new AudioCtx();
+  } catch {
+    return { stop: () => {} };
+  }
+
+  const master = ctx.createGain();
+  master.gain.value = 0.0;
+  master.connect(ctx.destination);
+
+  // Soft two-tone ring: 480Hz + 620Hz, 0.6s on / 1.4s off, fade in/out.
+  const ringInterval = 2.0;
+  const ringDuration = 0.6;
+  const peakGain = 0.06;
+
+  const tones: OscillatorNode[] = [];
+  for (const freq of [480, 620]) {
+    const osc = ctx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    osc.connect(master);
+    osc.start();
+    tones.push(osc);
+  }
+
+  const startAt = ctx.currentTime + 0.05;
+  // Schedule a few rings ahead — caller will stop() before this matters.
+  for (let i = 0; i < 30; i++) {
+    const t0 = startAt + i * ringInterval;
+    master.gain.setValueAtTime(0.0001, t0);
+    master.gain.exponentialRampToValueAtTime(peakGain, t0 + 0.08);
+    master.gain.setValueAtTime(peakGain, t0 + ringDuration - 0.1);
+    master.gain.exponentialRampToValueAtTime(0.0001, t0 + ringDuration);
+  }
+
+  return {
+    stop: () => {
+      if (stopped) return;
+      stopped = true;
+      try {
+        const now = ctx.currentTime;
+        master.gain.cancelScheduledValues(now);
+        master.gain.setValueAtTime(master.gain.value, now);
+        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        for (const osc of tones) {
+          osc.stop(now + 0.16);
+        }
+        setTimeout(() => { void ctx.close().catch(() => {}); }, 250);
+      } catch {
+        try { void ctx.close(); } catch {}
+      }
+    },
+  };
 }
 
 export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle, projectName, onSessionEnd }: Props) {
@@ -61,7 +165,55 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
   }, [state, onSessionEnd]);
 
   const sessionActive = state !== "idle" && state !== "error";
-  const statusInfo = stateLabel(state);
+  const baseStatusInfo = stateLabel(state);
+
+  // Progressive copy during the "Connecting…" window so the user has feedback
+  // while Next.js compile + Gemini setup blocks the first response.
+  const [connectingElapsedMs, setConnectingElapsedMs] = useState(0);
+  const connectingStartRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (state !== "connecting") {
+      connectingStartRef.current = null;
+      setConnectingElapsedMs(0);
+      return;
+    }
+    connectingStartRef.current = Date.now();
+    setConnectingElapsedMs(0);
+    const interval = window.setInterval(() => {
+      if (connectingStartRef.current) {
+        setConnectingElapsedMs(Date.now() - connectingStartRef.current);
+      }
+    }, 250);
+    return () => window.clearInterval(interval);
+  }, [state]);
+
+  const statusInfo = state === "connecting"
+    ? { ...baseStatusInfo, label: pickConnectingLabel(connectingElapsedMs) }
+    : baseStatusInfo;
+
+  // Soft ringing tone during connecting — stops the moment the line is ready.
+  const ringerRef = useRef<RingingHandle | null>(null);
+  useEffect(() => {
+    if (state === "connecting") {
+      if (!ringerRef.current) {
+        ringerRef.current = startRingingTone();
+      }
+    } else if (ringerRef.current) {
+      ringerRef.current.stop();
+      ringerRef.current = null;
+    }
+    return () => {
+      if (ringerRef.current) {
+        ringerRef.current.stop();
+        ringerRef.current = null;
+      }
+    };
+  }, [state]);
+
+  // Inject keyframes once for the avatar pulse animation.
+  useEffect(() => {
+    if (open) ensureVoiceModalKeyframes();
+  }, [open]);
 
   // Auto-scroll transcript to bottom as it grows.
   useEffect(() => {
@@ -224,16 +376,29 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
           borderBottom: "1px solid rgba(120,113,108,0.2)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-            {avatarUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={avatarUrl}
-                alt={agent.name}
-                style={{ width: 42, height: 42, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }}
-              />
-            ) : (
-              <AvatarGlyph value={agent.emoji} size={42} />
-            )}
+            <div
+              style={{
+                width: 42, height: 42, borderRadius: "50%",
+                flexShrink: 0,
+                animation:
+                  state === "connecting"
+                    ? "taskVoiceConnectingPulse 1.4s ease-out infinite"
+                    : state === "listening"
+                      ? "taskVoiceListeningGlow 2.2s ease-out infinite"
+                      : undefined,
+              }}
+            >
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={avatarUrl}
+                  alt={agent.name}
+                  style={{ width: 42, height: 42, borderRadius: "50%", objectFit: "cover", display: "block" }}
+                />
+              ) : (
+                <AvatarGlyph value={agent.emoji} size={42} />
+              )}
+            </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
               <div style={{ fontSize: "16px", fontWeight: 600, color: "#f5f5f4" }}>{agent.name}</div>
               {agent.role && (
@@ -373,6 +538,9 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
               const summary =
                 event.tool === "add_task_comment" ? "Posted a comment" :
                 event.tool === "move_task_status" ? "Changed task status" :
+                event.tool === "reassign_task" ? "Reassigned the task" :
+                event.tool === "set_task_priority" ? "Updated task priority" :
+                event.tool === "remember" ? "Saved a memory" :
                 event.tool.replace(/_/g, " ");
               return (
                 <div key={event.intentId} style={{ color: "#d6d3d1" }}>• {summary}</div>

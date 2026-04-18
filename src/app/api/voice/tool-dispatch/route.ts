@@ -216,6 +216,8 @@ const TOOL_REGISTRY: Record<string, ToolHandler> = {
 const ACTION_TOOL_NAMES: ReadonlySet<VoiceActionToolName> = new Set([
   "add_task_comment",
   "move_task_status",
+  "reassign_task",
+  "set_task_priority",
 ]);
 
 async function rememberTool(
