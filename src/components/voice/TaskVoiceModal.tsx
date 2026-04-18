@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Mic, MicOff, Phone, PhoneOff, X } from "lucide-react";
+import { Mic, MicOff, Phone, PhoneForwarded, PhoneOff, X } from "lucide-react";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { useVoiceSession, type VoiceState } from "@/hooks/useVoiceSession";
 import type { VoiceBindingRequest } from "@/lib/voice-binding";
@@ -248,6 +248,53 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
     connect();
   }, [connect, postOutcome]);
 
+  // Mid-call reassignment detection: `agent` (parent prop) reflects the live
+  // DB assignee; `activeAgentSnapshot` is frozen at call start. If they
+  // diverge while a session is active, a reassign happened during this call
+  // (only reassign_task can cause that during an active session, since the
+  // snapshot otherwise locks). Offer a real transfer: end the current
+  // session and open a fresh one bound to the same task — the snapshot
+  // clears on idle and the new session picks up the new assignee's persona
+  // and voice.
+  const pendingTransferTarget =
+    sessionActive &&
+    agent &&
+    activeAgentSnapshot &&
+    agent.id !== activeAgentSnapshot.id
+      ? agent
+      : null;
+
+  const handleTransfer = useCallback(async () => {
+    const stateNow = sessionRef.current.state;
+    const isLive = stateNow !== "idle" && stateNow !== "error";
+
+    if (isLive) {
+      sessionRef.current.disconnect();
+      await new Promise((r) => setTimeout(r, 200));
+      try {
+        await sessionRef.current.persistSessionArtifacts();
+      } catch {}
+    }
+
+    if (modalSessionIdRef.current) {
+      const currentTranscript = sessionRef.current.transcript;
+      const messages = currentTranscript.length;
+      const durationSeconds = sessionStartedAtRef.current
+        ? Math.max(0, Math.round((Date.now() - sessionStartedAtRef.current) / 1000))
+        : 0;
+      await postOutcome({ durationSeconds, messages });
+      onSessionEnd?.();
+    }
+
+    modalSessionIdRef.current = null;
+    sessionStartedAtRef.current = null;
+
+    // Brief beat so the snapshot clears (via the effect on isSessionActive)
+    // and the new binding has a frame to settle before we reconnect.
+    await new Promise((r) => setTimeout(r, 120));
+    await handleStartCall();
+  }, [postOutcome, onSessionEnd, handleStartCall]);
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -370,25 +417,67 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
             {state === "idle" && <MicOff size={14} color="#57534e" />}
           </div>
 
-          <button
-            type="button"
-            onClick={sessionActive ? disconnect : handleStartCall}
-            disabled={state === "connecting"}
-            style={{
-              display: "inline-flex", alignItems: "center", gap: "8px",
-              padding: "10px 18px",
-              fontSize: "13px", fontWeight: 600,
-              background: sessionActive ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.15)",
-              color: sessionActive ? "#fca5a5" : "#6ee7b7",
-              border: `1px solid ${sessionActive ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.4)"}`,
-              borderRadius: "8px",
-              cursor: state === "connecting" ? "wait" : "pointer",
-              opacity: state === "connecting" ? 0.6 : 1,
-            }}
-          >
-            {sessionActive ? <PhoneOff size={14} /> : <Phone size={14} />}
-            {sessionActive ? "End call" : "Start call"}
-          </button>
+          {pendingTransferTarget ? (
+            <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <button
+                type="button"
+                onClick={handleTransfer}
+                disabled={state === "connecting"}
+                aria-label={`Transfer to ${pendingTransferTarget.name}`}
+                style={{
+                  display: "inline-flex", alignItems: "center", gap: "8px",
+                  padding: "10px 18px",
+                  fontSize: "13px", fontWeight: 600,
+                  background: "rgba(217,119,6,0.15)",
+                  color: "#fbbf24",
+                  border: "1px solid rgba(217,119,6,0.45)",
+                  borderRadius: "8px",
+                  cursor: state === "connecting" ? "wait" : "pointer",
+                  opacity: state === "connecting" ? 0.6 : 1,
+                }}
+              >
+                <PhoneForwarded size={14} />
+                {`Transfer to ${pendingTransferTarget.name}`}
+              </button>
+              <button
+                type="button"
+                onClick={disconnect}
+                aria-label="End call without transferring"
+                title="End call without transferring"
+                style={{
+                  display: "inline-flex", alignItems: "center",
+                  padding: "10px 12px",
+                  background: "transparent",
+                  color: "#a8a29e",
+                  border: "1px solid rgba(120,113,108,0.3)",
+                  borderRadius: "8px",
+                  cursor: "pointer",
+                }}
+              >
+                <PhoneOff size={14} />
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={sessionActive ? disconnect : handleStartCall}
+              disabled={state === "connecting"}
+              style={{
+                display: "inline-flex", alignItems: "center", gap: "8px",
+                padding: "10px 18px",
+                fontSize: "13px", fontWeight: 600,
+                background: sessionActive ? "rgba(239,68,68,0.15)" : "rgba(16,185,129,0.15)",
+                color: sessionActive ? "#fca5a5" : "#6ee7b7",
+                border: `1px solid ${sessionActive ? "rgba(239,68,68,0.4)" : "rgba(16,185,129,0.4)"}`,
+                borderRadius: "8px",
+                cursor: state === "connecting" ? "wait" : "pointer",
+                opacity: state === "connecting" ? 0.6 : 1,
+              }}
+            >
+              {sessionActive ? <PhoneOff size={14} /> : <Phone size={14} />}
+              {sessionActive ? "End call" : "Start call"}
+            </button>
+          )}
         </div>
 
         {/* Error banner */}
