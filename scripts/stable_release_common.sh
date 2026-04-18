@@ -456,6 +456,17 @@ deploy_stable_from_dir() {
     ln -s "$APP_DIR/public" "$STABLE_DIR/public"
   fi
 
+  # Onboarding assets (CEO/default HEARTBEAT.md, AGENTS.md, SOUL.md) are loaded
+  # from the filesystem at runtime via process.cwd() + src/lib/orchestration/...
+  # Without this symlink, loadOnboardingAssets returns an empty bucket and the
+  # role-specific heartbeat instructions silently disappear from the prompt.
+  if [ -d "$APP_DIR/src/lib/orchestration/engine/onboarding-assets" ]; then
+    mkdir -p "$STABLE_DIR/src/lib/orchestration/engine"
+    ln -s \
+      "$APP_DIR/src/lib/orchestration/engine/onboarding-assets" \
+      "$STABLE_DIR/src/lib/orchestration/engine/onboarding-assets"
+  fi
+
   write_release_history \
     "$RELEASE_ID" \
     "$RELEASE_TAG" \
