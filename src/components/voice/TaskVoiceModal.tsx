@@ -77,73 +77,6 @@ function ensureVoiceModalKeyframes() {
   document.head.appendChild(style);
 }
 
-interface RingingHandle {
-  stop: () => void;
-}
-
-function startRingingTone(): RingingHandle {
-  if (typeof window === "undefined") return { stop: () => {} };
-  const AudioCtx: typeof AudioContext | undefined =
-    window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  if (!AudioCtx) return { stop: () => {} };
-
-  let stopped = false;
-  let ctx: AudioContext;
-  try {
-    ctx = new AudioCtx();
-  } catch {
-    return { stop: () => {} };
-  }
-
-  const master = ctx.createGain();
-  master.gain.value = 0.0;
-  master.connect(ctx.destination);
-
-  // Soft two-tone ring: 480Hz + 620Hz, 0.6s on / 1.4s off, fade in/out.
-  const ringInterval = 2.0;
-  const ringDuration = 0.6;
-  const peakGain = 0.06;
-
-  const tones: OscillatorNode[] = [];
-  for (const freq of [480, 620]) {
-    const osc = ctx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.value = freq;
-    osc.connect(master);
-    osc.start();
-    tones.push(osc);
-  }
-
-  const startAt = ctx.currentTime + 0.05;
-  // Schedule a few rings ahead — caller will stop() before this matters.
-  for (let i = 0; i < 30; i++) {
-    const t0 = startAt + i * ringInterval;
-    master.gain.setValueAtTime(0.0001, t0);
-    master.gain.exponentialRampToValueAtTime(peakGain, t0 + 0.08);
-    master.gain.setValueAtTime(peakGain, t0 + ringDuration - 0.1);
-    master.gain.exponentialRampToValueAtTime(0.0001, t0 + ringDuration);
-  }
-
-  return {
-    stop: () => {
-      if (stopped) return;
-      stopped = true;
-      try {
-        const now = ctx.currentTime;
-        master.gain.cancelScheduledValues(now);
-        master.gain.setValueAtTime(master.gain.value, now);
-        master.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
-        for (const osc of tones) {
-          osc.stop(now + 0.16);
-        }
-        setTimeout(() => { void ctx.close().catch(() => {}); }, 250);
-      } catch {
-        try { void ctx.close(); } catch {}
-      }
-    },
-  };
-}
-
 export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle, projectName, onSessionEnd }: Props) {
   const memoizedBindingRequest = useMemo(() => bindingRequest, [bindingRequest]);
   const session = useVoiceSession({ bindingRequest: memoizedBindingRequest });
@@ -190,25 +123,6 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
   const statusInfo = state === "connecting"
     ? { ...baseStatusInfo, label: pickConnectingLabel(connectingElapsedMs) }
     : baseStatusInfo;
-
-  // Soft ringing tone during connecting — stops the moment the line is ready.
-  const ringerRef = useRef<RingingHandle | null>(null);
-  useEffect(() => {
-    if (state === "connecting") {
-      if (!ringerRef.current) {
-        ringerRef.current = startRingingTone();
-      }
-    } else if (ringerRef.current) {
-      ringerRef.current.stop();
-      ringerRef.current = null;
-    }
-    return () => {
-      if (ringerRef.current) {
-        ringerRef.current.stop();
-        ringerRef.current = null;
-      }
-    };
-  }, [state]);
 
   // Inject keyframes once for the avatar pulse animation.
   useEffect(() => {
