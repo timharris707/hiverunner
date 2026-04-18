@@ -5,6 +5,7 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import os from "os";
 import { routeTask } from "@/lib/llm-router";
+import { resolveMissionControlAppRoot } from "@/lib/runtime-paths";
 import { evaluateTask, drainDeferredQueue, removeDeferredTask, type SchedulingVerdict } from "@/lib/quota-scheduler";
 import { appendTaskToLog, importExternalTasks } from "@/lib/tasks-log";
 import {
@@ -74,6 +75,7 @@ const MAX_ON_DECK_PER_PROJECT = 5;
 const PRIORITY_ORDER: Record<string, number> = { P0: 0, P1: 1, P2: 2, P3: 3 };
 const PROJECT_DIRS: Record<string, string> = {
   "mission-control": "projects/mission-control-app",
+  "mission-control-orchestration": "projects/mission-control-app",
   "advisory-board": "projects/mission-control-app",
   "crypto-trading": "projects/crypto-trading",
   "weather-trading": "projects/weather-trading",
@@ -328,18 +330,28 @@ function getProjectMeta(task: any, projects = readProjects()) {
   const projectName = project?.name || task.project || "Unscoped";
   const executionKey = project?.repo?.trim() || `project:${task.project || "unscoped"}`;
   const relProjectDir = PROJECT_DIRS[task.project] ?? "";
+  const appRoot = resolveMissionControlAppRoot();
   const cwd = process.cwd();
   const workspaceRoots = Array.from(new Set([
     process.env.WORKSPACE_ROOT,
+    appRoot,
     cwd,
     join(cwd, ".."),
     join(cwd, "..", ".."),
   ].filter((value): value is string => Boolean(value))));
 
+  const missionControlAppCandidates = new Set([
+    "mission-control",
+    "advisory-board",
+    "mission-control-orchestration",
+  ]);
+
   const projectDir = relProjectDir
-    ? workspaceRoots
-      .map((root) => join(root, relProjectDir))
-      .find((candidate) => existsSync(candidate)) || join(workspaceRoots[0] || cwd, relProjectDir)
+    ? missionControlAppCandidates.has(String(task.project || ""))
+      ? join(appRoot, relProjectDir)
+      : workspaceRoots
+          .map((root) => join(root, relProjectDir))
+          .find((candidate) => existsSync(candidate)) || join(workspaceRoots[0] || cwd, relProjectDir)
     : workspaceRoots.find((root) => existsSync(root)) || cwd;
 
   return { project, projectName, executionKey, projectDir };

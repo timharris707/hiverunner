@@ -85,18 +85,48 @@ const fixtureTaskIds: string[] = [];
 
 async function run() {
   try {
-    await test("projectDir resolves back to the checked-out mission-control repo when WORKSPACE_ROOT is unset", async () => {
+    await test("projectDir resolves back to MC_APP_ROOT for mission-control tasks when WORKSPACE_ROOT is unset", async () => {
       const priorWorkspaceRoot = process.env.WORKSPACE_ROOT;
+      const priorAppRoot = process.env.MC_APP_ROOT;
       delete process.env.WORKSPACE_ROOT;
+      process.env.MC_APP_ROOT = "/tmp/live-mission-control-app";
 
       try {
         const meta = __testHooks.getProjectMeta(makeTask({ project: "mission-control" }));
-        assert.strictEqual(meta.projectDir, process.cwd());
+        assert.strictEqual(meta.projectDir, "/tmp/live-mission-control-app/projects/mission-control-app");
       } finally {
         if (priorWorkspaceRoot === undefined) {
           delete process.env.WORKSPACE_ROOT;
         } else {
           process.env.WORKSPACE_ROOT = priorWorkspaceRoot;
+        }
+        if (priorAppRoot === undefined) {
+          delete process.env.MC_APP_ROOT;
+        } else {
+          process.env.MC_APP_ROOT = priorAppRoot;
+        }
+      }
+    });
+
+    await test("mission-control tasks ignore nearby retired clones when MC_APP_ROOT is set", async () => {
+      const priorWorkspaceRoot = process.env.WORKSPACE_ROOT;
+      const priorAppRoot = process.env.MC_APP_ROOT;
+      process.env.WORKSPACE_ROOT = "/Users/timharris/.openclaw/workspace";
+      process.env.MC_APP_ROOT = "/Users/timharris/.mission-control/app";
+
+      try {
+        const meta = __testHooks.getProjectMeta(makeTask({ project: "mission-control-orchestration" }));
+        assert.strictEqual(meta.projectDir, "/Users/timharris/.mission-control/app/projects/mission-control-app");
+      } finally {
+        if (priorWorkspaceRoot === undefined) {
+          delete process.env.WORKSPACE_ROOT;
+        } else {
+          process.env.WORKSPACE_ROOT = priorWorkspaceRoot;
+        }
+        if (priorAppRoot === undefined) {
+          delete process.env.MC_APP_ROOT;
+        } else {
+          process.env.MC_APP_ROOT = priorAppRoot;
         }
       }
     });
