@@ -2712,12 +2712,19 @@ function decideTaskContinuation(
   if (getActionResultsTerminalFailure(actionResults)) return { shouldContinue: false };
 
   if (task.status === "on_deck") {
-    // Do not endlessly requeue untouched on-deck tasks. They need either a real
-    // state transition into active work or a fresh human/manager nudge, not an
-    // automatic continuation storm.
-    if (actionResults.actionsExecuted > 0) {
-      return { shouldContinue: true, reason: "continuation_on_deck_after_actions" };
-    }
+    // If a task is still on_deck at the end of the run, nothing
+    // structurally moved it. Comments, reports, and hire_agent calls
+    // are narrative; they don't represent progress on THIS task. The
+    // only way to advance an on_deck task is an explicit update_task
+    // (status → in_progress / review / done) — and if the agent did
+    // that, the DB state would no longer be on_deck and this branch
+    // wouldn't fire.
+    //
+    // Auto-continuing on "any action fired" creates a self-loop where
+    // an agent assigned to its own on_deck task re-wakes itself forever
+    // by posting narrative comments (2026-04-17: Barometer / WEA-262).
+    // Require external nudge — user, manager handoff, or explicit
+    // status change — to resume.
     return { shouldContinue: false };
   }
   if (task.status === "review") return { shouldContinue: true, reason: "continuation_review_assignee" };

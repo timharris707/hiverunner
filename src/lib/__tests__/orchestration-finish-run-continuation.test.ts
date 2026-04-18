@@ -125,7 +125,14 @@ async function run() {
       assert.deepStrictEqual(decision, { shouldContinue: false });
     });
 
-    await test("Successful on_deck runs only continue when they executed real actions", async () => {
+    await test("Successful on_deck runs do NOT auto-continue even with actions executed (no self-loop)", async () => {
+      // Regression: a task still in on_deck at the end of a run means
+      // nothing structurally moved it. Comments and reports don't count
+      // — they're narrative. The only way to advance is update_task to
+      // a different status, and if that had run we wouldn't be in the
+      // on_deck branch. Auto-continuing here caused agents (e.g. Barometer
+      // on WEA-262, 2026-04-17) to re-wake themselves forever by posting
+      // narrative comments.
       const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
       const { db, project, agent, task } = await createFixture();
 
@@ -137,8 +144,38 @@ async function run() {
         taskId: task.id,
         resultJson: {
           messagesImported: 1,
-          actionsFound: 1,
-          actionsExecuted: 1,
+          actionsFound: 7,
+          actionsExecuted: 7,
+          actionsSkippedDedup: 0,
+          tasksCreated: [],
+          approvalsCreated: [],
+          reportsImported: 2,
+          errors: [],
+        },
+      });
+
+      const decision = decideFinishRunContinuation(task.id, "run-on-deck-actions", "succeeded", db);
+      assert.deepStrictEqual(
+        decision,
+        { shouldContinue: false },
+        `on_deck task with narrative-only actions must NOT auto-continue; got: ${JSON.stringify(decision)}`,
+      );
+    });
+
+    await test("on_deck with zero actions also does not continue (baseline unchanged)", async () => {
+      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
+      const { db, project, agent, task } = await createFixture();
+
+      db.prepare("UPDATE tasks SET status = 'on_deck', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+      seedHeartbeatRun(db, {
+        runId: "run-on-deck-empty",
+        agentId: agent.id,
+        companyId: project.companyId,
+        taskId: task.id,
+        resultJson: {
+          messagesImported: 0,
+          actionsFound: 0,
+          actionsExecuted: 0,
           actionsSkippedDedup: 0,
           tasksCreated: [],
           approvalsCreated: [],
@@ -147,9 +184,35 @@ async function run() {
         },
       });
 
-      const decision = decideFinishRunContinuation(task.id, "run-on-deck-actions", "succeeded", db);
-      assert.strictEqual(decision.shouldContinue, true);
-      assert.strictEqual(decision.reason, "continuation_on_deck_after_actions");
+      const decision = decideFinishRunContinuation(task.id, "run-on-deck-empty", "succeeded", db);
+      assert.deepStrictEqual(decision, { shouldContinue: false });
+    });
+
+    await test("in_progress task with actions continues (active work keeps moving)", async () => {
+      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
+      const { db, project, agent, task } = await createFixture();
+
+      db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
+      seedHeartbeatRun(db, {
+        runId: "run-in-progress-with-actions",
+        agentId: agent.id,
+        companyId: project.companyId,
+        taskId: task.id,
+        resultJson: {
+          messagesImported: 1,
+          actionsFound: 2,
+          actionsExecuted: 2,
+          actionsSkippedDedup: 0,
+          tasksCreated: [],
+          approvalsCreated: [],
+          reportsImported: 0,
+          errors: [],
+        },
+      });
+
+      const decision = decideFinishRunContinuation(task.id, "run-in-progress-with-actions", "succeeded", db);
+      assert.strictEqual(decision.shouldContinue, true, "in_progress + actions should continue");
+      assert.strictEqual(decision.reason, "continuation_in_progress_after_actions");
     });
 
     await test("Successful in_progress report-only runs do not continue", async () => {
