@@ -188,17 +188,20 @@ export function findCompanyCeo(
   companyId: string,
   db = getOrchestrationDb()
 ): { id: string; name: string; role: string } | null {
-  // Find agent with role 'ceo' (case-insensitive) in this company
-  const row = db
+  // Match the whitespace-token semantics of `isCeoRole` (commit f05b0e3f)
+  // so roles like "Weather CEO", "Head Executive / CEO", etc. resolve
+  // correctly. Prior revision required exact `LOWER(TRIM(role)) = 'ceo'`
+  // which silently excluded every real CEO agent on Weather Edge and
+  // other companies where the role string carries a modifier.
+  const rows = db
     .prepare(
       `SELECT id, name, role FROM agents
        WHERE company_id = ? AND archived_at IS NULL
-         AND LOWER(TRIM(role)) = 'ceo'
-       ORDER BY created_at ASC
-       LIMIT 1`
+         AND LOWER(role) LIKE '%ceo%'
+       ORDER BY created_at ASC`
     )
-    .get(companyId) as { id: string; name: string; role: string } | undefined;
-  return row ?? null;
+    .all(companyId) as Array<{ id: string; name: string; role: string }>;
+  return rows.find((row) => isCeoRole(row.role)) ?? null;
 }
 
 /* ── Wakeup Queue ── */

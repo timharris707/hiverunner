@@ -346,6 +346,38 @@ async function run() {
       assert.equal(row?.present, 1, "review → on_deck transition must be present after v45");
     });
 
+    await test("findCompanyCeo matches whitespace-token roles ('Weather CEO', 'Head Executive / CEO')", async () => {
+      clearWakes();
+      const { findCompanyCeo } = await import("@/lib/orchestration/engine/engine");
+      const project = makeProject("ceo-token-match");
+
+      // Regression: prior to this fix, findCompanyCeo required LOWER(TRIM(role))='ceo'
+      // (exact match), which silently dropped every real CEO agent on WEA
+      // ("Weather CEO"), and any company with a modifier token in the role.
+      const weatherCeo = makeAgent(project.id, "weather-ceo", "Weather CEO");
+      const worker = makeAgent(project.id, "worker-beside-ceo", "Backend Engineer");
+      void worker;
+
+      const resolved = findCompanyCeo(companyId, db);
+      assert.ok(resolved, "findCompanyCeo must resolve for role='Weather CEO'");
+      assert.equal(resolved.id, weatherCeo.id, "should find the CEO agent, not the worker");
+      assert.equal(resolved.role, "Weather CEO");
+    });
+
+    await test("findCompanyCeo rejects role substrings that are not CEO tokens ('Receptor', 'CEO-Junior')", async () => {
+      clearWakes();
+      const { findCompanyCeo } = await import("@/lib/orchestration/engine/engine");
+      const project = makeProject("ceo-false-positives");
+
+      // "Receptor" contains "cep" but is NOT a CEO token. "CEO-Junior" is a
+      // single hyphenated token, not 'CEO' alone. Both should fail to match.
+      makeAgent(project.id, "receptor", "Receptor");
+      makeAgent(project.id, "ceo-junior", "CEO-Junior");
+
+      const resolved = findCompanyCeo(companyId, db);
+      assert.equal(resolved, null, "no real CEO present → must return null");
+    });
+
     await test("reconcile does NOT force-move review back to in_progress (previously line 2969 enforcement)", () => {
       clearWakes();
       const project = makeProject("reconcile-no-force-back");
