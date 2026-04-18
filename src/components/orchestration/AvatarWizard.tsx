@@ -1327,7 +1327,7 @@ function VoiceCard({
   onPreview: () => void;
   inUseBy: string[];
 }) {
-  const usageHint = inUseBy.length > 0 ? `In use by ${inUseBy.join(", ")}` : null;
+  const usageInline = inUseBy.length > 0 ? `(${inUseBy.join(", ")})` : null;
   return (
     <div
       style={{
@@ -1354,23 +1354,17 @@ function VoiceCard({
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
           <Volume2 size={13} style={{ color: selected ? W.accent : W.textSec }} />
-          <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>{preset.name}</span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>
+            {preset.name}
+            {usageInline && (
+              <span style={{ fontWeight: 400, color: W.muted, marginLeft: 6 }}>{usageInline}</span>
+            )}
+          </span>
           {selected && <Check size={12} style={{ color: W.accent, marginLeft: "auto" }} />}
         </div>
         <div style={{ fontSize: 10.5, color: W.textSec, lineHeight: 1.35 }}>
           {preset.descriptor}
         </div>
-        {usageHint && (
-          <div style={{
-            marginTop: 4,
-            fontSize: 10,
-            fontStyle: "italic",
-            color: W.muted,
-            lineHeight: 1.3,
-          }}>
-            {usageHint}
-          </div>
-        )}
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onPreview(); }}
