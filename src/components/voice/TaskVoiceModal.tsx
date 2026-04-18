@@ -82,6 +82,23 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
   const session = useVoiceSession({ bindingRequest: memoizedBindingRequest });
   const { state, transcript, toolEvents, error, connect, disconnect } = session;
 
+  // Lock the displayed agent for the duration of an active session. If the
+  // bound task is reassigned mid-call (e.g. via reassign_task voice tool), the
+  // parent will pass a different `agent` prop on its next render — but the
+  // user is still talking to whoever picked up the call. Showing a different
+  // avatar/name mid-conversation is misleading. Snapshot at call start; drop
+  // the snapshot when the session goes idle so the next call shows current.
+  const [activeAgentSnapshot, setActiveAgentSnapshot] = useState<OrchestrationAgent | null>(null);
+  const isSessionActive = state !== "idle" && state !== "error";
+  useEffect(() => {
+    if (isSessionActive && !activeAgentSnapshot && agent) {
+      setActiveAgentSnapshot(agent);
+    } else if (!isSessionActive && activeAgentSnapshot) {
+      setActiveAgentSnapshot(null);
+    }
+  }, [isSessionActive, agent, activeAgentSnapshot]);
+  const displayAgent = activeAgentSnapshot ?? agent;
+
   const transcriptRef = useRef<HTMLDivElement>(null);
   const sessionRef = useRef(session);
   sessionRef.current = session;
@@ -160,7 +177,7 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
             ...bindingRequest,
             scope: "task",
             ...(taskTitle ? { taskTitle } : {}),
-            ...(agent?.name ? { agentName: agent.name } : {}),
+            ...(displayAgent?.name ? { agentName: displayAgent.name } : {}),
             ...(projectName ? { projectName } : {}),
           },
           acceptedMarkers: [],
@@ -188,7 +205,7 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
         });
       } catch {}
     },
-    [bindingRequest, taskTitle, projectName, agent?.name],
+    [bindingRequest, taskTitle, projectName, displayAgent?.name],
   );
 
   // Escape key closes; closing always disconnects if live, then posts the final
@@ -249,9 +266,9 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
     };
   }, []);
 
-  if (!open || !agent) return null;
+  if (!open || !displayAgent) return null;
 
-  const avatarUrl = resolveAvatarUrl(agent);
+  const avatarUrl = resolveAvatarUrl(displayAgent);
   const completedToolEvents = toolEvents.filter((event) => event.type === "completed");
 
   const statusColor =
@@ -271,7 +288,7 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`Talk to ${agent.name}`}
+        aria-label={`Talk to ${displayAgent.name}`}
         style={{
           width: "100%", maxWidth: "560px",
           borderRadius: "16px",
@@ -306,17 +323,17 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   src={avatarUrl}
-                  alt={agent.name}
+                  alt={displayAgent.name}
                   style={{ width: 42, height: 42, borderRadius: "50%", objectFit: "cover", display: "block" }}
                 />
               ) : (
-                <AvatarGlyph value={agent.emoji} size={42} />
+                <AvatarGlyph value={displayAgent.emoji} size={42} />
               )}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-              <div style={{ fontSize: "16px", fontWeight: 600, color: "#f5f5f4" }}>{agent.name}</div>
-              {agent.role && (
-                <div style={{ fontSize: "12px", color: "#a8a29e" }}>{agent.role}</div>
+              <div style={{ fontSize: "16px", fontWeight: 600, color: "#f5f5f4" }}>{displayAgent.name}</div>
+              {displayAgent.role && (
+                <div style={{ fontSize: "12px", color: "#a8a29e" }}>{displayAgent.role}</div>
               )}
             </div>
           </div>
@@ -399,8 +416,8 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
           {transcript.length === 0 ? (
             <div style={{ margin: "auto", textAlign: "center", color: "#78716c", fontSize: "13px" }}>
               {sessionActive
-                ? `Say something — ${agent.name} is listening.`
-                : `Press Start call to begin talking with ${agent.name}.`}
+                ? `Say something — ${displayAgent.name} is listening.`
+                : `Press Start call to begin talking with ${displayAgent.name}.`}
             </div>
           ) : (
             transcript.map((entry, i) => {
@@ -417,7 +434,7 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
                   <div style={{
                     fontSize: "11px", color: "#78716c", marginBottom: "2px",
                   }}>
-                    {isUser ? "You" : agent.name}
+                    {isUser ? "You" : displayAgent.name}
                   </div>
                   <div style={{
                     maxWidth: "85%",
