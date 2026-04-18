@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
-import { randomUUID } from "crypto";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
 import { nextColumnOrder, reconcileTaskHierarchy, refreshAgentLoad } from "@/lib/orchestration/service/shared";
 
 const OPENCLAW_RECONCILE_ACTOR = "openclaw:execution";
@@ -43,57 +43,25 @@ function enqueueContinuationWake(
   },
   db: Database.Database,
 ): void {
-  const now = new Date().toISOString();
-  const idempotencyKey = `reconcile-continuation:${input.taskId}:${input.taskStatus}`;
-  const existing = db
-    .prepare(
-      `SELECT id, status FROM agent_wakeup_requests
-       WHERE idempotency_key = ?
-       ORDER BY created_at DESC
-       LIMIT 1`
-    )
-    .get(idempotencyKey) as { id: string; status: string } | undefined;
-
-  if (existing) return;
-
-  const wakeupId = randomUUID();
-  const runId = randomUUID();
-  const payload = {
-    taskId: input.taskId,
-    taskStatus: input.taskStatus,
-    continuedBy: "terminal_reconciliation",
-  };
-
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, payload_json, status, idempotency_key, run_id, requested_at, created_at, updated_at)
-     VALUES (?, ?, ?, 'api', ?, ?, 'queued', ?, ?, ?, ?, ?)`
-  ).run(
-    wakeupId,
-    input.agentId,
-    input.companyId,
-    input.reason,
-    JSON.stringify(payload),
-    idempotencyKey,
-    runId,
-    now,
-    now,
-    now,
-  );
-
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, trigger_detail, status, wakeup_request_id, context_snapshot_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', ?, 'queued', ?, ?, ?, ?)`
-  ).run(
-    runId,
-    input.agentId,
-    input.companyId,
-    input.reason,
-    wakeupId,
-    JSON.stringify({ wakeSource: 'api', wakeReason: input.reason, ...payload }),
-    now,
-    now,
+  // Shares the `continuation:{taskId}:{status}` idempotency key with the
+  // engine finish-run continuation path (engine.ts:2933). Before this
+  // alignment the two paths used distinct keys, so they never coalesced and
+  // the second enqueue superseded the first — which, prior to the
+  // enqueueWakeup coalesce/prune reorder, meant the first wake vanished.
+  enqueueWakeup(
+    {
+      agentId: input.agentId,
+      companyId: input.companyId,
+      source: "api",
+      reason: input.reason,
+      payload: {
+        taskId: input.taskId,
+        taskStatus: input.taskStatus,
+        continuedBy: "terminal_reconciliation",
+      },
+      idempotencyKey: `continuation:${input.taskId}:${input.taskStatus}`,
+    },
+    db,
   );
 }
 

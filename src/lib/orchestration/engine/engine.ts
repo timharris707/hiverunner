@@ -218,9 +218,15 @@ export function enqueueWakeup(
 ): EnqueueWakeupResult {
   const now = new Date().toISOString();
 
-  pruneSupersededQueuedWakeups(input.agentId, now, db);
-
-  // Check for existing queued wakeup we can coalesce
+  // Check for existing queued wakeup we can coalesce BEFORE pruning.
+  // Previously pruneSupersededQueuedWakeups ran first and flipped every queued
+  // wake for this agent to 'failed/superseded_by_newer_wake' — which meant the
+  // idempotency SELECT below (WHERE status = 'queued') could never find a
+  // match. Coalesce was dead code, and two paths enqueuing the same logical
+  // event (e.g. finish-run-continuation vs reconcile-continuation for the same
+  // task-in-review) would always produce superseded losses instead of a single
+  // coalesced wake. Do the coalesce lookup first; only prune when we're about
+  // to actually insert a new row.
   if (input.idempotencyKey) {
     const existing = db
       .prepare(
@@ -243,6 +249,8 @@ export function enqueueWakeup(
       };
     }
   }
+
+  pruneSupersededQueuedWakeups(input.agentId, now, db);
 
   const wakeupId = randomUUID();
   const runId = randomUUID();
@@ -2922,7 +2930,7 @@ function finishRun(
                   taskStatus: continuationStatus,
                   continuedFromExecutionRunId: executionRunId,
                 },
-                idempotencyKey: `finish-run-continuation:${postTask.id}:${continuationReason}`,
+                idempotencyKey: `continuation:${postTask.id}:${continuationStatus}`,
               },
               db,
             );
