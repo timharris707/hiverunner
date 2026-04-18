@@ -333,7 +333,8 @@ function buildOpenAiPrompt(input: AvatarGenerationInput): string {
   const vibeFragment = input.vibe?.trim() ? `Character vibe: ${input.vibe.trim()}.` : "";
 
   return [
-    `Create a single square avatar portrait for an AI agent named ${input.agentName}.`,
+    "ABSOLUTELY NO TEXT, LETTERS, WORDS, NAMES, CAPTIONS, LABELS, NUMBERS, WATERMARKS, OR UI OVERLAYS ANYWHERE IN THE IMAGE. The output is a pure portrait — no written language of any kind, no signage, no insignia text, no name plates, no hud, no chrome.",
+    "Create a single square avatar portrait for an AI agent.",
     `The character should feel like a ${genderText} ${input.agentRole}${ageFragment}.`,
     stylePrompt,
     hairFragment,
@@ -342,7 +343,7 @@ function buildOpenAiPrompt(input: AvatarGenerationInput): string {
     "This must be a true portrait image, not an icon, glyph, logo, flat SVG, mascot badge, or abstract placeholder.",
     "Show head-and-shoulders only. Strong face visibility. Professional composition for a profile picture.",
     "Keep the subject centered and readable at small sizes.",
-    "No text, no labels, no HUD overlays, no letters, no watermark, no UI chrome.",
+    "Final reminder: zero rendered text of any kind. If your draft contains any letters, numbers, or words, regenerate without them.",
     input.agentPersonality ? `Additional personality cues: ${input.agentPersonality}.` : "",
   ]
     .filter(Boolean)

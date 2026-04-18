@@ -341,6 +341,9 @@ export function AvatarWizard({
   }, [open]);
 
   const applyAvatar = useCallback(async () => {
+    // Politely cancel any in-flight generation loop so it stops scheduling more
+    // requests once the user has chosen what they want.
+    generationRunRef.current += 1;
     setSaving(true);
     setError(null);
     try {
@@ -608,7 +611,7 @@ export function AvatarWizard({
               <WizardBtn
                 variant="primary"
                 onClick={applyAvatar}
-                disabled={saving || generating || previews.length === 0}
+                disabled={saving || previews.length === 0}
               >
                 {saving ? (
                   <>
@@ -1369,9 +1372,11 @@ function PreviewStep({
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, gap: 12 }}>
         <div>
           <p style={{ fontSize: 13, color: W.textSec, margin: 0 }}>
-            {generating
+            {generating && previews.length === 0
               ? `Generating portraits for ${agentName}…`
-              : "Pick your favorite. Regenerate if you want another set."}
+              : generating
+                ? `Generating more — pick one and Apply any time, or wait for the rest.`
+                : "Pick your favorite. Regenerate if you want another set."}
           </p>
           <p style={{ fontSize: 11, color: W.muted, margin: "4px 0 0" }}>
             Style: {styleName} · {progressLabel}
