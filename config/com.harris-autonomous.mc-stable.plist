@@ -29,7 +29,7 @@
     <key>MC_SWEEP_COMPANIES</key>
     <string>weather-edge-2</string>
     <key>MC_ORCHESTRATION_SWEEP</key>
-    <string>0</string>
+    <string>1</string>
   </dict>
 
   <key>RunAtLoad</key>
