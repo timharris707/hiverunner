@@ -235,43 +235,116 @@ export default function TaskDetailPage() {
 
   useEffect(() => { void loadTask(); }, [loadTask]);
 
-  useEffect(() => {
-    const refresh = () => {
-      void loadTask();
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refresh();
+  // D5: Live updates over SSE with surgical in-place merges — no full reload
+  // on every event, no loading spinner, no row remounts. Events we understand
+  // (status_changed, assigned/unassigned, comment_added, reordered) merge
+  // directly into local state. Events we can't fully describe from the payload
+  // (task.updated only carries *Changed flags, not values) fall through to a
+  // narrow refetch (getTaskDetail + listTaskComments only — skips companies/
+  // projects/agents that rarely change).
+  //
+  // Window-focus / visibilitychange full-reload was removed intentionally:
+  // SSE auto-reconnects, and tab return shouldn't flash a loading state.
+  const narrowRefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const narrowRefetch = useCallback(() => {
+    if (narrowRefetchTimerRef.current) clearTimeout(narrowRefetchTimerRef.current);
+    narrowRefetchTimerRef.current = setTimeout(async () => {
+      try {
+        const fetched = await getTaskDetail(taskKey);
+        if (!fetched) return;
+        setTask(fetched.task);
+        setTaskDetail(fetched.detail);
+        setActivityTimeline(fetched.detail.timeline);
+        const rows = await listTaskComments(fetched.task.id);
+        setComments(rows);
+      } catch {
+        // silent — next SSE event or manual retry will catch it
       }
-    };
+    }, 250);
+  }, [taskKey]);
 
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => {
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", handleVisibility);
-    };
-  }, [loadTask]);
-
-  // D5: Live updates over SSE. Any task_events or comments row that lands for
-  // THIS bound task triggers a debounced reload — no manual refresh needed
-  // after voice mutations, status changes, agent activity, or comments.
-  const liveReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleLiveEvent = useCallback((event: StreamEvent) => {
-    if (event.type !== "activity" && event.type !== "comment") return;
     const matchesTask =
       (task?.id && event.taskId === task.id) ||
       (event.taskKey && event.taskKey === taskKey);
     if (!matchesTask) return;
-    if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current);
-    liveReloadTimerRef.current = setTimeout(() => { void loadTask(); }, 250);
-  }, [task?.id, taskKey, loadTask]);
+
+    if (event.type === "comment") {
+      if (!event.id) return;
+      setComments((prev) => {
+        if (prev.some((c) => c.id === event.id)) return prev;
+        return [
+          ...prev,
+          {
+            id: event.id!,
+            author: event.author ?? "Agent",
+            text: event.body ?? "",
+            timestamp: event.timestamp ?? new Date().toISOString(),
+            type: event.commentType,
+          },
+        ];
+      });
+      return;
+    }
+
+    if (event.type !== "activity") return;
+
+    const nowIso = event.timestamp ?? new Date().toISOString();
+    const toClientStatus = (raw?: string): TaskStatus | null => {
+      if (!raw) return null;
+      if (raw === "on_deck") return "on-deck";
+      if (raw === "in_progress") return "in-progress";
+      if (
+        raw === "backlog" ||
+        raw === "review" ||
+        raw === "done" ||
+        raw === "blocked" ||
+        raw === "cancelled"
+      ) {
+        return raw;
+      }
+      return null;
+    };
+
+    switch (event.eventType) {
+      case "task.status_changed": {
+        const next = toClientStatus(event.toStatus);
+        if (!next) return;
+        setTask((t) => (t ? { ...t, status: next, updated: nowIso } : t));
+        return;
+      }
+      case "task.assigned":
+      case "task.unassigned": {
+        const nextAssignee =
+          event.eventType === "task.unassigned"
+            ? undefined
+            : event.agentId ??
+              (typeof event.metadata?.assigneeId === "string"
+                ? (event.metadata.assigneeId as string)
+                : undefined);
+        setTask((t) => (t ? { ...t, assignee: nextAssignee, updated: nowIso } : t));
+        return;
+      }
+      case "task.reordered": {
+        const order = event.metadata?.columnOrder;
+        if (typeof order === "number") {
+          setTask((t) => (t ? { ...t, columnOrder: order, updated: nowIso } : t));
+        }
+        return;
+      }
+      default: {
+        // task.updated (flag-only metadata), task.archived, and any unknown
+        // event types — fall through to narrow refetch.
+        narrowRefetch();
+        return;
+      }
+    }
+  }, [task?.id, taskKey, narrowRefetch]);
 
   useEventStream({ companySlug: slug, enabled: Boolean(slug), onEvent: handleLiveEvent });
 
   useEffect(() => () => {
-    if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current);
+    if (narrowRefetchTimerRef.current) clearTimeout(narrowRefetchTimerRef.current);
   }, []);
 
   // Unified task detail timeline now comes from the main task detail payload.
