@@ -106,6 +106,33 @@ function loadTaskReconciliationCandidate(
     .get(taskId) as ReconciliationCandidateRow | undefined;
 }
 
+/**
+ * Returns the agent_id of the task's most recent terminal execution_run,
+ * or null if none exists. Used to break the CEO self-loop: if the latest
+ * run on a review-state task was by the CEO and produced no status change,
+ * we must not re-wake the CEO again — they already had their chance.
+ * Observed 2026-04-18 after the initial review-loop fix: Barometer got
+ * re-woken ~18 times in 6 min on WEA-211, each time emitting narrative
+ * (report + add_comment) without update_task, re-triggering the wake.
+ */
+export function latestTerminalRunAgentId(
+  taskId: string,
+  db: Database.Database,
+): string | null {
+  const row = db
+    .prepare(
+      `SELECT agent_id
+       FROM execution_runs
+       WHERE task_id = ?
+         AND provider = 'openclaw'
+         AND status IN ('completed','failed','cancelled')
+       ORDER BY COALESCE(completed_at, updated_at, created_at) DESC
+       LIMIT 1`,
+    )
+    .get(taskId) as { agent_id: string | null } | undefined;
+  return row?.agent_id ?? null;
+}
+
 function loadAgentsPointingAtTask(taskId: string, db: Database.Database): string[] {
   const rows = db
     .prepare(
@@ -252,22 +279,32 @@ export function reconcileTerminalOpenClawTaskState(
       // never close. Sweep will re-nudge the CEO on subsequent cycles.
       const ceo = findCompanyCeo(companyRow.company_id, db);
       if (ceo && ceo.id !== candidate.assignee_agent_id) {
-        enqueueWakeup(
-          {
-            agentId: ceo.id,
-            companyId: companyRow.company_id,
-            source: "api",
-            reason: "ceo_review_requested",
-            payload: {
-              taskId,
-              taskStatus: "review",
-              assigneeAgentId: candidate.assignee_agent_id,
-              requestedBy: "terminal_reconciliation",
+        // CEO self-loop guard: if the most recent terminal run on this task
+        // was BY the CEO, they already had their chance and emitted no
+        // status change. Re-waking immediately creates a ~10s CEO loop
+        // (observed 2026-04-18 on WEA-211: 18 consecutive ceo_review_requested
+        // wakes in 6 min, all narrative-only). The task stays in review
+        // until the next assignee run, a sweep cycle after the cooldown,
+        // or explicit operator action.
+        const latestRunAgent = latestTerminalRunAgentId(taskId, db);
+        if (latestRunAgent !== ceo.id) {
+          enqueueWakeup(
+            {
+              agentId: ceo.id,
+              companyId: companyRow.company_id,
+              source: "api",
+              reason: "ceo_review_requested",
+              payload: {
+                taskId,
+                taskStatus: "review",
+                assigneeAgentId: candidate.assignee_agent_id,
+                requestedBy: "terminal_reconciliation",
+              },
+              idempotencyKey: `ceo_review:${taskId}`,
             },
-            idempotencyKey: `ceo_review:${taskId}`,
-          },
-          db,
-        );
+            db,
+          );
+        }
       }
     }
   }

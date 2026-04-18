@@ -378,6 +378,83 @@ async function run() {
       assert.equal(resolved, null, "no real CEO present → must return null");
     });
 
+    await test("CEO self-loop guard: reconcile does NOT re-wake CEO if the task's latest run was by the CEO", () => {
+      clearWakes();
+      const project = makeProject("ceo-self-loop-reconcile");
+      const worker = makeAgent(project.id, "ceo-loop-worker", "Backend Engineer");
+      const ceo = makeAgent(project.id, "ceo-loop-ceo", "CEO");
+
+      // Simulate the sequence that triggered the 18-wake loop on WEA-211:
+      // 1. Worker assigned, worked, task moved to review (reconcile fires
+      //    first CEO wake — not modeled here, already covered above).
+      // 2. CEO ran on the review task and emitted narrative only.
+      // 3. Engine calls reconcileTerminalOpenClawTaskState on the same task.
+      // Fresh-but-CEO-already-reviewed: CEO ran most recently, task still
+      // in review, assignee still the worker.
+      const task = makeTask(project.id, worker.id, "review");
+      seedCompletedOpenclawRun(task.id, ceo.id, "completed");
+
+      reconcileTerminalOpenClawTaskState(task.id, db);
+
+      const ceoWakes = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE agent_id = ? AND json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .get(ceo.id, task.id) as { n: number } | undefined;
+      assert.equal(
+        ceoWakes?.n ?? 0,
+        0,
+        "CEO must NOT be re-woken — their own run was the most recent terminal run on this task",
+      );
+    });
+
+    await test("CEO self-loop guard: sweep skips review task with 'ceo_recent_review_no_close' when CEO just ran on it", () => {
+      clearWakes();
+      const project = makeProject("ceo-self-loop-sweep");
+      const worker = makeAgent(project.id, "sweep-loop-worker", "Backend Engineer");
+      const ceo = makeAgent(project.id, "sweep-loop-ceo", "CEO");
+      const task = makeTask(project.id, worker.id, "review");
+      seedCompletedOpenclawRun(task.id, ceo.id, "completed");
+
+      const result = sweepOpenTasks(db, { cap: 10 });
+
+      const wakes = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .get(task.id) as { n: number } | undefined;
+      assert.equal(wakes?.n ?? 0, 0, "sweep must NOT re-fire CEO wake");
+      assert.ok(
+        (result.skippedReasons.ceo_recent_review_no_close ?? 0) >= 1,
+        `expected 'ceo_recent_review_no_close' skip reason; got: ${JSON.stringify(result.skippedReasons)}`,
+      );
+    });
+
+    await test("CEO self-loop guard: reconcile DOES wake CEO if the latest run was by the assignee (first-review path unchanged)", () => {
+      clearWakes();
+      const project = makeProject("ceo-self-loop-first-review");
+      const worker = makeAgent(project.id, "first-review-worker", "Backend Engineer");
+      const ceo = makeAgent(project.id, "first-review-ceo", "CEO");
+
+      // Assignee just finished — task now in review. Latest run agent is
+      // the worker, not the CEO. CEO has never reviewed this task.
+      const task = makeTask(project.id, worker.id, "in-progress");
+      seedCompletedOpenclawRun(task.id, worker.id, "completed");
+
+      reconcileTerminalOpenClawTaskState(task.id, db);
+
+      const ceoWakes = db
+        .prepare(
+          `SELECT reason FROM agent_wakeup_requests
+           WHERE agent_id = ? AND json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .all(ceo.id, task.id) as Array<{ reason: string }>;
+      assert.equal(ceoWakes.length, 1, "first-review path must still wake CEO once");
+      assert.equal(ceoWakes[0].reason, "ceo_review_requested");
+    });
+
     await test("reconcile does NOT force-move review back to in_progress (previously line 2969 enforcement)", () => {
       clearWakes();
       const project = makeProject("reconcile-no-force-back");

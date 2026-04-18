@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 
 import { enqueueWakeup, findCompanyCeo } from "@/lib/orchestration/engine/engine";
+import { latestTerminalRunAgentId } from "@/lib/orchestration/openclaw-reconciliation";
 
 /**
  * Orchestration sweeper: periodically scans open tasks (on_deck / in_progress /
@@ -144,6 +145,15 @@ export function sweepOpenTasks(
       }
       if (ceo.id === row.assignee_agent_id) {
         bumpSkip("assignee_is_ceo_for_review");
+        continue;
+      }
+      // CEO self-loop guard (see openclaw-reconciliation.ts for context):
+      // if the most recent terminal run on this task was by the CEO, they
+      // already reviewed and emitted no status change. Re-sweeping just
+      // re-triggers the same narrative-only pattern at 60s cadence.
+      const latestRunAgent = latestTerminalRunAgentId(row.task_id, db);
+      if (latestRunAgent === ceo.id) {
+        bumpSkip("ceo_recent_review_no_close");
         continue;
       }
       const ceoRow = db
