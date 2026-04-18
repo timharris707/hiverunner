@@ -18,6 +18,11 @@ import { fileURLToPath } from "url";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  OPENCLAW_BIN,
+  callGateway,
+  getExecutionAdapter,
+} from "@/lib/orchestration/execution/adapters";
 import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
@@ -479,42 +484,6 @@ export function resetAgentRuntimeSessionForSelfHeal(
   }
 }
 
-// Wipe the OpenClaw-specific task-session params for (company, agent,
-// task) so the next wake lands on the adapter's fresh-session branch
-// instead of resuming a degraded session by stored id + key. Scoped
-// narrowly by adapter_type='openclaw' so a hypothetical future-adapter
-// row for the same task is untouched. Same swallow-on-error posture as
-// resetAgentRuntimeSessionForSelfHeal.
-export function clearOpenClawTaskSessionForSelfHeal(
-  db: Database.Database,
-  input: { companyId: string; agentId: string; taskKey: string; reason: string },
-): void {
-  try {
-    db.prepare(
-      `UPDATE agent_task_sessions
-       SET session_params_json = '{}',
-           session_display_id = NULL,
-           last_error = ?,
-           updated_at = ?
-       WHERE company_id = ?
-         AND agent_id = ?
-         AND adapter_type = 'openclaw'
-         AND task_key = ?`,
-    ).run(
-      `self_heal:${input.reason}`,
-      new Date().toISOString(),
-      input.companyId,
-      input.agentId,
-      input.taskKey,
-    );
-  } catch (err) {
-    console.warn(
-      `[engine:runtime] failed to clear openclaw task session for ${input.agentId}/${input.taskKey} (${input.reason}):`,
-      err,
-    );
-  }
-}
-
 export function updateRuntimeState(
   agentId: string,
   patch: {
@@ -876,12 +845,15 @@ export async function executeHeartbeatRun(
     messageCountBefore: 0,
   };
 
-  // Execute via OpenClaw gateway
+  // Execute via the adapter resolved from agent.adapter_type
+  // (defaults to OpenClaw). Adapter-specific session handling
+  // lives under src/lib/orchestration/execution/adapters/.
   emitRunEvent(runId, agent.id, "session_start", `Sending prompt to agent session (${prompt.length} chars)`, db);
   const sendTime = Date.now();
-  let result: { sessionId?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> };
+  const executionAdapter = getExecutionAdapter(agent.adapter_type);
+  let result: { sessionId?: string; sessionKey?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> };
   try {
-    result = await executeViaOpenClaw(agent, prompt, session, runtimeState);
+    result = await executionAdapter.execute({ agent, prompt, session, runtimeState });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return finishRun(runId, run, "failed", message, startTime, db, undefined, executionRunId);
@@ -911,7 +883,7 @@ export async function executeHeartbeatRun(
   // subsequent wakes resume with the exact key the adapter used for create
   // — the deterministic key was bitten by silent collision during fresh
   // creates after a self-heal. Legacy rows that lack sessionKey fall back
-  // to the deterministic form inside executeViaOpenClaw.
+  // to the deterministic form inside the OpenClaw execution adapter.
   if (result.sessionId) {
     updateTaskSession(
       session.id,
@@ -1572,176 +1544,6 @@ function maybeResetTaskSessionForFreshAssignment(
   ).run(new Date().toISOString(), companyId, agentId, taskKey);
 }
 
-/* ── OpenClaw Gateway Execution ── */
-
-async function executeViaOpenClaw(
-  agent: AgentRow,
-  prompt: string,
-  session: TaskSession,
-  runtimeState: RuntimeState
-): Promise<{ sessionId?: string; sessionKey?: string; messageCountBefore?: number; error?: string; usage?: Record<string, unknown> }> {
-  // Import the gateway call function from the existing execution module
-  const { execFile } = await import("child_process");
-  const { promisify } = await import("util");
-  const execFileAsync = promisify(execFile);
-
-  const existingSessionId = session.sessionParams.sessionId as string | undefined;
-  const existingSessionKey = session.sessionParams.sessionKey as string | undefined;
-  const openclawAgentId = agent.openclaw_agent_id;
-
-  if (!openclawAgentId) {
-    return { error: "Agent has no openclaw_agent_id mapping. Cannot execute via OpenClaw gateway." };
-  }
-
-  try {
-    // Session keys: resumes use the stored key (or a deterministic legacy
-    // key if the stored value is missing, so pre-existing rows still
-    // resolve their OpenClaw session). Fresh creates use a random-suffix
-    // key so `sessions.create` cannot collide with a degraded session
-    // still living under a stale deterministic key — that silent
-    // collision was the 2026-04-17 live-test failure mode.
-    const deterministicKey = `agent:${openclawAgentId}:heartbeat:${session.taskKey}`;
-    const resumeSessionKey = existingSessionKey ?? deterministicKey;
-    const freshSuffix = randomUUID().slice(0, 8);
-    const freshSessionKey = `${deterministicKey}:${freshSuffix}`;
-
-    let messageCountBefore = 0;
-
-    // ── Reuse path: existing sessionId → send to the stored key. ──
-    if (existingSessionId) {
-      const liveState = await callGateway<{
-        sessionId?: string; status?: string; messages?: unknown[];
-      }>(OPENCLAW_BIN, "sessions.get", { key: resumeSessionKey }, execFileAsync);
-
-      messageCountBefore = Array.isArray(liveState?.messages) ? liveState.messages.length : 0;
-
-      const sendResult = await callGateway<{ runId?: string; status?: string }>(
-        OPENCLAW_BIN,
-        "sessions.send",
-        { key: resumeSessionKey, message: prompt },
-        execFileAsync
-      );
-
-      if (sendResult?.runId || sendResult?.status === "started") {
-        return {
-          sessionId: existingSessionId,
-          sessionKey: resumeSessionKey,
-          messageCountBefore,
-          usage: {
-            openclawRunId: sendResult.runId ?? null,
-            openclawStatus: sendResult.status ?? null,
-            sessionReused: true,
-          },
-        };
-      }
-      // Resume send returned nothing — treat as stale session and fall
-      // through to a fresh create with a NEW random-suffix key. We do
-      // NOT re-derive to `resumeSessionKey` because that's the
-      // potentially-degraded key we just failed to send to.
-      console.log(
-        `[engine] openclaw resume send returned no runId on ${resumeSessionKey}; creating fresh session instead`,
-      );
-    }
-
-    // ── Fresh create path: random-suffix key guarantees no silent collision. ──
-    // Label must also be unique per OpenClaw — include the fresh suffix so
-    // post-self-heal creates don't collide with prior sessions' labels.
-    const createResult = await callGateway<{ sessionId: string; key: string; ok?: boolean }>(
-      OPENCLAW_BIN,
-      "sessions.create",
-      {
-        key: freshSessionKey,
-        agentId: openclawAgentId,
-        label: `Heartbeat: ${agent.name} [${session.taskKey.slice(0, 8)}·${freshSuffix}]`,
-      },
-      execFileAsync,
-    );
-    const newSessionId = createResult?.sessionId;
-
-    if (!newSessionId) {
-      // Do NOT fall back to sessions.get-by-key. A silent fallback is what
-      // defeated the empty_assistant_output self-heal in the 2026-04-17
-      // live test: MC thought it was getting a fresh session, OpenClaw
-      // handed back the degraded one.
-      return {
-        error: `Failed to create OpenClaw session under fresh key ${freshSessionKey}`,
-      };
-    }
-
-    const sendResult = await callGateway<{ runId?: string; status?: string }>(
-      OPENCLAW_BIN,
-      "sessions.send",
-      { key: freshSessionKey, message: prompt },
-      execFileAsync,
-    );
-
-    return {
-      sessionId: newSessionId,
-      sessionKey: freshSessionKey,
-      messageCountBefore: 0,
-      usage: {
-        openclawRunId: sendResult?.runId ?? null,
-        openclawStatus: sendResult?.status ?? null,
-        sessionReused: false,
-      },
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { error: `OpenClaw execution failed: ${message}` };
-  }
-}
-
-function resolveOpenClawBin(): string {
-  const explicit = process.env.ORCHESTRATION_OPENCLAW_CLI?.trim();
-  if (explicit) return explicit;
-  // Probe common install locations
-  for (const candidate of ["/opt/homebrew/bin/openclaw", "/usr/local/bin/openclaw"]) {
-    try { if (fs.existsSync(candidate)) return candidate; } catch { /* ignore */ }
-  }
-  return "openclaw"; // fall back to PATH lookup
-}
-
-const OPENCLAW_BIN = resolveOpenClawBin();
-const GATEWAY_ENV = {
-  ...process.env,
-  PATH: ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""].join(":"),
-} as NodeJS.ProcessEnv;
-
-async function callGateway<T>(
-  _command: string,
-  method: string,
-  params: Record<string, unknown>,
-  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: Record<string, string | undefined> }) => Promise<{ stdout: string }>
-): Promise<T | undefined> {
-  try {
-    const { stdout } = await execFileAsync(
-      OPENCLAW_BIN,
-      ["gateway", "call", method, "--json", "--params", JSON.stringify(params)],
-      { maxBuffer: 2 * 1024 * 1024, env: GATEWAY_ENV }
-    );
-    return JSON.parse(stdout) as T;
-  } catch (err) {
-    const primaryMsg = err instanceof Error ? err.message : String(err);
-    // Only try fallback if the primary error is about an unknown method
-    if (primaryMsg.includes("unknown method")) {
-      try {
-        const fallbackMethod = method.replace(".", "_");
-        const { stdout } = await execFileAsync(
-          OPENCLAW_BIN,
-          ["gateway", "call", fallbackMethod, "--json", "--params", JSON.stringify(params)],
-          { maxBuffer: 2 * 1024 * 1024, env: GATEWAY_ENV }
-        );
-        return JSON.parse(stdout) as T;
-      } catch (fallbackErr) {
-        console.error(`[engine] gateway call ${method} failed:`, fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr));
-        return undefined;
-      }
-    }
-    console.error(`[engine] gateway call ${method} failed:`, primaryMsg);
-    return undefined;
-  }
-}
-
 /* ── Post-Execution Output Import & MC Action Execution ── */
 
 type McAction =
@@ -1968,7 +1770,11 @@ async function importSessionOutputAndExecuteActions(input: {
       input.agentId,
       "empty_assistant_output",
     );
-    clearOpenClawTaskSessionForSelfHeal(input.db, {
+    // importSessionOutputAndExecuteActions is OpenClaw-specific today
+    // (uses OPENCLAW_BIN + waitForSessionCompletion). When that path
+    // becomes adapter-agnostic, plumb the adapter through; for now the
+    // OpenClaw adapter's self-heal helper is the correct counterpart.
+    getExecutionAdapter("openclaw").clearTaskSessionForSelfHeal(input.db, {
       companyId: input.companyId,
       agentId: input.agentId,
       taskKey: input.taskKey,
@@ -3273,7 +3079,7 @@ type RuntimeStateRow = {
   last_error: string | null;
 };
 
-type AgentRow = {
+export type AgentRow = {
   id: string;
   name: string;
   role: string;

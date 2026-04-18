@@ -2,12 +2,13 @@ import assert from "node:assert";
 import { rmSync } from "node:fs";
 
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
-import {
-  clearOpenClawTaskSessionForSelfHeal,
-  resetAgentRuntimeSessionForSelfHeal,
-} from "@/lib/orchestration/engine/engine";
+import { resetAgentRuntimeSessionForSelfHeal } from "@/lib/orchestration/engine/engine";
+import { openclawExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { randomUUID } from "node:crypto";
+
+const clearOpenClawTaskSessionForSelfHeal =
+  openclawExecutionAdapter.clearTaskSessionForSelfHeal;
 
 const DEFAULT_COMPANY = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
