@@ -100,6 +100,19 @@ Plain prose outside an action block is imported as a passive report and does
 {"action":"add_comment","taskKey":"WEA-42","body":"Progress note: first phase complete."}
 ```
 
+## Create a subtask (when you discover work that belongs to your current task)
+If during your work you realize a concrete sub-piece needs to be delegated or
+tracked separately — e.g., "I need a design review from Prism before I can
+finish" — create it as a subtask of your current task rather than a top-level
+task. Subtasks inherit the parent's project automatically.
+
+```mc-action
+{"action":"create_task","title":"Design review for WEA-192 fast path","description":"Need a 15-min design review from Prism before I can ship the rollout.","priority":"medium","type":"feature","assignee":"Prism","parent":"WEA-192"}
+```
+
+Use subtasks when the piece only makes sense inside the parent's goal. Use
+top-level tasks only when the piece has standalone value.
+
 ## Report (optional)
 ```mc-action
 {"action":"report","summary":"One paragraph on what you did or decided."}

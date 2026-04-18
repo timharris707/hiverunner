@@ -114,6 +114,12 @@ Plain prose outside an action block is imported as a passive report and does
 ```
 - `priority`: `critical`, `high`, `medium`, `low`
 - `type`: `feature`, `bug`, `research`, `infrastructure`, `directive`, `maintenance`
+- `parent` (optional): task_key of an existing task — creates this as a **subtask** of that parent. Subtasks inherit the parent's project. Use subtasks when the new work only makes sense inside the parent's goal; use a top-level task when it could stand on its own. Rule of thumb: "Would anyone do this piece standalone, without the parent?" If yes, top-level; if no, subtask.
+
+### Subtask example (breaking a big task into pieces)
+```mc-action
+{"action":"create_task","title":"Wire SSE for live-run indicator","description":"Subtask of WEA-192: stream run events to the dashboard","priority":"medium","type":"feature","assignee":"Prism","parent":"WEA-192"}
+```
 
 ## Request a hire
 ```mc-action

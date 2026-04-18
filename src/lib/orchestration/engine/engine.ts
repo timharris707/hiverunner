@@ -26,6 +26,7 @@ import {
 import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { reconcileTaskHierarchy } from "@/lib/orchestration/service/shared";
 import { maybeSweepOpenTasks, type SweepResult } from "@/lib/orchestration/engine/sweeper";
 
 /* ── Constants ── */
@@ -1633,7 +1634,7 @@ function maybeResetTaskSessionForFreshAssignment(
 /* ── Post-Execution Output Import & MC Action Execution ── */
 
 type McAction =
-  | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string }
+  | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string; parent?: string }
   | { action: "hire_agent"; name: string; role: string; capabilities?: string; reason?: string }
   | { action: "report"; summary: string }
   | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
@@ -2561,7 +2562,7 @@ async function autoStartAssignedTask(input: {
   }
 }
 
-async function executeCreateTask(
+export async function executeCreateTask(
   action: Extract<McAction, { action: "create_task" }>,
   input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
   db: Database.Database
@@ -2616,6 +2617,40 @@ async function executeCreateTask(
 
   if (!projectId) return null;
 
+  // Resolve parent (subtask wiring). Agents reference parent by task_key,
+  // matching every other action (update_task, add_comment).
+  //
+  // Semantics per product decision 2026-04-18:
+  //   - If parent is specified and resolvable, the subtask INHERITS the
+  //     parent's project_id. If action.project was also specified and
+  //     resolved to a DIFFERENT project, we REJECT the cross-project subtask
+  //     link silently (keep the explicit project, drop the parent) — mixing
+  //     agent-declared project with a parent in another project is almost
+  //     always an agent mistake.
+  //   - If parent is specified but not resolvable (unknown task_key), we
+  //     silently drop the parent link and create a top-level task.
+  let parentTaskId: string | null = null;
+  if (action.parent) {
+    const parent = db
+      .prepare(
+        `SELECT id, project_id FROM tasks
+         WHERE task_key = ? AND archived_at IS NULL LIMIT 1`,
+      )
+      .get(action.parent) as { id: string; project_id: string } | undefined;
+    if (parent) {
+      if (action.project && parent.project_id !== projectId) {
+        console.warn(
+          `[engine:create_task] rejecting cross-project parent link — ` +
+          `parent ${action.parent} is in project ${parent.project_id}, ` +
+          `action.project resolved to ${projectId}. Creating top-level task instead.`,
+        );
+      } else {
+        parentTaskId = parent.id;
+        projectId = parent.project_id; // inherit parent's project
+      }
+    }
+  }
+
   // Resolve assignee by name
   let assigneeId: string | null = null;
   if (action.assignee) {
@@ -2647,14 +2682,14 @@ async function executeCreateTask(
 
   db.prepare(
     `INSERT INTO tasks
-       (id, project_id, title, description, priority, type, status,
+       (id, project_id, parent_task_id, title, description, priority, type, status,
         assignee_agent_id, assigned_at, created_by,
         execution_mode, task_number, task_key, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?,
              ?, ?, ?,
              'openclaw', ?, ?, ?, ?)`
   ).run(
-    taskId, projectId,
+    taskId, projectId, parentTaskId,
     (action.title ?? "Untitled task").slice(0, 255),
     (action.description ?? "").slice(0, 10000),
     priority, taskType, status,
@@ -2687,6 +2722,17 @@ async function executeCreateTask(
       runId: input.runId,
       initialStatus: status as "on_deck" | "in_progress",
       db,
+    });
+  }
+
+  // Keep the parent in sync with its new child (aggregate counts, status
+  // rollup) — matches the service-layer createTask path which also calls
+  // this, so parent state stays consistent whether the task was created via
+  // UI or via an agent action.
+  if (parentTaskId) {
+    reconcileTaskHierarchy(db, {
+      touchedParentTaskIds: [parentTaskId],
+      now,
     });
   }
 
