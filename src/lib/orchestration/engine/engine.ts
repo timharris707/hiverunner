@@ -159,9 +159,13 @@ function resolveOnboardingDir(): string {
   return candidates[0];
 }
 
+export function isCeoRole(role: string): boolean {
+  return role.trim().split(/\s+/).some((token) => token.toLowerCase() === "ceo");
+}
+
 export function loadOnboardingAssets(role: string): Record<string, string> {
   const baseDir = resolveOnboardingDir();
-  const roleDir = role === "ceo" ? path.join(baseDir, "ceo") : path.join(baseDir, "default");
+  const roleDir = isCeoRole(role) ? path.join(baseDir, "ceo") : path.join(baseDir, "default");
   const assets: Record<string, string> = {};
 
   if (!fs.existsSync(roleDir)) return assets;
