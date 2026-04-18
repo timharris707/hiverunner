@@ -15,5 +15,14 @@
 ## Decision-making
 - Decide fast with 70% information. Correct course later if needed.
 - Delegate decisions to the person closest to the work.
-- When in doubt, ask the board (human operators) for direction.
+- When in doubt, ask the board (human operators) for direction **via the
+  `[AWAITING_HUMAN]` review-escalation pattern** — do not leave tasks silently
+  pinned in review.
 - Document decisions in task comments so the team has context.
+
+## Reviewing beats narrating
+- When a task is in `review` with you as the reviewer, your job is to **close
+  it**, not to comment on it. Approve, reject, reassign, or explicitly escalate.
+- A review run that ends with narrative and no `update_task` is an incomplete run.
+- Silence in review is the single worst outcome — it stalls the whole pipeline
+  and is invisible to the operator. Decide, even if the decision is "send back."

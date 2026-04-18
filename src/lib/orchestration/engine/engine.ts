@@ -1636,7 +1636,7 @@ type McAction =
   | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string }
   | { action: "hire_agent"; name: string; role: string; capabilities?: string; reason?: string }
   | { action: "report"; summary: string }
-  | { action: "update_task"; taskKey: string; status?: string; comment?: string }
+  | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
   | { action: "add_comment"; taskKey: string; body: string };
 
 const VALID_ACTION_TYPES = new Set(["create_task", "hire_agent", "report", "update_task", "add_comment"]);
@@ -2752,7 +2752,7 @@ function executeHireAgent(
   return approvalId;
 }
 
-function executeUpdateTask(
+export function executeUpdateTask(
   action: Extract<McAction, { action: "update_task" }>,
   input: { agentId: string; companyId: string; runId: string },
   db: Database.Database
@@ -2761,8 +2761,8 @@ function executeUpdateTask(
 
   // Resolve task by task_key
   const task = db
-    .prepare("SELECT id, project_id, status FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
-    .get(action.taskKey) as { id: string; project_id: string; status: string } | undefined;
+    .prepare("SELECT id, project_id, status, assignee_agent_id FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
+    .get(action.taskKey) as { id: string; project_id: string; status: string; assignee_agent_id: string | null } | undefined;
 
   if (!task || !task.id) return false;
 
@@ -2782,6 +2782,52 @@ function executeUpdateTask(
            VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`
         ).run(randomUUID(), task.project_id, task.id, input.agentId, task.status, normalized,
           JSON.stringify({ source: "engine_action", runId: input.runId }), now);
+      }
+    }
+  }
+
+  // Reassignment if requested. Resolve by agent name within the same company
+  // as the task. Silently no-op if the name doesn't match a live agent (keeps
+  // the action partial-success semantics — status/comment can still land).
+  if (action.assignee) {
+    const project = db
+      .prepare("SELECT company_id FROM projects WHERE id = ? LIMIT 1")
+      .get(task.project_id) as { company_id: string } | undefined;
+    if (project?.company_id) {
+      const agent = db
+        .prepare(
+          `SELECT id FROM agents
+           WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+             AND company_id = ?
+             AND archived_at IS NULL
+           LIMIT 1`,
+        )
+        .get(action.assignee, project.company_id) as { id: string } | undefined;
+      if (agent && agent.id !== task.assignee_agent_id) {
+        db.prepare(
+          `UPDATE tasks
+             SET assignee_agent_id = ?,
+                 assigned_at = ?,
+                 updated_at = ?
+           WHERE id = ?`,
+        ).run(agent.id, now, now, task.id);
+        db.prepare(
+          `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
+           VALUES (?, ?, ?, ?, 'task.assigned', ?, ?)`,
+        ).run(
+          randomUUID(),
+          task.project_id,
+          task.id,
+          input.agentId,
+          JSON.stringify({
+            source: "engine_action_reassign",
+            runId: input.runId,
+            newAssignee: agent.id,
+            previousAssignee: task.assignee_agent_id,
+            assigneeNameRequested: action.assignee,
+          }),
+          now,
+        );
       }
     }
   }
