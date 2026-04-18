@@ -295,7 +295,7 @@ async function run() {
       assert.match(body.systemPrompt, /Project: Henry Voice Control/);
       assert.match(body.systemPrompt, /Task: \[/);
       assert.match(body.systemPrompt, /Ship Henry Voice session context binding/);
-      assert.match(body.systemPrompt, /Status: in-progress/);
+      assert.match(body.systemPrompt, /Status: In Progress/);
       assert.match(body.systemPrompt, /Assignee: Scout/);
       assert.match(body.systemPrompt, /### Recent comments/);
       assert.match(body.systemPrompt, /Confirm the route can accept an empty POST body\./);
@@ -304,7 +304,8 @@ async function run() {
       assert.match(body.systemPrompt, /Return a clean 404 when a bound task cannot be found\./);
       assert.doesNotMatch(body.systemPrompt, /Oldest context note that should fall off the prompt window\./);
       assert.match(body.systemPrompt, /### Recent task activity/);
-      assert.match(body.systemPrompt, /Status changed from on-deck to in-progress/);
+      assert.match(body.systemPrompt, /Status changed from To-Do to In Progress/);
+      assert.doesNotMatch(body.systemPrompt, /Status changed from on-deck to in-progress/);
       assert.doesNotMatch(body.systemPrompt, /Global startup memory fixture\./);
     });
 
@@ -458,6 +459,8 @@ async function run() {
         mode: "review",
         source: "task-detail",
       });
+      assert.match(body.systemPrompt, /Status: To-Do/);
+      assert.doesNotMatch(body.systemPrompt, /Status: on-deck/);
       assert.match(body.systemPrompt, /Assignee: Unassigned/);
       assert.match(body.systemPrompt, /Agent: No agent bound/);
     });

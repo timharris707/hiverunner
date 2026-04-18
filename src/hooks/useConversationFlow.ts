@@ -40,79 +40,78 @@ export interface FlowToolEntry {
 
 export type ConversationFlowEntry = FlowTranscriptEntry | FlowToolEntry;
 
+function getTranscriptFallbackTimestamp(transcript: TranscriptEntry[]): number {
+  const lastTranscriptTimestamp = transcript.at(-1)?.timestamp ?? 0;
+  const lastHenryTimestamp = [...transcript].reverse().find((entry) => entry.role === "henry")?.timestamp;
+
+  if (typeof lastHenryTimestamp === "number") {
+    return lastHenryTimestamp + 1;
+  }
+
+  return transcript.length > 0 ? lastTranscriptTimestamp + 1 : 0;
+}
+
+export function buildConversationFlowEntries(
+  transcript: TranscriptEntry[],
+  toolEvents: ToolDispatchEvent[]
+): ConversationFlowEntry[] {
+  const entries: ConversationFlowEntry[] = [];
+
+  transcript.forEach((entry, i) => {
+    entries.push({
+      kind: "transcript",
+      id: `t_${i}_${entry.timestamp}`,
+      entry,
+      timestamp: entry.timestamp,
+    });
+  });
+
+  const intentMap = new Map<
+    string,
+    {
+      dispatching?: ToolDispatchEvent;
+      terminal?: ToolDispatchEvent;
+    }
+  >();
+
+  for (const evt of toolEvents) {
+    const existing = intentMap.get(evt.intentId) ?? {};
+    if (evt.type === "dispatching") {
+      existing.dispatching = evt;
+    } else {
+      existing.terminal = evt;
+    }
+    intentMap.set(evt.intentId, existing);
+  }
+
+  const transcriptFallbackTimestamp = getTranscriptFallbackTimestamp(transcript);
+
+  for (const [intentId, group] of intentMap) {
+    const event = group.terminal ?? group.dispatching;
+    if (!event) continue;
+
+    const inflight = !group.terminal && !!group.dispatching;
+    const timestamp = group.terminal?.result?.executedAt ?? transcriptFallbackTimestamp;
+
+    entries.push({
+      kind: "tool",
+      id: `tool_${intentId}`,
+      event,
+      inflight,
+      timestamp,
+    });
+  }
+
+  entries.sort((a, b) => a.timestamp - b.timestamp);
+
+  return entries;
+}
+
 // ─── Hook ────────────────────────────────────────────────────────────────────
 
 export function useConversationFlow(
   transcript: TranscriptEntry[],
   toolEvents: ToolDispatchEvent[]
 ): ConversationFlowEntry[] {
-  return useMemo(() => {
-    const entries: ConversationFlowEntry[] = [];
-
-    // 1. Add transcript entries
-    transcript.forEach((entry, i) => {
-      entries.push({
-        kind: "transcript",
-        id: `t_${i}_${entry.timestamp}`,
-        entry,
-        timestamp: entry.timestamp,
-      });
-    });
-
-    // 2. Merge tool events — group by intentId, pick the latest/most informative event
-    const intentMap = new Map<string, {
-      dispatching?: ToolDispatchEvent;
-      terminal?: ToolDispatchEvent; // completed | error | rejected
-    }>();
-
-    for (const evt of toolEvents) {
-      const existing = intentMap.get(evt.intentId) ?? {};
-      if (evt.type === "dispatching") {
-        existing.dispatching = evt;
-      } else {
-        // completed, error, rejected are all terminal
-        existing.terminal = evt;
-      }
-      intentMap.set(evt.intentId, existing);
-    }
-
-    for (const [intentId, group] of intentMap) {
-      // If we have a terminal event, show that; otherwise show dispatching
-      const event = group.terminal ?? group.dispatching;
-      if (!event) continue;
-
-      const inflight = !group.terminal && !!group.dispatching;
-
-      // Timestamp: use the result's executedAt if available, otherwise estimate
-      let ts: number;
-      if (group.terminal?.result?.executedAt) {
-        ts = group.terminal.result.executedAt;
-      } else if (group.dispatching) {
-        // Place dispatching events near the transcript entries they relate to
-        // Use a simple heuristic: find the closest henry transcript entry before this event
-        ts = Date.now(); // fallback; will sort to end
-        for (let i = transcript.length - 1; i >= 0; i--) {
-          if (transcript[i].role === "henry" && transcript[i].timestamp <= Date.now()) {
-            ts = transcript[i].timestamp + 1; // just after Henry's message
-            break;
-          }
-        }
-      } else {
-        ts = Date.now();
-      }
-
-      entries.push({
-        kind: "tool",
-        id: `tool_${intentId}`,
-        event,
-        inflight,
-        timestamp: ts,
-      });
-    }
-
-    // 3. Sort by timestamp (stable: transcript order preserved for same-ts)
-    entries.sort((a, b) => a.timestamp - b.timestamp);
-
-    return entries;
-  }, [transcript, toolEvents]);
+  return useMemo(() => buildConversationFlowEntries(transcript, toolEvents), [transcript, toolEvents]);
 }

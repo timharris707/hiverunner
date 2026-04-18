@@ -15,6 +15,7 @@ type LaunchHenryLinkProps = {
   taskId?: string;
   taskKey?: string;
   agentId?: string;
+  agentName?: string;
   mode?: VoiceSessionMode;
   source?: VoiceBindingSource;
   style?: CSSProperties;
@@ -27,6 +28,7 @@ function buildVoiceHref({
   taskId,
   taskKey,
   agentId,
+  agentName,
   mode = "discuss",
   source,
 }: Omit<LaunchHenryLinkProps, "label" | "style">): string {
@@ -38,6 +40,7 @@ function buildVoiceHref({
   if (taskId) params.set("taskId", taskId);
   if (taskKey) params.set("taskKey", taskKey);
   if (agentId) params.set("agentId", agentId);
+  if (agentName) params.set("agentName", agentName);
   if (mode) params.set("mode", mode);
   if (source) params.set("source", source);
 
@@ -53,6 +56,7 @@ export function LaunchHenryLink({
   taskId,
   taskKey,
   agentId,
+  agentName,
   mode = "discuss",
   source,
   style,
@@ -64,6 +68,7 @@ export function LaunchHenryLink({
     taskId,
     taskKey,
     agentId,
+    agentName,
     mode,
     source,
   });

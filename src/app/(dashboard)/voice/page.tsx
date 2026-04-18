@@ -28,15 +28,13 @@ import { ConversationFlow } from "@/components/voice/ConversationFlow";
 import { ToolOutcomePanel } from "@/components/voice/ToolOutcomePanel";
 import { useConversationFlow } from "@/hooks/useConversationFlow";
 import { useVoiceSession, type VoiceState } from "@/hooks/useVoiceSession";
-import type { ToolDispatchEvent } from "@/lib/voice-tool-dispatch";
 import {
-  normalizeResolvedVoiceBinding,
   type ResolvedVoiceBinding,
   type VoiceBindingRequest,
 } from "@/lib/voice-binding";
 import type { VoiceRuntimeMode } from "@/lib/voice-runtime";
-
-const EMPTY_TOOL_EVENTS: ToolDispatchEvent[] = [];
+import { buildRequestedVoiceBindingFromSearchParams, resolveDisplayVoiceBinding } from "@/lib/voice-requested-binding";
+import { formatVoiceBindingStatusLabel, getVoicePresenterCopy } from "@/lib/voice-ui-copy";
 
 interface SearchParamReader {
   get(name: string): string | null;
@@ -125,7 +123,7 @@ function BoundContextCard({ binding }: { binding: ResolvedVoiceBinding }) {
   const agentLabel = buildAgentFallback(binding);
   const modeLabel = formatTitleToken(binding.mode);
   const scopeLabel = binding.scope === "task" ? "Task-bound session" : "Project-bound session";
-  const statusLabel = binding.taskStatus ?? null;
+  const statusLabel = formatVoiceBindingStatusLabel(binding.taskStatus);
   const companyLabel = binding.companySlug ?? "mission-control";
 
   return (
@@ -194,7 +192,7 @@ function BoundContextCard({ binding }: { binding: ResolvedVoiceBinding }) {
 
 // ─── Voice State Indicator ───────────────────────────────────────────────────
 
-function StateIndicator({ state }: { state: VoiceState }) {
+function StateIndicator({ state, speakingLabel }: { state: VoiceState; speakingLabel: string }) {
   const config: Record<
     VoiceState,
     { label: string; color: string; pulse: boolean }
@@ -203,7 +201,7 @@ function StateIndicator({ state }: { state: VoiceState }) {
     connecting: { label: "Connecting...", color: "#f59e0b", pulse: true },
     connected: { label: "Connected", color: "#10b981", pulse: false },
     listening: { label: "Listening", color: "#d97706", pulse: true },
-    speaking: { label: "Henry is speaking", color: "#d97706", pulse: true },
+    speaking: { label: speakingLabel, color: "#d97706", pulse: true },
     error: { label: "Error", color: "#ef4444", pulse: false },
   };
 
@@ -386,43 +384,46 @@ export default function HenryVoicePage() {
     [searchParams]
   );
   const requestedBinding = useMemo(
-    () => (bindingRequest ? normalizeResolvedVoiceBinding(bindingRequest) : undefined),
-    [bindingRequest]
+    () => buildRequestedVoiceBindingFromSearchParams(searchParams) ?? undefined,
+    [searchParams]
   );
 
   const {
     state,
     transcript,
     intents,
+    toolEvents,
     binding,
     error,
     isSetupRequired,
     connect,
     disconnect,
     sendText,
+    acknowledgeIntent,
   } = useVoiceSession({ bindingRequest });
 
   const [textInput, setTextInput] = useState("");
   const [showArchitecture, setShowArchitecture] = useState(false);
 
   const isConnected = state !== "idle" && state !== "error";
-  const runtimeMode = useMemo(() => deriveRuntimeMode(state), [state]);
-  const conversationEntries = useConversationFlow(transcript, EMPTY_TOOL_EVENTS);
+  const conversationEntries = useConversationFlow(transcript, toolEvents);
+  const hasInflightTool = useMemo(
+    () => conversationEntries.some((entry) => entry.kind === "tool" && entry.inflight),
+    [conversationEntries]
+  );
+  const runtimeMode = useMemo(
+    () => (hasInflightTool ? "tooling" : deriveRuntimeMode(state)),
+    [hasInflightTool, state]
+  );
   const visibleIntents = useMemo(
     () => intents.filter((intent) => intent.name === "session.marker" || intent.name === "tool.request"),
     [intents]
   );
-  const displayBinding = useMemo(() => {
-    if (binding && binding.scope !== "global") {
-      return binding;
-    }
-
-    if (requestedBinding && requestedBinding.scope !== "global") {
-      return requestedBinding;
-    }
-
-    return null;
-  }, [binding, requestedBinding]);
+  const displayBinding = useMemo(
+    () => resolveDisplayVoiceBinding(binding, requestedBinding),
+    [binding, requestedBinding]
+  );
+  const presenterCopy = useMemo(() => getVoicePresenterCopy(displayBinding), [displayBinding]);
 
   function handleSendText() {
     if (!textInput.trim()) return;
@@ -436,13 +437,13 @@ export default function HenryVoicePage() {
         <div>
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <Zap className="text-stone-400" size={24} />
-            Henry Voice
+            {presenterCopy.heading}
             <span className="text-sm font-normal text-zinc-500 ml-2">
               Gemini Live prototype
             </span>
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
-            Realtime voice conversation with Henry — Chief of Staff
+            {presenterCopy.subtitle}
           </p>
           {displayBinding ? (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-zinc-400">
@@ -465,7 +466,7 @@ export default function HenryVoicePage() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <StateIndicator state={state} />
+          <StateIndicator state={state} speakingLabel={presenterCopy.speakingLabel} />
           <button
             onClick={() => setShowArchitecture(!showArchitecture)}
             className="px-3 py-1.5 rounded-lg text-xs font-medium bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-700 transition-colors"
@@ -490,7 +491,7 @@ export default function HenryVoicePage() {
                 className="flex items-center gap-2 px-6 py-3 rounded-full bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium transition-colors"
               >
                 <Phone size={18} />
-                {state === "connecting" ? "Connecting..." : displayBinding ? "Start Bound Session" : "Start Voice Session"}
+                {state === "connecting" ? "Connecting..." : presenterCopy.startSessionLabel}
               </button>
             ) : (
               <button
@@ -502,6 +503,12 @@ export default function HenryVoicePage() {
               </button>
             )}
           </div>
+
+          {displayBinding && (
+            <div className="mt-3 text-xs text-zinc-500 text-center max-w-md leading-relaxed">
+              {presenterCopy.boundSessionHint}
+            </div>
+          )}
 
           <div className="flex items-center gap-6 mt-6 text-xs text-zinc-500">
             <div className="flex items-center gap-1.5">
@@ -575,7 +582,7 @@ export default function HenryVoicePage() {
             <ConversationFlow entries={conversationEntries} runtimeMode={runtimeMode} />
           </div>
 
-          <ToolOutcomePanel intents={visibleIntents} />
+          <ToolOutcomePanel intents={visibleIntents} onAcknowledge={acknowledgeIntent} />
         </div>
       </div>
 

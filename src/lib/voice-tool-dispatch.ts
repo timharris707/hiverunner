@@ -12,23 +12,27 @@
  * is only for fast-fail UX, not trust boundary.
  */
 
+import type { ResolvedVoiceBinding } from "@/lib/voice-binding";
+import {
+  VOICE_TOOL_NAMES,
+  type VoiceToolName,
+} from "@/lib/voice-tool-manifest";
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type ToolName =
-  | "get_current_time"
-  | "get_system_status"
-  | "get_project_summary"
-  | "get_weather"
-  | "search_tasks"
-  | "search_workspace_memory"
-  | "search_voice_memory"
-  | "get_current_context";
+export type ToolName = VoiceToolName;
 
 export interface ToolRequest {
   /** Tool name from the action intent payload */
   tool: ToolName;
   /** Arbitrary params the model suggested */
   params?: Record<string, unknown>;
+  /** Bound Mission Control context from the active voice session */
+  binding?: ResolvedVoiceBinding;
+  /** Voice session id for dedupe / provenance */
+  sessionId?: string;
+  /** Intent id for dedupe / provenance */
+  intentId?: string;
 }
 
 export interface ToolResult {
@@ -49,16 +53,7 @@ export interface ToolDispatchEvent {
 
 // ─── Allowlist (client-side, for fast-fail only) ─────────────────────────────
 
-const CLIENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set<ToolName>([
-  "get_current_time",
-  "get_system_status",
-  "get_project_summary",
-  "get_weather",
-  "search_tasks",
-  "search_workspace_memory",
-  "search_voice_memory",
-  "get_current_context",
-]);
+const CLIENT_ALLOWED_TOOLS: ReadonlySet<string> = new Set<ToolName>(VOICE_TOOL_NAMES);
 
 export function isAllowedTool(name: string): name is ToolName {
   return CLIENT_ALLOWED_TOOLS.has(name);
@@ -85,12 +80,22 @@ export async function dispatchTool(
     signal,
   });
 
+  const body = await res.json().catch(() => ({ error: "Unknown server error" }));
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ error: "Unknown server error" }));
-    throw new Error(body.error || `Tool dispatch failed: ${res.status}`);
+    if (
+      body &&
+      typeof body === "object" &&
+      typeof body.tool === "string" &&
+      typeof body.status === "string" &&
+      typeof body.durationMs === "number" &&
+      typeof body.executedAt === "number"
+    ) {
+      return body as ToolResult;
+    }
+    throw new Error((body as { error?: string }).error || `Tool dispatch failed: ${res.status}`);
   }
 
-  return res.json() as Promise<ToolResult>;
+  return body as ToolResult;
 }
 
 /**

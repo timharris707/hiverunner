@@ -7,6 +7,7 @@
  * Future: richer multimodal cards (images, charts, confirmations) can extend this layout.
  */
 
+import { useEffect, useState } from "react";
 import { Check, X, Wrench, Flag, Sparkles, Clock } from "lucide-react";
 import type { HenryActionIntent } from "@/lib/voice-action-intent";
 
@@ -46,6 +47,16 @@ const STATUS_BADGE: Record<
   rejected: { label: "Dismissed", className: "text-zinc-400 bg-zinc-700/40 border-zinc-600/40" },
 };
 
+export function formatIntentAgeLabel(ageMs: number): string {
+  const clampedAgeMs = Math.max(0, ageMs);
+
+  if (clampedAgeMs < 60_000) {
+    return `${Math.round(clampedAgeMs / 1000)}s ago`;
+  }
+
+  return `${Math.round(clampedAgeMs / 60_000)}m ago`;
+}
+
 export function ToolActionCard({
   intent,
   onAcknowledge,
@@ -53,11 +64,20 @@ export function ToolActionCard({
   intent: HenryActionIntent;
   onAcknowledge?: (id: string, accepted: boolean) => void;
 }) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setNow(Date.now());
+    }, 5_000);
+
+    return () => window.clearInterval(interval);
+  }, []);
+
   const meta = INTENT_META[intent.name];
   const Icon = meta.icon;
   const badge = STATUS_BADGE[intent.status];
-  const age = Date.now() - intent.createdAt;
-  const ageLabel = age < 60_000 ? `${Math.round(age / 1000)}s ago` : `${Math.round(age / 60_000)}m ago`;
+  const ageLabel = formatIntentAgeLabel(now - intent.createdAt);
 
   // Extract display-friendly payload summary
   const payloadEntries = Object.entries(intent.payload).slice(0, 4);

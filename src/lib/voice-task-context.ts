@@ -18,9 +18,17 @@ import type {
 } from "./voice-binding";
 import { normalizeVoiceBindingRequest } from "./voice-binding";
 
+export interface BoundAgentInfo {
+  id: string;
+  name: string;
+  role: string;
+  personality?: string;
+}
+
 export interface VoiceTaskContextResolution {
   binding: ResolvedVoiceBinding;
   promptContext: string;
+  agent?: BoundAgentInfo;
 }
 
 interface CompanyRecord {
@@ -32,6 +40,8 @@ interface CompanyRecord {
 interface AgentRecord {
   id: string;
   name: string;
+  role: string;
+  personality?: string;
   avatarUrl?: string;
   voiceId?: string;
 }
@@ -100,6 +110,8 @@ function lookupCompany(companyId?: string): CompanyRecord | undefined {
 interface AgentLookupRow {
   id: string;
   name: string;
+  role: string;
+  personality: string | null;
   avatar_url: string | null;
   voice_id: string | null;
 }
@@ -112,6 +124,8 @@ function toAgentRecord(row: AgentLookupRow | undefined): AgentRecord | undefined
   return {
     id: row.id,
     name: row.name,
+    role: row.role,
+    personality: row.personality?.trim() ? row.personality : undefined,
     avatarUrl: row.avatar_url ?? undefined,
     voiceId: row.voice_id ?? undefined,
   };
@@ -125,7 +139,7 @@ function lookupAgentById(companyId: string | undefined, agentId: string | undefi
   const db = getOrchestrationDb();
   const row = db
     .prepare(
-      `SELECT id, name, avatar_url, voice_id
+      `SELECT id, name, role, personality, avatar_url, voice_id
          FROM agents
         WHERE id = ?
           AND company_id = ?
@@ -141,7 +155,7 @@ function lookupTaskAssignee(taskId: string, companyId?: string): AgentRecord | u
   const db = getOrchestrationDb();
   const row = db
     .prepare(
-      `SELECT a.id, a.name, a.avatar_url, a.voice_id
+      `SELECT a.id, a.name, a.role, a.personality, a.avatar_url, a.voice_id
          FROM tasks t
          INNER JOIN agents a
                  ON a.id = t.assignee_agent_id
@@ -254,6 +268,8 @@ function buildTaskContext(binding: NormalizedVoiceBindingRequest): VoiceTaskCont
     source: binding.source,
   };
 
+  const siblingSnapshot = formatSiblingTaskSnapshot(project.id, task.id);
+
   const promptContext = [
     buildScopeSection({
       scope: "task",
@@ -277,11 +293,25 @@ function buildTaskContext(binding: NormalizedVoiceBindingRequest): VoiceTaskCont
     "",
     "### Recent task activity",
     formatRecentActivity(detail.timeline),
+    "",
+    "### Other tasks in this project (peripheral awareness)",
+    siblingSnapshot,
+    "Use search_tasks if Tim references a task outside this list.",
   ].join("\n");
 
   return {
     binding: resolvedBinding,
     promptContext,
+    ...(agent
+      ? {
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            role: agent.role,
+            ...(agent.personality ? { personality: agent.personality } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -292,6 +322,25 @@ function formatProjectTaskSnapshot(projectId: string): string {
   }
 
   return tasks
+    .map((task) => {
+      const key = task.key ? `[${task.key}] ` : "";
+      const assignee = task.assignee ?? "unassigned";
+      return `- ${key}${task.title} (${formatOperatorTaskStatusLabel(task.status) ?? task.status}, assigned: ${assignee})`;
+    })
+    .join("\n");
+}
+
+function formatSiblingTaskSnapshot(projectId: string, excludeTaskId: string): string {
+  const siblings = listTasks({ projectId, includeNonProduction: true })
+    .tasks
+    .filter((task) => task.id !== excludeTaskId)
+    .slice(0, 6);
+
+  if (siblings.length === 0) {
+    return "No other tasks in this project.";
+  }
+
+  return siblings
     .map((task) => {
       const key = task.key ? `[${task.key}] ` : "";
       const assignee = task.assignee ?? "unassigned";
@@ -371,6 +420,16 @@ function buildProjectContext(binding: NormalizedVoiceBindingRequest): VoiceTaskC
   return {
     binding: resolvedBinding,
     promptContext,
+    ...(agent
+      ? {
+          agent: {
+            id: agent.id,
+            name: agent.name,
+            role: agent.role,
+            ...(agent.personality ? { personality: agent.personality } : {}),
+          },
+        }
+      : {}),
   };
 }
 

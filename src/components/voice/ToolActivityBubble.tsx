@@ -40,6 +40,8 @@ const TOOL_DISPLAY: Record<string, { icon: typeof Wrench; label: string; verb: s
   search_workspace_memory: { icon: Search, label: "Memory", verb: "Searching memory" },
   search_voice_memory: { icon: Search, label: "Voice memory", verb: "Searching voice memory" },
   get_current_context: { icon: FolderKanban, label: "Context", verb: "Refreshing current context" },
+  add_task_comment: { icon: Wrench, label: "Task comment", verb: "Posting a task comment" },
+  move_task_status: { icon: Wrench, label: "Task status", verb: "Updating task status" },
 };
 
 function getToolDisplay(tool: string) {
@@ -52,6 +54,20 @@ function getToolDisplay(tool: string) {
 function summarizeResult(tool: string, output: unknown): string {
   if (!output || typeof output !== "object") return "Done";
   const o = output as Record<string, unknown>;
+
+  const formatTaskStatus = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    switch (value) {
+      case "on-deck":
+      case "on_deck":
+        return "To-Do";
+      case "in-progress":
+      case "in_progress":
+        return "In Progress";
+      default:
+        return value.replaceAll("_", "-");
+    }
+  };
 
   switch (tool) {
     case "get_weather": {
@@ -95,6 +111,24 @@ function summarizeResult(tool: string, output: unknown): string {
     case "get_current_context": {
       const context = typeof o.context === "string" ? o.context : "";
       return context ? `Fresh context loaded (${Math.min(context.length, 9999)} chars)` : "Fresh context loaded";
+    }
+    case "add_task_comment": {
+      const deduped = o.deduped === true;
+      const taskKey = typeof o.taskKey === "string" ? o.taskKey : undefined;
+      return deduped
+        ? `Comment already existed${taskKey ? ` on ${taskKey}` : ""}`
+        : `Comment posted${taskKey ? ` on ${taskKey}` : ""}`;
+    }
+    case "move_task_status": {
+      const from = formatTaskStatus(o.fromStatus);
+      const to = formatTaskStatus(typeof o.toStatus === "string" ? o.toStatus : o.status);
+      if (o.changed === false) {
+        return typeof o.reason === "string" ? o.reason.replaceAll("_", " ") : "Task already in requested state";
+      }
+      if (from && to) {
+        return `Status ${from} → ${to}`;
+      }
+      return to ? `Status updated to ${to}` : "Task status updated";
     }
     default:
       return "Result received";

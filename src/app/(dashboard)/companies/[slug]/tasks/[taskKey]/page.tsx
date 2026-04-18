@@ -27,6 +27,8 @@ import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
 import { InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
 import { getAgentByAnyId } from "@/config/agents";
+import { TaskVoiceModal } from "@/components/voice/TaskVoiceModal";
+import type { VoiceBindingRequest } from "@/lib/voice-binding";
 import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
 import type {
   OrchestrationAgent,
@@ -190,6 +192,7 @@ export default function TaskDetailPage() {
   const [dragOver, setDragOver] = useState(false);
   const [replyTarget, setReplyTarget] = useState<string | null>(null);
   const [replyPickerOpen, setReplyPickerOpen] = useState(false);
+  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [execution, setExecution] = useState<ExecutionSnapshot>(null);
   const replyPickerRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
@@ -356,6 +359,22 @@ export default function TaskDetailPage() {
       agent.slug === task.assignee
     ) ?? null;
   }, [agents, task?.assignee]);
+
+  const voiceBindingRequest = useMemo<VoiceBindingRequest | null>(() => {
+    if (!task) return null;
+    const req: VoiceBindingRequest = {
+      companySlug: slug,
+      taskId: task.id,
+      mode: "discuss",
+      source: "task-detail",
+    };
+    const projId = project?.id ?? task.project;
+    if (projId) req.projectId = projId;
+    if (project?.slug) req.projectSlug = project.slug;
+    if (task.key ?? taskKey) req.taskKey = task.key ?? taskKey;
+    if (voiceLaunchAgent?.id) req.agentId = voiceLaunchAgent.id;
+    return req;
+  }, [slug, task, project, taskKey, voiceLaunchAgent]);
 
   const liveActivityEnabled = Boolean(slug && execution?.state === "running" && assignedAgent?.id);
   const { streamByAgentId, connected: liveActivityConnected } = useLiveRunStream({
@@ -1170,36 +1189,26 @@ export default function TaskDetailPage() {
                       <span style={{ fontSize: "10px", color: color.textMuted }}>
                         ⌘ + Enter
                       </span>
-                      <Link
-                        href={(() => {
-                          const params = new URLSearchParams();
-                          params.set("companySlug", slug);
-                          if (project?.id ?? task.project) params.set("projectId", project?.id ?? task.project);
-                          if (project?.slug) params.set("projectSlug", project.slug);
-                          params.set("taskId", task.id);
-                          if (task.key ?? taskKey) params.set("taskKey", task.key ?? taskKey);
-                          if (voiceLaunchAgent?.id) params.set("agentId", voiceLaunchAgent.id);
-                          if (voiceLaunchAgent?.name) params.set("agentName", voiceLaunchAgent.name);
-                          params.set("mode", "discuss");
-                          params.set("source", "task-detail");
-                          return `/voice?${params.toString()}`;
-                        })()}
+                      <button
+                        type="button"
+                        onClick={() => setVoiceModalOpen(true)}
+                        disabled={!voiceLaunchAgent}
                         title={voiceLaunchAgent?.name
                           ? `Talk to ${voiceLaunchAgent.name} about this task`
-                          : "Talk through this task in Henry Voice"}
+                          : "Assign an agent to talk about this task"}
                         style={{
                           display: "inline-flex", alignItems: "center", gap: "5px",
                           padding: "6px 12px", fontSize: "12px", fontWeight: 600,
-                          background: "rgba(217,119,6,0.08)",
-                          color: "#f59e0b",
-                          border: "0.5px solid rgba(217,119,6,0.3)",
+                          background: voiceLaunchAgent ? "rgba(217,119,6,0.08)" : "rgba(120,113,108,0.05)",
+                          color: voiceLaunchAgent ? "#f59e0b" : "#57534e",
+                          border: `0.5px solid ${voiceLaunchAgent ? "rgba(217,119,6,0.3)" : "rgba(120,113,108,0.2)"}`,
                           borderRadius: "6px",
-                          textDecoration: "none",
+                          cursor: voiceLaunchAgent ? "pointer" : "not-allowed",
                         }}
                       >
                         <Mic size={12} />
                         Talk
-                      </Link>
+                      </button>
                       <button
                         type="button"
                         onClick={() => void onSubmitComment()}
@@ -1422,6 +1431,30 @@ export default function TaskDetailPage() {
         >
           Show properties
         </button>
+      )}
+
+      {voiceBindingRequest && (
+        <TaskVoiceModal
+          open={voiceModalOpen}
+          onClose={() => setVoiceModalOpen(false)}
+          agent={voiceLaunchAgent}
+          bindingRequest={voiceBindingRequest}
+          taskTitle={task?.title}
+          projectName={project?.name}
+          onSessionEnd={() => {
+            if (!task) return;
+            const taskId = task.id;
+            // Server-side persist runs async; give it a moment, then refresh.
+            setTimeout(() => {
+              void (async () => {
+                const refreshed = await listTaskComments(taskId);
+                setComments(refreshed);
+                const refreshedDetail = await getTaskDetail(taskId);
+                if (refreshedDetail) setActivityTimeline(refreshedDetail.detail.timeline);
+              })();
+            }, 1200);
+          }}
+        />
       )}
     </div>
   );

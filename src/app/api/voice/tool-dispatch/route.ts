@@ -13,17 +13,28 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { OrchestrationApiError } from "@/lib/orchestration/api";
+import {
+  VOICE_TOOL_DESCRIPTIONS,
+  VOICE_TOOL_NAMES,
+} from "@/lib/voice-tool-manifest";
+import { normalizeResolvedVoiceBinding } from "@/lib/voice-binding";
 import {
   buildCurrentVoiceContext,
   searchVoiceMemory,
   searchWorkspaceMemory,
 } from "@/lib/voice-memory";
+import { appendAgentMemory } from "@/lib/voice-agent-memory";
+import { executeVoiceActionTool, type VoiceActionToolName } from "@/lib/voice-task-action-execution";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface ToolRequest {
   tool: string;
   params?: Record<string, unknown>;
+  binding?: Record<string, unknown>;
+  sessionId?: string;
+  intentId?: string;
 }
 
 interface ToolResult {
@@ -202,7 +213,31 @@ const TOOL_REGISTRY: Record<string, ToolHandler> = {
   get_current_context: getCurrentContext,
 };
 
-const ALLOWED_TOOLS = new Set(Object.keys(TOOL_REGISTRY));
+const ACTION_TOOL_NAMES: ReadonlySet<VoiceActionToolName> = new Set([
+  "add_task_comment",
+  "move_task_status",
+]);
+
+async function rememberTool(
+  params: Record<string, unknown>,
+  binding: { companySlug?: string; agentId?: string } | undefined,
+): Promise<unknown> {
+  const subject = typeof params.subject === "string" ? params.subject.trim() : "";
+  const detail = typeof params.detail === "string" ? params.detail.trim() : "";
+  if (!subject || !detail) {
+    return { saved: false, reason: "missing_subject_or_detail" };
+  }
+  if (!binding?.agentId || !binding.companySlug) {
+    return { saved: false, reason: "no_agent_binding" };
+  }
+  const result = await appendAgentMemory(
+    { companySlug: binding.companySlug, agentId: binding.agentId },
+    { subject, detail },
+  );
+  return { ...result, subject, detail };
+}
+
+const ALLOWED_TOOLS = new Set(VOICE_TOOL_NAMES);
 
 // ─── Route Handler ───────────────────────────────────────────────────────────
 
@@ -219,7 +254,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { tool, params = {} } = body;
+  const { tool, params = {}, binding, sessionId, intentId } = body;
 
   if (!tool || typeof tool !== "string") {
     return NextResponse.json(
@@ -227,6 +262,8 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   }
+
+  const normalizedBinding = binding ? normalizeResolvedVoiceBinding(binding) : undefined;
 
   // Server-side allowlist check (trust boundary)
   if (!ALLOWED_TOOLS.has(tool)) {
@@ -245,8 +282,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const handler = TOOL_REGISTRY[tool];
-    const output = await handler(params);
+    let output: unknown;
+    if (ACTION_TOOL_NAMES.has(tool as VoiceActionToolName)) {
+      output = executeVoiceActionTool({
+        tool: tool as VoiceActionToolName,
+        params,
+        binding: normalizedBinding,
+        sessionId,
+        intentId,
+      });
+    } else if (tool === "remember") {
+      output = await rememberTool(params, normalizedBinding);
+    } else {
+      output = await TOOL_REGISTRY[tool]!(params);
+    }
     const result: ToolResult = {
       tool,
       status: "success",
@@ -263,9 +312,10 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const result: ToolResult = {
       tool,
-      status: "error",
+      status: err instanceof OrchestrationApiError && err.status < 500 ? "rejected" : "error",
       output: {
         error: err instanceof Error ? err.message : "Tool execution failed",
+        ...(err instanceof OrchestrationApiError ? { code: err.code } : {}),
       },
       durationMs: Date.now() - start,
       executedAt: start,
@@ -273,27 +323,17 @@ export async function POST(request: NextRequest) {
 
     console.error(`[voice-tool-dispatch] ${tool} failed:`, err);
 
-    return NextResponse.json(result, { status: 500 });
+    const status = err instanceof OrchestrationApiError ? err.status : 500;
+    return NextResponse.json(result, { status });
   }
 }
 
 /** GET returns the tool manifest (for introspection/docs) */
 export async function GET() {
   return NextResponse.json({
-    tools: Object.keys(TOOL_REGISTRY).map((name) => ({
+    tools: [...ALLOWED_TOOLS].map((name) => ({
       name,
-      description: TOOL_DESCRIPTIONS[name] || name,
+      description: VOICE_TOOL_DESCRIPTIONS[name],
     })),
   });
 }
-
-const TOOL_DESCRIPTIONS: Record<string, string> = {
-  get_current_time: "Get current date, time, and timezone info",
-  get_system_status: "Get server health: uptime, memory, Node version",
-  get_project_summary: "Get a summary of active Harris Autonomous projects",
-  get_weather: "Get current weather for a location (default: Santa Rosa, CA)",
-  search_tasks: "Search orchestration tasks by query or status",
-  search_workspace_memory: "Search fresh workspace memory and recent operating notes",
-  search_voice_memory: "Search the voice-only conversation memory lane and transcripts",
-  get_current_context: "Load a fresh current-context snapshot for Voice Henry startup/refresh",
-};

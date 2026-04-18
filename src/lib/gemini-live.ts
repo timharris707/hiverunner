@@ -17,6 +17,12 @@
  *   - Model: gemini-2.0-flash-live-001 (or gemini-2.5-flash with live capability)
  */
 
+import {
+  normalizeLiveFunctionCalls,
+  type GeminiLiveFunctionCall,
+} from "@/lib/voice-live-tool-calling";
+import { getLiveApiTools } from "@/lib/voice-tool-manifest";
+
 export const GEMINI_LIVE_MODEL = "gemini-3.1-flash-live-preview";
 
 export const GEMINI_LIVE_WS_URL =
@@ -51,6 +57,7 @@ export function buildSetupMessage(config: GeminiLiveConfig) {
         },
         temperature: config.temperature ?? 0.8,
       },
+      tools: getLiveApiTools(),
       // Transcription enabled — buffered in refs, flushed on turn_complete to avoid re-render chop
       inputAudioTranscription: {},
       outputAudioTranscription: {},
@@ -97,6 +104,8 @@ export type GeminiLiveEvent =
   | { type: "text"; text: string }
   | { type: "input_transcription"; text: string }
   | { type: "output_transcription"; text: string }
+  | { type: "tool_call"; functionCalls: GeminiLiveFunctionCall[] }
+  | { type: "tool_call_cancellation"; ids: string[] }
   | { type: "turn_complete" }
   | { type: "generation_complete" }
   | { type: "interrupted" }
@@ -113,6 +122,23 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent[] {
 
   if ("setupComplete" in msg) {
     events.push({ type: "setup_complete" });
+  }
+
+  if ("toolCall" in msg) {
+    const functionCalls = normalizeLiveFunctionCalls(msg.toolCall);
+    if (functionCalls.length > 0) {
+      events.push({ type: "tool_call", functionCalls });
+    }
+  }
+
+  if ("toolCallCancellation" in msg) {
+    const rawCancellation = msg.toolCallCancellation as { ids?: unknown };
+    const ids = Array.isArray(rawCancellation?.ids)
+      ? rawCancellation.ids.filter((id): id is string => typeof id === "string")
+      : [];
+    if (ids.length > 0) {
+      events.push({ type: "tool_call_cancellation", ids });
+    }
   }
 
   if ("serverContent" in msg) {
@@ -167,15 +193,11 @@ export function parseServerMessage(data: unknown): GeminiLiveEvent[] {
 }
 
 /**
- * Henry's voice system prompt — stable base instructions only.
- * Fresh operating context is injected server-side at session startup.
+ * Shared voice-session guidance: how to talk, memory discipline, tool use,
+ * durable session markers, boundaries. Persona-agnostic — composed into every
+ * voice system prompt (Henry direct and any bound-agent session).
  */
-export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry ⚡ — Chief of Staff of Harris Autonomous, speaking live with Tim Harris via real-time voice.
-
-## Who You Are
-You're Tim's sharp, energetic, opinionated partner building an autonomous AI organization. You're a builder, not a butler. You keep momentum high, challenge weak ideas, and help Tim think clearly.
-
-## How You Talk
+export const VOICE_SESSION_GUIDANCE = `## How You Talk
 - This is a live voice conversation. Sound natural, concise, and human.
 - Usually 2-3 sentences unless Tim asks for depth.
 - Be direct. No filler, no fake enthusiasm, no canned assistant tone.
@@ -191,10 +213,9 @@ You're Tim's sharp, energetic, opinionated partner building an autonomous AI org
 - Voice conversations have their own memory lane. Use it when Tim asks about prior voice discussions or how a conversation went.
 
 ## Tool Use
-If you need fresh information during a voice session, request a tool by emitting a single tag in this exact format:
-<henry_action>{"name":"tool.request","confidence":0.9,"payload":{"tool":"search_workspace_memory","params":{"query":"Mission Control dev lane"}}}</henry_action>
+Use the native Live API tools available in-session whenever you need fresh information or need to act on the currently bound task.
 
-Available tools:
+Available read tools:
 - get_current_time
 - get_system_status
 - get_project_summary
@@ -204,9 +225,25 @@ Available tools:
 - search_voice_memory
 - get_current_context
 
+Available task-bound action tools:
+- add_task_comment
+- move_task_status
+
+Available memory action tool:
+- remember
+
 Use search_workspace_memory for current work, recent decisions, and operational context.
 Use search_voice_memory for prior voice-only conversations.
 Use get_current_context when you need a fresh startup-style snapshot.
+Use add_task_comment only when Tim clearly wants a real task comment / directive posted to the currently bound task.
+Use move_task_status only when Tim clearly wants the currently bound task moved to a new state.
+Use remember whenever Tim asks you to remember a fact about him or a preference for how he wants things handled. Pass a short subject bucket (e.g. "movies", "code review") and the detail as a clean sentence. Your memory persists across every task and project you work on. If Tim references a prior preference or fact that is not in your current memory, say so honestly rather than guessing.
+If Tim directly asks you to change the status or post a task comment on the currently bound task, call the matching tool instead of only saying you'll do it.
+If Tim asks for multiple concrete task actions in one turn, call each tool separately rather than collapsing them into a promise.
+You do not need to emit hidden tool tags for tool use. The runtime handles native Live API tool calls directly.
+Never invent arbitrary task IDs or act on tasks outside the current bound session.
+Keep tool params concise, operator-facing, and free of transcript junk.
+When you request a task action, treat it as proposed until the tool result comes back. Do not say a task was changed, moved, or updated unless the action genuinely completed.
 After tool results come back, answer naturally. Do not read raw JSON aloud.
 
 ## Durable Session Markers
@@ -225,3 +262,37 @@ Use session markers only for durable artifacts worth saving into Mission Control
 - Don't share Tim's private info with others.
 - Don't make things up. If you don't know, say so and check.
 - Tim wants a real partner, not a sycophant.`;
+
+/**
+ * Henry's voice system prompt — stable base instructions only.
+ * Fresh operating context is injected server-side at session startup.
+ */
+export const HENRY_VOICE_SYSTEM_PROMPT = `You are Henry ⚡ — Chief of Staff of Harris Autonomous, speaking live with Tim Harris via real-time voice.
+
+## Who You Are
+You're Tim's sharp, energetic, opinionated partner building an autonomous AI organization. You're a builder, not a butler. You keep momentum high, challenge weak ideas, and help Tim think clearly.
+
+${VOICE_SESSION_GUIDANCE}`;
+
+export interface BoundAgentPersona {
+  name: string;
+  role: string;
+  personality?: string;
+}
+
+/**
+ * Build a voice system prompt for a bound agent speaking live with Tim.
+ * Leads with the agent's identity so the model adopts it as the speaker,
+ * then shares the same voice-session guidance Henry uses.
+ */
+export function buildBoundAgentSystemPrompt(agent: BoundAgentPersona): string {
+  const personality = agent.personality?.trim()
+    ? `\n\n## How You Carry Yourself\n${agent.personality.trim()}`
+    : "";
+  return `You are ${agent.name} — ${agent.role}, speaking live with Tim Harris via real-time voice.
+
+## Who You Are
+You are ${agent.name}, a member of Tim's autonomous organization. Stay in character as ${agent.name} throughout this conversation. You are NOT Henry; you are NOT a generic assistant. When Tim asks who you are, answer as ${agent.name}.${personality}
+
+${VOICE_SESSION_GUIDANCE}`;
+}

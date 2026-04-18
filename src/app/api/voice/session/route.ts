@@ -12,12 +12,15 @@
 import { NextResponse } from "next/server";
 import {
   GEMINI_LIVE_MODEL,
+  buildBoundAgentSystemPrompt,
   buildWebSocketUrl,
   HENRY_VOICE_SYSTEM_PROMPT,
+  type BoundAgentPersona,
 } from "@/lib/gemini-live";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { normalizeResolvedVoiceBinding, normalizeVoiceBindingRequest } from "@/lib/voice-binding";
 import { buildCurrentVoiceContext } from "@/lib/voice-memory";
+import { listRecentSessionSummaries, readAgentMemory } from "@/lib/voice-agent-memory";
 import { resolveVoiceTaskContext } from "@/lib/voice-task-context";
 import { VOICE_CATALOG } from "@/components/orchestration/voice-catalog";
 
@@ -28,8 +31,30 @@ function buildGlobalSystemPrompt(currentContext: string): string {
   return `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh startup context\nThe following context was loaded fresh at voice-session startup. Treat it as more current than any older recollection.\n\n${currentContext}`;
 }
 
-function buildScopedSystemPrompt(promptContext: string): string {
-  return `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh bound session context\nThe following context was resolved live from Mission Control for this bound voice session. Treat it as the current operating context for the conversation.\n\n${promptContext}`;
+/**
+ * Bound session prompt.
+ * When a real agent is bound, the agent is the speaker — Henry's identity is not involved.
+ * When no agent is bound (rare), fall back to Henry speaking about the bound scope.
+ */
+function buildScopedSystemPrompt(
+  promptContext: string,
+  agent?: BoundAgentPersona,
+  agentMemory?: string,
+  recentSessions?: string[],
+): string {
+  const persona = agent
+    ? buildBoundAgentSystemPrompt(agent)
+    : HENRY_VOICE_SYSTEM_PROMPT;
+
+  const memoryBlock = agentMemory?.trim()
+    ? `\n\n## What You Remember About Tim\nThe following are durable facts and preferences you've saved across prior conversations with Tim. Treat them as authoritative until Tim updates them.\n\n${agentMemory.trim()}`
+    : "";
+
+  const recentBlock = recentSessions && recentSessions.length > 0
+    ? `\n\n## Recent Voice Sessions With Tim\nThe most recent sessions are listed first. Use these to pick up threads naturally without asking Tim to repeat himself.\n\n${recentSessions.join("\n\n")}`
+    : "";
+
+  return `${persona}${memoryBlock}${recentBlock}\n\n## Fresh bound session context\nThe following context was resolved live from Mission Control for this bound voice session. Treat it as the current operating context for the conversation.\n\n${promptContext}`;
 }
 
 export async function POST(req: Request) {
@@ -79,9 +104,22 @@ export async function POST(req: Request) {
       ? null
       : resolveVoiceTaskContext(bindingRequest);
     const binding = scopedContext?.binding ?? normalizeResolvedVoiceBinding(bindingRequest);
+
+    // Load agent-scoped memory + recent session summaries when we have a bound agent.
+    // These carry context across tasks and projects for the same agent.
+    const memoryScope = scopedContext?.agent && binding.companySlug
+      ? { agentId: scopedContext.agent.id, companySlug: binding.companySlug }
+      : null;
+    const [agentMemory, recentSessions] = memoryScope
+      ? await Promise.all([
+          readAgentMemory(memoryScope),
+          listRecentSessionSummaries(memoryScope, 5),
+        ])
+      : ["", []];
+
     const systemPrompt = bindingRequest.scope === "global"
       ? buildGlobalSystemPrompt(await buildCurrentVoiceContext())
-      : buildScopedSystemPrompt(scopedContext!.promptContext);
+      : buildScopedSystemPrompt(scopedContext!.promptContext, scopedContext!.agent, agentMemory, recentSessions);
 
     // Resolve voice: agent's chosen voice wins for task-bound sessions; otherwise default.
     // Unknown voice IDs (legacy/unset) fall back so we never hand Gemini an invalid name.

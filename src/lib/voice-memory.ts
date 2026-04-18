@@ -1,11 +1,31 @@
 import { promises as fs } from "fs";
 import path from "path";
+
+import type { ResolvedVoiceBinding } from "@/lib/voice-binding";
 import { OPENCLAW_WORKSPACE, WORKSPACE_MEMORY } from "@/lib/paths";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import {
+  ensureCompanyWorkspaceScaffold,
+  resolveCanonicalCompanyWorkspaceRoot,
+} from "@/lib/workspaces/company-paths";
+import { resolveMissionControlWorkspaceRoot } from "@/lib/workspaces/root";
 
 export interface VoiceTranscriptEntry {
   role: "user" | "henry";
   text: string;
   timestamp: number;
+}
+
+export interface PersistedVoiceTranscript {
+  filePath: string;
+  filename: string;
+  relativePath: string;
+  rollupPath: string;
+  rollupRelativePath: string;
+  workspaceRoot: string;
+  workspaceKind: "company" | "lane";
+  durationSeconds: number;
+  messages: number;
 }
 
 interface SearchResult {
@@ -15,9 +35,22 @@ interface SearchResult {
   matches: number;
 }
 
+interface VoiceTranscriptPersistOptions {
+  binding?: ResolvedVoiceBinding | null;
+  sessionId?: string | null;
+}
+
+interface VoiceMemoryLocation {
+  workspaceRoot: string;
+  workspaceKind: "company" | "lane" | "legacy-openclaw";
+  workspaceLabel: string;
+  voiceDir: string;
+  rollupPath: string;
+}
+
 const PACIFIC_TIMEZONE = "America/Los_Angeles";
-const VOICE_MEMORY_DIR = path.join(WORKSPACE_MEMORY, "voice");
-const VOICE_MEMORY_ROLLUP = path.join(VOICE_MEMORY_DIR, "VOICE_MEMORY.md");
+const LEGACY_VOICE_MEMORY_DIR = path.join(WORKSPACE_MEMORY, "voice");
+const LEGACY_VOICE_MEMORY_ROLLUP = path.join(LEGACY_VOICE_MEMORY_DIR, "VOICE_MEMORY.md");
 const LONG_TERM_MEMORY_FILE = path.join(OPENCLAW_WORKSPACE, "MEMORY.md");
 const HEARTBEAT_FILE = path.join(OPENCLAW_WORKSPACE, "HEARTBEAT.md");
 const ROOT_MEMORY_FILES = [
@@ -91,31 +124,12 @@ async function readFileIfExists(filePath: string) {
   }
 }
 
-async function listRecentDailyMemoryFiles(limit = 5) {
+async function pathExists(targetPath: string) {
   try {
-    const entries = await fs.readdir(WORKSPACE_MEMORY);
-    return entries
-      .filter((entry) => /^\d{4}-\d{2}-\d{2}\.md$/.test(entry))
-      .sort()
-      .reverse()
-      .slice(0, limit)
-      .map((entry) => path.join(WORKSPACE_MEMORY, entry));
+    await fs.access(targetPath);
+    return true;
   } catch {
-    return [] as string[];
-  }
-}
-
-async function listRecentVoiceTranscriptFiles(limit = 6) {
-  try {
-    const entries = await fs.readdir(VOICE_MEMORY_DIR);
-    return entries
-      .filter((entry) => /^\d{4}-\d{2}-\d{2}-\d{6}\.md$/.test(entry))
-      .sort()
-      .reverse()
-      .slice(0, limit)
-      .map((entry) => path.join(VOICE_MEMORY_DIR, entry));
-  } catch {
-    return [] as string[];
+    return false;
   }
 }
 
@@ -189,21 +203,186 @@ function buildSearchSummary(results: SearchResult[]) {
   }));
 }
 
-export async function persistVoiceTranscript(transcript: VoiceTranscriptEntry[]) {
-  await fs.mkdir(VOICE_MEMORY_DIR, { recursive: true });
+function buildUnboundMissionControlVoiceLocation(env: NodeJS.ProcessEnv = process.env): VoiceMemoryLocation {
+  const workspaceRoot = path.join(resolveMissionControlWorkspaceRoot(env), "_voice-lab");
+  const voiceDir = path.join(workspaceRoot, "memory", "voice");
+  return {
+    workspaceRoot,
+    workspaceKind: "lane",
+    workspaceLabel: "mission-control-voice-lab",
+    voiceDir,
+    rollupPath: path.join(voiceDir, "VOICE_MEMORY.md"),
+  };
+}
+
+function buildLegacyOpenClawVoiceLocation(): VoiceMemoryLocation {
+  return {
+    workspaceRoot: OPENCLAW_WORKSPACE,
+    workspaceKind: "legacy-openclaw",
+    workspaceLabel: "legacy-openclaw-workspace",
+    voiceDir: LEGACY_VOICE_MEMORY_DIR,
+    rollupPath: LEGACY_VOICE_MEMORY_ROLLUP,
+  };
+}
+
+async function resolveBoundMissionControlVoiceLocation(
+  binding?: ResolvedVoiceBinding | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<VoiceMemoryLocation | null> {
+  if (!binding || binding.scope === "global" || !binding.companySlug) {
+    return null;
+  }
+
+  const company = resolveCompanyIdBySlug(binding.companySlug);
+  if (!company) {
+    return null;
+  }
+
+  const workspaceRoot = resolveCanonicalCompanyWorkspaceRoot(
+    company.id,
+    company.workspace_slug ?? company.slug,
+    env,
+  );
+  const { memoryDir } = ensureCompanyWorkspaceScaffold(workspaceRoot);
+  const voiceDir = path.join(memoryDir, "voice");
+
+  return {
+    workspaceRoot,
+    workspaceKind: "company",
+    workspaceLabel: `company:${company.slug}`,
+    voiceDir,
+    rollupPath: path.join(voiceDir, "VOICE_MEMORY.md"),
+  };
+}
+
+async function resolveWriteLocation(
+  binding?: ResolvedVoiceBinding | null,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<VoiceMemoryLocation> {
+  return (await resolveBoundMissionControlVoiceLocation(binding, env)) ?? buildUnboundMissionControlVoiceLocation(env);
+}
+
+async function listKnownVoiceLocations(env: NodeJS.ProcessEnv = process.env): Promise<VoiceMemoryLocation[]> {
+  const locations: VoiceMemoryLocation[] = [
+    buildUnboundMissionControlVoiceLocation(env),
+    buildLegacyOpenClawVoiceLocation(),
+  ];
+
+  const companiesRoot = path.join(resolveMissionControlWorkspaceRoot(env), "companies");
+  try {
+    const entries = await fs.readdir(companiesRoot, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const workspaceRoot = path.join(companiesRoot, entry.name);
+      const voiceDir = path.join(workspaceRoot, "memory", "voice");
+      locations.push({
+        workspaceRoot,
+        workspaceKind: "company",
+        workspaceLabel: `company:${entry.name}`,
+        voiceDir,
+        rollupPath: path.join(voiceDir, "VOICE_MEMORY.md"),
+      });
+    }
+  } catch {
+    // No company workspaces yet.
+  }
+
+  const deduped = new Map<string, VoiceMemoryLocation>();
+  for (const location of locations) {
+    deduped.set(path.resolve(location.voiceDir), location);
+  }
+  return [...deduped.values()];
+}
+
+async function listRecentVoiceTranscriptFiles(limit = 6, env: NodeJS.ProcessEnv = process.env) {
+  const locations = await listKnownVoiceLocations(env);
+  const files: Array<{ filePath: string; displayPath: string; mtimeMs: number }> = [];
+
+  for (const location of locations) {
+    try {
+      const entries = await fs.readdir(location.voiceDir);
+      for (const entry of entries) {
+        if (!/^\d{4}-\d{2}-\d{2}-\d{6}\.md$/.test(entry)) continue;
+        const filePath = path.join(location.voiceDir, entry);
+        const stat = await fs.stat(filePath);
+        files.push({
+          filePath,
+          displayPath: `${location.workspaceLabel}/${path.relative(location.workspaceRoot, filePath)}`,
+          mtimeMs: stat.mtimeMs,
+        });
+      }
+    } catch {
+      // Location missing or unreadable.
+    }
+  }
+
+  return files.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+}
+
+async function listRecentVoiceRollups(limit = 6, env: NodeJS.ProcessEnv = process.env) {
+  const locations = await listKnownVoiceLocations(env);
+  const rollups: Array<{ filePath: string; displayPath: string; mtimeMs: number }> = [];
+
+  for (const location of locations) {
+    if (!(await pathExists(location.rollupPath))) continue;
+    const stat = await fs.stat(location.rollupPath);
+    rollups.push({
+      filePath: location.rollupPath,
+      displayPath: `${location.workspaceLabel}/${path.relative(location.workspaceRoot, location.rollupPath)}`,
+      mtimeMs: stat.mtimeMs,
+    });
+  }
+
+  return rollups.sort((a, b) => b.mtimeMs - a.mtimeMs).slice(0, limit);
+}
+
+function buildBindingSummary(binding?: ResolvedVoiceBinding | null): string[] {
+  if (!binding || binding.scope === "global") {
+    return ["**Binding:** Unbound Mission Control voice lab"]; 
+  }
+
+  const lines = [
+    `**Binding:** ${binding.scope}-bound · ${binding.mode} · ${binding.source}`,
+  ];
+
+  if (binding.companySlug) lines.push(`**Company:** ${binding.companySlug}`);
+  if (binding.projectName || binding.projectSlug || binding.projectId) {
+    lines.push(`**Project:** ${binding.projectName ?? binding.projectSlug ?? binding.projectId}`);
+  }
+  if (binding.taskKey || binding.taskTitle || binding.taskId) {
+    lines.push(`**Task:** ${binding.taskKey ?? binding.taskId ?? "Task"}${binding.taskTitle ? ` — ${binding.taskTitle}` : ""}`);
+  }
+  if (binding.agentName || binding.agentId) {
+    lines.push(`**Agent:** ${binding.agentName ?? binding.agentId}`);
+  }
+  return lines;
+}
+
+export async function persistVoiceTranscript(
+  transcript: VoiceTranscriptEntry[],
+  options?: VoiceTranscriptPersistOptions,
+): Promise<PersistedVoiceTranscript> {
+  const location = await resolveWriteLocation(options?.binding);
+  await fs.mkdir(location.voiceDir, { recursive: true });
 
   const now = new Date();
   const pacific = getPacificParts(now);
   const filename = `${pacific.year}-${pacific.month}-${pacific.day}-${pacific.hour}${pacific.minute}${pacific.second}.md`;
-  const relativePath = `memory/voice/${filename}`;
-  const filePath = path.join(VOICE_MEMORY_DIR, filename);
+  const relativePath = path.join("memory", "voice", filename);
+  const filePath = path.join(location.voiceDir, filename);
+  const rollupRelativePath = path.join("memory", "voice", "VOICE_MEMORY.md");
 
   const durationSeconds = transcript.length > 1
     ? Math.max(0, Math.round((transcript[transcript.length - 1].timestamp - transcript[0].timestamp) / 1000))
     : 0;
 
   let markdown = `# Voice Session — ${now.toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric", timeZone: PACIFIC_TIMEZONE })} ${now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", timeZone: PACIFIC_TIMEZONE })}\n\n`;
-  markdown += `**Duration:** ${formatDuration(durationSeconds)} · **Messages:** ${transcript.length}\n\n---\n\n`;
+  markdown += `**Duration:** ${formatDuration(durationSeconds)} · **Messages:** ${transcript.length}\n`;
+  markdown += `**Stored in:** ${location.workspaceLabel}\n`;
+  if (options?.sessionId?.trim()) {
+    markdown += `**Session ID:** ${options.sessionId.trim()}\n`;
+  }
+  markdown += `${buildBindingSummary(options?.binding).join("\n")}\n\n---\n\n`;
 
   for (const entry of transcript) {
     const speaker = entry.role === "user" ? "**Tim:**" : "**Henry ⚡:**";
@@ -214,11 +393,21 @@ export async function persistVoiceTranscript(transcript: VoiceTranscriptEntry[])
 
   const userSummary = summarizeMessages(transcript, "user") || "- No user transcript captured";
   const henrySummary = summarizeMessages(transcript, "henry") || "- No Henry transcript captured";
+  const binding = options?.binding;
   const rollupEntry = [
     `## ${pacific.year}-${pacific.month}-${pacific.day} ${pacific.hour}:${pacific.minute}:${pacific.second} PT`,
     `- Transcript: ${relativePath}`,
+    `- Workspace: ${location.workspaceLabel}`,
     `- Duration: ${formatDuration(durationSeconds)}`,
     `- Messages: ${transcript.length}`,
+    `- Scope: ${binding?.scope === "global" || !binding ? "voice-lab" : `${binding.scope}-bound`}`,
+    ...(binding?.projectName || binding?.projectSlug || binding?.projectId
+      ? [`- Project: ${binding.projectName ?? binding.projectSlug ?? binding.projectId}`]
+      : []),
+    ...(binding?.taskKey || binding?.taskTitle || binding?.taskId
+      ? [`- Task: ${binding.taskKey ?? binding.taskId ?? "Task"}${binding.taskTitle ? ` — ${binding.taskTitle}` : ""}`]
+      : []),
+    ...(binding?.agentName || binding?.agentId ? [`- Agent: ${binding.agentName ?? binding.agentId}`] : []),
     "- Tim highlights:",
     userSummary,
     "- Henry highlights:",
@@ -226,37 +415,53 @@ export async function persistVoiceTranscript(transcript: VoiceTranscriptEntry[])
     "",
   ].join("\n");
 
-  const existingRollup = await readFileIfExists(VOICE_MEMORY_ROLLUP);
-  const rollupHeader = "# Voice Memory\n\nRolling memory for Henry's voice-only conversations with Tim. Each entry points to a full transcript under `memory/voice/` so Voice Henry can review this lane independently of text-chat sessions.\n\n";
+  const existingRollup = await readFileIfExists(location.rollupPath);
+  const rollupHeader = "# Voice Memory\n\nRolling memory for Henry's voice-only conversations inside Mission Control. Each entry points to a full transcript under `memory/voice/` so bound task/project sessions keep their own durable trail outside the OpenClaw workspace.\n\n";
   const nextRollup = existingRollup.trim()
     ? `${existingRollup.trimEnd()}\n\n${rollupEntry}`
     : `${rollupHeader}${rollupEntry}`;
 
-  await fs.writeFile(VOICE_MEMORY_ROLLUP, nextRollup, "utf-8");
+  await fs.writeFile(location.rollupPath, nextRollup, "utf-8");
 
   return {
     filePath,
     filename,
     relativePath,
+    rollupPath: location.rollupPath,
+    rollupRelativePath,
+    workspaceRoot: location.workspaceRoot,
+    workspaceKind: location.workspaceKind === "company" ? "company" : "lane",
     durationSeconds,
     messages: transcript.length,
   };
 }
 
 export async function getRecentVoiceMemoryContext(limit = 4) {
-  const rollup = await readFileIfExists(VOICE_MEMORY_ROLLUP);
-  const rollupSections = getVoiceRollupSections(rollup, limit);
-  if (rollupSections.trim()) {
-    return clip(rollupSections, 4000);
+  const rollups = await listRecentVoiceRollups(limit);
+  const rollupSections: string[] = [];
+
+  for (const rollup of rollups) {
+    const content = await readFileIfExists(rollup.filePath);
+    const sections = getVoiceRollupSections(content, 1);
+    if (sections.trim()) {
+      rollupSections.push(sections);
+    }
+    if (rollupSections.length >= limit) {
+      break;
+    }
+  }
+
+  if (rollupSections.length > 0) {
+    return clip(rollupSections.join("\n\n"), 4000);
   }
 
   const transcripts = await listRecentVoiceTranscriptFiles(limit);
   if (!transcripts.length) return "No saved voice memories yet.";
 
   const previews = await Promise.all(
-    transcripts.map(async (filePath) => {
+    transcripts.map(async ({ filePath, displayPath }) => {
       const content = await readFileIfExists(filePath);
-      return `## ${path.basename(filePath)}\n${clip(tailLines(content, 12), 800)}`;
+      return `## ${displayPath}\n${clip(tailLines(content, 12), 800)}`;
     })
   );
 
@@ -296,13 +501,26 @@ export async function buildCurrentVoiceContext() {
   ].join("\n");
 }
 
+async function listRecentDailyMemoryFiles(limit = 5) {
+  try {
+    const entries = await fs.readdir(WORKSPACE_MEMORY);
+    return entries
+      .filter((entry) => /^\d{4}-\d{2}-\d{2}\.md$/.test(entry))
+      .sort()
+      .reverse()
+      .slice(0, limit)
+      .map((entry) => path.join(WORKSPACE_MEMORY, entry));
+  } catch {
+    return [] as string[];
+  }
+}
+
 export async function searchVoiceMemory(query: string, limit = 5) {
+  const rollups = await listRecentVoiceRollups(12);
+  const transcripts = await listRecentVoiceTranscriptFiles(12);
   const voiceFiles = [
-    { filePath: VOICE_MEMORY_ROLLUP, displayPath: "memory/voice/VOICE_MEMORY.md" },
-    ...((await listRecentVoiceTranscriptFiles(10)).map((filePath) => ({
-      filePath,
-      displayPath: `memory/voice/${path.basename(filePath)}`,
-    }))),
+    ...rollups.map(({ filePath, displayPath }) => ({ filePath, displayPath })),
+    ...transcripts.map(({ filePath, displayPath }) => ({ filePath, displayPath })),
   ];
 
   const results = await searchFiles(voiceFiles, query, limit);
@@ -318,13 +536,12 @@ export async function searchWorkspaceMemory(query: string, limit = 5) {
     filePath: path.join(OPENCLAW_WORKSPACE, file),
     displayPath: file,
   }));
-  const dailyFiles = (await listRecentDailyMemoryFiles(14)).map((filePath) => ({
+  const dailyFiles = (await listRecentDailyMemoryFiles(10)).map((filePath) => ({
     filePath,
     displayPath: `memory/${path.basename(filePath)}`,
   }));
-  const voiceRollup = { filePath: VOICE_MEMORY_ROLLUP, displayPath: "memory/voice/VOICE_MEMORY.md" };
 
-  const results = await searchFiles([...rootFiles, ...dailyFiles, voiceRollup], query, limit);
+  const results = await searchFiles([...rootFiles, ...dailyFiles], query, limit);
   return {
     query,
     count: results.length,
