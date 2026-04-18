@@ -253,6 +253,20 @@ export function enqueueWakeup(
 
   pruneSupersededQueuedWakeups(input.agentId, now, db);
 
+  // The UNIQUE index on idempotency_key covers ALL rows with a non-null key
+  // (not just queued), so a terminal row from a prior identical wake will
+  // block a fresh insert. Free the key on any terminal row with the same
+  // value before inserting — we already confirmed no *queued* row exists,
+  // so nothing live is coalesceable.
+  if (input.idempotencyKey) {
+    db.prepare(
+      `UPDATE agent_wakeup_requests
+       SET idempotency_key = NULL
+       WHERE idempotency_key = ?
+         AND status IN ('finished', 'failed', 'cancelled', 'claimed')`,
+    ).run(input.idempotencyKey);
+  }
+
   const wakeupId = randomUUID();
   const runId = randomUUID();
 
@@ -263,29 +277,76 @@ export function enqueueWakeup(
     ...(input.payload ?? {}),
   };
 
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, trigger_detail, payload_json, status, idempotency_key, run_id, requested_at, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`
-  ).run(
-    wakeupId,
-    input.agentId,
-    input.companyId,
-    input.source,
-    input.reason ?? null,
-    input.triggerDetail ?? null,
-    JSON.stringify(input.payload ?? {}),
-    input.idempotencyKey ?? null,
-    runId,
-    now,
-    now,
-    now
-  );
+  // Retry-once wrapper guards the rare race where two concurrent callers
+  // both pass the coalesce SELECT (both see no queued row), both reach the
+  // INSERT, and the second hits the UNIQUE constraint. On SQLITE_CONSTRAINT_UNIQUE
+  // we re-read the table for any matching key — if it's queued now, coalesce
+  // onto the winner; otherwise free the stale key and insert again.
+  const insertRequest = (): void => {
+    db.prepare(
+      `INSERT INTO agent_wakeup_requests
+         (id, agent_id, company_id, source, reason, trigger_detail, payload_json, status, idempotency_key, run_id, requested_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?)`,
+    ).run(
+      wakeupId,
+      input.agentId,
+      input.companyId,
+      input.source,
+      input.reason ?? null,
+      input.triggerDetail ?? null,
+      JSON.stringify(input.payload ?? {}),
+      input.idempotencyKey ?? null,
+      runId,
+      now,
+      now,
+      now,
+    );
+  };
+
+  try {
+    insertRequest();
+  } catch (error) {
+    const sqliteCode = (error as { code?: string } | null)?.code;
+    if (sqliteCode === "SQLITE_CONSTRAINT_UNIQUE" && input.idempotencyKey) {
+      const any = db
+        .prepare(
+          `SELECT id, status, run_id FROM agent_wakeup_requests
+           WHERE idempotency_key = ?
+           ORDER BY created_at DESC
+           LIMIT 1`,
+        )
+        .get(input.idempotencyKey) as { id: string; status: string; run_id: string | null } | undefined;
+
+      if (any && any.status === "queued") {
+        db.prepare(
+          `UPDATE agent_wakeup_requests
+           SET coalesced_count = coalesced_count + 1, updated_at = ?
+           WHERE id = ?`,
+        ).run(now, any.id);
+        return {
+          wakeupRequestId: any.id,
+          heartbeatRunId: any.run_id ?? "",
+          status: "coalesced",
+        };
+      }
+
+      if (any) {
+        db.prepare(
+          "UPDATE agent_wakeup_requests SET idempotency_key = NULL WHERE id = ?",
+        ).run(any.id);
+        insertRequest();
+      } else {
+        throw error;
+      }
+    } else {
+      throw error;
+    }
+  }
 
   db.prepare(
     `INSERT INTO heartbeat_runs
        (id, agent_id, company_id, invocation_source, trigger_detail, status, wakeup_request_id, context_snapshot_json, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`
+     VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?)`,
   ).run(
     runId,
     input.agentId,
@@ -295,7 +356,7 @@ export function enqueueWakeup(
     wakeupId,
     JSON.stringify(snapshot),
     now,
-    now
+    now,
   );
 
   return { wakeupRequestId: wakeupId, heartbeatRunId: runId, status: "queued" };

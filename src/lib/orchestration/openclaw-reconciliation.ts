@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { randomUUID } from "crypto";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
