@@ -18,7 +18,7 @@ import { AVATAR_THEME_PRESETS } from "./avatar-theme-data";
 import { AvatarGlyph, avatarIconToken, toAvatarIconToken } from "./AvatarGlyph";
 import { LUCIDE_ICON_OPTIONS } from "./lucide-icons";
 import { clearAvatarDraftCache, readAvatarDraftCache, writeAvatarDraftCache } from "./avatar-draft-storage";
-import { VOICE_CATALOG, type VoicePreset } from "./voice-catalog";
+import { voicesForGender, type VoicePreset } from "./voice-catalog";
 
 /* ── Types ── */
 export type AvatarSource = "icon" | "generated";
@@ -548,6 +548,7 @@ export function AvatarWizard({
           {step === "voice" && (
             <VoiceStep
               voiceId={voiceId}
+              gender={gender}
               onSelect={setVoiceId}
             />
           )}
@@ -1124,9 +1125,11 @@ function SelectBox({
    ═══════════════════════════════════════════ */
 function VoiceStep({
   voiceId,
+  gender,
   onSelect,
 }: {
   voiceId: string | null;
+  gender: AvatarGender;
   onSelect: (id: string | null) => void;
 }) {
   const [playingId, setPlayingId] = useState<string | null>(null);
@@ -1162,13 +1165,16 @@ function VoiceStep({
     };
   }, []);
 
-  const groups = useMemo(() => {
-    return {
-      female: VOICE_CATALOG.filter((v) => v.perceivedGender === "female"),
-      male: VOICE_CATALOG.filter((v) => v.perceivedGender === "male"),
-      androgynous: VOICE_CATALOG.filter((v) => v.perceivedGender === "androgynous"),
-    };
-  }, []);
+  const filtered = useMemo(() => voicesForGender(gender), [gender]);
+
+  const genderLabel =
+    gender === "female" ? "feminine" : gender === "male" ? "masculine" : "all";
+
+  // If the currently-selected voice falls outside the filter after a gender
+  // switch, surface a quiet "it's hidden" note — don't clear it for the user.
+  const selectedOutsideFilter = Boolean(
+    voiceId && !filtered.some((v) => v.id === voiceId)
+  );
 
   return (
     <div>
@@ -1176,7 +1182,7 @@ function VoiceStep({
         Pick a voice for this agent. Used when you talk to them from a task.
       </p>
       <p style={{ fontSize: 10.5, color: W.muted, margin: "0 0 14px" }}>
-        Click Preview to hear the real Gemini voice. The first preview for each voice takes a moment to generate, then caches.
+        Showing {filtered.length} {genderLabel} voices. Click Preview to hear the real Gemini voice — the first play generates the sample (~3s) and caches.
       </p>
       {previewError && (
         <div style={{
@@ -1187,32 +1193,30 @@ function VoiceStep({
           {previewError}
         </div>
       )}
-
-      {([
-        { label: "Feminine", voices: groups.female },
-        { label: "Masculine", voices: groups.male },
-        { label: "Androgynous", voices: groups.androgynous },
-      ] as const).map((group) => (
-        <div key={group.label} style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10.5, color: W.textSec, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
-            {group.label}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-            {group.voices.map((preset) => (
-              <VoiceCard
-                key={preset.id}
-                preset={preset}
-                selected={voiceId === preset.id}
-                playing={playingId === preset.id}
-                onSelect={() => onSelect(preset.id)}
-                onPreview={() => playSample(preset)}
-              />
-            ))}
-          </div>
+      {selectedOutsideFilter && (
+        <div style={{
+          marginBottom: 12, padding: "8px 10px", borderRadius: 8,
+          background: "rgba(217,119,6,0.08)", border: "1px solid rgba(217,119,6,0.22)",
+          fontSize: 11, color: "#fbbf24",
+        }}>
+          The previously-selected voice doesn&apos;t match this agent&apos;s gender. Pick a new one below, or go back and change gender to keep the old voice.
         </div>
-      ))}
+      )}
 
-      <div style={{ marginTop: 4, display: "flex", justifyContent: "center" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {filtered.map((preset) => (
+          <VoiceCard
+            key={preset.id}
+            preset={preset}
+            selected={voiceId === preset.id}
+            playing={playingId === preset.id}
+            onSelect={() => onSelect(preset.id)}
+            onPreview={() => playSample(preset)}
+          />
+        ))}
+      </div>
+
+      <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
         <button
           onClick={() => onSelect(null)}
           style={{
