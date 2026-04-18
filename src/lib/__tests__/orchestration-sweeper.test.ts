@@ -244,6 +244,51 @@ async function run() {
       assert.equal(rows.length, 1, "only one queued wake should exist for the task");
     });
 
+    await test("sweep skips tasks whose company is archived", () => {
+      clearWakes();
+      const project = makeProject("archived-co");
+      const agent = makeAgent(project.id, "archived-co");
+      makeTask(project.id, agent.id, "in-progress");
+
+      // Archive the company that owns this project. The sweep should now
+      // ignore the task even though the task itself is active.
+      db.prepare("UPDATE companies SET archived_at = ?, status = 'archived' WHERE id = ?")
+        .run(new Date().toISOString(), project.companyId);
+
+      const result = sweepOpenTasks(db, { cap: 10 });
+
+      assert.equal(result.wakesEnqueued, 0);
+      assert.equal(result.candidatesConsidered, 0);
+
+      // Restore so subsequent tests aren't corrupted.
+      db.prepare("UPDATE companies SET archived_at = NULL, status = 'active' WHERE id = ?")
+        .run(project.companyId);
+    });
+
+    await test("MC_SWEEP_COMPANIES allowlist restricts sweep to matching slugs only", () => {
+      clearWakes();
+      const projectInScope = makeProject("in-scope");
+      const projectOutOfScope = makeProject("out-of-scope");
+      const agentInScope = makeAgent(projectInScope.id, "in-scope");
+      const agentOutOfScope = makeAgent(projectOutOfScope.id, "out-of-scope");
+      makeTask(projectInScope.id, agentInScope.id, "in-progress");
+      makeTask(projectOutOfScope.id, agentOutOfScope.id, "in-progress");
+
+      // Both projects live under the same test company, so scope by that
+      // company's slug. The second call uses a slug that matches nothing
+      // to confirm an unknown slug yields zero candidates (safer than
+      // falling back to platform-wide).
+      const company = db.prepare("SELECT slug FROM companies WHERE id = ?").get(projectInScope.companyId) as { slug: string };
+
+      const allowlisted = sweepOpenTasks(db, { cap: 10, companySlugs: [company.slug] });
+      assert.ok(allowlisted.wakesEnqueued >= 1, `expected at least 1 wake in scope, got ${JSON.stringify(allowlisted)}`);
+
+      clearWakes();
+      const empty = sweepOpenTasks(db, { cap: 10, companySlugs: ["definitely-not-a-real-slug"] });
+      assert.equal(empty.wakesEnqueued, 0);
+      assert.equal(empty.candidatesConsidered, 0);
+    });
+
     await test("cap bounds the number of wakes enqueued per sweep", () => {
       clearWakes();
       const project = makeProject("cap");

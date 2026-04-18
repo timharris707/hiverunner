@@ -42,14 +42,38 @@ const DEFAULT_SWEEP_CAP = 10;
 const BACKOFF_FAILED_RUN_THRESHOLD = 3;
 const BACKOFF_WINDOW_MS = 60 * 60 * 1000; // 1h
 
+/**
+ * Optional company-slug allowlist read from MC_SWEEP_COMPANIES. Unset = sweep
+ * every company (platform-wide orchestration). Set to a comma-separated list
+ * of slugs to restrict the sweep — useful when you want stable focused on one
+ * lane without touching code (e.g. "weather-edge-2").
+ *
+ * Unknown slugs are dropped rather than aborting; an empty effective list (all
+ * values unknown) still sweeps nothing, which is the intended safety — if the
+ * operator typoed every slug, we'd rather do nothing than silently fall back
+ * to platform-wide.
+ */
+function readSweepCompanyAllowlist(): string[] | null {
+  const raw = process.env.MC_SWEEP_COMPANIES?.trim();
+  if (!raw) return null;
+  const slugs = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return slugs.length > 0 ? slugs : null;
+}
+
 export function sweepOpenTasks(
   db: Database.Database,
-  options: { cap?: number; now?: Date } = {},
+  options: { cap?: number; now?: Date; companySlugs?: string[] | null } = {},
 ): SweepResult {
   const cap = options.cap ?? DEFAULT_SWEEP_CAP;
   const now = options.now ?? new Date();
   const sweptAt = now.toISOString();
   const backoffSince = new Date(now.getTime() - BACKOFF_WINDOW_MS).toISOString();
+  const companySlugs = options.companySlugs !== undefined
+    ? options.companySlugs
+    : readSweepCompanyAllowlist();
 
   const skippedReasons: Record<string, number> = {};
   const bumpSkip = (reason: string) => {
@@ -59,7 +83,13 @@ export function sweepOpenTasks(
   // Pull eligible open tasks + their assignee agent. Done/cancelled/backlog
   // and blocked are filtered out at the query level. Unassigned tasks are
   // also filtered — sweep only operates on tasks that already have someone
-  // accountable.
+  // accountable. Archived companies/projects are excluded outright so stale
+  // demo fixtures can't keep burning agent runs after they've been archived
+  // in the UI (observed 2026-04-17: four archived "Detail Co …" rows kept
+  // showing up in sweep results because nothing filtered them out).
+  const companyFilter = companySlugs && companySlugs.length > 0
+    ? ` AND c.slug IN (${companySlugs.map(() => "?").join(",")})`
+    : "";
   const candidates = db
     .prepare(
       `SELECT
@@ -70,11 +100,15 @@ export function sweepOpenTasks(
          a.status         AS agent_status,
          a.archived_at    AS agent_archived_at
        FROM tasks t
-       INNER JOIN projects p ON p.id = t.project_id
-       INNER JOIN agents a   ON a.id = t.assignee_agent_id
+       INNER JOIN projects p  ON p.id = t.project_id
+       INNER JOIN companies c ON c.id = p.company_id
+       INNER JOIN agents a    ON a.id = t.assignee_agent_id
        WHERE t.archived_at IS NULL
+         AND p.archived_at IS NULL
+         AND c.archived_at IS NULL
+         AND c.status = 'active'
          AND t.status IN ('on_deck', 'in_progress', 'review')
-         AND t.assignee_agent_id IS NOT NULL
+         AND t.assignee_agent_id IS NOT NULL${companyFilter}
        ORDER BY
          CASE t.status
            WHEN 'in_progress' THEN 0
@@ -83,7 +117,7 @@ export function sweepOpenTasks(
          END,
          t.updated_at ASC`,
     )
-    .all() as OpenTaskRow[];
+    .all(...(companySlugs ?? [])) as OpenTaskRow[];
 
   let wakesEnqueued = 0;
   let wakesCoalesced = 0;

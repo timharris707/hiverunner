@@ -26,6 +26,8 @@
     <string>on</string>
     <key>MC_WORKSPACE_ROOT</key>
     <string>/Users/timharris/.mission-control/stable/workspaces</string>
+    <key>MC_SWEEP_COMPANIES</key>
+    <string>weather-edge-2</string>
   </dict>
 
   <key>RunAtLoad</key>
