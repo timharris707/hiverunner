@@ -26,6 +26,7 @@ import {
 import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
+import { maybeSweepOpenTasks, type SweepResult } from "@/lib/orchestration/engine/sweeper";
 
 /* ── Constants ── */
 
@@ -1056,6 +1057,7 @@ export type TickResult = {
   error: string | null;
   durationMs: number;
   staleRunsRecovered: number;
+  sweep?: SweepResult | null;
 };
 
 /**
@@ -1077,6 +1079,11 @@ export async function tick(
   // Step 1: Recover stale runs (stuck in 'running' for too long)
   const staleRunsRecovered = recoverStaleRuns(db);
 
+  // Step 1b: Periodic sweep of open tasks. Enqueues wakes for assignees that
+  // aren't already being worked. Throttled internally — called every tick,
+  // but only fires once per MC_SWEEP_INTERVAL_MS window (default 60s).
+  const sweep = maybeSweepOpenTasks(db);
+
   // Step 2: Atomically claim the oldest queued run
   const claimed = claimNextQueuedRun(db);
 
@@ -1090,6 +1097,7 @@ export async function tick(
       error: null,
       durationMs: Date.now() - startTime,
       staleRunsRecovered,
+      sweep: sweep ?? null,
     };
   }
 
@@ -1105,6 +1113,7 @@ export async function tick(
       error: result.error,
       durationMs: Date.now() - startTime,
       staleRunsRecovered,
+      sweep: sweep ?? null,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -1127,6 +1136,7 @@ export async function tick(
       error: msg,
       durationMs: Date.now() - startTime,
       staleRunsRecovered,
+      sweep: sweep ?? null,
     };
   }
 }

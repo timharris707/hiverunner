@@ -1,0 +1,211 @@
+import type Database from "better-sqlite3";
+
+import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
+
+/**
+ * Orchestration sweeper: periodically scans open tasks (on_deck / in_progress /
+ * review) and enqueues wakes for the assigned agent if one isn't already in
+ * flight. Terminates naturally when tasks reach done / cancelled / backlog or
+ * get moved to blocked (blocked is treated as "waiting on something external"
+ * and skipped).
+ *
+ * Design constraints:
+ * - Per-task idempotency: `sweep:{taskId}:{status}` — multiple sweep cycles
+ *   collapse into one queued wake until it is claimed.
+ * - Per-agent concurrency: skip tasks whose assignee already has a queued or
+ *   running wake. Another tick will pick them up when the prior run finishes.
+ * - Loop guard: skip tasks with 3+ failed runs in the last hour. Chronic
+ *   failures should not be re-woken forever — they require operator attention
+ *   or a blocker comment before the sweep resumes.
+ * - Agent state: paused/offline/archived agents never get swept.
+ * - Cap: bounded number of wakes per sweep cycle to avoid bursty enqueues.
+ */
+
+export type SweepResult = {
+  sweptAt: string;
+  candidatesConsidered: number;
+  wakesEnqueued: number;
+  wakesCoalesced: number;
+  skippedReasons: Record<string, number>;
+};
+
+type OpenTaskRow = {
+  task_id: string;
+  task_status: "on_deck" | "in_progress" | "review";
+  assignee_agent_id: string;
+  company_id: string;
+  agent_status: string;
+  agent_archived_at: string | null;
+};
+
+const DEFAULT_SWEEP_CAP = 10;
+const BACKOFF_FAILED_RUN_THRESHOLD = 3;
+const BACKOFF_WINDOW_MS = 60 * 60 * 1000; // 1h
+
+export function sweepOpenTasks(
+  db: Database.Database,
+  options: { cap?: number; now?: Date } = {},
+): SweepResult {
+  const cap = options.cap ?? DEFAULT_SWEEP_CAP;
+  const now = options.now ?? new Date();
+  const sweptAt = now.toISOString();
+  const backoffSince = new Date(now.getTime() - BACKOFF_WINDOW_MS).toISOString();
+
+  const skippedReasons: Record<string, number> = {};
+  const bumpSkip = (reason: string) => {
+    skippedReasons[reason] = (skippedReasons[reason] ?? 0) + 1;
+  };
+
+  // Pull eligible open tasks + their assignee agent. Done/cancelled/backlog
+  // and blocked are filtered out at the query level. Unassigned tasks are
+  // also filtered — sweep only operates on tasks that already have someone
+  // accountable.
+  const candidates = db
+    .prepare(
+      `SELECT
+         t.id             AS task_id,
+         t.status         AS task_status,
+         t.assignee_agent_id,
+         p.company_id,
+         a.status         AS agent_status,
+         a.archived_at    AS agent_archived_at
+       FROM tasks t
+       INNER JOIN projects p ON p.id = t.project_id
+       INNER JOIN agents a   ON a.id = t.assignee_agent_id
+       WHERE t.archived_at IS NULL
+         AND t.status IN ('on_deck', 'in_progress', 'review')
+         AND t.assignee_agent_id IS NOT NULL
+       ORDER BY
+         CASE t.status
+           WHEN 'in_progress' THEN 0
+           WHEN 'review' THEN 1
+           WHEN 'on_deck' THEN 2
+         END,
+         t.updated_at ASC`,
+    )
+    .all() as OpenTaskRow[];
+
+  let wakesEnqueued = 0;
+  let wakesCoalesced = 0;
+
+  for (const row of candidates) {
+    if (wakesEnqueued + wakesCoalesced >= cap) {
+      bumpSkip("cap_reached");
+      continue;
+    }
+
+    if (row.agent_archived_at) {
+      bumpSkip("agent_archived");
+      continue;
+    }
+
+    if (row.agent_status === "paused" || row.agent_status === "offline") {
+      bumpSkip(`agent_${row.agent_status}`);
+      continue;
+    }
+
+    const activeWake = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+         FROM agent_wakeup_requests
+         WHERE agent_id = ? AND status IN ('queued', 'claimed')`,
+      )
+      .get(row.assignee_agent_id) as { n: number } | undefined;
+
+    if ((activeWake?.n ?? 0) > 0) {
+      bumpSkip("agent_has_active_wake");
+      continue;
+    }
+
+    const activeRun = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+         FROM heartbeat_runs
+         WHERE agent_id = ? AND status = 'running'`,
+      )
+      .get(row.assignee_agent_id) as { n: number } | undefined;
+
+    if ((activeRun?.n ?? 0) > 0) {
+      bumpSkip("agent_has_running_run");
+      continue;
+    }
+
+    const recentFailed = db
+      .prepare(
+        `SELECT COUNT(*) AS n
+         FROM heartbeat_runs
+         WHERE agent_id = ? AND status = 'failed'
+           AND started_at > ?`,
+      )
+      .get(row.assignee_agent_id, backoffSince) as { n: number } | undefined;
+
+    if ((recentFailed?.n ?? 0) >= BACKOFF_FAILED_RUN_THRESHOLD) {
+      bumpSkip("agent_backoff");
+      continue;
+    }
+
+    const result = enqueueWakeup(
+      {
+        agentId: row.assignee_agent_id,
+        companyId: row.company_id,
+        source: "api",
+        reason: "sweep_open_task",
+        payload: {
+          taskId: row.task_id,
+          taskStatus: row.task_status,
+          sweptAt,
+        },
+        idempotencyKey: `sweep:${row.task_id}:${row.task_status}`,
+      },
+      db,
+    );
+
+    if (result.status === "coalesced") {
+      wakesCoalesced += 1;
+    } else {
+      wakesEnqueued += 1;
+    }
+  }
+
+  return {
+    sweptAt,
+    candidatesConsidered: candidates.length,
+    wakesEnqueued,
+    wakesCoalesced,
+    skippedReasons,
+  };
+}
+
+/**
+ * Caller-scoped scheduler for periodic sweeps. Engine tick fires every ~10s;
+ * the sweeper is more expensive and only needs to fire once a minute. In-memory
+ * `lastSweepAt` is fine: on process restart the sweep just fires on the first
+ * tick after the server comes up, which is the right behavior.
+ */
+let lastSweepAt = 0;
+
+const SWEEP_INTERVAL_MS = (() => {
+  const raw = process.env.MC_SWEEP_INTERVAL_MS;
+  if (!raw) return 60_000;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : 60_000;
+})();
+
+export function maybeSweepOpenTasks(db: Database.Database): SweepResult | null {
+  if (process.env.MC_ORCHESTRATION_SWEEP === "0") {
+    return null;
+  }
+  const nowMs = Date.now();
+  if (nowMs - lastSweepAt < SWEEP_INTERVAL_MS) {
+    return null;
+  }
+  lastSweepAt = nowMs;
+  return sweepOpenTasks(db, { now: new Date(nowMs) });
+}
+
+// Exposed for testing only — lets tests force a sweep regardless of cadence.
+export const __sweeperTestHooks = {
+  resetLastSweepAt: () => {
+    lastSweepAt = 0;
+  },
+};
