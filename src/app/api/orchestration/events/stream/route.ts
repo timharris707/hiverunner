@@ -36,67 +36,83 @@ export async function GET(req: NextRequest) {
         try {
           const db = getOrchestrationDb();
 
-          // Fetch new activity events since last poll
+          // Fetch new task_events since last poll. The schema uses task_events
+          // (not activity_events); event_type values include task.created,
+          // task.updated, task.assigned, task.unassigned, task.status_changed,
+          // task.comment_added, task.archived, task.reordered.
           const events = db.prepare(
             `SELECT
-              ae.id,
-              ae.event_type,
-              ae.task_id,
+              te.id,
+              te.event_type,
+              te.task_id,
               t.title AS task_title,
-              t.sequence_number,
-              ae.project_id,
+              t.task_number,
+              t.task_key,
+              te.project_id,
               p.slug AS project_slug,
               p.name AS project_name,
               c.slug AS company_slug,
               c.company_code,
-              ae.old_status,
-              ae.new_status,
-              ae.message,
-              ae.agent_id,
+              te.from_status,
+              te.to_status,
+              te.metadata_json,
+              te.agent_id,
               a.name AS agent_name,
-              ae.created_at AS timestamp
-             FROM activity_events ae
-             LEFT JOIN tasks t ON t.id = ae.task_id
-             LEFT JOIN projects p ON p.id = ae.project_id
+              te.created_at AS timestamp
+             FROM task_events te
+             LEFT JOIN tasks t ON t.id = te.task_id
+             LEFT JOIN projects p ON p.id = te.project_id
              LEFT JOIN companies c ON c.id = p.company_id
-             LEFT JOIN agents a ON a.id = ae.agent_id
-             WHERE ae.created_at > ?
+             LEFT JOIN agents a ON a.id = te.agent_id
+             WHERE te.created_at > ?
                AND (c.slug = ? OR ? = '')
-             ORDER BY ae.created_at ASC
+             ORDER BY te.created_at ASC
              LIMIT 50`
           ).all(lastEventTime, companySlug, companySlug) as Array<Record<string, unknown>>;
 
-          // Fetch new comments since last poll
+          // Fetch new comments since last poll. Schema uses `comments` table.
           const comments = db.prepare(
             `SELECT
-              tc.id,
-              tc.task_id,
+              cm.id,
+              cm.task_id,
               t.title AS task_title,
-              t.sequence_number,
-              tc.author_name,
-              tc.body,
-              tc.type,
-              tc.created_at AS timestamp,
+              t.task_number,
+              t.task_key,
+              COALESCE(ag.name, cm.author_user_id, 'Agent') AS author_name,
+              cm.body,
+              cm.type,
+              cm.created_at AS timestamp,
+              cm.updated_at,
               p.slug AS project_slug,
               p.name AS project_name,
               c.slug AS company_slug,
               c.company_code
-             FROM task_comments tc
-             JOIN tasks t ON t.id = tc.task_id
+             FROM comments cm
+             JOIN tasks t ON t.id = cm.task_id
              JOIN projects p ON p.id = t.project_id
              JOIN companies c ON c.id = p.company_id
-             WHERE tc.created_at > ?
+             LEFT JOIN agents ag ON ag.id = cm.author_agent_id
+             WHERE cm.created_at > ?
                AND (c.slug = ? OR ? = '')
-             ORDER BY tc.created_at ASC
+             ORDER BY cm.created_at ASC
              LIMIT 50`
           ).all(lastEventTime, companySlug, companySlug) as Array<Record<string, unknown>>;
 
           let latestTime = lastEventTime;
 
           for (const event of events) {
-            const taskKey = event.sequence_number != null && event.company_code
-              ? `${event.company_code}-${event.sequence_number}`
-              : undefined;
+            const taskKey = (event.task_key as string | null) ??
+              (event.task_number != null && event.company_code
+                ? `${event.company_code}-${event.task_number}`
+                : undefined);
+
+            // Parse metadata to surface useful fields (assignee, priority).
+            let metadata: Record<string, unknown> = {};
+            try {
+              metadata = event.metadata_json ? JSON.parse(String(event.metadata_json)) : {};
+            } catch {
+              metadata = {};
+            }
 
             const payload = {
               type: "activity",
@@ -109,7 +125,10 @@ export async function GET(req: NextRequest) {
               projectName: event.project_name ? String(event.project_name) : undefined,
               agentId: event.agent_id ? String(event.agent_id) : undefined,
               agentName: event.agent_name ? String(event.agent_name) : undefined,
-              message: String(event.message ?? ""),
+              fromStatus: event.from_status ? String(event.from_status) : undefined,
+              toStatus: event.to_status ? String(event.to_status) : undefined,
+              metadata,
+              message: "",
               timestamp: String(event.timestamp),
             };
 
@@ -118,9 +137,10 @@ export async function GET(req: NextRequest) {
           }
 
           for (const comment of comments) {
-            const taskKey = comment.sequence_number != null && comment.company_code
-              ? `${comment.company_code}-${comment.sequence_number}`
-              : undefined;
+            const taskKey = (comment.task_key as string | null) ??
+              (comment.task_number != null && comment.company_code
+                ? `${comment.company_code}-${comment.task_number}`
+                : undefined);
 
             const payload = {
               type: "comment",

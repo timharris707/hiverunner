@@ -13,6 +13,11 @@ export interface StreamEvent {
   projectName?: string;
   agentId?: string;
   agentName?: string;
+  fromStatus?: string;
+  toStatus?: string;
+  /** Parsed task_events.metadata_json — varies by event_type. Useful keys
+   *  include `assignee`, `assigneeId`, `priorityChanged`, etc. */
+  metadata?: Record<string, unknown>;
   message?: string;
   author?: string;
   body?: string;

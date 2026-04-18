@@ -42,6 +42,7 @@ import type {
   TaskPriority,
 } from "@/lib/orchestration/types";
 import { useLiveRunStream, type StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
+import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 
 type Comment = NonNullable<OrchestrationTask["comments"]>[number];
 
@@ -252,6 +253,26 @@ export default function TaskDetailPage() {
       document.removeEventListener("visibilitychange", handleVisibility);
     };
   }, [loadTask]);
+
+  // D5: Live updates over SSE. Any task_events or comments row that lands for
+  // THIS bound task triggers a debounced reload — no manual refresh needed
+  // after voice mutations, status changes, agent activity, or comments.
+  const liveReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleLiveEvent = useCallback((event: StreamEvent) => {
+    if (event.type !== "activity" && event.type !== "comment") return;
+    const matchesTask =
+      (task?.id && event.taskId === task.id) ||
+      (event.taskKey && event.taskKey === taskKey);
+    if (!matchesTask) return;
+    if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current);
+    liveReloadTimerRef.current = setTimeout(() => { void loadTask(); }, 250);
+  }, [task?.id, taskKey, loadTask]);
+
+  useEventStream({ companySlug: slug, enabled: Boolean(slug), onEvent: handleLiveEvent });
+
+  useEffect(() => () => {
+    if (liveReloadTimerRef.current) clearTimeout(liveReloadTimerRef.current);
+  }, []);
 
   // Unified task detail timeline now comes from the main task detail payload.
   useEffect(() => {

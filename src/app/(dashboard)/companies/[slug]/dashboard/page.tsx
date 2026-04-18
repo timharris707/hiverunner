@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -34,6 +34,7 @@ import { isRunLive } from "@/lib/orchestration/live-status";
 import { useNotifications } from "@/components/notifications/NotificationToast";
 import { useLiveRuns, type LiveRun, type LiveRunTranscriptEntry } from "@/hooks/useLiveRuns";
 import { useLiveStream } from "@/components/live/LiveStreamProvider";
+import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 import type { AgentStreamState, StreamTranscriptEntry } from "@/hooks/useLiveRunStream";
 import type {
   OrchestrationActivityEvent,
@@ -231,6 +232,24 @@ export default function CompanyDashboardPage() {
     const timer = window.setInterval(() => void load("poll"), REFRESH_MS);
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [slug, refreshNonce]);
+
+  // D5: SSE-driven reactive refresh. Any task or comment event for this
+  // company bumps refreshNonce, which re-runs the load effect above. The 60s
+  // poll above stays as a safety net for anything outside the event stream.
+  const liveRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleLiveEvent = useCallback((event: StreamEvent) => {
+    if (event.type !== "activity" && event.type !== "comment") return;
+    if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+    liveRefreshTimerRef.current = setTimeout(() => {
+      setRefreshNonce((nonce) => nonce + 1);
+    }, 400);
+  }, []);
+
+  useEventStream({ companySlug: slug, enabled: Boolean(slug), onEvent: handleLiveEvent });
+
+  useEffect(() => () => {
+    if (liveRefreshTimerRef.current) clearTimeout(liveRefreshTimerRef.current);
+  }, []);
 
   /* ── derived data ── */
 
