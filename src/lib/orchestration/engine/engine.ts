@@ -1734,14 +1734,24 @@ async function importSessionOutputAndExecuteActions(input: {
 
   const currentAssistantChars = assistantTexts.reduce((sum, text) => sum + text.length, 0);
   const storedAssistantChars = storedAssistantTexts.reduce((sum, text) => sum + text.length, 0);
-  const shouldUseStoredTranscript =
-    storedMessages.length > messages.length
-    || storedAssistantTexts.length > assistantTexts.length
-    || storedAssistantChars > currentAssistantChars;
+
+  // Prefer the stored (jsonl) transcript whenever it has content. OpenClaw's
+  // jsonl is its own canonical append-only record; the gateway's sessions.get
+  // cache can return fragmented or stale snapshots where a single assistant
+  // turn is split across multiple text blocks. When a fence like
+  // ```mc-action\n{...}\n``` straddles two blocks, the parser sees neither
+  // complete block and drops all structured actions — exactly how Barometer's
+  // 2026-04-17 WEA-262 retry lost 5 well-formed mc-action blocks (live
+  // reported 8 text blocks / 5637 chars / 0 actions; the jsonl had 1 clean
+  // block of 2786 chars / 5 actions).
+  //
+  // If the jsonl is empty (brand-new session before flush, or path resolution
+  // miss), fall back to whatever the live gateway returned.
+  const shouldUseStoredTranscript = storedAssistantTexts.length > 0;
 
   if (shouldUseStoredTranscript) {
     console.log(
-      `[engine:import] using stored transcript for ${input.sessionKey} (${storedMessages.length} messages / ${storedAssistantChars} chars > ${messages.length} / ${currentAssistantChars})`,
+      `[engine:import] using stored transcript for ${input.sessionKey} (stored: ${storedMessages.length} messages / ${storedAssistantChars} chars; live: ${messages.length} / ${currentAssistantChars})`,
     );
     messages = storedMessages;
     assistantTexts = storedAssistantTexts;
@@ -2021,9 +2031,18 @@ function extractAssistantTexts(messages: SessionGetMessage[]): string[] {
         return [message.content];
       }
       if (Array.isArray(message.content)) {
-        return message.content
+        // Concatenate all text blocks within a single assistant message.
+        // OpenClaw's gateway can split one assistant turn across multiple
+        // text blocks when streaming, which would otherwise fragment an
+        // `mc-action` fence across block boundaries and cause the regex
+        // to find zero matches. Joining per-message preserves message
+        // boundaries (so separate assistant turns are still separate
+        // strings) while keeping a single turn's fences intact.
+        const combined = message.content
           .filter((block) => block.type === "text" && typeof block.text === "string")
-          .map((block) => block.text as string);
+          .map((block) => block.text as string)
+          .join("");
+        return combined ? [combined] : [];
       }
       return [];
     })
