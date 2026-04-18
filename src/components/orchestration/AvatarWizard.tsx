@@ -175,6 +175,8 @@ export function AvatarWizard({
     eyeColor,
     vibe,
   });
+  const voiceIdRef = useRef(voiceId);
+  const hasOpenedRef = useRef(false);
 
   const isCompanyConstrained = avatarMode === "company_theme";
 
@@ -193,20 +195,25 @@ export function AvatarWizard({
     identityRef.current = { styleId, gender, age, hairColor, hairLength, eyeColor, vibe };
   }, [styleId, gender, age, hairColor, hairLength, eyeColor, vibe]);
 
+  useEffect(() => {
+    voiceIdRef.current = voiceId;
+  }, [voiceId]);
+
   const writeCache = useCallback((nextPreviews: string[]) => {
+    const snap = identityRef.current;
     writeAvatarDraftCache(agentId, {
-      styleId,
-      gender,
+      styleId: snap.styleId,
+      gender: snap.gender,
       previews: nextPreviews,
       updatedAt: Date.now(),
-      age,
-      hairColor,
-      hairLength,
-      eyeColor,
-      vibe: vibe || null,
-      voiceId,
+      age: snap.age,
+      hairColor: snap.hairColor,
+      hairLength: snap.hairLength,
+      eyeColor: snap.eyeColor,
+      vibe: snap.vibe || null,
+      voiceId: voiceIdRef.current,
     }, alternateAgentKey);
-  }, [agentId, alternateAgentKey, styleId, gender, age, hairColor, hairLength, eyeColor, vibe, voiceId]);
+  }, [agentId, alternateAgentKey]);
 
   const generatePreviews = useCallback(async (options?: {
     seedPreviews?: string[];
@@ -262,8 +269,15 @@ export function AvatarWizard({
     }
   }, [agentEmoji, agentName, agentPersonality, agentRole, writeCache]);
 
+  // Reset runs exactly once per modal open — not on downstream state changes.
+  // A ref guard prevents re-running when internal state mutates deps.
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      hasOpenedRef.current = false;
+      return;
+    }
+    if (hasOpenedRef.current) return;
+    hasOpenedRef.current = true;
 
     const cached = readAvatarDraftCache(agentId, alternateAgentKey);
     const nextIcon = avatarIconToken(agentEmoji) ?? LUCIDE_ICON_OPTIONS[0]?.value ?? "bot";
@@ -307,7 +321,11 @@ export function AvatarWizard({
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setProviderStatus(data); })
       .catch(() => {});
-  }, [open, agentId, autoStart, generatePreviews, initialGender, initialStyleId, initialAge, initialHairColor, initialHairLength, initialEyeColor, initialVibe, initialVoiceId, pendingSetup, agentEmoji, alternateAgentKey]);
+    // Deliberately minimal deps: this must only fire on open transition, not
+    // whenever an initial* prop or callback identity changes. The guard ref
+    // plus `open` dependency is the source of truth.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Swallow Escape so in-progress work isn't lost
   useEffect(() => {
@@ -889,21 +907,22 @@ function IdentityAndStyleStep({
                 type="range"
                 min={18}
                 max={80}
+                step={1}
                 value={age ?? 35}
                 onChange={(e) => onAgeChange(Number(e.target.value))}
                 style={{ flex: 1, accentColor: W.accent }}
-                disabled={age === null}
               />
-              <span style={{ fontSize: 11, color: W.textSec, minWidth: 28, textAlign: "right" }}>
-                {age ?? "—"}
+              <span style={{ fontSize: 11, color: W.text, minWidth: 48, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                {age === null ? "any" : `${age} yrs`}
               </span>
             </div>
-            <div style={{ marginTop: 4 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 4 }}>
+              <span style={{ fontSize: 10, color: W.muted }}>18 – 80</span>
               <SmallToggle
                 enabled={age !== null}
                 onToggle={() => onAgeChange(age === null ? 35 : null)}
-                onLabel="Age set"
-                offLabel="Any age"
+                onLabel="Clear"
+                offLabel="Set age"
               />
             </div>
           </KnobField>
