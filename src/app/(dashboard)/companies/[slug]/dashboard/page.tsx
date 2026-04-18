@@ -914,6 +914,271 @@ function AgentTranscript({
   );
 }
 
+/* ── Run chain ──
+ *
+ * When an agent has been woken multiple times in quick succession — an orchestration
+ * "chain" where each run begets the next — the default card layout shows an unbroken
+ * "Running…" spinner that makes legitimate sustained work look like a stuck state.
+ *
+ * The chain strip tells the truth: this is run N of M, each is real work, here's
+ * the task each run was about. Only renders when the chain length is >= 2 —
+ * a single run doesn't need a timeline.
+ */
+
+type ChainNodeState = {
+  id: string;
+  status: "running" | "succeeded" | "failed" | "cancelled" | "other";
+  taskKey: string | null;
+  taskTitle: string | null;
+  durationMs: number;
+  actionCount: number | null;
+  isLive: boolean;
+  endTs: number;
+};
+
+function RunChain({
+  liveRun,
+  history,
+}: {
+  liveRun: LiveRun | null;
+  history: OrchestrationAgentExecutionRun[];
+}) {
+  const WINDOW_MS = 180_000; // A >3 min gap between runs breaks the chain
+  const MAX_NODES = 5;
+  const [hoverId, setHoverId] = useState<string | null>(null);
+
+  const now = Date.now();
+  const nodes: ChainNodeState[] = [];
+
+  if (liveRun) {
+    nodes.push({
+      id: liveRun.runId,
+      status: "running",
+      taskKey: null,
+      taskTitle: null,
+      durationMs: liveRun.durationMs,
+      actionCount: liveRun.result?.actionsExecuted ?? null,
+      isLive: true,
+      endTs: now,
+    });
+  }
+
+  const sorted = [...history].sort((a, b) => {
+    const ta = new Date(a.completedAt ?? a.startedAt ?? a.createdAt).getTime();
+    const tb = new Date(b.completedAt ?? b.startedAt ?? b.createdAt).getTime();
+    return tb - ta;
+  });
+
+  let tipTs = liveRun?.startedAt ? new Date(liveRun.startedAt).getTime() : now;
+  for (const run of sorted) {
+    if (liveRun && run.id === liveRun.runId) continue;
+    const endTs = new Date(run.completedAt ?? run.startedAt ?? run.createdAt).getTime();
+    if (tipTs - endTs > WINDOW_MS) break;
+    const statusMap: Record<string, ChainNodeState["status"]> = {
+      completed: "succeeded",
+      running: "running",
+      failed: "failed",
+      cancelled: "cancelled",
+      pending: "other",
+    };
+    nodes.push({
+      id: run.id,
+      status: statusMap[run.status] ?? "other",
+      taskKey: run.taskKey ?? null,
+      taskTitle: run.taskTitle ?? null,
+      durationMs: run.durationMs ?? 0,
+      actionCount: null,
+      isLive: false,
+      endTs,
+    });
+    tipTs = endTs;
+    if (nodes.length >= MAX_NODES) break;
+  }
+
+  if (nodes.length < 2) return null;
+
+  nodes.reverse();
+
+  const chainSpanMs = now - nodes[0].endTs;
+  const chainDurLabel = chainSpanMs < 60_000
+    ? `${Math.max(1, Math.round(chainSpanMs / 1000))}s`
+    : `${Math.floor(chainSpanMs / 60_000)}m ${Math.round((chainSpanMs % 60_000) / 1000)}s`;
+  const liveIdx = nodes.findIndex((n) => n.isLive);
+  const liveBadge = liveIdx >= 0 ? `Run ${liveIdx + 1} of ${nodes.length}` : `${nodes.length} runs`;
+
+  return (
+    <div className="mx-3 mb-2">
+      <div
+        className="relative rounded-md px-2.5 py-2"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(217,119,6,0.05) 0%, rgba(217,119,6,0.02) 50%, rgba(74,222,128,0.03) 100%)",
+          border: "0.5px solid rgba(217,119,6,0.18)",
+          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.02)",
+        }}
+      >
+        <div className="mb-1 flex items-center justify-between text-[10px]">
+          <span
+            className="font-medium uppercase tracking-wider"
+            style={{ color: "rgba(217,119,6,0.9)" }}
+          >
+            ⛓ Chain · {liveBadge}
+          </span>
+          <span className="font-mono text-[9px] text-stone-500">
+            {chainDurLabel}
+          </span>
+        </div>
+
+        <div className="relative flex items-center gap-0.5 pt-1">
+          {nodes.map((node, i) => {
+            const next = nodes[i + 1];
+            const isHovered = hoverId === node.id;
+            return (
+              <div
+                key={node.id}
+                className="flex flex-1 items-center"
+                onMouseEnter={() => setHoverId(node.id)}
+                onMouseLeave={() => setHoverId(null)}
+              >
+                <ChainNode node={node} hovered={isHovered} />
+                {next && <ChainConnector from={node} to={next} />}
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="mt-1.5 flex gap-0.5">
+          {nodes.map((node) => (
+            <div
+              key={`label-${node.id}`}
+              className="flex-1 truncate text-center font-mono text-[9px] leading-none"
+              style={{
+                color: node.isLive ? "rgba(217,119,6,0.95)" : "rgba(168,162,158,0.65)",
+                letterSpacing: "0.02em",
+              }}
+              title={node.taskTitle ?? node.taskKey ?? "—"}
+            >
+              {node.taskKey ?? "—"}
+            </div>
+          ))}
+        </div>
+
+        {hoverId && (() => {
+          const n = nodes.find((x) => x.id === hoverId);
+          if (!n) return null;
+          const durLabel = n.durationMs > 0
+            ? n.durationMs < 60_000
+              ? `${Math.round(n.durationMs / 1000)}s`
+              : `${(n.durationMs / 60_000).toFixed(1)}m`
+            : n.isLive ? "in progress" : "—";
+          return (
+            <div className="mt-2 flex items-center gap-2 border-t pt-1.5 text-[10px]"
+              style={{ borderColor: "rgba(217,119,6,0.1)" }}>
+              <span className="font-medium text-stone-300">
+                {n.taskKey ?? "Session"}
+              </span>
+              <span className="text-stone-500">·</span>
+              <span className="text-stone-400">{durLabel}</span>
+              {n.actionCount !== null && (
+                <>
+                  <span className="text-stone-500">·</span>
+                  <span className="text-emerald-400">
+                    {n.actionCount} action{n.actionCount === 1 ? "" : "s"}
+                  </span>
+                </>
+              )}
+              {n.isLive && (
+                <span className="ml-auto rounded px-1 py-0.5 text-[9px] font-medium uppercase"
+                  style={{
+                    background: "rgba(217,119,6,0.15)",
+                    color: "rgba(217,119,6,1)",
+                  }}>
+                  live
+                </span>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+function ChainNode({ node, hovered }: { node: ChainNodeState; hovered: boolean }) {
+  const colorByStatus: Record<ChainNodeState["status"], string> = {
+    running: "#d97706",
+    succeeded: "#4ade80",
+    failed: "#ef4444",
+    cancelled: "#f59e0b",
+    other: "#78716c",
+  };
+  const color = colorByStatus[node.status];
+  const size = node.isLive ? 10 : 7;
+  const haloSize = hovered ? 14 : 10;
+
+  return (
+    <span
+      className="relative inline-flex shrink-0 items-center justify-center"
+      style={{ height: 14, width: 14 }}
+    >
+      {(hovered || node.isLive) && (
+        <span
+          className="absolute rounded-full"
+          style={{
+            height: haloSize,
+            width: haloSize,
+            background: `${color}25`,
+            border: `1px solid ${color}50`,
+          }}
+        />
+      )}
+      {node.isLive && (
+        <span
+          className="absolute animate-ping rounded-full opacity-60"
+          style={{
+            height: size,
+            width: size,
+            backgroundColor: color,
+          }}
+        />
+      )}
+      <span
+        className="relative rounded-full"
+        style={{
+          height: size,
+          width: size,
+          background: node.isLive
+            ? `radial-gradient(circle, ${color} 0%, ${color}cc 70%, ${color}66 100%)`
+            : color,
+          boxShadow: node.isLive
+            ? `0 0 10px ${color}cc, 0 0 4px ${color}`
+            : `0 0 3px ${color}66`,
+        }}
+      />
+    </span>
+  );
+}
+
+function ChainConnector({ from, to }: { from: ChainNodeState; to: ChainNodeState }) {
+  const colorByStatus: Record<ChainNodeState["status"], string> = {
+    running: "#d97706",
+    succeeded: "#4ade80",
+    failed: "#ef4444",
+    cancelled: "#f59e0b",
+    other: "#78716c",
+  };
+  const fromColor = colorByStatus[from.status];
+  const toColor = colorByStatus[to.status];
+  return (
+    <span
+      className="h-px flex-1"
+      style={{
+        background: `linear-gradient(90deg, ${fromColor}80 0%, ${toColor}80 100%)`,
+      }}
+    />
+  );
+}
+
 /* ── Action execution badge (Paperclip "EXECUTED N COMMANDS" equivalent) ── */
 function ActionBadge({ result, status }: { result: NonNullable<LiveRun["result"]>; status: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -1101,6 +1366,9 @@ function AgentRunCard({
           </span>
         </div>
       )}
+
+      {/* ── run chain (shown when the agent is cycling through multiple runs) ── */}
+      <RunChain liveRun={liveRun} history={profile?.executionHistory ?? []} />
 
       {/* ── task context pill (latest run or current task) ── */}
       {latestRun ? (
