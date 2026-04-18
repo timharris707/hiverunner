@@ -606,6 +606,12 @@ export function moveTask(input: {
     ? (current.assigned_at ?? now)
     : null;
 
+  // Reset the in-progress-loop circuit-breaker counter on any operator-driven
+  // status change (migration v46). This ensures manual unblocks / reassigns
+  // / nudges start the counter fresh — the breaker is only meant to catch
+  // autonomous loops, not interfere with operator intervention.
+  const noopCounterUpdate = fromStatus !== toStatus ? "consecutive_noop_wakes = 0," : "";
+
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE tasks
@@ -618,6 +624,7 @@ export function moveTask(input: {
          review_notes = ?,
          started_at = ?,
          completed_at = ?,
+         ${noopCounterUpdate}
          updated_at = ?
        WHERE id = ?`
     ).run(

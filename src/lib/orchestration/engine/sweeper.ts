@@ -116,7 +116,12 @@ export function sweepOpenTasks(
          AND (
            (t.assignee_agent_id IS NOT NULL AND t.status IN ('on_deck', 'in_progress', 'review'))
            OR (t.assignee_agent_id IS NULL AND t.status = 'on_deck')
-         )${companyFilter}
+         )
+         -- Defensive: circuit breaker trips at 3 and flips task to blocked
+         -- (which is already excluded by the status filter above). This is
+         -- belt + suspenders in case a tripped task somehow stays in a
+         -- sweep-eligible status.
+         AND COALESCE(t.consecutive_noop_wakes, 0) < 3${companyFilter}
        ORDER BY
          CASE t.status
            WHEN 'in_progress' THEN 0

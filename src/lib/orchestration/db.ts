@@ -1458,6 +1458,25 @@ const MIGRATIONS: Migration[] = [
         VALUES ('review', 'on_deck', 0, 0, 0);
     `,
   },
+  {
+    version: 46,
+    name: "add_consecutive_noop_wakes_counter",
+    sql: `
+      -- In-progress-loop circuit breaker (2026-04-18 late evening). Tracks
+      -- consecutive wakes on a task that produced no structural progress
+      -- (no task.status_changed / task.assigned / task.unassigned event).
+      -- finishRun increments on no-op runs, resets on structural progress,
+      -- and trips at 3 → flips task to blocked + emits [AWAITING_HUMAN]
+      -- comment + skips continuation enqueue. moveTask (operator status
+      -- change) resets the counter so manual unblocks start fresh. The
+      -- sweeper has a defensive filter (< 3) as belt + suspenders; the
+      -- blocked-status filter already excludes tripped tasks.
+      ALTER TABLE tasks ADD COLUMN consecutive_noop_wakes INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX idx_tasks_consecutive_noop_wakes
+        ON tasks(consecutive_noop_wakes)
+        WHERE consecutive_noop_wakes > 0;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

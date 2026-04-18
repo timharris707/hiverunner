@@ -3001,6 +3001,124 @@ function moveTaskToReviewIfAwaitingApproval(
   return true;
 }
 
+/* ── In-Progress-Loop Circuit Breaker ── */
+
+/**
+ * Detect a stuck-agent loop and trip the breaker.
+ *
+ * Called from `finishRun` after every terminal run to check whether the run
+ * produced structural progress on its target task. Counts consecutive no-op
+ * wakes via `tasks.consecutive_noop_wakes` (migration v46). Trip threshold:
+ * 3. Tripped tasks are flipped to `blocked` with an `[AWAITING_HUMAN]`
+ * comment, the counter is reset to 0 so manual unblocks start fresh, and
+ * the caller is expected to skip the continuation-wake enqueue.
+ *
+ * "Structural progress" = any `task.status_changed`, `task.assigned`, or
+ * `task.unassigned` event on the target task since the run started. A run
+ * that only posted comments counts as a no-op — exactly the pattern that
+ * produced Vane's WEA-258 and Barometer's WEA-237 loops 2026-04-18.
+ *
+ * Also callable directly from contract tests.
+ */
+export function checkAndTripCircuitBreaker(
+  input: {
+    taskId: string;
+    runId: string;
+    agentId: string;
+    runWindowStart: string;
+    now?: string;
+  },
+  db = getOrchestrationDb(),
+): boolean {
+  const now = input.now ?? new Date().toISOString();
+
+  const task = db
+    .prepare(
+      "SELECT id, status, project_id FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1",
+    )
+    .get(input.taskId) as { id: string; status: string; project_id: string } | undefined;
+  if (!task) return false;
+  if (task.status === "blocked" || task.status === "done" || task.status === "backlog") {
+    // Already at a terminal-ish state for the sweeper — no breaker work to do.
+    return false;
+  }
+
+  const structuralEvents = db
+    .prepare(
+      `SELECT COUNT(*) AS n FROM task_events
+        WHERE task_id = ?
+          AND event_type IN ('task.status_changed', 'task.assigned', 'task.unassigned')
+          AND created_at >= ?`,
+    )
+    .get(task.id, input.runWindowStart) as { n: number };
+
+  if (structuralEvents.n > 0) {
+    db.prepare(
+      `UPDATE tasks SET consecutive_noop_wakes = 0, updated_at = ? WHERE id = ?`,
+    ).run(now, task.id);
+    return false;
+  }
+
+  const updated = db
+    .prepare(
+      `UPDATE tasks
+         SET consecutive_noop_wakes = consecutive_noop_wakes + 1,
+             updated_at = ?
+       WHERE id = ?
+       RETURNING consecutive_noop_wakes`,
+    )
+    .get(now, task.id) as { consecutive_noop_wakes: number } | undefined;
+
+  if (!updated || updated.consecutive_noop_wakes < 3) return false;
+
+  const breakerReason =
+    "Circuit breaker: 3 consecutive wakes with no structural progress " +
+    "(no status change, no reassignment). Agent appears stuck in a no-op " +
+    "loop. Auto-blocked; human review required to unblock.";
+
+  db.prepare(
+    `UPDATE tasks
+       SET status = 'blocked',
+           blocked_reason = ?,
+           consecutive_noop_wakes = 0,
+           updated_at = ?
+     WHERE id = ?`,
+  ).run(breakerReason, now, task.id);
+
+  db.prepare(
+    `INSERT INTO task_events
+      (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 'task.status_changed', ?, 'blocked', ?, ?)`,
+  ).run(
+    randomUUID(),
+    task.project_id,
+    task.id,
+    input.agentId,
+    task.status,
+    JSON.stringify({
+      source: "engine_circuit_breaker",
+      runId: input.runId,
+      consecutive_noop_wakes: 3,
+    }),
+    now,
+  );
+
+  db.prepare(
+    `INSERT INTO comments
+      (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
+     VALUES (?, ?, NULL, ?, 'blocker', 'engine', ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    task.id,
+    "[AWAITING_HUMAN] Circuit breaker tripped: this task received 3 consecutive wakes that produced no structural progress (no status change, no reassignment). The assigned agent appears stuck — either the task is unsolvable by this agent (reassign or hire), the scope is unclear (clarify), or it belongs in backlog/done. Task auto-blocked to stop the loop. Unblock the task to resume.",
+    `engine:circuit_breaker:${input.runId}`,
+    now,
+    now,
+  );
+
+  return true;
+}
+
 /* ── Run Finalization ── */
 
 function finishRun(
@@ -3073,7 +3191,27 @@ function finishRun(
 
           const continuation = decideFinishRunContinuation(postTask.id, runId, status, db);
 
-          if (continuation.shouldContinue && ["in_progress", "review", "on_deck"].includes(continuationStatus)) {
+          // ── Circuit breaker: in-progress-loop detection ───────────────────
+          // Extracted to checkAndTripCircuitBreaker below so contract tests
+          // can exercise it directly. Trip at 3 → flip to blocked, emit
+          // [AWAITING_HUMAN] comment, skip continuation enqueue. Caught
+          // Vane's WEA-258 + Barometer's WEA-237 loops 2026-04-18 evening.
+          const circuitBreakerTripped = checkAndTripCircuitBreaker(
+            {
+              taskId: postTask.id,
+              runId,
+              agentId: run.agent_id,
+              runWindowStart: run.started_at ?? run.created_at,
+              now,
+            },
+            db,
+          );
+
+          if (
+            !circuitBreakerTripped &&
+            continuation.shouldContinue &&
+            ["in_progress", "review", "on_deck"].includes(continuationStatus)
+          ) {
             const continuationReason = continuation.reason ?? `finish_run_continue_${continuationStatus}`;
             enqueueWakeup(
               {
