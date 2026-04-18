@@ -19,6 +19,7 @@ import { AvatarGlyph, avatarIconToken, toAvatarIconToken } from "./AvatarGlyph";
 import { LUCIDE_ICON_OPTIONS } from "./lucide-icons";
 import { clearAvatarDraftCache, readAvatarDraftCache, writeAvatarDraftCache } from "./avatar-draft-storage";
 import { voicesForGender, type VoicePreset } from "./voice-catalog";
+import { listCompanyAgents } from "@/lib/orchestration/client";
 
 /* ── Types ── */
 export type AvatarSource = "icon" | "generated";
@@ -181,6 +182,31 @@ export function AvatarWizard({
   });
   const voiceIdRef = useRef(voiceId);
   const hasOpenedRef = useRef(false);
+
+  // Voice → [agent names] map for the current company, excluding the agent
+  // being edited. Surfaces a hint under each voice card so Tim can see which
+  // voices are already in use and avoid accidental collisions across agents.
+  const [voiceUsage, setVoiceUsage] = useState<Record<string, string[]>>({});
+  useEffect(() => {
+    if (!open || !companySlug) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const agents = await listCompanyAgents(companySlug);
+        if (cancelled) return;
+        const map: Record<string, string[]> = {};
+        for (const a of agents) {
+          if (!a.voiceId) continue;
+          if (a.id === agentId) continue;
+          (map[a.voiceId] ??= []).push(a.name);
+        }
+        setVoiceUsage(map);
+      } catch {
+        // Non-fatal: without the map, the wizard simply omits the hint.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, companySlug, agentId]);
 
   const isCompanyConstrained = avatarMode === "company_theme";
 
@@ -577,6 +603,7 @@ export function AvatarWizard({
               voiceId={voiceId}
               gender={gender}
               onSelect={setVoiceId}
+              voiceUsage={voiceUsage}
             />
           )}
           {step === "preview" && (
@@ -1165,10 +1192,12 @@ function VoiceStep({
   voiceId,
   gender,
   onSelect,
+  voiceUsage,
 }: {
   voiceId: string | null;
   gender: AvatarGender;
   onSelect: (id: string | null) => void;
+  voiceUsage: Record<string, string[]>;
 }) {
   const [playingId, setPlayingId] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -1258,6 +1287,7 @@ function VoiceStep({
             playing={playingId === preset.id}
             onSelect={() => onSelect(preset.id)}
             onPreview={() => playSample(preset)}
+            inUseBy={voiceUsage[preset.id] ?? []}
           />
         ))}
       </div>
@@ -1288,13 +1318,16 @@ function VoiceCard({
   playing,
   onSelect,
   onPreview,
+  inUseBy,
 }: {
   preset: VoicePreset;
   selected: boolean;
   playing: boolean;
   onSelect: () => void;
   onPreview: () => void;
+  inUseBy: string[];
 }) {
+  const usageHint = inUseBy.length > 0 ? `In use by ${inUseBy.join(", ")}` : null;
   return (
     <div
       style={{
@@ -1327,6 +1360,17 @@ function VoiceCard({
         <div style={{ fontSize: 10.5, color: W.textSec, lineHeight: 1.35 }}>
           {preset.descriptor}
         </div>
+        {usageHint && (
+          <div style={{
+            marginTop: 4,
+            fontSize: 10,
+            fontStyle: "italic",
+            color: W.muted,
+            lineHeight: 1.3,
+          }}>
+            {usageHint}
+          </div>
+        )}
       </button>
       <button
         onClick={(e) => { e.stopPropagation(); onPreview(); }}

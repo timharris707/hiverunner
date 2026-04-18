@@ -993,6 +993,14 @@ export async function listCompanyAgents(companySlug: string): Promise<Orchestrat
       lastHeartbeat: a.lastHeartbeat ? String(a.lastHeartbeat) : undefined,
       created: a.created ? String(a.created) : undefined,
       updated: a.updated ? String(a.updated) : undefined,
+      avatarStyleId: a.avatarStyleId ? String(a.avatarStyleId) : undefined,
+      avatarGender: a.avatarGender ? String(a.avatarGender) : undefined,
+      avatarAge: typeof a.avatarAge === "number" ? a.avatarAge : undefined,
+      avatarHairColor: a.avatarHairColor ? String(a.avatarHairColor) : undefined,
+      avatarHairLength: a.avatarHairLength ? String(a.avatarHairLength) : undefined,
+      avatarEyeColor: a.avatarEyeColor ? String(a.avatarEyeColor) : undefined,
+      avatarVibe: a.avatarVibe ? String(a.avatarVibe) : undefined,
+      voiceId: a.voiceId ? String(a.voiceId) : undefined,
     };
   });
 }
