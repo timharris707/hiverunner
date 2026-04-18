@@ -302,6 +302,14 @@ export default function AgentDetailLayout({
             companySlug={slug}
             agentId={agent.id || agentId}
             alternateAgentKey={agentId}
+            initialStyleId={agent.avatarStyleId}
+            initialGender={agent.avatarGender as "male" | "female" | "androgynous" | undefined}
+            initialAge={agent.avatarAge}
+            initialHairColor={agent.avatarHairColor}
+            initialHairLength={agent.avatarHairLength}
+            initialEyeColor={agent.avatarEyeColor}
+            initialVibe={agent.avatarVibe}
+            initialVoiceId={agent.voiceId}
             onSaved={() => { setAvatarWizardOpen(false); void load(); }}
           />
         )}

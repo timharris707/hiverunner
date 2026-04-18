@@ -13,9 +13,14 @@ export async function POST(req: NextRequest) {
       agentRole = "Agent",
       agentEmoji = "🤖",
       agentPersonality = "",
-      styleId = "cyberpunk",
+      styleId = "cyber-organic",
       gender = "androgynous",
       count = 4,
+      age = null,
+      hairColor = null,
+      hairLength = null,
+      eyeColor = null,
+      vibe = null,
     } = body as {
       agentName?: string;
       agentRole?: string;
@@ -24,6 +29,11 @@ export async function POST(req: NextRequest) {
       styleId?: string;
       gender?: string;
       count?: number;
+      age?: number | null;
+      hairColor?: string | null;
+      hairLength?: string | null;
+      eyeColor?: string | null;
+      vibe?: string | null;
     };
 
     const result = await generateAvatarPreviews({
@@ -34,6 +44,11 @@ export async function POST(req: NextRequest) {
       styleId,
       gender,
       count,
+      age,
+      hairColor,
+      hairLength,
+      eyeColor,
+      vibe,
     });
 
     return NextResponse.json(result);

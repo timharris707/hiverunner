@@ -9,14 +9,16 @@ import {
   Check,
   Loader2,
   Palette,
-  User,
   Image as ImageIcon,
   Wand2,
+  Play,
+  Volume2,
 } from "lucide-react";
 import { AVATAR_THEME_PRESETS } from "./avatar-theme-data";
 import { AvatarGlyph, avatarIconToken, toAvatarIconToken } from "./AvatarGlyph";
 import { LUCIDE_ICON_OPTIONS } from "./lucide-icons";
 import { clearAvatarDraftCache, readAvatarDraftCache, writeAvatarDraftCache } from "./avatar-draft-storage";
+import { VOICE_CATALOG, type VoicePreset } from "./voice-catalog";
 
 /* ── Types ── */
 export type AvatarSource = "icon" | "generated";
@@ -33,19 +35,30 @@ interface AvatarWizardProps {
   currentAvatar?: string;
   companySlug: string;
   agentId: string;
-  /** Optional alternate cache key (e.g., route param like slug) for draft migration */
   alternateAgentKey?: string;
   avatarMode?: "company_theme" | "mixed";
   companyThemeName?: string;
   initialStyleId?: string;
   initialGender?: AvatarGender;
+  initialAge?: number;
+  initialHairColor?: string;
+  initialHairLength?: string;
+  initialEyeColor?: string;
+  initialVibe?: string;
+  initialVoiceId?: string;
   autoStart?: boolean;
   pendingSetup?: boolean;
-  /** Called after avatar is saved. */
   onSaved: () => void;
 }
 
-type WizardStep = "source" | "style" | "gender" | "preview";
+type WizardStep = "source" | "identity" | "voice" | "preview";
+const STEP_ORDER: WizardStep[] = ["source", "identity", "voice", "preview"];
+const STEP_LABELS: Record<WizardStep, string> = {
+  source: "Source",
+  identity: "Identity & Style",
+  voice: "Voice",
+  preview: "Preview",
+};
 
 /* ── Color palette ── */
 const W = {
@@ -66,6 +79,43 @@ const W = {
 
 const TARGET_PREVIEW_COUNT = 4;
 
+const HAIR_COLORS = [
+  "Black",
+  "Dark Brown",
+  "Brown",
+  "Light Brown",
+  "Blonde",
+  "Red",
+  "Auburn",
+  "Gray",
+  "White",
+  "Silver",
+  "Pink",
+  "Blue",
+  "Purple",
+  "Green",
+  "Teal",
+];
+const HAIR_LENGTHS = [
+  "Shaved",
+  "Buzz",
+  "Short",
+  "Medium",
+  "Shoulder-length",
+  "Long",
+  "Very long",
+];
+const EYE_COLORS = [
+  "Brown",
+  "Hazel",
+  "Green",
+  "Blue",
+  "Gray",
+  "Amber",
+  "Violet",
+  "Heterochromia",
+];
+
 /* ═══════════════════════════════════════════
    MAIN COMPONENT
    ═══════════════════════════════════════════ */
@@ -84,6 +134,12 @@ export function AvatarWizard({
   companyThemeName,
   initialStyleId,
   initialGender,
+  initialAge,
+  initialHairColor,
+  initialHairLength,
+  initialEyeColor,
+  initialVibe,
+  initialVoiceId,
   autoStart = false,
   pendingSetup = false,
   onSaved,
@@ -91,25 +147,37 @@ export function AvatarWizard({
   const [step, setStep] = useState<WizardStep>("source");
   const [source, setSource] = useState<AvatarSource>("generated");
   const [selectedIcon, setSelectedIcon] = useState<string>(LUCIDE_ICON_OPTIONS[0]?.value ?? "bot");
-  const [styleId, setStyleId] = useState<string>(initialStyleId ?? "cyberpunk");
+  const [styleId, setStyleId] = useState<string>(initialStyleId ?? "cyber-organic");
   const [gender, setGender] = useState<AvatarGender>(initialGender ?? "androgynous");
+  const [age, setAge] = useState<number | null>(initialAge ?? null);
+  const [hairColor, setHairColor] = useState<string | null>(initialHairColor ?? null);
+  const [hairLength, setHairLength] = useState<string | null>(initialHairLength ?? null);
+  const [eyeColor, setEyeColor] = useState<string | null>(initialEyeColor ?? null);
+  const [vibe, setVibe] = useState<string>(initialVibe ?? "");
+  const [voiceId, setVoiceId] = useState<string | null>(initialVoiceId ?? null);
   const [previews, setPreviews] = useState<string[]>([]);
   const [selectedPreview, setSelectedPreview] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [restoredFromCache, setRestoredFromCache] = useState(false);
+  const [, setRestoredFromCache] = useState(false);
   const [providerStatus, setProviderStatus] = useState<{
     provider: string; label: string; aiAvailable: boolean; setupHint?: string;
   } | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const generationRunRef = useRef(0);
-  const styleIdRef = useRef(styleId);
-  const genderRef = useRef(gender);
+  const identityRef = useRef({
+    styleId,
+    gender,
+    age,
+    hairColor,
+    hairLength,
+    eyeColor,
+    vibe,
+  });
 
   const isCompanyConstrained = avatarMode === "company_theme";
 
-  // Filter styles for company_theme mode
   const availableStyles = useMemo((): readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[] }[] => {
     if (!isCompanyConstrained) return AVATAR_THEME_PRESETS;
     const companyMatch = AVATAR_THEME_PRESETS.find(
@@ -122,20 +190,28 @@ export function AvatarWizard({
   }, [isCompanyConstrained, companyThemeName]);
 
   useEffect(() => {
-    styleIdRef.current = styleId;
-  }, [styleId]);
+    identityRef.current = { styleId, gender, age, hairColor, hairLength, eyeColor, vibe };
+  }, [styleId, gender, age, hairColor, hairLength, eyeColor, vibe]);
 
-  useEffect(() => {
-    genderRef.current = gender;
-  }, [gender]);
+  const writeCache = useCallback((nextPreviews: string[]) => {
+    writeAvatarDraftCache(agentId, {
+      styleId,
+      gender,
+      previews: nextPreviews,
+      updatedAt: Date.now(),
+      age,
+      hairColor,
+      hairLength,
+      eyeColor,
+      vibe: vibe || null,
+      voiceId,
+    }, alternateAgentKey);
+  }, [agentId, alternateAgentKey, styleId, gender, age, hairColor, hairLength, eyeColor, vibe, voiceId]);
 
   const generatePreviews = useCallback(async (options?: {
     seedPreviews?: string[];
-    styleIdOverride?: string;
-    genderOverride?: AvatarGender;
   }) => {
-    const nextStyleId = options?.styleIdOverride ?? styleIdRef.current;
-    const nextGender = options?.genderOverride ?? genderRef.current;
+    const snapshot = identityRef.current;
     const seeded = [...(options?.seedPreviews ?? [])].slice(0, TARGET_PREVIEW_COUNT);
     const runId = ++generationRunRef.current;
 
@@ -144,13 +220,7 @@ export function AvatarWizard({
     setError(null);
     setPreviews([...seeded]);
     setSelectedPreview(0);
-
-    writeAvatarDraftCache(agentId, {
-      styleId: nextStyleId,
-      gender: nextGender,
-      previews: seeded,
-      updatedAt: Date.now(),
-    }, alternateAgentKey);
+    writeCache(seeded);
 
     try {
       const nextPreviews = [...seeded];
@@ -163,8 +233,13 @@ export function AvatarWizard({
             agentRole,
             agentEmoji,
             agentPersonality: agentPersonality ?? "",
-            styleId: nextStyleId,
-            gender: nextGender,
+            styleId: snapshot.styleId,
+            gender: snapshot.gender,
+            age: snapshot.age,
+            hairColor: snapshot.hairColor,
+            hairLength: snapshot.hairLength,
+            eyeColor: snapshot.eyeColor,
+            vibe: snapshot.vibe || null,
             count: 1,
           }),
         });
@@ -175,12 +250,7 @@ export function AvatarWizard({
         if (generationRunRef.current !== runId) return;
         nextPreviews.push(preview);
         setPreviews([...nextPreviews]);
-        writeAvatarDraftCache(agentId, {
-          styleId: nextStyleId,
-          gender: nextGender,
-          previews: [...nextPreviews],
-          updatedAt: Date.now(),
-        });
+        writeCache([...nextPreviews]);
       }
     } catch (err) {
       if (generationRunRef.current !== runId) return;
@@ -190,15 +260,14 @@ export function AvatarWizard({
         setGenerating(false);
       }
     }
-  }, [agentEmoji, agentId, agentName, agentPersonality, agentRole]);
+  }, [agentEmoji, agentName, agentPersonality, agentRole, writeCache]);
 
-  // Reset state + fetch provider status when opened
   useEffect(() => {
     if (!open) return;
 
     const cached = readAvatarDraftCache(agentId, alternateAgentKey);
     const nextIcon = avatarIconToken(agentEmoji) ?? LUCIDE_ICON_OPTIONS[0]?.value ?? "bot";
-    const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyberpunk";
+    const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyber-organic";
     const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];
     const cacheComplete = cachedPreviews.length >= TARGET_PREVIEW_COUNT;
@@ -207,26 +276,26 @@ export function AvatarWizard({
     setSelectedIcon(nextIcon);
     setStyleId(nextStyleId);
     setGender(nextGender);
+    setAge(initialAge ?? cached?.age ?? null);
+    setHairColor(initialHairColor ?? cached?.hairColor ?? null);
+    setHairLength(initialHairLength ?? cached?.hairLength ?? null);
+    setEyeColor(initialEyeColor ?? cached?.eyeColor ?? null);
+    setVibe(initialVibe ?? cached?.vibe ?? "");
+    setVoiceId(initialVoiceId ?? cached?.voiceId ?? null);
     setGenerating(false);
     setSaving(false);
     setError(null);
 
     if (cacheComplete) {
-      // All previews already cached — skip generation entirely
       setPreviews(cachedPreviews);
       setSelectedPreview(0);
       setStep("preview");
       setRestoredFromCache(true);
     } else if (cachedPreviews.length > 0 || autoStart || pendingSetup) {
-      // Partial cache or auto-start — resume generation with seeds
       setPreviews(cachedPreviews);
       setSelectedPreview(0);
       setRestoredFromCache(false);
-      void generatePreviews({
-        seedPreviews: cachedPreviews,
-        styleIdOverride: nextStyleId,
-        genderOverride: nextGender,
-      });
+      void generatePreviews({ seedPreviews: cachedPreviews });
     } else {
       setPreviews([]);
       setSelectedPreview(0);
@@ -238,14 +307,13 @@ export function AvatarWizard({
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setProviderStatus(data); })
       .catch(() => {});
-  }, [open, agentId, autoStart, generatePreviews, initialGender, initialStyleId, pendingSetup]);
+  }, [open, agentId, autoStart, generatePreviews, initialGender, initialStyleId, initialAge, initialHairColor, initialHairLength, initialEyeColor, initialVibe, initialVoiceId, pendingSetup, agentEmoji, alternateAgentKey]);
 
-  // Do NOT close on Escape for this wizard — avoid accidental loss of work
+  // Swallow Escape so in-progress work isn't lost
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // swallow Escape, do nothing
         e.preventDefault();
         e.stopPropagation();
       }
@@ -254,25 +322,24 @@ export function AvatarWizard({
     return () => window.removeEventListener("keydown", handler);
   }, [open]);
 
-  // Apply selected avatar
   const applyAvatar = useCallback(async () => {
     setSaving(true);
     setError(null);
     try {
-      let payload: {
-        avatarUrl: string | null;
-        avatarStyleId: string;
-        avatarGender: AvatarGender;
-        avatarSetupPending: boolean;
-        emoji?: string;
-      } = {
-        avatarUrl: null,
+      const payload: Record<string, unknown> = {
         avatarStyleId: styleId,
         avatarGender: gender,
+        avatarAge: age,
+        avatarHairColor: hairColor,
+        avatarHairLength: hairLength,
+        avatarEyeColor: eyeColor,
+        avatarVibe: vibe || null,
+        voiceId,
         avatarSetupPending: false,
       };
 
       if (source === "icon") {
+        payload.avatarUrl = null;
         payload.emoji = toAvatarIconToken(selectedIcon);
       } else {
         const selected = previews[selectedPreview];
@@ -298,39 +365,37 @@ export function AvatarWizard({
     } finally {
       setSaving(false);
     }
-  }, [agentId, companySlug, gender, onClose, onSaved, previews, selectedIcon, selectedPreview, source, styleId]);
+  }, [agentId, age, companySlug, eyeColor, gender, hairColor, hairLength, onClose, onSaved, previews, selectedIcon, selectedPreview, source, styleId, vibe, voiceId]);
 
-  // Navigation
   const goNext = () => {
     if (step === "source") {
       if (source === "icon") {
         void applyAvatar();
         return;
       }
-      setStep("style");
-    } else if (step === "style") {
-      setStep("gender");
-    } else if (step === "gender") {
+      setStep("identity");
+    } else if (step === "identity") {
+      setStep("voice");
+    } else if (step === "voice") {
       setStep("preview");
       void generatePreviews({ seedPreviews: [] });
     }
   };
 
   const goBack = () => {
-    if (step === "style") setStep("source");
-    else if (step === "gender") setStep("style");
-    else if (step === "preview") setStep("gender");
+    if (step === "identity") setStep("source");
+    else if (step === "voice") setStep("identity");
+    else if (step === "preview") setStep("voice");
   };
 
   if (!open) return null;
 
-  const stepIndex = ["source", "style", "gender", "preview"].indexOf(step);
+  const stepIndex = STEP_ORDER.indexOf(step);
 
   return (
     <div
       ref={backdropRef}
-      // Prevent accidental close on backdrop clicks for this wizard
-      onClick={(e) => { /* no-op to avoid losing work */ }}
+      onClick={() => { /* swallow backdrop clicks — don't lose work */ }}
       style={{
         position: "fixed",
         inset: 0,
@@ -343,11 +408,10 @@ export function AvatarWizard({
       }}
     >
       <div
-        // Stop propagation so clicks inside modal don't reach the backdrop
         onClick={(e) => e.stopPropagation()}
         style={{
-          width: 520,
-          maxHeight: "85vh",
+          width: 640,
+          maxHeight: "88vh",
           borderRadius: 16,
           background: W.bg,
           border: `1px solid ${W.border}`,
@@ -357,7 +421,7 @@ export function AvatarWizard({
           flexDirection: "column",
         }}
       >
-        {/* ── Header ── */}
+        {/* Header */}
         <div
           style={{
             display: "flex",
@@ -391,42 +455,45 @@ export function AvatarWizard({
           </button>
         </div>
 
-        {/* ── Progress dots ── */}
+        {/* Progress */}
         <div style={{ display: "flex", gap: 6, padding: "12px 20px 8px", alignItems: "center" }}>
-          {["Source", "Style", "Gender", "Preview"].map((label, i) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <div
-                style={{
-                  width: 8,
-                  height: 8,
-                  borderRadius: "50%",
-                  background: i <= stepIndex ? W.accent : W.muted,
-                  transition: "background 0.2s",
-                }}
-              />
-              <span
-                style={{
-                  fontSize: 10,
-                  color: i === stepIndex ? W.text : W.muted,
-                  fontWeight: i === stepIndex ? 600 : 400,
-                }}
-              >
-                {label}
-              </span>
-              {i < 3 && (
+          {STEP_ORDER.map((key, i) => {
+            const label = STEP_LABELS[key];
+            return (
+              <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div
                   style={{
-                    width: 20,
-                    height: 1,
-                    background: i < stepIndex ? W.accent : W.border,
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: i <= stepIndex ? W.accent : W.muted,
+                    transition: "background 0.2s",
                   }}
                 />
-              )}
-            </div>
-          ))}
+                <span
+                  style={{
+                    fontSize: 10,
+                    color: i === stepIndex ? W.text : W.muted,
+                    fontWeight: i === stepIndex ? 600 : 400,
+                  }}
+                >
+                  {label}
+                </span>
+                {i < STEP_ORDER.length - 1 && (
+                  <div
+                    style={{
+                      width: 20,
+                      height: 1,
+                      background: i < stepIndex ? W.accent : W.border,
+                    }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        {/* ── Content ── */}
+        {/* Content */}
         <div style={{ flex: 1, overflowY: "auto", padding: "12px 20px 20px" }}>
           {step === "source" && (
             <SourceStep
@@ -440,16 +507,31 @@ export function AvatarWizard({
               pendingSetup={pendingSetup}
             />
           )}
-          {step === "style" && (
-            <StyleStep
+          {step === "identity" && (
+            <IdentityAndStyleStep
               styles={availableStyles}
-              selected={styleId}
-              onSelect={setStyleId}
+              styleId={styleId}
+              onStyleSelect={setStyleId}
+              gender={gender}
+              onGenderSelect={setGender}
+              age={age}
+              onAgeChange={setAge}
+              hairColor={hairColor}
+              onHairColorChange={setHairColor}
+              hairLength={hairLength}
+              onHairLengthChange={setHairLength}
+              eyeColor={eyeColor}
+              onEyeColorChange={setEyeColor}
+              vibe={vibe}
+              onVibeChange={setVibe}
               isConstrained={isCompanyConstrained}
             />
           )}
-          {step === "gender" && (
-            <GenderStep selected={gender} onSelect={setGender} />
+          {step === "voice" && (
+            <VoiceStep
+              voiceId={voiceId}
+              onSelect={setVoiceId}
+            />
           )}
           {step === "preview" && (
             <PreviewStep
@@ -466,7 +548,6 @@ export function AvatarWizard({
           )}
         </div>
 
-        {/* ── Error ── */}
         {error && (
           <div
             style={{
@@ -483,7 +564,7 @@ export function AvatarWizard({
           </div>
         )}
 
-        {/* ── Footer ── */}
+        {/* Footer */}
         <div
           style={{
             display: "flex",
@@ -570,7 +651,7 @@ function SourceStep({
       <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 14px" }}>
         {pendingSetup
           ? "Portrait setup was started during agent creation. You can continue from the saved settings or switch back to the classic icon."
-          : "Choose how this agent&apos;s avatar should look."}
+          : "Choose how this agent's avatar should look."}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <SourceCard
@@ -581,18 +662,18 @@ function SourceStep({
               <AvatarGlyph value={sourceIconValue} size={28} fallback={agentEmoji || "🤖"} color={W.text} />
             </span>
           }
-          title="Basic icon."
-          description="Choose from available Lucide icons."
+          title="Basic icon"
+          description="Quick option — pick a Lucide glyph. No portrait generation."
         />
         <SourceCard
           selected={source === "generated"}
           onClick={() => onSelect("generated")}
           icon={<Sparkles size={28} style={{ color: W.textSec }} />}
-          title={aiAvailable ? "AI-Generated Avatar" : "Styled Avatar"}
+          title={aiAvailable ? "Generated portrait" : "Styled portrait"}
           description={
             aiAvailable
-              ? `Generate a unique portrait via ${providerStatus?.label ?? "AI"}. Choose style and gender.`
-              : "Generate a styled SVG portrait. Choose a visual style and gender."
+              ? `Customize gender, style, age, hair, eyes, and vibe — ${providerStatus?.label ?? "AI"} generates a unique portrait.`
+              : "Generate a styled SVG portrait from a customizable brief."
           }
         />
       </div>
@@ -746,167 +827,461 @@ function SourceCard({
 }
 
 /* ═══════════════════════════════════════════
-   STEP: Style
+   STEP: Identity & Style (combined)
    ═══════════════════════════════════════════ */
-function StyleStep({
+function IdentityAndStyleStep({
   styles,
-  selected,
-  onSelect,
+  styleId,
+  onStyleSelect,
+  gender,
+  onGenderSelect,
+  age,
+  onAgeChange,
+  hairColor,
+  onHairColorChange,
+  hairLength,
+  onHairLengthChange,
+  eyeColor,
+  onEyeColorChange,
+  vibe,
+  onVibeChange,
   isConstrained,
 }: {
   styles: readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[] }[];
-  selected: string;
-  onSelect: (id: string) => void;
+  styleId: string;
+  onStyleSelect: (id: string) => void;
+  gender: AvatarGender;
+  onGenderSelect: (g: AvatarGender) => void;
+  age: number | null;
+  onAgeChange: (v: number | null) => void;
+  hairColor: string | null;
+  onHairColorChange: (v: string | null) => void;
+  hairLength: string | null;
+  onHairLengthChange: (v: string | null) => void;
+  eyeColor: string | null;
+  onEyeColorChange: (v: string | null) => void;
+  vibe: string;
+  onVibeChange: (v: string) => void;
   isConstrained: boolean;
 }) {
   return (
-    <div>
-      <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 4px" }}>
-        Select a visual style for the avatar.
-      </p>
-      {isConstrained && (
-        <p style={{ fontSize: 11, color: W.textSec, margin: "0 0 12px" }}>
-          <Palette size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
-          Company is in cohesive theme mode — styles are limited for visual consistency.
-        </p>
-      )}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 8,
-        }}
-      >
-        {styles.map((preset) => (
-          <button
-            key={preset.id}
-            onClick={() => onSelect(preset.id)}
-            style={{
-              padding: "12px 14px",
-              borderRadius: 10,
-              border: `1.5px solid ${selected === preset.id ? W.accentBorder : W.border}`,
-              background: selected === preset.id ? W.accentDim : W.card,
-              cursor: "pointer",
-              textAlign: "left",
-              transition: "border-color 0.15s, background 0.15s",
-            }}
-          >
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-              <span style={{ fontSize: 16 }}>{preset.emoji}</span>
-              <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>
-                {preset.name}
+    <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      {/* Gender */}
+      <Section title="Gender" subtitle="Required — shapes the portrait silhouette.">
+        <div style={{ display: "flex", gap: 6 }}>
+          {(["female", "male", "androgynous"] as AvatarGender[]).map((g) => (
+            <SegBtn
+              key={g}
+              selected={gender === g}
+              onClick={() => onGenderSelect(g)}
+              label={g === "androgynous" ? "Androgynous" : g.charAt(0).toUpperCase() + g.slice(1)}
+            />
+          ))}
+        </div>
+      </Section>
+
+      {/* Optional knobs */}
+      <Section title="Appearance details" subtitle="Optional — leave blank to let the model choose.">
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <KnobField label="Age">
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <input
+                type="range"
+                min={18}
+                max={80}
+                value={age ?? 35}
+                onChange={(e) => onAgeChange(Number(e.target.value))}
+                style={{ flex: 1, accentColor: W.accent }}
+                disabled={age === null}
+              />
+              <span style={{ fontSize: 11, color: W.textSec, minWidth: 28, textAlign: "right" }}>
+                {age ?? "—"}
               </span>
-              {selected === preset.id && (
-                <Check size={13} style={{ color: W.accent, marginLeft: "auto" }} />
-              )}
             </div>
-            <div style={{ fontSize: 11, color: W.textSec, lineHeight: 1.3 }}>
-              {preset.description}
+            <div style={{ marginTop: 4 }}>
+              <SmallToggle
+                enabled={age !== null}
+                onToggle={() => onAgeChange(age === null ? 35 : null)}
+                onLabel="Age set"
+                offLabel="Any age"
+              />
             </div>
-            <div style={{ display: "flex", gap: 4, marginTop: 6, flexWrap: "wrap" }}>
-              {preset.keywords.slice(0, 3).map((kw) => (
-                <span
-                  key={kw}
-                  style={{
-                    fontSize: 9,
-                    padding: "1px 6px",
-                    borderRadius: 4,
-                    background: "rgba(255,255,255,0.04)",
-                    color: W.muted,
-                    border: `1px solid rgba(255,255,255,0.05)`,
-                  }}
-                >
-                  {kw}
+          </KnobField>
+          <KnobField label="Hair color">
+            <SelectBox value={hairColor} options={HAIR_COLORS} onChange={onHairColorChange} placeholder="Any" />
+          </KnobField>
+          <KnobField label="Hair length">
+            <SelectBox value={hairLength} options={HAIR_LENGTHS} onChange={onHairLengthChange} placeholder="Any" />
+          </KnobField>
+          <KnobField label="Eye color">
+            <SelectBox value={eyeColor} options={EYE_COLORS} onChange={onEyeColorChange} placeholder="Any" />
+          </KnobField>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <KnobField label="Vibe (free-form)">
+            <textarea
+              value={vibe}
+              onChange={(e) => onVibeChange(e.target.value.slice(0, 140))}
+              placeholder="e.g. confident, curious, slightly mischievous"
+              rows={2}
+              style={{
+                width: "100%",
+                resize: "vertical",
+                background: "rgba(255,255,255,0.04)",
+                border: `1px solid ${W.border}`,
+                borderRadius: 8,
+                padding: "8px 10px",
+                color: W.text,
+                fontSize: 12,
+                fontFamily: "inherit",
+              }}
+            />
+            <div style={{ fontSize: 10, color: W.muted, marginTop: 2, textAlign: "right" }}>
+              {vibe.length}/140
+            </div>
+          </KnobField>
+        </div>
+      </Section>
+
+      {/* Style grid */}
+      <Section title="Visual style" subtitle="Required — frames the whole portrait.">
+        {isConstrained && (
+          <p style={{ fontSize: 11, color: W.textSec, margin: "0 0 8px" }}>
+            <Palette size={11} style={{ verticalAlign: "-1px", marginRight: 4 }} />
+            Company is in cohesive theme mode — styles are limited.
+          </p>
+        )}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 8,
+          }}
+        >
+          {styles.map((preset) => (
+            <button
+              key={preset.id}
+              onClick={() => onStyleSelect(preset.id)}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: `1.5px solid ${styleId === preset.id ? W.accentBorder : W.border}`,
+                background: styleId === preset.id ? W.accentDim : W.card,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "border-color 0.15s, background 0.15s",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+                <span style={{ fontSize: 15 }}>{preset.emoji}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>
+                  {preset.name}
                 </span>
-              ))}
-            </div>
-          </button>
-        ))}
+                {styleId === preset.id && (
+                  <Check size={12} style={{ color: W.accent, marginLeft: "auto" }} />
+                )}
+              </div>
+              <div style={{ fontSize: 10.5, color: W.textSec, lineHeight: 1.3 }}>
+                {preset.description}
+              </div>
+            </button>
+          ))}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+function Section({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ marginBottom: 6 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: W.text }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 10.5, color: W.muted, marginTop: 1 }}>{subtitle}</div>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function KnobField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10.5, color: W.textSec, marginBottom: 4 }}>{label}</div>
+      {children}
+    </div>
+  );
+}
+
+function SegBtn({ selected, onClick, label }: { selected: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        flex: 1,
+        padding: "8px 10px",
+        borderRadius: 8,
+        border: `1px solid ${selected ? W.accentBorder : W.border}`,
+        background: selected ? W.accentDim : "rgba(255,255,255,0.03)",
+        color: selected ? W.text : W.textSec,
+        fontSize: 12,
+        fontWeight: selected ? 600 : 500,
+        cursor: "pointer",
+        transition: "all 0.15s",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function SmallToggle({
+  enabled,
+  onToggle,
+  onLabel,
+  offLabel,
+}: {
+  enabled: boolean;
+  onToggle: () => void;
+  onLabel: string;
+  offLabel: string;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      style={{
+        fontSize: 10,
+        padding: "3px 8px",
+        borderRadius: 10,
+        border: `1px solid ${enabled ? W.accentBorder : W.border}`,
+        background: enabled ? W.accentDim : "transparent",
+        color: enabled ? W.text : W.muted,
+        cursor: "pointer",
+      }}
+    >
+      {enabled ? onLabel : offLabel}
+    </button>
+  );
+}
+
+function SelectBox({
+  value,
+  options,
+  onChange,
+  placeholder,
+}: {
+  value: string | null;
+  options: readonly string[];
+  onChange: (v: string | null) => void;
+  placeholder: string;
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(e) => onChange(e.target.value === "" ? null : e.target.value)}
+      style={{
+        width: "100%",
+        background: "rgba(255,255,255,0.04)",
+        border: `1px solid ${W.border}`,
+        borderRadius: 8,
+        padding: "7px 10px",
+        color: value ? W.text : W.muted,
+        fontSize: 12,
+        cursor: "pointer",
+      }}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((opt) => (
+        <option key={opt} value={opt}>
+          {opt}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/* ═══════════════════════════════════════════
+   STEP: Voice
+   ═══════════════════════════════════════════ */
+function VoiceStep({
+  voiceId,
+  onSelect,
+}: {
+  voiceId: string | null;
+  onSelect: (id: string | null) => void;
+}) {
+  const [playingId, setPlayingId] = useState<string | null>(null);
+
+  const playSample = useCallback((preset: VoicePreset) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    try {
+      window.speechSynthesis.cancel();
+    } catch {
+      /* ignore */
+    }
+    const utter = new SpeechSynthesisUtterance(preset.sampleLine);
+    // Best-effort match: try to pick an OS voice whose perceived gender matches.
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      const preferLang = voices.filter((v) => v.lang?.startsWith("en"));
+      const pool = preferLang.length > 0 ? preferLang : voices;
+      const pick = pool[Math.abs(hashString(preset.id)) % pool.length];
+      if (pick) utter.voice = pick;
+    }
+    utter.rate = 1.0;
+    utter.pitch = preset.perceivedGender === "male" ? 0.92 : preset.perceivedGender === "female" ? 1.08 : 1.0;
+    utter.onstart = () => setPlayingId(preset.id);
+    utter.onend = () => setPlayingId((current) => (current === preset.id ? null : current));
+    utter.onerror = () => setPlayingId((current) => (current === preset.id ? null : current));
+    window.speechSynthesis.speak(utter);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      try {
+        window.speechSynthesis?.cancel();
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
+  const groups = useMemo(() => {
+    return {
+      female: VOICE_CATALOG.filter((v) => v.perceivedGender === "female"),
+      male: VOICE_CATALOG.filter((v) => v.perceivedGender === "male"),
+      androgynous: VOICE_CATALOG.filter((v) => v.perceivedGender === "androgynous"),
+    };
+  }, []);
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 6px" }}>
+        Pick a voice for this agent. Used when you talk to them from a task.
+      </p>
+      <p style={{ fontSize: 10.5, color: W.muted, margin: "0 0 14px" }}>
+        Preview uses your browser&apos;s TTS as an approximation. The actual runtime voice is rendered by Gemini Live at session time.
+      </p>
+
+      {([
+        { label: "Feminine", voices: groups.female },
+        { label: "Masculine", voices: groups.male },
+        { label: "Androgynous", voices: groups.androgynous },
+      ] as const).map((group) => (
+        <div key={group.label} style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10.5, color: W.textSec, fontWeight: 600, marginBottom: 6, textTransform: "uppercase", letterSpacing: 0.4 }}>
+            {group.label}
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            {group.voices.map((preset) => (
+              <VoiceCard
+                key={preset.id}
+                preset={preset}
+                selected={voiceId === preset.id}
+                playing={playingId === preset.id}
+                onSelect={() => onSelect(preset.id)}
+                onPreview={() => playSample(preset)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+
+      <div style={{ marginTop: 4, display: "flex", justifyContent: "center" }}>
+        <button
+          onClick={() => onSelect(null)}
+          style={{
+            background: "transparent",
+            border: `1px dashed ${W.border}`,
+            borderRadius: 8,
+            padding: "6px 14px",
+            color: W.muted,
+            fontSize: 11,
+            cursor: "pointer",
+          }}
+        >
+          {voiceId === null ? "No voice selected" : "Clear voice selection"}
+        </button>
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════
-   STEP: Gender
-   ═══════════════════════════════════════════ */
-function GenderStep({
+function VoiceCard({
+  preset,
   selected,
+  playing,
   onSelect,
+  onPreview,
 }: {
-  selected: AvatarGender;
-  onSelect: (g: AvatarGender) => void;
+  preset: VoicePreset;
+  selected: boolean;
+  playing: boolean;
+  onSelect: () => void;
+  onPreview: () => void;
 }) {
-  const options: { id: AvatarGender; label: string; icon: React.ReactNode; desc: string }[] = [
-    {
-      id: "male",
-      label: "Male",
-      icon: <User size={22} style={{ color: W.textSec }} />,
-      desc: "Masculine features and presentation",
-    },
-    {
-      id: "female",
-      label: "Female",
-      icon: <User size={22} style={{ color: W.textSec }} />,
-      desc: "Feminine features and presentation",
-    },
-    {
-      id: "androgynous",
-      label: "Abstract / Androgynous",
-      icon: <Sparkles size={22} style={{ color: W.textSec }} />,
-      desc: "Gender-neutral or abstract entity appearance",
-    },
-  ];
-
   return (
-    <div>
-      <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 14px" }}>
-        Choose the avatar&apos;s appearance style.
-      </p>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {options.map((opt) => (
-          <button
-            key={opt.id}
-            onClick={() => onSelect(opt.id)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 14,
-              padding: "12px 16px",
-              borderRadius: 10,
-              border: `1.5px solid ${selected === opt.id ? W.accentBorder : W.border}`,
-              background: selected === opt.id ? W.accentDim : W.card,
-              cursor: "pointer",
-              textAlign: "left",
-              transition: "border-color 0.15s, background 0.15s",
-            }}
-          >
-            <div
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 10,
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                background: "rgba(255,255,255,0.04)",
-                flexShrink: 0,
-              }}
-            >
-              {opt.icon}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 13, fontWeight: 600, color: W.text }}>{opt.label}</div>
-              <div style={{ fontSize: 11, color: W.textSec }}>{opt.desc}</div>
-            </div>
-            {selected === opt.id && (
-              <Check size={16} style={{ color: W.accent, flexShrink: 0 }} />
-            )}
-          </button>
-        ))}
-      </div>
+    <div
+      style={{
+        position: "relative",
+        borderRadius: 10,
+        border: `1.5px solid ${selected ? W.accentBorder : W.border}`,
+        background: selected ? W.accentDim : W.card,
+        padding: "10px 12px",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+    >
+      <button
+        onClick={onSelect}
+        style={{
+          display: "block",
+          width: "100%",
+          textAlign: "left",
+          background: "none",
+          border: "none",
+          color: "inherit",
+          padding: 0,
+          cursor: "pointer",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
+          <Volume2 size={13} style={{ color: selected ? W.accent : W.textSec }} />
+          <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>{preset.name}</span>
+          {selected && <Check size={12} style={{ color: W.accent, marginLeft: "auto" }} />}
+        </div>
+        <div style={{ fontSize: 10.5, color: W.textSec, lineHeight: 1.35 }}>
+          {preset.descriptor}
+        </div>
+      </button>
+      <button
+        onClick={(e) => { e.stopPropagation(); onPreview(); }}
+        style={{
+          marginTop: 8,
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 4,
+          fontSize: 10.5,
+          padding: "4px 10px",
+          borderRadius: 12,
+          background: playing ? W.accentDim : "rgba(255,255,255,0.04)",
+          border: `1px solid ${playing ? W.accentBorder : W.border}`,
+          color: playing ? W.text : W.textSec,
+          cursor: "pointer",
+        }}
+      >
+        {playing ? <Loader2 size={10} style={{ animation: "spin 1.1s linear infinite" }} /> : <Play size={10} />}
+        {playing ? "Playing…" : "Preview"}
+      </button>
     </div>
   );
+}
+
+function hashString(value: string): number {
+  let h = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    h = (h * 31 + value.charCodeAt(i)) | 0;
+  }
+  return h;
 }
 
 /* ═══════════════════════════════════════════

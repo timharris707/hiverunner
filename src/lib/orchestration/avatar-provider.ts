@@ -77,6 +77,11 @@ export interface AvatarGenerationInput {
   styleId: string;
   gender: string;
   count: number;
+  age?: number | null;
+  hairColor?: string | null;
+  hairLength?: string | null;
+  eyeColor?: string | null;
+  vibe?: string | null;
 }
 
 export interface AvatarGenerationResult {
@@ -115,17 +120,17 @@ const STYLE_PALETTES: Record<
   string,
   { bg: [string, string]; orb: string; fg: string; accent: string }
 > = {
+  "cyber-organic": {
+    bg: ["#0a1a1a", "#083838"],
+    orb: "#2dd4bf",
+    fg: "#5eead4",
+    accent: "#fbbf24",
+  },
   cyberpunk: {
     bg: ["#0f172a", "#1e1b4b"],
     orb: "#06b6d4",
     fg: "#22d3ee",
     accent: "#a78bfa",
-  },
-  "pixel-art": {
-    bg: ["#1a2e05", "#365314"],
-    orb: "#84cc16",
-    fg: "#a3e635",
-    accent: "#fbbf24",
   },
   "sci-fi-crew": {
     bg: ["#0c1527", "#1e293b"],
@@ -138,18 +143,6 @@ const STYLE_PALETTES: Record<
     orb: "#f59e0b",
     fg: "#fbbf24",
     accent: "#ef4444",
-  },
-  steampunk: {
-    bg: ["#27180e", "#44270e"],
-    orb: "#d97706",
-    fg: "#f59e0b",
-    accent: "#a16207",
-  },
-  "corporate-noir": {
-    bg: ["#0c0a09", "#1c1917"],
-    orb: "#6b7280",
-    fg: "#d1d5db",
-    accent: "#9ca3af",
   },
   watercolor: {
     bg: ["#1e1338", "#312e81"],
@@ -303,15 +296,20 @@ function generateSingleAvatarSvg(input: {
 
 function buildOpenAiPrompt(input: AvatarGenerationInput): string {
   const stylePrompts: Record<string, string> = {
-    cyberpunk: "close-up cinematic cyberpunk portrait, neon rim lighting, futuristic details, premium sci-fi headshot",
-    "pixel-art": "stylized pixel-art inspired portrait, clean retro-game character design, charming but polished, head-and-shoulders framing",
-    "sci-fi-crew": "sleek science-fiction crew portrait, cinematic starship officer vibe, premium concept art, head-and-shoulders framing",
-    "fantasy-guild": "fantasy guild character portrait, rich costume details, painterly concept art, heroic headshot",
-    steampunk: "steampunk portrait, brass and leather details, Victorian-futurist style, premium character concept art",
-    "corporate-noir": "premium noir corporate portrait, elegant dark wardrobe, subtle cinematic lighting, high-end headshot",
-    watercolor: "soft watercolor portrait, artistic brush textures, tasteful illustrative style, head-and-shoulders framing",
-    "anime-studio": "premium anime studio character portrait, expressive polished face, detailed hair and lighting, cinematic key art",
-    "minimal-steel": "minimal monochrome portrait, refined editorial lighting, premium grayscale aesthetic, head-and-shoulders framing",
+    "cyber-organic":
+      "augmented-human cyber-organic portrait: photorealistic face blended with subtle glowing circuitry traced along temples, cheekbones, and jawline; luminescent iridescent irises; exposed cybernetic plating at the neck or collarbone; casual hoodie wardrobe; saturated monochromatic backdrop (teal, green, or amber) that matches the character's accent color; premium cinematic head-and-shoulders framing with soft rim lighting",
+    cyberpunk:
+      "neon-lit cyberpunk street portrait: rain-slick surfaces, distant kanji and holographic signage as bokeh, vibrant magenta/cyan rim lighting carving the face from the dark, slightly angular crop, head-and-shoulders framing, premium cinematic tone",
+    "sci-fi-crew":
+      "polished starship crew portrait: crisp uniform with subtle holographic insignia, clean studio lighting, dark ship-interior backdrop with muted blue accents, composed and confident expression, head-and-shoulders framing, premium concept-art finish",
+    "fantasy-guild":
+      "painterly fantasy guild portrait: worn leather and embroidered robes, weathered yet heroic expression, warm hearth-lit backdrop with amber glow, brush-stroke texture visible, head-and-shoulders framing in the style of premium illustrated RPG character art",
+    "anime-studio":
+      "premium anime studio key-art portrait: expressive large eyes with bright catchlights, dynamic stylized hair, crisp line art with cel-shaded soft lighting, head-and-shoulders framing on a saturated gradient backdrop, cinematic composition",
+    watercolor:
+      "soft watercolor portrait: visible brush textures and paper grain, muted pastel palette with tasteful color bleeds along edges, gentle editorial lighting, head-and-shoulders framing on a cream background, feels hand-painted",
+    "minimal-steel":
+      "editorial black-and-white studio portrait: high-contrast grayscale with controlled highlights, clean modern wardrobe, simple charcoal backdrop, crisp head-and-shoulders framing, feels like a premium magazine cover",
   };
 
   const genderText =
@@ -319,17 +317,33 @@ function buildOpenAiPrompt(input: AvatarGenerationInput): string {
       ? "androgynous or gender-neutral"
       : input.gender;
 
-  const stylePrompt = stylePrompts[input.styleId] ?? stylePrompts["corporate-noir"];
+  const stylePrompt = stylePrompts[input.styleId] ?? stylePrompts["cyber-organic"];
+
+  const ageFragment =
+    typeof input.age === "number" && Number.isFinite(input.age)
+      ? `, appearing roughly ${Math.round(input.age)} years old`
+      : "";
+
+  const hairBits: string[] = [];
+  if (input.hairColor?.trim()) hairBits.push(input.hairColor.trim());
+  if (input.hairLength?.trim()) hairBits.push(input.hairLength.trim());
+  const hairFragment = hairBits.length > 0 ? `Hair: ${hairBits.join(" ")}.` : "";
+
+  const eyeFragment = input.eyeColor?.trim() ? `Eyes: ${input.eyeColor.trim()}.` : "";
+  const vibeFragment = input.vibe?.trim() ? `Character vibe: ${input.vibe.trim()}.` : "";
 
   return [
     `Create a single square avatar portrait for an AI agent named ${input.agentName}.`,
-    `The character should feel like a ${genderText} ${input.agentRole}.`,
+    `The character should feel like a ${genderText} ${input.agentRole}${ageFragment}.`,
     stylePrompt,
+    hairFragment,
+    eyeFragment,
+    vibeFragment,
     "This must be a true portrait image, not an icon, glyph, logo, flat SVG, mascot badge, or abstract placeholder.",
     "Show head-and-shoulders only. Strong face visibility. Professional composition for a profile picture.",
-    "Dark, premium background with tasteful contrast. Keep the subject centered and readable at small sizes.",
+    "Keep the subject centered and readable at small sizes.",
     "No text, no labels, no HUD overlays, no letters, no watermark, no UI chrome.",
-    input.agentPersonality ? `Subtle personality cues: ${input.agentPersonality}.` : "",
+    input.agentPersonality ? `Additional personality cues: ${input.agentPersonality}.` : "",
   ]
     .filter(Boolean)
     .join(" ");
