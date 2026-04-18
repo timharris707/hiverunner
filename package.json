@@ -20,6 +20,7 @@
     "test:build-state": "node --import ./scripts/register-ts-paths.mjs src/lib/__tests__/build-state-terminal-transitions.test.ts",
     "test:orchestration:bridge": "ORCHESTRATION_DB_PATH=/tmp/orchestration-bridge-error-handling.db npx tsx src/lib/__tests__/orchestration-bridge-error-handling.test.ts",
     "test:orchestration:fire-agent": "ORCHESTRATION_DB_PATH=/tmp/orchestration-fire-agent.db npx tsx src/lib/__tests__/orchestration-fire-company-agent.test.ts",
+    "test:orchestration:agent-identity": "ORCHESTRATION_DB_PATH=/tmp/orchestration-agent-identity.db npx tsx src/lib/__tests__/orchestration-agent-identity-voice.test.ts",
     "test:orchestration:agent-creation-wiring": "ORCHESTRATION_DB_PATH=/tmp/orchestration-agent-creation-wiring.db npx tsx src/lib/__tests__/orchestration-agent-creation-wiring.test.ts",
     "test:orchestration:company-creation-wiring": "sh -c 'MC_WORKSPACE_ROOT=\"/tmp/mc-company-wiring-$$\" ORCHESTRATION_DB_PATH=\"/tmp/orchestration-company-creation-wiring-$$.db\" npx tsx src/lib/__tests__/orchestration-company-creation-wiring.test.ts'",
     "test:orchestration:provisioning-scaffold": "sh -c 'ORCHESTRATION_DB_PATH=\"/tmp/orchestration-provisioning-scaffold-$$.db\" npx tsx src/lib/__tests__/orchestration-provisioning-openclaw-scaffold.test.ts'",

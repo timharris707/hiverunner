@@ -97,7 +97,35 @@ export async function PATCH(
       db.prepare("UPDATE agents SET personality = ?, updated_at = ? WHERE id = ?").run(body.personality, now, agent.id);
     }
 
-    // Ignore ancillary avatar wizard fields (styleId, gender, setup flags) for now
+    // Avatar identity fields (all optional, independently updatable). Passing null
+    // or empty string clears the field; omitting the key leaves it untouched.
+    const updateTextField = (column: string, bodyKey: string) => {
+      if (!(bodyKey in body)) return;
+      const raw = body[bodyKey];
+      const value = raw === null || raw === undefined || raw === "" ? null : String(raw).slice(0, 200);
+      db.prepare(`UPDATE agents SET ${column} = ?, updated_at = ? WHERE id = ?`).run(value, now, agent.id);
+    };
+
+    updateTextField("avatar_style_id", "avatarStyleId");
+    updateTextField("avatar_gender", "avatarGender");
+    updateTextField("avatar_hair_color", "avatarHairColor");
+    updateTextField("avatar_hair_length", "avatarHairLength");
+    updateTextField("avatar_eye_color", "avatarEyeColor");
+    updateTextField("avatar_vibe", "avatarVibe");
+    updateTextField("voice_id", "voiceId");
+
+    if ("avatarAge" in body) {
+      const raw = body.avatarAge;
+      let ageValue: number | null = null;
+      if (raw !== null && raw !== undefined && raw !== "") {
+        const parsed = Number(raw);
+        if (!Number.isFinite(parsed) || parsed < 1 || parsed > 120) {
+          return errorResponse(400, "avatar_age_invalid", "avatarAge must be a number between 1 and 120");
+        }
+        ageValue = Math.round(parsed);
+      }
+      db.prepare("UPDATE agents SET avatar_age = ?, updated_at = ? WHERE id = ?").run(ageValue, now, agent.id);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

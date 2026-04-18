@@ -36,7 +36,7 @@ export type DbTaskType =
   | "infrastructure"
   | "directive";
 export type DbSprintStatus = "planning" | "active" | "completed";
-export type CommentSource = "mission_control" | "paperclip" | "openclaw";
+export type CommentSource = "mission_control" | "paperclip" | "openclaw" | "voice";
 
 export type ProjectAggregateRow = {
   id: string;
@@ -139,6 +139,14 @@ export type AgentRow = {
   last_heartbeat: string | null;
   created_at: string;
   updated_at: string;
+  avatar_style_id?: string | null;
+  avatar_gender?: string | null;
+  avatar_age?: number | null;
+  avatar_hair_color?: string | null;
+  avatar_hair_length?: string | null;
+  avatar_eye_color?: string | null;
+  avatar_vibe?: string | null;
+  voice_id?: string | null;
 };
 
 export type TaskWithProjectRow = {

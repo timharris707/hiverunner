@@ -782,7 +782,15 @@ export function getCompanyAgentProfile(input: {
           a.total_runtime_minutes,
           a.last_heartbeat,
           a.created_at,
-          a.updated_at
+          a.updated_at,
+          a.avatar_style_id,
+          a.avatar_gender,
+          a.avatar_age,
+          a.avatar_hair_color,
+          a.avatar_hair_length,
+          a.avatar_eye_color,
+          a.avatar_vibe,
+          a.voice_id
          FROM agents a
          LEFT JOIN tasks t ON t.id = a.current_task_id
          WHERE a.archived_at IS NULL

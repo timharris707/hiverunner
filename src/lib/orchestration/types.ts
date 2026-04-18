@@ -267,6 +267,14 @@ export interface OrchestrationAgent {
   lastHeartbeat?: string;
   created?: string;
   updated?: string;
+  avatarStyleId?: string;
+  avatarGender?: string;
+  avatarAge?: number;
+  avatarHairColor?: string;
+  avatarHairLength?: string;
+  avatarEyeColor?: string;
+  avatarVibe?: string;
+  voiceId?: string;
 }
 
 export interface OrchestrationAgentProfileTask {
@@ -457,7 +465,7 @@ export interface OrchestrationRoutineListItem extends OrchestrationRoutine {
 
 export const ORCHESTRATION_COLUMNS: Array<{ id: TaskStatus; label: string }> = [
   { id: "backlog", label: "Backlog" },
-  { id: "on-deck", label: "Todo" },
+  { id: "on-deck", label: "To-Do" },
   { id: "in-progress", label: "In Progress" },
   { id: "review", label: "Review" },
   { id: "blocked", label: "Blocked" },

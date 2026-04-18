@@ -471,6 +471,14 @@ function agentFromRow(
     lastHeartbeat: row.last_heartbeat ?? undefined,
     created: row.created_at,
     updated: row.updated_at,
+    avatarStyleId: row.avatar_style_id ?? undefined,
+    avatarGender: row.avatar_gender ?? undefined,
+    avatarAge: typeof row.avatar_age === "number" ? row.avatar_age : undefined,
+    avatarHairColor: row.avatar_hair_color ?? undefined,
+    avatarHairLength: row.avatar_hair_length ?? undefined,
+    avatarEyeColor: row.avatar_eye_color ?? undefined,
+    avatarVibe: row.avatar_vibe ?? undefined,
+    voiceId: row.voice_id ?? undefined,
   };
 }
 
@@ -504,7 +512,15 @@ function agentById(db: Database.Database, agentId: string): AgentRow | undefined
         a.total_runtime_minutes,
         a.last_heartbeat,
         a.created_at,
-        a.updated_at
+        a.updated_at,
+        a.avatar_style_id,
+        a.avatar_gender,
+        a.avatar_age,
+        a.avatar_hair_color,
+        a.avatar_hair_length,
+        a.avatar_eye_color,
+        a.avatar_vibe,
+        a.voice_id
        FROM agents a
        LEFT JOIN tasks t ON t.id = a.current_task_id
        LEFT JOIN agents mgr ON mgr.id = a.reporting_to

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import fs from "fs";
+import os from "os";
 import path from "path";
 import Database from "better-sqlite3";
 import { MC_DATA_DIR } from "../data-dir";
@@ -18,9 +19,6 @@ const DEFAULT_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 const DEFAULT_OPENCLAW_WORKSPACE_ROOT =
   process.env.OPENCLAW_WORKSPACE_ROOT?.trim() || "/Users/timharris/.openclaw/workspace";
 
-const ORCHESTRATION_DB_PATH = process.env.ORCHESTRATION_DB_PATH
-  ? path.resolve(process.env.ORCHESTRATION_DB_PATH)
-  : path.join(MC_DATA_DIR, "orchestration.db");
 const SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 const NOW_SQL = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
@@ -1434,9 +1432,58 @@ const MIGRATIONS: Migration[] = [
         WHERE runtime_slug IS NOT NULL;
     `,
   },
+  {
+    version: 44,
+    name: "agents_avatar_identity_and_voice",
+    sql: `
+      ALTER TABLE agents ADD COLUMN avatar_style_id TEXT;
+      ALTER TABLE agents ADD COLUMN avatar_gender TEXT;
+      ALTER TABLE agents ADD COLUMN avatar_age INTEGER;
+      ALTER TABLE agents ADD COLUMN avatar_hair_color TEXT;
+      ALTER TABLE agents ADD COLUMN avatar_hair_length TEXT;
+      ALTER TABLE agents ADD COLUMN avatar_eye_color TEXT;
+      ALTER TABLE agents ADD COLUMN avatar_vibe TEXT;
+      ALTER TABLE agents ADD COLUMN voice_id TEXT;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
+
+function isDirectTestEntrypoint(): boolean {
+  return process.argv.some((arg) => /(?:__tests__|\.test\.[cm]?[jt]sx?)$/.test(arg));
+}
+
+function resolveConfiguredOrchestrationDbPath(): string {
+  if (process.env.ORCHESTRATION_DB_PATH?.trim()) {
+    return path.resolve(process.env.ORCHESTRATION_DB_PATH);
+  }
+
+  const defaultPath = path.join(MC_DATA_DIR, "orchestration.db");
+  if (!isDirectTestEntrypoint()) {
+    return defaultPath;
+  }
+
+  const liveDbCandidates = new Set([
+    path.resolve(defaultPath),
+    path.resolve(process.cwd(), "data", "orchestration.db"),
+    path.resolve(process.cwd(), "data-dev", "orchestration.db"),
+  ]);
+
+  if (liveDbCandidates.has(path.resolve(defaultPath))) {
+    throw new Error(
+      [
+        "Refusing to run a direct test entrypoint against a live Mission Control orchestration DB.",
+        "Set ORCHESTRATION_DB_PATH to an isolated temp file, for example:",
+        "ORCHESTRATION_DB_PATH=/tmp/mission-control-test.db npx tsx src/lib/__tests__/your-test.ts",
+      ].join(" "),
+    );
+  }
+
+  return path.join(os.tmpdir(), `mission-control-orchestration-test-${process.pid}.db`);
+}
+
+const ORCHESTRATION_DB_PATH = resolveConfiguredOrchestrationDbPath();
 
 function normalizeDbTaskStatusSql(columnRef: string): string {
   return `
