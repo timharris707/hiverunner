@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock, Mic } from "lucide-react";
 import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
@@ -26,7 +26,6 @@ import {
 import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
 import { InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
-import { LaunchHenryLink } from "@/components/voice/LaunchHenryLink";
 import { getAgentByAnyId } from "@/config/agents";
 import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
 import type {
@@ -231,6 +230,25 @@ export default function TaskDetailPage() {
   }, [slug, taskKey]);
 
   useEffect(() => { void loadTask(); }, [loadTask]);
+
+  useEffect(() => {
+    const refresh = () => {
+      void loadTask();
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refresh();
+      }
+    };
+
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [loadTask]);
 
   // Unified task detail timeline now comes from the main task detail payload.
   useEffect(() => {
@@ -717,18 +735,7 @@ export default function TaskDetailPage() {
             )}
 
             {/* Action buttons row */}
-            <div style={{ display: "flex", gap: "10px", margin: "16px 0", flexWrap: "wrap" }}>
-              <LaunchHenryLink
-                label="Talk to Agent"
-                companySlug={slug}
-                projectId={project?.id ?? task.project}
-                projectSlug={project?.slug}
-                taskId={task.id}
-                taskKey={task.key ?? taskKey}
-                agentId={voiceLaunchAgent?.id}
-                mode="discuss"
-                source="task-detail"
-              />
+            <div style={{ display: "flex", gap: "10px", margin: "16px 0 16px", flexWrap: "wrap" }}>
               <label
                 style={{
                   display: "inline-flex", alignItems: "center", gap: "6px",
@@ -1163,6 +1170,36 @@ export default function TaskDetailPage() {
                       <span style={{ fontSize: "10px", color: color.textMuted }}>
                         ⌘ + Enter
                       </span>
+                      <Link
+                        href={(() => {
+                          const params = new URLSearchParams();
+                          params.set("companySlug", slug);
+                          if (project?.id ?? task.project) params.set("projectId", project?.id ?? task.project);
+                          if (project?.slug) params.set("projectSlug", project.slug);
+                          params.set("taskId", task.id);
+                          if (task.key ?? taskKey) params.set("taskKey", task.key ?? taskKey);
+                          if (voiceLaunchAgent?.id) params.set("agentId", voiceLaunchAgent.id);
+                          if (voiceLaunchAgent?.name) params.set("agentName", voiceLaunchAgent.name);
+                          params.set("mode", "discuss");
+                          params.set("source", "task-detail");
+                          return `/voice?${params.toString()}`;
+                        })()}
+                        title={voiceLaunchAgent?.name
+                          ? `Talk to ${voiceLaunchAgent.name} about this task`
+                          : "Talk through this task in Henry Voice"}
+                        style={{
+                          display: "inline-flex", alignItems: "center", gap: "5px",
+                          padding: "6px 12px", fontSize: "12px", fontWeight: 600,
+                          background: "rgba(217,119,6,0.08)",
+                          color: "#f59e0b",
+                          border: "0.5px solid rgba(217,119,6,0.3)",
+                          borderRadius: "6px",
+                          textDecoration: "none",
+                        }}
+                      >
+                        <Mic size={12} />
+                        Talk
+                      </Link>
                       <button
                         type="button"
                         onClick={() => void onSubmitComment()}

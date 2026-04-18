@@ -19,6 +19,10 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { normalizeResolvedVoiceBinding, normalizeVoiceBindingRequest } from "@/lib/voice-binding";
 import { buildCurrentVoiceContext } from "@/lib/voice-memory";
 import { resolveVoiceTaskContext } from "@/lib/voice-task-context";
+import { VOICE_CATALOG } from "@/components/orchestration/voice-catalog";
+
+const DEFAULT_VOICE_NAME = "Charon";
+const KNOWN_VOICES = new Set(VOICE_CATALOG.map((v) => v.id));
 
 function buildGlobalSystemPrompt(currentContext: string): string {
   return `${HENRY_VOICE_SYSTEM_PROMPT}\n\n## Fresh startup context\nThe following context was loaded fresh at voice-session startup. Treat it as more current than any older recollection.\n\n${currentContext}`;
@@ -79,11 +83,16 @@ export async function POST(req: Request) {
       ? buildGlobalSystemPrompt(await buildCurrentVoiceContext())
       : buildScopedSystemPrompt(scopedContext!.promptContext);
 
+    // Resolve voice: agent's chosen voice wins for task-bound sessions; otherwise default.
+    // Unknown voice IDs (legacy/unset) fall back so we never hand Gemini an invalid name.
+    const boundVoiceId = binding.agentVoiceId;
+    const voiceName = boundVoiceId && KNOWN_VOICES.has(boundVoiceId) ? boundVoiceId : DEFAULT_VOICE_NAME;
+
     return NextResponse.json({
       wsUrl,
       model: GEMINI_LIVE_MODEL,
       systemPrompt,
-      voiceName: "Charon",
+      voiceName,
       binding,
       capabilities: {
         audioInput: true,

@@ -26,6 +26,7 @@ export interface ResolvedVoiceBinding {
   agentId?: string;
   agentName?: string;
   agentAvatarUrl?: string;
+  agentVoiceId?: string;
   mode: VoiceSessionMode;
   source: VoiceBindingSource;
 }
@@ -123,6 +124,7 @@ export function normalizeResolvedVoiceBinding(input: unknown): ResolvedVoiceBind
   const taskStatus = normalizeOptionalString(data.taskStatus);
   const agentName = normalizeOptionalString(data.agentName);
   const agentAvatarUrl = normalizeOptionalString(data.agentAvatarUrl);
+  const agentVoiceId = normalizeOptionalString(data.agentVoiceId);
 
   return {
     ...normalizeBindingRequestFields(data),
@@ -131,5 +133,6 @@ export function normalizeResolvedVoiceBinding(input: unknown): ResolvedVoiceBind
     ...(taskStatus ? { taskStatus } : {}),
     ...(agentName ? { agentName } : {}),
     ...(agentAvatarUrl ? { agentAvatarUrl } : {}),
+    ...(agentVoiceId ? { agentVoiceId } : {}),
   };
 }

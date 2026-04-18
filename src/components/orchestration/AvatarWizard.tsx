@@ -1130,37 +1130,34 @@ function VoiceStep({
   onSelect: (id: string | null) => void;
 }) {
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   const playSample = useCallback((preset: VoicePreset) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    try {
-      window.speechSynthesis.cancel();
-    } catch {
-      /* ignore */
+    setPreviewError(null);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
     }
-    const utter = new SpeechSynthesisUtterance(preset.sampleLine);
-    // Best-effort match: try to pick an OS voice whose perceived gender matches.
-    const voices = window.speechSynthesis.getVoices();
-    if (voices.length > 0) {
-      const preferLang = voices.filter((v) => v.lang?.startsWith("en"));
-      const pool = preferLang.length > 0 ? preferLang : voices;
-      const pick = pool[Math.abs(hashString(preset.id)) % pool.length];
-      if (pick) utter.voice = pick;
-    }
-    utter.rate = 1.0;
-    utter.pitch = preset.perceivedGender === "male" ? 0.92 : preset.perceivedGender === "female" ? 1.08 : 1.0;
-    utter.onstart = () => setPlayingId(preset.id);
-    utter.onend = () => setPlayingId((current) => (current === preset.id ? null : current));
-    utter.onerror = () => setPlayingId((current) => (current === preset.id ? null : current));
-    window.speechSynthesis.speak(utter);
+    const audio = new Audio(`/api/voice/preview-sample?voiceId=${encodeURIComponent(preset.id)}`);
+    audioRef.current = audio;
+    setPlayingId(preset.id);
+    audio.onended = () => setPlayingId((current) => (current === preset.id ? null : current));
+    audio.onerror = () => {
+      setPlayingId((current) => (current === preset.id ? null : current));
+      setPreviewError(`Couldn't load ${preset.name} sample. Check that GEMINI_API_KEY is configured.`);
+    };
+    void audio.play().catch((err) => {
+      setPlayingId((current) => (current === preset.id ? null : current));
+      setPreviewError(err instanceof Error ? err.message : "Preview playback failed");
+    });
   }, []);
 
   useEffect(() => {
     return () => {
-      try {
-        window.speechSynthesis?.cancel();
-      } catch {
-        /* ignore */
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
       }
     };
   }, []);
@@ -1179,8 +1176,17 @@ function VoiceStep({
         Pick a voice for this agent. Used when you talk to them from a task.
       </p>
       <p style={{ fontSize: 10.5, color: W.muted, margin: "0 0 14px" }}>
-        Preview uses your browser&apos;s TTS as an approximation. The actual runtime voice is rendered by Gemini Live at session time.
+        Click Preview to hear the real Gemini voice. The first preview for each voice takes a moment to generate, then caches.
       </p>
+      {previewError && (
+        <div style={{
+          marginBottom: 12, padding: "8px 10px", borderRadius: 8,
+          background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)",
+          fontSize: 11, color: "#fca5a5",
+        }}>
+          {previewError}
+        </div>
+      )}
 
       {([
         { label: "Feminine", voices: groups.female },
@@ -1293,14 +1299,6 @@ function VoiceCard({
       </button>
     </div>
   );
-}
-
-function hashString(value: string): number {
-  let h = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    h = (h * 31 + value.charCodeAt(i)) | 0;
-  }
-  return h;
 }
 
 /* ═══════════════════════════════════════════

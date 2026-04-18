@@ -6,6 +6,10 @@ import {
   listTasks,
 } from "@/lib/orchestration/service";
 import type { OrchestrationTaskTimelineItem } from "@/lib/orchestration/types";
+import {
+  formatOperatorTaskStatusLabel,
+  replaceTaskStatusTokensInText,
+} from "@/lib/orchestration/status-copy";
 
 import type {
   NormalizedVoiceBindingRequest,
@@ -29,6 +33,7 @@ interface AgentRecord {
   id: string;
   name: string;
   avatarUrl?: string;
+  voiceId?: string;
 }
 
 function clip(text: string | undefined, maxChars = 1200): string {
@@ -43,10 +48,7 @@ function clip(text: string | undefined, maxChars = 1200): string {
 }
 
 function normalizeStatusCopy(text: string): string {
-  return text
-    .replace(/\bon_deck\b/g, "on-deck")
-    .replace(/\bin_progress\b/g, "in-progress")
-    .replace(/\btimed_out\b/g, "timed-out");
+  return replaceTaskStatusTokensInText(text).replace(/\btimed_out\b/g, "timed-out");
 }
 
 function toLines(items: string[]): string {
@@ -99,6 +101,7 @@ interface AgentLookupRow {
   id: string;
   name: string;
   avatar_url: string | null;
+  voice_id: string | null;
 }
 
 function toAgentRecord(row: AgentLookupRow | undefined): AgentRecord | undefined {
@@ -110,6 +113,7 @@ function toAgentRecord(row: AgentLookupRow | undefined): AgentRecord | undefined
     id: row.id,
     name: row.name,
     avatarUrl: row.avatar_url ?? undefined,
+    voiceId: row.voice_id ?? undefined,
   };
 }
 
@@ -121,7 +125,7 @@ function lookupAgentById(companyId: string | undefined, agentId: string | undefi
   const db = getOrchestrationDb();
   const row = db
     .prepare(
-      `SELECT id, name, avatar_url
+      `SELECT id, name, avatar_url, voice_id
          FROM agents
         WHERE id = ?
           AND company_id = ?
@@ -137,7 +141,7 @@ function lookupTaskAssignee(taskId: string, companyId?: string): AgentRecord | u
   const db = getOrchestrationDb();
   const row = db
     .prepare(
-      `SELECT a.id, a.name, a.avatar_url
+      `SELECT a.id, a.name, a.avatar_url, a.voice_id
          FROM tasks t
          INNER JOIN agents a
                  ON a.id = t.assignee_agent_id
@@ -204,7 +208,7 @@ function buildScopeSection(input: {
     `- Company: ${input.companyName ? `${input.companyName} (${input.companySlug ?? "unknown"})` : (input.companySlug ?? "Unknown company")}`,
     `- Project: ${input.projectName} (${input.projectSlug})`,
     `- Task: ${input.taskLabel}`,
-    `- Status: ${input.status}`,
+    `- Status: ${formatOperatorTaskStatusLabel(input.status) ?? input.status}`,
     `- Assignee: ${input.assignee}`,
     `- Agent: ${input.agent}`,
     `- Session mode: ${input.mode}`,
@@ -245,6 +249,7 @@ function buildTaskContext(binding: NormalizedVoiceBindingRequest): VoiceTaskCont
     ...(agent?.id ? { agentId: agent.id } : {}),
     ...(agent?.name ? { agentName: agent.name } : {}),
     ...(agent?.avatarUrl ? { agentAvatarUrl: agent.avatarUrl } : {}),
+    ...(agent?.voiceId ? { agentVoiceId: agent.voiceId } : {}),
     mode: binding.mode,
     source: binding.source,
   };
@@ -290,7 +295,7 @@ function formatProjectTaskSnapshot(projectId: string): string {
     .map((task) => {
       const key = task.key ? `[${task.key}] ` : "";
       const assignee = task.assignee ?? "unassigned";
-      return `- ${key}${task.title} (${task.status}, assigned: ${assignee})`;
+      return `- ${key}${task.title} (${formatOperatorTaskStatusLabel(task.status) ?? task.status}, assigned: ${assignee})`;
     })
     .join("\n");
 }
@@ -324,6 +329,7 @@ function buildProjectContext(binding: NormalizedVoiceBindingRequest): VoiceTaskC
     ...(agent?.id ? { agentId: agent.id } : {}),
     ...(agent?.name ? { agentName: agent.name } : {}),
     ...(agent?.avatarUrl ? { agentAvatarUrl: agent.avatarUrl } : {}),
+    ...(agent?.voiceId ? { agentVoiceId: agent.voiceId } : {}),
     mode: binding.mode,
     source: binding.source,
   };
