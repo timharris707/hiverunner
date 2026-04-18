@@ -15,7 +15,7 @@ import {
 import { AvatarWizard } from "@/components/orchestration/AvatarWizard";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
-import { getCompanyAgentProfile, listCompanies, triggerAgentHeartbeat } from "@/lib/orchestration/client";
+import { getCompanyAgentProfile, listCompanies, triggerAgentHeartbeat, wakeupAgent } from "@/lib/orchestration/client";
 import type { OrchestrationAgentProfile } from "@/lib/orchestration/types";
 
 import { P as tokens } from "@/lib/ui/tokens";
@@ -131,7 +131,7 @@ export default function AgentDetailLayout({
   const handleHeartbeat = async () => {
     if (!profile || heartbeatLoading) return;
     setHeartbeatLoading(true);
-    await triggerAgentHeartbeat(profile.agent.id, { source: "manual" });
+    await wakeupAgent(profile.agent.id, { source: "explicit", reason: "ui_manual_wake" });
     await load();
     setHeartbeatLoading(false);
   };
