@@ -1733,10 +1733,36 @@ async function importSessionOutputAndExecuteActions(input: {
     console.log(`[engine:import] session reuse — skipping ${input.messageCountBefore} prior messages, processing ${messages.length} new`);
   }
 
-  const storedMessages = loadStoredSessionMessages(input.sessionId, input.sessionKey).slice(input.messageCountBefore);
-  const storedAssistantTexts = extractAssistantTexts(storedMessages);
+  let storedMessages = loadStoredSessionMessages(input.sessionId, input.sessionKey).slice(input.messageCountBefore);
+  let storedAssistantTexts = extractAssistantTexts(storedMessages);
 
   const currentAssistantChars = assistantTexts.reduce((sum, text) => sum + text.length, 0);
+
+  // Race guard: the gateway (sessions.get) can return "done" + pre-existing
+  // message state on attempt=0 before the newly-created session has actually
+  // written its assistant response to jsonl. Observed 2026-04-17 on Barometer:
+  // live reported 8 msgs / 5637 chars / 0 actions while the same session's
+  // jsonl landed 13s later with 1 clean msg / 2249 chars / 5 mc-action blocks.
+  // When the live response looks action-free and stored is still empty, poll
+  // the jsonl for up to 30s so the real turn can settle. No extra latency when
+  // the live response already carries mc-action fences (trusted path).
+  const liveHasFences = assistantTexts.some((text) => text.includes("```mc-action"));
+  if (storedAssistantTexts.length === 0 && currentAssistantChars > 0 && !liveHasFences) {
+    const pollStart = Date.now();
+    const pollDeadline = pollStart + 30_000;
+    while (Date.now() < pollDeadline) {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      storedMessages = loadStoredSessionMessages(input.sessionId, input.sessionKey).slice(input.messageCountBefore);
+      storedAssistantTexts = extractAssistantTexts(storedMessages);
+      if (storedAssistantTexts.length > 0) {
+        console.log(
+          `[engine:import] jsonl settled after ${Math.round((Date.now() - pollStart) / 1000)}s for ${input.sessionKey} (gateway was action-free, stored now has ${storedAssistantTexts.length} msg${storedAssistantTexts.length !== 1 ? "s" : ""})`,
+        );
+        break;
+      }
+    }
+  }
+
   const storedAssistantChars = storedAssistantTexts.reduce((sum, text) => sum + text.length, 0);
 
   // Prefer the stored (jsonl) transcript whenever it has content. OpenClaw's
