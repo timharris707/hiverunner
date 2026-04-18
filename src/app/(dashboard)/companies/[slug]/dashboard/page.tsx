@@ -1285,8 +1285,21 @@ function AgentRunCard({
 
   // Determine if this card is live from the same shared run-status truth used by
   // the dock and other orchestration surfaces.
-  const isLive = liveRun != null && isRunLive(liveRun.status);
-  const justFinished = liveRun != null && (liveRun.status === "succeeded" || liveRun.status === "failed" || liveRun.status === "timed_out");
+  //
+  // Defence-in-depth: SSE lifecycle_end is the most authoritative end-of-run
+  // signal and arrives within ~150ms of the engine finishing. When SSE has
+  // marked the run as inactive AND its runId matches the polling snapshot,
+  // override the (potentially stale) polling-based status so the panel doesn't
+  // sit on "Running" while waiting for the next poll cycle to catch up.
+  const sseEndedThisRun =
+    agentStream != null &&
+    !agentStream.isActive &&
+    liveRun != null &&
+    agentStream.runId === liveRun.runId;
+  const isLive = !sseEndedThisRun && liveRun != null && isRunLive(liveRun.status);
+  const justFinished =
+    sseEndedThisRun ||
+    (liveRun != null && (liveRun.status === "succeeded" || liveRun.status === "failed" || liveRun.status === "timed_out"));
 
   // Status dot — cyan when live, otherwise standard
   const dotColor = isLive ? "#d97706" : STATUS_DOT_COLOR[agent.status];
