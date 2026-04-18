@@ -180,7 +180,7 @@ export function AvatarWizard({
 
   const isCompanyConstrained = avatarMode === "company_theme";
 
-  const availableStyles = useMemo((): readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[] }[] => {
+  const availableStyles = useMemo((): readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[]; isNew?: boolean }[] => {
     if (!isCompanyConstrained) return AVATAR_THEME_PRESETS;
     const companyMatch = AVATAR_THEME_PRESETS.find(
       (p) => p.name.toLowerCase() === (companyThemeName ?? "").toLowerCase()
@@ -866,7 +866,7 @@ function IdentityAndStyleStep({
   onVibeChange,
   isConstrained,
 }: {
-  styles: readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[] }[];
+  styles: readonly { id: string; name: string; emoji: string; description: string; keywords: readonly string[]; isNew?: boolean }[];
   styleId: string;
   onStyleSelect: (id: string) => void;
   gender: AvatarGender;
@@ -997,6 +997,17 @@ function IdentityAndStyleStep({
                 <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>
                   {preset.name}
                 </span>
+                {("isNew" in preset && preset.isNew) ? (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, letterSpacing: 0.5,
+                    padding: "1px 6px", borderRadius: 8,
+                    background: "rgba(245,158,11,0.18)", color: "#fbbf24",
+                    border: "0.5px solid rgba(245,158,11,0.4)",
+                    textTransform: "uppercase",
+                  }}>
+                    New
+                  </span>
+                ) : null}
                 {styleId === preset.id && (
                   <Check size={12} style={{ color: W.accent, marginLeft: "auto" }} />
                 )}
@@ -1136,19 +1147,27 @@ function VoiceStep({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const playSample = useCallback((preset: VoicePreset) => {
+  const playSample = useCallback((preset: VoicePreset, attempt: number = 0) => {
     setPreviewError(null);
     if (audioRef.current) {
       audioRef.current.pause();
       audioRef.current = null;
     }
-    const audio = new Audio(`/api/voice/preview-sample?voiceId=${encodeURIComponent(preset.id)}`);
+    // Cache-bust on retry so a stale/broken HTTP cache entry doesn't stick.
+    const url = `/api/voice/preview-sample?voiceId=${encodeURIComponent(preset.id)}${attempt > 0 ? `&retry=${attempt}` : ""}`;
+    const audio = new Audio(url);
     audioRef.current = audio;
     setPlayingId(preset.id);
     audio.onended = () => setPlayingId((current) => (current === preset.id ? null : current));
     audio.onerror = () => {
       setPlayingId((current) => (current === preset.id ? null : current));
-      setPreviewError(`Couldn't load ${preset.name} sample. Check that GEMINI_API_KEY is configured.`);
+      if (attempt < 1) {
+        // One automatic retry — Gemini occasionally burps on the first call
+        // or the browser races the response. Cache-bust and try once more.
+        window.setTimeout(() => playSample(preset, attempt + 1), 250);
+      } else {
+        setPreviewError(`Couldn't load ${preset.name} sample after retry. Try again, or check that GEMINI_API_KEY is set on the server.`);
+      }
     };
     void audio.play().catch((err) => {
       setPlayingId((current) => (current === preset.id ? null : current));

@@ -7,8 +7,9 @@ export const AVATAR_THEME_PRESETS = [
     id: "cyber-organic",
     name: "Cyber-Organic",
     emoji: "🧬",
-    description: "Photoreal human with subtle circuitry, luminescent irises, casual hoodie on a saturated backdrop.",
+    description: "New — modeled on the references you shared. Photoreal human with subtle circuitry across temples and jaw, luminescent irises, hoodie, saturated teal/green backdrop.",
     keywords: ["cyber-organic", "augmented", "glowing eyes", "hoodie"],
+    isNew: true,
   },
   {
     id: "cyberpunk",
