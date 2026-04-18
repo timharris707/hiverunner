@@ -166,6 +166,10 @@ export function AvatarWizard({
   } | null>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const generationRunRef = useRef(0);
+  /** Snapshot of identity params used for the most recent background-generation
+   *  kickoff. If the user navigates back→forward without changing identity,
+   *  we skip restarting and let the in-flight (or completed) work stand. */
+  const lastBackgroundSnapshotRef = useRef<string | null>(null);
   const identityRef = useRef({
     styleId,
     gender,
@@ -217,12 +221,17 @@ export function AvatarWizard({
 
   const generatePreviews = useCallback(async (options?: {
     seedPreviews?: string[];
+    /** When true, run the generation loop without moving the user to the preview
+     *  step. Used to overlap image generation with voice selection (E9 #2). */
+    background?: boolean;
   }) => {
     const snapshot = identityRef.current;
     const seeded = [...(options?.seedPreviews ?? [])].slice(0, TARGET_PREVIEW_COUNT);
     const runId = ++generationRunRef.current;
 
-    setStep("preview");
+    if (!options?.background) {
+      setStep("preview");
+    }
     setGenerating(true);
     setError(null);
     setPreviews([...seeded]);
@@ -278,6 +287,8 @@ export function AvatarWizard({
     }
     if (hasOpenedRef.current) return;
     hasOpenedRef.current = true;
+    // Reset cross-open refs so a fresh open never inherits stale state.
+    lastBackgroundSnapshotRef.current = null;
 
     const cached = readAvatarDraftCache(agentId, alternateAgentKey);
     const nextIcon = avatarIconToken(agentEmoji) ?? LUCIDE_ICON_OPTIONS[0]?.value ?? "bot";
@@ -397,9 +408,22 @@ export function AvatarWizard({
       setStep("identity");
     } else if (step === "identity") {
       setStep("voice");
+      // E9 #2: kick off image generation in the background so it overlaps with
+      // the user's voice-selection time. Skip if we already started a run for
+      // this exact identity snapshot (back→forward without changes).
+      const snapshotKey = JSON.stringify(identityRef.current);
+      if (lastBackgroundSnapshotRef.current !== snapshotKey) {
+        lastBackgroundSnapshotRef.current = snapshotKey;
+        void generatePreviews({ seedPreviews: [], background: true });
+      }
     } else if (step === "voice") {
       setStep("preview");
-      void generatePreviews({ seedPreviews: [] });
+      // Only kick off generation here as a fallback — the normal path is the
+      // background run started on identity→voice. If that didn't start
+      // (e.g. resumed from cache state) or failed silently, this catches it.
+      if (previews.length === 0 && !generating) {
+        void generatePreviews({ seedPreviews: [] });
+      }
     }
   };
 
