@@ -1446,6 +1446,18 @@ const MIGRATIONS: Migration[] = [
       ALTER TABLE agents ADD COLUMN voice_id TEXT;
     `,
   },
+  {
+    version: 45,
+    name: "allow_review_to_on_deck_transition",
+    sql: `
+      -- Product decision 2026-04-18: failed review routes back to on_deck
+      -- (operator-facing "To-Do"), not in_progress. review→in_progress is
+      -- reserved for live handoffs to a named agent. CEO reviewers need
+      -- review→on_deck to push work back when criteria aren't met.
+      INSERT OR IGNORE INTO status_transition_rules (from_status, to_status, requires_assignee, requires_review, is_terminal)
+        VALUES ('review', 'on_deck', 0, 0, 0);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

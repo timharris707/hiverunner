@@ -89,22 +89,21 @@ async function run() {
       db.prepare("UPDATE tasks SET archived_at = ? WHERE archived_at IS NULL").run(new Date().toISOString());
     }
 
-    await test("sweep enqueues wakes for assigned open tasks (on-deck / in-progress / review)", () => {
+    await test("sweep enqueues wakes for assigned open tasks (on-deck / in-progress — review covered in review-loop-fix test)", () => {
       clearWakes();
       const project = makeProject("happy-path");
       // One agent per task so the per-agent concurrency guard doesn't suppress
-      // the second/third enqueue on a single pass.
+      // the second enqueue on a single pass. Review-status sweep routes to
+      // the CEO and is covered in orchestration-review-loop-fix.test.ts.
       const agentOnDeck = makeAgent(project.id, "on-deck");
       const agentInProg = makeAgent(project.id, "in-prog");
-      const agentReview = makeAgent(project.id, "review");
       makeTask(project.id, agentOnDeck.id, "on-deck");
       makeTask(project.id, agentInProg.id, "in-progress");
-      makeTask(project.id, agentReview.id, "review");
 
       const result = sweepOpenTasks(db, { cap: 10 });
 
-      assert.equal(result.wakesEnqueued, 3, `expected 3 wakes, got ${JSON.stringify(result)}`);
-      assert.equal(result.candidatesConsidered, 3);
+      assert.equal(result.wakesEnqueued, 2, `expected 2 wakes, got ${JSON.stringify(result)}`);
+      assert.equal(result.candidatesConsidered, 2);
     });
 
     await test("sweep skips blocked / done / backlog tasks (cancelled handled at caller)", () => {

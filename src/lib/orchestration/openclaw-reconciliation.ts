@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
+import { enqueueWakeup, findCompanyCeo } from "@/lib/orchestration/engine/engine";
 import { nextColumnOrder, reconcileTaskHierarchy, refreshAgentLoad } from "@/lib/orchestration/service/shared";
 
 const OPENCLAW_RECONCILE_ACTOR = "openclaw:execution";
@@ -230,19 +230,46 @@ export function reconcileTerminalOpenClawTaskState(
   if (
     candidate.latest_run_status === "completed" &&
     companyRow?.company_id &&
-    candidate.assignee_agent_id &&
-    ["in_progress", "review"].includes(postStatus)
+    candidate.assignee_agent_id
   ) {
-    enqueueContinuationWake(
-      {
-        agentId: candidate.assignee_agent_id,
-        companyId: companyRow.company_id,
-        taskId,
-        taskStatus: postStatus,
-        reason: `reconcile_continue_${postStatus}`,
-      },
-      db,
-    );
+    if (postStatus === "in_progress") {
+      enqueueContinuationWake(
+        {
+          agentId: candidate.assignee_agent_id,
+          companyId: companyRow.company_id,
+          taskId,
+          taskStatus: postStatus,
+          reason: "reconcile_continue_in_progress",
+        },
+        db,
+      );
+    } else if (postStatus === "review") {
+      // Review is a reviewer-gated state — the assignee cannot approve their
+      // own work. Route the continuation wake to the CEO (or skip if no CEO
+      // exists or the assignee IS the CEO). This breaks the review-pinning
+      // self-loop observed 2026-04-18: 86 `reconcile_continue_review` wakes
+      // re-woke the same assignee who could only narrate "reviewing" and
+      // never close. Sweep will re-nudge the CEO on subsequent cycles.
+      const ceo = findCompanyCeo(companyRow.company_id, db);
+      if (ceo && ceo.id !== candidate.assignee_agent_id) {
+        enqueueWakeup(
+          {
+            agentId: ceo.id,
+            companyId: companyRow.company_id,
+            source: "api",
+            reason: "ceo_review_requested",
+            payload: {
+              taskId,
+              taskStatus: "review",
+              assigneeAgentId: candidate.assignee_agent_id,
+              requestedBy: "terminal_reconciliation",
+            },
+            idempotencyKey: `ceo_review:${taskId}`,
+          },
+          db,
+        );
+      }
+    }
   }
 
   return {

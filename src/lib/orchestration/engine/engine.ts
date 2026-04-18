@@ -2836,7 +2836,12 @@ function decideTaskContinuation(
     // status change — to resume.
     return { shouldContinue: false };
   }
-  if (task.status === "review") return { shouldContinue: true, reason: "continuation_review_assignee" };
+  if (task.status === "review") {
+    // Review is a reviewer-gated state — the assignee cannot approve their
+    // own work. CEO is woken via `ceo_review_requested` in
+    // reconcileTerminalOpenClawTaskState; the assignee does not self-continue.
+    return { shouldContinue: false };
+  }
 
   if (task.status === "in_progress") {
     if (actionResults.actionsExecuted > 0) {
@@ -2961,30 +2966,15 @@ function finishRun(
           : undefined;
 
         if (postTask?.assignee_agent_id && projectRow?.company_id) {
-          let continuationStatus = postTask.status;
+          const continuationStatus = postTask.status;
 
-          // Hard enforcement: assigned work must not silently park in review.
-          // If the run finished but the task is still review/on_deck/in_progress,
-          // push it back to active work unless it is truly terminal.
-          if (postTask.status === "review") {
-            const movedBack = db.prepare(
-              "UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ? AND status = 'review'"
-            ).run(now, postTask.id);
-            if (movedBack.changes > 0) {
-              db.prepare(
-                `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
-                 VALUES (?, ?, ?, ?, 'task.status_changed', 'review', 'in_progress', ?, ?)`
-              ).run(
-                randomUUID(),
-                postTask.project_id,
-                postTask.id,
-                postTask.assignee_agent_id,
-                JSON.stringify({ source: 'engine_finish_run_enforcement', executionRunId, heartbeatRunId: runId }),
-                now,
-              );
-              continuationStatus = 'in_progress';
-            }
-          }
+          // Review is a reviewer-gated state. A finished run on a review-state
+          // task does NOT auto-bounce back to in_progress — that created the
+          // review-pinning loop observed 2026-04-18 (61 review→in_progress +
+          // 60 in_progress→review events in 8h, only 3 real closures). The
+          // CEO is woken separately by reconcileTerminalOpenClawTaskState via
+          // the `ceo_review_requested` path; operator spec says review only
+          // returns to in_progress via an explicit named-agent handoff.
 
           const continuation = decideFinishRunContinuation(postTask.id, runId, status, db);
 

@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 
-import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
+import { enqueueWakeup, findCompanyCeo } from "@/lib/orchestration/engine/engine";
 
 /**
  * Orchestration sweeper: periodically scans open tasks (on_deck / in_progress /
@@ -128,14 +128,49 @@ export function sweepOpenTasks(
       continue;
     }
 
-    if (row.agent_archived_at) {
-      bumpSkip("agent_archived");
-      continue;
-    }
-
-    if (row.agent_status === "paused" || row.agent_status === "offline") {
-      bumpSkip(`agent_${row.agent_status}`);
-      continue;
+    // Review is a reviewer-gated state: the assignee cannot approve their
+    // own work. Route review-task sweeps to the CEO (company reviewer). If
+    // no CEO exists, or the CEO is the assignee, skip — we don't want to
+    // re-wake the assignee into the review-pinning loop observed 2026-04-18.
+    // For on_deck / in_progress, continue to target the assignee.
+    let targetAgentId = row.assignee_agent_id;
+    let sweepReason: "sweep_open_task" | "sweep_review_to_ceo" = "sweep_open_task";
+    let idempotencyKey = `sweep:${row.task_id}:${row.task_status}`;
+    if (row.task_status === "review") {
+      const ceo = findCompanyCeo(row.company_id, db);
+      if (!ceo) {
+        bumpSkip("no_ceo_for_review");
+        continue;
+      }
+      if (ceo.id === row.assignee_agent_id) {
+        bumpSkip("assignee_is_ceo_for_review");
+        continue;
+      }
+      const ceoRow = db
+        .prepare(
+          `SELECT status, archived_at FROM agents WHERE id = ? LIMIT 1`,
+        )
+        .get(ceo.id) as { status: string; archived_at: string | null } | undefined;
+      if (!ceoRow || ceoRow.archived_at) {
+        bumpSkip("ceo_archived");
+        continue;
+      }
+      if (ceoRow.status === "paused" || ceoRow.status === "offline") {
+        bumpSkip(`ceo_${ceoRow.status}`);
+        continue;
+      }
+      targetAgentId = ceo.id;
+      sweepReason = "sweep_review_to_ceo";
+      idempotencyKey = `ceo_review:${row.task_id}`;
+    } else {
+      if (row.agent_archived_at) {
+        bumpSkip("agent_archived");
+        continue;
+      }
+      if (row.agent_status === "paused" || row.agent_status === "offline") {
+        bumpSkip(`agent_${row.agent_status}`);
+        continue;
+      }
     }
 
     const activeWake = db
@@ -144,7 +179,7 @@ export function sweepOpenTasks(
          FROM agent_wakeup_requests
          WHERE agent_id = ? AND status IN ('queued', 'claimed')`,
       )
-      .get(row.assignee_agent_id) as { n: number } | undefined;
+      .get(targetAgentId) as { n: number } | undefined;
 
     if ((activeWake?.n ?? 0) > 0) {
       bumpSkip("agent_has_active_wake");
@@ -157,7 +192,7 @@ export function sweepOpenTasks(
          FROM heartbeat_runs
          WHERE agent_id = ? AND status = 'running'`,
       )
-      .get(row.assignee_agent_id) as { n: number } | undefined;
+      .get(targetAgentId) as { n: number } | undefined;
 
     if ((activeRun?.n ?? 0) > 0) {
       bumpSkip("agent_has_running_run");
@@ -171,7 +206,7 @@ export function sweepOpenTasks(
          WHERE agent_id = ? AND status = 'failed'
            AND started_at > ?`,
       )
-      .get(row.assignee_agent_id, backoffSince) as { n: number } | undefined;
+      .get(targetAgentId, backoffSince) as { n: number } | undefined;
 
     if ((recentFailed?.n ?? 0) >= BACKOFF_FAILED_RUN_THRESHOLD) {
       bumpSkip("agent_backoff");
@@ -180,16 +215,19 @@ export function sweepOpenTasks(
 
     const result = enqueueWakeup(
       {
-        agentId: row.assignee_agent_id,
+        agentId: targetAgentId,
         companyId: row.company_id,
         source: "api",
-        reason: "sweep_open_task",
+        reason: sweepReason,
         payload: {
           taskId: row.task_id,
           taskStatus: row.task_status,
           sweptAt,
+          ...(sweepReason === "sweep_review_to_ceo"
+            ? { assigneeAgentId: row.assignee_agent_id }
+            : {}),
         },
-        idempotencyKey: `sweep:${row.task_id}:${row.task_status}`,
+        idempotencyKey,
       },
       db,
     );
