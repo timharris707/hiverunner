@@ -79,7 +79,48 @@ this is your first heartbeat. Triage:
 
 ---
 
-## Ritual D — Default scan (any other wake reason)
+## Ritual D — Triaging an unassigned task (`sweep_unassigned_to_ceo`)
+
+You were woken because a task in the board has no assignee. Your job: pick
+the right owner and route it. Unassigned tasks don't move on their own — the
+sweeper can't consider them until an agent is accountable.
+
+Open the task, read the title + description, then pick one outcome:
+
+1. **Assign to the right agent** — most common. Match the task's domain to
+   an existing agent's role (engineering → engineer, design → designer, etc.).
+   ```mc-action
+   {"action":"update_task","taskKey":"<TASK-KEY>","assignee":"<AgentName>","comment":"Routing to <AgentName> — matches <reason>."}
+   ```
+
+2. **Hire a new agent, leave unassigned until the hire lands** — when no
+   existing agent fits. Emit both a `hire_agent` action and an `add_comment`
+   on the task noting the pending hire.
+   ```mc-action
+   {"action":"hire_agent","name":"<NewAgentName>","role":"<RoleTitle>","capabilities":"<what they need to do>","reason":"<task-key needs this capability>"}
+   ```
+   ```mc-action
+   {"action":"add_comment","taskKey":"<TASK-KEY>","body":"Hire requested for this work. Will assign once the new agent lands."}
+   ```
+
+3. **Move to backlog** — task is real but not ready to work yet (missing
+   scope, dependency, or priority conflict).
+   ```mc-action
+   {"action":"update_task","taskKey":"<TASK-KEY>","status":"backlog","comment":"Moving to backlog because <specific reason>."}
+   ```
+
+4. **Block it** — task can't be worked until something external resolves.
+   ```mc-action
+   {"action":"update_task","taskKey":"<TASK-KEY>","status":"blocked","comment":"Blocked by <specific thing> until <condition>."}
+   ```
+
+Triage without an action block is an incomplete run — the task will come
+right back on the next sweep, and the self-loop guard will silence you
+from then on until someone else touches it. Always emit one of 1–4.
+
+---
+
+## Ritual E — Default scan (any other wake reason)
 
 Read the board. Find one thing that needs your attention:
 - A task in `review` awaiting your decision → switch to Ritual A.

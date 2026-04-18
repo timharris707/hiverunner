@@ -33,9 +33,9 @@ export type SweepResult = {
 type OpenTaskRow = {
   task_id: string;
   task_status: "on_deck" | "in_progress" | "review";
-  assignee_agent_id: string;
+  assignee_agent_id: string | null;
   company_id: string;
-  agent_status: string;
+  agent_status: string | null;
   agent_archived_at: string | null;
 };
 
@@ -81,13 +81,18 @@ export function sweepOpenTasks(
     skippedReasons[reason] = (skippedReasons[reason] ?? 0) + 1;
   };
 
-  // Pull eligible open tasks + their assignee agent. Done/cancelled/backlog
-  // and blocked are filtered out at the query level. Unassigned tasks are
-  // also filtered — sweep only operates on tasks that already have someone
-  // accountable. Archived companies/projects are excluded outright so stale
-  // demo fixtures can't keep burning agent runs after they've been archived
-  // in the UI (observed 2026-04-17: four archived "Detail Co …" rows kept
-  // showing up in sweep results because nothing filtered them out).
+  // Pull eligible open tasks + their assignee agent (LEFT JOIN so unassigned
+  // tasks still come through — the CEO is the implicit triage target for
+  // those, per product decision 2026-04-18). Done/cancelled/backlog and
+  // blocked are filtered at the query level. Archived companies/projects
+  // are excluded outright so stale demo fixtures can't keep burning agent
+  // runs after they've been archived in the UI (observed 2026-04-17: four
+  // archived "Detail Co …" rows kept showing up in sweep results because
+  // nothing filtered them out).
+  //
+  // Unassigned eligibility is narrowed to on_deck — in_progress and review
+  // without an assignee are data anomalies that should be triaged manually,
+  // not auto-woken to the CEO.
   const companyFilter = companySlugs && companySlugs.length > 0
     ? ` AND c.slug IN (${companySlugs.map(() => "?").join(",")})`
     : "";
@@ -103,13 +108,15 @@ export function sweepOpenTasks(
        FROM tasks t
        INNER JOIN projects p  ON p.id = t.project_id
        INNER JOIN companies c ON c.id = p.company_id
-       INNER JOIN agents a    ON a.id = t.assignee_agent_id
+       LEFT  JOIN agents a    ON a.id = t.assignee_agent_id
        WHERE t.archived_at IS NULL
          AND p.archived_at IS NULL
          AND c.archived_at IS NULL
          AND c.status = 'active'
-         AND t.status IN ('on_deck', 'in_progress', 'review')
-         AND t.assignee_agent_id IS NOT NULL${companyFilter}
+         AND (
+           (t.assignee_agent_id IS NOT NULL AND t.status IN ('on_deck', 'in_progress', 'review'))
+           OR (t.assignee_agent_id IS NULL AND t.status = 'on_deck')
+         )${companyFilter}
        ORDER BY
          CASE t.status
            WHEN 'in_progress' THEN 0
@@ -129,15 +136,56 @@ export function sweepOpenTasks(
       continue;
     }
 
-    // Review is a reviewer-gated state: the assignee cannot approve their
-    // own work. Route review-task sweeps to the CEO (company reviewer). If
-    // no CEO exists, or the CEO is the assignee, skip — we don't want to
-    // re-wake the assignee into the review-pinning loop observed 2026-04-18.
-    // For on_deck / in_progress, continue to target the assignee.
-    let targetAgentId = row.assignee_agent_id;
-    let sweepReason: "sweep_open_task" | "sweep_review_to_ceo" = "sweep_open_task";
+    // Three branches based on task state:
+    //
+    //  1. Unassigned on_deck task — route to CEO for triage/assignment.
+    //     Product decision 2026-04-18: "every unassigned task should be
+    //     picked up by the CEO and routed." Closes the gap observed on
+    //     WEA where a P0/critical task ("Be Productive") sat unassigned
+    //     at the bottom of the TO-DO column indefinitely because sweep
+    //     ignored unassigned tasks.
+    //
+    //  2. Review task — route to CEO (company reviewer). Assignee cannot
+    //     approve their own work.
+    //
+    //  3. On_deck / in_progress with an assignee — target the assignee
+    //     (unchanged baseline behavior).
+    let targetAgentId: string | null = row.assignee_agent_id;
+    let sweepReason: "sweep_open_task" | "sweep_review_to_ceo" | "sweep_unassigned_to_ceo" = "sweep_open_task";
     let idempotencyKey = `sweep:${row.task_id}:${row.task_status}`;
-    if (row.task_status === "review") {
+
+    if (!row.assignee_agent_id) {
+      // Unassigned task — route to CEO for triage.
+      const ceo = findCompanyCeo(row.company_id, db);
+      if (!ceo) {
+        bumpSkip("no_ceo_for_unassigned");
+        continue;
+      }
+      // Self-loop guard: if CEO has already run on this task (triaged but
+      // didn't assign), don't re-wake every cycle. Task waits for fresh
+      // handoff (new comment, manual assignment, etc.).
+      const latestRunAgent = latestTerminalRunAgentId(row.task_id, db);
+      if (latestRunAgent === ceo.id) {
+        bumpSkip("ceo_recent_triage_no_assign");
+        continue;
+      }
+      const ceoRow = db
+        .prepare(
+          `SELECT status, archived_at FROM agents WHERE id = ? LIMIT 1`,
+        )
+        .get(ceo.id) as { status: string; archived_at: string | null } | undefined;
+      if (!ceoRow || ceoRow.archived_at) {
+        bumpSkip("ceo_archived");
+        continue;
+      }
+      if (ceoRow.status === "paused" || ceoRow.status === "offline") {
+        bumpSkip(`ceo_${ceoRow.status}`);
+        continue;
+      }
+      targetAgentId = ceo.id;
+      sweepReason = "sweep_unassigned_to_ceo";
+      idempotencyKey = `ceo_triage:${row.task_id}`;
+    } else if (row.task_status === "review") {
       const ceo = findCompanyCeo(row.company_id, db);
       if (!ceo) {
         bumpSkip("no_ceo_for_review");
@@ -181,6 +229,12 @@ export function sweepOpenTasks(
         bumpSkip(`agent_${row.agent_status}`);
         continue;
       }
+    }
+
+    if (!targetAgentId) {
+      // Defensive invariant — every branch above sets targetAgentId or skips.
+      bumpSkip("no_target_agent_resolved");
+      continue;
     }
 
     const activeWake = db

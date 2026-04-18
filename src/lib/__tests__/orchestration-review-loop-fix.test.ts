@@ -455,6 +455,137 @@ async function run() {
       assert.equal(ceoWakes[0].reason, "ceo_review_requested");
     });
 
+    await test("sweep routes unassigned on_deck task to CEO with reason 'sweep_unassigned_to_ceo'", () => {
+      clearWakes();
+      const project = makeProject("sweep-unassigned-happy");
+      const ceo = makeAgent(project.id, "triage-ceo", "CEO");
+      // Unassigned task — create via direct SQL since makeTask requires an
+      // assignee. Matches the real-world pattern where operators or prior
+      // runs leave a task in on_deck with no assignee_agent_id.
+      const taskId = randomUUID();
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO tasks
+           (id, project_id, title, description, priority, type, status,
+            assignee_agent_id, created_by, execution_mode,
+            task_number, task_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'high', 'feature', 'on_deck',
+                 NULL, 'operator:test', 'openclaw',
+                 9999, 'UNASSIGNED-9999', ?, ?)`,
+      ).run(taskId, project.id, "Unassigned P1 task awaiting triage", "Needs CEO to route", now, now);
+
+      const result = sweepOpenTasks(db, { cap: 10 });
+      assert.equal(result.wakesEnqueued, 1, `expected 1 wake; got ${JSON.stringify(result)}`);
+
+      const wakes = db
+        .prepare(
+          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .all(taskId) as Array<{ agent_id: string; reason: string; idempotency_key: string }>;
+      assert.equal(wakes.length, 1);
+      assert.equal(wakes[0].agent_id, ceo.id, "sweep must target CEO for unassigned task");
+      assert.equal(wakes[0].reason, "sweep_unassigned_to_ceo");
+      assert.equal(wakes[0].idempotency_key, `ceo_triage:${taskId}`);
+    });
+
+    await test("sweep skips unassigned task with 'no_ceo_for_unassigned' when no CEO exists", () => {
+      clearWakes();
+      const project = makeProject("sweep-unassigned-no-ceo");
+      // Seed a worker so the company has agents, but no CEO.
+      makeAgent(project.id, "worker-only", "Backend Engineer");
+
+      const taskId = randomUUID();
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO tasks
+           (id, project_id, title, description, priority, type, status,
+            assignee_agent_id, created_by, execution_mode,
+            task_number, task_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'high', 'feature', 'on_deck',
+                 NULL, 'operator:test', 'openclaw',
+                 9998, 'UNASSIGNED-9998', ?, ?)`,
+      ).run(taskId, project.id, "Unassigned with no CEO", "Stuck until CEO hired", now, now);
+
+      const result = sweepOpenTasks(db, { cap: 10 });
+      const wakes = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .get(taskId) as { n: number } | undefined;
+      assert.equal(wakes?.n ?? 0, 0, "no wake when no CEO exists");
+      assert.ok(
+        (result.skippedReasons.no_ceo_for_unassigned ?? 0) >= 1,
+        `expected 'no_ceo_for_unassigned' skip; got ${JSON.stringify(result.skippedReasons)}`,
+      );
+    });
+
+    await test("sweep skips unassigned task with 'ceo_recent_triage_no_assign' when CEO already ran on it", () => {
+      clearWakes();
+      const project = makeProject("sweep-unassigned-ceo-ran");
+      const ceo = makeAgent(project.id, "triage-ceo-ran", "CEO");
+
+      const taskId = randomUUID();
+      const now = new Date().toISOString();
+      db.prepare(
+        `INSERT INTO tasks
+           (id, project_id, title, description, priority, type, status,
+            assignee_agent_id, created_by, execution_mode,
+            task_number, task_key, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'high', 'feature', 'on_deck',
+                 NULL, 'operator:test', 'openclaw',
+                 9997, 'UNASSIGNED-9997', ?, ?)`,
+      ).run(taskId, project.id, "Already-triaged unassigned", "CEO ran but didn't assign", now, now);
+
+      // Seed a completed execution_run by the CEO on this task — simulates
+      // "CEO has triaged once already, produced no assignment, guard kicks in."
+      seedCompletedOpenclawRun(taskId, ceo.id, "completed");
+
+      const result = sweepOpenTasks(db, { cap: 10 });
+      const wakes = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .get(taskId) as { n: number } | undefined;
+      assert.equal(wakes?.n ?? 0, 0, "no wake — CEO already triaged and produced no assignment");
+      assert.ok(
+        (result.skippedReasons.ceo_recent_triage_no_assign ?? 0) >= 1,
+        `expected 'ceo_recent_triage_no_assign' skip; got ${JSON.stringify(result.skippedReasons)}`,
+      );
+    });
+
+    await test("sweep ignores unassigned tasks in non-on_deck statuses (backlog / review / in_progress)", () => {
+      clearWakes();
+      const project = makeProject("sweep-unassigned-wrong-status");
+      makeAgent(project.id, "wrong-status-ceo", "CEO");
+
+      const now = new Date().toISOString();
+      // Unassigned + backlog — should NOT be considered
+      const backlogId = randomUUID();
+      db.prepare(
+        `INSERT INTO tasks (id, project_id, title, description, priority, type, status, assignee_agent_id, created_by, execution_mode, task_number, task_key, created_at, updated_at)
+         VALUES (?, ?, 'Backlog unassigned', '-', 'medium', 'feature', 'backlog', NULL, 'test', 'openclaw', 9990, 'UNASSIGNED-9990', ?, ?)`,
+      ).run(backlogId, project.id, now, now);
+      // Unassigned + review — should NOT be considered (data anomaly)
+      const reviewId = randomUUID();
+      db.prepare(
+        `INSERT INTO tasks (id, project_id, title, description, priority, type, status, assignee_agent_id, created_by, execution_mode, task_number, task_key, created_at, updated_at)
+         VALUES (?, ?, 'Review unassigned', '-', 'medium', 'feature', 'review', NULL, 'test', 'openclaw', 9991, 'UNASSIGNED-9991', ?, ?)`,
+      ).run(reviewId, project.id, now, now);
+
+      sweepOpenTasks(db, { cap: 10 });
+
+      const wakes = db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') IN (?, ?)`,
+        )
+        .get(backlogId, reviewId) as { n: number } | undefined;
+      assert.equal(wakes?.n ?? 0, 0, "unassigned tasks outside on_deck must not be swept");
+    });
+
     await test("reconcile does NOT force-move review back to in_progress (previously line 2969 enforcement)", () => {
       clearWakes();
       const project = makeProject("reconcile-no-force-back");
