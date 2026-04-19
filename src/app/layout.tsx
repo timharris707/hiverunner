@@ -25,13 +25,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" style={{ backgroundColor: "#2d2c2c", color: "#eae8e4" }}>
       <body 
         className="font-sans"
         style={{ 
-          backgroundColor: 'var(--background)', 
-          color: 'var(--foreground)',
-          fontFamily: 'var(--font-body)'
+          backgroundColor: "var(--background, #2d2c2c)", 
+          color: "var(--foreground, #eae8e4)",
+          fontFamily: 'var(--font-body, "Avenir Next", "Segoe UI", system-ui, sans-serif)',
+          minHeight: "100vh"
         }}
       >
         <Script id="register-service-worker" strategy="afterInteractive">

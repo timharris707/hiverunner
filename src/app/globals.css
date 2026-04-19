@@ -84,10 +84,16 @@
 }
 
 /* Base Styles */
+html {
+  background-color: var(--bg, #2d2c2c);
+  color: var(--text-primary, #eae8e4);
+}
+
 body {
-  background-color: var(--bg);
-  color: var(--text-primary);
-  font-family: var(--font-body);
+  background-color: var(--bg, #2d2c2c);
+  color: var(--text-primary, #eae8e4);
+  font-family: var(--font-body, "Avenir Next", "Segoe UI", system-ui, sans-serif);
+  min-height: 100vh;
 }
 
 /* Custom scrollbar */
