@@ -10,6 +10,7 @@ import {
   getOrchestrationDb,
   getTaskRowForUpdate,
 } from "./shared";
+import { enqueueWakeup } from "../engine/engine";
 
 export function listTaskComments(taskId: string): {
   taskId: string;
@@ -166,6 +167,47 @@ export function createTaskComment(input: {
   });
 
   tx();
+
+  const commentWakeCompany = task.assignee_agent_id
+    ? (db
+        .prepare("SELECT company_id FROM projects WHERE id = ? LIMIT 1")
+        .get(task.project_id) as { company_id: string } | undefined)
+    : undefined;
+
+  const normalizedAuthorUserId = input.authorUserId?.trim() ?? "";
+  const isGatewayImportedComment =
+    normalizedAuthorUserId.startsWith("openclaw:") ||
+    normalizedAuthorUserId.startsWith("paperclip:");
+
+  const shouldWakeAssignee =
+    !input.authorAgentId &&
+    Boolean(normalizedAuthorUserId) &&
+    source === "mission_control" &&
+    !isGatewayImportedComment &&
+    Boolean(task.assignee_agent_id?.trim()) &&
+    Boolean(commentWakeCompany?.company_id);
+
+  if (shouldWakeAssignee) {
+    enqueueWakeup(
+      {
+        agentId: task.assignee_agent_id!,
+        companyId: commentWakeCompany!.company_id,
+        source: "api",
+        reason: "user_comment_on_assigned_task",
+        triggerDetail: `task_comment:${commentId}`,
+        payload: {
+          taskId: task.id,
+          taskStatus: task.status,
+          commentId,
+          commentType: input.type,
+          commentSource: source,
+          commentAuthorUserId: normalizedAuthorUserId || null,
+        },
+        idempotencyKey: `task-comment-wake:${commentId}`,
+      },
+      db,
+    );
+  }
 
   const row = db
     .prepare(
