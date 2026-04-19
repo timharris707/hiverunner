@@ -1633,12 +1633,82 @@ function maybeResetTaskSessionForFreshAssignment(
 
 /* ── Post-Execution Output Import & MC Action Execution ── */
 
-type McAction =
+export type McAction =
   | { action: "create_task"; title: string; description?: string; priority?: string; type?: string; assignee?: string; project?: string; parent?: string }
   | { action: "hire_agent"; name: string; role: string; capabilities?: string; reason?: string }
   | { action: "report"; summary: string }
   | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
   | { action: "add_comment"; taskKey: string; body: string };
+
+export type McActionExecutionOutcome =
+  | { kind: "created_task"; taskId: string }
+  | { kind: "created_approval"; approvalId: string }
+  | { kind: "reported" }
+  | { kind: "updated_task" }
+  | { kind: "added_comment" }
+  | { kind: "skipped_duplicate" }
+  | { kind: "failed"; reason: string };
+
+export type ExecuteMcActionInput = {
+  agentId: string;
+  agentName: string;
+  companyId: string;
+  taskKey: string;
+  runId: string;
+};
+
+export async function executeMcAction(
+  action: McAction,
+  input: ExecuteMcActionInput,
+  db: Database.Database,
+): Promise<McActionExecutionOutcome> {
+  try {
+    switch (action.action) {
+      case "create_task": {
+        const taskId = await executeCreateTask(action, input, db);
+        return taskId
+          ? { kind: "created_task", taskId }
+          : { kind: "skipped_duplicate" };
+      }
+      case "hire_agent": {
+        const approvalId = executeHireAgent(action, input, db);
+        return approvalId
+          ? { kind: "created_approval", approvalId }
+          : { kind: "skipped_duplicate" };
+      }
+      case "report": {
+        importCommentOnTask(
+          input.taskKey,
+          input.agentId,
+          `**CEO Report:** ${action.summary}`.slice(0, 9000),
+          "status_update",
+          input.runId,
+          db,
+        );
+        return { kind: "reported" };
+      }
+      case "update_task": {
+        const updated = executeUpdateTask(action, input, db);
+        return updated
+          ? { kind: "updated_task" }
+          : { kind: "failed", reason: "task_not_found" };
+      }
+      case "add_comment": {
+        const added = executeAddComment(action, input, db);
+        return added
+          ? { kind: "added_comment" }
+          : { kind: "failed", reason: "task_not_found" };
+      }
+      default: {
+        const unknown = action as Record<string, unknown>;
+        return { kind: "failed", reason: `unknown_action:${String(unknown.action)}` };
+      }
+    }
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return { kind: "failed", reason };
+  }
+}
 
 const VALID_ACTION_TYPES = new Set(["create_task", "hire_agent", "report", "update_task", "add_comment"]);
 
@@ -2332,7 +2402,7 @@ async function waitForSessionCompletion(
   }
 }
 
-function parseActionsFromText(text: string): { actions: McAction[]; plainText: string; parseErrors: string[] } {
+export function parseActionsFromText(text: string): { actions: McAction[]; plainText: string; parseErrors: string[] } {
   const actions: McAction[] = [];
   const parseErrors: string[] = [];
   // Match ```mc-action ... ``` blocks (tolerant of extra whitespace and optional language tag)
@@ -2406,7 +2476,7 @@ function validateActionFields(parsed: Record<string, unknown>): string | null {
   return null;
 }
 
-function importCommentOnTask(
+export function importCommentOnTask(
   taskId: string,
   agentId: string,
   body: string,
@@ -2739,7 +2809,7 @@ export async function executeCreateTask(
   return taskId;
 }
 
-function executeHireAgent(
+export function executeHireAgent(
   action: Extract<McAction, { action: "hire_agent" }>,
   input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
   db: Database.Database
@@ -2886,7 +2956,7 @@ export function executeUpdateTask(
   return true;
 }
 
-function executeAddComment(
+export function executeAddComment(
   action: Extract<McAction, { action: "add_comment" }>,
   input: { agentId: string; companyId: string; runId: string },
   db: Database.Database

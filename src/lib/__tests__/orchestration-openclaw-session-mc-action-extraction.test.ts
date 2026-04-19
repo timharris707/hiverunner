@@ -164,7 +164,9 @@ async function run() {
       const stubRaw = createStubOpenClawCli();
       stubCli = stubRaw;
       const fs = await import("node:fs");
-      const script = fs.readFileSync(stubRaw, "utf8").replaceAll("__TASK_KEY__", fixture.task.key);
+      const taskKey = fixture.task.key ?? "";
+      if (!taskKey) throw new Error("fixture task.key unexpectedly missing");
+      const script = fs.readFileSync(stubRaw, "utf8").replaceAll("__TASK_KEY__", taskKey);
       fs.writeFileSync(stubRaw, script, "utf8");
 
       process.env.ORCHESTRATION_OPENCLAW_CLI = stubRaw;
