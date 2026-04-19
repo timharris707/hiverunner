@@ -1,9 +1,15 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { updateProjectSettingsSchema } from "@/lib/orchestration/contracts";
-import { archiveProject, getProject, updateProjectSettings } from "@/lib/orchestration/service";
+import {
+  archiveProject,
+  cleanupDeletedProjectOpenClawAgents,
+  getProject,
+  hardDeleteProject,
+  updateProjectSettings,
+} from "@/lib/orchestration/service";
 
 export const dynamic = "force-dynamic";
 
@@ -20,11 +26,25 @@ export async function GET(
 }
 
 export async function DELETE(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params;
+    const hard = req.nextUrl.searchParams.get("hard") === "true";
+
+    if (hard) {
+      const result = hardDeleteProject(id);
+      after(async () => {
+        try {
+          await cleanupDeletedProjectOpenClawAgents(result.openclawAgents.queued);
+        } catch (cleanupError) {
+          console.error("[project:delete] OpenClaw cleanup failed:", cleanupError);
+        }
+      });
+      return NextResponse.json({ success: true, deleted: true, project: result });
+    }
+
     return NextResponse.json(archiveProject(id));
   } catch (error) {
     return handleRouteError(error, "project:delete");

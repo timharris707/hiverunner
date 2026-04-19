@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { randomUUID } from "crypto";
 
 import {
@@ -18,6 +20,12 @@ import {
   isNonProductionProject,
 } from "./shared";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
+import { cleanupDeletedCompanyOpenClawAgents } from "@/lib/orchestration/company-service";
+import {
+  resolveCompanyAgentWorkspacePath,
+  resolveCompanyProjectWorkspaceCandidates,
+} from "@/lib/workspaces/company-paths";
+import { isPathContained } from "@/lib/workspaces/delete-safety";
 
 export function listProjects(input?: {
   companyIdOrSlug?: string;
@@ -381,15 +389,21 @@ export function updateProjectSettings(input: {
       ).run(current.id, current.slug, now);
     }
 
+    const nextStatus = input.status ?? current.status;
+    const nextArchivedAt = nextStatus === "archived"
+      ? current.archived_at ?? now
+      : null;
+
     db.prepare(
       `UPDATE projects
-       SET name = ?, slug = ?, settings_json = ?, status = ?, updated_at = ?
+       SET name = ?, slug = ?, settings_json = ?, status = ?, archived_at = ?, updated_at = ?
        WHERE id = ?`
     ).run(
       input.name ?? current.name,
       nextSlug,
       JSON.stringify(nextSettings),
-      input.status ?? current.status,
+      nextStatus,
+      nextArchivedAt,
       now,
       current.id
     );
@@ -468,6 +482,144 @@ export function archiveProject(projectIdOrSlug: string): {
     projectId: project.id,
     archivedAt,
   };
+}
+
+type HardDeleteProjectResult = {
+  projectId: string;
+  projectSlug: string;
+  companyId: string;
+  workspace: {
+    companyRoot: string | null;
+    projectPaths: Array<{ path: string; existed: boolean; deleted: boolean }>;
+    agentPaths: Array<{ agentId: string; agentSlug: string; path: string; existed: boolean; deleted: boolean }>;
+  };
+  openclawAgents: {
+    queued: string[];
+  };
+  deletedCounts: {
+    tasks: number;
+    agents: number;
+    project: number;
+  };
+};
+
+function deletePathIfPresent(targetPath: string, containerRoot?: string | null): { existed: boolean; deleted: boolean } {
+  const resolvedTarget = path.resolve(targetPath);
+  if (containerRoot && !isPathContained(containerRoot, resolvedTarget)) {
+    throw new OrchestrationApiError(400, "unsafe_workspace_path", `Refusing to delete path outside company workspace: ${resolvedTarget}`);
+  }
+
+  const existed = fs.existsSync(resolvedTarget);
+  if (!existed) {
+    return { existed: false, deleted: true };
+  }
+
+  fs.rmSync(resolvedTarget, { recursive: true, force: true });
+  const deleted = !fs.existsSync(resolvedTarget);
+  if (!deleted) {
+    throw new OrchestrationApiError(500, "workspace_delete_failed", `Failed to delete workspace path: ${resolvedTarget}`);
+  }
+
+  return { existed: true, deleted: true };
+}
+
+export function hardDeleteProject(projectIdOrSlug: string): HardDeleteProjectResult {
+  const db = getOrchestrationDb();
+  const resolved = resolveProjectRow(db, projectIdOrSlug);
+  if (!resolved) {
+    throw new OrchestrationApiError(404, "project_not_found", "Project not found");
+  }
+  if (!resolved.company_id) {
+    throw new OrchestrationApiError(400, "project_company_missing", "Project has no company binding");
+  }
+
+  const companyRow = db.prepare(
+    `SELECT workspace_root
+       FROM companies
+      WHERE id = ?
+      LIMIT 1`
+  ).get(resolved.company_id) as { workspace_root: string | null } | undefined;
+
+  const companyWorkspaceRoot = companyRow?.workspace_root?.trim()
+    ? path.resolve(companyRow.workspace_root)
+    : null;
+
+  const agentRows = db.prepare(
+    `SELECT id, slug, openclaw_agent_id
+       FROM agents
+      WHERE project_id = ?`
+  ).all(resolved.id) as Array<{ id: string; slug: string | null; openclaw_agent_id: string | null }>;
+
+  const deletedCounts = {
+    tasks: Number((db.prepare(`SELECT COUNT(*) AS count FROM tasks WHERE project_id = ?`).get(resolved.id) as { count?: number } | undefined)?.count ?? 0),
+    agents: agentRows.length,
+    project: 1,
+  };
+
+  const projectWorkspaceResults = resolveCompanyProjectWorkspaceCandidates(companyWorkspaceRoot, {
+    slug: resolved.slug,
+    name: resolved.name,
+  }).map((projectPath) => {
+    const result = deletePathIfPresent(projectPath, companyWorkspaceRoot);
+    return {
+      path: projectPath,
+      ...result,
+    };
+  });
+
+  const agentWorkspaceResults = agentRows.map((agent) => {
+    const agentSlug = agent.slug?.trim();
+    const agentPath = agentSlug && companyWorkspaceRoot
+      ? resolveCompanyAgentWorkspacePath(companyWorkspaceRoot, agentSlug)
+      : null;
+
+    if (!agentPath) {
+      return {
+        agentId: agent.id,
+        agentSlug: agentSlug ?? "",
+        path: "",
+        existed: false,
+        deleted: true,
+      };
+    }
+
+    const result = deletePathIfPresent(agentPath, companyWorkspaceRoot);
+    return {
+      agentId: agent.id,
+      agentSlug,
+      path: agentPath,
+      ...result,
+    };
+  });
+
+  db.transaction(() => {
+    db.prepare(`DELETE FROM tasks WHERE project_id = ?`).run(resolved.id);
+    db.prepare(`DELETE FROM agents WHERE project_id = ?`).run(resolved.id);
+    db.prepare(`DELETE FROM projects WHERE id = ?`).run(resolved.id);
+  })();
+
+  refreshEdgeRouteMapCache();
+
+  return {
+    projectId: resolved.id,
+    projectSlug: resolved.slug,
+    companyId: resolved.company_id,
+    workspace: {
+      companyRoot: companyWorkspaceRoot,
+      projectPaths: projectWorkspaceResults,
+      agentPaths: agentWorkspaceResults,
+    },
+    openclawAgents: {
+      queued: agentRows
+        .map((agent) => agent.openclaw_agent_id?.trim() || null)
+        .filter((value): value is string => Boolean(value)),
+    },
+    deletedCounts,
+  };
+}
+
+export async function cleanupDeletedProjectOpenClawAgents(runtimeIds: string[]) {
+  return cleanupDeletedCompanyOpenClawAgents(runtimeIds);
 }
 
 export function getProjectBoard(projectIdOrSlug: string): {
