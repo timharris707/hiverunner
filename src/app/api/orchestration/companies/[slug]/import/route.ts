@@ -62,11 +62,35 @@ export async function POST(
 
     const results: ImportResult[] = [];
     const now = new Date().toISOString();
+    const projectIdMap = new Map<string, string>();
+    const agentIdMap = new Map<string, string>();
+    const sprintIdMap = new Map<string, string>();
+    const taskIdMap = new Map<string, string>();
+
+    const remapProjectId = (id: unknown) => {
+      if (typeof id !== "string" || !id.trim()) return null;
+      return projectIdMap.get(id) ?? id;
+    };
+
+    const remapAgentId = (id: unknown) => {
+      if (typeof id !== "string" || !id.trim()) return null;
+      return agentIdMap.get(id) ?? id;
+    };
+
+    const remapSprintId = (id: unknown) => {
+      if (typeof id !== "string" || !id.trim()) return null;
+      return sprintIdMap.get(id) ?? id;
+    };
+
+    const remapTaskId = (id: unknown) => {
+      if (typeof id !== "string" || !id.trim()) return null;
+      return taskIdMap.get(id) ?? id;
+    };
 
     // We need to track ID remapping for cross-references.
     // When importing, original IDs from the source are preserved if possible.
-    // The "skip" strategy means: if ID exists, skip. If not, insert with original ID.
-    // The "overwrite" strategy means: if ID exists, update. If not, insert.
+    // If a row already exists under a different live ID (for example matched by slug),
+    // we remap the source package ID to that live ID so downstream foreign keys stay valid.
 
     db.transaction(() => {
       // ── Company settings ──
@@ -134,6 +158,7 @@ export async function POST(
               .get(p.id, company.id, p.slug) as { id: string } | undefined;
 
             if (existing) {
+              if (p.id) projectIdMap.set(String(p.id), existing.id);
               if (strategy === "overwrite") {
                 db.prepare(
                   `UPDATE projects SET name = ?, description = ?, color = ?, status = ?,
@@ -148,15 +173,17 @@ export async function POST(
                 result.skipped++;
               }
             } else {
+              const projectId = p.id || randomUUID();
               db.prepare(
                 `INSERT INTO projects (id, company_id, slug, name, description, color, status, settings_json, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
-                p.id || randomUUID(), company.id, p.slug, p.name,
+                projectId, company.id, p.slug, p.name,
                 p.description ?? "", p.color ?? "#0ea5e9",
                 p.status ?? "active", JSON.stringify(p.settings ?? {}),
                 p.createdAt ?? now, now
               );
+              if (p.id) projectIdMap.set(String(p.id), projectId);
               result.imported++;
             }
           } catch (e) {
@@ -176,6 +203,7 @@ export async function POST(
               .get(a.id, company.id, a.slug) as { id: string } | undefined;
 
             if (existing) {
+              if (a.id) agentIdMap.set(String(a.id), existing.id);
               if (strategy === "overwrite") {
                 db.prepare(
                   `UPDATE agents SET name = ?, emoji = ?, role = ?, personality = ?,
@@ -208,9 +236,9 @@ export async function POST(
                  status, model, openclaw_agent_id, adapter_type, adapter_config_json, runtime_config_json,
                  permissions_json, capabilities, instructions_mode, skills_json,
                  created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
-                agentId, company.id, a.projectId ?? null,
+                agentId, company.id, remapProjectId(a.projectId),
                 a.slug ?? a.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
                 a.runtimeSlug
                   ? normalizeAgentRuntimeSlug(String(a.runtimeSlug))
@@ -224,6 +252,7 @@ export async function POST(
                 JSON.stringify(a.skills ?? []),
                 a.createdAt ?? now, now
               );
+              if (a.id) agentIdMap.set(String(a.id), agentId);
               result.imported++;
             }
           } catch (e) {
@@ -243,6 +272,7 @@ export async function POST(
               .get(s.id) as { id: string } | undefined;
 
             if (existing) {
+              if (s.id) sprintIdMap.set(String(s.id), existing.id);
               if (strategy === "overwrite") {
                 db.prepare(
                   `UPDATE sprints SET name = ?, goal = ?, owner = ?,
@@ -258,17 +288,19 @@ export async function POST(
                 result.skipped++;
               }
             } else {
+              const sprintId = s.id || randomUUID();
               db.prepare(
                 `INSERT INTO sprints (id, project_id, parent_id, name, goal, owner,
                  status, start_date, end_date, completed_at, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
-                s.id || randomUUID(), s.projectId, s.parentId ?? null,
+                sprintId, remapProjectId(s.projectId), remapSprintId(s.parentId),
                 s.name, s.goal ?? "", s.owner ?? null,
                 s.status ?? "planning", s.startDate,
                 s.endDate ?? null, s.completedAt ?? null,
                 s.createdAt ?? now, now
               );
+              if (s.id) sprintIdMap.set(String(s.id), sprintId);
               result.imported++;
             }
           } catch (e) {
@@ -284,22 +316,31 @@ export async function POST(
         for (const t of pkg.tasks) {
           try {
             const existing = db
-              .prepare("SELECT id FROM tasks WHERE id = ?")
-              .get(t.id) as { id: string } | undefined;
+              .prepare("SELECT id FROM tasks WHERE id = ? OR (project_id = ? AND task_key = ?)")
+              .get(t.id, remapProjectId(t.projectId), t.taskKey ?? null) as { id: string } | undefined;
+
+            const remappedAssigneeId = remapAgentId(t.assigneeAgentId);
+            const remappedDependsOn = Array.isArray(t.dependsOn)
+              ? t.dependsOn.map((dep: unknown) => remapTaskId(dep)).filter(Boolean)
+              : [];
 
             if (existing) {
+              if (t.id) taskIdMap.set(String(t.id), existing.id);
               if (strategy === "overwrite") {
                 db.prepare(
-                  `UPDATE tasks SET title = ?, description = ?, priority = ?, type = ?,
-                   status = ?, column_order = ?, assignee_agent_id = ?,
+                  `UPDATE tasks SET project_id = ?, sprint_id = ?, parent_task_id = ?,
+                   task_number = ?, task_key = ?, title = ?, description = ?, priority = ?, type = ?,
+                   status = ?, column_order = ?, assignee_agent_id = ?, created_by = ?,
                    labels_json = ?, depends_on_json = ?, execution_mode = ?,
                    updated_at = ? WHERE id = ?`
                 ).run(
-                  t.title, t.description ?? "", t.priority ?? "medium",
+                  remapProjectId(t.projectId), remapSprintId(t.sprintId), remapTaskId(t.parentTaskId),
+                  t.taskNumber ?? null, t.taskKey ?? null, t.title, t.description ?? "", t.priority ?? "medium",
                   t.type ?? "feature", t.status ?? "backlog",
-                  t.columnOrder ?? 0, t.assigneeAgentId ?? null,
+                  t.columnOrder ?? 0, remappedAssigneeId,
+                  t.createdBy ?? "import",
                   JSON.stringify(t.labels ?? []),
-                  JSON.stringify(t.dependsOn ?? []),
+                  JSON.stringify(remappedDependsOn),
                   t.executionMode ?? "manual", now, existing.id
                 );
                 result.imported++;
@@ -307,25 +348,45 @@ export async function POST(
                 result.skipped++;
               }
             } else {
+              const taskId = t.id || randomUUID();
+              const createdAt = t.createdAt ?? now;
               db.prepare(
                 `INSERT INTO tasks (id, project_id, sprint_id, parent_task_id,
                  task_number, task_key, title, description, priority, type,
-                 status, column_order, assignee_agent_id,
+                 status, column_order, assignee_agent_id, created_by,
                  labels_json, depends_on_json, execution_mode,
                  created_at, updated_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
-                t.id || randomUUID(), t.projectId, t.sprintId ?? null,
-                t.parentTaskId ?? null, t.taskNumber ?? null,
+                taskId, remapProjectId(t.projectId), remapSprintId(t.sprintId),
+                remapTaskId(t.parentTaskId), t.taskNumber ?? null,
                 t.taskKey ?? null, t.title, t.description ?? "",
                 t.priority ?? "medium", t.type ?? "feature",
                 t.status ?? "backlog", t.columnOrder ?? 0,
-                t.assigneeAgentId ?? null,
+                remappedAssigneeId,
+                t.createdBy ?? "import",
                 JSON.stringify(t.labels ?? []),
-                JSON.stringify(t.dependsOn ?? []),
+                JSON.stringify(remappedDependsOn),
                 t.executionMode ?? "manual",
-                t.createdAt ?? now, now
+                createdAt, now
               );
+              db.prepare(
+                `INSERT OR IGNORE INTO task_events
+                  (id, project_id, task_id, agent_id, user_id, event_type, from_status, to_status, metadata_json, created_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+              ).run(
+                randomUUID(),
+                remapProjectId(t.projectId),
+                taskId,
+                remappedAssigneeId,
+                t.createdBy ?? "import",
+                "task.created",
+                null,
+                t.status ?? "backlog",
+                JSON.stringify({ imported: true, labels: t.labels ?? [] }),
+                createdAt,
+              );
+              if (t.id) taskIdMap.set(String(t.id), taskId);
               result.imported++;
             }
           } catch (e) {
@@ -347,8 +408,12 @@ export async function POST(
             if (existing) {
               if (strategy === "overwrite") {
                 db.prepare(
-                  `UPDATE comments SET body = ?, type = ?, updated_at = ? WHERE id = ?`
-                ).run(c.body, c.type ?? "comment", now, existing.id);
+                  `UPDATE comments SET task_id = ?, author_agent_id = ?, author_user_id = ?,
+                   body = ?, type = ?, source = ?, updated_at = ? WHERE id = ?`
+                ).run(
+                  remapTaskId(c.taskId), remapAgentId(c.authorAgentId), c.authorUserId ?? null,
+                  c.body, c.type ?? "comment", c.source ?? "mission_control", now, existing.id
+                );
                 result.imported++;
               } else {
                 result.skipped++;
@@ -359,8 +424,8 @@ export async function POST(
                  body, type, source, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
               ).run(
-                c.id || randomUUID(), c.taskId,
-                c.authorAgentId ?? null, c.authorUserId ?? null,
+                c.id || randomUUID(), remapTaskId(c.taskId),
+                remapAgentId(c.authorAgentId), c.authorUserId ?? null,
                 c.body, c.type ?? "comment", c.source ?? "mission_control",
                 c.createdAt ?? now, now
               );
