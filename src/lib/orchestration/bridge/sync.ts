@@ -1,5 +1,5 @@
 import { OrchestrationApiError } from "@/lib/orchestration/api";
-import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
+import { createTaskComment, getTask, moveTask, updateTask } from "@/lib/orchestration/service";
 import {
   PaperclipBridgeClient,
   PaperclipBridgeError,
@@ -11,7 +11,9 @@ import {
   mapLocalStatusToPaperclip,
   mapPaperclipStatusToLocal,
 } from "@/lib/orchestration/bridge/mapping";
+import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
+  findTaskByPaperclipIssueId,
   getLatestTaskExternalCommentRef,
   getTaskBridgeRecord,
   listTaskExternalCommentRefs,
@@ -56,6 +58,16 @@ export type PullTaskBridgeStatusResult = {
     imported: number;
     skippedDuplicates: number;
     lastImportedCommentId?: string;
+  };
+  parent: {
+    /** The parent Paperclip issue id reported by the Paperclip API, if any. */
+    paperclipParentId?: string;
+    /** The MC parent task id resolved from `paperclipParentId`, if the parent is mapped. */
+    resolvedParentTaskId?: string;
+    /** Whether `tasks.parent_task_id` was changed by this pull. */
+    changed: boolean;
+    /** `null` if the parent couldn't be reconciled (unmapped / cross-project / rejected). */
+    skipReason?: string;
   };
   task: ReturnType<typeof getTask>["task"];
 };
@@ -301,6 +313,62 @@ export async function pullTaskBridgeStatus(taskId: string): Promise<PullTaskBrid
     lastImportedCommentId = comment.id;
   }
 
+  // ── Parent reconciliation (Bug B fix, 2026-04-18) ──
+  // When Paperclip reports a parentId on this issue, resolve that
+  // Paperclip issue id back to the MC task it's mapped to and update
+  // `tasks.parent_task_id` so MC's structural hierarchy matches the
+  // source of truth in Paperclip. Silent drops:
+  //   - parentId unmapped on the MC side (child is a subtask of
+  //     something that hasn't been imported yet — match the engine's
+  //     `create_task.parent` unknown-task_key policy: leave as top-level)
+  //   - parent MC task is in a different project (updateTask rejects
+  //     this with invalid_parent_task; we catch + record skipReason)
+  //   - parentId refers to the task itself (updateTask rejects)
+  const parent: PullTaskBridgeStatusResult["parent"] = { changed: false };
+
+  if (issue.parentId) {
+    parent.paperclipParentId = issue.parentId;
+
+    const parentMc = findTaskByPaperclipIssueId(issue.parentId, getOrchestrationDb());
+    if (!parentMc) {
+      parent.skipReason = "paperclip_parent_not_mapped";
+    } else if (parentMc.id === task.id) {
+      parent.skipReason = "parent_is_self";
+    } else {
+      parent.resolvedParentTaskId = parentMc.id;
+
+      // Read the child's current parent_task_id directly from the DB —
+      // BridgeTaskRecord doesn't carry it today, and we want to skip the
+      // UPDATE when it's already correct (avoid a spurious task_events
+      // row on every poll).
+      const childRow = getOrchestrationDb()
+        .prepare(
+          `SELECT parent_task_id, project_id FROM tasks WHERE id = ? AND archived_at IS NULL LIMIT 1`,
+        )
+        .get(task.id) as { parent_task_id: string | null; project_id: string } | undefined;
+
+      if (childRow && childRow.parent_task_id === parentMc.id) {
+        parent.skipReason = "parent_already_set";
+      } else if (childRow && childRow.project_id !== parentMc.projectId) {
+        // updateTask would throw invalid_parent_task for cross-project;
+        // catch it here with a cleaner skipReason for observability.
+        parent.skipReason = "cross_project_parent";
+      } else {
+        try {
+          updateTask({
+            taskId: task.id,
+            parentTaskId: parentMc.id,
+            actorUserId: SYSTEM_ACTOR,
+          });
+          parent.changed = true;
+        } catch (error) {
+          parent.skipReason =
+            error instanceof OrchestrationApiError ? error.code : "parent_update_failed";
+        }
+      }
+    }
+  }
+
   const syncedTask = getTask(task.id).task;
   if (!syncedTask) {
     throw new OrchestrationApiError(500, "task_reload_failed", "Task sync completed but task reload failed");
@@ -324,6 +392,7 @@ export async function pullTaskBridgeStatus(taskId: string): Promise<PullTaskBrid
       skippedDuplicates,
       ...(lastImportedCommentId ? { lastImportedCommentId } : {}),
     },
+    parent,
     task: syncedTask,
   };
 }

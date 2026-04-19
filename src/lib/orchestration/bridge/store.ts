@@ -113,6 +113,37 @@ export function resolveTaskPaperclipAssignee(taskId: string, db = getOrchestrati
   };
 }
 
+/**
+ * Look up an MC task by its Paperclip issue id. Returns `undefined`
+ * when no live (non-archived) MC task has that issue mapped — this is
+ * the expected shape when Paperclip returns a `parentId` for an issue
+ * whose parent hasn't yet been mapped into MC (e.g. the parent lives
+ * only in Paperclip). Callers should treat "not found" as "leave the
+ * child as top-level" rather than an error, matching the engine's
+ * `create_task.parent` silent-drop policy for unknown task_keys.
+ *
+ * Returns the minimum fields needed to reconcile parent linkage
+ * (id + project_id) — the caller owns the actual write via
+ * service.updateTask so cross-project parent rejection and the
+ * same-project constraint stay centralised.
+ */
+export function findTaskByPaperclipIssueId(
+  issueId: string,
+  db = getOrchestrationDb(),
+): { id: string; projectId: string } | undefined {
+  const row = db
+    .prepare(
+      `SELECT id, project_id
+       FROM tasks
+       WHERE paperclip_issue_id = ? AND archived_at IS NULL
+       LIMIT 1`,
+    )
+    .get(issueId) as { id: string; project_id: string } | undefined;
+
+  if (!row) return undefined;
+  return { id: row.id, projectId: row.project_id };
+}
+
 export function setTaskPaperclipIssueMapping(
   input: { taskId: string; issueId: string; executionSessionId?: string | null },
   db = getOrchestrationDb()

@@ -45,6 +45,15 @@ export interface PaperclipIssueReference {
   priority: PaperclipIssuePriority;
   assigneeAgentId?: string;
   assigneeUserId?: string;
+  /**
+   * The Paperclip issue id of this issue's parent, if any. Set by
+   * Paperclip when the issue is linked as a sub-issue. Consumed by
+   * `pullTaskBridgeStatus` to reconcile `tasks.parent_task_id` on the
+   * MC side — fixes Bug B from the 2026-04-18 WEA-211 investigation,
+   * where the bridge only pulled status + comments and left MC flat
+   * even though the Paperclip tree had a parent.
+   */
+  parentId?: string;
 }
 
 export interface PaperclipIssueComment {

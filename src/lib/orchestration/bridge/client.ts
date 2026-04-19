@@ -22,6 +22,7 @@ type PaperclipIssueApiResponse = {
   priority: PaperclipIssueReference["priority"];
   assigneeAgentId?: string | null;
   assigneeUserId?: string | null;
+  parentId?: string | null;
 };
 
 type PaperclipIssueCommentApiResponse = {
@@ -66,6 +67,7 @@ function toIssueReference(input: PaperclipIssueApiResponse): PaperclipIssueRefer
     priority: input.priority,
     assigneeAgentId: input.assigneeAgentId ?? undefined,
     assigneeUserId: input.assigneeUserId ?? undefined,
+    parentId: input.parentId ?? undefined,
   };
 }
 
