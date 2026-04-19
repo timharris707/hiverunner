@@ -1477,6 +1477,23 @@ const MIGRATIONS: Migration[] = [
         WHERE consecutive_noop_wakes > 0;
     `,
   },
+  {
+    version: 47,
+    name: "allow_on_deck_to_review_and_done_transitions",
+    sql: `
+      -- Product decision (CLAUDE.md): "Allow direct to-do → done transitions.
+      -- Typical path remains to-do → in-progress → review → done, but rigid
+      -- enforcement is wrong." Adds the two missing on_deck transitions.
+      -- Concrete trigger: WEA-274 (2026-04-19) — Kelvin completed the task in
+      -- a single heartbeat run, called update_task with status='review', and
+      -- the rule check silently rejected the transition while the action
+      -- handler reported "executed". Status stayed on_deck despite the
+      -- "Ready for review" comment.
+      INSERT OR IGNORE INTO status_transition_rules (from_status, to_status, requires_assignee, requires_review, is_terminal) VALUES
+        ('on_deck', 'review', 0, 0, 0),
+        ('on_deck', 'done',   0, 0, 1);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

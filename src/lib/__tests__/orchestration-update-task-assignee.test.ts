@@ -130,12 +130,22 @@ async function run() {
     // production evidence of the handler firing correctly on stable.
 
     // Prefer exported helper if present
+    type UpdateTaskResult = {
+      taskFound: boolean;
+      statusRequested: boolean;
+      statusApplied: boolean;
+      statusRejectedReason?: string;
+      assigneeRequested: boolean;
+      assigneeApplied: boolean;
+      commentRequested: boolean;
+      commentApplied: boolean;
+    };
     const executeUpdateTask = (engineMod as unknown as {
       executeUpdateTask?: (
         action: { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string },
         input: { agentId: string; companyId: string; runId: string },
         db: unknown,
-      ) => boolean;
+      ) => UpdateTaskResult;
     }).executeUpdateTask;
 
     if (!executeUpdateTask) {
@@ -154,7 +164,7 @@ async function run() {
       const ceo = makeAgent(project.id, "ceo", "CEO");
       const task = makeTask(project.id, fromAgent.id, "REASSIGN-1");
 
-      const ok = executeUpdateTask(
+      const result = executeUpdateTask(
         {
           action: "update_task",
           taskKey: task.key,
@@ -164,7 +174,9 @@ async function run() {
         { agentId: ceo.id, companyId: project.companyId, runId: randomUUID() },
         db,
       );
-      assert.equal(ok, true);
+      assert.equal(result.taskFound, true);
+      assert.equal(result.assigneeApplied, true);
+      assert.equal(result.commentApplied, true);
 
       const post = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
         .prepare("SELECT assignee_agent_id FROM tasks WHERE id = ? LIMIT 1")
@@ -192,7 +204,7 @@ async function run() {
       const ceo = makeAgent(project.id, "ceo", "CEO");
       const task = makeTask(project.id, fromAgent.id, "REASSIGN-2");
 
-      const ok = executeUpdateTask(
+      const result = executeUpdateTask(
         {
           action: "update_task",
           taskKey: task.key,
@@ -202,7 +214,9 @@ async function run() {
         { agentId: ceo.id, companyId: project.companyId, runId: randomUUID() },
         db,
       );
-      assert.equal(ok, true);
+      assert.equal(result.taskFound, true);
+      assert.equal(result.assigneeApplied, false);
+      assert.equal(result.commentApplied, true);
 
       const post = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
         .prepare("SELECT assignee_agent_id FROM tasks WHERE id = ? LIMIT 1")

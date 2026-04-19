@@ -1689,9 +1689,14 @@ export async function executeMcAction(
       }
       case "update_task": {
         const updated = executeUpdateTask(action, input, db);
-        return updated
-          ? { kind: "updated_task" }
-          : { kind: "failed", reason: "task_not_found" };
+        if (!updated.taskFound) return { kind: "failed", reason: "task_not_found" };
+        if (updated.statusRequested && !updated.statusApplied) {
+          return {
+            kind: "failed",
+            reason: `status_transition_rejected:${updated.statusRejectedReason ?? "unknown"}`,
+          };
+        }
+        return { kind: "updated_task" };
       }
       case "add_comment": {
         const added = executeAddComment(action, input, db);
@@ -2111,7 +2116,20 @@ async function importSessionOutputAndExecuteActions(input: {
         case "update_task":
           {
             const updated = executeUpdateTask(action, input, input.db);
-            if (updated) {
+            if (!updated.taskFound) {
+              results.errors.push(`update_task: task not found for key ${action.taskKey}`);
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
+              emitRunEvent(input.runId, input.agentId, "action_error",
+                `update_task ${action.taskKey}: task not found`, input.db);
+            } else if (updated.statusRequested && !updated.statusApplied) {
+              const reason = updated.statusRejectedReason ?? "unknown";
+              results.errors.push(
+                `update_task: status transition '${action.status}' on ${action.taskKey} rejected (${reason}); other fields applied: assignee=${updated.assigneeApplied} comment=${updated.commentApplied}`,
+              );
+              perActionDetail.push({ action: action.action, target: actionTarget, status: "skipped", durationMs: Date.now() - actionStart });
+              emitRunEvent(input.runId, input.agentId, "action_error",
+                `update_task ${action.taskKey} → ${action.status}: rejected (${reason})`, input.db);
+            } else {
               results.actionsExecuted++;
               perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
               emitRunEvent(input.runId, input.agentId, "action_executed",
@@ -2914,26 +2932,50 @@ export function executeHireAgent(
   return approvalId;
 }
 
+export type UpdateTaskResult = {
+  taskFound: boolean;
+  statusRequested: boolean;
+  statusApplied: boolean;
+  statusRejectedReason?: "invalid_status" | "no_transition_rule" | "already_at_status";
+  assigneeRequested: boolean;
+  assigneeApplied: boolean;
+  commentRequested: boolean;
+  commentApplied: boolean;
+};
+
 export function executeUpdateTask(
   action: Extract<McAction, { action: "update_task" }>,
   input: { agentId: string; companyId: string; runId: string },
   db: Database.Database
-): boolean {
+): UpdateTaskResult {
   const now = new Date().toISOString();
+  const result: UpdateTaskResult = {
+    taskFound: false,
+    statusRequested: !!action.status,
+    statusApplied: false,
+    assigneeRequested: !!action.assignee,
+    assigneeApplied: false,
+    commentRequested: !!action.comment,
+    commentApplied: false,
+  };
 
   // Resolve task by task_key
   const task = db
     .prepare("SELECT id, project_id, status, assignee_agent_id FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
     .get(action.taskKey) as { id: string; project_id: string; status: string; assignee_agent_id: string | null } | undefined;
 
-  if (!task || !task.id) return false;
+  if (!task || !task.id) return result;
+  result.taskFound = true;
 
   // Status update if requested and transition is valid
   if (action.status) {
     const normalized = action.status.toLowerCase().replace(/[\s-]+/g, "_");
     const validStatuses = ["backlog", "on_deck", "in_progress", "review", "done", "blocked"];
-    if (validStatuses.includes(normalized) && normalized !== task.status) {
-      // Check transition is allowed
+    if (!validStatuses.includes(normalized)) {
+      result.statusRejectedReason = "invalid_status";
+    } else if (normalized === task.status) {
+      result.statusRejectedReason = "already_at_status";
+    } else {
       const rule = db
         .prepare("SELECT 1 FROM status_transition_rules WHERE from_status = ? AND to_status = ?")
         .get(task.status, normalized);
@@ -2944,6 +2986,9 @@ export function executeUpdateTask(
            VALUES (?, ?, ?, ?, 'task.status_changed', ?, ?, ?, ?)`
         ).run(randomUUID(), task.project_id, task.id, input.agentId, task.status, normalized,
           JSON.stringify({ source: "engine_action", runId: input.runId }), now);
+        result.statusApplied = true;
+      } else {
+        result.statusRejectedReason = "no_transition_rule";
       }
     }
   }
@@ -2990,6 +3035,7 @@ export function executeUpdateTask(
           }),
           now,
         );
+        result.assigneeApplied = true;
       }
     }
   }
@@ -2997,9 +3043,10 @@ export function executeUpdateTask(
   // Comment if provided
   if (action.comment) {
     importCommentOnTask(task.id, input.agentId, action.comment.slice(0, 9000), "status_update", input.runId, db);
+    result.commentApplied = true;
   }
 
-  return true;
+  return result;
 }
 
 export function executeAddComment(
