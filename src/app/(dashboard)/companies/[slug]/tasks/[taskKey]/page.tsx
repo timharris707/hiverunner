@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock, Mic } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Paperclip, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock, Mic, Plus } from "lucide-react";
+import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
@@ -195,6 +196,7 @@ export default function TaskDetailPage() {
   const [replyPickerOpen, setReplyPickerOpen] = useState(false);
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
   const [execution, setExecution] = useState<ExecutionSnapshot>(null);
+  const [createSubtaskOpen, setCreateSubtaskOpen] = useState(false);
   const replyPickerRef = useRef<HTMLDivElement>(null);
   const dragCounter = useRef(0);
 
@@ -1339,37 +1341,64 @@ export default function TaskDetailPage() {
                 </>
               )}
               {activeTab === "subissues" && (
-                taskDetail?.childTasks && taskDetail.childTasks.length > 0 ? (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                    {taskDetail.childTasks.map((child) => (
-                      <Link
-                        key={child.id}
-                        href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(child.key ?? child.id)}`)}
-                        style={{
-                          display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
-                          padding: "10px 12px", borderRadius: 8, textDecoration: "none",
-                          border: `0.5px solid ${color.border}`, background: "rgba(255,255,255,0.02)",
-                        }}
-                      >
-                        <div style={{ minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: color.textSecondary }}>
-                            {child.key ? `${child.key} · ${child.title}` : child.title}
-                          </div>
-                          <div style={{ fontSize: 11, color: color.textMuted }}>
-                            {STATUS_LABEL[child.status] ?? child.status} · {child.priority} · {child.assignee ?? "Unassigned"}
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
-                          {relativeAge(child.updated)}
-                        </div>
-                      </Link>
-                    ))}
+                <div>
+                  {/* Header row with "Add subtask" button. Always visible on this
+                      tab — including the empty state — so operators have a
+                      one-click entry point. Paperclip shipped nested issues
+                      out of the box; MC didn't until this lane. */}
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setCreateSubtaskOpen(true)}
+                      disabled={!task}
+                      style={{
+                        display: "inline-flex", alignItems: "center", gap: 6,
+                        padding: "4px 10px",
+                        fontSize: 12, fontWeight: 500,
+                        color: task ? color.text : color.textMuted,
+                        background: "rgba(255,255,255,0.04)",
+                        border: `0.5px solid ${color.border}`,
+                        borderRadius: 6,
+                        cursor: task ? "pointer" : "default",
+                      }}
+                    >
+                      <Plus size={12} />
+                      Add subtask
+                    </button>
                   </div>
-                ) : (
-                  <div style={{ padding: "24px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
-                    No sub-tasks.
-                  </div>
-                )
+
+                  {taskDetail?.childTasks && taskDetail.childTasks.length > 0 ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      {taskDetail.childTasks.map((child) => (
+                        <Link
+                          key={child.id}
+                          href={buildCompanyPath(slug, `/tasks/${encodeURIComponent(child.key ?? child.id)}`)}
+                          style={{
+                            display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12,
+                            padding: "10px 12px", borderRadius: 8, textDecoration: "none",
+                            border: `0.5px solid ${color.border}`, background: "rgba(255,255,255,0.02)",
+                          }}
+                        >
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: color.textSecondary }}>
+                              {child.key ? `${child.key} · ${child.title}` : child.title}
+                            </div>
+                            <div style={{ fontSize: 11, color: color.textMuted }}>
+                              {STATUS_LABEL[child.status] ?? child.status} · {child.priority} · {child.assignee ?? "Unassigned"}
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 10, color: color.textMuted, flexShrink: 0 }}>
+                            {relativeAge(child.updated)}
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ padding: "24px 0", fontSize: "12px", color: color.textMuted, textAlign: "center" }}>
+                      No sub-tasks. Click “Add subtask” to create one under this task.
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           </>
@@ -1564,6 +1593,26 @@ export default function TaskDetailPage() {
                 if (refreshedDetail) setActivityTimeline(refreshedDetail.detail.timeline);
               })();
             }, 1200);
+          }}
+        />
+      )}
+
+      {task && project && (
+        <CreateTaskModal
+          open={createSubtaskOpen}
+          onClose={() => setCreateSubtaskOpen(false)}
+          onCreated={() => {
+            // Subtask just landed — refresh the task detail so the
+            // Sub-Issues tab shows the new child immediately.
+            void loadTask();
+          }}
+          companySlug={slug}
+          companyCode={companyCode}
+          parentContext={{
+            taskId: task.id,
+            taskKey: task.key,
+            title: task.title,
+            projectId: project.id,
           }}
         />
       )}

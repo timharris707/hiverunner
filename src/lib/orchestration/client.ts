@@ -1351,6 +1351,7 @@ export async function createTask(input: {
   status?: TaskStatus;
   assignee?: string;
   sprintId?: string;
+  parentTaskId?: string;
   labels?: string[];
 }): Promise<OrchestrationTask | null> {
   const response = await fetch("/api/orchestration/tasks", {
@@ -1365,6 +1366,7 @@ export async function createTask(input: {
       status: input.status ?? "backlog",
       ...(input.assignee ? { assignee: input.assignee } : {}),
       ...(input.sprintId ? { sprintId: input.sprintId } : {}),
+      ...(input.parentTaskId ? { parentTaskId: input.parentTaskId } : {}),
       labels: input.labels ?? [],
       createdBy: "mission-control",
     }),

@@ -1,14 +1,28 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Paperclip, X } from "lucide-react";
+import { GitBranch, Paperclip, X } from "lucide-react";
 import { createTask, listCompanyAgents, listProjects } from "@/lib/orchestration/client";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { resolveActiveProject } from "@/lib/active-project-utils";
-import { PRIORITY_META } from "@/components/orchestration/task-display";
+import { PRIORITY_META, STATUS_META } from "@/components/orchestration/task-display";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
 import type { OrchestrationAgent, OrchestrationProject, TaskPriority, TaskStatus } from "@/lib/orchestration/types";
+
+/**
+ * Optional parent context for subtask creation. When provided:
+ *   - header says "New Subtask" + shows a "Subtask of: {key} · {title}" chip
+ *   - project is locked to the parent's project (can't drift cross-project,
+ *     matches the engine-side `create_task.parent` same-project invariant)
+ *   - submit includes `parentTaskId` so the new task is stored as a child
+ */
+export interface CreateTaskModalParentContext {
+  taskId: string;
+  taskKey?: string;
+  title: string;
+  projectId: string;
+}
 
 interface Props {
   open: boolean;
@@ -17,6 +31,7 @@ interface Props {
   companySlug: string;
   companyCode: string;
   defaultAssignee?: string;
+  parentContext?: CreateTaskModalParentContext;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -36,7 +51,7 @@ const labelStyle: React.CSSProperties = {
   marginBottom: "6px",
 };
 
-export function CreateTaskModal({ open, onClose, onCreated, companySlug, companyCode, defaultAssignee }: Props) {
+export function CreateTaskModal({ open, onClose, onCreated, companySlug, companyCode, defaultAssignee, parentContext }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [projectId, setProjectId] = useState("");
@@ -106,12 +121,20 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
         if (match) setAssignee(match.id);
       }
 
-      const active = resolveActiveProject(projectRows, activeProject, companySlug);
-      setProjectId((prev) => prev || active?.id || projectRows[0]?.id || "");
+      if (parentContext?.projectId) {
+        // Subtask flow: always inherit parent's project, overriding any
+        // previously-selected value. Mirrors engine-side parent semantics
+        // (executeCreateTask in engine.ts) where the subtask's project_id
+        // is forced to the parent's.
+        setProjectId(parentContext.projectId);
+      } else {
+        const active = resolveActiveProject(projectRows, activeProject, companySlug);
+        setProjectId((prev) => prev || active?.id || projectRows[0]?.id || "");
+      }
     };
     void load();
     return () => { cancelled = true; };
-  }, [open, companySlug, activeProject]);
+  }, [open, companySlug, activeProject, parentContext?.projectId]);
 
   const reset = () => {
     setTitle("");
@@ -141,6 +164,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
       status,
       ...(assignee ? { assignee } : {}),
       ...(tags.length > 0 ? { labels: tags } : {}),
+      ...(parentContext?.taskId ? { parentTaskId: parentContext.taskId } : {}),
     });
 
     setSubmitting(false);
@@ -160,10 +184,24 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
       <div role="dialog" aria-modal="true" aria-label="Create new task" style={{ width: "100%", maxWidth: "480px", borderRadius: "16px", border: "1px solid rgba(120,113,108,0.3)", background: "linear-gradient(180deg, rgba(41,37,36,0.95), rgba(20,17,15,0.98))", boxShadow: "0 24px 60px rgba(0,0,0,0.5)", overflow: "hidden" }}>
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid rgba(120,113,108,0.2)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", minWidth: 0, flex: 1 }}>
             <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "3px 8px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.35)", background: "rgba(41,37,36,0.6)", fontSize: "11px", fontWeight: 700, letterSpacing: "0.08em", color: "#a8a29e" }}>{companyCode}</span>
             <span style={{ fontSize: "13px", color: "#78716c" }}>›</span>
-            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>New Task</span>
+            <span style={{ fontSize: "14px", fontWeight: 600, color: "#f5f5f4" }}>{parentContext ? "New Subtask" : "New Task"}</span>
+            {parentContext ? (
+              <span
+                title={`Subtask of ${parentContext.taskKey ?? parentContext.taskId}: ${parentContext.title}`}
+                style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 4, padding: "2px 8px", borderRadius: 999, border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)", fontSize: "11px", color: "#a8a29e", maxWidth: 240, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+              >
+                <GitBranch size={10} />
+                of {parentContext.taskKey ?? "parent"}
+                {parentContext.title ? (
+                  <span style={{ color: "#78716c", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    · {parentContext.title.length > 40 ? `${parentContext.title.slice(0, 38)}…` : parentContext.title}
+                  </span>
+                ) : null}
+              </span>
+            ) : null}
           </div>
           <button type="button" onClick={handleClose} style={{ width: "28px", height: "28px", borderRadius: "8px", border: "1px solid rgba(120,113,108,0.25)", background: "transparent", color: "#78716c", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}>
             <X size={14} />
@@ -222,9 +260,18 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
               )}
             </div>
             <span style={{ fontSize: "12px", color: "#57534e" }}>in</span>
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)" }}>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
+            {parentContext ? (
+              <span
+                title="Project is locked to the parent task's project for subtasks"
+                style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px dashed rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.25)", color: "#a8a29e", cursor: "not-allowed" }}
+              >
+                {projects.find((p) => p.id === projectId)?.name ?? "parent project"}
+              </span>
+            ) : (
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} style={{ ...inputStyle, width: "auto", padding: "4px 8px", fontSize: "12px", borderRadius: "6px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)" }}>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
           </div>
 
           {/* description */}
@@ -302,7 +349,7 @@ export function CreateTaskModal({ open, onClose, onCreated, companySlug, company
           {/* bottom pills: status + priority */}
           <div style={{ display: "flex", alignItems: "center", gap: "8px", marginTop: "16px", paddingTop: "12px", borderTop: "1px solid rgba(120,113,108,0.12)" }}>
             <select value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)} style={{ ...inputStyle, width: "auto", padding: "4px 10px", fontSize: "11px", borderRadius: "999px", border: "1px solid rgba(120,113,108,0.25)", background: "rgba(41,37,36,0.4)" }}>
-              <option value="on-deck">Todo</option>
+              <option value="on-deck">{STATUS_META["on-deck"].label}</option>
               <option value="in-progress">In Progress</option>
             </select>
             <span style={{ fontSize: "11px", color: "#57534e" }}>—</span>
