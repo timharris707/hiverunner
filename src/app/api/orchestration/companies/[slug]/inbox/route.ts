@@ -32,35 +32,7 @@ export async function GET(
       ? new Set(query.kinds.split(",").map((k) => k.trim()).filter(Boolean))
       : null;
 
-    // ---------- Unread count ----------
-    // Always fetch the full event set (uncapped) for unread thread counting so the
-    // badge is accurate regardless of the page limit.
-    const fullRaw = listCompanyInbox({
-      companyIdOrSlug: slug,
-      projectId: query.projectId,
-      status: query.status,
-      search: query.search,
-      includeDone: query.includeDone,
-      limit: 5000,       // effectively unlimited — covers all events
-      includeTaskSnapshot: false,
-    });
-
-    // Count distinct unread threads (matching kind filter)
-    const unreadThreadKeys = new Set<string>();
-    for (const event of fullRaw.events) {
-      if (kindSet && !kindSet.has(event.kind)) continue;
-      if (event.isRead) continue;
-      const tk =
-        event.kind === "approval" && event.approvalId
-          ? `a:${event.approvalId}`
-          : event.taskKey
-            ? `t:${event.taskKey}`
-            : `e:${event.id}`;
-      unreadThreadKeys.add(tk);
-    }
-    const threadUnreadCount = unreadThreadKeys.size;
-
-    // ---------- Paginated thread list ----------
+    // ---------- Paginated thread list + unread count ----------
     // Over-fetch raw events so we can de-duplicate by thread and fill the page.
     const overFetchLimit = Math.min(pageLimit * 40, 2000);
     const raw = listCompanyInbox({
@@ -94,6 +66,7 @@ export async function GET(
 
     const pageEvents = deduped.slice(0, pageLimit);
     const hasMore = deduped.length > pageLimit;
+    const threadUnreadCount = deduped.reduce((count, event) => count + (event.isRead ? 0 : 1), 0);
 
     const lastEvent = pageEvents.at(-1);
     let nextCursor: string | undefined;

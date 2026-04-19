@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Archive, ArrowUpDown, Check, ChevronDown, Columns3, Filter, Inbox as InboxIcon, Layers, Lightbulb, Search, ShieldAlert, User, UserPlus } from "lucide-react";
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { PageHeader } from "@/lib/ui/primitives";
 import { P, radius, space } from "@/lib/ui/tokens";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -395,6 +396,26 @@ export default function CompanyInboxPage() {
   }, [slug, activeTab]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void load();
+      }
+    };
+
+    const interval = window.setInterval(refreshIfVisible, 10000);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [load]);
 
   /* ---- Load more ---- */
   const loadMore = async () => {
@@ -1160,8 +1181,12 @@ function EventRow({
   // Task / execution row
   const taskKey = event.taskKey ?? null;
 
-  // Resolve avatar: prefer dynamic from DB, fall back to static config
+  // Resolve avatar using the same shared component/source as the agent pages.
+  // Inbox payload avatarUrl can drift from the currently selected agent avatar,
+  // so prefer the canonical agent identity path here instead of rendering the
+  // feed snapshot directly.
   const agentConfig = event.agentName ? (getAgentByAnyId(event.agentName) ?? (event.agentId ? getAgentByAnyId(event.agentId) : undefined)) : undefined;
+  const avatarAgentId = event.agentId || event.agentName || undefined;
   const avatarUrl = event.avatarUrl || agentConfig?.avatar;
 
   // Failed execution two-line treatment (Paperclip-style, indented like approvals)
@@ -1237,7 +1262,9 @@ function EventRow({
             </span>
             {event.agentName && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                {avatarUrl ? (
+                {avatarAgentId ? (
+                  <AgentAvatar agentId={avatarAgentId} size={16} borderWidth={1} />
+                ) : avatarUrl ? (
                   <img src={avatarUrl} alt={event.agentName} style={{ width: 16, height: 16, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
                 ) : (
                   <span style={{ width: 16, height: 16, borderRadius: "50%", background: "rgba(255,255,255,0.06)", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 8, fontWeight: 700, color: P.textSecondary, flexShrink: 0 }}>
@@ -1323,7 +1350,9 @@ function EventRow({
             <span style={{ display: "inline-flex", alignItems: "center", gap: 6, width: 120, flexShrink: 0, paddingLeft: 8 }}>
               {event.agentName ? (
                 <>
-                  {avatarUrl ? (
+                  {avatarAgentId ? (
+                    <AgentAvatar agentId={avatarAgentId} size={20} borderWidth={1} />
+                  ) : avatarUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={avatarUrl} alt={event.agentName} style={{ width: 20, height: 20, borderRadius: "50%", objectFit: "cover", flexShrink: 0 }} />
                   ) : (
