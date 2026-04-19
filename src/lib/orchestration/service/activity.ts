@@ -218,11 +218,14 @@ export function listActivityFeed(input: {
 
       const agentLabel = row.agent_name ?? assigneeName ?? "Someone";
 
+      const commentSource = typeof metadata.source === "string" ? metadata.source : undefined;
       const message =
         eventType === "task.read_marked"
           ? `Board issue read marked ${taskTitle ?? "a task"}`
           : eventType === "task.comment_added"
-            ? `${agentLabel} commented on ${taskTitle ?? "a task"}`
+            ? commentSource === "voice"
+              ? `${agentLabel} logged a voice note on ${taskTitle ?? "a task"}`
+              : `${agentLabel} commented on ${taskTitle ?? "a task"}`
             : eventType === "task.status_changed" && row.from_status && row.to_status
             ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
             : eventType === "task.assigned"

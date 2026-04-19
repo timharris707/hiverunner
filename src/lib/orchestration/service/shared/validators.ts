@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
+import { formatOperatorTaskStatusLabel } from "@/lib/orchestration/status-copy";
 
 import { DEFAULT_STALE_ALERT_THRESHOLDS_HOURS, toApiStatus } from "./mappers";
 import type {
@@ -142,10 +143,12 @@ function validateTransition(
     | undefined;
 
   if (!rule) {
+    const fromLabel = formatOperatorTaskStatusLabel(toApiStatus(fromStatus)) ?? toApiStatus(fromStatus);
+    const toLabel = formatOperatorTaskStatusLabel(toApiStatus(toStatus)) ?? toApiStatus(toStatus);
     throw new OrchestrationApiError(
       400,
       "invalid_transition",
-      `Task transition ${toApiStatus(fromStatus)} -> ${toApiStatus(toStatus)} is not allowed`
+      `Task transition ${fromLabel} -> ${toLabel} is not allowed`
     );
   }
 
