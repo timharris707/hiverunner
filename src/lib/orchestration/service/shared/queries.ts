@@ -201,6 +201,7 @@ function commentViewFromRow(row: CommentRow): NonNullable<OrchestrationTask["com
     text: row.body,
     timestamp: row.created_at,
     type: row.type,
+    source: row.source ?? undefined,
   };
 }
 

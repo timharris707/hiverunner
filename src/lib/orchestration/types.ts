@@ -94,6 +94,10 @@ export interface OrchestrationTask {
     text: string;
     timestamp: string;
     type?: string;
+    /** Comment origin: "mission_control" | "voice" | "paperclip" | "openclaw".
+     *  Voice-originated comments surface a small "Voice Chat" pill on the
+     *  task page next to the author name. */
+    source?: string;
   }>;
 }
 

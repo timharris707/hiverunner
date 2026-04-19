@@ -1106,6 +1106,23 @@ export default function TaskDetailPage() {
                               );
                             })()}
                             <span style={{ fontSize: "12px", fontWeight: 600, color: color.text }}>{c.author}</span>
+                            {c.source === "voice" && (
+                              <span
+                                title="Posted via Voice Chat"
+                                style={{
+                                  fontSize: "10px",
+                                  fontWeight: 500,
+                                  padding: "2px 7px",
+                                  borderRadius: "10px",
+                                  background: "rgba(217,119,6,0.14)",
+                                  border: "0.5px solid rgba(217,119,6,0.28)",
+                                  color: "#fbbf24",
+                                  lineHeight: 1.2,
+                                }}
+                              >
+                                Voice Chat
+                              </span>
+                            )}
                             <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 6 }}>
                               <span style={{ fontSize: "11px", color: color.textMuted }}>
                                 {formatTimestamp(c.timestamp)}

@@ -1497,6 +1497,7 @@ export async function listTaskComments(taskId: string): Promise<NonNullable<Orch
       text: String(c.text ?? ""),
       timestamp: String(c.timestamp ?? new Date().toISOString()),
       type: c.type ? String(c.type) : undefined,
+      source: c.source ? String(c.source) : undefined,
     };
   });
 }
