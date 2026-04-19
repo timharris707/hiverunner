@@ -92,6 +92,7 @@ interface NavItem {
   highlight?: boolean;
   trailingAction?: ReactNode;
   accentBar?: boolean;
+  suppressHoverBorder?: boolean;
   onRowMouseEnter?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
   onRowMouseLeave?: (event: React.MouseEvent<HTMLAnchorElement>) => void;
 }
@@ -121,7 +122,8 @@ const APPS_ITEMS: NavItem[] = [
   { href: "/ideas", label: "Ideas", icon: Lightbulb },
   { href: "/advisory", label: "Advisory Board", icon: Users },
   { href: "/marketing", label: "Marketing", icon: Megaphone },
-  { href: "/voice", label: "Henry Voice", icon: Mic },
+  { href: "/voice", label: "Voice Chat", icon: Mic },
+  { href: "/leadlag", label: "Lead/Lag", icon: Activity },
   { href: "/trading", label: "Trading", icon: TrendingUp },
   { href: "/trading/floor", label: "Trading Floor", icon: TrendingUp },
   { href: "/trading/terminal", label: "Trading Terminal", icon: TrendingUp },
@@ -380,7 +382,7 @@ function NavRow({ item, active, onClick }: { item: NavItem; active: boolean; onC
   const background = hasAccent ? "rgba(255,255,255,0.04)" : active ? "#0c0c0c" : "transparent";
   const border = hasAccent ? "0.5px solid rgba(222,220,209,0.06)" : active ? "0.5px solid transparent" : "0.5px solid transparent";
   const hoverBackground = active || hasAccent ? background : "rgba(255,255,255,0.04)";
-  const hoverBorder = active || hasAccent ? border : "0.5px solid rgba(222,220,209,0.06)";
+  const hoverBorder = active || hasAccent || item.suppressHoverBorder ? border : "0.5px solid rgba(222,220,209,0.06)";
   // Accent bar uses inset box-shadow so it doesn't affect layout or get wiped by hover border resets
   const accentShadow = hasAccent ? "inset 2px 0 0 0 rgba(214,211,209,0.4)" : undefined;
   const hasInlineAction = Boolean(item.trailingAction);
@@ -909,6 +911,7 @@ export function Dock() {
     let cancelled = false;
 
     const loadInboxCount = async () => {
+      if (!company.slug) return;
       const inbox = await getCompanyInbox({
         companySlug: company.slug,
         includeTaskSnapshot: false,
@@ -920,8 +923,14 @@ export function Dock() {
       setInboxUnreadCount((prev) => prev === count ? prev : count);
     };
 
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "visible") {
+        void loadInboxCount();
+      }
+    };
+
     void loadInboxCount();
-    const INBOX_POLL_MS = process.env.NODE_ENV === "development" ? 60_000 : 30_000;
+    const INBOX_POLL_MS = process.env.NODE_ENV === "development" ? 15000 : 10000;
     const interval = window.setInterval(() => {
       void loadInboxCount();
     }, INBOX_POLL_MS);
@@ -930,6 +939,7 @@ export function Dock() {
     const handleUnreadChange = (e: Event) => {
       const count = (e as CustomEvent).detail?.count;
       if (typeof count === "number") setInboxUnreadCount(count);
+      else void loadInboxCount();
     };
     window.addEventListener("inbox-unread-change", handleUnreadChange);
     const handleCompanyRefresh = (event: Event) => {
@@ -938,12 +948,16 @@ export function Dock() {
       void loadInboxCount();
     };
     window.addEventListener("orchestration-company-refresh", handleCompanyRefresh);
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
       window.removeEventListener("inbox-unread-change", handleUnreadChange);
       window.removeEventListener("orchestration-company-refresh", handleCompanyRefresh);
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
     };
   }, [company.slug]);
 
@@ -1093,17 +1107,20 @@ export function Dock() {
       }}
     >
       <div style={{ margin: "2px 4px 8px", padding: "2px 2px 6px", borderBottom: "0.5px solid rgba(222,220,209,0.08)" }}>
-        <p
-          style={{
-            margin: 0,
-            fontSize: "13px",
-            letterSpacing: "0.01em",
-            color: "#eae8e4",
-            fontWeight: 600,
-          }}
-        >
-          {company.name}
-        </p>
+        <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+          <Building2 size={13} color="#eae8e4" style={{ flexShrink: 0 }} />
+          <p
+            style={{
+              margin: 0,
+              fontSize: "13px",
+              letterSpacing: "0.01em",
+              color: "#eae8e4",
+              fontWeight: 600,
+            }}
+          >
+            {company.name}
+          </p>
+        </div>
       </div>
 
       <SectionHeader label="Operations" />
@@ -1115,6 +1132,7 @@ export function Dock() {
             ? {
                 ...entry,
                 href,
+                suppressHoverBorder: true,
                 trailingAction: (
                   <div
                     style={{
@@ -1171,7 +1189,7 @@ export function Dock() {
             : entry.label === "Dashboard"
               ? { ...entry, href, badgeText: activeAgentCount > 0 ? `${activeAgentCount} live` : undefined }
               : entry.label === "Inbox"
-                ? { ...entry, href, badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined }
+                ? { ...entry, href, suppressHoverBorder: true, badge: inboxUnreadCount > 0 ? inboxUnreadCount : undefined }
                 : { ...entry, href };
         return (
           <NavRow
@@ -1192,7 +1210,6 @@ export function Dock() {
         label="Projects"
         collapsed={!projectsOpen}
         onToggle={() => setProjectsOpen((prev) => !prev)}
-        showCreateOnHover
         onCreate={() => {
           setCreateProjectOpen(true);
         }}
@@ -1232,7 +1249,6 @@ export function Dock() {
         label="Agents"
         collapsed={!agentsOpen}
         onToggle={() => setAgentsOpen((prev) => !prev)}
-        showCreateOnHover
         onCreate={() => {
           setCreateAgentOpen(true);
         }}
@@ -1284,7 +1300,6 @@ export function Dock() {
         label="Company"
         collapsed={!companyOpen}
         onToggle={() => setCompanyOpen((prev) => !prev)}
-        showCreateOnHover
         onCreate={() => { setCreateCompanyOpen(true); }}
         createAriaLabel="Create company"
       />

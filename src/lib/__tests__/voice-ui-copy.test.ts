@@ -49,20 +49,20 @@ test("task launch label uses the assigned agent name when available", () => {
   assert.equal(buildTaskVoiceLaunchLabel(undefined), "Talk to Agent");
 });
 
-test("task-bound presenter copy foregrounds the assigned agent while keeping Henry Voice distinct", () => {
+test("task-bound presenter copy foregrounds the assigned agent while keeping Voice Chat distinct", () => {
   const copy = getVoicePresenterCopy(makeTaskBinding());
 
-  assert.equal(copy.heading, "Scout via Henry Voice");
+  assert.equal(copy.heading, "Scout via Voice Chat");
   assert.equal(copy.subtitle, "Realtime voice session with Scout for this task.");
   assert.equal(copy.speakingLabel, "Scout is speaking");
   assert.equal(copy.startSessionLabel, "Start Task Session");
   assert.match(copy.boundSessionHint, /writes a visible voice note back to the task/i);
 });
 
-test("unbound presenter copy falls back to Henry Voice lab wording", () => {
+test("unbound presenter copy falls back to Voice Chat wording", () => {
   const copy = getVoicePresenterCopy(null);
 
-  assert.equal(copy.heading, "Henry Voice");
+  assert.equal(copy.heading, "Voice Chat");
   assert.equal(copy.subtitle, "Realtime voice conversation with Henry — Chief of Staff");
   assert.equal(copy.speakingLabel, "Henry is speaking");
   assert.equal(copy.startSessionLabel, "Start Voice Session");

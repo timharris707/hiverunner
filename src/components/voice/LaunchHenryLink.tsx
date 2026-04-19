@@ -93,7 +93,7 @@ export function LaunchHenryLink({
         ...style,
       }}
       aria-label={label}
-      title={`${label} in Henry Voice`}
+      title={`${label} in Voice Chat`}
     >
       <Mic size={14} />
       {label}

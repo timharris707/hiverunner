@@ -58,7 +58,7 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
 
   if (!binding || binding.scope === "global") {
     return {
-      heading: "Henry Voice",
+      heading: "Voice Chat",
       subtitle: "Realtime voice conversation with Henry — Chief of Staff",
       speakingLabel: "Henry is speaking",
       startSessionLabel: "Start Voice Session",
@@ -68,11 +68,11 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
 
   if (binding.scope === "task") {
     return {
-      heading: agentName ? `${agentName} via Henry Voice` : "Henry Voice",
+      heading: agentName ? `${agentName} via Voice Chat` : "Voice Chat",
       subtitle: agentName
         ? `Realtime voice session with ${agentName} for this task.`
         : "Realtime task-bound voice session in Mission Control.",
-      speakingLabel: agentName ? `${agentName} is speaking` : "Henry Voice is speaking",
+      speakingLabel: agentName ? `${agentName} is speaking` : "Speaking",
       startSessionLabel: "Start Task Session",
       boundSessionHint:
         "This task-bound session keeps the full transcript in Mission Control-owned workspace memory and writes a visible voice note back to the task when the session ends.",
@@ -80,11 +80,11 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
   }
 
   return {
-    heading: agentName ? `${agentName} via Henry Voice` : "Henry Voice",
+    heading: agentName ? `${agentName} via Voice Chat` : "Voice Chat",
     subtitle: agentName
       ? `Realtime voice session with ${agentName} for this project.`
       : "Realtime project-bound voice session in Mission Control.",
-    speakingLabel: agentName ? `${agentName} is speaking` : "Henry Voice is speaking",
+    speakingLabel: agentName ? `${agentName} is speaking` : "Speaking",
     startSessionLabel: "Start Project Session",
     boundSessionHint:
       "This project-bound session keeps the full transcript in Mission Control-owned workspace memory. Project write-back stays curated until Mission Control has a real project-note model.",

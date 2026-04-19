@@ -43,7 +43,17 @@ export interface VoiceActionToolResult {
   toPriority?: TaskPriorityInput;
 }
 
-const VOICE_ACTION_AUTHOR = "Tim via Henry Voice";
+/**
+ * Voice-driven task actions attribute to the bound agent when one exists
+ * (the agent is effectively the one performing the action on the caller's
+ * verbal request). When no agent is bound, we fall back to a "voice"
+ * marker for the audit trail. For comments specifically we also tag
+ * `source: "voice"` so the timeline + future UI can surface the origin.
+ */
+function voiceAuthorUserId(binding: ResolvedVoiceBinding & { taskId: string }): string {
+  return binding.agentId ? `voice:${binding.agentId}` : "voice";
+}
+
 const TASK_STATUS_VALUES: TaskStatusInput[] = ["backlog", "on-deck", "in-progress", "review", "done", "blocked"];
 const TASK_STATUS_ALIASES: Record<string, TaskStatusInput> = {
   backlog: "backlog",
@@ -183,7 +193,7 @@ function buildVoiceActionExternalRef(
 function commentExists(taskId: string, externalRef: string): boolean {
   const db = getOrchestrationDb();
   const row = db
-    .prepare("SELECT id FROM comments WHERE task_id = ? AND source = 'mission_control' AND external_ref = ? LIMIT 1")
+    .prepare("SELECT id FROM comments WHERE task_id = ? AND source = 'voice' AND external_ref = ? LIMIT 1")
     .get(taskId, externalRef) as { id: string } | undefined;
   return Boolean(row?.id);
 }
@@ -199,8 +209,10 @@ export function executeVoiceActionTool(input: ExecuteVoiceActionToolInput): Voic
         taskId: binding.taskId,
         body: normalizeRequiredBody(input.params?.body),
         type: "comment",
-        authorUserId: VOICE_ACTION_AUTHOR,
-        source: "mission_control",
+        ...(binding.agentId
+          ? { authorAgentId: binding.agentId }
+          : { authorUserId: "voice" }),
+        source: "voice",
         externalRef,
       }).comment;
 
@@ -245,7 +257,7 @@ export function executeVoiceActionTool(input: ExecuteVoiceActionToolInput): Voic
         status,
         blockedReason,
         reviewNotes,
-        actorUserId: VOICE_ACTION_AUTHOR,
+        actorUserId: voiceAuthorUserId(binding),
       });
 
       return {
@@ -267,7 +279,7 @@ export function executeVoiceActionTool(input: ExecuteVoiceActionToolInput): Voic
       const result = assignTask({
         taskId: binding.taskId,
         assignee: requested,
-        actorUserId: VOICE_ACTION_AUTHOR,
+        actorUserId: voiceAuthorUserId(binding),
       });
 
       const toAssignee = result.task.assignee ?? null;
@@ -305,7 +317,7 @@ export function executeVoiceActionTool(input: ExecuteVoiceActionToolInput): Voic
       const updated = updateTask({
         taskId: binding.taskId,
         priority,
-        actorUserId: VOICE_ACTION_AUTHOR,
+        actorUserId: voiceAuthorUserId(binding),
       });
 
       return {

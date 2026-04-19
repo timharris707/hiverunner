@@ -158,14 +158,18 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
 
   for (const comment of comments) {
     const imported = comment.source === "paperclip" || comment.source === "openclaw";
+    const voice = comment.source === "voice";
     timeline.push({
       id: `comment:${comment.id}`,
       taskId: task.id,
       timestamp: comment.created_at,
       kind: imported ? "imported_report" : "comment",
       source: comment.source ?? "mission_control",
-      actorLabel: comment.author_name ?? comment.author_user_id ?? (imported ? "Imported" : "System"),
-      summary: imported ? "Imported report" : "Comment added",
+      actorLabel:
+        comment.author_name ??
+        comment.author_user_id ??
+        (voice ? "Voice Chat" : imported ? "Imported" : "System"),
+      summary: imported ? "Imported report" : voice ? "Voice note logged" : "Comment added",
       body: comment.body,
       metadata: {
         commentType: comment.type,

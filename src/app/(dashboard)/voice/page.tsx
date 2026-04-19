@@ -277,7 +277,7 @@ function SetupGuide() {
         Google AI API Key Required
       </div>
       <div className="text-sm text-zinc-300 space-y-2">
-        <p>To use Henry Voice, you need a Google AI API key with Gemini Live access:</p>
+        <p>To use Voice Chat, you need a Google AI API key with Gemini Live access:</p>
         <ol className="list-decimal list-inside space-y-1 text-zinc-400">
           <li>
             Go to{" "}
@@ -332,7 +332,7 @@ function BoardRunnerArchitecture() {
 
         <div className="text-sm font-sans text-zinc-300 space-y-2">
           <p>
-            <strong>Phase 1 (this prototype):</strong> Henry Voice — direct 1:1 voice
+            <strong>Phase 1 (this prototype):</strong> Voice Chat — direct 1:1 voice
             conversation with Henry via Gemini Live WebSocket. Validates audio I/O,
             latency, interruption handling, and persona consistency.
           </p>
@@ -574,7 +574,7 @@ export default function HenryVoicePage() {
               )}
             </div>
             <div className="text-[11px] text-zinc-500">
-              {displayBinding ? "Bound Mission Control context" : "Henry Voice lab"}
+              {displayBinding ? "Bound Mission Control context" : "Voice Chat lab"}
             </div>
           </div>
 
@@ -615,7 +615,7 @@ export default function HenryVoicePage() {
           <div className="space-y-1">
             <div className="text-stone-300 font-medium">BoardRunner Path</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>Phase 1: Henry Voice (this prototype)</li>
+              <li>Phase 1: Voice Chat (this prototype)</li>
               <li>Phase 2: Henry as voice moderator for advisory</li>
               <li>Phase 3: Multi-agent voice with agent-switching</li>
               <li>Reconnect logic for 15min+ sessions</li>

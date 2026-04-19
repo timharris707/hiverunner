@@ -149,7 +149,7 @@ async function run() {
     source: "task-detail" as const,
   };
 
-  await test("add_task_comment creates one real Mission Control comment and wakes the assignee only once per voice intent", () => {
+  await test("add_task_comment attributes the comment to the bound agent, tags it source=voice, and does not wake the assignee who just posted it", () => {
     const first = executeVoiceActionTool({
       tool: "add_task_comment",
       params: {
@@ -178,23 +178,24 @@ async function run() {
     const comments = listTaskComments(task.id).comments;
     assert.equal(comments.length, 1);
     assert.match(comments[0]!.text, /Please pick this back up/);
-    assert.equal(comments[0]!.author, "Tim via Henry Voice");
+    assert.equal(comments[0]!.author, agent.name);
 
     const db = getOrchestrationDb();
     const stored = db
-      .prepare("SELECT source, external_ref, author_user_id FROM comments WHERE task_id = ?")
-      .all(task.id) as Array<{ source: string; external_ref: string | null; author_user_id: string | null }>;
+      .prepare("SELECT source, external_ref, author_agent_id, author_user_id FROM comments WHERE task_id = ?")
+      .all(task.id) as Array<{ source: string; external_ref: string | null; author_agent_id: string | null; author_user_id: string | null }>;
     assert.equal(stored.length, 1);
-    assert.equal(stored[0]?.source, "mission_control");
+    assert.equal(stored[0]?.source, "voice");
     assert.match(stored[0]?.external_ref ?? "", /voice-action:/);
-    assert.equal(stored[0]?.author_user_id, "Tim via Henry Voice");
+    assert.equal(stored[0]?.author_agent_id, agent.id);
 
+    // The bound agent is both the speaker and the comment author — waking them
+    // to read the comment they just posted would be redundant. Agent-authored
+    // comments do not trigger the user-comment wake path.
     const wakeups = db
       .prepare("SELECT id, status, reason FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC")
       .all(agent.id) as Array<{ id: string; status: string; reason: string | null }>;
-    assert.equal(wakeups.length, 1);
-    assert.equal(wakeups[0]?.status, "queued");
-    assert.equal(wakeups[0]?.reason, "user_comment_on_assigned_task");
+    assert.equal(wakeups.length, 0);
   });
 
   await test("move_task_status accepts common task-lane aliases like To-Do and maps them onto Mission Control status values", () => {

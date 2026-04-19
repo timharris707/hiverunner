@@ -55,7 +55,8 @@ const LABEL_MAP: Record<string, string> = {
   export: "Export",
   import: "Import",
   ideas: "Ideas",
-  voice: "Henry Voice",
+  voice: "Voice Chat",
+  leadlag: "Lead/Lag Monitor",
 };
 
 /** Segments that are structural routing and should be hidden from breadcrumbs. */
@@ -76,7 +77,7 @@ const SECTION_FOR_PAGE: Record<string, string> = {
   // Systems
   terminal: "Systems", sessions: "Systems", logs: "Systems",
   // Apps
-  ideas: "Apps", advisory: "Apps", marketing: "Apps", voice: "Apps", trading: "Apps",
+  ideas: "Apps", advisory: "Apps", marketing: "Apps", voice: "Apps", leadlag: "Apps", trading: "Apps",
 };
 
 /**
