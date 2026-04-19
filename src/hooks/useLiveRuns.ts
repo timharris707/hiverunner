@@ -66,6 +66,20 @@ interface UseLiveRunsResult {
 const POLL_INTERVAL_MS = process.env.NODE_ENV === "development" ? 15_000 : 3_000;
 const COOLDOWN_MS = 2 * 60 * 1000; // keep polling 2min after last active run
 
+export function shouldPollLiveRuns({
+  enabled,
+  lastActiveAt,
+  now = Date.now(),
+  cooldownMs = COOLDOWN_MS,
+}: {
+  enabled: boolean;
+  lastActiveAt: number;
+  now?: number;
+  cooldownMs?: number;
+}): boolean {
+  return enabled || now - lastActiveAt < cooldownMs;
+}
+
 /* ── hook ── */
 
 export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLiveRunsResult {
@@ -76,6 +90,20 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
   const prevStatusRef = useRef<Map<string, string>>(new Map());
   const lastActiveRef = useRef<number>(0);
   const lastRunsKeyRef = useRef<string>("");
+  const pollingStateTimerRef = useRef<number | null>(null);
+
+  const schedulePollingState = useCallback((next: boolean) => {
+    if (typeof window === "undefined") return;
+
+    if (pollingStateTimerRef.current !== null) {
+      window.clearTimeout(pollingStateTimerRef.current);
+    }
+
+    pollingStateTimerRef.current = window.setTimeout(() => {
+      pollingStateTimerRef.current = null;
+      setIsPolling(next);
+    }, 0);
+  }, []);
 
   const fetchLiveRuns = useCallback(async () => {
     try {
@@ -150,31 +178,45 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
   }, [companySlug]);
 
   useEffect(() => {
-    if (!companySlug) return;
+    const clearPendingPollingState = () => {
+      if (pollingStateTimerRef.current !== null) {
+        window.clearTimeout(pollingStateTimerRef.current);
+        pollingStateTimerRef.current = null;
+      }
+    };
 
-    // Should we be polling?
-    const shouldPoll = enabled || Date.now() - lastActiveRef.current < COOLDOWN_MS;
-    if (!shouldPoll) {
-      setIsPolling(false);
-      return;
+    if (!companySlug) {
+      schedulePollingState(false);
+      return clearPendingPollingState;
     }
 
-    setIsPolling(true);
-    void fetchLiveRuns(); // immediate first fetch
+    const shouldPoll = shouldPollLiveRuns({ enabled, lastActiveAt: lastActiveRef.current });
+    if (!shouldPoll) {
+      schedulePollingState(false);
+      return clearPendingPollingState;
+    }
+
+    schedulePollingState(true);
+    const initialFetchTimer = window.setTimeout(() => {
+      void fetchLiveRuns();
+    }, 0);
 
     const interval = window.setInterval(() => {
-      // Re-check cooldown each tick
-      const stillNeeded = enabled || Date.now() - lastActiveRef.current < COOLDOWN_MS;
+      const stillNeeded = shouldPollLiveRuns({ enabled, lastActiveAt: lastActiveRef.current });
       if (!stillNeeded) {
-        setIsPolling(false);
+        schedulePollingState(false);
         window.clearInterval(interval);
         return;
       }
       void fetchLiveRuns();
     }, POLL_INTERVAL_MS);
 
-    return () => window.clearInterval(interval);
-  }, [companySlug, enabled, fetchLiveRuns]);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(initialFetchTimer);
+      clearPendingPollingState();
+    };
+  }, [companySlug, enabled, fetchLiveRuns, schedulePollingState]);
 
   // Clear transitions after they've been consumed (next render cycle)
   useEffect(() => {

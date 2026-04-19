@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
 
 export const dynamic = "force-dynamic";
 
@@ -28,8 +29,17 @@ export async function GET(request: NextRequest) {
     }
     const company = { id: resolved.id };
 
-    // Fetch active runs + recently completed (last 2 min)
+    // Fetch active runs + recently completed (last 2 min).
+    // In dev, queued heartbeats are only truly live for the company that currently
+    // holds the dev-execution lease. Observer-only companies can accumulate queued
+    // wakeups that are not claimable, so do not surface those as live runs.
     const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const queuedClaimCompanyId = resolveQueuedHeartbeatClaimCompanyId(db);
+    const includeQueuedRuns = queuedClaimCompanyId === null || queuedClaimCompanyId === company.id;
+    const liveStatusSql = includeQueuedRuns
+      ? "hr.status IN ('queued', 'running')"
+      : "hr.status = 'running'";
+
     const runs = db
       .prepare(
         `SELECT
@@ -48,7 +58,7 @@ export async function GET(request: NextRequest) {
          INNER JOIN agents a ON a.id = hr.agent_id
          WHERE hr.company_id = ?
            AND (
-             hr.status IN ('queued', 'running')
+             ${liveStatusSql}
              OR (hr.status IN ('succeeded', 'failed', 'timed_out') AND hr.finished_at > ?)
            )
          ORDER BY hr.created_at DESC
