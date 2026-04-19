@@ -4,11 +4,16 @@ import { TRADING_STATIONS } from "@/lib/trading-weather";
 // Coordinates match exact NWS/Kalshi settlement station locations.
 // Do NOT use generic city-center coordinates.
 const CITIES = Object.fromEntries(
-  Object.entries(TRADING_STATIONS).map(([city, station]) => [
-    city,
-    { lat: station.lat!, lon: station.lon!, tz: station.timeZone },
-  ])
-) as Record<string, { lat: number; lon: number; tz: string }>;
+  Object.entries(TRADING_STATIONS).map(([city, station]) => {
+    if (typeof station.lat !== "number" || typeof station.lon !== "number") {
+      throw new Error(`Trading station ${city} is missing exact settlement coordinates`);
+    }
+    return [
+      city,
+      { lat: station.lat, lon: station.lon, tz: station.timeZone, stationId: station.stationId },
+    ];
+  })
+) as Record<string, { lat: number; lon: number; tz: string; stationId: string }>;
 
 let cache: { data: Record<string, Record<string, { high: number; low: number }>>; fetchedAt: number; currentTemps: Record<string, number> } | null = null;
 const CACHE_TTL_MS = 10 * 60 * 1000;

@@ -12,6 +12,11 @@ import {
 import Link from "next/link";
 import { useDemoMode, maskDollar } from "@/lib/demo-mode";
 import { actualTempKey, formatLocalDate, TRADING_STATIONS } from "@/lib/trading-weather";
+import {
+  evaluatePositionOutcomeFromActual,
+  getLockedPositionOutcomeFromActual,
+  getMarketPropositionLabel,
+} from "@/lib/trading-floor-market-semantics";
 
 /* ═══════════════════════════════════════════════════════════════
    TYPES
@@ -30,7 +35,7 @@ interface Position {
   city: string;
   target_date: string;
   threshold?: number;
-  forecast_mean: number;
+  forecast_mean: number | null;
   forecast_std: number | null;
   n_models: number | null;
   status: string;
@@ -54,6 +59,9 @@ interface Position {
   market_subtitle?: string | null;
   market_floor_strike?: number | null;
   market_cap_strike?: number | null;
+  kalshi_implied_forecast_f?: number | null;
+  kalshi_weather_truth_probability_source?: string | null;
+  kalshi_weather_truth_checked_at?: string | null;
   fills?: { fill_id: string; order_id: string; ticker: string; side: string; action: string; quantity: number; yes_price: number; no_price: number; fee: number; is_taker: number; filled_at: string }[];
 }
 
@@ -63,6 +71,21 @@ interface PositionsData {
   cityBreakdown: unknown[];
   liveCityBreakdown: unknown[];
   paperCityBreakdown: unknown[];
+}
+
+interface TradingFloorStreamSnapshot {
+  positionsData?: PositionsData;
+  kalshiPortfolio?: unknown;
+  liveForecasts?: Record<string, Record<string, { high: number; low: number }>>;
+  currentTemps?: Record<string, { tempF: number; ageMinutes: number; stationId: string }>;
+  forecastFetchedAt?: string | null;
+  actualHighs?: Record<string, ActualTemp>;
+  fetchedAt?: string;
+}
+
+interface TradingFloorStreamEvent {
+  type?: string;
+  payload?: TradingFloorStreamSnapshot;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -85,29 +108,21 @@ function cityCode(city: string): string {
   return codes[city.toLowerCase()] || city.slice(0, 3).toUpperCase();
 }
 
-function parseBetDescription(ticker: string, side: string, threshold?: number | null): string {
-  const isHigh = /HIGH/i.test(ticker);
-  const metric = isHigh ? "High" : "Low";
-  const bracketMatch = ticker.match(/-B([\d.]+)$/);
-  if (bracketMatch) {
-    const base = parseFloat(bracketMatch[1]);
-    return side.toLowerCase() === "yes"
-      ? `${metric} ${base}–${base + 2}`
-      : `${metric} outside ${base}–${base + 2}`;
-  }
-  const threshMatch = ticker.match(/-T([\d.]+)$/);
-  const t = threshMatch ? parseFloat(threshMatch[1]) : threshold;
-  if (t != null) {
-    if (isHigh) {
-      return side.toLowerCase() === "yes"
-        ? `High ${t} or below`
-        : `High above ${t}`;
-    }
-    return side.toLowerCase() === "yes"
-      ? `Low ${t} or above`
-      : `Low below ${t}`;
-  }
-  return metric;
+function parseBetDescription(
+  ticker: string,
+  _side: string,
+  threshold?: number | null,
+  marketFloorStrike?: number | null,
+  marketCapStrike?: number | null,
+  marketTitle?: string | null,
+): string {
+  return getMarketPropositionLabel({
+    ticker,
+    threshold,
+    marketFloorStrike,
+    marketCapStrike,
+    marketTitle,
+  });
 }
 
 function friendlyDatetime(dateStr: string | null | undefined): string {
@@ -153,65 +168,50 @@ interface ActualTemp {
   complete: boolean;
 }
 
-function parseThresholdDetails(ticker: string, fallbackThreshold?: number | null) {
-  const isHigh = /HIGH/i.test(ticker);
-  const isLow = /LOW/i.test(ticker);
-  const bracketMatch = ticker.match(/-B([\d.]+)$/);
-  const thresholdMatch = ticker.match(/-T([\d.]+)$/);
-  const bracketBase = bracketMatch ? parseFloat(bracketMatch[1]) : null;
-  const threshold = thresholdMatch ? parseFloat(thresholdMatch[1]) : (fallbackThreshold ?? null);
-  return { isHigh, isLow, bracketBase, threshold };
+function evaluateContractFromActual(
+  ticker: string,
+  side: string,
+  actual: ActualTemp,
+  fallbackThreshold?: number | null,
+  marketFloorStrike?: number | null,
+  marketCapStrike?: number | null,
+  marketTitle?: string | null,
+): boolean | null {
+  return evaluatePositionOutcomeFromActual({
+    ticker,
+    side,
+    actual,
+    threshold: fallbackThreshold,
+    marketFloorStrike,
+    marketCapStrike,
+    marketTitle,
+  });
 }
 
-function evaluateContractFromActual(ticker: string, side: string, actual: ActualTemp, fallbackThreshold?: number | null): boolean | null {
-  const { isHigh, isLow, bracketBase, threshold } = parseThresholdDetails(ticker, fallbackThreshold);
-  const metric = isHigh ? actual.high : isLow ? actual.low : null;
-  if (metric == null) return null;
-
-  if (bracketBase != null) {
-    const inRange = metric >= bracketBase && metric < bracketBase + 2;
-    return side.toLowerCase() === "yes" ? inRange : !inRange;
-  }
-
-  if (threshold == null) return null;
-
-  if (isHigh) {
-    const eventOccurs = metric <= threshold;
-    return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
-  }
-
-  if (isLow) {
-    const eventOccurs = metric >= threshold;
-    return side.toLowerCase() === "yes" ? eventOccurs : !eventOccurs;
-  }
-
-  return null;
-}
-
-function getLockedIntradayOutcome(ticker: string, side: string, actual: ActualTemp, fallbackThreshold?: number | null): boolean | null {
-  const { isHigh, isLow, bracketBase, threshold } = parseThresholdDetails(ticker, fallbackThreshold);
-
-  if (bracketBase != null) {
-    const metric = isHigh ? actual.high : isLow ? actual.low : null;
-    if (metric == null) return null;
-    if (isHigh && metric >= bracketBase + 2) return side.toLowerCase() !== "yes";
-    if (isLow && metric < bracketBase) return side.toLowerCase() !== "yes";
-    return null;
-  }
-
-  if (threshold == null) return null;
-
-  if (isHigh) {
-    if (actual.high > threshold) return side.toLowerCase() !== "yes";
-    return null;
-  }
-
-  if (isLow) {
-    if (actual.low < threshold) return side.toLowerCase() !== "yes";
-    return null;
-  }
-
-  return null;
+function getLockedIntradayOutcome(
+  ticker: string,
+  side: string,
+  actual: ActualTemp,
+  fallbackThreshold?: number | null,
+  marketFloorStrike?: number | null,
+  marketCapStrike?: number | null,
+  marketTitle?: string | null,
+  settlementAt?: string | null,
+  marketStatus?: string | null,
+  marketResult?: string | null,
+): boolean | null {
+  return getLockedPositionOutcomeFromActual({
+    ticker,
+    side,
+    actual,
+    threshold: fallbackThreshold,
+    marketFloorStrike,
+    marketCapStrike,
+    marketTitle,
+    settlementAt,
+    marketStatus,
+    marketResult,
+  });
 }
 
 function addDaysToYmd(ymd: string, deltaDays: number): string {
@@ -275,9 +275,54 @@ interface GroupedPosition {
   targetDate: string;
   strategyVersion: string;
   forecast: number | null;
+  kalshiImpliedForecast: number | null;
   edge: number;
   nowPrice: number | null;
   placedAt: string;
+}
+
+type OpenNowChanceSource = "live" | "market-probability" | "entry-price";
+
+function toFiniteChance(value: unknown): number | null {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  if (n < 0 || n > 1) return null;
+  return n;
+}
+
+function getOpenNowChance(group: GroupedPosition): { chance: number; source: OpenNowChanceSource } | null {
+  const side = String(group.side || "").toLowerCase();
+
+  const liveChance = toFiniteChance(group.nowPrice);
+  const hasLiveTruthSource = group.trades.some((trade) =>
+    typeof trade.kalshi_weather_truth_probability_source === "string"
+    && trade.kalshi_weather_truth_probability_source.length > 0,
+  );
+
+  if (liveChance != null && (hasLiveTruthSource || (liveChance > 0 && liveChance < 1))) {
+    return { chance: liveChance, source: "live" };
+  }
+
+  for (const trade of group.trades) {
+    const yesProbability = toFiniteChance(trade.market_probability);
+    if (yesProbability != null) {
+      return {
+        chance: side === "yes" ? yesProbability : 1 - yesProbability,
+        source: "market-probability",
+      };
+    }
+  }
+
+  if (liveChance != null) {
+    return { chance: liveChance, source: "live" };
+  }
+
+  const entryChance = toFiniteChance(group.avgPrice);
+  if (entryChance != null) {
+    return { chance: entryChance, source: "entry-price" };
+  }
+
+  return null;
 }
 
 function getDisplayedRecordedTemp(group: GroupedPosition, actual: ActualTemp | undefined): number | null {
@@ -317,7 +362,15 @@ function getActualResultText(group: GroupedPosition, actual: ActualTemp | undefi
 
 function getSettledOutcomeFromFreshActual(group: GroupedPosition, actual: ActualTemp | undefined): boolean | null {
   if (!actual?.complete) return null;
-  return evaluateContractFromActual(group.ticker, group.side, actual, group.trades[0]?.threshold);
+  return evaluateContractFromActual(
+    group.ticker,
+    group.side,
+    actual,
+    group.trades[0]?.threshold,
+    group.trades[0]?.market_floor_strike,
+    group.trades[0]?.market_cap_strike,
+    group.trades[0]?.market_title,
+  );
 }
 
 function getSettledOutcomeFromKalshi(group: GroupedPosition): boolean | null {
@@ -326,17 +379,23 @@ function getSettledOutcomeFromKalshi(group: GroupedPosition): boolean | null {
   return group.side.toLowerCase() === result;
 }
 
+const OPEN_POSITION_STATUSES = new Set(["open", "filled", "partial", "resting", "pending"]);
+
 function isGroupedPositionOpen(group: GroupedPosition): boolean {
-  return group.trades.some((t) => ["open", "filled", "resting", "pending"].includes(t.status));
+  return group.trades.some((t) => OPEN_POSITION_STATUSES.has(t.status));
 }
 
 function isGroupedPositionSettled(group: GroupedPosition): boolean {
-  return group.trades.every((t) => !["open", "filled", "resting", "pending"].includes(t.status));
+  return group.trades.every((t) => !OPEN_POSITION_STATUSES.has(t.status));
 }
 
 function getGroupedSettledOutcome(group: GroupedPosition, actualHighs: Record<string, ActualTemp>): boolean | null {
   const freshActual = actualHighs[actualTempKey(group.city, group.targetDate)];
   return getSettledOutcomeFromKalshi(group) ?? getSettledOutcomeFromFreshActual(group, freshActual);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -371,7 +430,11 @@ export default function TradingFloorPage() {
   const [versionFilter, setVersionFilter] = useState<string>("all");
   const [dateFilter, setDateFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all"); // all | open | settled
-  const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const streamReconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchInFlightRef = useRef(false);
+  const lastGoodPositionsRef = useRef<PositionsData | null>(null);
+  const transientEmptySnapshotCountRef = useRef(0);
 
   const [sortMode, setSortMode] = useState<"city" | "placed" | "settles">("placed");
   const [sortAsc, setSortAsc] = useState<Record<string, boolean>>({ placed: false, settles: true, city: true });
@@ -381,40 +444,121 @@ export default function TradingFloorPage() {
   const [actualHighs, setActualHighs] = useState<Record<string, ActualTemp>>({});
 
   const fetchData = useCallback(async () => {
+    if (fetchInFlightRef.current) return;
+    fetchInFlightRef.current = true;
+
     try {
-      const [posRes, portfolioRes, forecastRes, tempsRes] = await Promise.all([
+      const [posResult, portfolioResult, forecastResult, tempsResult] = await Promise.allSettled([
         fetch("/api/trading/kalshi-positions"),
         fetch("/api/trading/kalshi-portfolio"),
         fetch("/api/trading/live-forecasts"),
         fetch("/api/trading/current-temps"),
       ]);
 
-      if (forecastRes.ok) {
-        const fData = await forecastRes.json();
-        if (fData.forecasts) setLiveForecasts(fData.forecasts);
-        if (fData.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
+      const posRes = posResult.status === "fulfilled" ? posResult.value : null;
+      const portfolioRes = portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
+      const forecastRes = forecastResult.status === "fulfilled" ? forecastResult.value : null;
+      const tempsRes = tempsResult.status === "fulfilled" ? tempsResult.value : null;
+
+      const parseJsonSafe = async (res: Response | null) => {
+        if (!res) return null;
+        try {
+          return await res.json();
+        } catch {
+          return null;
+        }
+      };
+
+      if (forecastRes?.ok) {
+        const fData = await parseJsonSafe(forecastRes);
+        if (fData?.forecasts) setLiveForecasts(fData.forecasts);
+        if (fData?.fetchedAt) setForecastFetchedAt(fData.fetchedAt);
       }
 
-      if (tempsRes.ok) {
-        const tData = await tempsRes.json();
-        if (tData.observations) setCurrentTemps(tData.observations);
+      if (tempsRes?.ok) {
+        const tData = await parseJsonSafe(tempsRes);
+        if (tData?.observations) setCurrentTemps(tData.observations);
       }
 
-      const posData = await posRes.json();
-      const positions = posData.positions || [];
-      const resolvedPositions = posData.resolved || [];
+      let positionsSnapshotForActuals = lastGoodPositionsRef.current;
 
-      setPositionsData({
-        positions,
-        resolvedPositions,
-        cityBreakdown: [],
-        liveCityBreakdown: [],
-        paperCityBreakdown: [],
-      });
+      if (posRes?.ok) {
+        const posData = await parseJsonSafe(posRes);
+        if (posData && !posData.error) {
+          const positions = (Array.isArray(posData.positions) ? posData.positions : []) as Position[];
+          const resolvedPositions = (Array.isArray(posData.resolved) ? posData.resolved : []) as Position[];
+
+          const previousSnapshot = lastGoodPositionsRef.current;
+          const previousTrades = previousSnapshot
+            ? [...previousSnapshot.positions, ...previousSnapshot.resolvedPositions]
+            : [];
+
+          const previousByTradeId = new Map(previousTrades.map((trade) => [trade.trade_id, trade]));
+          const previousByFallbackKey = new Map(previousTrades.map((trade) => [
+            `${trade.ticker}|${trade.side}|${trade.target_date}`,
+            trade,
+          ]));
+
+          const preserveStickyMarketFields = (trades: Position[]): Position[] => {
+            return trades.map((trade) => {
+              const previous = previousByTradeId.get(trade.trade_id)
+                || previousByFallbackKey.get(`${trade.ticker}|${trade.side}|${trade.target_date}`);
+              if (!previous) return trade;
+              return {
+                ...trade,
+                market_title: trade.market_title ?? previous.market_title,
+                market_subtitle: trade.market_subtitle ?? previous.market_subtitle,
+                market_floor_strike: trade.market_floor_strike ?? previous.market_floor_strike,
+                market_cap_strike: trade.market_cap_strike ?? previous.market_cap_strike,
+                market_status: trade.market_status ?? previous.market_status,
+                market_result: trade.market_result ?? previous.market_result,
+                settlement_scheduled_at: trade.settlement_scheduled_at ?? previous.settlement_scheduled_at,
+                now_price: trade.now_price ?? previous.now_price,
+                kalshi_implied_forecast_f: trade.kalshi_implied_forecast_f ?? previous.kalshi_implied_forecast_f,
+                kalshi_weather_truth_probability_source:
+                  trade.kalshi_weather_truth_probability_source ?? previous.kalshi_weather_truth_probability_source,
+                kalshi_weather_truth_checked_at:
+                  trade.kalshi_weather_truth_checked_at ?? previous.kalshi_weather_truth_checked_at,
+              };
+            });
+          };
+
+          const nextSnapshot: PositionsData = {
+            positions: preserveStickyMarketFields(positions),
+            resolvedPositions: preserveStickyMarketFields(resolvedPositions),
+            cityBreakdown: [],
+            liveCityBreakdown: [],
+            paperCityBreakdown: [],
+          };
+
+          const nextHasRows = positions.length + resolvedPositions.length > 0;
+          const previous = lastGoodPositionsRef.current;
+          const previousHasRows = !!previous && previous.positions.length + previous.resolvedPositions.length > 0;
+          const shouldHoldPreviousSnapshot = !nextHasRows && previousHasRows;
+
+          if (shouldHoldPreviousSnapshot) {
+            transientEmptySnapshotCountRef.current += 1;
+            if (transientEmptySnapshotCountRef.current >= 3) {
+              setPositionsData(nextSnapshot);
+              lastGoodPositionsRef.current = nextSnapshot;
+              positionsSnapshotForActuals = nextSnapshot;
+            }
+          } else {
+            transientEmptySnapshotCountRef.current = 0;
+            setPositionsData(nextSnapshot);
+            lastGoodPositionsRef.current = nextSnapshot;
+            positionsSnapshotForActuals = nextSnapshot;
+          }
+        }
+      }
+
+      const snapshotTrades = positionsSnapshotForActuals
+        ? [...positionsSnapshotForActuals.positions, ...positionsSnapshotForActuals.resolvedPositions]
+        : [];
 
       const actualPairs = Array.from(
         new Set(
-          [...positions, ...resolvedPositions]
+          snapshotTrades
             .filter((trade) => {
               if (!trade.city || !trade.target_date) return false;
               const effectiveTargetDate = getEffectiveTargetDate(String(trade.ticker || ""), String(trade.target_date));
@@ -431,32 +575,146 @@ export default function TradingFloorPage() {
         try {
           const actualsRes = await fetch(`/api/trading/actual-highs?${actualPairs.map((pair) => `pair=${encodeURIComponent(pair)}`).join("&")}`);
           if (actualsRes.ok) {
-            const aData = await actualsRes.json();
-            if (aData.actuals) setActualHighs(aData.actuals);
+            const aData = await parseJsonSafe(actualsRes);
+            if (aData?.actuals) setActualHighs(aData.actuals);
           }
         } catch { /* skip */ }
-      } else {
+      } else if (snapshotTrades.length === 0) {
         setActualHighs({});
       }
 
-      if (portfolioRes.ok) {
-        const pData = await portfolioRes.json();
-        if (!pData.error) setKalshiPortfolio(pData);
+      if (portfolioRes?.ok) {
+        const pData = await parseJsonSafe(portfolioRes);
+        if (pData && !pData.error) setKalshiPortfolio(pData);
       }
-      setLastRefresh(new Date());
+
+      if (posRes || portfolioRes || forecastRes || tempsRes) {
+        setLastRefresh(new Date());
+      }
     } catch { /* silent */ }
+    finally {
+      fetchInFlightRef.current = false;
+    }
+  }, []);
+
+  const applyStreamSnapshot = useCallback((snapshot: TradingFloorStreamSnapshot) => {
+    if (snapshot.positionsData) {
+      const previousSnapshot = lastGoodPositionsRef.current;
+      const previousTrades = previousSnapshot
+        ? [...previousSnapshot.positions, ...previousSnapshot.resolvedPositions]
+        : [];
+      const previousByTradeId = new Map(previousTrades.map((trade) => [trade.trade_id, trade]));
+      const previousByFallbackKey = new Map(previousTrades.map((trade) => [
+        `${trade.ticker}|${trade.side}|${trade.target_date}`,
+        trade,
+      ]));
+
+      const preserveStickyFields = (trades: Position[]): Position[] => {
+        return trades.map((trade) => {
+          const previous = previousByTradeId.get(trade.trade_id)
+            || previousByFallbackKey.get(`${trade.ticker}|${trade.side}|${trade.target_date}`);
+          if (!previous) return trade;
+          return {
+            ...trade,
+            market_title: trade.market_title ?? previous.market_title,
+            market_subtitle: trade.market_subtitle ?? previous.market_subtitle,
+            market_floor_strike: trade.market_floor_strike ?? previous.market_floor_strike,
+            market_cap_strike: trade.market_cap_strike ?? previous.market_cap_strike,
+            market_status: trade.market_status ?? previous.market_status,
+            market_result: trade.market_result ?? previous.market_result,
+            settlement_scheduled_at: trade.settlement_scheduled_at ?? previous.settlement_scheduled_at,
+            now_price: trade.now_price ?? previous.now_price,
+            kalshi_implied_forecast_f: trade.kalshi_implied_forecast_f ?? previous.kalshi_implied_forecast_f,
+            kalshi_weather_truth_probability_source:
+              trade.kalshi_weather_truth_probability_source ?? previous.kalshi_weather_truth_probability_source,
+            kalshi_weather_truth_checked_at:
+              trade.kalshi_weather_truth_checked_at ?? previous.kalshi_weather_truth_checked_at,
+          };
+        });
+      };
+
+      const mergedSnapshot: PositionsData = {
+        ...snapshot.positionsData,
+        positions: preserveStickyFields(snapshot.positionsData.positions || []),
+        resolvedPositions: preserveStickyFields(snapshot.positionsData.resolvedPositions || []),
+      };
+
+      setPositionsData(mergedSnapshot);
+      lastGoodPositionsRef.current = mergedSnapshot;
+      transientEmptySnapshotCountRef.current = 0;
+    }
+
+    if (snapshot.kalshiPortfolio && isRecord(snapshot.kalshiPortfolio)) {
+      setKalshiPortfolio(snapshot.kalshiPortfolio as NonNullable<typeof kalshiPortfolio>);
+    }
+
+    if (snapshot.liveForecasts) {
+      setLiveForecasts(snapshot.liveForecasts);
+    }
+
+    if (snapshot.currentTemps) {
+      setCurrentTemps(snapshot.currentTemps);
+    }
+
+    if (typeof snapshot.forecastFetchedAt === "string" || snapshot.forecastFetchedAt === null) {
+      setForecastFetchedAt(snapshot.forecastFetchedAt);
+    }
+
+    if (snapshot.actualHighs) {
+      setActualHighs(snapshot.actualHighs);
+    }
+
+    if (snapshot.fetchedAt) {
+      setLastRefresh(new Date(snapshot.fetchedAt));
+    }
   }, []);
 
   useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      void fetchData();
-    }, 0);
-    return () => clearTimeout(timeoutId);
-  }, [fetchData]);
-  useEffect(() => {
-    intervalRef.current = setInterval(fetchData, 15000);
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [fetchData]);
+    let disposed = false;
+
+    const connect = () => {
+      if (disposed) return;
+
+      const es = new EventSource("/api/trading/floor/stream");
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data) as TradingFloorStreamEvent;
+          if (parsed.type === "snapshot" && parsed.payload) {
+            applyStreamSnapshot(parsed.payload);
+          }
+        } catch {
+          // Ignore malformed SSE payloads.
+        }
+      };
+
+      es.onerror = () => {
+        es.close();
+        if (eventSourceRef.current === es) {
+          eventSourceRef.current = null;
+        }
+        if (disposed) return;
+        if (streamReconnectRef.current) {
+          clearTimeout(streamReconnectRef.current);
+        }
+        streamReconnectRef.current = setTimeout(connect, 3000);
+      };
+    };
+
+    void fetchData();
+    connect();
+
+    return () => {
+      disposed = true;
+      if (streamReconnectRef.current) {
+        clearTimeout(streamReconnectRef.current);
+        streamReconnectRef.current = null;
+      }
+      eventSourceRef.current?.close();
+      eventSourceRef.current = null;
+    };
+  }, [applyStreamSnapshot, fetchData]);
 
   const toggleGroup = (key: string) => {
     setExpandedGroups((prev) => {
@@ -478,8 +736,8 @@ export default function TradingFloorPage() {
   // Combine for filtering
   const allTrades = [...livePositions, ...liveResolved];
 
-  // Normalize: "filled"/"resting"/"pending" → treat as open
-  const isOpenStatus = (s: string) => ["open", "filled", "resting", "pending"].includes(s);
+  // Normalize: "filled"/"partial"/"resting"/"pending" → treat as open
+  const isOpenStatus = (s: string) => OPEN_POSITION_STATUSES.has(s);
   
   // Apply filters
   const filtered = allTrades.filter((t) => {
@@ -499,7 +757,7 @@ export default function TradingFloorPage() {
   for (const t of filtered) {
     // Group key: city + bet description + target date (different dates = different contracts)
     const effectiveTargetDate = getEffectiveTargetDate(t.ticker, t.target_date);
-    const betDesc = parseBetDescription(t.ticker, t.side, t.threshold);
+    const betDesc = parseBetDescription(t.ticker, t.side, t.threshold, t.market_floor_strike, t.market_cap_strike, t.market_title);
     const key = `${t.city}|${betDesc}|${t.side}|${effectiveTargetDate}`;
     if (!groupMap.has(key)) {
       groupMap.set(key, {
@@ -517,6 +775,7 @@ export default function TradingFloorPage() {
         targetDate: effectiveTargetDate,
         strategyVersion: t.strategy_version || "unknown",
         forecast: t.forecast_mean,
+        kalshiImpliedForecast: t.kalshi_implied_forecast_f ?? null,
         edge: 0,
         nowPrice: null,
         placedAt: t.created_at,
@@ -528,6 +787,7 @@ export default function TradingFloorPage() {
     g.totalCost += t.cost;
     if (t.our_probability != null) g.boughtProbability = t.our_probability;
     if (t.now_price != null) g.nowPrice = t.now_price;
+    if (t.kalshi_implied_forecast_f != null) g.kalshiImpliedForecast = t.kalshi_implied_forecast_f;
     g.edge = t.edge;
     // Track earliest placed time and earliest settlement
     if (t.created_at && t.created_at < g.placedAt) g.placedAt = t.created_at;
@@ -1226,19 +1486,22 @@ export default function TradingFloorPage() {
                         }
                         const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
                         const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
-                        const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
+                        const kalshiForecast = g.kalshiImpliedForecast != null ? Math.round(g.kalshiImpliedForecast) : null;
+                        const temp = kalshiForecast ?? liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
                         return (
                           <>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                             <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>{temp != null ? `${temp}°F` : "—"}</div>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {liveFc != null && forecastFetchedAt ? (() => {
-                                const d = new Date(forecastFetchedAt);
-                                const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-                                if (mins < 1) return "just now";
-                                if (mins < 60) return `${mins}m ago`;
-                                return `${Math.floor(mins / 60)}h ago`;
-                              })() : temp != null ? "at entry" : "—"}
+                              {kalshiForecast != null
+                                ? "Kalshi implied"
+                                : liveFc != null && forecastFetchedAt ? (() => {
+                                  const d = new Date(forecastFetchedAt);
+                                  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                                  if (mins < 1) return "just now";
+                                  if (mins < 60) return `${mins}m ago`;
+                                  return `${Math.floor(mins / 60)}h ago`;
+                                })() : temp != null ? "at entry" : "—"}
                             </div>
                           </>
                         );
@@ -1279,9 +1542,30 @@ export default function TradingFloorPage() {
                           <>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
                             {(() => {
-                              const finalOutcome = freshActual ? evaluateContractFromActual(g.ticker, g.side, freshActual, g.trades[0]?.threshold) : null;
+                              const finalOutcome = freshActual
+                                ? evaluateContractFromActual(
+                                  g.ticker,
+                                  g.side,
+                                  freshActual,
+                                  g.trades[0]?.threshold,
+                                  g.trades[0]?.market_floor_strike,
+                                  g.trades[0]?.market_cap_strike,
+                                  g.trades[0]?.market_title,
+                                )
+                                : null;
                               const lockedOutcome = freshActual && !freshActual.complete
-                                ? getLockedIntradayOutcome(g.ticker, g.side, freshActual, g.trades[0]?.threshold)
+                                ? getLockedIntradayOutcome(
+                                  g.ticker,
+                                  g.side,
+                                  freshActual,
+                                  g.trades[0]?.threshold,
+                                  g.trades[0]?.market_floor_strike,
+                                  g.trades[0]?.market_cap_strike,
+                                  g.trades[0]?.market_title,
+                                  displaySettlement,
+                                  g.trades[0]?.market_status,
+                                  g.trades[0]?.market_result,
+                                )
                                 : null;
                               if (freshActual?.complete && finalOutcome != null) {
                                 return (
@@ -1299,23 +1583,34 @@ export default function TradingFloorPage() {
                                   </>
                                 );
                               }
-                              if (g.nowPrice != null) {
-                                const nowPct = g.nowPrice * 100;
+                              const nowChance = getOpenNowChance(g);
+                              if (nowChance) {
+                                const nowPct = nowChance.chance * 100;
                                 const diff = nowPct - boughtPct;
                                 const isUp = diff > 0;
                                 const ourProb = g.trades[0]?.our_probability;
-                                const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
+                                const currentEdge = ourProb != null ? ourProb - nowChance.chance : null;
+                                const isLive = nowChance.source === "live";
                                 return (
                                   <>
-                                    <div className="text-sm font-bold whitespace-nowrap" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>{nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}</div>
-                                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>{currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}</div>
+                                    <div
+                                      className="text-sm font-bold whitespace-nowrap"
+                                      style={{ color: isLive ? (isUp ? "#4ade80" : "#ef4444") : "var(--text-primary)" }}
+                                    >
+                                      {nowPct.toFixed(0)}% {isLive ? (isUp ? "▲" : "▼") : "chance"}
+                                    </div>
+                                    <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                      {isLive
+                                        ? (currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "Live market")
+                                        : (nowChance.source === "market-probability" ? "Market snapshot" : "Entry snapshot")}
+                                    </div>
                                   </>
                                 );
                               }
                               return (
                                 <>
-                                  <div className="text-sm font-bold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>Live</div>
-                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Not locked yet</div>
+                                  <div className="text-sm font-bold whitespace-nowrap" style={{ color: "var(--text-muted)" }}>—</div>
+                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>Chance unavailable</div>
                                 </>
                               );
                             })()}
@@ -1434,19 +1729,22 @@ export default function TradingFloorPage() {
                         }
                         const liveFcData = liveForecasts[g.city.toLowerCase()]?.[g.targetDate];
                         const liveFc = liveFcData ? (isHighBet ? liveFcData.high : liveFcData.low) : null;
-                        const temp = liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
+                        const kalshiForecast = g.kalshiImpliedForecast != null ? Math.round(g.kalshiImpliedForecast) : null;
+                        const temp = kalshiForecast ?? liveFc ?? (g.forecast != null && g.forecast > 0 ? Math.round(g.forecast) : null);
                         return (
                           <>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</div>
                             <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>{temp != null ? `${temp}°F` : "—"}</div>
                             <div className="text-xs" style={{ color: "var(--text-muted)" }}>
-                              {liveFc != null && forecastFetchedAt ? (() => {
-                                const d = new Date(forecastFetchedAt);
-                                const mins = Math.floor((Date.now() - d.getTime()) / 60000);
-                                if (mins < 1) return "just now";
-                                if (mins < 60) return `${mins}m ago`;
-                                return `${Math.floor(mins / 60)}h ago`;
-                              })() : temp != null ? "at entry" : "—"}
+                              {kalshiForecast != null
+                                ? "Kalshi implied"
+                                : liveFc != null && forecastFetchedAt ? (() => {
+                                  const d = new Date(forecastFetchedAt);
+                                  const mins = Math.floor((Date.now() - d.getTime()) / 60000);
+                                  if (mins < 1) return "just now";
+                                  if (mins < 60) return `${mins}m ago`;
+                                  return `${Math.floor(mins / 60)}h ago`;
+                                })() : temp != null ? "at entry" : "—"}
                             </div>
                           </>
                         );
@@ -1482,9 +1780,30 @@ export default function TradingFloorPage() {
                         <>
                           <div className="text-xs" style={{ color: "var(--text-muted)" }}>Now</div>
                           {(() => {
-                            const finalOutcome = freshActual ? evaluateContractFromActual(g.ticker, g.side, freshActual, g.trades[0]?.threshold) : null;
+                            const finalOutcome = freshActual
+                              ? evaluateContractFromActual(
+                                g.ticker,
+                                g.side,
+                                freshActual,
+                                g.trades[0]?.threshold,
+                                g.trades[0]?.market_floor_strike,
+                                g.trades[0]?.market_cap_strike,
+                                g.trades[0]?.market_title,
+                              )
+                              : null;
                             const lockedOutcome = freshActual && !freshActual.complete
-                              ? getLockedIntradayOutcome(g.ticker, g.side, freshActual, g.trades[0]?.threshold)
+                              ? getLockedIntradayOutcome(
+                                g.ticker,
+                                g.side,
+                                freshActual,
+                                g.trades[0]?.threshold,
+                                g.trades[0]?.market_floor_strike,
+                                g.trades[0]?.market_cap_strike,
+                                g.trades[0]?.market_title,
+                                displaySettlement,
+                                g.trades[0]?.market_status,
+                                g.trades[0]?.market_result,
+                              )
                               : null;
                             if (freshActual?.complete && finalOutcome != null) {
                               return (
@@ -1502,20 +1821,33 @@ export default function TradingFloorPage() {
                                 </>
                               );
                             }
-                            if (g.nowPrice != null) {
-                              const nowPct = g.nowPrice * 100;
+                            const nowChance = getOpenNowChance(g);
+                            if (nowChance) {
+                              const nowPct = nowChance.chance * 100;
                               const diff = nowPct - boughtPct;
                               const isUp = diff > 0;
                               const ourProb = g.trades[0]?.our_probability;
-                              const currentEdge = ourProb != null && g.nowPrice != null ? ourProb - g.nowPrice : null;
+                              const currentEdge = ourProb != null ? ourProb - nowChance.chance : null;
+                              const isLive = nowChance.source === "live";
                               return (
                                 <>
-                                  <div className="text-sm font-bold" style={{ color: isUp ? "#4ade80" : "#ef4444" }}>{nowPct.toFixed(0)}% {isUp ? "▲" : "▼"}</div>
-                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>{currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "—"}</div>
+                                  <div className="text-sm font-bold" style={{ color: isLive ? (isUp ? "#4ade80" : "#ef4444") : "var(--text-primary)" }}>
+                                    {nowPct.toFixed(0)}% {isLive ? (isUp ? "▲" : "▼") : "chance"}
+                                  </div>
+                                  <div className="text-xs" style={{ color: "var(--text-muted)" }}>
+                                    {isLive
+                                      ? (currentEdge != null ? `Edge ${(currentEdge * 100).toFixed(0)}%` : "Live market")
+                                      : (nowChance.source === "market-probability" ? "Market snapshot" : "Entry snapshot")}
+                                  </div>
                                 </>
                               );
                             }
-                            return <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>;
+                            return (
+                              <>
+                                <div className="text-sm" style={{ color: "var(--text-muted)" }}>—</div>
+                                <div className="text-xs" style={{ color: "var(--text-muted)" }}>Chance unavailable</div>
+                              </>
+                            );
                           })()}
                         </>
                       )}
@@ -1574,11 +1906,13 @@ export default function TradingFloorPage() {
                         {(g.avgPrice * 100).toFixed(1)}¢
                       </div>
                     </div>
-                    {g.forecast != null && g.forecast > 0 && (
+                    {(g.kalshiImpliedForecast != null || (g.forecast != null && g.forecast > 0)) && (
                       <div>
-                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>Forecast</span>
+                        <span className="text-xs" style={{ color: "var(--text-muted)" }}>
+                          {g.kalshiImpliedForecast != null ? "Kalshi Forecast" : "Forecast"}
+                        </span>
                         <div className="text-sm font-bold" style={{ color: "#06b6d4" }}>
-                          {g.forecast.toFixed(1)}°F
+                          {(g.kalshiImpliedForecast ?? g.forecast ?? 0).toFixed(1)}°F
                         </div>
                       </div>
                     )}
@@ -1615,7 +1949,7 @@ export default function TradingFloorPage() {
                     <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 760 }}>
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--border)" }}>
-                          {["Action", "Avg Price", "Contracts", "Cost", "Fee", "Total", "Type", "Filled"].map((h) => (
+                          {["Action", "Avg Price", "Contracts", "Cost", "Fees", "Total", "Type", "Filled"].map((h) => (
                             <th
                               key={h}
                               className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"
@@ -1715,7 +2049,7 @@ export default function TradingFloorPage() {
           <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>
             <thead>
               <tr style={{ borderTop: "1px solid var(--border)", borderBottom: "1px solid var(--border)" }}>
-                {["Filled", "Ticker", "Side", "Qty", "Price", "Fee", "Trade ID"].map((h) => (
+                {["Filled", "Ticker", "Side", "Qty", "Price", "Fees", "Trade ID"].map((h) => (
                   <th
                     key={h}
                     className="text-xs font-bold uppercase tracking-wider px-4 py-2 text-left"

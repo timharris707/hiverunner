@@ -2,8 +2,8 @@ export interface TradingStationConfig {
   stationId: string;
   name: string;
   timeZone: string;
-  lat?: number;
-  lon?: number;
+  lat: number;
+  lon: number;
 }
 
 export const TRADING_STATIONS: Record<string, TradingStationConfig> = {

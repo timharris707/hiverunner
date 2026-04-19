@@ -18,6 +18,8 @@ const WEATHER_TRADING_DIR =
   "/Users/timharris/.openclaw/workspace/projects/weather-trading";
 
 const LIVE_TRADING_DB = join(WEATHER_TRADING_DIR, "data", "live_trading.db");
+const RECON_STATUS_PATH = join(WEATHER_TRADING_DIR, "data", "last_reconciliation.json");
+const DASHBOARD_URL = process.env.TRADING_DASHBOARD_BASE_URL || "http://127.0.0.1:8050";
 
 let lastSuccessfulResponse: Record<string, unknown> | null = null;
 
@@ -28,8 +30,6 @@ let lastSuccessfulResponse: Record<string, unknown> | null = null;
  */
 export async function GET() {
   try {
-    const dashboardUrl = "http://localhost:8050";
-
     const bankrollPath = join(WEATHER_TRADING_DIR, "data", "bankroll.json");
     let initialDeposit = 1000;
     if (existsSync(bankrollPath)) {
@@ -58,25 +58,19 @@ export async function GET() {
 
     let positionsData: Record<string, unknown>[] = [];
     try {
-      const posRes = await fetch(`http://localhost:${process.env.PORT || "3010"}/api/trading/kalshi-positions`, {
-        signal: AbortSignal.timeout(8000),
-      });
+      const posRes = await fetch(
+        `http://127.0.0.1:${process.env.PORT || "3010"}/api/trading/kalshi-positions?status=open&includeResolved=0&includeWeatherTruth=0`,
+        { signal: AbortSignal.timeout(45_000) }
+      );
       if (posRes.ok) {
-        const pd = await posRes.json();
-        positionsData = pd.positions || [];
+        const payload = await posRes.json();
+        if (Array.isArray(payload?.positions)) {
+          positionsData = payload.positions;
+        }
       }
     } catch {
       /* skip */
     }
-
-    openPositionsCount = positionsData.length;
-    openCost = positionsData.reduce((sum, pos) => sum + Number(pos.cost || 0), 0);
-    localOpenMarketValue = positionsData.reduce((sum, pos) => {
-      const qty = Number(pos.quantity || 0);
-      const cost = Number(pos.cost || 0);
-      const nowPrice = pos.now_price != null ? Number(pos.now_price) : null;
-      return sum + (nowPrice != null ? nowPrice * qty : cost);
-    }, 0);
 
     if (existsSync(LIVE_TRADING_DB)) {
       try {
@@ -140,6 +134,22 @@ export async function GET() {
         filledOpenCount = totals?.filled_open_count ?? 0;
         filledOpenCost = totals?.filled_open_cost ?? 0;
 
+        const localOpenRowCount = filledOpenCount + trueRestingCount;
+        const localOpenCostBasis = Math.round((filledOpenCost + trueRestingCost) * 100) / 100;
+
+        openPositionsCount = positionsData.length > 0 ? positionsData.length : localOpenRowCount;
+        openCost = positionsData.length > 0
+          ? positionsData.reduce((sum, pos) => sum + Number(pos.cost || 0), 0)
+          : localOpenCostBasis;
+        localOpenMarketValue = positionsData.length > 0
+          ? positionsData.reduce((sum, pos) => {
+            const qty = Number(pos.quantity || 0);
+            const cost = Number(pos.cost || 0);
+            const nowPrice = pos.now_price != null ? Number(pos.now_price) : null;
+            return sum + (nowPrice != null ? nowPrice * qty : cost);
+          }, 0)
+          : openCost;
+
         try {
           const snap = db.prepare(
             `SELECT portfolio_total FROM portfolio_snapshots
@@ -156,38 +166,56 @@ export async function GET() {
       }
     }
 
-    try {
-      const kalshiPosRes = await fetch(`${dashboardUrl}/api/kalshi/portfolio`, {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (kalshiPosRes.ok) {
-        const kpData = await kalshiPosRes.json();
-        const positions = kpData.market_positions || kpData.positions || [];
-        for (const p of positions) {
-          totalFees += parseFloat(p.fees_paid_dollars || "0");
-        }
-      }
-    } catch {
-      /* skip */
+    for (const p of positionsData) {
+      totalFees += Number(p.fees_paid_dollars || p.fee || 0);
     }
 
     let bankroll: Record<string, unknown> | null = null;
     let degraded = false;
     let balanceError: string | null = null;
+
     try {
-      const bankrollRes = await fetch(`${dashboardUrl}/api/bankroll`, {
-        signal: AbortSignal.timeout(5000),
+      const bankrollRes = await fetch(`${DASHBOARD_URL}/api/bankroll`, {
+        signal: AbortSignal.timeout(30_000),
       });
       if (!bankrollRes.ok) {
-        degraded = true;
         balanceError = `Dashboard bankroll API returned ${bankrollRes.status}`;
       } else {
         bankroll = await bankrollRes.json();
       }
     } catch (error) {
-      degraded = true;
       balanceError = String(error);
     }
+
+    // Durable fallback: latest reconciliation snapshot carries Kalshi account truth
+    // even when the dashboard proxy is temporarily overloaded.
+    if (!bankroll && existsSync(RECON_STATUS_PATH)) {
+      try {
+        const recon = JSON.parse(readFileSync(RECON_STATUS_PATH, "utf-8"));
+        if (
+          recon &&
+          recon.kalshi_balance != null &&
+          recon.kalshi_portfolio_value != null &&
+          recon.kalshi_total != null
+        ) {
+          bankroll = {
+            kalshi_balance: recon.kalshi_balance,
+            kalshi_portfolio_value: recon.kalshi_portfolio_value,
+            kalshi_total: recon.kalshi_total,
+            open_positions: openPositionsCount,
+            deployed: openCost,
+            kalshi_configured: true,
+            checked_at: recon.timestamp || new Date().toISOString(),
+            source: "reconciliation-snapshot",
+          };
+          balanceError = balanceError || "Using reconciliation snapshot fallback";
+        }
+      } catch {
+        /* skip */
+      }
+    }
+
+    degraded = bankroll == null;
 
     const cash = bankroll?.kalshi_balance != null
       ? Number(bankroll.kalshi_balance)
@@ -199,7 +227,7 @@ export async function GET() {
       ? Number(bankroll.kalshi_total)
       : (cash != null ? cash + positions : null);
     const positionsCount = bankroll?.open_positions != null
-      ? Number(bankroll.open_positions)
+      ? Math.max(Number(bankroll.open_positions), openPositionsCount)
       : openPositionsCount;
     const costBasis = bankroll?.deployed != null
       ? Number(bankroll.deployed)
@@ -292,7 +320,7 @@ export async function GET() {
       degraded,
       cashAvailable: cash != null,
       checkedAt: bankroll?.checked_at ?? new Date().toISOString(),
-      source: bankroll ? "dashboard" : "local-fallback",
+      source: typeof bankroll?.source === "string" ? bankroll.source : (bankroll ? "dashboard" : "local-fallback"),
     };
 
     lastSuccessfulResponse = response;

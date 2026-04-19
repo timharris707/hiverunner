@@ -2,26 +2,89 @@ import { NextResponse } from "next/server";
 import { existsSync } from "fs";
 import { join } from "path";
 import { REAL_OPEN_LIVE_TRADE_WHERE, normalizeLiveTradeLifecycleStatus } from "@/lib/live-trade-status";
+import { reconcileOpenTradesWithExchangeTruth } from "@/lib/trading-open-position-truth";
 
 const WEATHER_TRADING_DIR =
   process.env.WEATHER_TRADING_DIR ||
   "/Users/timharris/.openclaw/workspace/projects/weather-trading";
 const LIVE_TRADING_DB = join(WEATHER_TRADING_DIR, "data", "live_trading.db");
+const DASHBOARD_BASE_URL = process.env.TRADING_DASHBOARD_BASE_URL || "http://127.0.0.1:8050";
+
+const KALSHI_PORTFOLIO_TIMEOUT_MS = Number(process.env.TRADING_KALSHI_PORTFOLIO_TIMEOUT_MS || 90_000);
+const WEATHER_TRUTH_TIMEOUT_MS = Number(process.env.TRADING_WEATHER_TRUTH_TIMEOUT_MS || 35_000);
+const WEATHER_TRUTH_ATTEMPTS = Math.max(1, Number(process.env.TRADING_WEATHER_TRUTH_ATTEMPTS || 2));
+const WEATHER_TRUTH_RETRY_DELAY_MS = Number(process.env.TRADING_WEATHER_TRUTH_RETRY_DELAY_MS || 300);
+
+function toFiniteNumber(value: unknown): number | null {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+type WeatherTruth = {
+  implied_forecast_f: number | null;
+  selected_market_yes_chance: number | null;
+  probability_source: string | null;
+  checked_at: string;
+};
+
+const weatherTruthCache = new Map<string, WeatherTruth>();
+let lastReportedOpenPositions: Record<string, unknown>[] = [];
+let lastReportedCheckedAt: string | null = null;
+
+function pickOpenPositions(rawPortfolio: unknown): Record<string, unknown>[] {
+  const root = (rawPortfolio && typeof rawPortfolio === "object") ? rawPortfolio as Record<string, unknown> : {};
+  const nestedPortfolio = (root.portfolio && typeof root.portfolio === "object") ? root.portfolio as Record<string, unknown> : {};
+  const nestedData = (root.data && typeof root.data === "object") ? root.data as Record<string, unknown> : {};
+
+  const candidates: unknown[] = [
+    root.open_positions,
+    root.market_positions,
+    root.positions,
+    nestedPortfolio.open_positions,
+    nestedPortfolio.market_positions,
+    nestedPortfolio.positions,
+    nestedData.open_positions,
+    nestedData.market_positions,
+    nestedData.positions,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      return candidate as Record<string, unknown>[];
+    }
+  }
+
+  return [];
+}
+
+function isUnitProbability(value: number | null): value is number {
+  return value != null && value >= 0 && value <= 1;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
- * Returns enriched position data: local DB trades + current Kalshi market prices.
+ * Returns enriched position data: local DB trades + current Kalshi weather-truth prices.
  */
-export async function GET() {
+export async function GET(request: Request) {
   try {
     if (!existsSync(LIVE_TRADING_DB)) {
       return NextResponse.json({ positions: [], resolved: [] });
     }
 
+    const params = new URL(request.url).searchParams;
+    const statusFilter = (params.get("status") || "").trim().toLowerCase();
+    const openOnly = statusFilter === "open";
+    const includeResolved = !openOnly && params.get("includeResolved") !== "0";
+    const includeWeatherTruth = params.get("includeWeatherTruth") !== "0";
+
     const Database = (await import("better-sqlite3")).default;
     const db = new Database(LIVE_TRADING_DB, { readonly: true });
 
     // Open positions
-    const openTrades = db.prepare(
+    let openTrades = db.prepare(
       `SELECT trade_id, order_id, contract_id, contract_id as ticker, side, quantity,
               COALESCE(fill_price, price) as price, cost, edge,
               city, target_date, threshold, forecast_mean,
@@ -32,17 +95,20 @@ export async function GET() {
     ).all() as Record<string, unknown>[];
 
     // Settled positions
-    const settledTrades = db.prepare(
-      `SELECT trade_id, order_id, contract_id, contract_id as ticker, side, quantity,
-              COALESCE(fill_price, price) as price, cost, edge,
-              city, target_date, threshold, forecast_mean,
-              CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
-              pnl, actual_outcome, actual_temp, settled_at as resolved_at,
-              created_at, strategy_version, our_probability, market_probability
-       FROM live_trades
-       WHERE status IN ('settled_won', 'settled_lost')
-       ORDER BY settled_at DESC`
-    ).all() as Record<string, unknown>[];
+    let settledTrades: Record<string, unknown>[] = [];
+    if (includeResolved) {
+      settledTrades = db.prepare(
+        `SELECT trade_id, order_id, contract_id, contract_id as ticker, side, quantity,
+                COALESCE(fill_price, price) as price, cost, edge,
+                city, target_date, threshold, forecast_mean,
+                CASE WHEN status='settled_won' THEN 'won' ELSE 'lost' END as status,
+                pnl, actual_outcome, actual_temp, settled_at as resolved_at,
+                created_at, strategy_version, our_probability, market_probability
+         FROM live_trades
+         WHERE status IN ('settled_won', 'settled_lost')
+         ORDER BY settled_at DESC`
+      ).all() as Record<string, unknown>[];
+    }
 
     // Compute settlement times
     // City code to name mapping for parsing from tickers
@@ -82,6 +148,39 @@ export async function GET() {
 
     db.close();
 
+    // Canonical open-position truth: always prefer exchange-reported open position
+    // quantity/cost/avg_price when Kalshi data is available.
+    let reportedOpenPositions: Record<string, unknown>[] = [];
+    let kalshiCheckedAt = new Date().toISOString();
+
+    try {
+      const rawPortfolioRes = await fetch(`${DASHBOARD_BASE_URL}/api/kalshi/portfolio`, {
+        signal: AbortSignal.timeout(KALSHI_PORTFOLIO_TIMEOUT_MS),
+      });
+      if (rawPortfolioRes.ok) {
+        const rawPortfolio = await rawPortfolioRes.json();
+        const picked = pickOpenPositions(rawPortfolio);
+        if (picked.length > 0) {
+          reportedOpenPositions = picked;
+          lastReportedOpenPositions = picked;
+          const checked = typeof rawPortfolio.checked_at === "string" && rawPortfolio.checked_at
+            ? rawPortfolio.checked_at
+            : new Date().toISOString();
+          kalshiCheckedAt = checked;
+          lastReportedCheckedAt = checked;
+        }
+      }
+    } catch {
+      /* fall back to cache/local-only open rows */
+    }
+
+    if (reportedOpenPositions.length === 0 && lastReportedOpenPositions.length > 0) {
+      reportedOpenPositions = lastReportedOpenPositions;
+      kalshiCheckedAt = lastReportedCheckedAt || kalshiCheckedAt;
+    }
+
+    openTrades = reconcileOpenTradesWithExchangeTruth(openTrades, reportedOpenPositions, kalshiCheckedAt);
+
     // Parse target date from ticker as source of truth (e.g. KXHIGHMIA-26MAR28-B79.5 → 2026-03-28)
     const MONTH_MAP: Record<string, string> = {
       JAN: "01", FEB: "02", MAR: "03", APR: "04", MAY: "05", JUN: "06",
@@ -119,9 +218,6 @@ export async function GET() {
       let settlement_scheduled_at: string | null = null;
       const targetDate = String(trade.target_date || "");
       if (targetDate) {
-        // Weather contracts should settle shortly after the target weather day ends,
-        // not at an arbitrary next-day fallback. Use city-local end-of-day + a small buffer
-        // until authoritative Kalshi close_time is attached below.
         const city = String(trade.city || "").toLowerCase();
         const timeZoneMap: Record<string, string> = {
           new_york: "America/New_York",
@@ -175,7 +271,6 @@ export async function GET() {
     const positions = openTrades.map(enrichWithSettlement);
     const resolved = settledTrades.map((t) => {
       const enriched = enrichWithSettlement(t);
-      // Compute fees from fills for settled trades
       const fillFees = (enriched.fills as Record<string, unknown>[])?.reduce(
         (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
       ) ?? 0;
@@ -183,157 +278,119 @@ export async function GET() {
       return enriched;
     });
 
-    // Fetch fees per position from Kalshi portfolio positions
+    // Fees from exchange open positions where available.
     const feesMap: Record<string, number> = {};
-    try {
-      const kalshiPosRes = await fetch("http://localhost:8050/api/kalshi/portfolio", {
-        signal: AbortSignal.timeout(5000),
-      });
-      if (kalshiPosRes.ok) {
-        const kpData = await kalshiPosRes.json();
-        const kPositions = kpData.market_positions || kpData.positions || [];
-        for (const kp of kPositions) {
-          const ticker = kp.ticker || "";
-          feesMap[ticker] = parseFloat(kp.fees_paid_dollars || "0");
-        }
+    for (const kp of reportedOpenPositions) {
+      const ticker = String(kp.ticker || "").toUpperCase();
+      const side = String(kp.side || "").toLowerCase();
+      if (!ticker) continue;
+      const fee = Number(kp.fees_paid_dollars || kp.fee || 0);
+      if (Number.isFinite(fee)) {
+        feesMap[`${ticker}|${side}`] = fee;
+        if (!(ticker in feesMap)) feesMap[ticker] = fee;
       }
-    } catch { /* skip */ }
+    }
 
-    // Fetch market data from Kalshi via dashboard proxy.
-    // We need this for BOTH open and settled rows so the Trading Floor can
-    // prefer source-of-truth market results/metadata over poisoned local fields.
-    const tickers = [...new Set([...positions, ...resolved].map((p) => String(p.ticker)))];
+    // Weather-truth enrichment for open rows only.
+    const weatherTruthByTicker: Record<string, WeatherTruth> = {};
+    const openTickers = [...new Set(positions.map((p) => String(p.ticker || "").toUpperCase()).filter(Boolean))];
 
-    type MarketData = {
-      yes_bid: number | null;
-      yes_ask: number | null;
-      last: number | null;
-      close_time: string | null;
-      result: string | null;
-      market_status: string | null;
-      title: string | null;
-      subtitle: string | null;
-      floor_strike: number | null;
-      cap_strike: number | null;
-    };
-    const marketDataByTicker: Record<string, MarketData> = {};
+    if (includeWeatherTruth) {
+      for (const ticker of openTickers) {
+        const cached = weatherTruthCache.get(ticker) ?? null;
+        let payload: Record<string, unknown> | null = null;
 
-    // Fetch market data in parallel (batch of 10 at a time to avoid rate limits)
-    const batchSize = 10;
-    for (let i = 0; i < tickers.length; i += batchSize) {
-      const batch = tickers.slice(i, i + batchSize);
-      const results = await Promise.allSettled(
-        batch.map(async (ticker) => {
+        for (let attempt = 1; attempt <= WEATHER_TRUTH_ATTEMPTS; attempt += 1) {
           try {
-            const res = await fetch(`http://localhost:8050/api/market/${ticker}`, {
-              signal: AbortSignal.timeout(3000),
+            const res = await fetch(`${DASHBOARD_BASE_URL}/api/kalshi/weather-truth/${encodeURIComponent(ticker)}`, {
+              signal: AbortSignal.timeout(WEATHER_TRUTH_TIMEOUT_MS),
             });
             if (res.ok) {
               const data = await res.json();
-              return { ticker, data };
+              if (data?.available !== false) {
+                payload = data as Record<string, unknown>;
+                break;
+              }
             }
-          } catch { /* skip */ }
-          return { ticker, data: null };
-        })
-      );
-      for (const result of results) {
-        if (result.status === "fulfilled" && result.value.data) {
-          const d = result.value.data;
-          marketDataByTicker[result.value.ticker] = {
-            yes_bid: d.yes_bid_dollars ? parseFloat(d.yes_bid_dollars) : null,
-            yes_ask: d.yes_ask_dollars ? parseFloat(d.yes_ask_dollars) : null,
-            last: d.last_price_dollars ? parseFloat(d.last_price_dollars) : null,
-            close_time: d.close_time || null,
-            result: typeof d.result === "string" ? d.result.toLowerCase() : null,
-            market_status: typeof d.status === "string" ? d.status : null,
-            title: typeof d.title === "string" ? d.title : null,
-            subtitle: typeof d.subtitle === "string" ? d.subtitle : null,
-            floor_strike: d.floor_strike != null ? Number(d.floor_strike) : null,
-            cap_strike: d.cap_strike != null ? Number(d.cap_strike) : null,
+          } catch {
+            /* retry */
+          }
+
+          if (attempt < WEATHER_TRUTH_ATTEMPTS) {
+            await sleep(WEATHER_TRUTH_RETRY_DELAY_MS);
+          }
+        }
+
+        if (payload) {
+          const truth: WeatherTruth = {
+            implied_forecast_f: toFiniteNumber(payload.implied_forecast_f),
+            selected_market_yes_chance: toFiniteNumber(payload.selected_market_yes_chance),
+            probability_source: typeof payload.probability_source === "string" ? payload.probability_source : null,
+            checked_at: typeof payload.checked_at === "string" ? payload.checked_at : kalshiCheckedAt,
           };
+          weatherTruthByTicker[ticker] = truth;
+          weatherTruthCache.set(ticker, truth);
+          continue;
+        }
+
+        if (cached) {
+          weatherTruthByTicker[ticker] = cached;
         }
       }
     }
 
-    const enrichWithMarketData = (trade: Record<string, unknown>) => {
-      const ticker = String(trade.ticker || "");
-      const market = marketDataByTicker[ticker];
-      const enriched = { ...trade };
-
-      if (market?.close_time) {
-        enriched.settlement_scheduled_at = String(market.close_time);
-      }
-      if (market?.result) {
-        enriched.market_result = market.result;
-      }
-      if (market?.market_status) {
-        enriched.market_status = market.market_status;
-      }
-      if (market?.title) {
-        enriched.market_title = market.title;
-      }
-      if (market?.subtitle) {
-        enriched.market_subtitle = market.subtitle;
-      }
-      if (market?.floor_strike != null) {
-        enriched.market_floor_strike = market.floor_strike;
-      }
-      if (market?.cap_strike != null) {
-        enriched.market_cap_strike = market.cap_strike;
-      }
-
-      return { enriched, market };
-    };
-
-    // Enrich positions with current price
+    // Enrich positions with now price.
     const enrichedPositions = positions.map((p) => {
-      const ticker = String(p.ticker);
-      const { enriched, market } = enrichWithMarketData(p);
-      const side = String(enriched.side).toLowerCase();
+      const ticker = String(p.ticker || "").toUpperCase();
+      const side = String(p.side).toLowerCase();
+      const weatherTruth = weatherTruthByTicker[ticker];
+
+      const exchangeYesChance = weatherTruth?.selected_market_yes_chance;
+      const kalshiImpliedForecast = weatherTruth?.implied_forecast_f ?? null;
 
       let nowPrice: number | null = null;
-      if (market) {
-        // Use mid-market when available, otherwise best available price
-        // Avoid using last_price alone in illiquid markets (can be very stale)
-        const yesBid = market.yes_bid;
-        const yesAsk = market.yes_ask;
-        let yesPrice: number | null = null;
+      if (isUnitProbability(exchangeYesChance)) {
+        nowPrice = side === "yes" ? exchangeYesChance : 1 - exchangeYesChance;
+      }
 
-        if (yesBid != null && yesAsk != null && yesBid > 0 && yesAsk > 0) {
-          // Use midpoint when both sides have liquidity
-          yesPrice = (yesBid + yesAsk) / 2;
-        } else if (yesAsk != null && yesAsk > 0 && (yesBid == null || yesBid === 0)) {
-          // Only ask exists — market is one-sided, use ask but flag as illiquid
-          yesPrice = yesAsk;
-        } else if (yesBid != null && yesBid > 0) {
-          yesPrice = yesBid;
-        } else {
-          yesPrice = market.last;
-        }
-
-        if (yesPrice != null) {
-          nowPrice = side === "yes" ? yesPrice : 1 - yesPrice;
+      if (nowPrice == null) {
+        const localYesChance = toFiniteNumber(p.market_probability);
+        if (isUnitProbability(localYesChance)) {
+          nowPrice = side === "yes" ? localYesChance : 1 - localYesChance;
         }
       }
 
-      // Compute fees: prefer Kalshi positions API, fall back to fills table
-      const apiFees = feesMap[ticker];
-      const fillFees = (enriched.fills as Record<string, unknown>[])?.reduce(
+      if (nowPrice == null) {
+        const entryPrice = toFiniteNumber(p.price);
+        if (isUnitProbability(entryPrice)) {
+          nowPrice = entryPrice;
+        }
+      }
+
+      // Compute fees: prefer synthetic exchange fallback row, then Kalshi positions API, then fills table
+      const syntheticFees = p.fees_paid_dollars != null ? Number(p.fees_paid_dollars) : null;
+      const apiFees = feesMap[`${ticker}|${side}`] ?? feesMap[ticker];
+      const fillFees = (p.fills as Record<string, unknown>[])?.reduce(
         (sum: number, f: Record<string, unknown>) => sum + Number(f.fee || 0), 0
       ) ?? 0;
-      const fees = apiFees ?? (fillFees > 0 ? fillFees : 0);
+      const fees = syntheticFees ?? apiFees ?? (fillFees > 0 ? fillFees : 0);
 
-      return { ...enriched, now_price: nowPrice, fees };
-    });
+      const fallbackForecast = toFiniteNumber(p.forecast_mean);
 
-    const enrichedResolved = resolved.map((p) => {
-      const { enriched } = enrichWithMarketData(p);
-      return enriched;
+      return {
+        ...p,
+        forecast_mean: kalshiImpliedForecast ?? fallbackForecast,
+        now_price: nowPrice,
+        fees,
+        kalshi_implied_forecast_f: kalshiImpliedForecast,
+        kalshi_weather_truth_probability_source: weatherTruth?.probability_source ?? null,
+        kalshi_weather_truth_checked_at: weatherTruth?.checked_at ?? null,
+      };
     });
 
     return NextResponse.json({
       positions: enrichedPositions,
-      resolved: enrichedResolved,
+      resolved: includeResolved ? resolved : [],
     });
   } catch (error) {
     console.error("[trading/kalshi-positions] Error:", error);

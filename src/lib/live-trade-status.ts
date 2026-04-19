@@ -1,10 +1,10 @@
 export const REAL_OPEN_LIVE_TRADE_WHERE = `(
-  status IN ('pending', 'filled')
+  status IN ('pending', 'filled', 'partial')
   OR (status = 'resting')
 )`;
 
 export const TRUE_RESTING_LIVE_TRADE_WHERE = `(status = 'resting' AND COALESCE(fill_quantity, 0) = 0)`;
-export const FILLED_LIVE_TRADE_WHERE = `(status = 'filled' OR (status = 'resting' AND COALESCE(fill_quantity, 0) > 0))`;
+export const FILLED_LIVE_TRADE_WHERE = `(status IN ('filled', 'partial') OR (status = 'resting' AND COALESCE(fill_quantity, 0) > 0))`;
 
 export const REAL_OPEN_LIVE_TRADE_COUNT_EXPR = `CASE WHEN ${REAL_OPEN_LIVE_TRADE_WHERE} THEN 1 ELSE 0 END`;
 export const REAL_OPEN_LIVE_TRADE_COST_EXPR = `CASE WHEN ${REAL_OPEN_LIVE_TRADE_WHERE} THEN cost ELSE 0 END`;
