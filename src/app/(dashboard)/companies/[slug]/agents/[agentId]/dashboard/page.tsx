@@ -260,7 +260,7 @@ function IssueStatusPill({ status }: { status: string }) {
     "in-progress": { color: "#f59e0b", bg: "rgba(245,158,11,0.14)", label: "in progress" },
     blocked: { color: "#ef4444", bg: "rgba(239,68,68,0.14)", label: "blocked" },
     backlog: { color: "#94a3b8", bg: "rgba(148,163,184,0.14)", label: "backlog" },
-    "on-deck": { color: "#60a5fa", bg: "rgba(96,165,250,0.14)", label: "on deck" },
+    "on-deck": { color: "#60a5fa", bg: "rgba(96,165,250,0.14)", label: "To-Do" },
   };
   const c = colors[status] ?? { color: A.muted, bg: "rgba(120,113,108,0.14)", label: status };
   return (

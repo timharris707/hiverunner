@@ -40,7 +40,7 @@ const STATUS_DOT: Record<TaskStatus, string> = {
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
-  "on-deck": "On Deck",
+  "on-deck": "To-Do",
   "in-progress": "In Progress",
   review: "Review",
   done: "Done",

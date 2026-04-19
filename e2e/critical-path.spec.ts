@@ -11,8 +11,8 @@
  *   7.  Navigate to Agents tab — verify agent appears
  *   8.  Navigate back to Board — create task via "New Task" UI dialog
  *   9.  Verify task card appears in Backlog column
- *   10. Move task Backlog → On Deck via status dropdown
- *   11. Move task On Deck → In Progress via status dropdown
+ *   10. Move task Backlog → To-Do via status dropdown
+ *   11. Move task To-Do → In Progress via status dropdown
  *   12. Click task card — verify detail drawer opens
  *   13. Verify drawer shows Priority, Assignee, Updated, Type metadata
  *   14. Add a comment via drawer textarea → Post Comment
@@ -258,7 +258,7 @@ test.describe("Step 5–6: Project board loads + agent seeded", () => {
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
 
-    for (const col of ["Backlog", "On Deck", "In Progress", "Review", "Done"]) {
+    for (const col of ["Backlog", "To-Do", "In Progress", "Review", "Done"]) {
       await expect(page.getByRole("heading", { name: new RegExp(col, "i") })).toBeVisible();
     }
   });
@@ -342,7 +342,7 @@ test.describe("Step 8–9: Task creation via New Task dialog", () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 test.describe("Step 10–11: Board progression via status dropdown", () => {
-  test("moves task from Backlog to On Deck", async ({ page }) => {
+  test("moves task from Backlog to To-Do", async ({ page }) => {
     expect(testProjectId, "testProjectId must be set").toBeTruthy();
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
@@ -354,17 +354,17 @@ test.describe("Step 10–11: Board progression via status dropdown", () => {
     // First select on the card is the status select
     await card.locator("select").first().selectOption("on-deck");
 
-    // Card moves to On Deck
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    // Card moves to To-Do
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     await expect(onDeckCol.getByText(TASK_TITLE)).toBeVisible({ timeout: 8_000 });
     await expect(backlogCol.getByText(TASK_TITLE)).not.toBeVisible();
   });
 
-  test("moves task from On Deck to In Progress", async ({ page }) => {
+  test("moves task from To-Do to In Progress", async ({ page }) => {
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
 
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     const card = onDeckCol.locator("article").filter({ hasText: TASK_TITLE });
     await expect(card).toBeVisible({ timeout: 10_000 });
 

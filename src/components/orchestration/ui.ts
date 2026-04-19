@@ -9,7 +9,7 @@ export const priorityTheme: Record<TaskPriority, { label: string; shortLabel: st
 
 export const statusTheme: Record<TaskStatus, { label: string; glow: string }> = {
   backlog: { label: "Backlog", glow: "0 0 0 1px rgba(148,163,184,0.25)" },
-  "on-deck": { label: "On Deck", glow: "0 0 0 1px rgba(251,191,36,0.3)" },
+  "on-deck": { label: "To-Do", glow: "0 0 0 1px rgba(251,191,36,0.3)" },
   "in-progress": { label: "In Progress", glow: "0 0 0 1px rgba(217,119,6,0.35)" },
   review: { label: "Review", glow: "0 0 0 1px rgba(245,158,11,0.35)" },
   done: { label: "Done", glow: "0 0 0 1px rgba(74,222,128,0.28)" },

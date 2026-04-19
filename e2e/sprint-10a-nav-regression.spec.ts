@@ -324,7 +324,7 @@ test.describe("Company board (tasks page)", () => {
     await page.goto(`${BASE}/companies/${COMPANY_SLUG}/board`);
 
     // Board should render its 5 columns
-    for (const col of ["Backlog", "On Deck", "In Progress", "Review", "Done"]) {
+    for (const col of ["Backlog", "To-Do", "In Progress", "Review", "Done"]) {
       await expect(
         page.getByRole("heading", { name: new RegExp(col, "i") }).first(),
         `COMPANY-BOARD | column "${col}" not found`
@@ -504,7 +504,7 @@ test.describe("Project board navigation", () => {
   test("seeded project board renders all 5 columns", async ({ page }) => {
     await page.goto(`${BASE}/companies/${COMPANY_SLUG}/projects/${testProjectSlug}/board`);
 
-    for (const col of ["Backlog", "On Deck", "In Progress", "Review", "Done"]) {
+    for (const col of ["Backlog", "To-Do", "In Progress", "Review", "Done"]) {
       await expect(
         page.getByRole("heading", { name: new RegExp(col, "i") }).first(),
         `PROJECT-BOARD | /companies/${COMPANY_SLUG}/projects/${testProjectSlug}/board — column "${col}" not found`

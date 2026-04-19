@@ -39,7 +39,7 @@ export interface InlineEditCallbacks {
 export const STATUS_ORDER: TaskStatus[] = ["backlog", "on-deck", "in-progress", "review", "blocked", "done", "cancelled"];
 export const STATUS_LABEL: Record<TaskStatus, string> = {
   backlog: "Backlog",
-  "on-deck": "Todo",
+  "on-deck": "To-Do",
   "in-progress": "In Progress",
   review: "Review",
   done: "Done",

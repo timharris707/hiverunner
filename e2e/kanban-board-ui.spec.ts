@@ -212,7 +212,7 @@ test.describe("Board layout", () => {
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
 
-    for (const label of ["Backlog", "On Deck", "In Progress", "Review", "Done"]) {
+    for (const label of ["Backlog", "To-Do", "In Progress", "Review", "Done"]) {
       await expect(page.getByRole("heading", { name: new RegExp(label, "i") })).toBeVisible();
     }
   });
@@ -258,7 +258,7 @@ test.describe("Task cards", () => {
     const backlogCol = page.locator("section").filter({ hasText: /^backlog/i }).first();
     await expect(backlogCol.getByText(`${TAG} Backlog Task`)).toBeVisible();
 
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     await expect(onDeckCol.getByText(`${TAG} OnDeck Task`)).toBeVisible();
 
     const inProgressCol = page.locator("section").filter({ hasText: /^in progress/i }).first();
@@ -306,7 +306,7 @@ test.describe("Task cards", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 test.describe("Status move via dropdown", () => {
-  test("moving a task from Backlog to On Deck updates the board", async ({ page }) => {
+  test("moving a task from Backlog to To-Do updates the board", async ({ page }) => {
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
 
@@ -318,8 +318,8 @@ test.describe("Status move via dropdown", () => {
     const statusSelect = card.locator("select").first();
     await statusSelect.selectOption("on-deck");
 
-    // After optimistic update, card should move — wait for On Deck column to show it
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    // After optimistic update, card should move — wait for To-Do column to show it
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     await expect(onDeckCol.getByText(`${TAG} Backlog Task`)).toBeVisible({ timeout: 8_000 });
 
     // Backlog column should no longer contain it
@@ -330,7 +330,7 @@ test.describe("Status move via dropdown", () => {
     await page.goto(`${BASE}/projects/${testProjectId}/board`);
     await waitForBoard(page);
 
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     const card = onDeckCol.locator("article").filter({ hasText: `${TAG} OnDeck Task` });
     await expect(card).toBeVisible();
 
@@ -565,7 +565,7 @@ test.describe("Bulk select and bulk move", () => {
     await waitForBoard(page);
 
     // All bulk move buttons should be disabled
-    const bulkButtons = page.locator("button:has-text('Backlog'), button:has-text('On Deck'), button:has-text('In Progress'), button:has-text('Review'), button:has-text('Done')");
+    const bulkButtons = page.locator("button:has-text('Backlog'), button:has-text('To-Do'), button:has-text('In Progress'), button:has-text('Review'), button:has-text('Done')");
     // Only bulk move buttons (not nav buttons) — they're inside the bar with "Bulk Move" label
     const bulkBar = page.locator("div").filter({ hasText: /^Bulk Move/ }).first();
     const buttons = bulkBar.locator("button");
@@ -608,14 +608,14 @@ test.describe("Bulk select and bulk move", () => {
       await card.locator("input[type=checkbox]").click();
     }
 
-    // Click "On Deck" in the bulk move bar
+    // Click "To-Do" in the bulk move bar
     const bulkBar = page.locator("div").filter({ hasText: /^Bulk Move/ }).first();
-    await bulkBar.getByRole("button", { name: /on deck/i }).click();
+    await bulkBar.getByRole("button", { name: /to-?do/i }).click();
     await expect(page.getByRole("dialog", { name: /confirm bulk action/i })).toBeVisible();
     await page.getByRole("button", { name: /^confirm$/i }).click();
 
-    // Both tasks should appear in On Deck column
-    const onDeckCol = page.locator("section").filter({ hasText: /^on deck/i }).first();
+    // Both tasks should appear in To-Do column
+    const onDeckCol = page.locator("section").filter({ hasText: /^to-?do/i }).first();
     await expect(onDeckCol.getByText(`${TAG} Bulk Task 1`)).toBeVisible({ timeout: 8_000 });
     await expect(onDeckCol.getByText(`${TAG} Bulk Task 2`)).toBeVisible({ timeout: 8_000 });
   });
@@ -680,7 +680,7 @@ test.describe("Performance with 50+ task cards", () => {
     const elapsed = Date.now() - t0;
 
     // All 5 column headers must be visible
-    for (const label of ["Backlog", "On Deck", "In Progress", "Review", "Done"]) {
+    for (const label of ["Backlog", "To-Do", "In Progress", "Review", "Done"]) {
       await expect(page.getByRole("heading", { name: new RegExp(label, "i") })).toBeVisible();
     }
 

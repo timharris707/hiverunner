@@ -73,7 +73,7 @@ test("03 - tasks board renders all five status columns", async ({ page }) => {
   await page.goto("/tasks");
 
   // Wait for the board to finish loading — all five column headers must be visible
-  const columns = ["Backlog", "On Deck", "In Progress", "Review", "Done"];
+  const columns = ["Backlog", "To-Do", "In Progress", "Review", "Done"];
   for (const col of columns) {
     await expect(page.getByText(col).first()).toBeVisible({ timeout: 15_000 });
   }
