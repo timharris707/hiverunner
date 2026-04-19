@@ -8,10 +8,16 @@ import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { triggerTaskAssignmentHeartbeat, triggerTaskAssigneeNudge } from "@/lib/orchestration/bridge/sync";
 import { getTaskBridgeRecord, listTaskExternalCommentRefs, setTaskExecutionMode } from "@/lib/orchestration/bridge/store";
 import { getOrchestrationExecutionProvider } from "@/lib/orchestration/execution-provider";
-import { enqueueWakeup } from "@/lib/orchestration/engine/engine";
+import {
+  enqueueWakeup,
+  executeMcAction,
+  parseActionsFromText,
+  type McActionExecutionOutcome,
+} from "@/lib/orchestration/engine/engine";
 import { createTaskComment, getTask, moveTask } from "@/lib/orchestration/service";
 import type { TaskStatusInput } from "@/lib/orchestration/contracts";
 
@@ -94,6 +100,15 @@ export type PollTaskExecutionResult = {
     imported: number;
     skippedDuplicates: number;
     lastImportedEventId?: string;
+  };
+  actions: {
+    found: number;
+    executed: number;
+    skippedDuplicates: number;
+    failed: number;
+    tasksCreated: string[];
+    approvalsCreated: string[];
+    errors: string[];
   };
   transition: {
     attempted: boolean;
@@ -1052,6 +1067,15 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         imported: 0,
         skippedDuplicates: 0,
       },
+      actions: {
+        found: 0,
+        executed: 0,
+        skippedDuplicates: 0,
+        failed: 0,
+        tasksCreated: [],
+        approvalsCreated: [],
+        errors: [],
+      },
       transition: {
         attempted: false,
         changed: false,
@@ -1083,6 +1107,15 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         imported: 0,
         skippedDuplicates: 0,
       },
+      actions: {
+        found: 0,
+        executed: 0,
+        skippedDuplicates: 0,
+        failed: 0,
+        tasksCreated: [],
+        approvalsCreated: [],
+        errors: [],
+      },
       transition: {
         attempted: false,
         changed: false,
@@ -1107,6 +1140,15 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         imported: 0,
         skippedDuplicates: 0,
       },
+      actions: {
+        found: 0,
+        executed: 0,
+        skippedDuplicates: 0,
+        failed: 0,
+        tasksCreated: [],
+        approvalsCreated: [],
+        errors: [],
+      },
       transition: {
         attempted: false,
         changed: false,
@@ -1118,6 +1160,8 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
   }
 
   if (run.status === "completed" || run.status === "failed" || run.status === "cancelled") {
+    const reconciliation = reconcileTerminalOpenClawTaskState(task.id, db);
+    const reconciledTask = getTask(task.id).task;
     return {
       taskId: task.id,
       mode: "openclaw",
@@ -1134,15 +1178,24 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
         imported: 0,
         skippedDuplicates: 0,
       },
-      transition: {
-        attempted: false,
-        from: getTask(task.id).task.status,
-        to: getTask(task.id).task.status,
-        changed: false,
-        skipped: true,
-        skipReason: "execution_run_already_terminal",
+      actions: {
+        found: 0,
+        executed: 0,
+        skippedDuplicates: 0,
+        failed: 0,
+        tasksCreated: [],
+        approvalsCreated: [],
+        errors: [],
       },
-      task: getTask(task.id).task,
+      transition: {
+        attempted: reconciliation.movedToReview,
+        from: reconciliation.movedToReview ? "in-progress" : reconciledTask.status,
+        to: reconciliation.movedToReview ? "review" : reconciledTask.status,
+        changed: reconciliation.movedToReview,
+        skipped: !reconciliation.movedToReview,
+        skipReason: reconciliation.movedToReview ? undefined : "execution_run_already_terminal",
+      },
+      task: reconciledTask,
     };
   }
 
@@ -1153,14 +1206,73 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
     source: OPENCLAW_COMMENT_SOURCE,
   });
 
+  // Dual-ingestion note: the engine heartbeat loop also imports assistant
+  // output (via OpenClaw CLI jsonl) and executes mc-action blocks. That path
+  // and this one can race. Action executors (executeCreateTask, etc.) all
+  // dedup at the DB layer (normalized title, name+role, status idempotency,
+  // content fingerprint) so cross-path double-execution is safe. The bug
+  // this addresses: pre-fix, THIS path stored the assistant's raw output
+  // — fences and all — as a status_update comment without parsing mc-action
+  // blocks, so agents that delivered work via this path (UI-triggered poll
+  // while task detail page is open) had their action JSON dropped on the
+  // floor. Example: WEA-211 2026-04-18T21:07Z, 4 fenced action blocks
+  // imported as a single raw-body comment, 0 tasks created.
   let imported = 0;
   let skippedDuplicates = 0;
   let lastImportedEventId: string | undefined;
+  const actionStats = {
+    found: 0,
+    executed: 0,
+    skippedDuplicates: 0,
+    failed: 0,
+    tasksCreated: [] as string[],
+    approvalsCreated: [] as string[],
+    errors: [] as string[],
+  };
+
   for (const event of parsed.events) {
     if (existingRefs.has(event.id)) {
       skippedDuplicates += 1;
       continue;
     }
+
+    const { actions, plainText, parseErrors } = parseActionsFromText(event.body);
+    if (parseErrors.length > 0) {
+      actionStats.errors.push(...parseErrors);
+    }
+    actionStats.found += actions.length;
+
+    if (actions.length > 0 && task.assigneeAgentId) {
+      for (const action of actions) {
+        const outcome = await executeMcAction(
+          action,
+          {
+            agentId: task.assigneeAgentId,
+            agentName: task.assigneeAgentName ?? "",
+            companyId: task.companyId,
+            taskKey: task.id,
+            runId: run.id,
+          },
+          db,
+        );
+        applyActionOutcome(actionStats, action.action, outcome);
+      }
+    } else if (actions.length > 0 && !task.assigneeAgentId) {
+      actionStats.failed += actions.length;
+      actionStats.errors.push(
+        `Skipped ${actions.length} mc-action block(s): task has no assignee_agent_id to attribute execution to`,
+      );
+    }
+
+    const trimmedPlain = plainText.trim();
+    const bodyForComment = trimmedPlain.length > 0
+      ? eventBody(event.role, trimmedPlain)
+      : actions.length > 0
+        ? eventBody(
+            event.role,
+            `Delivered ${actions.length} mc-action block${actions.length === 1 ? "" : "s"} (no narrative text).`,
+          )
+        : eventBody(event.role, event.body);
 
     createTaskComment({
       taskId: task.id,
@@ -1169,7 +1281,7 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
       source: OPENCLAW_COMMENT_SOURCE,
       externalRef: event.id,
       createdAt: event.createdAt,
-      body: eventBody(event.role, event.body),
+      body: bodyForComment,
     });
     existingRefs.add(event.id);
     imported += 1;
@@ -1260,6 +1372,10 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
     db
   );
 
+  if (parsed.terminal) {
+    reconcileTerminalOpenClawTaskState(task.id, db);
+  }
+
   const updatedTask = getTask(task.id).task;
   return {
     taskId: task.id,
@@ -1278,11 +1394,48 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
       skippedDuplicates,
       lastImportedEventId,
     },
+    actions: actionStats,
     transition,
     task: updatedTask,
   };
 }
 
+function applyActionOutcome(
+  stats: {
+    found: number;
+    executed: number;
+    skippedDuplicates: number;
+    failed: number;
+    tasksCreated: string[];
+    approvalsCreated: string[];
+    errors: string[];
+  },
+  actionType: string,
+  outcome: McActionExecutionOutcome,
+): void {
+  switch (outcome.kind) {
+    case "created_task":
+      stats.executed += 1;
+      stats.tasksCreated.push(outcome.taskId);
+      break;
+    case "created_approval":
+      stats.executed += 1;
+      stats.approvalsCreated.push(outcome.approvalId);
+      break;
+    case "reported":
+    case "updated_task":
+    case "added_comment":
+      stats.executed += 1;
+      break;
+    case "skipped_duplicate":
+      stats.skippedDuplicates += 1;
+      break;
+    case "failed":
+      stats.failed += 1;
+      stats.errors.push(`${actionType}: ${outcome.reason}`);
+      break;
+  }
+}
 
 export async function triggerTaskNudge(
   input: {
@@ -1367,11 +1520,16 @@ export async function triggerTaskExecution(
   }
 ): Promise<TriggerTaskExecutionResult> {
   const db = getOrchestrationDb();
-  const task = getTaskBridgeRecord(input.taskId, db);
+  let task = getTaskBridgeRecord(input.taskId, db);
   const executionProvider = getOrchestrationExecutionProvider();
   const mode: TriggerTaskExecutionResult["mode"] =
     executionProvider === "paperclip" ? "paperclip" : "openclaw";
   const normalizedIdempotencyKey = input.idempotencyKey?.trim() || undefined;
+
+  if (executionProvider === "openclaw") {
+    reconcileTerminalOpenClawTaskState(task.id, db);
+    task = getTaskBridgeRecord(input.taskId, db);
+  }
 
   if (task.status !== "in_progress") {
     return {
@@ -1670,7 +1828,7 @@ export async function cancelTaskExecution(input: {
     commentLines.push("", `Note: ${input.note.trim()}`);
   }
   if (cancellation.acknowledged && targetStatus === "on-deck") {
-    commentLines.push("", "Task moved to On Deck for reassignment.");
+    commentLines.push("", "Task moved to To-Do for reassignment.");
   } else if (cancellation.acknowledged) {
     commentLines.push("", "Task remains In Progress after cancellation.");
   }
