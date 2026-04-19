@@ -28,7 +28,7 @@ Replace Paperclip as our agent orchestration platform. Build it into Mission Con
 - Projects page in MC nav — cards with live status
 
 ### 2. Kanban Task Board
-- Columns: **Backlog → On Deck → In Progress → Review → Done**
+- Columns: **Backlog → To-Do → In Progress → Review → Done**
 - Drag and drop between columns
 - Task cards show: title, assignee avatar, priority badge, label tags
 - Click card → task detail drawer (description, comments, subtasks, history)

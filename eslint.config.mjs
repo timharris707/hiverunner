@@ -12,6 +12,17 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Mission Control local-runtime noise / generated trees:
+    ".next_backup*/**",
+    ".stable/**",
+    ".stable.backup-*/**",
+    ".claude/**",
+    ".tmp*/**",
+    ".tmp*.cjs",
+    "tmp/**",
+    "artifacts/**",
+    "**/.next/**",
+    "_quarantine/**",
   ]),
 ]);
 

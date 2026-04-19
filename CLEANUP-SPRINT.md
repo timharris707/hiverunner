@@ -22,7 +22,7 @@ Make Mission Control the single pane of glass. Clean up the mess, integrate Pape
 - [ ] Add "Clear Done" or "Archive All Done" button
 
 ### TASK: Empty state + board density
-- [ ] Backlog and On Deck both show "No tasks" — use that space better or collapse empty columns
+- [ ] Backlog and To-Do both show "No tasks" — use that space better or collapse empty columns
 - [ ] Column headers need task counts that update live
 
 ## Priority 2 — Data Cleanup
