@@ -6,7 +6,7 @@
  */
 
 import assert from "node:assert";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -29,7 +29,7 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function createStubOpenClawCli(): { filePath: string; statePath: string } {
+function createStubOpenClawCli(): { filePath: string; statePath: string; taskKeyPath: string } {
   const filePath = path.join(
     os.tmpdir(),
     `mc-openclaw-heartbeat-bridge-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`
@@ -38,14 +38,23 @@ function createStubOpenClawCli(): { filePath: string; statePath: string } {
     os.tmpdir(),
     `mc-openclaw-heartbeat-bridge-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
   );
+  const taskKeyPath = path.join(
+    os.tmpdir(),
+    `mc-openclaw-heartbeat-bridge-task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
+  );
 
   const script = `#!/bin/sh
 METHOD="$3"
 PARAMS="$6"
 STATE_FILE="${statePath}"
+TASK_KEY_FILE="${taskKeyPath}"
 
 extract_key() {
   printf '%s' "$PARAMS" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p'
+}
+
+extract_task_key() {
+  printf '%s' "$PARAMS" | grep -o '\\[[A-Z][A-Z0-9]*-[0-9][0-9]*\\]' | head -n 1 | tr -d '[]'
 }
 
 if [ "$METHOD" = "sessions.create" ]; then
@@ -57,6 +66,10 @@ if [ "$METHOD" = "sessions.create" ]; then
   exit 0
 fi
 if [ "$METHOD" = "sessions.send" ]; then
+  TASK_KEY="$(extract_task_key)"
+  if [ -n "$TASK_KEY" ]; then
+    printf '%s' "$TASK_KEY" > "$TASK_KEY_FILE"
+  fi
   echo '{"runId":"run-heartbeat-bridge-456","status":"started"}'
   exit 0
 fi
@@ -69,7 +82,11 @@ if [ "$METHOD" = "sessions.list" ] || [ "$METHOD" = "sessions_list" ]; then
   exit 0
 fi
 if [ "$METHOD" = "sessions.get" ] || [ "$METHOD" = "sessions_get" ]; then
-  echo '{"messages":[{"role":"assistant","content":"Execution bridge proof complete. Imported through heartbeat run."}]}'
+  TASK_KEY="$(cat "$TASK_KEY_FILE" 2>/dev/null)"
+  if [ -z "$TASK_KEY" ]; then
+    TASK_KEY="NEV-1"
+  fi
+  TASK_KEY="$TASK_KEY" python3 -c 'import json, os; task_key = os.environ.get("TASK_KEY", "NEV-1"); fence = chr(96) * 3; content = f"{fence}mc-action\\n" + json.dumps({"action": "add_comment", "taskKey": task_key, "body": "Execution bridge proof complete. Imported through heartbeat run."}) + f"\\n{fence}\\n\\nExecution bridge proof complete. Imported through heartbeat run."; print(json.dumps({"messages": [{"role": "assistant", "content": content}]}))'
   exit 0
 fi
 if [ "$METHOD" = "sessions.history" ] || [ "$METHOD" = "sessions_history" ]; then
@@ -83,7 +100,7 @@ exit 1
 
   writeFileSync(filePath, script, "utf8");
   chmodSync(filePath, 0o755);
-  return { filePath, statePath };
+  return { filePath, statePath, taskKeyPath };
 }
 
 console.log("\nOrchestration Execution Heartbeat Bridge Contract Test\n");
@@ -91,8 +108,10 @@ console.log("\nOrchestration Execution Heartbeat Bridge Contract Test\n");
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   const originalCli = process.env.ORCHESTRATION_OPENCLAW_CLI;
+  const originalOpenClawDir = process.env.OPENCLAW_DIR;
   const stub = createStubOpenClawCli();
   const stubCli = stub.filePath;
+  const tempOpenClawDir = mkdtempSync(path.join(os.tmpdir(), "mc-openclaw-heartbeat-bridge-openclaw-"));
 
   try {
     if (dbPath) {
@@ -100,6 +119,7 @@ async function run() {
     }
 
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
+    process.env.OPENCLAW_DIR = tempOpenClawDir;
 
     await test("Heartbeat execution finalizes execution_run and leaves definitive proof on task", async () => {
       const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -108,11 +128,10 @@ async function run() {
         createProjectAgent,
         createTask,
         getTask,
+        listCompanyAgents,
         listTaskComments,
       } = await import("@/lib/orchestration/service");
-      const { enqueueWakeup, executeHeartbeatRun } = await import(
-        "@/lib/orchestration/engine/engine"
-      );
+      const { getTaskBridgeRecord } = await import("@/lib/orchestration/bridge/store");
 
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -145,6 +164,10 @@ async function run() {
         labels: ["e2e", "execution-bridge"],
         createdBy: "test-suite",
       }).task;
+
+      const { enqueueWakeup, executeHeartbeatRun } = await import(
+        "@/lib/orchestration/engine/engine"
+      );
 
       const db = getOrchestrationDb();
 
@@ -197,6 +220,18 @@ async function run() {
 
       const updatedTask = getTask(task.id).task;
       assert.strictEqual(updatedTask.executionMode, "openclaw");
+      assert.strictEqual(updatedTask.status, "review");
+
+      const bridgeTask = getTaskBridgeRecord(task.id);
+      assert.strictEqual(bridgeTask.executionSessionId, undefined);
+
+      const companyAgents = listCompanyAgents("6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f", {
+        includeNonProduction: true,
+      }).agents;
+      const updatedAgent = companyAgents.find((candidate) => candidate.id === agent.id);
+      assert.ok(updatedAgent, "expected company agent after reconciliation");
+      assert.strictEqual(updatedAgent?.status, "idle");
+      assert.strictEqual(updatedAgent?.currentTask, undefined);
 
       const comments = listTaskComments(task.id).comments;
       assert.ok(
@@ -206,8 +241,15 @@ async function run() {
     });
   } finally {
     process.env.ORCHESTRATION_OPENCLAW_CLI = originalCli;
+    if (originalOpenClawDir === undefined) {
+      delete process.env.OPENCLAW_DIR;
+    } else {
+      process.env.OPENCLAW_DIR = originalOpenClawDir;
+    }
     rmSync(stubCli, { force: true });
     rmSync(stub.statePath, { force: true });
+    rmSync(stub.taskKeyPath, { force: true });
+    rmSync(tempOpenClawDir, { recursive: true, force: true });
     if (dbPath) {
       rmSync(dbPath, { force: true });
     }
