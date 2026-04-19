@@ -6,12 +6,20 @@
 
 import assert from "node:assert/strict";
 import { formatIntentAgeLabel } from "@/components/voice/ToolActionCard";
+import { STATUS_META } from "@/components/orchestration/task-display";
+import { statusTheme } from "@/components/orchestration/ui";
+import { STATUS_LABEL as TASKS_STATUS_LABEL } from "@/components/tasks/types";
+import { ORCHESTRATION_COLUMNS } from "@/lib/orchestration/types";
 import { buildConversationFlowEntries } from "@/hooks/useConversationFlow";
 import {
+  findAutoApprovedToolIntent,
+  findDirectlyAuthorizedToolIntents,
   parseHenryTurnOutput,
+  shouldSynthesizeDirectTaskActionFallback,
   type TranscriptEntry,
 } from "@/hooks/useVoiceSession";
 import type { ToolDispatchEvent } from "@/lib/voice-tool-dispatch";
+import { HENRY_VOICE_SYSTEM_PROMPT } from "@/lib/gemini-live";
 import { shouldPollLiveRuns } from "@/hooks/useLiveRuns";
 import { readStoredDemoModeFromStorage } from "@/lib/demo-mode";
 import { createHiddenProjectsSnapshotReader, getEmptyHiddenProjectsSnapshot, parseHiddenProjects } from "@/lib/hidden-project-state";
@@ -75,6 +83,115 @@ async function run() {
     assert.equal(toolEntries[0]?.inflight, true);
     assert.equal(toolEntries[1]?.timestamp, 2_500, "terminal events should use executedAt when available");
     assert.equal(toolEntries[1]?.inflight, false);
+  });
+
+  await test("operator-facing task status labels use To-Do instead of stale On Deck/Todo wording", () => {
+    assert.equal(STATUS_META["on-deck"].label, "To-Do");
+    assert.equal(statusTheme["on-deck"].label, "To-Do");
+    assert.equal(TASKS_STATUS_LABEL["on-deck"], "To-Do");
+    const orchestrationTodoColumn = ORCHESTRATION_COLUMNS.find((column) => column.id === "on-deck");
+    assert.equal(orchestrationTodoColumn?.label, "To-Do");
+  });
+
+  await test("findAutoApprovedToolIntent only auto-accepts a single pending tool request on explicit approval language", () => {
+    const pendingIntent = {
+      id: "intent-tool-1",
+      name: "tool.request" as const,
+      createdAt: 1_000,
+      confidence: 0.9,
+      payload: { tool: "move_task_status", params: { status: "To-Do" } },
+      sourceText: "<henry_action>...</henry_action>",
+      status: "proposed" as const,
+    };
+
+    assert.equal(
+      findAutoApprovedToolIntent([pendingIntent], "Go ahead and do it now." )?.id,
+      "intent-tool-1",
+    );
+    assert.equal(findAutoApprovedToolIntent([pendingIntent], "Not yet, hold on."), null);
+    assert.equal(
+      findAutoApprovedToolIntent([
+        pendingIntent,
+        { ...pendingIntent, id: "intent-tool-2" },
+      ], "Go ahead"),
+      null,
+    );
+  });
+
+  await test("findAutoApprovedToolIntent treats a direct imperative task request as approval for a single pending status action", () => {
+    const pendingIntent = {
+      id: "intent-tool-directive",
+      name: "tool.request" as const,
+      createdAt: 2_000,
+      confidence: 0.9,
+      payload: { tool: "move_task_status", params: { status: "done" } },
+      sourceText: "<henry_action>...</henry_action>",
+      status: "proposed" as const,
+    };
+
+    assert.equal(
+      findAutoApprovedToolIntent(
+        [pendingIntent],
+        "This task is already done, so change the status to complete or done for me, okay?",
+      )?.id,
+      "intent-tool-directive",
+    );
+  });
+
+  await test("findDirectlyAuthorizedToolIntents can approve multiple matching task actions from one direct request", () => {
+    const proposedStatusIntent = {
+      id: "intent-status",
+      name: "tool.request" as const,
+      createdAt: 3_000,
+      confidence: 0.9,
+      payload: { tool: "move_task_status", params: { status: "done" } },
+      sourceText: "<henry_action>...</henry_action>",
+      status: "proposed" as const,
+    };
+    const proposedCommentIntent = {
+      id: "intent-comment",
+      name: "tool.request" as const,
+      createdAt: 3_001,
+      confidence: 0.9,
+      payload: { tool: "add_task_comment", params: { body: "Tim and I talked. Tim is the best." } },
+      sourceText: "<henry_action>...</henry_action>",
+      status: "proposed" as const,
+    };
+
+    assert.deepEqual(
+      findDirectlyAuthorizedToolIntents(
+        [proposedStatusIntent, proposedCommentIntent],
+        "This task is already done. Move it to complete for me and put a note in there that you and I talked and I'm the best.",
+      ).map((intent) => intent.id),
+      ["intent-status", "intent-comment"],
+    );
+  });
+
+  await test("direct-task fallback stays off when the current Henry turn already used native Live tool calls", () => {
+    assert.equal(
+      shouldSynthesizeDirectTaskActionFallback({
+        bindingScope: "task",
+        lastUserText: "Move it to done and leave a note.",
+        currentTurnHadNativeToolCall: true,
+      }),
+      false,
+    );
+
+    assert.equal(
+      shouldSynthesizeDirectTaskActionFallback({
+        bindingScope: "task",
+        lastUserText: "Move it to done and leave a note.",
+        currentTurnHadNativeToolCall: false,
+      }),
+      true,
+    );
+  });
+
+  await test("Henry Voice prompt tells the model to use native Live API tools for task actions instead of relying on hidden tool tags", () => {
+    assert.match(
+      HENRY_VOICE_SYSTEM_PROMPT,
+      /native Live API tools|call the matching tool|call each tool separately|do not need to emit hidden tool tags/i,
+    );
   });
 
   await test("parseHenryTurnOutput strips action tags from visible transcript text and keeps intents", () => {
