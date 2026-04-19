@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import { syncTakeawayStatusFromTaskLifecycleAsync } from "@/lib/ideas-store";
+import { reconcileTerminalOpenClawTaskState, reconcileScopedTerminalOpenClawTasks } from "@/lib/orchestration/openclaw-reconciliation";
 
 import {
   type OrchestrationTask,
@@ -49,6 +50,8 @@ export function listTasks(filters: {
   const includeNonProduction = filters.includeNonProduction ?? false;
   const whereParts = [includeArchived ? "1=1" : "t.archived_at IS NULL", "p.archived_at IS NULL"];
   const args: unknown[] = [];
+  let scopeCompanyId: string | undefined;
+  let scopeProjectId: string | undefined;
 
   if (filters.companyIdOrSlug) {
     const company = db
@@ -67,6 +70,7 @@ export function listTasks(filters: {
 
     whereParts.push("p.company_id = ?");
     args.push(company.id);
+    scopeCompanyId = company.id;
   }
 
   if (filters.projectId) {
@@ -76,6 +80,18 @@ export function listTasks(filters: {
     }
     whereParts.push("t.project_id = ?");
     args.push(project.id);
+    scopeProjectId = project.id;
+    scopeCompanyId = project.company_id ?? scopeCompanyId;
+  }
+
+  if (scopeCompanyId || scopeProjectId) {
+    reconcileScopedTerminalOpenClawTasks(
+      {
+        companyId: scopeCompanyId,
+        projectId: scopeProjectId,
+      },
+      db,
+    );
   }
 
   if (filters.status) {
@@ -185,6 +201,7 @@ export function listTasks(filters: {
 
 export function getTask(taskId: string): { task: OrchestrationTask } {
   const db = getOrchestrationDb();
+  reconcileTerminalOpenClawTaskState(taskId, db);
   return { task: taskById(db, taskId) };
 }
 
@@ -770,13 +787,31 @@ export function assignTask(input: {
 
   const now = new Date().toISOString();
   const targetAssignedAt = targetAssigneeId ? now : null;
+  const reopenOnReassign =
+    current.status === "review" &&
+    Boolean(targetAssigneeId) &&
+    targetAssigneeId !== current.assignee_agent_id;
 
   const tx = db.transaction(() => {
     db.prepare(
       `UPDATE tasks
-       SET assignee_agent_id = ?, assigned_at = ?, updated_at = ?
+       SET assignee_agent_id = ?,
+           assigned_at = ?,
+           status = CASE WHEN ? THEN 'in_progress' ELSE status END,
+           started_at = CASE WHEN ? AND started_at IS NULL THEN ? ELSE started_at END,
+           completed_at = CASE WHEN ? THEN NULL ELSE completed_at END,
+           updated_at = ?
        WHERE id = ?`
-    ).run(targetAssigneeId, targetAssignedAt, now, input.taskId);
+    ).run(
+      targetAssigneeId,
+      targetAssignedAt,
+      reopenOnReassign ? 1 : 0,
+      reopenOnReassign ? 1 : 0,
+      now,
+      reopenOnReassign ? 1 : 0,
+      now,
+      input.taskId
+    );
 
     db.prepare(
       `INSERT INTO task_events
@@ -791,14 +826,32 @@ export function assignTask(input: {
       input.actorUserId ?? "api",
       targetAssigneeId ? "task.assigned" : "task.unassigned",
       current.status,
-      current.status,
+      reopenOnReassign ? "in_progress" : current.status,
       JSON.stringify({
         assignee: targetAssigneeName,
         assigneeId: targetAssigneeId,
         previousAssigneeId: current.assignee_agent_id,
+        reopenedOnReassign: reopenOnReassign,
       }),
       now
     );
+
+    if (reopenOnReassign) {
+      db.prepare(
+        `INSERT INTO task_events
+          (id, project_id, task_id, agent_id, user_id, event_type, from_status, to_status, metadata_json, created_at)
+         VALUES
+          (?, ?, ?, ?, ?, 'task.status_changed', 'review', 'in_progress', ?, ?)`
+      ).run(
+        randomUUID(),
+        current.project_id,
+        current.id,
+        targetAssigneeId,
+        input.actorUserId ?? "api",
+        JSON.stringify({ source: 'task_reassignment_reopen', previousAssigneeId: current.assignee_agent_id }),
+        now
+      );
+    }
 
     if (current.assignee_agent_id) {
       refreshAgentLoad(db, current.assignee_agent_id);

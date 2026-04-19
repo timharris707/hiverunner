@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 
 import { createCompany } from "@/lib/orchestration/company-service";
-import { listProjectAgents } from "@/lib/orchestration/service";
+import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { createTaskComment as createTaskCommentService, listProjectAgents } from "@/lib/orchestration/service";
 import { POST as createProjectRoute } from "@/app/api/orchestration/projects/route";
 import { GET as getProjectBoardRoute } from "@/app/api/orchestration/projects/[id]/board/route";
 import {
@@ -16,6 +17,7 @@ import {
   GET as listTaskCommentsRoute,
   POST as createTaskCommentRoute,
 } from "@/app/api/orchestration/tasks/[id]/comments/route";
+import { PATCH as assignTaskRoute } from "@/app/api/orchestration/tasks/[id]/assign/route";
 
 let passed = 0;
 let failed = 0;
@@ -112,6 +114,23 @@ async function run() {
   };
   const taskId = createTaskPayload.task.id;
 
+  const createSecondAgentRes = await createProjectAgentRoute(
+    makeJsonRequest(`http://localhost/api/orchestration/projects/${projectId}/agents`, {
+      name: `Workflow Agent B ${Date.now()}`,
+      emoji: "🧪",
+      role: "Operator",
+      personality: "Fast and decisive",
+      status: "idle",
+      skills: ["execution"],
+    }) as never,
+    { params: Promise.resolve({ id: projectId }) }
+  );
+  assert.equal(createSecondAgentRes.status, 201);
+  const createSecondAgentPayload = (await createSecondAgentRes.json()) as {
+    agent: { id: string; name: string };
+  };
+  const secondAgentId = createSecondAgentPayload.agent.id;
+
   await test("project create and agent add routes persist workflow entities", async () => {
     const res = await listProjectAgentsRoute(
       { nextUrl: new URL(`http://localhost/api/orchestration/projects/${projectId}/agents`) } as never,
@@ -184,6 +203,58 @@ async function run() {
     assert.equal(typeof detailPayload.detail?.runSummary.importedReportCount, "number");
   });
 
+  await test("user comment wakes the assigned agent", async () => {
+    const commentRes = await createTaskCommentRoute(
+      makeJsonRequest(`http://localhost/api/orchestration/tasks/${taskId}/comments`, {
+        body: "Please pick this up now.",
+        type: "comment",
+        authorUserId: "tim",
+      }) as never,
+      { params: Promise.resolve({ id: taskId }) }
+    );
+    assert.equal(commentRes.status, 201);
+
+    const db = getOrchestrationDb();
+    const wake = db
+      .prepare(
+        `SELECT agent_id, reason, payload_json, status
+         FROM agent_wakeup_requests
+         WHERE agent_id = ? AND reason = 'user_comment_on_assigned_task'
+         ORDER BY requested_at DESC
+         LIMIT 1`
+      )
+      .get(agentId) as { agent_id: string; reason: string; payload_json: string; status: string } | undefined;
+
+    assert.ok(wake, "expected user comment wakeup request");
+    assert.equal(wake?.agent_id, agentId);
+    assert.equal(wake?.reason, "user_comment_on_assigned_task");
+    assert.equal(wake?.status, "queued");
+    const payload = JSON.parse(wake?.payload_json ?? "{}");
+    assert.equal(payload.taskId, taskId);
+    assert.equal(payload.taskStatus, "backlog");
+  });
+
+  await test("gateway-imported comments do not self-wake the assignee", async () => {
+    createTaskCommentService({
+      taskId,
+      body: "OpenClaw imported status update.",
+      type: "status_update",
+      authorUserId: "openclaw:execution",
+      source: "openclaw",
+    });
+
+    const db = getOrchestrationDb();
+    const wakeCount = db
+      .prepare(
+        `SELECT COUNT(*) AS count
+         FROM agent_wakeup_requests
+         WHERE agent_id = ? AND reason = 'user_comment_on_assigned_task'`
+      )
+      .get(agentId) as { count: number };
+
+    assert.equal(wakeCount.count, 1);
+  });
+
   await test("board move flows backlog -> on-deck -> in-progress and marks the agent working", async () => {
     const onDeckRes = await reorderTaskRoute(
       makeJsonRequest("http://localhost/api/orchestration/tasks/reorder", {
@@ -229,6 +300,26 @@ async function run() {
     const updatedAgent = agents.find((agent) => agent.id === agentId);
     assert.equal(updatedAgent?.status, "working");
     assert.equal(updatedAgent?.currentTask, "Workflow regression task");
+  });
+
+  await test("reassigning a review task reopens it to in-progress for the new owner", async () => {
+    const assignRes = await assignTaskRoute(
+      makeJsonRequest(`http://localhost/api/orchestration/tasks/${taskId}/assign`, {
+        assignee: secondAgentId,
+        actorUserId: "test-suite",
+      }) as never,
+      { params: Promise.resolve({ id: taskId }) }
+    );
+    assert.equal(assignRes.status, 200);
+    const assignPayload = (await assignRes.json()) as {
+      task: { status: string; assignee?: string };
+      assignmentChanged: boolean;
+      heartbeat: { attempted: boolean; status: string; reason?: string };
+    };
+    assert.equal(assignPayload.assignmentChanged, true);
+    assert.equal(assignPayload.task.assignee, createSecondAgentPayload.agent.name);
+    assert.equal(assignPayload.task.status, "in-progress");
+    assert.equal(assignPayload.heartbeat.attempted, true);
   });
 
   await test("completion requires review notes and returns completedAt in board/detail payloads", async () => {
@@ -297,6 +388,36 @@ async function run() {
     const updatedAgent = agents.find((agent) => agent.id === agentId);
     assert.equal(updatedAgent?.status, "idle");
     assert.equal(updatedAgent?.currentTask, undefined);
+  });
+
+  await test("user comment still wakes the assignee after the task is done", async () => {
+    const commentRes = await createTaskCommentRoute(
+      makeJsonRequest(`http://localhost/api/orchestration/tasks/${taskId}/comments`, {
+        body: "Follow-up request after completion.",
+        type: "comment",
+        authorUserId: "tim",
+      }) as never,
+      { params: Promise.resolve({ id: taskId }) }
+    );
+    assert.equal(commentRes.status, 201);
+
+    const db = getOrchestrationDb();
+    const wake = db
+      .prepare(
+        `SELECT agent_id, reason, payload_json, status
+         FROM agent_wakeup_requests
+         WHERE agent_id = ? AND reason = 'user_comment_on_assigned_task'
+         ORDER BY requested_at DESC
+         LIMIT 1`
+      )
+      .get(secondAgentId) as { agent_id: string; reason: string; payload_json: string; status: string } | undefined;
+
+    assert.ok(wake, "expected follow-up wakeup request after done comment");
+    assert.equal(wake?.agent_id, secondAgentId);
+    assert.equal(wake?.status, "queued");
+    const payload = JSON.parse(wake?.payload_json ?? "{}");
+    assert.equal(payload.taskId, taskId);
+    assert.equal(payload.taskStatus, "done");
   });
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
