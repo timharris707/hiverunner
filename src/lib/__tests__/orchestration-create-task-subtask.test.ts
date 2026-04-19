@@ -130,6 +130,14 @@ async function run() {
         .get(childId) as { parent_task_id: string | null; project_id: string } | undefined;
       assert.equal(row?.parent_task_id, parentTask.id, "child should have parent_task_id set");
       assert.equal(row?.project_id, project.id, "child should inherit parent's project");
+
+      // Happy path: no drop — metadata should NOT carry attemptedParent.
+      const ev = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
+        .prepare("SELECT metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.created' LIMIT 1")
+        .get(childId) as { metadata_json: string } | undefined;
+      const meta = ev ? JSON.parse(ev.metadata_json) as Record<string, unknown> : {};
+      assert.equal(meta.attemptedParent, undefined, "attemptedParent should be absent on happy path");
+      assert.equal(meta.parentDropReason, undefined, "parentDropReason should be absent on happy path");
     });
 
     await test("create_task with unknown parent task_key creates top-level task (silent drop)", async () => {
@@ -160,6 +168,16 @@ async function run() {
         .prepare("SELECT parent_task_id FROM tasks WHERE id = ? LIMIT 1")
         .get(childId) as { parent_task_id: string | null } | undefined;
       assert.equal(row?.parent_task_id, null, "parent_task_id must be NULL when parent unresolvable");
+
+      // Observability check (2026-04-19): silent drop should leave an
+      // auditable trail on the task.created event so a typo'd parent
+      // ref is distinguishable from a correctly-authored top-level task.
+      const ev = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
+        .prepare("SELECT metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.created' LIMIT 1")
+        .get(childId) as { metadata_json: string } | undefined;
+      const meta = ev ? JSON.parse(ev.metadata_json) as Record<string, unknown> : {};
+      assert.equal(meta.attemptedParent, "NO-SUCH-KEY-9999", "attemptedParent must be captured in task.created metadata");
+      assert.equal(meta.parentDropReason, "parent_unresolved", "parentDropReason must be parent_unresolved");
     });
 
     await test("create_task with parent + explicit different project rejects cross-project link (silent)", async () => {
@@ -192,6 +210,14 @@ async function run() {
         .get(childId) as { parent_task_id: string | null; project_id: string } | undefined;
       assert.equal(row?.parent_task_id, null, "cross-project parent link must be rejected");
       assert.equal(row?.project_id, projectB.id, "task must be created in the explicitly requested project B");
+
+      // Observability: cross-project drop should also leave a trail.
+      const ev = (db as { prepare: (q: string) => { get: (...a: unknown[]) => unknown } })
+        .prepare("SELECT metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.created' LIMIT 1")
+        .get(childId) as { metadata_json: string } | undefined;
+      const meta = ev ? JSON.parse(ev.metadata_json) as Record<string, unknown> : {};
+      assert.equal(meta.attemptedParent, parentInA.key, "attemptedParent must be captured");
+      assert.equal(meta.parentDropReason, "parent_cross_project", "parentDropReason must be parent_cross_project");
     });
 
     await test("create_task with parent + matching project keeps the subtask link", async () => {

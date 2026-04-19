@@ -2699,8 +2699,19 @@ export async function executeCreateTask(
   //     always an agent mistake.
   //   - If parent is specified but not resolvable (unknown task_key), we
   //     silently drop the parent link and create a top-level task.
+  //
+  // Observability (added 2026-04-19, Claude recommendation #2): when
+  // either drop branch fires, we capture a `parentDropReason` that gets
+  // stamped into the task.created event's metadata_json AND emitted as
+  // a heartbeat_run_event so the dashboard timeline surfaces the
+  // attempted-but-dropped parent. Previously these were `console.warn`-
+  // only — invisible from the UI, so a typo'd task_key looked identical
+  // to a correctly-authored top-level task.
   let parentTaskId: string | null = null;
+  let attemptedParentKey: string | null = null;
+  let parentDropReason: "parent_unresolved" | "parent_cross_project" | null = null;
   if (action.parent) {
+    attemptedParentKey = action.parent;
     const parent = db
       .prepare(
         `SELECT id, project_id FROM tasks
@@ -2709,6 +2720,7 @@ export async function executeCreateTask(
       .get(action.parent) as { id: string; project_id: string } | undefined;
     if (parent) {
       if (action.project && parent.project_id !== projectId) {
+        parentDropReason = "parent_cross_project";
         console.warn(
           `[engine:create_task] rejecting cross-project parent link — ` +
           `parent ${action.parent} is in project ${parent.project_id}, ` +
@@ -2718,6 +2730,12 @@ export async function executeCreateTask(
         parentTaskId = parent.id;
         projectId = parent.project_id; // inherit parent's project
       }
+    } else {
+      parentDropReason = "parent_unresolved";
+      console.warn(
+        `[engine:create_task] parent task_key "${action.parent}" not found — ` +
+        `creating top-level task instead.`,
+      );
     }
   }
 
@@ -2769,11 +2787,39 @@ export async function executeCreateTask(
     now, now
   );
 
-  // Log events
+  // Log events. When we silently demoted a parent reference (unresolved
+  // task_key or cross-project mismatch), stamp the attempted parent +
+  // reason into metadata_json so the task's own timeline shows the
+  // intent. Also emit a heartbeat_run_event (when we're inside a real
+  // heartbeat run — emitRunEvent is FK-protected and silently skips for
+  // execution_runs ids from the poll path). Closes the observability
+  // gap flagged on C3 carry-forward: pre-fix, a typo'd parent ref
+  // looked identical to a correct top-level task.
+  const createdMetadata: Record<string, unknown> = {
+    source: "ceo_heartbeat",
+    runId: input.runId,
+  };
+  if (parentDropReason) {
+    createdMetadata.attemptedParent = attemptedParentKey;
+    createdMetadata.parentDropReason = parentDropReason;
+  }
   db.prepare(
     `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, to_status, metadata_json, created_at)
      VALUES (?, ?, ?, ?, 'task.created', ?, ?, ?)`
-  ).run(randomUUID(), projectId, taskId, input.agentId, status, JSON.stringify({ source: "ceo_heartbeat", runId: input.runId }), now);
+  ).run(randomUUID(), projectId, taskId, input.agentId, status, JSON.stringify(createdMetadata), now);
+
+  if (parentDropReason) {
+    const reasonLabel = parentDropReason === "parent_unresolved"
+      ? "parent task_key not found"
+      : "parent is in a different project";
+    emitRunEvent(
+      input.runId,
+      input.agentId,
+      "action_skipped",
+      `create_task ${taskKeyNew}: parent "${attemptedParentKey}" dropped (${reasonLabel}); created as top-level instead.`,
+      db,
+    );
+  }
 
   if (assigneeId) {
     db.prepare(
