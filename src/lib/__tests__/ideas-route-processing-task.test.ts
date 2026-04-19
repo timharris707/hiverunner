@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { NextRequest } from "next/server";
 
 let passed = 0;
 let failed = 0;
@@ -69,7 +70,7 @@ async function run() {
             title: "Processing task contract fixture",
           };
         },
-      } as any;
+      } as unknown as NextRequest;
 
       const response = await POST(req);
       const body = await response.json() as { id: string; processingTask?: { created?: boolean; deduplicated?: boolean; taskId?: string } | null };
@@ -83,6 +84,32 @@ async function run() {
       assert.equal(tasks.length, 1);
       assert.equal(tasks[0]?.sourceReviewId, body.id);
       assert.equal(tasks[0]?.status, "in-progress");
+    });
+
+    await test("ideas backfill does not duplicate a processing task when the review title contains non-production tokens", async () => {
+      const req = {
+        async json() {
+          return {
+            url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            title: "MC stress test visual duplicate guard",
+          };
+        },
+      } as unknown as NextRequest;
+
+      const created = await POST(req);
+      const body = await created.json() as { id: string; processingTask?: { created?: boolean; deduplicated?: boolean; taskId?: string } | null };
+      assert.equal(created.status, 201);
+      assert.equal(body.processingTask?.created, true);
+
+      const beforeBackfill = listTasks({ sourceReviewId: body.id, includeNonProduction: true }).tasks;
+      assert.equal(beforeBackfill.length, 1, "initial intake should create exactly one task");
+
+      const { GET } = await import("@/app/api/ideas/route");
+      const getResponse = await GET();
+      assert.equal(getResponse.status, 200);
+
+      const afterBackfill = listTasks({ sourceReviewId: body.id, includeNonProduction: true }).tasks;
+      assert.equal(afterBackfill.length, 1, "GET/backfill should not create a duplicate task for the same review");
     });
   } finally {
     rmSync(tmpRoot, { recursive: true, force: true });

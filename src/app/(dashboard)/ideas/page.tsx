@@ -139,7 +139,7 @@ const PRIORITY_ICONS: Record<string, string> = {
 
 const TASK_STATUS_META: Record<string, { label: string; color: string; bg: string; border: string }> = {
   backlog: { label: "Backlog", color: "#fcd34d", bg: "rgba(217,119,6,0.14)", border: "rgba(251,191,36,0.34)" },
-  "on-deck": { label: "On Deck", color: "#fcd34d", bg: "rgba(217,119,6,0.14)", border: "rgba(251,191,36,0.34)" },
+  "on-deck": { label: "To-Do", color: "#fcd34d", bg: "rgba(217,119,6,0.14)", border: "rgba(251,191,36,0.34)" },
   "in-progress": { label: "In Progress", color: "#7dd3fc", bg: "rgba(3,105,161,0.16)", border: "rgba(125,211,252,0.34)" },
   review: { label: "In Review", color: "#c4b5fd", bg: "rgba(91,33,182,0.18)", border: "rgba(196,181,253,0.34)" },
   done: { label: "Done", color: "#86efac", bg: "rgba(21,128,61,0.18)", border: "rgba(134,239,172,0.34)" },

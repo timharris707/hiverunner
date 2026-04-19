@@ -1,8 +1,71 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readReviews, writeReviews } from "@/lib/ideas-store";
-import { createTask, listTasks, lookupAgentByName, lookupProjectByName } from "@/lib/orchestration/service";
+import {
+  createProject,
+  createProjectAgent,
+  createTask,
+  listTasks,
+  lookupAgentByName,
+  lookupProjectByName,
+} from "@/lib/orchestration/service";
+import { OrchestrationApiError } from "@/lib/orchestration/api";
 
 const IDEAS_PIPELINE_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+const IDEAS_PROJECT_LOOKUP_CANDIDATES = [
+  "ideas-pipeline",
+  "Ideas Pipeline",
+  "idea-intake",
+  "Idea Intake",
+] as const;
+
+function resolveIdeasPipelineProject() {
+  for (const candidate of IDEAS_PROJECT_LOOKUP_CANDIDATES) {
+    try {
+      return lookupProjectByName({
+        name: candidate,
+        companyId: IDEAS_PIPELINE_COMPANY_ID,
+      }).project;
+    } catch (error) {
+      if (!(error instanceof OrchestrationApiError) || error.code !== "project_not_found") {
+        throw error;
+      }
+    }
+  }
+
+  return createProject({
+    companyId: IDEAS_PIPELINE_COMPANY_ID,
+    name: "Ideas Pipeline",
+    slug: "ideas-pipeline",
+    description: "Idea intake, triage, synthesis, and task generation loop",
+    color: "#14b8a6",
+    emoji: "💡",
+    status: "active",
+  }).project;
+}
+
+function resolveIdeasPipelineScout(project: { id: string; companyId: string }) {
+  try {
+    return lookupAgentByName({
+      name: "Scout",
+      companyId: project.companyId,
+    }).agent;
+  } catch (error) {
+    if (!(error instanceof OrchestrationApiError) || error.code !== "agent_not_found") {
+      throw error;
+    }
+  }
+
+  return createProjectAgent({
+    projectId: project.id,
+    companyId: project.companyId,
+    name: "Scout",
+    emoji: "🧭",
+    role: "Research Agent",
+    personality: "Methodical scout for idea intake, triage, and synthesis",
+    status: "idle",
+    skills: ["research", "ideas", "triage"],
+  }).agent;
+}
 
 async function enqueueProcessingTaskForReview(review: {
   id: string;
@@ -18,21 +81,16 @@ async function enqueueProcessingTaskForReview(review: {
     companyIdOrSlug: IDEAS_PIPELINE_COMPANY_ID,
     sourceReviewId: review.id,
     includeArchived: false,
+    includeNonProduction: true,
   }).tasks.find((task) => !["done"].includes(String(task.status || "").toLowerCase()));
 
   if (existingTask) {
     return { created: false, deduplicated: true, taskId: existingTask.id };
   }
 
-  const project = lookupProjectByName({
-    name: "ideas-pipeline",
-    companyId: IDEAS_PIPELINE_COMPANY_ID,
-  }).project;
+  const project = resolveIdeasPipelineProject();
 
-  const scout = lookupAgentByName({
-    name: "Scout",
-    companyId: project.companyId,
-  }).agent;
+  const scout = resolveIdeasPipelineScout(project);
 
   const createdTask = createTask({
     projectId: project.id,
@@ -93,13 +151,26 @@ async function backfillProcessingTasksForExistingReviews(data: { reviews?: Array
   });
 
   for (const review of unprocessedYouTubeReviews) {
-    await enqueueProcessingTaskForReview(review as { id: string; type?: string; url?: string; title?: string });
+    try {
+      await enqueueProcessingTaskForReview(review as { id: string; type?: string; url?: string; title?: string });
+    } catch (error) {
+      console.error("[ideas] failed to backfill processing task", {
+        reviewId: String(review.id ?? ""),
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 }
 
 export async function GET() {
   const data = await readReviews();
-  await backfillProcessingTasksForExistingReviews(data);
+  try {
+    await backfillProcessingTasksForExistingReviews(data);
+  } catch (error) {
+    console.error("[ideas] backfill on GET failed", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return NextResponse.json(data);
 }
 

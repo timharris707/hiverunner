@@ -1,25 +1,46 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 const STORAGE_PREFIX = "mission-control-hidden-projects:";
 const EVENT_NAME = "mission-control-hidden-projects-change";
 
 type HiddenProjectMap = Record<string, boolean>;
+const EMPTY_HIDDEN_PROJECTS = Object.freeze({}) as HiddenProjectMap;
 
 function storageKey(companySlug: string) {
   return `${STORAGE_PREFIX}${companySlug}`;
 }
 
-function readHiddenProjects(companySlug: string): HiddenProjectMap {
-  if (typeof window === "undefined") return {};
+export function parseHiddenProjects(raw: string | null): HiddenProjectMap {
+  if (!raw) return EMPTY_HIDDEN_PROJECTS;
+
   try {
-    const raw = window.localStorage.getItem(storageKey(companySlug));
-    if (!raw) return {};
-    return JSON.parse(raw) as HiddenProjectMap;
+    const parsed = JSON.parse(raw);
+    return typeof parsed === "object" && parsed !== null ? (parsed as HiddenProjectMap) : EMPTY_HIDDEN_PROJECTS;
   } catch {
-    return {};
+    return EMPTY_HIDDEN_PROJECTS;
   }
+}
+
+export function getEmptyHiddenProjectsSnapshot(): HiddenProjectMap {
+  return EMPTY_HIDDEN_PROJECTS;
+}
+
+export function createHiddenProjectsSnapshotReader(storage: Pick<Storage, "getItem"> | null | undefined, key: string) {
+  let lastRaw: string | null | undefined;
+  let lastParsed = EMPTY_HIDDEN_PROJECTS;
+
+  return () => {
+    const raw = storage?.getItem(key) ?? null;
+    if (raw === lastRaw) {
+      return lastParsed;
+    }
+
+    lastRaw = raw;
+    lastParsed = parseHiddenProjects(raw);
+    return lastParsed;
+  };
 }
 
 function writeHiddenProjects(companySlug: string, next: HiddenProjectMap) {
@@ -28,36 +49,49 @@ function writeHiddenProjects(companySlug: string, next: HiddenProjectMap) {
   window.dispatchEvent(new CustomEvent(EVENT_NAME, { detail: { companySlug } }));
 }
 
+function subscribeToHiddenProjects(companySlug: string, onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => {};
+  }
+
+  const sync = (event?: Event) => {
+    const custom = event as CustomEvent<{ companySlug?: string }> | undefined;
+    if (custom?.detail?.companySlug && custom.detail.companySlug !== companySlug) return;
+    onStoreChange();
+  };
+
+  window.addEventListener(EVENT_NAME, sync as EventListener);
+  window.addEventListener("storage", sync);
+
+  return () => {
+    window.removeEventListener(EVENT_NAME, sync as EventListener);
+    window.removeEventListener("storage", sync);
+  };
+}
+
 export function useHiddenProjects(companySlug: string) {
-  const [hiddenProjects, setHiddenProjects] = useState<HiddenProjectMap>({});
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => subscribeToHiddenProjects(companySlug, onStoreChange),
+    [companySlug]
+  );
+  const getSnapshot = useMemo(() => {
+    if (typeof window === "undefined") {
+      return getEmptyHiddenProjectsSnapshot;
+    }
 
-  useEffect(() => {
-    setHiddenProjects(readHiddenProjects(companySlug));
-
-    const sync = (event?: Event) => {
-      const custom = event as CustomEvent<{ companySlug?: string }> | undefined;
-      if (custom?.detail?.companySlug && custom.detail.companySlug !== companySlug) return;
-      setHiddenProjects(readHiddenProjects(companySlug));
-    };
-
-    window.addEventListener(EVENT_NAME, sync as EventListener);
-    window.addEventListener("storage", sync);
-    return () => {
-      window.removeEventListener(EVENT_NAME, sync as EventListener);
-      window.removeEventListener("storage", sync);
-    };
+    return createHiddenProjectsSnapshotReader(window.localStorage, storageKey(companySlug));
   }, [companySlug]);
+  const hiddenProjects = useSyncExternalStore(subscribe, getSnapshot, getEmptyHiddenProjectsSnapshot);
 
   const setHidden = useCallback(
     (projectId: string, hidden: boolean) => {
       const next = {
-        ...readHiddenProjects(companySlug),
+        ...getSnapshot(),
         [projectId]: hidden,
       };
       writeHiddenProjects(companySlug, next);
-      setHiddenProjects(next);
     },
-    [companySlug]
+    [companySlug, getSnapshot]
   );
 
   const visibleProjectIds = useMemo(
