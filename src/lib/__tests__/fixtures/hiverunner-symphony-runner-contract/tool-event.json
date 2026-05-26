@@ -1,0 +1,47 @@
+{
+  "case": "tool-event",
+  "description": "Runner response that preserves structured tool-call transcript events.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-tool-event",
+    "task": {
+      "id": "task-tool",
+      "key": "INS-TOOL",
+      "title": "Tool event fixture"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Exercise tool event transcript capture."
+  },
+  "response": {
+    "sessionId": "fixture-session-tool-event",
+    "resultText": "Inspected files and completed the fixture.",
+    "assistantSummary": "Inspected files and completed the fixture.",
+    "inputTokens": 41,
+    "outputTokens": 22,
+    "totalTokens": 63,
+    "transcriptEvents": [
+      {
+        "kind": "tool_call_start",
+        "title": "Shell",
+        "body": "rg --files src/lib/orchestration"
+      },
+      {
+        "kind": "tool_result",
+        "title": "Shell",
+        "body": "src/lib/orchestration/execution/adapters/symphony.ts"
+      },
+      {
+        "role": "assistant",
+        "kind": "assistant_text_final",
+        "title": "External runner result",
+        "body": "Inspected files and completed the fixture."
+      }
+    ]
+  },
+  "expected": {
+    "transcriptKinds": ["tool_call_start", "tool_result", "assistant_text_final"]
+  }
+}

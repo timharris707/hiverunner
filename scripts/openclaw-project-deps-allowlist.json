@@ -1,0 +1,5 @@
+{
+  "_description": "Registry of HiveRunner → .openclaw/workspace/projects/<name>/ couplings. Every entry is a silent cross-workspace dependency that a future session must either MIGRATE (move the referenced project/secret out of OpenClaw) or KEEP (with a clear rationale below). New entries require an explicit add to this file — the check-openclaw-project-deps.mjs script fails CI otherwise. Rule of thumb: the list should shrink over time, never grow.",
+  "_policy_url": "https://github.com/TimHarris707/HiveRunner/blob/main/docs/external-deps-registry.md",
+  "allowlist": []
+}

@@ -1,0 +1,38 @@
+{
+  "case": "success",
+  "description": "Minimal successful runner response.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-success",
+    "task": {
+      "id": "task-success",
+      "key": "INS-OK",
+      "title": "Successful fixture task"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Complete the fixture task."
+  },
+  "response": {
+    "sessionId": "fixture-session-success",
+    "resultText": "External runner completed the fixture task.",
+    "assistantSummary": "External runner completed the fixture task.",
+    "inputTokens": 24,
+    "outputTokens": 13,
+    "totalTokens": 37,
+    "durationMs": 1200,
+    "transcriptEvents": [
+      {
+        "role": "assistant",
+        "kind": "message",
+        "title": "External runner result",
+        "body": "External runner completed the fixture task."
+      }
+    ]
+  },
+  "expected": {
+    "transcriptKinds": ["message"]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "_description": "Registry of HiveRunner → external-process HTTP couplings that bind HiveRunner to a process outside its own runtime. Every entry is a silent dependency that breaks HiveRunner's local-first bar because a stranger cloning the repo cannot reach these URLs. New entries require an explicit add to this file; check-external-http-deps.mjs fails CI otherwise. Rule of thumb: the list shrinks over time, never grows silently.",
+  "_policy_url": "https://github.com/TimHarris707/HiveRunner/blob/main/docs/external-deps-registry.md",
+  "_checked_patterns": [
+    "localhost:8050",
+    "127.0.0.1:8050",
+    "DASHBOARD_BASE_URL",
+    "DASHBOARD_URL"
+  ],
+  "_history": [
+    "2026-05-25: Private external dashboard coupling removed from the public HiveRunner surface. Starting baseline: zero entries allowed."
+  ],
+  "allowlist": []
+}

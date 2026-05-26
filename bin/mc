@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# mc — HiveRunner CLI wrapper
+# Usage: ./bin/mc tasks list
+#        ./bin/mc tasks assign --task TASK-123 --to pixel
+#        ./bin/mc reject --task TASK-123 --reason "reason text"
+
+cd "$(dirname "$0")/.." || exit 1
+exec npx tsx scripts/mc.ts "$@"

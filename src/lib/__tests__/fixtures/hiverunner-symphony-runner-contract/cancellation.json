@@ -1,0 +1,38 @@
+{
+  "case": "cancellation",
+  "description": "Runner response for an operator-cancelled execution.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-cancelled",
+    "task": {
+      "id": "task-cancelled",
+      "key": "INS-CAN",
+      "title": "Cancel fixture task"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Stop when cancellation is requested."
+  },
+  "response": {
+    "sessionId": "fixture-session-cancelled",
+    "status": "cancelled",
+    "error": "External runner execution was cancelled by the operator.",
+    "resultText": "",
+    "assistantSummary": "External runner execution was cancelled by the operator.",
+    "durationMs": 1420,
+    "transcriptEvents": [
+      {
+        "kind": "provider_error",
+        "title": "External runner cancelled",
+        "body": "Execution stopped after receiving a cancellation signal."
+      }
+    ]
+  },
+  "expected": {
+    "error": true,
+    "status": "cancelled",
+    "transcriptKinds": ["provider_error"]
+  }
+}

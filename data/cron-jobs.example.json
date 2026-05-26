@@ -1,0 +1,16 @@
+[
+  {
+    "id": "example-cron-1",
+    "name": "Example Health Check",
+    "description": "Hourly health check of services",
+    "schedule": "0 * * * *",
+    "timezone": "UTC",
+    "enabled": true,
+    "lastStatus": "ok",
+    "lastRunAt": null,
+    "nextRunAt": null,
+    "lastDurationMs": null,
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

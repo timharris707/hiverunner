@@ -1,0 +1,148 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
+# shellcheck source=scripts/lib/runtime-paths.sh
+. "$SCRIPT_DIR/lib/runtime-paths.sh"
+# shellcheck source=scripts/lib/next-app-router-guard.sh
+. "$SCRIPT_DIR/lib/next-app-router-guard.sh"
+
+APP_DIR="$(resolve_mc_app_root "$0")"
+LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
+PID_FILE="$LOG_DIR/hiverunner-dev.pid"
+PORT="${PORT:-3010}"
+
+mkdir -p "$LOG_DIR"
+cd "$APP_DIR"
+
+assert_no_root_app_router_shadow "$APP_DIR" "hr-dev"
+
+NODE_BIN=""
+for candidate in /opt/homebrew/bin/node /usr/local/bin/node ${HOME:-}/.local/share/fnm/node-versions/*/installation/bin/node; do
+  if [ -x "$candidate" ]; then
+    NODE_BIN="$candidate"
+    break
+  fi
+done
+if [ -z "$NODE_BIN" ]; then
+  echo "[hr-dev] ERROR: cannot find node binary. Install Node.js or set PATH."
+  exit 1
+fi
+
+EXISTING_PID="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
+if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ]; then
+  echo "[hr-dev] ERROR: port $PORT already in use by PID $EXISTING_PID"
+  exit 1
+fi
+
+if [ -f "$APP_DIR/.next/dev/lock" ] && [ -z "$EXISTING_PID" ]; then
+  rm -f "$APP_DIR/.next/dev/lock"
+fi
+
+MC_DEV_EXECUTION_TEST_MODE="${MC_DEV_EXECUTION_TEST_MODE:-0}"
+MC_REQUIRE_LOCAL_DEV_AUTH="${MC_REQUIRE_LOCAL_DEV_AUTH:-}"
+if [ -z "${MC_ENGINE_TICK+x}" ]; then
+  if [ "$MC_DEV_EXECUTION_TEST_MODE" = "1" ]; then
+    MC_ENGINE_TICK="on"
+  else
+    MC_ENGINE_TICK="off"
+  fi
+fi
+HEARTBEAT_ENABLED="${HEARTBEAT_ENABLED:-}"
+HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-}"
+MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "data-dev")"
+MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "${HOME:-}/.hiverunner/dev/workspaces")"
+
+dotenv_value() {
+  KEY="$1"
+  FILE="$APP_DIR/.env.local"
+  if [ ! -f "$FILE" ]; then
+    return 0
+  fi
+  awk -v key="$KEY" '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    {
+      line = $0
+      split(line, parts, "=")
+      candidate = parts[1]
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", candidate)
+      if (candidate == key) {
+        sub(/^[^=]*=/, "", line)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+        if (line ~ /^".*"$/ || line ~ /^\047.*\047$/) {
+          line = substr(line, 2, length(line) - 2)
+        }
+        print line
+        exit
+      }
+    }
+  ' "$FILE"
+}
+
+NEXT_PUBLIC_SUPABASE_URL="${NEXT_PUBLIC_SUPABASE_URL:-$(dotenv_value NEXT_PUBLIC_SUPABASE_URL)}"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="${NEXT_PUBLIC_SUPABASE_ANON_KEY:-$(dotenv_value NEXT_PUBLIC_SUPABASE_ANON_KEY)}"
+SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY:-$(dotenv_value SUPABASE_SERVICE_ROLE_KEY)}"
+HIVERUNNER_SYMPHONY_TRACKER_ENABLED="${HIVERUNNER_SYMPHONY_TRACKER_ENABLED:-0}"
+HIVERUNNER_SYMPHONY_TRACKER_TOKEN="${HIVERUNNER_SYMPHONY_TRACKER_TOKEN:-}"
+HIVERUNNER_SYMPHONY_DRY_RUN="${HIVERUNNER_SYMPHONY_DRY_RUN:-0}"
+HIVERUNNER_SYMPHONY_CODEX_COMMAND="${HIVERUNNER_SYMPHONY_CODEX_COMMAND:-}"
+HIVERUNNER_SYMPHONY_CODEX_ARGS="${HIVERUNNER_SYMPHONY_CODEX_ARGS:-}"
+HIVERUNNER_SYMPHONY_APPROVAL_POLICY="${HIVERUNNER_SYMPHONY_APPROVAL_POLICY:-}"
+HIVERUNNER_SYMPHONY_SANDBOX="${HIVERUNNER_SYMPHONY_SANDBOX:-}"
+HIVERUNNER_SYMPHONY_MODEL="${HIVERUNNER_SYMPHONY_MODEL:-}"
+HIVERUNNER_SYMPHONY_PROFILE="${HIVERUNNER_SYMPHONY_PROFILE:-}"
+HIVERUNNER_SYMPHONY_TIMEOUT_MS="${HIVERUNNER_SYMPHONY_TIMEOUT_MS:-}"
+HIVERUNNER_SYMPHONY_MAX_BUFFER="${HIVERUNNER_SYMPHONY_MAX_BUFFER:-}"
+SYMPHONY_EXEC_COMMAND="${SYMPHONY_EXEC_COMMAND:-}"
+SYMPHONY_EXEC_ARGS="${SYMPHONY_EXEC_ARGS:-}"
+SYMPHONY_EXEC_TIMEOUT_MS="${SYMPHONY_EXEC_TIMEOUT_MS:-}"
+SYMPHONY_EXEC_MAX_BUFFER="${SYMPHONY_EXEC_MAX_BUFFER:-}"
+NODE_HEAP_SIZE="${NODE_HEAP_SIZE:-8192}"
+mkdir -p "$MC_DATA_DIR"
+mkdir -p "$MC_WORKSPACE_ROOT"
+
+echo "$$" > "$PID_FILE"
+if [ -n "$HIVERUNNER_SYMPHONY_TRACKER_TOKEN" ]; then
+  TRACKER_AUTH="token"
+else
+  TRACKER_AUTH="none"
+fi
+if [ -n "$SYMPHONY_EXEC_COMMAND" ]; then
+  RUNNER_COMMAND="custom"
+else
+  RUNNER_COMMAND="default"
+fi
+echo "[hr-dev] service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT, symphony-tracker: $HIVERUNNER_SYMPHONY_TRACKER_ENABLED, symphony-tracker-auth: $TRACKER_AUTH, symphony-dry-run: $HIVERUNNER_SYMPHONY_DRY_RUN, symphony-runner: $RUNNER_COMMAND)"
+
+exec env \
+  NODE_ENV=development \
+  PORT="$PORT" \
+  HIVERUNNER_MANAGED_START="${HIVERUNNER_MANAGED_START:-0}" \
+  MC_APP_ROOT="$APP_DIR" \
+  MC_LOG_DIR="$LOG_DIR" \
+  MC_ENGINE_TICK="$MC_ENGINE_TICK" \
+  MC_DEV_EXECUTION_TEST_MODE="$MC_DEV_EXECUTION_TEST_MODE" \
+  MC_REQUIRE_LOCAL_DEV_AUTH="$MC_REQUIRE_LOCAL_DEV_AUTH" \
+  NEXT_PUBLIC_SUPABASE_URL="$NEXT_PUBLIC_SUPABASE_URL" \
+  NEXT_PUBLIC_SUPABASE_ANON_KEY="$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+  SUPABASE_SERVICE_ROLE_KEY="$SUPABASE_SERVICE_ROLE_KEY" \
+  HEARTBEAT_ENABLED="$HEARTBEAT_ENABLED" \
+  HEARTBEAT_INTERVAL_SECONDS="$HEARTBEAT_INTERVAL_SECONDS" \
+  MC_DATA_DIR="$MC_DATA_DIR" \
+  MC_WORKSPACE_ROOT="$MC_WORKSPACE_ROOT" \
+  HIVERUNNER_SYMPHONY_TRACKER_ENABLED="$HIVERUNNER_SYMPHONY_TRACKER_ENABLED" \
+  HIVERUNNER_SYMPHONY_TRACKER_TOKEN="$HIVERUNNER_SYMPHONY_TRACKER_TOKEN" \
+  HIVERUNNER_SYMPHONY_DRY_RUN="$HIVERUNNER_SYMPHONY_DRY_RUN" \
+  HIVERUNNER_SYMPHONY_CODEX_COMMAND="$HIVERUNNER_SYMPHONY_CODEX_COMMAND" \
+  HIVERUNNER_SYMPHONY_CODEX_ARGS="$HIVERUNNER_SYMPHONY_CODEX_ARGS" \
+  HIVERUNNER_SYMPHONY_APPROVAL_POLICY="$HIVERUNNER_SYMPHONY_APPROVAL_POLICY" \
+  HIVERUNNER_SYMPHONY_SANDBOX="$HIVERUNNER_SYMPHONY_SANDBOX" \
+  HIVERUNNER_SYMPHONY_MODEL="$HIVERUNNER_SYMPHONY_MODEL" \
+  HIVERUNNER_SYMPHONY_PROFILE="$HIVERUNNER_SYMPHONY_PROFILE" \
+  HIVERUNNER_SYMPHONY_TIMEOUT_MS="$HIVERUNNER_SYMPHONY_TIMEOUT_MS" \
+  HIVERUNNER_SYMPHONY_MAX_BUFFER="$HIVERUNNER_SYMPHONY_MAX_BUFFER" \
+  SYMPHONY_EXEC_COMMAND="$SYMPHONY_EXEC_COMMAND" \
+  SYMPHONY_EXEC_ARGS="$SYMPHONY_EXEC_ARGS" \
+  SYMPHONY_EXEC_TIMEOUT_MS="$SYMPHONY_EXEC_TIMEOUT_MS" \
+  SYMPHONY_EXEC_MAX_BUFFER="$SYMPHONY_EXEC_MAX_BUFFER" \
+  "$NODE_BIN" --max-old-space-size="$NODE_HEAP_SIZE" server.js

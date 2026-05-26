@@ -1,0 +1,38 @@
+{
+  "case": "artifact",
+  "description": "Runner response that registers a generated artifact on the current task.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-artifact",
+    "task": {
+      "id": "task-artifact",
+      "key": "INS-ART",
+      "title": "Produce artifact fixture"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Produce and register the artifact."
+  },
+  "response": {
+    "sessionId": "fixture-session-artifact",
+    "resultText": "Generated the fixture report.\n\n```mc-action\n{\"action\":\"register_artifact\",\"taskKey\":\"INS-ART\",\"uri\":\"file:///tmp/hiverunner-fixture-workspace/report.html\",\"kind\":\"html\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}\n```",
+    "assistantSummary": "Generated the fixture report.",
+    "inputTokens": 31,
+    "outputTokens": 18,
+    "totalTokens": 49,
+    "transcriptEvents": [
+      {
+        "role": "assistant",
+        "kind": "message",
+        "title": "Artifact registered",
+        "body": "Generated and registered report.html."
+      }
+    ]
+  },
+  "expected": {
+    "actionTypes": ["register_artifact"],
+    "artifactKind": "html"
+  }
+}
