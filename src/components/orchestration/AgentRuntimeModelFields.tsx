@@ -473,15 +473,12 @@ export function AgentRuntimeModelFields({
       setModelError(null);
       setModels([]);
       try {
-        const response = await fetch("/api/orchestration/runtime-models", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const params = new URLSearchParams({ provider: selectedRuntimeProvider });
+        if (selectedRuntimeCommand) params.set("command", selectedRuntimeCommand);
+        if (selectedRuntimeCommandPath) params.set("commandPath", selectedRuntimeCommandPath);
+        const response = await fetch(`/api/orchestration/runtime-models?${params.toString()}`, {
+          method: "GET",
           cache: "no-store",
-          body: JSON.stringify({
-            provider: selectedRuntimeProvider,
-            command: selectedRuntimeCommand,
-            commandPath: selectedRuntimeCommandPath,
-          }),
         });
         if (!response.ok) throw new Error(`models:${response.status}`);
         const json = (await response.json()) as { models?: RuntimeModelRecord[]; supported?: boolean };
