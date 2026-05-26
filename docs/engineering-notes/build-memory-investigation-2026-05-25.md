@@ -16,7 +16,7 @@ then raise the build heap default to 12GB with explicit documentation.
 
 ## Environment
 
-- Repo: `/Users/timharris/.mission-control/app`
+- Repo: `/path/to/hiverunner`
 - Branch tested: `codex/build-memory-config`, based on `main` after PR #29 and
   PR #30 were merged.
 - Local Node: `v25.9.0`
@@ -51,7 +51,7 @@ All successful comparisons used a true tracked-only archive:
 
 ```sh
 git archive HEAD | tar -x -C "$TMP"
-ln -s /Users/timharris/.mission-control/app/node_modules "$TMP/node_modules"
+ln -s /path/to/hiverunner/node_modules "$TMP/node_modules"
 ```
 
 | Runtime | Heap | Result | Time | Max RSS |
@@ -172,7 +172,7 @@ du -sh . .next .next/cache .next/server data data-dev output node_modules
 git ls-files | wc -l
 git ls-files | sed 's#^#./#' | xargs -n 200 du -sk
 git archive HEAD | tar -x -C "$TMP"
-ln -s /Users/timharris/.mission-control/app/node_modules "$TMP/node_modules"
+ln -s /path/to/hiverunner/node_modules "$TMP/node_modules"
 npx -y -p node@20 node --max-old-space-size=12288 ./node_modules/next/dist/bin/next build --webpack --experimental-build-mode compile
 npx -y -p node@22 node --max-old-space-size=12288 ./node_modules/next/dist/bin/next build --webpack --experimental-build-mode compile
 node --max-old-space-size=12288 ./node_modules/next/dist/bin/next build --webpack --experimental-build-mode compile

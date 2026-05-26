@@ -131,5 +131,18 @@
   "overrides": {
     "postcss": "8.5.15",
     "dompurify": "3.4.5"
+  },
+  "description": "Local-first command center for running AI agent teams.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TimHarris707/HiveRunner.git"
+  },
+  "homepage": "https://github.com/TimHarris707/HiveRunner#readme",
+  "bugs": {
+    "url": "https://github.com/TimHarris707/HiveRunner/issues"
+  },
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10"
   }
 }
