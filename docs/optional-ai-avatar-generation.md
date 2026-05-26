@@ -9,7 +9,7 @@ AI avatar generation is an optional enhancement, not a hard dependency.
 
 ## Required behavior
 
-- The app boots and runs without `OPENAI_API_KEY`, `FAL_KEY`, `GOOGLE_AI_API_KEY`, or `GOOGLE_API_KEY`
+- The app boots and runs without `OPENAI_API_KEY`, `GOOGLE_AI_API_KEY`, or `GEMINI_API_KEY`
 - Agent/company pages still render normally without broken controls
 - Users can still use default/local avatars when no provider is configured
 - First-run starter-team setup may encourage choosing recognizable avatar images,
@@ -31,13 +31,19 @@ Preferred order can evolve, but the key point is:
 ## Recommended env vars
 
 - `OPENAI_API_KEY`
-- `FAL_KEY`
-- `GOOGLE_AI_API_KEY` or `GOOGLE_API_KEY`
+- `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` for voice preview/voice-session features
 
 These should remain optional and be documented in:
 - `.env.example`
 - `README.md`
 - any onboarding/setup flow
+
+The `/companies/new` setup flow offers a server-side key entry panel for:
+
+- OpenAI image generation for Avatar Wizard portraits.
+- Gemini Live voice previews and agent voices.
+
+The frontend must not receive the saved secret values back from the server.
 
 ## UX expectations
 

@@ -1,9 +1,10 @@
 import { execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
+import { MC_DATA_DIR } from "@/lib/data-dir";
 import { resolveOpenClawWorkspaceRoot } from "@/lib/workspaces/root";
 
-export type SecretSource = "environment" | "keychain" | "managed-secret-store";
+export type SecretSource = "environment" | "keychain" | "local-file" | "managed-secret-store";
 
 export type SecretScope = {
   companyId?: string;
@@ -29,6 +30,10 @@ export interface SecretStoreAdapter {
 const cache = new Map<string, string | null>();
 
 function candidateKeychainHelperPaths(): string[] {
+  if (process.env.HIVERUNNER_DISABLE_KEYCHAIN_HELPER === "1") {
+    return [];
+  }
+
   const cwd = process.cwd();
   const workspace = process.env.OPENCLAW_WORKSPACE;
 
@@ -64,6 +69,43 @@ function readFromWorkspaceKeychain(secretName: string): string | null {
   return null;
 }
 
+const LOCAL_SECRETS_FILE = path.join(MC_DATA_DIR, "secrets", "local-secrets.json");
+
+function readLocalSecretsFile(): Record<string, string> {
+  try {
+    if (!fs.existsSync(LOCAL_SECRETS_FILE)) return {};
+    const parsed = JSON.parse(fs.readFileSync(LOCAL_SECRETS_FILE, "utf8")) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const values: Record<string, string> = {};
+    for (const [key, value] of Object.entries(parsed)) {
+      if (typeof value === "string" && value.trim()) {
+        values[key] = value;
+      }
+    }
+    return values;
+  } catch {
+    return {};
+  }
+}
+
+function readFromLocalSecretsFile(secretName: string): string | null {
+  return readLocalSecretsFile()[secretName]?.trim() || null;
+}
+
+function writeToLocalSecretsFile(secretName: string, value: string): void {
+  fs.mkdirSync(path.dirname(LOCAL_SECRETS_FILE), { recursive: true, mode: 0o700 });
+  const values = readLocalSecretsFile();
+  values[secretName] = value;
+  const tempPath = `${LOCAL_SECRETS_FILE}.${process.pid}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(values, null, 2)}\n`, { mode: 0o600 });
+  fs.renameSync(tempPath, LOCAL_SECRETS_FILE);
+  try {
+    fs.chmodSync(LOCAL_SECRETS_FILE, 0o600);
+  } catch {
+    // Best effort on filesystems that do not support POSIX modes.
+  }
+}
+
 const localSecretStore: SecretStoreAdapter = {
   id: "local-dev",
   get(secretName: string): string | null {
@@ -78,13 +120,20 @@ const localSecretStore: SecretStoreAdapter = {
     }
 
     const keychainValue = readFromWorkspaceKeychain(secretName);
-    cache.set(secretName, keychainValue);
-    return keychainValue;
+    if (keychainValue) {
+      cache.set(secretName, keychainValue);
+      return keychainValue;
+    }
+
+    const localFileValue = readFromLocalSecretsFile(secretName);
+    cache.set(secretName, localFileValue);
+    return localFileValue;
   },
   source(secretName: string): SecretSource | null {
     const envValue = process.env[secretName]?.trim();
     if (envValue) return "environment";
-    return readFromWorkspaceKeychain(secretName) ? "keychain" : null;
+    if (readFromWorkspaceKeychain(secretName)) return "keychain";
+    return readFromLocalSecretsFile(secretName) ? "local-file" : null;
   },
   set(input: SecretWriteInput): void {
     const trimmedName = input.name.trim();
@@ -97,14 +146,15 @@ const localSecretStore: SecretStoreAdapter = {
     }
 
     const helperPath = findKeychainHelperPath();
-    if (!helperPath) {
-      throw new Error("Local keychain helper was not found");
+    if (helperPath) {
+      execFileSync("bash", [helperPath, "set", trimmedName, trimmedValue], {
+        encoding: "utf8",
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+    } else {
+      writeToLocalSecretsFile(trimmedName, trimmedValue);
     }
 
-    execFileSync("bash", [helperPath, "set", trimmedName, trimmedValue], {
-      encoding: "utf8",
-      stdio: ["ignore", "ignore", "pipe"],
-    });
     cache.set(trimmedName, trimmedValue);
   },
   clearCache(secretName?: string): void {

@@ -1055,6 +1055,7 @@ function modelSourceCredentialStorageLabel(item: ModelSourceInventoryItem): stri
   if (item.credentialStorage?.label) return item.credentialStorage.label;
   if (item.authSurface === "environment") return "Environment variable";
   if (item.authSurface === "keychain") return "Local keychain";
+  if (item.authSurface === "local-file") return "Local data file";
   if (item.authSurface === "managed-secret-store") return "Managed secret store";
   return "Server-side secret adapter";
 }
