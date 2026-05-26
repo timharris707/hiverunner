@@ -21,13 +21,39 @@ function headerOrigin(request: NextRequest): string | null {
   return value || null;
 }
 
+function headerRefererOrigin(request: NextRequest): string | null {
+  const value = request.headers.get("referer")?.trim();
+  if (!value) return null;
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function allowedRequestOrigins(request: NextRequest): Set<string> {
+  const origins = new Set<string>([request.nextUrl.origin]);
+  const host = request.headers.get("host")?.trim();
+  if (host) {
+    origins.add(`${request.nextUrl.protocol}//${host}`);
+  }
+  return origins;
+}
+
 function isSameOrigin(request: NextRequest): boolean {
   const origin = headerOrigin(request);
+  const allowedOrigins = allowedRequestOrigins(request);
   if (origin) {
-    return origin === request.nextUrl.origin;
+    return allowedOrigins.has(origin);
   }
 
-  return request.headers.get("sec-fetch-site") === "same-origin";
+  if (request.headers.get("sec-fetch-site") === "same-origin") {
+    return true;
+  }
+
+  const refererOrigin = headerRefererOrigin(request);
+  return refererOrigin ? allowedOrigins.has(refererOrigin) : false;
 }
 
 export function validateCsrfRequest(input: CsrfValidationInput): CsrfDecision {
@@ -51,6 +77,6 @@ export function validateCsrfRequest(input: CsrfValidationInput): CsrfDecision {
 
   return {
     allowed: false,
-    reason: headerOrigin(request) ? "cross-origin" : "missing-same-origin-signal",
+    reason: headerOrigin(request) || headerRefererOrigin(request) ? "cross-origin" : "missing-same-origin-signal",
   };
 }
