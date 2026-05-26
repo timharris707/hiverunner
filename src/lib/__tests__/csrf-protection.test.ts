@@ -225,6 +225,55 @@ async function run() {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
+
+    await test("preserves internal engine tick without browser origin headers", async () => {
+      const request = new NextRequest("http://localhost:3010/api/orchestration/engine/tick", {
+        method: "POST",
+        headers: {
+          host: "localhost:3010",
+          "x-engine-tick": "internal",
+        },
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Internal engine tick should not need Supabase");
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("rejects engine tick without the internal tick header", async () => {
+      const request = new NextRequest("http://localhost:3010/api/orchestration/engine/tick", {
+        method: "POST",
+        headers: {
+          host: "localhost:3010",
+        },
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Unauthenticated engine tick must fail CSRF");
+      });
+
+      assert.equal(response.status, 403);
+    });
+
+    await test("uses the default session loader when Next passes a middleware event", async () => {
+      const request = new NextRequest("http://localhost:3010/settings", {
+        method: "GET",
+        headers: {
+          host: "localhost:3010",
+        },
+      });
+
+      const response = await middleware(request, {
+        waitUntil() {},
+        passThroughOnException() {},
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
   } finally {
     if (originalNodeEnv !== undefined) {
       setNodeEnv(originalNodeEnv);
