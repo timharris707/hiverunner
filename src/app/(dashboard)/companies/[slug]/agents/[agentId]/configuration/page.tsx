@@ -827,14 +827,13 @@ export default function AgentConfigurationPage() {
     let cancelled = false;
     setSwitchModelsLoading(true);
     setSwitchModelsError(null);
-    fetch("/api/orchestration/runtime-models", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        provider: switchTarget,
-        command: selectedAgentRuntimeCommand ?? selectedCompanyRuntimeCommand ?? selectedDetectedRuntimeCommand ?? undefined,
-        commandPath: selectedDetectedRuntimeCommandPath ?? undefined,
-      }),
+    const params = new URLSearchParams({ provider: switchTarget });
+    const command = selectedAgentRuntimeCommand ?? selectedCompanyRuntimeCommand ?? selectedDetectedRuntimeCommand;
+    if (command) params.set("command", command);
+    if (selectedDetectedRuntimeCommandPath) params.set("commandPath", selectedDetectedRuntimeCommandPath);
+    fetch(`/api/orchestration/runtime-models?${params.toString()}`, {
+      method: "GET",
+      cache: "no-store",
     })
       .then(async (response) => {
         if (!response.ok) throw new Error(`${response.status}`);
