@@ -333,7 +333,9 @@ const PUBLIC_PAGES = new Set(["/login"]);
 const ORCHESTRATION_API_PREFIX = "/api/orchestration/";
 const ORCHESTRATION_HEALTH_PATHS = new Set<string>();
 const MC_RUN_AS_USER_ID_HEADER = "x-mc-run-as-user-id";
+const ENGINE_TICK_PATH = "/api/orchestration/engine/tick";
 const SELF_AUTHENTICATING_API_PATHS = new Set([
+  ENGINE_TICK_PATH,
   "/api/orchestration/symphony/tracker",
 ]);
 
@@ -399,6 +401,12 @@ export function canAccessOrchestrationApi(input: OrchestrationAuthDecisionInput)
 
 function hasSelfAuthenticatingApiTokenSignal(request: NextRequest): boolean {
   if (!SELF_AUTHENTICATING_API_PATHS.has(request.nextUrl.pathname)) return false;
+
+  if (request.nextUrl.pathname === ENGINE_TICK_PATH) {
+    const token = request.headers.get("x-engine-tick")?.trim();
+    return token === "internal" || token === "1";
+  }
+
   const bearer = request.headers.get("authorization")?.trim();
   if (bearer?.toLowerCase().startsWith("bearer ")) return true;
   return Boolean(request.headers.get("x-hiverunner-symphony-token")?.trim());
@@ -460,7 +468,10 @@ function getRequestHost(request: NextRequest): string {
 
 type SessionLoader = typeof updateSession;
 
-export async function middleware(request: NextRequest, sessionLoader: SessionLoader = updateSession) {
+export async function middleware(request: NextRequest, sessionLoaderOrEvent: SessionLoader | unknown = updateSession) {
+  const sessionLoader: SessionLoader = typeof sessionLoaderOrEvent === "function"
+    ? sessionLoaderOrEvent as SessionLoader
+    : updateSession;
   const { pathname } = request.nextUrl;
   const host = getRequestHost(request);
   const hasLocalDevBypass = canBypassLocalDevAuth(host);
