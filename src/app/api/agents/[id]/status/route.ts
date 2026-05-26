@@ -1,0 +1,78 @@
+import { NextResponse } from "next/server";
+import { readFileSync, readdirSync, statSync } from "fs";
+import { join } from "path";
+import { resolveOpenClawDir } from "@/lib/workspaces/root";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+
+    // Read openclaw config
+    const configPath = `${resolveOpenClawDir()}/openclaw.json`;
+    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+
+    // Find agent
+    const agent = config.agents.list.find((a: any) => a.id === id);
+    if (!agent) {
+      return NextResponse.json({ error: "Agent not found" }, { status: 404 });
+    }
+
+    // Get memory files
+    const memoryPath = join(agent.workspace, "memory");
+    let recentFiles: Array<{ date: string; size: number; modified: string }> =
+      [];
+
+    try {
+      const files = readdirSync(memoryPath).filter((f) =>
+        f.match(/^\d{4}-\d{2}-\d{2}\.md$/)
+      );
+      recentFiles = files
+        .map((file) => {
+          const stat = statSync(join(memoryPath, file));
+          return {
+            date: file.replace(".md", ""),
+            size: stat.size,
+            modified: stat.mtime.toISOString(),
+          };
+        })
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 7);
+    } catch (e) {
+      // Memory directory doesn't exist
+    }
+
+    // Get session info (from OpenClaw API if available)
+    // For now, we return mock data
+    const sessions: Array<any> = [];
+
+    // Get telegram account info
+    const telegramAccount = config.channels?.telegram?.accounts?.[id];
+
+    return NextResponse.json({
+      agent: {
+        id: agent.id,
+        name: agent.name,
+        model: agent.model?.primary || config.agents.defaults.model.primary,
+        workspace: agent.workspace,
+        dmPolicy: telegramAccount?.dmPolicy,
+        allowAgents: agent.subagents?.allowAgents || [],
+        telegramConfigured: !!telegramAccount?.botToken,
+      },
+      memory: {
+        recentFiles,
+      },
+      sessions,
+    });
+  } catch (error) {
+    console.error("Error getting agent status:", error);
+    return NextResponse.json(
+      { error: "Failed to get agent status" },
+      { status: 500 }
+    );
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "lastUpdated": "2026-03-24",
+  "systemSkillsPath": "/opt/homebrew/lib/node_modules/openclaw/skills",
+  "_note": "On Linux/VPS: use /usr/lib/node_modules/openclaw/skills. On macOS: use /opt/homebrew/lib/node_modules/openclaw/skills",
+  "skills": [
+    {"name": "weather", "location": "system"},
+    {"name": "coding-agent", "location": "system"},
+    {"name": "gemini", "location": "system"},
+    {"name": "healthcheck", "location": "system"},
+    {"name": "skill-creator", "location": "system"},
+    {"name": "node-connect", "location": "system"}
+  ]
+}

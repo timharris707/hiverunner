@@ -1,0 +1,32 @@
+[
+  {
+    "id": "act-example-001",
+    "timestamp": "2026-01-15T10:00:00.000Z",
+    "type": "cron",
+    "description": "Health Check - All services up",
+    "status": "ok",
+    "duration_ms": 1523,
+    "tokens_used": null,
+    "metadata": { "jobId": "example-job-1" }
+  },
+  {
+    "id": "act-example-002",
+    "timestamp": "2026-01-15T09:00:00.000Z",
+    "type": "cron",
+    "description": "Data Sync completed",
+    "status": "ok",
+    "duration_ms": 8200,
+    "tokens_used": null,
+    "metadata": { "jobId": "example-job-2" }
+  },
+  {
+    "id": "act-example-003",
+    "timestamp": "2026-01-15T08:00:00.000Z",
+    "type": "task",
+    "description": "Example task executed",
+    "status": "success",
+    "duration_ms": 450,
+    "tokens_used": 1200,
+    "metadata": null
+  }
+]

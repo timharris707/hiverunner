@@ -1,0 +1,22 @@
+{
+  "case": "malformed-response",
+  "description": "Runner stdout that is intentionally not valid JSON.",
+  "valid": false,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-malformed",
+    "task": {
+      "id": "task-malformed",
+      "key": "INS-BAD",
+      "title": "Malformed fixture task"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Return malformed output."
+  },
+  "responseText": "{\"sessionId\":\"fixture-session-malformed\",\"resultText\":",
+  "expected": {
+    "parseError": true
+  }
+}

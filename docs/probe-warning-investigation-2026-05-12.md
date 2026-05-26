@@ -1,0 +1,11 @@
+# Probe Warning Investigation - 2026-05-12
+
+`probeLaneRuntimes()` only checks runtime-backed lane targets. It builds a fresh runtime inventory from attached `agent_runtimes` plus fast local CLI detection, finds the lane primary and fallback targets by runtime id/label aliases, then runs `probeRuntimeHealth()` for each matched runtime. That health probe checks CLI presence/version, company workspace writability, and runtime auth readiness; it persists the result back to `agent_runtimes`. `buildProbeResult()` then marks a runtime-backed lane `pass` when the primary runtime is `ready` or `online`, `warn` only for `unknown`, and `fail` for missing/offline/auth/workspace failures. For conformance probes, fallback runtimes that are missing or not ready can downgrade an otherwise passing primary to `warn`.
+
+For model-source-backed targets, `buildProbeResult()` does not run the runtime health path. It calls `probeModelSourceCredential()`, which checks configured credential names from env/keychain/secret store, including `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` for direct Anthropic routes.
+
+The dev `NEV` active Balanced Builder Default lane is currently `verificationStatus="warning"` with this stored reason: “Default lane updated from the Execution Matrix to Claude Code / Runtime managed; live probe recommended before broad rollout.” That string is not produced by `probeLaneRuntimes()`. It is set by `updateDefaultLaneForSelection()` whenever the Execution Matrix changes the Default lane route.
+
+`verification_json` also contains a separate Anthropic model-source probe failure: “Direct Anthropic routes need ANTHROPIC_API_KEY. Claude Code runtime auth is separate and can still work without this key.” That is real for **Anthropic Direct** model-source routing if no direct key is configured, but it is a false positive if interpreted as Default-lane Claude Code runtime health.
+
+Recommended fix shape: make route edits reset the lane to `untested`, not `warning`, and keep model-source credential probes visually separate from runtime-managed lane health. For runtime-managed Claude Code lanes, the honest status should come from `probeLaneRuntimes()`/`probeRuntimeHealth()` only; direct Anthropic credential status should affect only direct Anthropic model-source routes.

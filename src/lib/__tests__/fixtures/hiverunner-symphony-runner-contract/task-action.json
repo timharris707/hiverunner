@@ -1,0 +1,37 @@
+{
+  "case": "task-action",
+  "description": "Runner response that comments on a task and moves it to review.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-task-action",
+    "task": {
+      "id": "task-action",
+      "key": "INS-ACT",
+      "title": "Task action fixture"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Post task actions."
+  },
+  "response": {
+    "sessionId": "fixture-session-task-action",
+    "resultText": "**Summary**\n\nCompleted fixture implementation.\n\n```mc-action\n{\"action\":\"add_comment\",\"taskKey\":\"INS-ACT\",\"body\":\"Completed fixture implementation.\"}\n```\n```mc-action\n{\"action\":\"update_task\",\"taskKey\":\"INS-ACT\",\"status\":\"review\"}\n```",
+    "assistantSummary": "Completed fixture implementation.",
+    "inputTokens": 29,
+    "outputTokens": 19,
+    "totalTokens": 48,
+    "transcriptEvents": [
+      {
+        "role": "assistant",
+        "kind": "message",
+        "title": "Task action result",
+        "body": "Completed fixture implementation."
+      }
+    ]
+  },
+  "expected": {
+    "actionTypes": ["add_comment", "update_task"]
+  }
+}

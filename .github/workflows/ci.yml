@@ -1,0 +1,55 @@
+name: Local-First CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: local-first-ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Local build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Audit dependencies
+        run: npm audit --json
+
+      - name: Typecheck
+        run: npx tsc --noEmit --incremental false --pretty false
+
+      - name: Build
+        run: npm run build
+
+      - name: Auth and middleware tests
+        run: npm run test:auth
+
+      - name: Company owner authorization tests
+        run: npm run test:orchestration:company-owner-authorization
+
+      - name: Local health tests
+        run: npm run test:health-local
+
+      - name: Runtime readiness tests
+        run: npm run test:orchestration:runtime-registry

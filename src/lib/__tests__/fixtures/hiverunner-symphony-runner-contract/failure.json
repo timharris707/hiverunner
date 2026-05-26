@@ -1,0 +1,36 @@
+{
+  "case": "failure",
+  "description": "Runner response for a failed execution with stderr context.",
+  "valid": true,
+  "payload": {
+    "schema": "hiverunner.symphony.execution.v1",
+    "runId": "fixture-run-failed",
+    "task": {
+      "id": "task-failed",
+      "key": "INS-FAIL",
+      "title": "Fail fixture task"
+    },
+    "workspace": {
+      "cwd": "/tmp/hiverunner-fixture-workspace"
+    },
+    "prompt": "Exercise failure reporting."
+  },
+  "response": {
+    "sessionId": "fixture-session-failed",
+    "error": "External runner command exited with code 1.",
+    "resultText": "",
+    "assistantSummary": "External runner command exited with code 1.",
+    "durationMs": 812,
+    "transcriptEvents": [
+      {
+        "kind": "provider_error",
+        "title": "External runner command failed",
+        "body": "Command exited with code 1 while running the fixture."
+      }
+    ]
+  },
+  "expected": {
+    "error": true,
+    "transcriptKinds": ["provider_error"]
+  }
+}

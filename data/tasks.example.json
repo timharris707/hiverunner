@@ -1,0 +1,11 @@
+[
+  {
+    "id": "example-task-1",
+    "name": "Example Cron Job",
+    "schedule": "0 */4 * * *",
+    "timezone": "UTC",
+    "description": "Example periodic task",
+    "lastStatus": "ok",
+    "nextRun": null
+  }
+]

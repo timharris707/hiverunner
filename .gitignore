@@ -1,0 +1,97 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+/.stable/
+/.stable.backup-*
+/.stable-release-worktree/
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files (contains sensitive credentials)
+.env*
+!.env.example
+
+# production data (contains instance-specific operational data)
+/data/*.json
+!data/*.example.json
+/data/*.db
+/data/*.db.*
+/data/*.db-*
+/data/*.sqlite
+/data/*.sqlite3
+/data/attachments/
+/data/*.pid
+/data/*.log
+/data/*.err.log
+/data/*.out.log
+/data/*.backup-*
+/data/agent-memory/
+/data/advisory/
+/data/releases/
+/data/repairs/
+/data/*.corrupt-*
+/data/*.pre-restore-*
+/data/mc-healthcheck-fail-count
+/orchestration.db
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# design files (local only)
+/design/
+
+# backup files
+*.bak
+*.tmp
+/.tmp_*
+/.agents/
+/.claude/
+/.obsidian/
+/.next_backup_*/
+/playwright-report/
+/.playwright-cli/
+/test-results/
+/data/locks/
+/data/cache/
+/data/voice-preview-cache/
+/output/
+/public/screenshots/TASK-*/
+/_quarantine/
+/memory/agents/
+/projects/panely-app/
+/pipecat-server/.venv/
+/.archive/
+/archives/
+
+# Dev lane isolated data directory (databases only)
+/data-dev/
