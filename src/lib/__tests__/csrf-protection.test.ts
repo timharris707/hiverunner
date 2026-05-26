@@ -135,6 +135,55 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
 
+    await test("accepts same-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
+      const request = localPost({
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        referer: "http://localhost:3010/login?from=%2FHIVE%2Fdashboard",
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("accepts Host origin when request.nextUrl origin differs from browser origin", async () => {
+      const request = new NextRequest("http://0.0.0.0:3010/api/orchestration/companies", {
+        method: "POST",
+        headers: {
+          host: "localhost:3010",
+          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+          referer: "http://localhost:3010/login",
+        },
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("rejects cross-origin Referer fallback", async () => {
+      const request = localPost({
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        referer: "http://attacker.example/form",
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Cross-origin Referer must not pass CSRF");
+      });
+
+      assert.equal(response.status, 403);
+      const body = await response.json() as { error?: { reason?: string } };
+      assert.equal(body.error?.reason, "cross-origin");
+    });
+
     await test("preserves valid API-key automation without browser origin headers", async () => {
       const request = localPost({
         "x-mc-api-key": "csrf-test-api-key",
