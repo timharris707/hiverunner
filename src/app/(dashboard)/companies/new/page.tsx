@@ -21,6 +21,7 @@ import {
   Trash2,
   ImageIcon,
   Mic2,
+  KeyRound,
 } from "lucide-react";
 
 import {
@@ -40,6 +41,7 @@ interface WizardData {
   owner: { displayName: string; email: string };
   project: { name: string; description: string; sourceWorkspaceRoot?: string } | null;
   starterTeam: { workType: StarterTeamWorkType; agents: StarterTeamSelectedRoleCard[] };
+  providerKeys: { openaiApiKey: string; geminiApiKey: string; savedOpenai: boolean; savedGemini: boolean };
   ceo: { name: string; model: string; guidance: string };
   task: { title: string; description: string; priority: string };
 }
@@ -86,6 +88,36 @@ const inputClass =
   "w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]";
 const selectClass =
   "w-full appearance-none rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2.5 text-sm text-[var(--text-primary)] transition-colors focus:border-[var(--border-strong)] focus:outline-none focus:ring-2 focus:ring-[var(--accent-soft)]";
+
+async function saveSetupProviderKeys(providerKeys: WizardData["providerKeys"]) {
+  const openaiApiKey = providerKeys.openaiApiKey.trim();
+  const geminiApiKey = providerKeys.geminiApiKey.trim();
+  if (!openaiApiKey && !geminiApiKey) {
+    return { saved: { openai: false, gemini: false } };
+  }
+
+  const response = await fetch("/api/orchestration/setup/provider-keys", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      ...(openaiApiKey ? { openaiApiKey } : {}),
+      ...(geminiApiKey ? { geminiApiKey } : {}),
+    }),
+  });
+  const json = (await response.json().catch(() => ({}))) as {
+    saved?: { openai?: boolean; gemini?: boolean };
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(json.error?.message ?? "Provider keys could not be saved.");
+  }
+  return {
+    saved: {
+      openai: Boolean(json.saved?.openai),
+      gemini: Boolean(json.saved?.gemini),
+    },
+  };
+}
 
 function StepIndicator({ current, completed }: { current: number; completed: Set<number> }) {
   return (
@@ -298,11 +330,15 @@ function starterTeamValidationMessage(starterTeam: WizardData["starterTeam"]) {
 
 function StepStarterTeam({
   data,
+  providerKeys,
   onChange,
+  onProviderKeysChange,
   onTaskChange,
 }: {
   data: WizardData["starterTeam"];
+  providerKeys: WizardData["providerKeys"];
   onChange: (d: WizardData["starterTeam"]) => void;
+  onProviderKeysChange: (d: WizardData["providerKeys"]) => void;
   onTaskChange: (d: WizardData["task"]) => void;
 }) {
   const template = getStarterTeamTemplate(data.workType);
@@ -420,6 +456,11 @@ function StepStarterTeam({
           </div>
         </div>
       </div>
+
+      <ProviderKeysSetup
+        providerKeys={providerKeys}
+        onChange={onProviderKeysChange}
+      />
 
       <div className="space-y-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -574,6 +615,134 @@ function StepStarterTeam({
   );
 }
 
+function ProviderKeysSetup({
+  providerKeys,
+  onChange,
+}: {
+  providerKeys: WizardData["providerKeys"];
+  onChange: (d: WizardData["providerKeys"]) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const hasOpenAiInput = Boolean(providerKeys.openaiApiKey.trim());
+  const hasGeminiInput = Boolean(providerKeys.geminiApiKey.trim());
+  const canSave = hasOpenAiInput || hasGeminiInput;
+
+  const setField = (key: "openaiApiKey" | "geminiApiKey", value: string) => {
+    onChange({
+      ...providerKeys,
+      [key]: value,
+    });
+    setMessage(null);
+    setSaveError(null);
+  };
+
+  const saveKeys = async () => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    setMessage(null);
+    setSaveError(null);
+    try {
+      const result = await saveSetupProviderKeys(providerKeys);
+      const savedLabels = [
+        result.saved.openai ? "OpenAI avatar portraits" : null,
+        result.saved.gemini ? "Gemini voice previews" : null,
+      ].filter(Boolean);
+      onChange({
+        openaiApiKey: "",
+        geminiApiKey: "",
+        savedOpenai: providerKeys.savedOpenai || result.saved.openai,
+        savedGemini: providerKeys.savedGemini || result.saved.gemini,
+      });
+      setMessage(`${savedLabels.join(" and ")} ${savedLabels.length === 1 ? "is" : "are"} configured for this local install.`);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Provider keys could not be saved.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <KeyRound size={16} className="mt-0.5 shrink-0 text-[var(--accent)]" />
+          <div>
+            <p className="text-sm font-semibold text-[var(--text-primary)]">Optional feature keys</p>
+            <p className="mt-1 max-w-2xl text-xs leading-relaxed text-[var(--text-secondary)]">
+              Add these now if you want generated agent portraits and real voice previews during setup. You can skip this and add keys later from runtime settings.
+            </p>
+          </div>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {providerKeys.savedOpenai ? <StatusPill label="OpenAI saved" /> : null}
+          {providerKeys.savedGemini ? <StatusPill label="Gemini saved" /> : null}
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Field label="OpenAI API Key">
+          <input
+            className={inputClass}
+            type="password"
+            autoComplete="off"
+            placeholder="Needed for generated avatar portraits"
+            value={providerKeys.openaiApiKey}
+            onChange={(event) => setField("openaiApiKey", event.target.value)}
+          />
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Enables Avatar Wizard generated portraits through OpenAI image generation.
+          </p>
+        </Field>
+        <Field label="Gemini / Google AI Key">
+          <input
+            className={inputClass}
+            type="password"
+            autoComplete="off"
+            placeholder="Needed for voice previews and voices"
+            value={providerKeys.geminiApiKey}
+            onChange={(event) => setField("geminiApiKey", event.target.value)}
+          />
+          <p className="mt-1 text-xs text-[var(--text-muted)]">
+            Enables Avatar Wizard voice previews and Gemini Live voice sessions.
+          </p>
+        </Field>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+          Keys are saved server-side for this local install and are never returned to the browser. Core setup works without them.
+        </p>
+        <button
+          type="button"
+          onClick={saveKeys}
+          disabled={!canSave || saving}
+          className="hr-primary-cta inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45"
+        >
+          {saving ? <><Loader2 size={14} className="animate-spin" /> Saving keys...</> : <><KeyRound size={14} /> Save optional keys</>}
+        </button>
+      </div>
+
+      {message ? <p className="mt-3 text-xs text-[var(--positive)]">{message}</p> : null}
+      {saveError ? (
+        <div className="mt-3 flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]">
+          <AlertCircle size={15} className="mt-0.5 shrink-0" />
+          {saveError}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function StatusPill({ label }: { label: string }) {
+  return (
+    <span className="rounded-full border border-[var(--positive)] bg-[var(--positive-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--positive)]">
+      {label}
+    </span>
+  );
+}
+
 function StepCEO({
   data,
   onChange,
@@ -660,6 +829,12 @@ function SummaryCard({ icon: Icon, title, children }: { icon: typeof Building2; 
 function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Array<{ value: string; label: string }> }) {
   const selectedAgents = data.starterTeam.agents.filter((agent) => agent.selected);
   const selectedTemplate = getStarterTeamTemplate(data.starterTeam.workType);
+  const openAiState = data.providerKeys.savedOpenai || data.providerKeys.openaiApiKey.trim()
+    ? "Configured for generated portraits"
+    : "Skipped; basic icons still work";
+  const geminiState = data.providerKeys.savedGemini || data.providerKeys.geminiApiKey.trim()
+    ? "Configured for voice previews"
+    : "Skipped; voice can be added later";
   return (
     <div className="space-y-5">
       <div>
@@ -697,6 +872,10 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
         <SummaryCard icon={ClipboardList} title="First Task">
           <p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p>
           <p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p>
+        </SummaryCard>
+        <SummaryCard icon={KeyRound} title="Optional Features">
+          <p>Avatar portraits: {openAiState}</p>
+          <p>Agent voices: {geminiState}</p>
         </SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
@@ -743,7 +922,10 @@ export default function CompanyOnboardingWizard() {
     };
   }, []);
 
-  const [data, setData] = useState<WizardData>(() => createInitialCompanyWizardData());
+  const [data, setData] = useState<WizardData>(() => ({
+    ...createInitialCompanyWizardData(),
+    providerKeys: { openaiApiKey: "", geminiApiKey: "", savedOpenai: false, savedGemini: false },
+  }));
 
   const completed = useMemo(() => {
     const s = new Set<number>();
@@ -785,15 +967,30 @@ export default function CompanyOnboardingWizard() {
     setLaunching(true);
     setError(null);
     try {
+      let launchData = data;
+      if (data.providerKeys.openaiApiKey.trim() || data.providerKeys.geminiApiKey.trim()) {
+        const result = await saveSetupProviderKeys(data.providerKeys);
+        launchData = {
+          ...data,
+          providerKeys: {
+            openaiApiKey: "",
+            geminiApiKey: "",
+            savedOpenai: data.providerKeys.savedOpenai || result.saved.openai,
+            savedGemini: data.providerKeys.savedGemini || result.saved.gemini,
+          },
+        };
+        setData(launchData);
+      }
+
       const payload = {
-        ...data,
+        ...launchData,
         company: {
-          ...data.company,
-          slug: data.company.slug.trim() || slugify(data.company.name),
+          ...launchData.company,
+          slug: launchData.company.slug.trim() || slugify(launchData.company.name),
         },
         starterTeam: {
-          ...data.starterTeam,
-          agents: data.starterTeam.agents.filter((agent) => agent.selected),
+          ...launchData.starterTeam,
+          agents: launchData.starterTeam.agents.filter((agent) => agent.selected),
         },
       };
       const res = await fetch("/api/orchestration/companies/create-full", {
@@ -857,7 +1054,9 @@ export default function CompanyOnboardingWizard() {
           {step === 3 && (
             <StepStarterTeam
               data={data.starterTeam}
+              providerKeys={data.providerKeys}
               onChange={(starterTeam) => setData((d) => ({ ...d, starterTeam }))}
+              onProviderKeysChange={(providerKeys) => setData((d) => ({ ...d, providerKeys }))}
               onTaskChange={(task) => setData((d) => ({ ...d, task }))}
             />
           )}

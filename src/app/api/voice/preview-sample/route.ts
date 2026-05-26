@@ -18,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { GEMINI_LIVE_MODEL, parseServerMessage } from "@/lib/gemini-live";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
+import { getSecret } from "@/lib/secrets";
 import { VOICE_CATALOG, type VoicePreset } from "@/components/orchestration/voice-catalog";
 
 export const dynamic = "force-dynamic";
@@ -335,7 +336,7 @@ export async function GET(req: NextRequest) {
       return errorResponse(400, "unknown_voice", `Unknown voice: ${voiceId}`);
     }
 
-    const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY");
     if (!apiKey) {
       return errorResponse(
         503,

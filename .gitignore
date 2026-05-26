@@ -83,6 +83,7 @@ next-env.d.ts
 /test-results/
 /data/locks/
 /data/cache/
+/data/secrets/
 /data/voice-preview-cache/
 /output/
 /public/screenshots/TASK-*/

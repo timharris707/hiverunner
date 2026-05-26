@@ -8,16 +8,16 @@ Each agent can have a custom avatar set via the **Avatar Wizard** — accessible
 
 The wizard walks through:
 1. **Source** — keep the default icon/emoji, or generate a styled avatar
-2. **Style** — pick from 9 visual themes (Cyberpunk, Pixel Art, Sci-Fi Crew, etc.)
-3. **Gender** — male, female, or abstract/androgynous presentation
-4. **Preview** — view 4 generated options, pick one, regenerate if needed
-5. **Apply** — saves to the agent's `avatar_url` in the database
+2. **Identity & Style** — choose gender/presentation, optional appearance details, and a visual theme
+3. **Voice** — optionally select and preview a Gemini Live voice for the agent
+4. **Preview** — view 4 generated portrait options, pick one, regenerate if needed
+5. **Apply** — saves the selected avatar and voice to the agent profile
 
 ## Generation Modes
 
-### Local SVG (default, always available)
+### Basic icon (default, always available)
 
-No API keys needed. Generates deterministic styled SVG portraits server-side using the agent's name, role, chosen style, and gender as seeds. Each regeneration produces unique variations.
+No API keys needed. Operators can choose a local icon so every agent has a recognizable avatar without external dependencies.
 
 Good for: development, self-hosted instances, offline setups, or anywhere you want zero external dependencies.
 
@@ -28,9 +28,16 @@ When an image generation API key is configured, the wizard generates richer AI p
 | Provider | Env Var | Notes |
 |----------|---------|-------|
 | OpenAI (DALL-E / gpt-image-1) | `OPENAI_API_KEY` | Recommended |
-| Replicate (Flux etc.) | `REPLICATE_API_TOKEN` | Alternative |
 
-The system auto-detects which provider is available at runtime. If none is configured, it falls back to local SVG with a setup hint shown in the wizard.
+The system auto-detects whether OpenAI image generation is available at runtime. If it is not configured, users can continue with a basic icon.
+
+### Voice Preview (optional)
+
+The Avatar Wizard also lets users choose a real Gemini Live voice for the agent.
+
+| Provider | Env Var | Notes |
+|----------|---------|-------|
+| Gemini Live | `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` | Enables voice previews and agent voice sessions |
 
 ## Setup
 
@@ -43,17 +50,17 @@ npm run dev
 
 ### With AI generation
 
-Add one of these to your `.env.local`:
+Use the optional feature-key panel in `/companies/new`, or add keys to `.env.local`:
 
 ```bash
-# Option A: OpenAI
+# Generated portraits
 OPENAI_API_KEY=sk-...
 
-# Option B: Replicate
-REPLICATE_API_TOKEN=r8_...
+# Voice previews and Gemini Live voice
+GOOGLE_AI_API_KEY=...
 ```
 
-Restart the dev server. The wizard will auto-detect the provider.
+Restart the dev server if you edited `.env.local` manually. Keys entered through the setup flow are stored server-side and are detected without putting secret values in the browser.
 
 ## API Endpoints
 

@@ -93,11 +93,13 @@ function credentialStorageMetadata(source: SecretSource | null): NonNullable<Mod
     ? "Environment variable"
     : source === "keychain"
       ? "Local keychain"
-      : source === "managed-secret-store"
-        ? "Managed secret store"
-        : store.id === "managed"
+      : source === "local-file"
+        ? "Local data file"
+        : source === "managed-secret-store"
           ? "Managed secret store"
-          : "Local secret adapter";
+          : store.id === "managed"
+            ? "Managed secret store"
+            : "Local secret adapter";
 
   return {
     adapterId: store.id,
@@ -105,7 +107,9 @@ function credentialStorageMetadata(source: SecretSource | null): NonNullable<Mod
     productionReady: isManaged,
     note: isManaged
       ? "Production-ready tenant-scoped secret storage is active for this environment."
-      : "Local and staging use this server-side local adapter. Hosted production should use encrypted tenant-scoped secret storage with audit logs, rotation, and no secret values returned to the browser.",
+      : source === "local-file"
+        ? "Saved server-side under the local HiveRunner data directory. This is convenient for local-first installs; hosted production should use encrypted tenant-scoped secret storage with audit logs and rotation."
+        : "Local and staging use this server-side local adapter. Hosted production should use encrypted tenant-scoped secret storage with audit logs, rotation, and no secret values returned to the browser.",
   };
 }
 

@@ -157,7 +157,9 @@ Exact loopback calls on your own machine keep working in local-single-user mode.
 ### Optional Provider Keys
 
 Only set these when you want the corresponding feature. Local boot, workspace
-creation, and starter-team setup do not require provider keys.
+creation, and starter-team setup do not require provider keys. The
+`/companies/new` setup flow can save the OpenAI and Gemini keys for you, or you
+can set them manually in `.env.local`.
 
 ```env
 OPENAI_API_KEY=your-openai-key
