@@ -17,13 +17,14 @@ import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 
 import { GEMINI_LIVE_MODEL, parseServerMessage } from "@/lib/gemini-live";
-import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
-import { VOICE_CATALOG, type VoicePreset } from "@/components/orchestration/voice-catalog";
+import { normalizeSafeErrorMessage } from "@/lib/orchestration/avatar-wizard-errors";
+import { getSecret } from "@/lib/secrets";
+import { normalizeVoiceId, voicePresetById, type VoicePreset } from "@/components/orchestration/voice-catalog";
 
 export const dynamic = "force-dynamic";
 
-const PREVIEW_TIMEOUT_MS = 9_500;
-const FIRST_AUDIO_TIMEOUT_MS = 2_500;
+const PREVIEW_TIMEOUT_MS = 15_000;
+const FIRST_AUDIO_TIMEOUT_MS = 7_500;
 const MIN_PREVIEW_SECONDS = 2.4;
 const MAX_PREVIEW_SECONDS = 7.5;
 const PREVIEW_CACHE_VERSION = "voice-director-v13";
@@ -41,6 +42,54 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Range",
 };
+
+function voicePreviewErrorResponse(status: number, code: string, message: string): NextResponse {
+  return NextResponse.json(
+    {
+      error: {
+        code,
+        message,
+      },
+    },
+    {
+      status,
+      headers: CORS_HEADERS,
+    },
+  );
+}
+
+function voicePreviewFailureResponse(error: unknown): NextResponse {
+  const message = normalizeSafeErrorMessage(error, "Voice preview failed.");
+  if (/spending cap|spend cap|billing/i.test(message)) {
+    return voicePreviewErrorResponse(
+      402,
+      "voice_provider_spending_cap",
+      "Voice preview can't start because the configured Google AI project has exceeded its spending cap. Update the Google AI key or project in AI Studio, then try again.",
+    );
+  }
+
+  if (/quota|rate limit|resource exhausted/i.test(message)) {
+    return voicePreviewErrorResponse(
+      429,
+      "voice_provider_quota_exceeded",
+      "Voice preview can't start because the configured Google AI project is out of quota. Update the Google AI key or project, then try again.",
+    );
+  }
+
+  if (/api key|permission|unauthorized|forbidden|invalid/i.test(message)) {
+    return voicePreviewErrorResponse(
+      503,
+      "voice_provider_not_ready",
+      "Voice preview needs a valid Google AI key before samples can play. Update GOOGLE_AI_API_KEY or GEMINI_API_KEY, restart HiveRunner, and try again.",
+    );
+  }
+
+  if (/timed out|did not start|without audio|no audio|too short|closed/i.test(message)) {
+    return voicePreviewErrorResponse(504, "voice_preview_unavailable", message);
+  }
+
+  return voicePreviewErrorResponse(502, "voice_preview_failed", message);
+}
 
 function wavFromPcm16(pcmBuffer: Buffer, sampleRate: number): Buffer {
   const channels = 1;
@@ -179,7 +228,7 @@ async function generateSample(
     }, PREVIEW_TIMEOUT_MS);
 
     const firstAudioTimeout = setTimeout(() => {
-      finish(() => reject(new Error("Gemini did not start voice preview audio")));
+      finish(() => reject(new Error("Voice preview did not start audio")));
     }, FIRST_AUDIO_TIMEOUT_MS);
 
     ws.on("open", () => {
@@ -252,19 +301,19 @@ async function generateSample(
         } else if (event.type === "turn_complete" || event.type === "generation_complete") {
           clearTimeout(timeout);
           if (chunks.length === 0) {
-            finish(() => reject(new Error("Gemini returned no audio")));
+            finish(() => reject(new Error("Voice preview returned no audio")));
           } else {
             const pcm = Buffer.concat(chunks);
             const minBytes = Math.floor(sampleRate * 2 * MIN_PREVIEW_SECONDS);
             if (pcm.length < minBytes) {
-              finish(() => reject(new Error("Gemini returned a preview that was too short")));
+              finish(() => reject(new Error("Voice preview returned a sample that was too short")));
             } else {
               finish(() => resolve({ pcm, sampleRate }));
             }
           }
         } else if (event.type === "error") {
           clearTimeout(timeout);
-          finish(() => reject(new Error(event.message || "Gemini preview error")));
+          finish(() => reject(new Error(event.message || "Voice preview provider error")));
         }
       }
     });
@@ -274,19 +323,20 @@ async function generateSample(
       finish(() => reject(err));
     });
 
-    ws.on("close", () => {
+    ws.on("close", (_code, reason) => {
       if (!settled) {
         clearTimeout(timeout);
+        const reasonText = reason.toString("utf8").trim();
         if (chunks.length > 0) {
           const pcm = Buffer.concat(chunks);
           const minBytes = Math.floor(sampleRate * 2 * MIN_PREVIEW_SECONDS);
           if (pcm.length < minBytes) {
-            finish(() => reject(new Error("Gemini closed before finishing preview audio")));
+            finish(() => reject(new Error(reasonText ? `Voice preview closed before finishing audio: ${reasonText}` : "Voice preview closed before finishing audio")));
           } else {
             finish(() => resolve({ pcm, sampleRate }));
           }
         } else {
-          finish(() => reject(new Error("Gemini closed without audio")));
+          finish(() => reject(new Error(reasonText ? `Voice preview closed without audio: ${reasonText}` : "Voice preview closed without audio")));
         }
       }
     });
@@ -327,20 +377,21 @@ export async function GET(req: NextRequest) {
   try {
     const voiceId = req.nextUrl.searchParams.get("voiceId");
     if (!voiceId) {
-      return errorResponse(400, "voice_id_required", "voiceId query param is required");
+      return voicePreviewErrorResponse(400, "voice_id_required", "voiceId query param is required");
     }
 
-    const preset = VOICE_CATALOG.find((v) => v.id === voiceId);
+    const normalizedVoiceId = normalizeVoiceId(voiceId);
+    const preset = voicePresetById(normalizedVoiceId);
     if (!preset) {
-      return errorResponse(400, "unknown_voice", `Unknown voice: ${voiceId}`);
+      return voicePreviewErrorResponse(400, "unknown_voice", `Unknown voice: ${voiceId}`);
     }
 
-    const apiKey = process.env.GOOGLE_AI_API_KEY || process.env.GEMINI_API_KEY;
+    const apiKey = getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY");
     if (!apiKey) {
-      return errorResponse(
+      return voicePreviewErrorResponse(
         503,
         "voice_api_not_configured",
-        "GOOGLE_AI_API_KEY or GEMINI_API_KEY not configured"
+        "Voice preview is optional and needs GOOGLE_AI_API_KEY or GEMINI_API_KEY before samples can play."
       );
     }
 
@@ -362,7 +413,7 @@ export async function GET(req: NextRequest) {
       },
     });
   } catch (error) {
-    return handleRouteError(error, "voice-preview-sample:get");
+    return voicePreviewFailureResponse(error);
   }
 }
 

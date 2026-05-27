@@ -59,7 +59,7 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
   if (!binding || binding.scope === "global") {
     return {
       heading: "Voice Chat",
-      subtitle: "Realtime voice conversation with the HiveRunner assistant",
+      subtitle: "Optional experimental realtime voice conversation with the HiveRunner assistant",
       speakingLabel: "Assistant is speaking",
       startSessionLabel: "Start Voice Session",
       boundSessionHint: null,
@@ -70,8 +70,8 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
     return {
       heading: agentName ? `${agentName} via Voice Chat` : "Voice Chat",
       subtitle: agentName
-        ? `Realtime voice session with ${agentName} for this task.`
-        : "Realtime task-bound voice session in HiveRunner.",
+        ? `Optional experimental realtime voice session with ${agentName} for this task.`
+        : "Optional experimental task-bound voice session in HiveRunner.",
       speakingLabel: agentName ? `${agentName} is speaking` : "Speaking",
       startSessionLabel: "Start Task Session",
       boundSessionHint:
@@ -82,8 +82,8 @@ export function getVoicePresenterCopy(binding: ResolvedVoiceBinding | null | und
   return {
     heading: agentName ? `${agentName} via Voice Chat` : "Voice Chat",
     subtitle: agentName
-      ? `Realtime voice session with ${agentName} for this project.`
-      : "Realtime project-bound voice session in HiveRunner.",
+      ? `Optional experimental realtime voice session with ${agentName} for this project.`
+      : "Optional experimental project-bound voice session in HiveRunner.",
     speakingLabel: agentName ? `${agentName} is speaking` : "Speaking",
     startSessionLabel: "Start Project Session",
     boundSessionHint:

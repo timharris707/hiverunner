@@ -21,7 +21,8 @@ import type { LucideIcon } from "lucide-react";
 import { buildCompanyPath } from "@/lib/orchestration/route-paths";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
-import { AvatarGlyph, avatarIconToken } from "@/components/orchestration/AvatarGlyph";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 import {
   listCompanies,
   listCompanyAgents,
@@ -100,7 +101,7 @@ const ROUTINE_TEMPLATES: RoutineTemplate[] = [
 ];
 
 function formatAgentOption(agent: OrchestrationAgent): string {
-  return avatarIconToken(agent.emoji) ? agent.name : `${agent.emoji ?? ""} ${agent.name}`.trim();
+  return agentDisplayLabel(agent.emoji, agent.name);
 }
 
 /* ── Helpers ── */

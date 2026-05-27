@@ -54,6 +54,15 @@ function seedEdgeRouteMapsForTest(routeMaps: EdgeRouteMaps) {
   };
 }
 
+function clearEdgeRouteMapsForTest() {
+  const scoped = globalThis as typeof globalThis & {
+    __mcEdgeRouteMapCache?: unknown;
+    __mcEdgeRouteMapVersion?: number;
+  };
+  scoped.__mcEdgeRouteMapVersion = (scoped.__mcEdgeRouteMapVersion ?? 0) + 1;
+  delete scoped.__mcEdgeRouteMapCache;
+}
+
 async function run() {
   console.log("\nMiddleware Localhost Auth Contract Test\n");
 
@@ -63,6 +72,7 @@ async function run() {
   const originalAuthMode = process.env.MC_AUTH_MODE;
   const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const originalRouteMapFetchTimeout = process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
 
   // Pin hosted (Supabase) auth mode for tests that exercise the
   // session-fallback path. Otherwise a CI environment without Supabase env
@@ -259,6 +269,25 @@ async function run() {
     assert.equal(response.headers.get("x-middleware-next"), "1");
   });
 
+  await test("serves the public homepage at root instead of redirecting to a workspace", async () => {
+    setNodeEnv("development");
+    delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
+    delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
+
+    const request = new NextRequest("http://localhost:3010/", {
+      headers: { host: "localhost:3010" },
+    });
+
+    const response = await middleware(request, async () => {
+      throw new Error("Public homepage should not need Supabase");
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("x-middleware-next"), "1");
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("x-middleware-rewrite"), null);
+  });
+
   await test("accepts local-dev session cookie only on exact loopback hosts", async () => {
     setNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
@@ -291,6 +320,121 @@ async function run() {
 
     assert.equal(nonLoopbackResponse.status, 307);
     assert.equal(nonLoopbackResponse.headers.get("location"), "http://localhost.example.com:3010/login?from=%2FINS%2Fdashboard");
+  });
+
+  await test("falls back quickly for INS navigation when edge route-map self-fetch stalls", async () => {
+    setNodeEnv("development");
+    clearEdgeRouteMapsForTest();
+    process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "1";
+    const originalFetch = globalThis.fetch;
+    let fetchCalled = false;
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalled = true;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        });
+      });
+    }) as typeof fetch;
+
+    try {
+      const request = new NextRequest("http://localhost:3010/INS/tasks", {
+        headers: {
+          host: "localhost:3010",
+          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        },
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Local-dev session cookie should not need Supabase");
+      });
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-rewrite"), "http://localhost:3010/companies/insight/tasks");
+      assert.equal(fetchCalled, false);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalRouteMapFetchTimeout === undefined) {
+        delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
+      } else {
+        process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
+      }
+      seedEdgeRouteMapsForTest({
+        companyCodeToSlug: {
+          HIVE: "hiverunner-workspace",
+          INS: "insight",
+        },
+        companySlugToCode: {
+          "hiverunner-workspace": "HIVE",
+          insight: "INS",
+        },
+        actualCompanyCodes: ["INS"],
+        projectIdToSlugByCompany: {},
+        projectSlugAliasToCanonical: {},
+        generatedAt: new Date().toISOString(),
+      });
+    }
+  });
+
+  await test("bounds unknown company route-map refresh stalls", async () => {
+    setNodeEnv("development");
+    clearEdgeRouteMapsForTest();
+    process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "20";
+    const originalFetch = globalThis.fetch;
+    let fetchCalls = 0;
+    globalThis.fetch = ((_input: RequestInfo | URL, init?: RequestInit) => {
+      fetchCalls += 1;
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => {
+          const error = new Error("aborted");
+          error.name = "AbortError";
+          reject(error);
+        });
+      });
+    }) as typeof fetch;
+
+    try {
+      const startedAt = Date.now();
+      const request = new NextRequest("http://localhost:3010/ZZZ/dashboard", {
+        headers: {
+          host: "localhost:3010",
+          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        },
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Local-dev session cookie should not need Supabase");
+      });
+      const durationMs = Date.now() - startedAt;
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+      assert.equal(fetchCalls, 1);
+      assert.ok(durationMs < 500, `expected bounded route-map fallback under 500ms, got ${durationMs}ms`);
+    } finally {
+      globalThis.fetch = originalFetch;
+      if (originalRouteMapFetchTimeout === undefined) {
+        delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
+      } else {
+        process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
+      }
+      seedEdgeRouteMapsForTest({
+        companyCodeToSlug: {
+          HIVE: "hiverunner-workspace",
+          INS: "insight",
+        },
+        companySlugToCode: {
+          "hiverunner-workspace": "HIVE",
+          insight: "INS",
+        },
+        actualCompanyCodes: ["INS"],
+        projectIdToSlugByCompany: {},
+        projectSlugAliasToCanonical: {},
+        generatedAt: new Date().toISOString(),
+      });
+    }
   });
 
   await test("keeps non-loopback healthcheck hosts behind auth", async () => {
@@ -378,6 +522,12 @@ async function run() {
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   } else {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
+  }
+
+  if (originalRouteMapFetchTimeout === undefined) {
+    delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
+  } else {
+    process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
   }
 
   const total = passed + failed;

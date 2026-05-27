@@ -23,12 +23,13 @@ import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { normalizeResolvedVoiceBinding, normalizeVoiceBindingRequest } from "@/lib/voice-binding";
 import { buildCurrentVoiceContext } from "@/lib/voice-memory";
 import { listRecentSessionSummaries, readAgentMemory } from "@/lib/voice-agent-memory";
-import { resolveVoiceTaskContext } from "@/lib/voice-task-context";
+import { resolveVoiceAgentContext, resolveVoiceTaskContext } from "@/lib/voice-task-context";
 import { getOpenAiRealtimeTools } from "@/lib/voice-tool-manifest";
 import { getSecret } from "@/lib/secrets";
 import {
   VOICE_CATALOG,
   geminiVoiceDirectorPrompt,
+  normalizeVoiceId,
   voicePresetById,
 } from "@/components/orchestration/voice-catalog";
 
@@ -41,10 +42,41 @@ const DEFAULT_OPENAI_TRANSCRIPTION_PROMPT = [
   "If audio is unclear, prefer the closest natural English phrase or leave it incomplete.",
   "Do not switch languages or emit Japanese, Chinese, Hindi, or other non-English scripts unless the operator clearly speaks that language.",
 ].join(" ");
+const LIVE_VOICE_BEHAVIOR_PROMPT = `## Live Voice Behavior
+- Keep the selected voice, pace, and delivery consistent from the first sentence through the whole turn.
+- If you need current context, a tool call, or a few seconds to inspect something, say a short natural preamble first, such as "Give me a second to check that," then continue after the result.
+- Do not leave the operator in unexplained silence while checking context.
+- Keep spoken turns concise and conversational; this is a live conversation, not a written report.`;
 const KNOWN_VOICES = new Set(VOICE_CATALOG.map((v) => v.id));
 const VOICE_PROVIDERS = new Set(["gemini-live", "openai-realtime-2"]);
 
 type VoiceProvider = "gemini-live" | "openai-realtime-2";
+
+type VoiceProviderReadiness =
+  | { ready: true; apiKey: string }
+  | { ready: false; response: NextResponse };
+
+function voiceSetupErrorResponse(input: {
+  status: number;
+  code: string;
+  message: string;
+  steps: string[];
+  note: string;
+}) {
+  return NextResponse.json(
+    {
+      error: {
+        code: input.code,
+        message: input.message,
+      },
+      setup: {
+        steps: input.steps,
+        note: input.note,
+      },
+    },
+    { status: input.status },
+  );
+}
 
 function envNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -60,6 +92,50 @@ function normalizeVoiceProvider(value: unknown): VoiceProvider {
   return process.env.HIVERUNNER_VOICE_PROVIDER === "openai-realtime-2"
     ? "openai-realtime-2"
     : "gemini-live";
+}
+
+function getVoiceProviderReadiness(provider: VoiceProvider): VoiceProviderReadiness {
+  if (provider === "openai-realtime-2") {
+    const openaiApiKey = getSecret("OPENAI_API_KEY");
+    if (!openaiApiKey) {
+      return {
+        ready: false,
+        response: voiceSetupErrorResponse({
+          status: 503,
+          code: "openai_api_key_not_configured",
+          message: "Voice chat is optional and needs OPENAI_API_KEY before this testing runtime can connect.",
+          steps: [
+            "Add OPENAI_API_KEY to .env.local",
+            "Restart the dev server",
+            "Retry Start call",
+          ],
+          note: "This testing runtime uses short-lived client secrets; the permanent API key stays server-side.",
+        }),
+      };
+    }
+
+    return { ready: true, apiKey: openaiApiKey };
+  }
+
+  const apiKey = getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY");
+  if (!apiKey) {
+    return {
+      ready: false,
+      response: voiceSetupErrorResponse({
+        status: 503,
+        code: "gemini_api_key_not_configured",
+        message: "Voice chat is optional and needs GOOGLE_AI_API_KEY or GEMINI_API_KEY before Start call can connect.",
+        steps: [
+          "Get an API key from https://aistudio.google.com/apikey",
+          "Add GOOGLE_AI_API_KEY=your-key or GEMINI_API_KEY=your-key to .env.local",
+          "Restart the dev server",
+        ],
+        note: "Voice chat is optional; the rest of HiveRunner works without this key.",
+      }),
+    };
+  }
+
+  return { ready: true, apiKey };
 }
 
 function buildGlobalSystemPrompt(currentContext: string): string {
@@ -112,10 +188,15 @@ export async function POST(req: Request) {
       ? requestBody as Record<string, unknown>
       : {};
     const provider = normalizeVoiceProvider(requestRecord.voiceProvider);
+    const providerReadiness = getVoiceProviderReadiness(provider);
+    if (!providerReadiness.ready) {
+      return providerReadiness.response;
+    }
+
     const bindingRequest = normalizeVoiceBindingRequest(requestBody);
 
     const scopedContext = bindingRequest.scope === "global"
-      ? null
+      ? resolveVoiceAgentContext(bindingRequest)
       : resolveVoiceTaskContext(bindingRequest);
     const binding = scopedContext?.binding ?? normalizeResolvedVoiceBinding(bindingRequest);
 
@@ -131,39 +212,21 @@ export async function POST(req: Request) {
         ])
       : ["", []];
 
-    // Resolve voice: agent's chosen voice wins for task-bound sessions; otherwise default.
+    // Resolve voice: a bound agent's chosen voice wins; otherwise default.
     // Unknown voice IDs (legacy/unset) fall back so we never hand Gemini an invalid name.
-    const boundVoiceId = binding.agentVoiceId;
+    const boundVoiceId = normalizeVoiceId(binding.agentVoiceId);
     const voiceName = boundVoiceId && KNOWN_VOICES.has(boundVoiceId) ? boundVoiceId : DEFAULT_VOICE_NAME;
     const voicePreset = voicePresetById(voiceName) ?? voicePresetById(DEFAULT_VOICE_NAME);
 
-    const baseSystemPrompt = bindingRequest.scope === "global"
-      ? buildGlobalSystemPrompt(await buildCurrentVoiceContext())
-      : buildScopedSystemPrompt(scopedContext!.promptContext, scopedContext!.agent, agentMemory, recentSessions);
+    const baseSystemPrompt = scopedContext
+      ? buildScopedSystemPrompt(scopedContext.promptContext, scopedContext.agent, agentMemory, recentSessions)
+      : buildGlobalSystemPrompt(await buildCurrentVoiceContext());
 
     const systemPrompt = provider === "gemini-live" && voicePreset
-      ? `${baseSystemPrompt}\n\n## Gemini Voice Direction\n${geminiVoiceDirectorPrompt(voicePreset)}`
-      : baseSystemPrompt;
+      ? `${baseSystemPrompt}\n\n${LIVE_VOICE_BEHAVIOR_PROMPT}\n\n## Gemini Voice Direction\n${geminiVoiceDirectorPrompt(voicePreset)}`
+      : `${baseSystemPrompt}\n\n${LIVE_VOICE_BEHAVIOR_PROMPT}`;
 
     if (provider === "openai-realtime-2") {
-      const openaiApiKey = getSecret("OPENAI_API_KEY");
-      if (!openaiApiKey) {
-        return NextResponse.json(
-          {
-            error: "OPENAI_API_KEY not configured",
-            setup: {
-              steps: [
-                "1. Add OPENAI_API_KEY to .env.local",
-                "2. Restart the dev server",
-                "3. Retry the OpenAI Realtime 2 voice pilot",
-              ],
-              note: "OpenAI Realtime uses short-lived client secrets; the permanent API key stays server-side.",
-            },
-          },
-          { status: 503 }
-        );
-      }
-
       const model = process.env.OPENAI_REALTIME_VOICE_MODEL || OPENAI_REALTIME_MODEL;
       const voice = process.env.OPENAI_REALTIME_VOICE || DEFAULT_OPENAI_VOICE;
       const reasoningEffort = process.env.OPENAI_REALTIME_REASONING_EFFORT || "low";
@@ -201,7 +264,7 @@ export async function POST(req: Request) {
       const secretResponse = await fetch("https://api.openai.com/v1/realtime/client_secrets", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${openaiApiKey}`,
+          Authorization: `Bearer ${providerReadiness.apiKey}`,
           "Content-Type": "application/json",
           "OpenAI-Safety-Identifier": "hiverunner-local-voice",
         },
@@ -296,28 +359,9 @@ export async function POST(req: Request) {
       });
     }
 
-    const apiKey = getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY");
-
-    if (!apiKey) {
-      return NextResponse.json(
-        {
-          error: "GOOGLE_AI_API_KEY or GEMINI_API_KEY not configured",
-          setup: {
-            steps: [
-              "1. Get an API key from https://aistudio.google.com/apikey",
-              "2. Add GOOGLE_AI_API_KEY=your-key (or GEMINI_API_KEY=your-key) to .env.local",
-              "3. Restart the dev server",
-            ],
-            note: "Gemini 2.0 Flash Live is available on the free tier with rate limits.",
-          },
-        },
-        { status: 503 }
-      );
-    }
-
     // Return connection config — client will open WebSocket directly
     const wsUrl = buildWebSocketUrl({
-      apiKey,
+      apiKey: providerReadiness.apiKey,
       model: GEMINI_LIVE_MODEL,
     });
 

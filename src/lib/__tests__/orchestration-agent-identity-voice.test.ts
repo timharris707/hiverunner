@@ -190,6 +190,22 @@ async function run() {
     assert.strictEqual(reloaded.avatarAge, 35);
   });
 
+  await test("PATCH rejects non-string avatarUrl instead of storing object text", async () => {
+    const res = await patchCompanyAgent(
+      patchRequest({ avatarUrl: { url: "https://example.test/bad.png" } }) as never,
+      { params: Promise.resolve({ slug: company.slug, agentId: agent.id }) }
+    );
+    assert.strictEqual(res.status, 400);
+    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    assert.strictEqual(body.error?.code, "avatar_url_invalid");
+    assert.doesNotMatch(body.error?.message ?? "", /\[object Object\]/);
+
+    const storedAvatar = getOrchestrationDb()
+      .prepare("SELECT avatar_url FROM agents WHERE id = ?")
+      .get(agent.id) as { avatar_url: string | null };
+    assert.notStrictEqual(storedAvatar.avatar_url, "[object Object]");
+  });
+
   await test("PATCH rejects non-numeric age", async () => {
     const res = await patchCompanyAgent(
       patchRequest({ avatarAge: "old" }) as never,

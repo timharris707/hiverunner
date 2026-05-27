@@ -223,6 +223,7 @@ export default function AgentDetailLayout({
             className="agent-profile-avatar"
             type="button"
             onClick={() => setAvatarWizardOpen(true)}
+            aria-label={`Edit avatar for ${agent.name}`}
             title="Edit avatar"
             style={{
               position: "relative",

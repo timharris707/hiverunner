@@ -1,4 +1,5 @@
 import type { OrchestrationAgent, OrchestrationTask, TaskExecutionEngine, TaskModelLane, TaskPriority, TaskStatus, TaskType } from "@/lib/orchestration/types";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 
 export type ViewMode = "list" | "board" | "table";
 export type GroupMode = "none" | "status" | "priority" | "assignee" | "project" | "sprint" | "company-goal";
@@ -118,8 +119,7 @@ export function getAgentForTask(task: Pick<TaskRow, "assignee" | "status">, agen
 export function getActiveRunLabel(task: Pick<TaskRow, "assignee" | "status">, agentMap: Map<string, OrchestrationAgent>) {
   const agent = getAgentForTask(task, agentMap);
   if ((task.status !== "in-progress" && task.status !== "review") || !agent || agent.status !== "working") return undefined;
-  const symbol = agent.emoji?.startsWith("icon:") ? "" : `${agent.emoji ?? ""} `;
-  return `${symbol}${agent.name}`;
+  return agentDisplayLabel(agent.emoji, agent.name);
 }
 
 export function getWaitingOnLabel(task: Pick<TaskRow, "waitingOn">): { label: string; tone: "blocked" | "waiting" } | undefined {

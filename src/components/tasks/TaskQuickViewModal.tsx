@@ -16,13 +16,14 @@ import {
   getTaskIdentifier,
   getWaitingOnLabel,
 } from "./types";
+import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { TaskVoiceModal } from "@/components/voice/TaskVoiceModal";
 import { STATUS_META } from "@/components/orchestration/task-display";
 import { TASK_MODEL_LANES } from "@/lib/orchestration/task-model-routing";
 import type { OrchestrationAgent, OrchestrationProject, TaskModelLane } from "@/lib/orchestration/types";
 import type { VoiceBindingRequest } from "@/lib/voice-binding";
 import { color, P, radius, type as tokenType } from "@/lib/ui/tokens";
-import { getTaskAgentOfRecord, shouldShowAgentOfRecord } from "./task-display-agent";
+import { getTaskAgentOfRecord, shouldShowAgentOfRecord, taskAgentDisplayLabel } from "./task-display-agent";
 import { selectPrimaryTaskUpdateComment } from "./task-card-activity";
 
 interface Props {
@@ -33,6 +34,7 @@ interface Props {
   href: string;
   callbacks: InlineEditCallbacks;
   onClose: () => void;
+  onVoiceSessionEnd?: () => void;
   companySlug?: string;
 }
 
@@ -44,6 +46,38 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
       </div>
       <div style={{ minWidth: 0, color: P.textSecondary, fontSize: 13 }}>{children}</div>
     </div>
+  );
+}
+
+function AgentRecordAvatar({ agent }: { agent: OrchestrationAgent | null }) {
+  if (!agent) return null;
+
+  return (
+    <span
+      style={{
+        width: 18,
+        height: 18,
+        borderRadius: 999,
+        overflow: "hidden",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        flexShrink: 0,
+        background: P.surfaceElevated,
+        border: `0.5px solid ${P.cardBorder}`,
+      }}
+    >
+      {agent.avatar ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={agent.avatar}
+          alt=""
+          style={{ width: "100%", height: "100%", objectFit: "cover" }}
+        />
+      ) : (
+        <AvatarGlyph value={agent.emoji} size={12} color={P.textSecondary} />
+      )}
+    </span>
   );
 }
 
@@ -352,17 +386,21 @@ function formatRelativeUpdate(isoString: string) {
   return `${days}d ago`;
 }
 
-export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, callbacks, onClose, companySlug }: Props) {
+export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, callbacks, onClose, onVoiceSessionEnd, companySlug }: Props) {
   const [voiceModalOpen, setVoiceModalOpen] = useState(false);
 
   useEffect(() => {
     if (!task) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !voiceModalOpen) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose, task]);
+  }, [onClose, task, voiceModalOpen]);
+
+  useEffect(() => {
+    setVoiceModalOpen(false);
+  }, [task?.id]);
 
   if (!task) return null;
 
@@ -400,7 +438,10 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
       role="dialog"
       aria-modal="true"
       aria-label={`${getTaskIdentifier(task)} task details`}
-      onMouseDown={onClose}
+      onMouseDown={(event) => {
+        if (voiceModalOpen) return;
+        if (event.target === event.currentTarget) onClose();
+      }}
       style={{
         position: "fixed",
         inset: 0,
@@ -547,8 +588,8 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
             <DetailRow label={useAgentOfRecord ? "Agent of record" : "Assignee"}>
               {useAgentOfRecord ? (
                 <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: P.text }}>
-                  {agentOfRecord?.emoji ? <span style={{ fontSize: 14, lineHeight: 1 }}>{agentOfRecord.emoji}</span> : null}
-                  {agentOfRecord?.name ?? task.displayAgentName ?? task.assignee ?? "Unassigned"}
+                  <AgentRecordAvatar agent={agentOfRecord} />
+                  {agentOfRecord?.name ?? taskAgentDisplayLabel(task) ?? "Unassigned"}
                 </span>
               ) : (
                 <InlineAssigneePicker current={task.assignee} agents={agents} onChange={(assignee) => callbacks.onAssigneeChange(task.id, assignee)} />
@@ -605,8 +646,11 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
             <button
               type="button"
               onClick={() => setVoiceModalOpen(true)}
-              disabled={!voiceLaunchAgent}
+              disabled={!voiceLaunchAgent || voiceModalOpen}
               title={
+                voiceModalOpen
+                  ? "Voice chat is already open"
+                  :
                 voiceLaunchAgent?.name
                   ? `Talk to ${voiceLaunchAgent.name} about this task`
                   : task.assignee
@@ -617,20 +661,20 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
                 height: 34,
                 padding: "0 12px",
                 borderRadius: radius.md,
-                border: `0.5px solid ${voiceLaunchAgent ? "rgba(217,119,6,0.24)" : P.cardBorder}`,
+                border: `0.5px solid ${voiceLaunchAgent && !voiceModalOpen ? "rgba(217,119,6,0.24)" : P.cardBorder}`,
                 background: "transparent",
-                color: voiceLaunchAgent ? color.accent : P.textMuted,
+                color: voiceLaunchAgent && !voiceModalOpen ? color.accent : P.textMuted,
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 7,
                 fontSize: 13,
                 fontWeight: 650,
                 flexShrink: 0,
-                cursor: voiceLaunchAgent ? "pointer" : "not-allowed",
+                cursor: voiceLaunchAgent && !voiceModalOpen ? "pointer" : "not-allowed",
               }}
             >
               <Mic size={13} />
-              Talk
+              {voiceModalOpen ? "Talking" : "Talk"}
             </button>
             <a
               href={href}
@@ -664,6 +708,7 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
           bindingRequest={voiceBindingRequest}
           taskTitle={task.title}
           projectName={taskProject?.name}
+          onSessionEnd={onVoiceSessionEnd}
         />
       )}
     </div>

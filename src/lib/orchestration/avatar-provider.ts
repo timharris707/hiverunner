@@ -26,6 +26,23 @@ export interface AvatarProviderStatus {
   setupHint?: string;
 }
 
+export class AvatarProviderUnavailableError extends Error {
+  readonly status = 503;
+  readonly code = "avatar_provider_not_configured";
+  readonly provider: AvatarProviderType;
+  readonly setupHint: string;
+
+  constructor(status: AvatarProviderStatus) {
+    const setupHint =
+      status.setupHint ??
+      "Generated portrait avatars are optional and require OPENAI_API_KEY before previews can be generated.";
+    super(setupHint);
+    this.name = "AvatarProviderUnavailableError";
+    this.provider = status.provider;
+    this.setupHint = setupHint;
+  }
+}
+
 /**
  * Detect which avatar generation provider is available.
  * Checks env vars at call time (not import time) so hot-reload works.
@@ -86,6 +103,17 @@ export interface AvatarGenerationResult {
   isAiGenerated: boolean;
 }
 
+type OpenAiImageClient = Pick<OpenAI, "images">;
+let openAiClientFactory: (apiKey: string) => OpenAiImageClient = (apiKey) => new OpenAI({ apiKey });
+
+export function setAvatarOpenAIClientFactoryForTests(factory: (apiKey: string) => OpenAiImageClient): void {
+  openAiClientFactory = factory;
+}
+
+export function resetAvatarOpenAIClientFactoryForTests(): void {
+  openAiClientFactory = (apiKey) => new OpenAI({ apiKey });
+}
+
 /* ═══════════════════════════════════════════
    Generate avatars (dispatches to provider)
    ═══════════════════════════════════════════ */
@@ -99,7 +127,7 @@ export async function generateAvatarPreviews(
     return generateWithOpenAI(input);
   }
 
-  throw new Error(status.setupHint ?? "Generated portrait avatars require an AI image provider.");
+  throw new AvatarProviderUnavailableError(status);
 }
 
 /* ═══════════════════════════════════════════
@@ -170,7 +198,7 @@ async function generateWithOpenAI(
     throw new Error("OPENAI_API_KEY not available");
   }
 
-  const client = new OpenAI({ apiKey });
+  const client = openAiClientFactory(apiKey);
   const count = Math.max(1, Math.min(4, Math.trunc(input.count)));
   const previews: string[] = [];
 

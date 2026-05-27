@@ -22,6 +22,7 @@ import {
   Send,
 } from "lucide-react";
 import { AGENT_CONFIGS, getAgentByAnyId } from "@/config/agents";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 import { isLegacyHumanActor, PUBLIC_ASSISTANT_LABEL, PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
 
 export interface TaskComment {
@@ -476,7 +477,7 @@ function CommentThread({
           >
             <option value="local-owner">👤 {PUBLIC_HUMAN_LABEL}</option>
             {AGENT_CONFIGS.map((a) => (
-              <option key={a.id} value={a.name}>{a.emoji} {a.name}</option>
+              <option key={a.id} value={a.name}>{agentDisplayLabel(a.emoji, a.name)}</option>
             ))}
           </select>
           <select

@@ -4,8 +4,8 @@ HiveRunner runs two independent lanes on the same machine:
 
 | Lane   | Port | Mode       | Directory    | Purpose                    |
 |--------|------|------------|--------------|----------------------------|
-| Dev    | 3010 | development| repo root    | Active development (HMR)   |
-| Stable | 3001 | production | `.stable/`   | Last-known-good build      |
+| Dev    | 3010 | development| repo root    | UI/build observer lane     |
+| Stable | 3001 | production | `.stable/`   | Execution owner + last-known-good build |
 
 Port `3000` is retired for HiveRunner. It is not a supported dev lane or stable lane. If anything is listening on `3000`, treat that as a separate app or an accidental/manual compatibility run, not part of the two-lane runtime.
 
@@ -155,10 +155,18 @@ The dev lane is script-managed by default:
 - `scripts/start_dev_service.sh` starts `scripts/run_dev_service.sh` in the
   background with `nohup`, writes `hiverunner-dev.pid`, and logs to
   `hiverunner-dev.log` under `MC_LOG_DIR` (default: `data/`).
+- Port `3010` is forced observer-only. `scripts/run_dev_service.sh`,
+  `server.js`, and `/api/hiverunner/health` all report `MC_ENGINE_TICK=off`,
+  `role=observer`, even if `MC_DEV_EXECUTION_TEST_MODE=1` or an operator
+  accidentally exports `MC_ENGINE_TICK=on`.
+- In `MC_DEV_EXECUTION_TEST_MODE=1`, protected runtime controls can still be
+  visible for testing, but the 3010 process must not own active engine ticks.
 - `scripts/stop_dev_service.sh` stops the tracked process and clears stale
   lock/failure files.
 - `scripts/healthcheck_dev_service.sh` is a manual or external-supervisor
-  recovery probe. It no longer bootstraps launchd.
+  recovery probe. It defers restarts during boot grace and adopts a listener
+  restarted by an external supervisor instead of spawning a duplicate process
+  that would race into `EADDRINUSE`.
 
 The public repo does not ship machine-specific launchd plists. If you want
 automatic restart, point launchd, systemd, pm2, or another local supervisor at
@@ -172,6 +180,39 @@ HiveRunner separates lane data with `MC_DATA_DIR`:
 - Stable uses `data/`
 
 Stable still deploys from `.stable/`, but the lanes no longer share the same orchestration SQLite path by default.
+
+## Active Dev Execution
+
+Do not turn on active execution in the `3010` lane. The RCA from the 3010
+stability incident showed that combining active ticks with cold Next dev
+compiles, prewarm traffic, watchdog restarts, and cache clears can destabilize
+the UI/build lane.
+
+If active dev execution is needed, create a separate disabled-by-default lane
+rather than reusing `3010`. The lane must have:
+
+- a distinct port, such as `3011` or `3020`
+- a distinct `MC_DATA_DIR`
+- a distinct `MC_WORKSPACE_ROOT`
+- distinct PID/log files
+- an explicit `MC_ENGINE_TICK=on`
+- a clear dry-run or operator-confirmed start path
+
+Example design sketch only; do not run this against real orchestration state
+without a dedicated script and validation:
+
+```sh
+PORT=3020 \
+MC_DATA_DIR="$PWD/data-exec-dev" \
+MC_WORKSPACE_ROOT="$HOME/.hiverunner/exec-dev/workspaces" \
+MC_LOG_DIR="$PWD/data-exec-dev/logs" \
+MC_ENGINE_TICK=on \
+NODE_ENV=development \
+node --max-old-space-size=8192 server.js
+```
+
+Before enabling that lane, seed or copy only the data intended for execution,
+verify no other process owns that `MC_DATA_DIR`, and keep `3010` observer-only.
 
 ## Workspace Roots
 

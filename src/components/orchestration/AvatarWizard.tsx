@@ -18,7 +18,13 @@ import { AVATAR_THEME_PRESETS } from "./avatar-theme-data";
 import { AvatarGlyph, avatarIconToken, toAvatarIconToken } from "./AvatarGlyph";
 import { LUCIDE_ICON_OPTIONS } from "./lucide-icons";
 import { clearAvatarDraftCache, readAvatarDraftCache, writeAvatarDraftCache } from "./avatar-draft-storage";
-import { voicesForGender, type VoicePreset } from "./voice-catalog";
+import { normalizeVoiceId, voicePresetById, voicesForGender, type VoicePreset } from "./voice-catalog";
+import { normalizeAvatarWizardErrorMessage } from "@/lib/orchestration/avatar-wizard-errors";
+import {
+  normalizeAvatarPreviewResponse,
+  normalizeAvatarProviderStatus,
+  type AvatarProviderStatusView,
+} from "@/lib/orchestration/avatar-wizard-data";
 import { listCompanyAgents } from "@/lib/orchestration/client";
 
 /* ── Types ── */
@@ -97,6 +103,7 @@ const W = {
 
 const TARGET_PREVIEW_COUNT = 4;
 const VOICE_PREVIEW_CLIENT_VERSION = "voice-director-v13";
+const DEFAULT_WIZARD_VOICE_ID = "Charon";
 
 function voicePreviewUrl(path: string): string {
   if (typeof window === "undefined") return path;
@@ -183,19 +190,20 @@ export function AvatarWizard({
   const [hairLength, setHairLength] = useState<string | null>(initialHairLength ?? null);
   const [eyeColor, setEyeColor] = useState<string | null>(initialEyeColor ?? null);
   const [vibe, setVibe] = useState<string>(initialVibe ?? "");
-  const [voiceId, setVoiceId] = useState<string | null>(initialVoiceId ?? null);
+  const [voiceId, setVoiceId] = useState<string | null>(normalizeVoiceId(initialVoiceId) ?? null);
+  const savedVoiceId = useMemo(() => normalizeVoiceId(initialVoiceId) ?? null, [initialVoiceId]);
   const [previews, setPreviews] = useState<string[]>([]);
   const [selectedPreview, setSelectedPreview] = useState(0);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [, setRestoredFromCache] = useState(false);
-  const [providerStatus, setProviderStatus] = useState<{
-    provider: string; label: string; aiAvailable: boolean; setupHint?: string;
-  } | null>(null);
+  const [providerStatus, setProviderStatus] = useState<AvatarProviderStatusView | null>(null);
   const hasStoredImageAvatar = Boolean(currentAvatar && !avatarIconToken(currentAvatar));
   const backdropRef = useRef<HTMLDivElement>(null);
   const generationRunRef = useRef(0);
+  const wantsGeneratedFlowRef = useRef(false);
+  const cachedSeedPreviewsRef = useRef<string[]>([]);
   /** Snapshot of identity params used for the most recent background-generation
    *  kickoff. If the user navigates back→forward without changing identity,
    *  we skip restarting and let the in-flight (or completed) work stand. */
@@ -224,10 +232,21 @@ export function AvatarWizard({
         const agents = await listCompanyAgents(companySlug);
         if (cancelled) return;
         const map: Record<string, string[]> = {};
+        const currentAgentKeys = new Set(
+          [agentId, alternateAgentKey]
+            .filter((value): value is string => Boolean(value))
+            .map((value) => value.toLowerCase()),
+        );
         for (const a of agents) {
-          if (!a.voiceId) continue;
-          if (a.id === agentId) continue;
-          (map[a.voiceId] ??= []).push(a.name);
+          const normalizedVoiceId = normalizeVoiceId(a.voiceId);
+          if (!normalizedVoiceId) continue;
+          if (
+            currentAgentKeys.has(String(a.id ?? "").toLowerCase()) ||
+            currentAgentKeys.has(String(a.slug ?? "").toLowerCase())
+          ) {
+            continue;
+          }
+          (map[normalizedVoiceId] ??= []).push(a.name);
         }
         setVoiceUsage(map);
       } catch {
@@ -257,6 +276,10 @@ export function AvatarWizard({
   useEffect(() => {
     voiceIdRef.current = voiceId;
   }, [voiceId]);
+
+  const setNormalizedVoiceId = useCallback((nextVoiceId: string | null) => {
+    setVoiceId(normalizeVoiceId(nextVoiceId) ?? null);
+  }, []);
 
   const writeCache = useCallback((nextPreviews: string[]) => {
     const snap = identityRef.current;
@@ -315,10 +338,12 @@ export function AvatarWizard({
             count: 1,
           }),
         });
-        const data = (await res.json().catch(() => ({}))) as { previews?: string[]; error?: string };
-        if (!res.ok) throw new Error(data.error || `Failed to generate (${res.status})`);
+        const data = normalizeAvatarPreviewResponse(await res.json().catch(() => ({})));
+        if (!res.ok) {
+          throw new Error(normalizeAvatarWizardErrorMessage(data, `Failed to generate (${res.status})`));
+        }
         const preview = data.previews?.[0];
-        if (!preview) throw new Error(`Preview ${index + 1} was empty`);
+        if (!preview) throw new Error(`Preview ${index + 1} did not return a valid image URL`);
         if (generationRunRef.current !== runId) return;
         nextPreviews.push(preview);
         setPreviews([...nextPreviews]);
@@ -326,7 +351,7 @@ export function AvatarWizard({
       }
     } catch (err) {
       if (generationRunRef.current !== runId) return;
-      setError(err instanceof Error ? err.message : "Generation failed");
+      setError(normalizeAvatarWizardErrorMessage(err, "Generation failed"));
     } finally {
       if (generationRunRef.current === runId) {
         setGenerating(false);
@@ -339,6 +364,8 @@ export function AvatarWizard({
   useEffect(() => {
     if (!open) {
       hasOpenedRef.current = false;
+      wantsGeneratedFlowRef.current = false;
+      cachedSeedPreviewsRef.current = [];
       return;
     }
     if (hasOpenedRef.current) return;
@@ -347,26 +374,31 @@ export function AvatarWizard({
     lastBackgroundSnapshotRef.current = null;
 
     const cached = readAvatarDraftCache(agentId, alternateAgentKey);
+    const cachedIdentity = saveMode === "draft" ? cached : null;
     const nextIcon = avatarIconToken(agentEmoji) ?? LUCIDE_ICON_OPTIONS[0]?.value ?? "bot";
-    const nextStyleId = initialStyleId ?? cached?.styleId ?? "cyber-organic";
-    const nextGender = initialGender ?? (cached?.gender as AvatarGender | undefined) ?? "androgynous";
+    const nextStyleId = initialStyleId ?? cachedIdentity?.styleId ?? "cyber-organic";
+    const nextGender = initialGender ?? (cachedIdentity?.gender as AvatarGender | undefined) ?? "androgynous";
     const cachedPreviews = cached?.previews ?? [];
     const cacheComplete = cachedPreviews.length >= TARGET_PREVIEW_COUNT;
-    const shouldResumeGenerated = hasStoredImageAvatar || cacheComplete || cachedPreviews.length > 0 || autoStart || pendingSetup || defaultSource === "generated";
+    const wantsGeneratedFlow = hasStoredImageAvatar || cacheComplete || cachedPreviews.length > 0 || autoStart || pendingSetup || defaultSource === "generated";
 
-    setSource(shouldResumeGenerated ? "generated" : "icon");
+    wantsGeneratedFlowRef.current = wantsGeneratedFlow;
+    cachedSeedPreviewsRef.current = cachedPreviews;
+
+    setSource(hasStoredImageAvatar || cacheComplete || cachedPreviews.length > 0 ? "generated" : "icon");
     setSelectedIcon(nextIcon);
     setStyleId(nextStyleId);
     setGender(nextGender);
-    setAge(initialAge ?? cached?.age ?? null);
-    setHairColor(initialHairColor ?? cached?.hairColor ?? null);
-    setHairLength(initialHairLength ?? cached?.hairLength ?? null);
-    setEyeColor(initialEyeColor ?? cached?.eyeColor ?? null);
-    setVibe(initialVibe ?? cached?.vibe ?? "");
-    setVoiceId(initialVoiceId ?? cached?.voiceId ?? null);
+    setAge(initialAge ?? cachedIdentity?.age ?? null);
+    setHairColor(initialHairColor ?? cachedIdentity?.hairColor ?? null);
+    setHairLength(initialHairLength ?? cachedIdentity?.hairLength ?? null);
+    setEyeColor(initialEyeColor ?? cachedIdentity?.eyeColor ?? null);
+    setVibe(initialVibe ?? cachedIdentity?.vibe ?? "");
+    setVoiceId(savedVoiceId ?? normalizeVoiceId(cachedIdentity?.voiceId) ?? null);
     setGenerating(false);
     setSaving(false);
     setError(null);
+    setProviderStatus(null);
 
     if (cacheComplete) {
       setPreviews(cachedPreviews);
@@ -377,7 +409,6 @@ export function AvatarWizard({
       setPreviews(cachedPreviews);
       setSelectedPreview(0);
       setRestoredFromCache(false);
-      void generatePreviews({ seedPreviews: cachedPreviews });
     } else {
       setPreviews([]);
       setSelectedPreview(0);
@@ -385,15 +416,47 @@ export function AvatarWizard({
       setRestoredFromCache(false);
     }
 
-    fetch("/api/orchestration/avatars/status")
-      .then((r) => r.ok ? r.json() : null)
-      .then((data) => { if (data) setProviderStatus(data); })
-      .catch(() => {});
+    void (async () => {
+      try {
+        const response = await fetch("/api/orchestration/avatars/status");
+        const data = await response.json().catch(() => ({}));
+        setProviderStatus(normalizeAvatarProviderStatus(data));
+      } catch {
+        setProviderStatus(normalizeAvatarProviderStatus(null));
+      }
+    })();
     // Deliberately minimal deps: this must only fire on open transition, not
     // whenever an initial* prop or callback identity changes. The guard ref
     // plus `open` dependency is the source of truth.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  useEffect(() => {
+    if (!open || providerStatus === null) return;
+
+    if (!providerStatus.aiAvailable) {
+      if (
+        wantsGeneratedFlowRef.current &&
+        !hasStoredImageAvatar &&
+        previews.length === 0 &&
+        source === "generated"
+      ) {
+        setSource("icon");
+      }
+      return;
+    }
+
+    if (!wantsGeneratedFlowRef.current) return;
+
+    if (source !== "generated") {
+      setSource("generated");
+    }
+
+    if (previews.length < TARGET_PREVIEW_COUNT && !generating) {
+      const seeded = cachedSeedPreviewsRef.current.slice(0, TARGET_PREVIEW_COUNT);
+      void generatePreviews({ seedPreviews: seeded });
+    }
+  }, [generating, hasStoredImageAvatar, open, previews.length, providerStatus, source, generatePreviews]);
 
   // Swallow Escape so in-progress work isn't lost
   useEffect(() => {
@@ -435,7 +498,7 @@ export function AvatarWizard({
       );
 
       if (shouldApplyGenerated) {
-        if (!selectedGeneratedAvatar) throw new Error("No preview selected");
+        if (!selectedGeneratedAvatar) throw new Error("Select a generated preview before applying the avatar.");
         payload.avatarUrl = selectedGeneratedAvatar;
       } else {
         payload.avatarUrl = null;
@@ -458,13 +521,16 @@ export function AvatarWizard({
           body: JSON.stringify(payload),
         }
       );
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(normalizeAvatarWizardErrorMessage(body, `Save failed (${res.status})`));
+      }
 
       clearAvatarDraftCache(agentId);
       onSaved?.();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(normalizeAvatarWizardErrorMessage(err, "Save failed"));
     } finally {
       setSaving(false);
     }
@@ -476,7 +542,8 @@ export function AvatarWizard({
         void applyAvatar();
         return;
       }
-      if (providerStatus && !providerStatus.aiAvailable) {
+      const hasGeneratedPreview = previews.some((preview) => typeof preview === "string" && preview.length > 0);
+      if (providerStatus && !providerStatus.aiAvailable && !hasGeneratedPreview && !hasStoredImageAvatar) {
         setError(providerStatus.setupHint ?? "Generated portraits require an AI image provider.");
         return;
       }
@@ -511,14 +578,20 @@ export function AvatarWizard({
   const goToStep = (target: WizardStep) => {
     setError(null);
     setStep(target);
-    if (target === "preview" && source === "generated" && previews.length === 0 && !generating) {
+    if (target === "preview" && source === "generated" && previews.length === 0 && !generating && providerStatus?.aiAvailable) {
       void generatePreviews({ seedPreviews: [] });
+    } else if (target === "preview" && source === "generated" && previews.length === 0 && providerStatus && !providerStatus.aiAvailable) {
+      setError(providerStatus.setupHint ?? "Generated portraits require an AI image provider.");
     }
   };
 
   if (!open) return null;
 
   const stepIndex = STEP_ORDER.indexOf(step);
+  const selectedGeneratedAvatar = previews[selectedPreview];
+  const canApplyGeneratedAvatar =
+    source !== "generated" ||
+    (typeof selectedGeneratedAvatar === "string" && selectedGeneratedAvatar.length > 0);
 
   return (
     <div
@@ -569,7 +642,9 @@ export function AvatarWizard({
             </span>
           </div>
           <button
+            type="button"
             onClick={onClose}
+            aria-label="Close avatar wizard"
             style={{
               background: "none",
               border: "none",
@@ -670,12 +745,13 @@ export function AvatarWizard({
             />
           )}
           {step === "voice" && (
-            <VoiceStep
-              voiceId={voiceId}
-              gender={gender}
-              onSelect={setVoiceId}
-              voiceUsage={voiceUsage}
-            />
+              <VoiceStep
+                voiceId={voiceId}
+                savedVoiceId={savedVoiceId}
+                gender={gender}
+                onSelect={setNormalizedVoiceId}
+                voiceUsage={voiceUsage}
+              />
           )}
           {step === "preview" && (
             <PreviewStep
@@ -733,7 +809,7 @@ export function AvatarWizard({
               <WizardBtn
                 variant="primary"
                 onClick={applyAvatar}
-                disabled={saving || previews.length === 0}
+                disabled={saving || !canApplyGeneratedAvatar}
               >
                 {saving ? (
                   <>
@@ -786,15 +862,15 @@ function SourceStep({
   pendingSetup: boolean;
 }) {
   const providerChecking = providerStatus === null;
-  const aiAvailable = providerStatus?.aiAvailable ?? true;
+  const aiAvailable = providerStatus?.aiAvailable ?? false;
   const sourceIconValue = toAvatarIconToken(selectedIcon);
   const currentAvatarIsIcon = avatarIconToken(currentAvatar);
   return (
     <div>
       <p style={{ fontSize: 13, color: W.textSec, margin: "0 0 14px" }}>
         {pendingSetup
-          ? "Portrait setup was started during agent creation. You can continue from the saved settings or switch back to the classic icon."
-          : "Choose how this agent's avatar should look."}
+          ? "Portrait setup was started during agent creation. You can continue with the saved settings or switch back to the classic icon."
+          : "Choose how this agent's avatar should look. Generated portraits are optional and only appear when an OpenAI image key is configured."}
       </p>
       <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
         <SourceCard
@@ -810,19 +886,20 @@ function SourceStep({
         />
         <SourceCard
           selected={source === "generated"}
+          disabled={!aiAvailable}
           onClick={() => aiAvailable ? onSelect("generated") : undefined}
           icon={<Sparkles size={28} style={{ color: W.textSec }} />}
           title="Generated portrait"
           description={
             providerChecking
-              ? "Customize gender, style, age, hair, eyes, and vibe while the image provider is checked."
+              ? "Customize gender, style, age, hair, eyes, and vibe while the optional image provider is checked."
               : aiAvailable
               ? `Customize gender, style, age, hair, eyes, and vibe — ${providerStatus?.label ?? "AI"} generates a unique portrait.`
-              : "Requires OpenAI image generation. Use a basic icon until it is configured."
+              : "Optional OpenAI image generation. Use a basic icon until it is configured."
           }
         />
       </div>
-      {!aiAvailable && providerStatus?.setupHint && source === "generated" && (
+      {!aiAvailable && providerStatus?.setupHint && (
         <div style={{
           marginTop: 10, padding: "8px 12px", borderRadius: 8,
           background: "rgba(120,113,108,0.08)", border: `1px solid ${W.border}`,
@@ -915,12 +992,14 @@ function SourceStep({
 
 function SourceCard({
   selected,
+  disabled = false,
   onClick,
   icon,
   title,
   description,
 }: {
   selected: boolean;
+  disabled?: boolean;
   onClick: () => void;
   icon: React.ReactNode;
   title: string;
@@ -928,6 +1007,9 @@ function SourceCard({
 }) {
   return (
     <button
+      type="button"
+      disabled={disabled}
+      aria-disabled={disabled}
       onClick={onClick}
       style={{
         display: "flex",
@@ -937,7 +1019,8 @@ function SourceCard({
         borderRadius: 12,
         border: `1.5px solid ${selected ? W.accentBorder : W.border}`,
         background: selected ? W.accentDim : W.card,
-        cursor: "pointer",
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.72 : 1,
         textAlign: "left",
         transition: "border-color 0.15s, background 0.15s",
       }}
@@ -1009,8 +1092,38 @@ function IdentityAndStyleStep({
   onVibeChange: (v: string) => void;
   isConstrained: boolean;
 }) {
+  const selectedStyle = styles.find((style) => style.id === styleId);
+  const genderCopy = gender === "androgynous" ? "Androgynous" : gender.charAt(0).toUpperCase() + gender.slice(1);
+  const detailParts = [
+    age ? `${age}` : null,
+    hairColor,
+    hairLength,
+    eyeColor ? `${eyeColor} eyes` : null,
+  ].filter(Boolean);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+      <div style={{
+        padding: "9px 10px",
+        borderRadius: 8,
+        background: "rgba(217,119,6,0.08)",
+        border: "1px solid rgba(217,119,6,0.2)",
+        color: "#fbbf24",
+        fontSize: 11,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 10,
+      }}>
+        <span>
+          Selected identity: <strong style={{ color: "#fde68a" }}>{genderCopy}</strong>
+          {selectedStyle ? <> · <strong style={{ color: "#fde68a" }}>{selectedStyle.name}</strong></> : null}
+        </span>
+        <span style={{ color: W.textSec }}>
+          {detailParts.length > 0 ? detailParts.join(" · ") : "Optional details can stay open"}
+        </span>
+      </div>
+
       {/* Gender */}
       <Section title="Gender" subtitle="Required — shapes the portrait silhouette.">
         <div style={{ display: "flex", gap: 6 }}>
@@ -1107,6 +1220,7 @@ function IdentityAndStyleStep({
           {styles.map((preset) => (
             <button
               key={preset.id}
+              type="button"
               onClick={() => onStyleSelect(preset.id)}
               style={{
                 padding: "10px 12px",
@@ -1173,6 +1287,7 @@ function KnobField({ label, children }: { label: string; children: React.ReactNo
 function SegBtn({ selected, onClick, label }: { selected: boolean; onClick: () => void; label: string }) {
   return (
     <button
+      type="button"
       onClick={onClick}
       style={{
         flex: 1,
@@ -1205,6 +1320,7 @@ function SmallToggle({
 }) {
   return (
     <button
+      type="button"
       onClick={onToggle}
       style={{
         fontSize: 10,
@@ -1262,11 +1378,13 @@ function SelectBox({
    ═══════════════════════════════════════════ */
 function VoiceStep({
   voiceId,
+  savedVoiceId,
   gender,
   onSelect,
   voiceUsage,
 }: {
   voiceId: string | null;
+  savedVoiceId: string | null;
   gender: AvatarGender;
   onSelect: (id: string | null) => void;
   voiceUsage: Record<string, string[]>;
@@ -1275,6 +1393,27 @@ function VoiceStep({
   const [previewError, setPreviewError] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const sampleUrlCacheRef = useRef<Map<string, string>>(new Map());
+
+  function previewSampleUrl(preset: VoicePreset, attempt: number): string {
+    return voicePreviewUrl(
+      `/api/voice/preview-sample?voiceId=${encodeURIComponent(preset.id)}&v=${VOICE_PREVIEW_CLIENT_VERSION}${attempt > 0 ? `&retry=${attempt}` : ""}`,
+    );
+  }
+
+  async function readPreviewFailureMessage(sampleUrl: string, fallback: string): Promise<string> {
+    const response = await fetch(sampleUrl, {
+      headers: {
+        Accept: "application/json",
+      },
+    }).catch(() => null);
+
+    if (!response || response.ok) {
+      return fallback;
+    }
+
+    const body = await response.json().catch(() => null);
+    return normalizeAvatarWizardErrorMessage(body, fallback);
+  }
 
   async function playSample(preset: VoicePreset, attempt: number = 0) {
     setPreviewError(null);
@@ -1288,12 +1427,11 @@ function VoiceStep({
     try {
       let sampleUrl = sampleUrlCacheRef.current.get(preset.id);
       if (!sampleUrl || attempt > 0) {
-        sampleUrl = voicePreviewUrl(`/api/voice/preview-sample?voiceId=${encodeURIComponent(preset.id)}&v=${VOICE_PREVIEW_CLIENT_VERSION}${attempt > 0 ? `&retry=${attempt}` : ""}`);
+        sampleUrl = previewSampleUrl(preset, attempt);
         sampleUrlCacheRef.current.set(preset.id, sampleUrl);
       }
 
       const audio = new Audio(sampleUrl);
-      audio.crossOrigin = "anonymous";
       audio.preload = "auto";
       audioRef.current = audio;
       audio.onended = () => setPreviewState((current) => (current?.voiceId === preset.id ? null : current));
@@ -1303,9 +1441,13 @@ function VoiceStep({
           window.clearTimeout(timeout);
           resolve();
         };
-        audio.onerror = () => {
+        audio.onerror = async () => {
           window.clearTimeout(timeout);
-          reject(new Error(`Couldn't play ${preset.name}. Try Preview again.`));
+          const message = await readPreviewFailureMessage(
+            sampleUrl,
+            `Couldn't play ${preset.name}. Try Preview again.`,
+          );
+          reject(new Error(message));
         };
         void audio.play().catch((error) => {
           window.clearTimeout(timeout);
@@ -1324,10 +1466,8 @@ function VoiceStep({
         return;
       }
       const message = err instanceof TypeError && /fetch/i.test(err.message)
-          ? "Couldn't reach the voice preview service. Try again in a moment."
-        : err instanceof Error
-          ? err.message
-          : "Preview playback failed";
+        ? "Couldn't reach the voice preview service. Try again in a moment."
+        : normalizeAvatarWizardErrorMessage(err, "Preview playback failed");
       setPreviewError(message);
     }
   }
@@ -1344,6 +1484,13 @@ function VoiceStep({
   }, []);
 
   const filtered = useMemo(() => voicesForGender(gender), [gender]);
+  const savedVoice = voicePresetById(savedVoiceId);
+  const selectedVoice = voicePresetById(voiceId);
+  const recommendedVoice = voicePresetById(DEFAULT_WIZARD_VOICE_ID);
+  const selectedVoiceId = selectedVoice?.id ?? voiceId;
+  const selectedVoiceChanged = Boolean(
+    selectedVoiceId && savedVoice?.id && selectedVoiceId !== savedVoice.id,
+  );
 
   const genderLabel =
     gender === "female" ? "feminine" : gender === "male" ? "masculine" : "all";
@@ -1351,7 +1498,7 @@ function VoiceStep({
   // If the currently-selected voice falls outside the filter after a gender
   // switch, surface a quiet "it's hidden" note — don't clear it for the user.
   const selectedOutsideFilter = Boolean(
-    voiceId && !filtered.some((v) => v.id === voiceId)
+    voiceId && selectedVoiceId && !filtered.some((v) => v.id === selectedVoiceId)
   );
 
   return (
@@ -1360,7 +1507,7 @@ function VoiceStep({
         Pick a voice for this agent. Used when you talk to them from a task.
       </p>
       <p style={{ fontSize: 10.5, color: W.muted, margin: "0 0 14px" }}>
-        Showing {filtered.length} {genderLabel} voices. Click Preview to hear the real Gemini voice — the first play generates the sample and caches.
+        Showing {filtered.length} {genderLabel} voices. Click Preview to hear a live voice sample — the first play generates the sample and caches.
       </p>
       {previewError && (
         <div style={{
@@ -1369,6 +1516,54 @@ function VoiceStep({
           fontSize: 11, color: "#fca5a5",
         }}>
           {previewError}
+        </div>
+      )}
+      {(savedVoice || selectedVoice || recommendedVoice) && (
+        <div style={{
+          marginBottom: 12,
+          padding: "9px 10px",
+          borderRadius: 8,
+          background: "rgba(217,119,6,0.1)",
+          border: "1px solid rgba(217,119,6,0.28)",
+          color: "#fbbf24",
+          fontSize: 11,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+        }}>
+          {savedVoice && selectedVoiceChanged ? (
+            <span>
+              Selected voice: <strong style={{ color: "#fde68a" }}>{selectedVoice?.name}</strong>
+            </span>
+          ) : savedVoice && !selectedVoice ? (
+            <span>
+              Voice will be cleared. <strong style={{ color: "#fde68a" }}>Apply Avatar</strong> to save that change.
+            </span>
+          ) : savedVoice ? (
+            <span>
+              Current voice: <strong style={{ color: "#fde68a" }}>{savedVoice.name}</strong>
+            </span>
+          ) : selectedVoice ? (
+            <span>
+              Selected voice: <strong style={{ color: "#fde68a" }}>{selectedVoice.name}</strong>
+            </span>
+          ) : (
+            <span>
+              No voice saved yet.
+            </span>
+          )}
+          <span style={{ color: W.textSec }}>
+            {savedVoice && selectedVoiceChanged
+              ? `Current saved: ${savedVoice.name}. Apply Avatar to switch.`
+              : savedVoice
+                ? `${savedVoice.style} · ${savedVoice.pace}`
+                : selectedVoice
+                  ? "Apply Avatar to save this voice for the agent"
+                  : recommendedVoice
+                    ? `Recommended default: ${recommendedVoice.name}`
+                    : "Pick a voice and apply it to save"}
+          </span>
         </div>
       )}
       {selectedOutsideFilter && (
@@ -1386,7 +1581,8 @@ function VoiceStep({
           <VoiceCard
             key={preset.id}
             preset={preset}
-            selected={voiceId === preset.id}
+            selected={selectedVoiceId === preset.id}
+            selectedLabel={savedVoice?.id === preset.id ? "Current" : "Selected"}
             previewPhase={previewState?.voiceId === preset.id ? previewState.phase : null}
             onSelect={() => onSelect(preset.id)}
             onPreview={() => playSample(preset)}
@@ -1397,6 +1593,7 @@ function VoiceStep({
 
       <div style={{ marginTop: 14, display: "flex", justifyContent: "center" }}>
         <button
+          type="button"
           onClick={() => onSelect(null)}
           style={{
             background: "transparent",
@@ -1418,6 +1615,7 @@ function VoiceStep({
 function VoiceCard({
   preset,
   selected,
+  selectedLabel,
   previewPhase,
   onSelect,
   onPreview,
@@ -1425,6 +1623,7 @@ function VoiceCard({
 }: {
   preset: VoicePreset;
   selected: boolean;
+  selectedLabel: string;
   previewPhase: "loading" | "playing" | null;
   onSelect: () => void;
   onPreview: () => void;
@@ -1432,21 +1631,25 @@ function VoiceCard({
 }) {
   const usageInline = inUseBy.length > 0 ? `(${inUseBy.join(", ")})` : null;
   const isPreviewing = previewPhase !== null;
+  const selectedBorder = "rgba(245,158,11,0.75)";
+  const selectedBackground = "linear-gradient(180deg, rgba(120,53,15,0.34), rgba(41,37,36,0.52))";
   return (
     <div
       data-testid={`voice-card-${preset.id}`}
       style={{
         position: "relative",
         borderRadius: 10,
-        border: `1.5px solid ${selected ? W.accentBorder : W.border}`,
-        background: selected ? W.accentDim : W.card,
+        border: `1.5px solid ${selected ? selectedBorder : W.border}`,
+        background: selected ? selectedBackground : W.card,
+        boxShadow: selected ? "0 0 0 1px rgba(245,158,11,0.16), 0 10px 28px rgba(120,53,15,0.18)" : "none",
         padding: "10px 12px",
-        transition: "border-color 0.15s, background 0.15s",
+        transition: "border-color 0.15s, background 0.15s, box-shadow 0.15s",
       }}
     >
       <button
         type="button"
         onClick={onSelect}
+        aria-pressed={selected}
         style={{
           display: "block",
           width: "100%",
@@ -1459,14 +1662,32 @@ function VoiceCard({
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-          <Volume2 size={13} style={{ color: selected ? W.accent : W.textSec }} />
+          <Volume2 size={13} style={{ color: selected ? "#f59e0b" : W.textSec }} />
           <span style={{ fontSize: 12, fontWeight: 600, color: W.text }}>
             {preset.name}
             {usageInline && (
               <span style={{ fontWeight: 400, color: W.muted, marginLeft: 6 }}>{usageInline}</span>
             )}
           </span>
-          {selected && <Check size={12} style={{ color: W.accent, marginLeft: "auto" }} />}
+          {selected && (
+            <span style={{
+              marginLeft: "auto",
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              borderRadius: 999,
+              border: "1px solid rgba(245,158,11,0.42)",
+              background: "rgba(245,158,11,0.14)",
+              color: "#fbbf24",
+              padding: "3px 7px",
+              fontSize: 9.5,
+              fontWeight: 700,
+              lineHeight: 1,
+            }}>
+              <Check size={10} />
+              {selectedLabel}
+            </span>
+          )}
         </div>
         <div style={{ fontSize: 10.5, color: W.textSec, lineHeight: 1.35 }}>
           {preset.descriptor}
@@ -1511,8 +1732,8 @@ function VoiceCard({
           padding: "4px 10px",
           borderRadius: 12,
           background: isPreviewing ? W.accentDim : "rgba(255,255,255,0.04)",
-          border: `1px solid ${isPreviewing ? W.accentBorder : W.border}`,
-          color: isPreviewing ? W.text : W.textSec,
+          border: `1px solid ${selected ? "rgba(245,158,11,0.38)" : isPreviewing ? W.accentBorder : W.border}`,
+          color: selected ? "#fbbf24" : isPreviewing ? W.text : W.textSec,
           cursor: previewPhase === "loading" ? "wait" : "pointer",
         }}
       >
@@ -1594,6 +1815,7 @@ function PreviewStep({
           return (
             <button
               key={i}
+              type="button"
               onClick={() => src ? onSelect(i) : undefined}
               disabled={!src}
               style={{
@@ -1675,6 +1897,7 @@ function WizardBtn({
   const isPrimary = variant === "primary";
   return (
     <button
+      type="button"
       onClick={onClick}
       disabled={disabled}
       style={{

@@ -14,6 +14,7 @@ import { join } from "path";
 import { getAgentByAnyId, AGENT_MD_FILENAMES, TAG_AGENT_MAP, BUILDER_AGENT_IDS, type AgentConfig } from "@/config/agents";
 import { buildVisualQAChecklist } from "@/lib/visual-qa";
 import { PUBLIC_COMPANY_LABEL } from "@/lib/public-identity";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 import type {
   AgentMemoryFile,
   AgentMemoryEntry,
@@ -455,7 +456,7 @@ export function buildAgentIdentityBlock(agentId: string, project?: string): stri
 
   const lines = [
     "### Agent Identity",
-    `You are **${agent.name}** (${agent.emoji}), ${agent.role} for the ${PUBLIC_COMPANY_LABEL}.`,
+    `You are **${agentDisplayLabel(agent.emoji, agent.name)}**, ${agent.role} for the ${PUBLIC_COMPANY_LABEL}.`,
     `Division: ${agent.division}`,
     "",
     agent.persona.split("\n")[0], // First paragraph of persona

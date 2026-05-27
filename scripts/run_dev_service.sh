@@ -41,12 +41,13 @@ fi
 
 MC_DEV_EXECUTION_TEST_MODE="${MC_DEV_EXECUTION_TEST_MODE:-0}"
 MC_REQUIRE_LOCAL_DEV_AUTH="${MC_REQUIRE_LOCAL_DEV_AUTH:-}"
-if [ -z "${MC_ENGINE_TICK+x}" ]; then
-  if [ "$MC_DEV_EXECUTION_TEST_MODE" = "1" ]; then
-    MC_ENGINE_TICK="on"
-  else
-    MC_ENGINE_TICK="off"
-  fi
+REQUESTED_MC_ENGINE_TICK="${MC_ENGINE_TICK:-}"
+if [ "$PORT" = "3010" ]; then
+  # Port 3010 is the build/UI observer lane. Dev execution test mode can expose
+  # gated controls, but it must not make this process an execution owner.
+  MC_ENGINE_TICK="off"
+elif [ -z "${MC_ENGINE_TICK+x}" ]; then
+  MC_ENGINE_TICK="off"
 fi
 HEARTBEAT_ENABLED="${HEARTBEAT_ENABLED:-}"
 HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-}"
@@ -112,7 +113,15 @@ if [ -n "$SYMPHONY_EXEC_COMMAND" ]; then
 else
   RUNNER_COMMAND="default"
 fi
-echo "[hr-dev] service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT, symphony-tracker: $HIVERUNNER_SYMPHONY_TRACKER_ENABLED, symphony-tracker-auth: $TRACKER_AUTH, symphony-dry-run: $HIVERUNNER_SYMPHONY_DRY_RUN, symphony-runner: $RUNNER_COMMAND)"
+if [ "$PORT" = "3010" ]; then
+  LANE_ROLE="observer"
+else
+  LANE_ROLE="dev-custom"
+fi
+if [ "$PORT" = "3010" ] && [ -n "$REQUESTED_MC_ENGINE_TICK" ] && [ "$REQUESTED_MC_ENGINE_TICK" != "off" ]; then
+  echo "[hr-dev] ignoring MC_ENGINE_TICK=$REQUESTED_MC_ENGINE_TICK on port 3010; forcing observer-only"
+fi
+echo "[hr-dev] service starting on port $PORT (role: $LANE_ROLE, node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT, symphony-tracker: $HIVERUNNER_SYMPHONY_TRACKER_ENABLED, symphony-tracker-auth: $TRACKER_AUTH, symphony-dry-run: $HIVERUNNER_SYMPHONY_DRY_RUN, symphony-runner: $RUNNER_COMMAND)"
 
 exec env \
   NODE_ENV=development \

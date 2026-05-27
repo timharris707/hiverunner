@@ -7,7 +7,10 @@ export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3010"),
   title: "HiveRunner",
   description:
-    "Agent-orchestration command center. Run, watch, and steer a swarm of AI agents across companies, projects, and runtimes.",
+    "Local-first command center for AI agent teams. Define goals, coordinate agents, track tasks, and keep humans in control.",
+  alternates: {
+    canonical: "/",
+  },
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -23,17 +26,32 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   openGraph: {
-    title: "HiveRunner",
+    title: "HiveRunner - Local-first command center for AI agent teams",
     description:
-      "Agent-orchestration command center. Run, watch, and steer a swarm of AI agents across companies, projects, and runtimes.",
-    images: [{ url: "/og-image.png", width: 1200, height: 630 }],
+      "Define goals, coordinate agents, track tasks, preserve context, and keep humans in control.",
+    url: "/",
+    siteName: "HiveRunner",
+    images: [
+      {
+        url: "/og-image.png",
+        width: 1200,
+        height: 630,
+        alt: "HiveRunner local-first AI agent command center",
+      },
+    ],
+    locale: "en_US",
     type: "website",
   },
   twitter: {
     card: "summary_large_image",
-    title: "HiveRunner",
-    description: "Agent-orchestration command center.",
-    images: ["/og-image.png"],
+    title: "HiveRunner - Command center for AI agent teams",
+    description: "Define goals, coordinate agents, track tasks, and keep humans in control.",
+    images: [
+      {
+        url: "/og-image.png",
+        alt: "HiveRunner local-first AI agent command center",
+      },
+    ],
   },
 };
 

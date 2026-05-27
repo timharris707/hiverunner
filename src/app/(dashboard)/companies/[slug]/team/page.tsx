@@ -345,7 +345,12 @@ function AgentTeamCard({
               className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border"
               style={{ borderColor: "var(--border)", background: "var(--surface-hover)" }}
             >
-              <AvatarGlyph value={agent.emoji} size={14} color="var(--text-primary)" />
+              {agent.avatar ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={agent.avatar} alt="" className="h-full w-full rounded-full object-cover" />
+              ) : (
+                <AvatarGlyph value={agent.emoji} size={14} color="var(--text-primary)" />
+              )}
             </span>
             <h3 className="text-sm font-semibold" style={{ color: "var(--text-primary)" }}>{agent.name}</h3>
           </div>

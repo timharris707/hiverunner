@@ -444,9 +444,17 @@ function withDirectorProfile(preset: BaseVoicePreset): VoicePreset {
 
 export const VOICE_CATALOG: readonly VoicePreset[] = BASE_VOICE_CATALOG.map(withDirectorProfile);
 
-export function voicePresetById(id: string | null | undefined): VoicePreset | undefined {
+export function normalizeVoiceId(id: string | null | undefined): string | undefined {
   if (!id) return undefined;
-  return VOICE_CATALOG.find((v) => v.id === id);
+  const normalized = id.trim();
+  if (!normalized) return undefined;
+  return VOICE_CATALOG.find((v) => v.id.toLowerCase() === normalized.toLowerCase())?.id;
+}
+
+export function voicePresetById(id: string | null | undefined): VoicePreset | undefined {
+  const normalized = normalizeVoiceId(id);
+  if (!normalized) return undefined;
+  return VOICE_CATALOG.find((v) => v.id === normalized);
 }
 
 export function geminiVoiceDirectorPrompt(preset: VoicePreset): string {

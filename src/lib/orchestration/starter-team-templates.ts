@@ -36,6 +36,20 @@ export type StarterTeamProviderKeyRequirement = {
   setupCopy: string;
 };
 
+export type StarterTeamRoleIdentity = {
+  sourceAgentName: string;
+  avatarUrl: string;
+  avatarStyleId: string;
+  avatarGender: "female" | "male" | "androgynous";
+  avatarAge?: number;
+  avatarHairColor?: string;
+  avatarHairLength?: string;
+  avatarEyeColor?: string;
+  avatarVibe: string;
+  voiceId: string;
+  personality: string;
+};
+
 export type StarterTeamRoleTemplate = {
   id: string;
   name: string;
@@ -50,6 +64,7 @@ export type StarterTeamRoleTemplate = {
   reportsTo: "ceo-or-lead" | "owner";
   defaultRuntimeProvider: StarterTeamRuntimeProvider;
   modelLane: StarterTeamModelLane;
+  identity?: StarterTeamRoleIdentity;
 };
 
 export type StarterTeamRoleCard = StarterTeamRoleTemplate;
@@ -140,6 +155,269 @@ const NO_PROVIDER_KEY_REQUIRED: StarterTeamProviderKeyRequirement = {
     "Setup can finish without connecting runtime provider keys. Selected roles start with manual runtime assignment and can be connected later.",
 };
 
+const STARTER_AVATAR_BASE = "/starter-agent-avatars";
+
+type StarterAgentIdentityKey =
+  | "castor"
+  | "clarity"
+  | "corey"
+  | "denise"
+  | "flash"
+  | "frank"
+  | "gator"
+  | "mannie"
+  | "meridian"
+  | "oracle"
+  | "penny"
+  | "prism"
+  | "ralph"
+  | "samantha"
+  | "scout"
+  | "swift"
+  | "toby"
+  | "vega";
+
+const STARTER_AGENT_IDENTITIES = {
+  castor: {
+    sourceAgentName: "Castor",
+    avatarUrl: `${STARTER_AVATAR_BASE}/castor.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 26,
+    avatarHairColor: "Black",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Precise, calm, and careful with claims.",
+    voiceId: "Enceladus",
+    personality: "Careful, compliance-minded, and direct about unsupported claims.",
+  },
+  clarity: {
+    sourceAgentName: "Clarity",
+    avatarUrl: `${STARTER_AVATAR_BASE}/clarity.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 29,
+    avatarHairColor: "Blonde",
+    avatarHairLength: "Long",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Confident reviewer with a steady editorial presence.",
+    voiceId: "Sulafat",
+    personality: "Warm, steady, and excellent at turning fuzzy process into clear review criteria.",
+  },
+  corey: {
+    sourceAgentName: "Corey",
+    avatarUrl: `${STARTER_AVATAR_BASE}/corey.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 31,
+    avatarHairColor: "Black",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Focused builder with practical engineering judgment.",
+    voiceId: "Alnilam",
+    personality: "Grounded, implementation-focused, and biased toward small verified changes.",
+  },
+  denise: {
+    sourceAgentName: "Denise",
+    avatarUrl: `${STARTER_AVATAR_BASE}/denise.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 32,
+    avatarHairColor: "Dark Brown",
+    avatarHairLength: "Shoulder-length",
+    avatarEyeColor: "Green",
+    avatarVibe: "Polished integration specialist with calm boundary discipline.",
+    voiceId: "Callirrhoe",
+    personality: "Easy-going, practical, and careful around service boundaries and failure modes.",
+  },
+  flash: {
+    sourceAgentName: "Flash",
+    avatarUrl: `${STARTER_AVATAR_BASE}/flash.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 23,
+    avatarHairColor: "Red",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Fast-moving scout with visible urgency and focus.",
+    voiceId: "Achird",
+    personality: "Friendly, quick, and useful for broad scans that should not become deep research.",
+  },
+  frank: {
+    sourceAgentName: "Frank",
+    avatarUrl: `${STARTER_AVATAR_BASE}/frank.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 46,
+    avatarHairColor: "Brown",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Measured analyst with sober judgment.",
+    voiceId: "Algieba",
+    personality: "Smooth, even, and reliable when numbers, assumptions, or tradeoffs need review.",
+  },
+  gator: {
+    sourceAgentName: "Gator",
+    avatarUrl: `${STARTER_AVATAR_BASE}/gator.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 38,
+    avatarHairColor: "Black",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Demanding quality lead with a strong release gate presence.",
+    voiceId: "Umbriel",
+    personality: "Laid-back in tone, but strict about evidence, acceptance criteria, and regressions.",
+  },
+  mannie: {
+    sourceAgentName: "Mannie",
+    avatarUrl: `${STARTER_AVATAR_BASE}/mannie.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 34,
+    avatarHairColor: "Black",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Organized back-end operator with steady delivery energy.",
+    voiceId: "Zubenelgenubi",
+    personality: "Casual, practical, and useful for coordinating operational and back-end details.",
+  },
+  meridian: {
+    sourceAgentName: "Meridian",
+    avatarUrl: `${STARTER_AVATAR_BASE}/meridian.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 35,
+    avatarHairColor: "Black",
+    avatarHairLength: "Shoulder-length",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Strategic architect with calm synthesis and depth.",
+    voiceId: "Despina",
+    personality: "Smooth, thoughtful, and strong at turning research into architecture-level decisions.",
+  },
+  oracle: {
+    sourceAgentName: "Oracle",
+    avatarUrl: `${STARTER_AVATAR_BASE}/oracle.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 48,
+    avatarHairColor: "Bald",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Confident lead operator with crisp product judgment.",
+    voiceId: "Algenib",
+    personality: "Direct, strategic, and strong at decomposing goals into accountable work.",
+  },
+  penny: {
+    sourceAgentName: "Penny",
+    avatarUrl: `${STARTER_AVATAR_BASE}/penny.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 27,
+    avatarHairColor: "Auburn",
+    avatarHairLength: "Long",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Soft-spoken triage partner with practical support instincts.",
+    voiceId: "Achernar",
+    personality: "Gentle, considered, and useful for support triage and customer-facing wording.",
+  },
+  prism: {
+    sourceAgentName: "Prism",
+    avatarUrl: `${STARTER_AVATAR_BASE}/prism.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 30,
+    avatarHairColor: "Purple",
+    avatarHairLength: "Medium",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Vibrant editor with strong structure and clarity instincts.",
+    voiceId: "Leda",
+    personality: "Bright, a little eager, and strong at making copy clear without sanding away personality.",
+  },
+  ralph: {
+    sourceAgentName: "Ralph",
+    avatarUrl: `${STARTER_AVATAR_BASE}/ralph.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 33,
+    avatarHairColor: "Brown",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Cheerful release steward with practical repo discipline.",
+    voiceId: "Rasalgethi",
+    personality: "Briefing-room precise, but approachable about scope, release notes, and validation.",
+  },
+  samantha: {
+    sourceAgentName: "Samantha",
+    avatarUrl: `${STARTER_AVATAR_BASE}/samantha.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 29,
+    avatarHairColor: "Black",
+    avatarHairLength: "Very long",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Composed front-end builder with polished product instincts.",
+    voiceId: "Zephyr",
+    personality: "Crisp, energetic, and strong at turning product direction into UI implementation.",
+  },
+  scout: {
+    sourceAgentName: "Scout",
+    avatarUrl: `${STARTER_AVATAR_BASE}/scout.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 25,
+    avatarHairColor: "Brown",
+    avatarHairLength: "Medium",
+    avatarEyeColor: "Blue",
+    avatarVibe: "Studious researcher with a sharp, curious edge.",
+    voiceId: "Iapetus",
+    personality: "Documentary-clear, source-oriented, and careful about uncertainty.",
+  },
+  swift: {
+    sourceAgentName: "Swift",
+    avatarUrl: `${STARTER_AVATAR_BASE}/swift.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 26,
+    avatarHairColor: "Brown",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Blue",
+    avatarVibe: "Fast execution partner with crisp follow-through.",
+    voiceId: "Laomedeia",
+    personality: "Warm, engaged, and useful for turning repeated work into visible progress.",
+  },
+  toby: {
+    sourceAgentName: "Toby",
+    avatarUrl: `${STARTER_AVATAR_BASE}/toby.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "male",
+    avatarAge: 34,
+    avatarHairColor: "Black",
+    avatarHairLength: "Short",
+    avatarEyeColor: "Brown",
+    avatarVibe: "Friendly product analyst with strong UX instincts.",
+    voiceId: "Sadaltager",
+    personality: "Practical, candid, and good at translating vague user needs into acceptance criteria.",
+  },
+  vega: {
+    sourceAgentName: "Vega",
+    avatarUrl: `${STARTER_AVATAR_BASE}/vega.webp`,
+    avatarStyleId: "anime-studio",
+    avatarGender: "female",
+    avatarAge: 28,
+    avatarHairColor: "Red",
+    avatarHairLength: "Long",
+    avatarEyeColor: "Red",
+    avatarVibe: "Fiery visual systems lead with ambitious taste.",
+    voiceId: "Aoede",
+    personality: "Tasteful, exacting, visually ambitious, and allergic to generic product surfaces.",
+  },
+} as const satisfies Record<StarterAgentIdentityKey, StarterTeamRoleIdentity>;
+
+function starterIdentity(key: StarterAgentIdentityKey): StarterTeamRoleIdentity {
+  return STARTER_AGENT_IDENTITIES[key];
+}
+
 export const STARTER_TEAM_TEMPLATES = [
   {
     id: "software-product",
@@ -169,9 +447,10 @@ export const STARTER_TEAM_TEMPLATES = [
       "software-implementation-engineer",
       "software-product-ux-analyst",
       "software-qa-reviewer",
-      "software-release-coordinator",
+      "software-research-analyst",
+      "software-creative-director",
     ],
-    optionalRoleIds: ["software-research-analyst", "software-integrations-engineer"],
+    optionalRoleIds: ["software-release-coordinator", "software-integrations-engineer", "software-frontend-engineer"],
     editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
     providerKeyRequirement: NO_PROVIDER_KEY_REQUIRED,
     leadershipRule: {
@@ -200,6 +479,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("corey"),
       },
       {
         id: "software-product-ux-analyst",
@@ -215,6 +495,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("toby"),
       },
       {
         id: "software-qa-reviewer",
@@ -230,13 +511,14 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("gator"),
       },
       {
         id: "software-release-coordinator",
         name: "Ralph",
         role: "Release Coordinator",
-        defaultSelected: true,
-        optional: false,
+        defaultSelected: false,
+        optional: true,
         summary: "Keeps scope, validation, rollback, and final handoff aligned.",
         mission: "Coordinate final readiness, confirm validation evidence, and prepare a practical release handoff.",
         kickoffIntentCopy: "Track final readiness for the first product project and keep release notes grounded in evidence.",
@@ -245,13 +527,14 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("ralph"),
       },
       {
         id: "software-research-analyst",
         name: "Scout",
         role: "Research Analyst",
-        defaultSelected: false,
-        optional: true,
+        defaultSelected: true,
+        optional: false,
         summary: "Answers focused technical or market questions before build work starts.",
         mission: "Gather source-backed context and summarize practical tradeoffs for the product team.",
         kickoffIntentCopy: "Research open questions that could change the first project scope or sequencing.",
@@ -260,6 +543,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("scout"),
       },
       {
         id: "software-integrations-engineer",
@@ -275,6 +559,39 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("denise"),
+      },
+      {
+        id: "software-creative-director",
+        name: "Vega",
+        role: "Brand and Visual Systems Director",
+        defaultSelected: true,
+        optional: false,
+        summary: "Protects the product's visual quality, voice, and presentation.",
+        mission: "Make product surfaces, launch copy, and visual direction feel polished, specific, and intentional.",
+        kickoffIntentCopy: "Shape the first product milestone so its UX, copy, and visual presentation feel first-class.",
+        capabilities: ["Review visual quality", "Draft creative direction", "Tighten product copy", "Protect design consistency"],
+        editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
+        reportsTo: "ceo-or-lead",
+        defaultRuntimeProvider: "manual",
+        modelLane: "deep",
+        identity: starterIdentity("vega"),
+      },
+      {
+        id: "software-frontend-engineer",
+        name: "Samantha",
+        role: "Front End Engineer",
+        defaultSelected: false,
+        optional: true,
+        summary: "Turns approved product direction into polished interface changes.",
+        mission: "Build responsive UI changes with clear states, careful layout, and practical handoff notes.",
+        kickoffIntentCopy: "Support the first product project where interface implementation is needed.",
+        capabilities: ["Implement UI changes", "Check responsive behavior", "Refine interaction states", "Document front-end handoffs"],
+        editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
+        reportsTo: "ceo-or-lead",
+        defaultRuntimeProvider: "manual",
+        modelLane: "default",
+        identity: starterIdentity("samantha"),
       },
     ],
   },
@@ -282,17 +599,17 @@ export const STARTER_TEAM_TEMPLATES = [
     id: "general-execution",
     workTypeId: "general-execution",
     label: "General Execution",
-    summary: "A light setup for one accountable lead with an optional copilot role.",
+    summary: "A small operator team with one lead plus a builder and reviewer.",
     templateName: "Solo Operator Copilot",
     templateShortName: "Solo Copilot",
     displayCopy: {
       label: "General Execution",
-      headline: "Keep one lead focused on planning and execution.",
-      body: "Use a light setup for a single operator who wants task planning, follow-through, and concise updates.",
-      selectionHint: "Best when you do not want a multi-agent team yet.",
+      headline: "Keep the team small while still covering build and review.",
+      body: "Use a light setup for an accountable lead, one practical builder, and one reviewer.",
+      selectionHint: "Best when you want a compact team instead of the full studio.",
     },
     kickoffIntentCopy:
-      "Use this setup to preserve one accountable lead, create a practical first plan, and move work through small visible tasks.",
+      "Use this setup to preserve one accountable lead, create a practical first plan, and move work through small visible tasks with a builder and reviewer.",
     kickoffTask: {
       title: "Create the first execution plan",
       description:
@@ -302,14 +619,14 @@ export const STARTER_TEAM_TEMPLATES = [
     recommendedTaskTitle: "Create the first execution plan",
     recommendedTaskDescription:
       "Turn the company mission into a short execution plan with immediate priorities, next actions, and the first review checkpoint.",
-    defaultSelectedRoleIds: [],
+    defaultSelectedRoleIds: ["solo-builder", "solo-reviewer"],
     optionalRoleIds: ["solo-operator-copilot"],
     editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
     providerKeyRequirement: NO_PROVIDER_KEY_REQUIRED,
     leadershipRule: {
       mode: "rename-ceo-to-lead",
       title: "Single-lead setup",
-      rule: "Do not create extra default teammates. The existing CEO or lead remains the accountable operator copilot; UI may label the role as Lead instead of CEO when the operator chooses that wording.",
+      rule: "Keep the existing CEO or lead as the accountable operator. Add only a compact builder and reviewer unless the operator edits the team.",
       preservesExistingCeoOrLead: true,
       replacementRoleId: null,
     },
@@ -320,7 +637,7 @@ export const STARTER_TEAM_TEMPLATES = [
     roleCards: [
       {
         id: "solo-operator-copilot",
-        name: "Parker",
+        name: "Oracle",
         role: "Operator Copilot",
         defaultSelected: false,
         optional: true,
@@ -332,6 +649,39 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("oracle"),
+      },
+      {
+        id: "solo-builder",
+        name: "Corey",
+        role: "Builder",
+        defaultSelected: true,
+        optional: false,
+        summary: "Turns the lead's plan into practical implementation work.",
+        mission: "Take scoped tasks from the lead and produce working, reviewable outputs.",
+        kickoffIntentCopy: "Build the first small execution item from the launch plan.",
+        capabilities: ["Implement scoped work", "Keep changes small", "Report blockers", "Prepare handoffs"],
+        editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
+        reportsTo: "ceo-or-lead",
+        defaultRuntimeProvider: "manual",
+        modelLane: "default",
+        identity: starterIdentity("corey"),
+      },
+      {
+        id: "solo-reviewer",
+        name: "Gator",
+        role: "Reviewer",
+        defaultSelected: true,
+        optional: false,
+        summary: "Checks that completed work matches the requested outcome.",
+        mission: "Review the first execution outputs for completeness, clarity, and practical evidence.",
+        kickoffIntentCopy: "Review the first small execution item before the lead treats it as done.",
+        capabilities: ["Review evidence", "Check acceptance criteria", "Flag gaps", "Confirm completion"],
+        editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
+        reportsTo: "ceo-or-lead",
+        defaultRuntimeProvider: "manual",
+        modelLane: "default",
+        identity: starterIdentity("gator"),
       },
     ],
   },
@@ -356,8 +706,8 @@ export const STARTER_TEAM_TEMPLATES = [
         "Define the first research question, the sources or evidence needed, decision criteria, and the recommendation format for the research desk.",
       priority: "P1",
     },
-    defaultSelectedRoleIds: ["research-source-analyst", "research-strategy-synthesizer", "research-review-editor"],
-    optionalRoleIds: ["research-data-analyst", "research-operator-briefing-lead"],
+    defaultSelectedRoleIds: ["research-source-analyst", "research-strategy-synthesizer", "research-review-editor", "research-operator-briefing-lead"],
+    optionalRoleIds: ["research-data-analyst"],
     editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
     providerKeyRequirement: NO_PROVIDER_KEY_REQUIRED,
     leadershipRule: {
@@ -389,6 +739,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("scout"),
       },
       {
         id: "research-strategy-synthesizer",
@@ -404,6 +755,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "deep",
+        identity: starterIdentity("meridian"),
       },
       {
         id: "research-review-editor",
@@ -419,6 +771,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("prism"),
       },
       {
         id: "research-data-analyst",
@@ -434,13 +787,14 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("frank"),
       },
       {
         id: "research-operator-briefing-lead",
         name: "Oracle",
         role: "Briefing Lead",
-        defaultSelected: false,
-        optional: true,
+        defaultSelected: true,
+        optional: false,
         summary: "Packages findings into a decision-ready operator brief.",
         mission: "Prepare concise briefings that make status, tradeoffs, and asks easy to review.",
         kickoffIntentCopy: "Package the first research outcome into a clean briefing for the operator.",
@@ -449,6 +803,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("oracle"),
       },
     ],
   },
@@ -506,6 +861,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("mannie"),
       },
       {
         id: "support-triage-specialist",
@@ -521,6 +877,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "fast",
+        identity: starterIdentity("penny"),
       },
       {
         id: "ops-process-analyst",
@@ -536,6 +893,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("clarity"),
       },
       {
         id: "ops-quality-reviewer",
@@ -551,6 +909,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("gator"),
       },
       {
         id: "ops-automation-planner",
@@ -566,6 +925,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("swift"),
       },
       {
         id: "ops-knowledge-base-editor",
@@ -581,6 +941,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("prism"),
       },
     ],
   },
@@ -605,8 +966,8 @@ export const STARTER_TEAM_TEMPLATES = [
         "Define the audience, message, first content pieces, review path, publishing steps, and basic measurement plan for the content team.",
       priority: "P1",
     },
-    defaultSelectedRoleIds: ["content-strategist", "content-writer-editor", "content-campaign-coordinator", "content-copy-reviewer"],
-    optionalRoleIds: ["content-researcher", "content-distribution-analyst"],
+    defaultSelectedRoleIds: ["content-creative-director", "content-writer-editor", "content-copy-reviewer", "content-researcher"],
+    optionalRoleIds: ["content-strategist", "content-campaign-coordinator", "content-distribution-analyst"],
     editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
     providerKeyRequirement: NO_PROVIDER_KEY_REQUIRED,
     leadershipRule: {
@@ -625,11 +986,27 @@ export const STARTER_TEAM_TEMPLATES = [
       "Define the audience, message, first content pieces, review path, publishing steps, and basic measurement plan for the content team.",
     roleCards: [
       {
+        id: "content-creative-director",
+        name: "Vega",
+        role: "Creative Director",
+        defaultSelected: true,
+        optional: false,
+        summary: "Shapes the visual and creative direction for public-facing work.",
+        mission: "Turn the workspace mission into a distinctive creative direction with clear taste, visual standards, and review criteria.",
+        kickoffIntentCopy: "Define the first creative direction and visual quality bar for the content plan.",
+        capabilities: ["Set creative direction", "Define visual standards", "Review brand fit", "Sharpen presentation"],
+        editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
+        reportsTo: "ceo-or-lead",
+        defaultRuntimeProvider: "manual",
+        modelLane: "deep",
+        identity: starterIdentity("vega"),
+      },
+      {
         id: "content-strategist",
         name: "Oracle",
         role: "Content Strategist",
-        defaultSelected: true,
-        optional: false,
+        defaultSelected: false,
+        optional: true,
         summary: "Defines audience, message, and content priorities.",
         mission: "Turn the workspace mission into clear positioning, content themes, and first campaign priorities.",
         kickoffIntentCopy: "Define the first content plan, target audience, and message priorities.",
@@ -638,6 +1015,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("oracle"),
       },
       {
         id: "content-writer-editor",
@@ -653,13 +1031,14 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("prism"),
       },
       {
         id: "content-campaign-coordinator",
         name: "Samantha",
         role: "Campaign Coordinator",
-        defaultSelected: true,
-        optional: false,
+        defaultSelected: false,
+        optional: true,
         summary: "Coordinates content tasks, publishing steps, and campaign handoffs.",
         mission: "Keep campaign work organized across drafts, reviews, publishing steps, and follow-up tasks.",
         kickoffIntentCopy: "Create the first campaign task list and keep drafting, review, and publishing steps aligned.",
@@ -668,6 +1047,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("samantha"),
       },
       {
         id: "content-copy-reviewer",
@@ -683,13 +1063,14 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("castor"),
       },
       {
         id: "content-researcher",
         name: "Scout",
         role: "Content Researcher",
-        defaultSelected: false,
-        optional: true,
+        defaultSelected: true,
+        optional: false,
         summary: "Finds audience, topic, and reference context for better content.",
         mission: "Gather useful context before drafting so content is accurate and grounded.",
         kickoffIntentCopy: "Research the first content topic and prepare source notes for drafting.",
@@ -698,6 +1079,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "default",
+        identity: starterIdentity("scout"),
       },
       {
         id: "content-distribution-analyst",
@@ -713,6 +1095,7 @@ export const STARTER_TEAM_TEMPLATES = [
         reportsTo: "ceo-or-lead",
         defaultRuntimeProvider: "manual",
         modelLane: "fast",
+        identity: starterIdentity("flash"),
       },
     ],
   },
@@ -783,6 +1166,7 @@ export function cloneStarterTeamRoles(workTypeId: StarterTeamWorkTypeId): Starte
     ...role,
     capabilities: [...role.capabilities],
     editableFields: [...role.editableFields],
+    identity: role.identity ? { ...role.identity } : undefined,
     selected: role.defaultSelected,
     runtimeProvider: role.defaultRuntimeProvider,
     model: "",
@@ -812,6 +1196,16 @@ export type SelectedStarterTeamAgent = {
   role: string;
   mission: string | null;
   capabilities: string[];
+  personality?: string | null;
+  avatarUrl?: string | null;
+  avatarStyleId?: string | null;
+  avatarGender?: string | null;
+  avatarAge?: number | null;
+  avatarHairColor?: string | null;
+  avatarHairLength?: string | null;
+  avatarEyeColor?: string | null;
+  avatarVibe?: string | null;
+  voiceId?: string | null;
 };
 
 function readStarterString(value: unknown): string | null {
@@ -841,9 +1235,14 @@ export function readSelectedStarterAgents(
   if (workType && !isStarterTeamWorkTypeId(workType)) {
     throw new Error(`Unknown starter team work type: ${workType}`);
   }
-  if (workType === "blank-custom") {
+  const workTypeId = workType && isStarterTeamWorkTypeId(workType) ? workType : null;
+  if (workTypeId === "blank-custom") {
     return [];
   }
+  const template = workTypeId ? getStarterTeamTemplate(workTypeId) : null;
+  const roleIdentityById = new Map(
+    template?.roleCards.map((role) => [role.id, role.identity ? { ...role.identity } : null]) ?? [],
+  );
   const agents = record.agents;
   if (!Array.isArray(agents)) return [];
 
@@ -852,12 +1251,26 @@ export function readSelectedStarterAgents(
   return agents
     .filter((agent): agent is Record<string, unknown> => typeof agent === "object" && agent !== null)
     .filter((agent) => agent.selected !== false)
-    .map((agent) => ({
-      name: readStarterString(agent.name) ?? "",
-      role: readStarterString(agent.role) ?? "",
-      mission: readStarterString(agent.mission),
-      capabilities: readStarterCapabilities(agent.capabilities),
-    }))
+    .map((agent) => {
+      const id = readStarterString(agent.id);
+      const identity = id ? roleIdentityById.get(id) ?? null : null;
+      return {
+        name: readStarterString(agent.name) ?? "",
+        role: readStarterString(agent.role) ?? "",
+        mission: readStarterString(agent.mission),
+        capabilities: readStarterCapabilities(agent.capabilities),
+        personality: identity?.personality ?? null,
+        avatarUrl: identity?.avatarUrl ?? null,
+        avatarStyleId: identity?.avatarStyleId ?? null,
+        avatarGender: identity?.avatarGender ?? null,
+        avatarAge: identity?.avatarAge ?? null,
+        avatarHairColor: identity?.avatarHairColor ?? null,
+        avatarHairLength: identity?.avatarHairLength ?? null,
+        avatarEyeColor: identity?.avatarEyeColor ?? null,
+        avatarVibe: identity?.avatarVibe ?? null,
+        voiceId: identity?.voiceId ?? null,
+      };
+    })
     .filter((agent) => agent.name && agent.role)
     .filter((agent) => {
       const normalizedName = agent.name.toLowerCase();

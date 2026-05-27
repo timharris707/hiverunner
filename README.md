@@ -21,7 +21,8 @@ After a fresh clone, you can:
 - boot HiveRunner locally with no Supabase project, OAuth app, or provider key;
 - enter as the local owner;
 - open the default `HIVE` workspace dashboard;
-- create a company/workspace and review a starter team;
+- create a company/workspace and choose a starter team with bundled portraits,
+  saved voice choices, and role instructions;
 - inspect runtime readiness for Codex, Claude Code, Gemini, Hermes, OpenClaw, or
   external runners;
 - see where tasks, goals, memory, costs, files, reviews, and runtime lanes live;
@@ -53,6 +54,9 @@ terminal tabs, prompt logs, and one-off scripts.
   costs, activity, runtime inventory, and settings per workspace.
 - **Agent team management** — create agents, assign work, review outputs, and
   keep roles/context visible.
+- **Starter agent packs** — launch with public-safe curated agent identities,
+  bundled avatars, saved voice choices, and neutral role instructions without
+  needing image or voice provider keys.
 - **Runtime readiness views** — see which optional CLIs, provider keys, and
   runner adapters are available before you depend on them.
 - **Review loops** — route work through review states instead of treating every
@@ -76,7 +80,7 @@ required to boot the app.
 ## Quickstart
 
 ```bash
-git clone https://github.com/TimHarris707/HiveRunner.git hive-runner
+git clone https://github.com/timharris707/hiverunner.git hive-runner
 cd hive-runner
 cp .env.example .env.local
 npm install
@@ -89,6 +93,17 @@ With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
 Use the local continue button on the login page. No Supabase project, OAuth app,
 password, or admin account is required for the local path.
 
+During company creation, HiveRunner can create a starter agent pack such as
+Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
+Operations/Support, or Content/Marketing. These starter agents use bundled
+public-safe avatar images and saved voice IDs so a fresh workspace feels alive
+immediately. The Blank/custom option creates no extra starter agents.
+
+Port `3010` is the local UI/build lane. It is forced observer-only so it can
+stay responsive while you edit, test, and inspect the app. Autonomous execution
+belongs to a separate execution owner such as the stable `3001` lane or an
+explicit isolated execution lane.
+
 For a script-managed background dev lane with PID/log files, use:
 
 ```bash
@@ -96,6 +111,9 @@ scripts/lane.sh dev start
 scripts/lane.sh dev status
 scripts/lane.sh dev logs
 ```
+
+The script-managed `dev` lane is an internal build/UI lane and remains
+observer-only. Do not use `3010` as an execution owner.
 
 ![HiveRunner local login](docs/screenshots/hiverunner-local-login.png)
 
@@ -169,8 +187,8 @@ ANTHROPIC_API_KEY=your-anthropic-key
 voice. Voice is optional; agents can be created and used without it.
 
 `OPENAI_API_KEY` can enable optional AI avatar generation where configured.
-Without an image provider key, agent avatars still work through local/default
-avatar options.
+Without an image provider key, bundled starter-pack avatars and local/default
+avatar options still work.
 
 The optional Pipecat/Tavus voice-avatar backend lives in `pipecat-server/` and
 is documented in [docs/voice-avatar-backend.md](docs/voice-avatar-backend.md).
@@ -242,8 +260,9 @@ infrastructure. Important limits:
 - SQLite is the primary local store. It is good for a local operator lane on a
   local disk, not a multi-tenant hosted service at scale.
 - The runtime engine is single-process oriented. Run only one process with
-  `MC_ENGINE_TICK=on` for a given `MC_DATA_DIR`; additional processes should be
-  observer-only with `MC_ENGINE_TICK=off`.
+  ticks enabled for a given `MC_DATA_DIR`. The local `3010` lane is forced
+  observer-only; use stable `3001` or a separate isolated execution lane for
+  active work.
 - Hosted Supabase auth exists, but local-single-user is the default sharing
   path. Supabase auth alone does not make HiveRunner horizontally scalable.
 - Runtime integrations depend on local CLIs or provider keys being present.

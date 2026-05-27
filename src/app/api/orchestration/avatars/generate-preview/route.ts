@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { handleRouteError } from "@/lib/orchestration/api";
-import { generateAvatarPreviews } from "@/lib/orchestration/avatar-provider";
+import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
+import { AvatarProviderUnavailableError, generateAvatarPreviews } from "@/lib/orchestration/avatar-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +53,18 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (error) {
+    if (error instanceof AvatarProviderUnavailableError) {
+      return errorResponse(
+        error.status,
+        error.code,
+        error.setupHint,
+        {
+          provider: error.provider,
+          optional: true,
+          setupHint: error.setupHint,
+        },
+      );
+    }
     return handleRouteError(error, "avatar-generate-preview:post");
   }
 }

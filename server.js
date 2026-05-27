@@ -97,7 +97,7 @@ if (dev) {
 // Values:
 //   "on"   — tick loop active (default for stable/production)
 //   "off"  — tick loop disabled; this instance is observer-only
-//   "auto" — tick if production, skip if development (default)
+//   "auto" — tick if production, skip if development (legacy lane mode)
 //
 // In a two-lane setup:
 //   Dev  (:3010) → MC_ENGINE_TICK=off  (build/UI lane, no execution)
@@ -106,7 +106,9 @@ if (dev) {
 // The atomic claim mechanism (UPDATE WHERE status='queued') prevents
 // duplicate execution even if both lanes tick, but disabling the dev
 // lane's tick loop is cleaner and avoids noisy log competition.
-const engineTickSetting = (process.env.MC_ENGINE_TICK || "auto").toLowerCase();
+const requestedEngineTickSetting = (process.env.MC_ENGINE_TICK || (dev ? "off" : "on")).toLowerCase();
+const engineTickForcedObserver = port === 3010;
+const engineTickSetting = engineTickForcedObserver ? "off" : requestedEngineTickSetting;
 const baseEngineTickEnabled =
   engineTickSetting === "on" ? true :
   engineTickSetting === "off" ? false :
@@ -115,7 +117,8 @@ const devExecutionTestModeGateEnabled =
   dev &&
   port === 3010 &&
   (process.env.MC_DEV_EXECUTION_TEST_MODE || "").trim() === "1";
-const engineTickEnabled = baseEngineTickEnabled || devExecutionTestModeGateEnabled;
+const engineTickEnabled = baseEngineTickEnabled ||
+  (!engineTickForcedObserver && engineTickSetting !== "off" && devExecutionTestModeGateEnabled);
 
 // ── Bundler selection ──
 // Next.js 16 defaults to Turbopack for dev. Turbopack's persistent cache
@@ -494,7 +497,11 @@ app.prepare().then(() => {
     console.log(`> Workspace root: ${mcWorkspaceRoot} (${mcWorkspaceRootSource}, lane=${mcLane})`);
     console.log(`> Heap limit: ${heapMB}MB`);
     console.log(`> Bundler: ${useWebpack ? "webpack" : "turbopack"}`);
+    console.log(`> Runtime role: ${baseEngineTickEnabled ? "executor" : "observer"}${engineTickForcedObserver ? " (port 3010 forced)" : ""}`);
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
+    if (engineTickForcedObserver && requestedEngineTickSetting !== "off") {
+      console.log(`> Engine tick override: port 3010 forces observer-only (requested MC_ENGINE_TICK=${requestedEngineTickSetting})`);
+    }
     if (dev && port === 3010) {
       console.log(`> Dev execution test mode: ${devExecutionTestModeGateEnabled ? "AVAILABLE (company-scoped, auto-expiring)" : "DISABLED"}`);
     }
