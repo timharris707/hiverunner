@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { getTaskAgentOfRecord, shouldShowAgentOfRecord } from "@/components/tasks/task-display-agent";
+import { cleanAgentReference, getTaskAgentOfRecord, shouldShowAgentOfRecord, taskAgentDisplayLabel } from "@/components/tasks/task-display-agent";
 import type { OrchestrationAgent, TaskStatus } from "@/lib/orchestration/types";
 
 const agents = [
@@ -17,6 +17,27 @@ const doneTask = {
 
 assert.equal(getTaskAgentOfRecord(doneTask, agents)?.name, "Clarity");
 assert.equal(shouldShowAgentOfRecord(doneTask), true);
+
+assert.equal(cleanAgentReference("icon:crown Oracle"), "Oracle");
+assert.equal(
+  getTaskAgentOfRecord(
+    {
+      status: "done" as TaskStatus,
+      assignee: "Lens",
+      displayAgentId: undefined,
+      displayAgentName: "icon:crown Clarity",
+    },
+    agents,
+  )?.name,
+  "Clarity",
+);
+assert.equal(
+  taskAgentDisplayLabel({
+    assignee: "Lens",
+    displayAgentName: "icon:crown Clarity",
+  }),
+  "Clarity",
+);
 
 assert.equal(
   shouldShowAgentOfRecord({

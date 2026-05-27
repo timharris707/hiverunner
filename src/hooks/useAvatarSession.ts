@@ -12,6 +12,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { normalizeSafeErrorMessage } from "@/lib/orchestration/avatar-wizard-errors";
 
 export type AvatarSessionState =
   | "idle"
@@ -106,7 +107,7 @@ export function useAvatarSession(): AvatarSession {
           return true;
         } else {
           setState("unavailable");
-          setError(data.error || "Avatar backend not available");
+          setError(normalizeSafeErrorMessage(data, "Avatar backend not available"));
           return false;
         }
       }
@@ -129,7 +130,7 @@ export function useAvatarSession(): AvatarSession {
       const res = await fetch("/api/voice/avatar", { method: "POST" });
       if (!res.ok) {
         const data = await res.json().catch(() => ({ error: "Unknown error" }));
-        throw new Error(data.error || `Start failed (${res.status})`);
+        throw new Error(normalizeSafeErrorMessage(data, `Start failed (${res.status})`));
       }
       const { room_url, user_token } = await res.json();
       if (!room_url || !user_token) {
@@ -191,7 +192,7 @@ export function useAvatarSession(): AvatarSession {
       call.on("error", (evt: { errorMsg?: string }) => {
         if (mountedRef.current) {
           setState("error");
-          setError(evt.errorMsg || "Daily call error");
+          setError(normalizeSafeErrorMessage(evt.errorMsg, "Daily call error"));
         }
       });
 
@@ -201,7 +202,7 @@ export function useAvatarSession(): AvatarSession {
     } catch (err) {
       if (mountedRef.current) {
         setState("error");
-        setError(err instanceof Error ? err.message : "Failed to start avatar session");
+        setError(normalizeSafeErrorMessage(err, "Failed to start avatar session"));
       }
     }
   }, []);

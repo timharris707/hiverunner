@@ -29,6 +29,14 @@ function bodyRecord(body: Record<string, unknown>, key: string): Record<string, 
     : null;
 }
 
+function normalizeAvatarUrlInput(value: unknown): string | null | undefined {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") return undefined;
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string; agentId: string }> }
@@ -152,7 +160,10 @@ export async function PATCH(
 
     // Avatar update (supports clearing with null/empty string)
     if ("avatarUrl" in body) {
-      const avatarUrl = body.avatarUrl === null || body.avatarUrl === "" ? null : String(body.avatarUrl);
+      const avatarUrl = normalizeAvatarUrlInput(body.avatarUrl);
+      if (avatarUrl === undefined) {
+        return errorResponse(400, "avatar_url_invalid", "avatarUrl must be a string, null, or empty string");
+      }
       db.prepare("UPDATE agents SET avatar_url = ?, updated_at = ? WHERE id = ?").run(avatarUrl, now, agent.id);
     }
 

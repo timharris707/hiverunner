@@ -137,6 +137,10 @@ async function run() {
       skills: ["operations", "voice"],
     }).agent;
 
+    getOrchestrationDb()
+      .prepare("UPDATE agents SET avatar_url = ? WHERE id = ?")
+      .run(`data:image/png;base64,${"a".repeat(3000)}`, agent.id);
+
     const outOfScopeAgent = createProjectAgent({
       projectId: outOfScopeProject.id,
       name: "Satellite",
@@ -233,6 +237,81 @@ async function run() {
       assert.match(body.systemPrompt, /Delivery style: News desk\./);
       assert.match(body.systemPrompt, /Global startup memory fixture\./);
       assert.match(body.systemPrompt, /session\.marker/);
+      assert.doesNotMatch(body.systemPrompt, /Fresh heartbeat instructions/);
+      assert.doesNotMatch(body.systemPrompt, /Heartbeat \/ current-ops instructions/);
+    });
+
+    await test("POST with global agent binding uses agent context instead of broad startup memory", async () => {
+      const response = await POST(
+        makeRequest({
+          companySlug: company.slug,
+          agentId: agent.id,
+          source: "voice-lab",
+          mode: "discuss",
+        }) as never
+      );
+      const body = await response.json() as {
+        binding: {
+          scope: string;
+          companySlug?: string;
+          agentId?: string;
+          agentName?: string;
+          agentAvatarUrl?: string;
+          agentVoiceId?: string;
+          mode: string;
+          source: string;
+        };
+        voiceName: string;
+        systemPrompt: string;
+      };
+
+      assert.equal(response.status, 200);
+      assert.deepEqual(body.binding, {
+        scope: "global",
+        companySlug: company.slug,
+        agentId: agent.id,
+        agentName: agent.name,
+        agentVoiceId: "Schedar",
+        mode: "discuss",
+        source: "voice-lab",
+      });
+      assert.equal(body.binding.agentAvatarUrl, undefined);
+      assert.equal(body.voiceName, "Schedar");
+      assert.match(body.systemPrompt, /You are Scout — Operations Lead/);
+      assert.match(body.systemPrompt, /### Bound voice agent/);
+      assert.match(body.systemPrompt, /No specific task or project is bound to this call/);
+      assert.doesNotMatch(body.systemPrompt, /Global startup memory fixture\./);
+      assert.doesNotMatch(body.systemPrompt, /Fresh heartbeat instructions/);
+    });
+
+    await test("POST with company code alias still resolves global agent binding", async () => {
+      const db = getOrchestrationDb();
+      db.prepare("UPDATE companies SET company_code = ? WHERE id = ?").run("ACME", company.id);
+
+      const response = await POST(
+        makeRequest({
+          companySlug: "ACME",
+          agentId: agent.id,
+          source: "voice-lab",
+          mode: "discuss",
+        }) as never
+      );
+      const body = await response.json() as {
+        binding: {
+          scope: string;
+          companySlug?: string;
+          agentId?: string;
+          agentName?: string;
+        };
+        systemPrompt: string;
+      };
+
+      assert.equal(response.status, 200);
+      assert.equal(body.binding.scope, "global");
+      assert.equal(body.binding.companySlug, company.slug);
+      assert.equal(body.binding.agentId, agent.id);
+      assert.equal(body.binding.agentName, agent.name);
+      assert.match(body.systemPrompt, /You are Scout — Operations Lead/);
     });
 
     await test("POST with task binding returns bound task/project/agent metadata", async () => {

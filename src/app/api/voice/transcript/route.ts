@@ -11,7 +11,6 @@
  */
 
 import { NextResponse } from "next/server";
-import { execSync } from "child_process";
 import { normalizeResolvedVoiceBinding } from "@/lib/voice-binding";
 import { persistVoiceTranscript } from "@/lib/voice-memory";
 import { persistTaskBoundVoiceOutcome } from "@/lib/voice-outcome-persistence";
@@ -48,17 +47,6 @@ export async function POST(req: Request) {
           messages: saved.messages,
         })
       : null;
-
-    // Notify the main voice session so it can read the transcript immediately
-    try {
-      execSync(
-        `openclaw system event --text "Voice session transcript saved: ${saved.relativePath}" --mode now`,
-        { timeout: 10000 }
-      );
-    } catch {
-      // Non-fatal — transcript is saved; openclaw CLI may not be in PATH in all environments
-      console.warn("Failed to fire openclaw system event for voice transcript");
-    }
 
     return NextResponse.json({
       saved: true,

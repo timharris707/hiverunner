@@ -9,6 +9,7 @@ APP_DIR="$(resolve_mc_app_root "$0")"
 LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 PID_FILE="$LOG_DIR/hiverunner-dev.pid"
 FAILURE_FILE="$LOG_DIR/hiverunner-dev.health-failures"
+LOG_FILE="$LOG_DIR/hiverunner-dev.log"
 PORT="${PORT:-3010}"
 URL="http://127.0.0.1:${PORT}"
 
@@ -67,9 +68,13 @@ is_healthy() {
     fi
   fi
 
-  curl -sf --max-time 10 "$URL/api/hiverunner/health" >/dev/null 2>&1 || return 1
-  HTTP_CODE="$(curl -sf -o /dev/null -w '%{http_code}' --max-time 15 "$URL/" 2>/dev/null || echo "000")"
-  [ "$HTTP_CODE" != "000" ]
+  curl -sf --max-time 10 "$URL/api/hiverunner/health" >/dev/null 2>&1 ||
+    curl -sf --max-time 10 "$URL/api/health" >/dev/null 2>&1
+}
+
+mark_next_dev_cache_cleared() {
+  REASON="$1"
+  echo "[hr-dev] cleared Next.js dev cache marker: $(date '+%Y-%m-%d %H:%M:%S') ($REASON)" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 reconcile_pid
@@ -109,7 +114,25 @@ rm -f "$FAILURE_FILE"
 if [ -d "$APP_DIR/.next/dev" ]; then
   echo "[hr-dev] clearing .next/dev cache before restart"
   rm -rf "$APP_DIR/.next/dev"
+  mark_next_dev_cache_cleared "healthcheck restart"
 fi
 
 PORT="$PORT" "$APP_DIR/scripts/stop_dev_service.sh" >/dev/null 2>&1 || true
+
+# launchd/KeepAlive or another supervisor may restart the lane immediately
+# after stop_dev_service.sh exits. Do not race it by starting a second
+# server.js process on the same port; adopt the listener and let the next
+# healthcheck decide whether it is healthy after boot grace.
+i=0
+while [ "$i" -lt 15 ]; do
+  ACTUAL_PID="$(listener_pid)"
+  if [ -n "$ACTUAL_PID" ]; then
+    echo "[hr-dev] listener PID $ACTUAL_PID appeared after stop; adopting and deferring duplicate start"
+    echo "$ACTUAL_PID" > "$PID_FILE"
+    exit 0
+  fi
+  sleep 2
+  i=$((i + 1))
+done
+
 PORT="$PORT" "$APP_DIR/scripts/start_dev_service.sh"

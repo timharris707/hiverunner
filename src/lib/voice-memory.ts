@@ -52,7 +52,6 @@ const PACIFIC_TIMEZONE = "America/Los_Angeles";
 const LEGACY_VOICE_MEMORY_DIR = path.join(WORKSPACE_MEMORY, "voice");
 const LEGACY_VOICE_MEMORY_ROLLUP = path.join(LEGACY_VOICE_MEMORY_DIR, "VOICE_MEMORY.md");
 const LONG_TERM_MEMORY_FILE = path.join(OPENCLAW_WORKSPACE, "MEMORY.md");
-const HEARTBEAT_FILE = path.join(OPENCLAW_WORKSPACE, "HEARTBEAT.md");
 const ROOT_MEMORY_FILES = [
   "MEMORY.md",
   "SOUL.md",
@@ -474,7 +473,6 @@ export async function buildCurrentVoiceContext() {
   const core = extractSection(longTermMemory, "Core");
   const workingStyle = extractSection(longTermMemory, "Working Style");
   const hardRules = extractSection(longTermMemory, "Hard Rules (PERMANENT)");
-  const heartbeat = await readFileIfExists(HEARTBEAT_FILE);
   const dailyFiles = await listRecentDailyMemoryFiles(2);
   const dailyMemories = await Promise.all(dailyFiles.map((filePath) => readFileIfExists(filePath)));
   const recentVoice = await getRecentVoiceMemoryContext(4);
@@ -492,9 +490,6 @@ export async function buildCurrentVoiceContext() {
         .join("\n\n"),
       6000
     ) || "No recent daily notes found.",
-    "",
-    "### Heartbeat / current-ops instructions",
-    clip(tailLines(heartbeat, 80), 4000) || "No heartbeat instructions found.",
     "",
     "### Recent voice-only memory lane",
     recentVoice,

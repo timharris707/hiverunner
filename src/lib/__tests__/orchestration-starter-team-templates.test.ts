@@ -95,6 +95,11 @@ test("default selections match the template role cards", () => {
     );
     assert.equal(clonedRoles.every((role) => role.runtimeProvider === "manual"), true);
     assert.equal(clonedRoles.every((role) => role.model === ""), true);
+    assert.equal(
+      clonedRoles.every((role) => !role.identity || role.identity.avatarUrl.startsWith("/starter-agent-avatars/")),
+      true,
+      `${template.workTypeId} bundled avatar URLs must use the starter asset path`,
+    );
   }
 });
 
@@ -111,9 +116,34 @@ test("public display and role copy stays neutral and vendor-free", () => {
 
     for (const role of template.roleCards) {
       assertNoBannedPublicCopy(
-        [role.name, role.role, role.summary, role.mission, role.kickoffIntentCopy, ...role.capabilities].join(" "),
+        [
+          role.name,
+          role.role,
+          role.summary,
+          role.mission,
+          role.kickoffIntentCopy,
+          ...role.capabilities,
+          role.identity?.avatarVibe ?? "",
+          role.identity?.personality ?? "",
+        ].join(" "),
         role.id,
       );
+    }
+  }
+});
+
+test("selected starter roles include bundled avatars and voices", () => {
+  for (const template of STARTER_TEAM_TEMPLATES) {
+    if (template.workTypeId === "blank-custom") continue;
+
+    const selectedRoles = cloneStarterTeamRoles(template.workTypeId).filter((role) => role.selected);
+    assert.ok(selectedRoles.length > 0, `${template.workTypeId} should recommend starter roles`);
+
+    for (const role of selectedRoles) {
+      assert.ok(role.identity, `${template.workTypeId}/${role.id} should include starter identity metadata`);
+      assert.ok(role.identity.avatarUrl.endsWith(".webp"), `${role.id} should reference a bundled webp avatar`);
+      assert.ok(role.identity.voiceId, `${role.id} should include a default voice ID`);
+      assert.ok(role.identity.personality, `${role.id} should include public-safe personality guidance`);
     }
   }
 });
@@ -152,6 +182,7 @@ test("setup payload reader keeps selected agents and de-dupes preserved leadersh
       workType: "software-product",
       agents: [
         {
+          id: "software-implementation-engineer",
           name: "Corey",
           role: "Implementation Engineer",
           mission: "Build scoped changes.",
@@ -159,6 +190,8 @@ test("setup payload reader keeps selected agents and de-dupes preserved leadersh
           selected: true,
           runtimeProvider: "openclaw",
           model: "openai/gpt-5.4",
+          avatarUrl: "https://attacker.example/not-used.png",
+          voiceId: "NotAStarterVoice",
         },
         {
           name: "Corey",
@@ -180,14 +213,16 @@ test("setup payload reader keeps selected agents and de-dupes preserved leadersh
     { ceoName: "Nova" },
   );
 
-  assert.deepEqual(selected, [
-    {
-      name: "Corey",
-      role: "Implementation Engineer",
-      mission: "Build scoped changes.",
-      capabilities: ["Implementation", "Tests"],
-    },
-  ]);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0]?.name, "Corey");
+  assert.equal(selected[0]?.role, "Implementation Engineer");
+  assert.equal(selected[0]?.mission, "Build scoped changes.");
+  assert.deepEqual(selected[0]?.capabilities, ["Implementation", "Tests"]);
+  assert.equal(selected[0]?.avatarUrl, "/starter-agent-avatars/corey.webp");
+  assert.equal(selected[0]?.voiceId, "Alnilam");
+  assert.ok(selected[0]?.personality?.includes("implementation"));
+  assert.notEqual(selected[0]?.avatarUrl, "https://attacker.example/not-used.png");
+  assert.notEqual(selected[0]?.voiceId, "NotAStarterVoice");
 });
 
 test("setup payload reader ignores selected agents for blank/custom", () => {

@@ -12,6 +12,8 @@ implementation records and compatibility references.
 - [Auth modes](AUTH.md) — local-single-user versus optional Supabase auth.
 - [Runtime dependencies](runtime-dependencies.md) — required, optional, and
   degraded runtime states.
+- [Starter agent packs](starter-agent-packs.md) — bundled public-safe agent
+  identities, avatars, and voice choices for first-run workspace setup.
 - [Local-first boundary](local-first-boundary.md) — what the current public path
   supports and what it intentionally does not claim yet.
 

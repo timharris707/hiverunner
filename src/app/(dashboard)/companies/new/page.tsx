@@ -406,7 +406,7 @@ function StepStarterTeam({
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">Avatar setup</p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-              After launch, open each agent profile and choose an actual avatar image or generated portrait so teammates are easy to recognize.
+              Selected starter agents include bundled portraits. New AI-generated avatars later require your own OpenAI key.
             </p>
           </div>
         </div>
@@ -415,7 +415,7 @@ function StepStarterTeam({
           <div>
             <p className="text-sm font-semibold text-[var(--text-primary)]">Voice setup</p>
             <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">
-              Voice is optional and can be configured later. Some live voice providers may need a key, but this setup works without any provider key.
+              Selected starter agents include saved voice choices. Live voice calls require your own Gemini key; setup works without it.
             </p>
           </div>
         </div>
@@ -464,6 +464,13 @@ function StepStarterTeam({
                       checked={agent.selected}
                       onChange={(e) => updateAgent(agent.id, { selected: e.target.checked })}
                     />
+                    {agent.identity?.avatarUrl ? (
+                      <img
+                        src={agent.identity.avatarUrl}
+                        alt={`${agent.name || "Starter agent"} avatar`}
+                        className="h-10 w-10 shrink-0 rounded-md border border-[var(--border)] object-cover"
+                      />
+                    ) : null}
                     <span className="min-w-0">
                       <span className="block text-sm font-semibold text-[var(--text-primary)]">
                         {agent.name.trim() || "Unnamed role"}
@@ -471,6 +478,12 @@ function StepStarterTeam({
                       <span className="block text-xs text-[var(--text-muted)]">
                         {agent.optional || agent.custom ? "Optional" : "Recommended"}
                       </span>
+                      {agent.identity?.voiceId ? (
+                        <span className="mt-1 inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface-elevated)] px-2 py-0.5 text-[11px] text-[var(--text-secondary)]">
+                          <Mic2 size={11} className="text-[var(--accent)]" />
+                          {agent.identity.voiceId}
+                        </span>
+                      ) : null}
                     </span>
                   </label>
                   {agent.custom ? (

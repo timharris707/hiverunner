@@ -2,6 +2,7 @@
 
 import { Server, Clock, Cpu, Brain, FolderOpen, HardDrive } from "lucide-react";
 import { useDemoMode } from "@/lib/demo-mode";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 
 interface SystemInfoProps {
   data: {
@@ -57,7 +58,7 @@ export function SystemInfo({ data }: SystemInfoProps) {
     {
       icon: Server,
       label: "Agent Name",
-      value: `${data.agent.emoji} ${data.agent.name}`,
+      value: agentDisplayLabel(data.agent.emoji, data.agent.name),
       sublabel: data.agent.creature,
     },
     {

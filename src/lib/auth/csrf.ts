@@ -21,39 +21,75 @@ function headerOrigin(request: NextRequest): string | null {
   return value || null;
 }
 
-function headerRefererOrigin(request: NextRequest): string | null {
+function headerReferer(request: NextRequest): string | null {
   const value = request.headers.get("referer")?.trim();
-  if (!value) return null;
+  return value || null;
+}
 
+const LOOPBACK_HOSTNAMES = new Set([
+  "localhost",
+  "127.0.0.1",
+  "::1",
+  "[::1]",
+  "0.0.0.0",
+]);
+
+function normalizeOriginForComparison(value: string): string {
   try {
-    return new URL(value).origin;
+    const url = new URL(value);
+    const hostname = url.hostname.toLowerCase();
+    if (LOOPBACK_HOSTNAMES.has(hostname)) {
+      const port = url.port || (url.protocol === "https:" ? "443" : "80");
+      return `${url.protocol}//loopback:${port}`;
+    }
+    return url.origin;
+  } catch {
+    return value;
+  }
+}
+
+function originFromHostHeader(request: NextRequest): string | null {
+  const host = request.headers.get("host")?.trim();
+  if (!host) return null;
+  try {
+    return new URL(`${request.nextUrl.protocol}//${host}`).origin;
   } catch {
     return null;
   }
 }
 
 function allowedRequestOrigins(request: NextRequest): Set<string> {
-  const origins = new Set<string>([request.nextUrl.origin]);
-  const host = request.headers.get("host")?.trim();
-  if (host) {
-    origins.add(`${request.nextUrl.protocol}//${host}`);
+  const origins = new Set<string>();
+  origins.add(normalizeOriginForComparison(request.nextUrl.origin));
+
+  const hostOrigin = originFromHostHeader(request);
+  if (hostOrigin) {
+    origins.add(normalizeOriginForComparison(hostOrigin));
   }
+
   return origins;
+}
+
+function isAllowedOrigin(value: string, request: NextRequest): boolean {
+  return allowedRequestOrigins(request).has(normalizeOriginForComparison(value));
 }
 
 function isSameOrigin(request: NextRequest): boolean {
   const origin = headerOrigin(request);
-  const allowedOrigins = allowedRequestOrigins(request);
   if (origin) {
-    return allowedOrigins.has(origin);
+    return isAllowedOrigin(origin, request);
   }
 
   if (request.headers.get("sec-fetch-site") === "same-origin") {
     return true;
   }
 
-  const refererOrigin = headerRefererOrigin(request);
-  return refererOrigin ? allowedOrigins.has(refererOrigin) : false;
+  const referer = headerReferer(request);
+  if (referer) {
+    return isAllowedOrigin(referer, request);
+  }
+
+  return false;
 }
 
 export function validateCsrfRequest(input: CsrfValidationInput): CsrfDecision {
@@ -77,6 +113,6 @@ export function validateCsrfRequest(input: CsrfValidationInput): CsrfDecision {
 
   return {
     allowed: false,
-    reason: headerOrigin(request) || headerRefererOrigin(request) ? "cross-origin" : "missing-same-origin-signal",
+    reason: headerOrigin(request) || headerReferer(request) ? "cross-origin" : "missing-same-origin-signal",
   };
 }

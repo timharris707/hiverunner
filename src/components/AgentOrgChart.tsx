@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { avatarDisplaySymbol } from "@/lib/orchestration/avatar-icons";
 
 interface Agent {
   id: string;
@@ -49,6 +50,10 @@ export function AgentOrgChart({ agents }: AgentOrgChartProps) {
   // Determine root agents (not listed as sub of anyone)
   const childIds = new Set(agents.flatMap((a) => a.allowAgents));
   const roots = agents.filter((a) => !childIds.has(a.id));
+
+  function displaySymbol(agent: Agent): string {
+    return avatarDisplaySymbol(agent.emoji, agent.name.slice(0, 1).toUpperCase());
+  }
 
   // Build tree: find children of each agent
   function getChildren(agentId: string): Agent[] {
@@ -235,7 +240,7 @@ export function AgentOrgChart({ agents }: AgentOrgChartProps) {
                 fontSize={20}
                 textAnchor="middle"
               >
-                {agent.emoji}
+                {displaySymbol(agent)}
               </text>
 
               {/* Name */}

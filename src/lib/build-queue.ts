@@ -5,6 +5,7 @@ import { join } from "path";
 import { randomUUID } from "crypto";
 import os from "os";
 import { routeTask } from "@/lib/llm-router";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 import { resolveHiveRunnerAppRoot } from "@/lib/runtime-paths";
 import { evaluateTask, drainDeferredQueue, removeDeferredTask, type SchedulingVerdict } from "@/lib/quota-scheduler";
 import { appendTaskToLog, importExternalTasks } from "@/lib/tasks-log";
@@ -235,7 +236,7 @@ export function autoAssignBuilder(task: any) {
   task.assignedAgent = assignment.agentId;
   task.assignedAgentReason = assignment.reason;
   task.needsQAHandoff = assignment.needsQAHandoff;
-  addPipelineComment(task, `Auto-assigned to ${agent.name} ${agent.emoji} — ${assignment.reason}`, agent.name, agent.emoji);
+  addPipelineComment(task, `Auto-assigned to ${agentDisplayLabel(agent.emoji, agent.name)} — ${assignment.reason}`, agent.name, agent.emoji);
   return assignment;
 }
 

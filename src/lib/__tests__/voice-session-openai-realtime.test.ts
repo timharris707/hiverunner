@@ -145,10 +145,10 @@ async function run() {
         model: "gpt-4o-transcribe",
         language: "en",
         prompt: [
-          "Transcribe Tim's English speech during a HiveRunner voice conversation.",
+          "Transcribe the operator's English speech during a HiveRunner voice conversation.",
           "Common terms include HiveRunner, OpenAI, Gemini, Realtime 2, Linda, Scout, Mira, Codex, OpenClaw, Weather Edge, task, project, and agent.",
           "If audio is unclear, prefer the closest natural English phrase or leave it incomplete.",
-          "Do not switch languages or emit Japanese, Chinese, Hindi, or other non-English scripts unless Tim clearly speaks that language.",
+          "Do not switch languages or emit Japanese, Chinese, Hindi, or other non-English scripts unless the operator clearly speaks that language.",
         ].join(" "),
       });
       const toolNames = ((session.tools as Array<{ name: string }>) ?? []).map((tool) => tool.name);

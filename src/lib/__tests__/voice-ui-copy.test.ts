@@ -53,7 +53,7 @@ test("task-bound presenter copy foregrounds the assigned agent while keeping Voi
   const copy = getVoicePresenterCopy(makeTaskBinding());
 
   assert.equal(copy.heading, "Scout via Voice Chat");
-  assert.equal(copy.subtitle, "Realtime voice session with Scout for this task.");
+  assert.equal(copy.subtitle, "Optional experimental realtime voice session with Scout for this task.");
   assert.equal(copy.speakingLabel, "Scout is speaking");
   assert.equal(copy.startSessionLabel, "Start Task Session");
   assert.match(copy.boundSessionHint, /writes a visible voice note back to the task/i);
@@ -63,7 +63,7 @@ test("unbound presenter copy falls back to Voice Chat wording", () => {
   const copy = getVoicePresenterCopy(null);
 
   assert.equal(copy.heading, "Voice Chat");
-  assert.equal(copy.subtitle, "Realtime voice conversation with the HiveRunner assistant");
+  assert.equal(copy.subtitle, "Optional experimental realtime voice conversation with the HiveRunner assistant");
   assert.equal(copy.speakingLabel, "Assistant is speaking");
   assert.equal(copy.startSessionLabel, "Start Voice Session");
   assert.equal(copy.boundSessionHint, null);

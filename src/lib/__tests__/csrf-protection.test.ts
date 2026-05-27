@@ -120,6 +120,92 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
 
+    await test("accepts loopback-equivalent origin (Origin 127.0.0.1, host localhost)", async () => {
+      const request = localPost({
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        origin: "http://127.0.0.1:3010",
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("accepts loopback-equivalent origin (Origin localhost, host 127.0.0.1)", async () => {
+      const request = new NextRequest("http://127.0.0.1:3010/api/orchestration/companies", {
+        method: "POST",
+        headers: {
+          host: "127.0.0.1:3010",
+          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+          origin: "http://localhost:3010",
+        },
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("accepts loopback-equivalent origin (Origin localhost, server bound to 0.0.0.0)", async () => {
+      // Reproduces the real dev scenario: server.js binds to 0.0.0.0, so
+      // request.nextUrl.origin is http://0.0.0.0:3010 even though the browser
+      // hits localhost or 127.0.0.1 (and sends those in the Host/Origin).
+      const request = new NextRequest("http://0.0.0.0:3010/api/orchestration/companies", {
+        method: "POST",
+        headers: {
+          host: "localhost:3010",
+          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+          origin: "http://localhost:3010",
+        },
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("accepts loopback-equivalent origin (Origin [::1], host localhost)", async () => {
+      const request = localPost({
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        origin: "http://[::1]:3010",
+      });
+
+      const response = await middleware(request, async () => ({
+        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+        supabaseResponse: NextResponse.next({ request }),
+      }));
+
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("x-middleware-next"), "1");
+    });
+
+    await test("still rejects loopback origin on a different port", async () => {
+      const request = localPost({
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+        origin: "http://127.0.0.1:3011",
+      });
+
+      const response = await middleware(request, async () => {
+        throw new Error("Different-port loopback must still be cross-origin");
+      });
+
+      assert.equal(response.status, 403);
+      const body = await response.json() as { error?: { reason?: string } };
+      assert.equal(body.error?.reason, "cross-origin");
+    });
+
     await test("accepts Sec-Fetch-Site same-origin when Origin is absent", async () => {
       const request = localPost({
         cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
@@ -138,7 +224,7 @@ async function run() {
     await test("accepts same-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
       const request = localPost({
         cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-        referer: "http://localhost:3010/login?from=%2FHIVE%2Fdashboard",
+        referer: "http://localhost:3010/INS/dashboard",
       });
 
       const response = await middleware(request, async () => ({
@@ -150,13 +236,13 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
 
-    await test("accepts Host origin when request.nextUrl origin differs from browser origin", async () => {
-      const request = new NextRequest("http://0.0.0.0:3010/api/orchestration/companies", {
+    await test("accepts same-origin Referer against Host when nextUrl uses internal bind origin", async () => {
+      const request = new NextRequest("http://0.0.0.0:3010/api/notifications/sync", {
         method: "POST",
         headers: {
-          host: "localhost:3010",
+          host: "127.0.0.1:3010",
           cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-          referer: "http://localhost:3010/login",
+          referer: "http://127.0.0.1:3010/INS/inbox",
         },
       });
 
@@ -169,14 +255,14 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
 
-    await test("rejects cross-origin Referer fallback", async () => {
+    await test("rejects cross-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
       const request = localPost({
         cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-        referer: "http://attacker.example/form",
+        referer: "http://attacker.example/post-form",
       });
 
       const response = await middleware(request, async () => {
-        throw new Error("Cross-origin Referer must not pass CSRF");
+        throw new Error("Cross-origin Referer must still be rejected");
       });
 
       assert.equal(response.status, 403);

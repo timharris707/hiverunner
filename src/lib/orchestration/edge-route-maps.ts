@@ -11,10 +11,15 @@ export type EdgeRouteMaps = {
 
 export const COMPANY_CODE_TO_SLUG: Record<string, string> = {
   HIVE: "hiverunner-workspace",
+  INS: "insight",
+  NEV: "neveridle-core",
 };
 
 export const COMPANY_SLUG_TO_CODE: Record<string, string> = {
   "hiverunner-workspace": "HIVE",
+  insight: "INS",
+  "neveridle-core": "NEV",
+  "weather-edge": "NEV",
 };
 
 export const PROJECT_ID_TO_SLUG_BY_COMPANY: Record<string, Record<string, string>> = {

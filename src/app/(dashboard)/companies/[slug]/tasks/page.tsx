@@ -860,6 +860,7 @@ export default function CompanyTasksPage() {
         href={activeQuickViewTask ? taskHref(activeQuickViewTask) : ""}
         callbacks={callbacks}
         onClose={() => setQuickViewTask(null)}
+        onVoiceSessionEnd={() => scheduleTaskRefresh(900)}
         companySlug={slug}
       />
 

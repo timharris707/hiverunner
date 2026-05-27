@@ -13,8 +13,10 @@ deployment model that the architecture does not support yet.
 - One active execution owner per data lane.
 - SQLite databases stored under `MC_DATA_DIR`.
 - Company workspaces stored under `MC_WORKSPACE_ROOT`.
+- A local UI/build process on `:3010` that is observer-only.
+- One separate execution owner when autonomous work should run.
 - The two-lane local runtime:
-  - dev lane on `:3010`, normally observer-only with `MC_ENGINE_TICK=off`
+  - dev lane on `:3010`, forced observer-only with `MC_ENGINE_TICK=off`
   - stable lane on `:3001`, normally execution owner with `MC_ENGINE_TICK=on`
 - Optional Supabase auth for identity, but not a complete hosted multi-tenant
   deployment story by itself.
@@ -57,9 +59,11 @@ deployment model that the architecture does not support yet.
 
 ### Boundary
 
-Run exactly one engine tick owner per `MC_DATA_DIR`. If you start additional
-processes against the same data lane, set `MC_ENGINE_TICK=off` on observers.
-Do not run multiple replicas with `MC_ENGINE_TICK=on`.
+Run exactly one engine tick owner per `MC_DATA_DIR`. Port `3010` is not eligible
+to be that owner; it is forced observer-only so local development does not race
+the execution lane or corrupt the Next dev cache during active work. If you need
+active dev execution, use a separate execution lane with its own port, data dir,
+workspace root, and logs.
 
 ## B6: SQLite Primary Store
 

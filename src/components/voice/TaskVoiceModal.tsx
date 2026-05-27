@@ -4,10 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Mic, MicOff, Phone, PhoneForwarded, PhoneOff, X } from "lucide-react";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import {
-  getStoredVoiceProviderOverride,
-  storeVoiceProviderOverride,
   useVoiceSession,
-  type VoiceSessionProvider,
   type VoiceState,
 } from "@/hooks/useVoiceSession";
 import type { VoiceBindingRequest } from "@/lib/voice-binding";
@@ -64,7 +61,6 @@ function pickConnectingLabel(elapsedMs: number): string {
 
 const VOICE_MODAL_KEYFRAMES_ID = "task-voice-modal-keyframes";
 const VOICE_MODAL_STATUS_WIDTH = 172;
-const VOICE_MODAL_PROVIDER_WIDTH = 166;
 const VOICE_MODAL_INPUT_WIDTH = 204;
 const VOICE_MODAL_ACTION_WIDTH = 142;
 const VOICE_MODAL_KEYFRAMES = `
@@ -153,10 +149,9 @@ function VoiceInputIndicator({
   );
 }
 
-export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle, projectName, onSessionEnd }: Props) {
+export function TaskVoiceModal({ open, onClose, agent, bindingRequest, onSessionEnd }: Props) {
   const memoizedBindingRequest = useMemo(() => bindingRequest, [bindingRequest]);
-  const [voiceProvider, setVoiceProvider] = useState<VoiceSessionProvider>(() => getStoredVoiceProviderOverride() ?? "gemini-live");
-  const session = useVoiceSession({ bindingRequest: memoizedBindingRequest, voiceProvider });
+  const session = useVoiceSession({ bindingRequest: memoizedBindingRequest, voiceProvider: "gemini-live" });
   const { state, transcript, toolEvents, error, connect, disconnect, audioInputLevel, isUserSpeaking } = session;
 
   // Lock the displayed agent for the duration of an active session. If the
@@ -189,13 +184,6 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
 
   const sessionActive = state !== "idle" && state !== "error";
   const baseStatusInfo = stateLabel(state);
-
-  const handleProviderChange = useCallback((provider: VoiceSessionProvider) => {
-    sessionRef.current.disconnect();
-    setActiveAgentSnapshot(null);
-    setVoiceProvider(provider);
-    storeVoiceProviderOverride(provider);
-  }, []);
 
   // Progressive copy during the "Connecting…" window so the user has feedback
   // while Next.js compile + Gemini setup blocks the first response.
@@ -247,55 +235,8 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
     };
   }, [open]);
 
-  // Modal-owned sessionId — same id used for start write AND end write so the
-  // server UPDATES the existing comment rather than creating a duplicate.
-  const modalSessionIdRef = useRef<string | null>(null);
-  const sessionStartedAtRef = useRef<number | null>(null);
-
-  const postOutcome = useCallback(
-    async (opts: { durationSeconds?: number; messages?: number }) => {
-      if (!modalSessionIdRef.current) return;
-      if (!bindingRequest?.taskId) return;
-      try {
-        const body: Record<string, unknown> = {
-          sessionId: modalSessionIdRef.current,
-          binding: {
-            ...bindingRequest,
-            scope: "task",
-            ...(taskTitle ? { taskTitle } : {}),
-            ...(displayAgent?.name ? { agentName: displayAgent.name } : {}),
-            ...(projectName ? { projectName } : {}),
-          },
-          acceptedMarkers: [],
-        };
-        if (typeof opts.durationSeconds === "number" && typeof opts.messages === "number") {
-          body.transcript = {
-            filePath: `modal://${modalSessionIdRef.current}`,
-            filename: `${modalSessionIdRef.current}.md`,
-            relativePath: `${modalSessionIdRef.current}.md`,
-            rollupPath: `modal://${modalSessionIdRef.current}/rollup`,
-            rollupRelativePath: "ROLLUP.md",
-            workspaceRoot: "modal",
-            workspaceKind: "company" as const,
-            durationSeconds: opts.durationSeconds,
-            messages: opts.messages,
-          };
-        } else {
-          body.transcript = null;
-        }
-        await fetch("/api/voice/outcome", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          keepalive: true,
-          body: JSON.stringify(body),
-        });
-      } catch {}
-    },
-    [bindingRequest, taskTitle, projectName, displayAgent],
-  );
-
-  // Escape key closes; closing always disconnects if live, then posts the final
-  // outcome body with duration + message count.
+  // Escape key closes; closing always disconnects if live, then lets the hook
+  // persist the transcript/outcome through its single session id.
   const handleClose = useCallback(async () => {
     sessionRef.current.disconnect();
     await new Promise((r) => setTimeout(r, 200));
@@ -303,34 +244,16 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
       await sessionRef.current.persistSessionArtifacts();
     } catch {}
 
-    if (modalSessionIdRef.current) {
-      const currentTranscript = sessionRef.current.transcript;
-      const messages = currentTranscript.length;
-      const durationSeconds = sessionStartedAtRef.current
-        ? Math.max(0, Math.round((Date.now() - sessionStartedAtRef.current) / 1000))
-        : 0;
-      await postOutcome({ durationSeconds, messages });
-      // Trigger a second parent refresh so Comments/Activity reflect the
-      // final-body UPDATE (duration + messages), not the initial placeholder.
-      onSessionEnd?.();
-    }
-
-    modalSessionIdRef.current = null;
-    sessionStartedAtRef.current = null;
+    onSessionEnd?.();
     onClose();
-  }, [onClose, postOutcome, onSessionEnd]);
+  }, [onClose, onSessionEnd]);
 
-  // Start Call: create a session-proof comment immediately. Same modal-owned
-  // sessionId is reused on close to update the comment body with final stats.
   const handleStartCall = useCallback(async () => {
     sessionRef.current.disconnect();
     setActiveAgentSnapshot(agent);
     setConnectingElapsedMs(0);
-    modalSessionIdRef.current = `modal-${Date.now()}`;
-    sessionStartedAtRef.current = Date.now();
-    await postOutcome({});
     connect();
-  }, [agent, connect, postOutcome]);
+  }, [agent, connect]);
 
   // Mid-call reassignment detection: `agent` (parent prop) reflects the live
   // DB assignee; `activeAgentSnapshot` is frozen at call start. If they
@@ -360,24 +283,13 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
       } catch {}
     }
 
-    if (modalSessionIdRef.current) {
-      const currentTranscript = sessionRef.current.transcript;
-      const messages = currentTranscript.length;
-      const durationSeconds = sessionStartedAtRef.current
-        ? Math.max(0, Math.round((Date.now() - sessionStartedAtRef.current) / 1000))
-        : 0;
-      await postOutcome({ durationSeconds, messages });
-      onSessionEnd?.();
-    }
-
-    modalSessionIdRef.current = null;
-    sessionStartedAtRef.current = null;
+    onSessionEnd?.();
 
     // Brief beat so the snapshot clears (via the effect on isSessionActive)
     // and the new binding has a frame to settle before we reconnect.
     await new Promise((r) => setTimeout(r, 120));
     await handleStartCall();
-  }, [postOutcome, onSessionEnd, handleStartCall]);
+  }, [onSessionEnd, handleStartCall]);
 
   useEffect(() => {
     if (!open) return;
@@ -414,7 +326,10 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
         background: "var(--modal-backdrop)",
         backdropFilter: "blur(12px)",
       }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget) handleClose(); }}
+      onMouseDown={(e) => {
+        e.stopPropagation();
+        if (e.target === e.currentTarget) void handleClose();
+      }}
     >
       <div
         role="dialog"
@@ -488,7 +403,7 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
         {/* Status + controls */}
         <div style={{
           display: "grid",
-          gridTemplateColumns: `${VOICE_MODAL_STATUS_WIDTH}px ${VOICE_MODAL_PROVIDER_WIDTH}px ${VOICE_MODAL_INPUT_WIDTH}px ${VOICE_MODAL_ACTION_WIDTH}px`,
+          gridTemplateColumns: `${VOICE_MODAL_STATUS_WIDTH}px ${VOICE_MODAL_INPUT_WIDTH}px ${VOICE_MODAL_ACTION_WIDTH}px`,
           justifyContent: "space-between",
           alignItems: "center",
           gap: 10,
@@ -515,52 +430,6 @@ export function TaskVoiceModal({ open, onClose, agent, bindingRequest, taskTitle
             </span>
             {state === "listening" && <Mic size={14} color={color.textSecondary} />}
             {state === "idle" && <MicOff size={14} color={color.textMuted} />}
-          </div>
-
-          <div
-            aria-label="Voice provider"
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              flex: "0 0 auto",
-              width: VOICE_MODAL_PROVIDER_WIDTH,
-              height: 42,
-              boxSizing: "border-box",
-              padding: 2,
-              borderRadius: 8,
-              border: `0.5px solid ${color.border}`,
-              background: color.surface,
-              opacity: sessionActive ? 0.56 : 1,
-            }}
-          >
-            {([
-              ["gemini-live", "Gemini"],
-              ["openai-realtime-2", "Realtime 2"],
-            ] as const).map(([provider, label]) => {
-              const selected = voiceProvider === provider;
-              return (
-                <button
-                  key={provider}
-                  type="button"
-                  disabled={sessionActive}
-                  onClick={() => handleProviderChange(provider)}
-                  style={{
-                    border: 0,
-                    borderRadius: 6,
-                    flex: "1 1 0",
-                    height: "100%",
-                    padding: "0 8px",
-                    background: selected ? color.accentSoft : "transparent",
-                    color: selected ? color.accent : color.textSecondary,
-                    fontSize: 12,
-                    fontWeight: 700,
-                    cursor: sessionActive ? "not-allowed" : "pointer",
-                  }}
-                >
-                  {label}
-                </button>
-              );
-            })}
           </div>
 
           <VoiceInputIndicator

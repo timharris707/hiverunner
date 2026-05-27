@@ -23,6 +23,8 @@ const COMPANY_SUB_PATHS = new Set([
 ]);
 
 const EDGE_ROUTE_MAP_CACHE_TTL_MS = 30_000;
+const EDGE_ROUTE_MAP_FAILURE_CACHE_TTL_MS = 10_000;
+const DEFAULT_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = 1_200;
 
 type EdgeRouteMapCache = {
   maps: EdgeRouteMaps;
@@ -36,6 +38,14 @@ type GlobalCacheState = {
   /** Bumped by service layer when slug aliases change. */
   __mcEdgeRouteMapVersion?: number;
 };
+
+function getEdgeRouteMapFetchTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  const parsed = Number.parseInt(env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS ?? "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return DEFAULT_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
+  }
+  return Math.min(parsed, 10_000);
+}
 
 function getEdgeRouteMapCacheStore(): { cache?: EdgeRouteMapCache } {
   const scoped = globalThis as typeof globalThis & GlobalCacheState;
@@ -127,6 +137,21 @@ function shouldResolveEdgeRouteMaps(pathname: string): boolean {
   return !APP_ROOT_PREFIXES.has(segments[0].toLowerCase());
 }
 
+function getFreshCachedEdgeRouteMaps(): EdgeRouteMaps | null {
+  const cacheStore = getEdgeRouteMapCacheStore();
+  const cached = cacheStore.cache;
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.maps;
+  }
+  return null;
+}
+
+function shouldUseStaticRouteMaps(pathname: string): boolean {
+  const segments = pathname.split("/").filter(Boolean);
+  const root = segments[0]?.toUpperCase();
+  return Boolean(root && EDGE_ROUTE_MAPS_FALLBACK.companyCodeToSlug[root]);
+}
+
 async function getEdgeRouteMaps(request: NextRequest, options: { forceRefresh?: boolean } = {}): Promise<EdgeRouteMaps> {
   const cacheStore = getEdgeRouteMapCacheStore();
   const cached = cacheStore.cache;
@@ -136,13 +161,16 @@ async function getEdgeRouteMaps(request: NextRequest, options: { forceRefresh?: 
   }
 
   const scoped = globalThis as typeof globalThis & GlobalCacheState;
+  const staleCache = scoped.__mcEdgeRouteMapCache;
 
   // If the service layer already populated the cache (via refreshEdgeRouteMapCache),
   // use that even if it was invalidated by a version bump — it is still the latest.
-  const eagerCache = scoped.__mcEdgeRouteMapCache;
-  if (!options.forceRefresh && eagerCache && eagerCache.expiresAt > now) {
-    return eagerCache.maps;
+  if (!options.forceRefresh && staleCache && staleCache.expiresAt > now) {
+    return staleCache.maps;
   }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getEdgeRouteMapFetchTimeoutMs());
 
   try {
     // Use the host header to build the self-fetch URL so the request reaches
@@ -161,6 +189,7 @@ async function getEdgeRouteMaps(request: NextRequest, options: { forceRefresh?: 
     const response = await fetch(url.toString(), {
       headers,
       cache: "no-store",
+      signal: controller.signal,
     });
 
     if (response.ok) {
@@ -177,9 +206,21 @@ async function getEdgeRouteMaps(request: NextRequest, options: { forceRefresh?: 
     }
   } catch {
     // Fall back to the bundled map below.
+  } finally {
+    clearTimeout(timeout);
   }
 
-  return EDGE_ROUTE_MAPS_FALLBACK;
+  if (staleCache) {
+    return staleCache.maps;
+  }
+
+  const fallback = withEdgeRouteMapFallback(null);
+  cacheStore.cache = {
+    maps: fallback,
+    expiresAt: now + EDGE_ROUTE_MAP_FAILURE_CACHE_TTL_MS,
+    version: scoped.__mcEdgeRouteMapVersion ?? 0,
+  };
+  return fallback;
 }
 
 function copyQuery(target: URL, source: URLSearchParams) {
@@ -328,7 +369,7 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
 }
 
 // Pages that don't require authentication
-const PUBLIC_PAGES = new Set(["/login"]);
+const PUBLIC_PAGES = new Set(["/", "/login"]);
 
 const ORCHESTRATION_API_PREFIX = "/api/orchestration/";
 const ORCHESTRATION_HEALTH_PATHS = new Set<string>();
@@ -477,6 +518,7 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
   const hasLocalDevBypass = canBypassLocalDevAuth(host);
   const hasLocalDevSession = hasLocalDevSessionCookie(request, host);
   let pendingRewriteTarget: URL | null = null;
+  let pendingLegacyRedirectTarget: URL | null = null;
   const requestId = request.headers.get("x-request-id")?.trim() || crypto.randomUUID();
   const startedAt = Date.now();
 
@@ -540,20 +582,26 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
 
   if (!pathname.startsWith("/api/") && !pathname.startsWith("/_next/")) {
     const origin = request.nextUrl.origin;
-    if (pathname === "/") {
-      const routeMaps = await getEdgeRouteMaps(request);
-      const defaultCode = getRootRedirectCompanyCode(routeMaps);
-      return finalize(NextResponse.redirect(new URL(`/${defaultCode}/dashboard`, origin), 307));
+    const needsRouteMaps = shouldResolveEdgeRouteMaps(pathname);
+    let fetchedRouteMapsForRequest = false;
+    let routeMaps = EDGE_ROUTE_MAPS_FALLBACK;
+    if (needsRouteMaps) {
+      const cachedRouteMaps = getFreshCachedEdgeRouteMaps();
+      if (cachedRouteMaps) {
+        routeMaps = cachedRouteMaps;
+      } else if (shouldUseStaticRouteMaps(pathname)) {
+        routeMaps = EDGE_ROUTE_MAPS_FALLBACK;
+      } else {
+        routeMaps = await getEdgeRouteMaps(request);
+        fetchedRouteMapsForRequest = true;
+      }
     }
-
-    let routeMaps = shouldResolveEdgeRouteMaps(pathname)
-      ? await getEdgeRouteMaps(request)
-      : EDGE_ROUTE_MAPS_FALLBACK;
     const routeSegments = pathname.split("/").filter(Boolean);
     const routeRoot = routeSegments[0];
     if (
       routeRoot
-      && shouldResolveEdgeRouteMaps(pathname)
+      && needsRouteMaps
+      && !fetchedRouteMapsForRequest
       && !APP_ROOT_PREFIXES.has(routeRoot.toLowerCase())
       && !routeMaps.companyCodeToSlug[routeRoot.toUpperCase()]
     ) {
@@ -583,15 +631,24 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
       ? null
       : tryLegacyRedirect(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (legacyTarget) {
-      return finalize(NextResponse.redirect(legacyTarget, 308));
+      if (hasLocalDevBypass || hasLocalDevSession) {
+        return finalize(NextResponse.redirect(legacyTarget, 308));
+      }
+      pendingLegacyRedirectTarget = legacyTarget;
     }
   }
 
   if (hasLocalDevBypass) {
+    if (pendingLegacyRedirectTarget) {
+      return finalize(NextResponse.redirect(pendingLegacyRedirectTarget, 308));
+    }
     return finalize(NextResponse.next());
   }
 
   if (hasLocalDevSession) {
+    if (pendingLegacyRedirectTarget) {
+      return finalize(NextResponse.redirect(pendingLegacyRedirectTarget, 308));
+    }
     if (pendingRewriteTarget) {
       return finalize(NextResponse.rewrite(pendingRewriteTarget));
     }
@@ -718,6 +775,10 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
         rewriteResponse.headers.set(key, value);
       });
       return finalize(rewriteResponse);
+    }
+
+    if (pendingLegacyRedirectTarget) {
+      return finalize(NextResponse.redirect(pendingLegacyRedirectTarget, 308));
     }
 
     return finalize(supabaseResponse);

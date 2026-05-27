@@ -6,6 +6,27 @@ export function toAvatarIconToken(iconKey: string): string {
   return `${AVATAR_ICON_PREFIX}${iconKey}`;
 }
 
+export function isAvatarIconToken(symbol: string | null | undefined): boolean {
+  return Boolean(symbol?.trim().startsWith(AVATAR_ICON_PREFIX));
+}
+
+export function avatarDisplaySymbol(
+  symbol: string | null | undefined,
+  fallback = "",
+): string {
+  const trimmed = symbol?.trim() ?? "";
+  if (!trimmed || isAvatarIconToken(trimmed)) return fallback;
+  return trimmed;
+}
+
+export function agentDisplayLabel(
+  symbol: string | null | undefined,
+  name: string,
+): string {
+  const displaySymbol = avatarDisplaySymbol(symbol);
+  return displaySymbol ? `${displaySymbol} ${name}` : name;
+}
+
 export function defaultAgentIconKey(role: string | null | undefined): string {
   const normalized = role?.toLowerCase() ?? "";
 

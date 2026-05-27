@@ -67,6 +67,32 @@ export type VoiceState =
   | "speaking"
   | "error";
 
+export function isVoiceSessionActiveState(state: VoiceState): boolean {
+  return state !== "idle" && state !== "error";
+}
+
+export function isVoiceSessionConnectedState(state: VoiceState): boolean {
+  return isVoiceSessionActiveState(state) && state !== "connecting";
+}
+
+export function formatGeminiWebSocketCloseMessage(
+  event: Pick<CloseEvent, "code" | "reason" | "wasClean">,
+  setupComplete: boolean,
+): string | null {
+  if (setupComplete) return null;
+
+  const reason = typeof event.reason === "string" ? event.reason.trim() : "";
+  if (reason) {
+    return `Voice session closed before setup completed: ${reason}`;
+  }
+
+  if (!event.wasClean || event.code !== 1000) {
+    return `Voice session closed before setup completed (code ${event.code}).`;
+  }
+
+  return "Voice session closed before setup completed.";
+}
+
 export interface TranscriptEntry {
   role: "user" | "assistant";
   text: string;
@@ -1522,8 +1548,10 @@ export function useVoiceSession(input?: UseVoiceSessionInput) {
               }
               break;
 
-            case "turn_complete":
-            case "generation_complete": {
+            case "generation_complete":
+              break;
+
+            case "turn_complete": {
               const assistantTranscript = currentOutputTranscript.current.trim();
               const assistantTextFallback = currentTextRef.current.trim();
               if (assistantTranscript || assistantTextFallback) {

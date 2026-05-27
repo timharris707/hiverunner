@@ -74,6 +74,10 @@ async function run() {
   const { POST: createFullRoute } = await import("@/app/api/orchestration/companies/create-full/route");
   const { provisionSelectedStarterAgentsForCreateFull } = await import("@/lib/orchestration/create-full-starter-team-provisioning");
   const { closeOrchestrationDb, getOrchestrationDb } = await import("@/lib/orchestration/db");
+  const {
+    STARTER_TEAM_WORK_TYPE_IDS,
+    buildStarterTeamSetupPayload,
+  } = await import("@/lib/orchestration/starter-team-templates");
 
   await test("create-full provisions a human-readable OpenClaw runtime id for the CEO when explicitly enabled", async () => {
     process.env.MC_ENABLE_OPENCLAW_AGENT_PROVISIONING = "1";
@@ -331,6 +335,7 @@ async function run() {
             workType: "software-product",
             agents: [
               {
+                id: "software-implementation-engineer",
                 name: "Devon",
                 role: "Implementation Engineer",
                 mission: "Build the first scoped milestone.",
@@ -408,7 +413,7 @@ async function run() {
 
     const starterRows = db
       .prepare(
-        `SELECT name, role, adapter_type, model, openclaw_agent_id, project_id, reporting_to
+        `SELECT name, role, adapter_type, model, openclaw_agent_id, project_id, reporting_to, avatar_url, voice_id, avatar_gender
          FROM agents
          WHERE company_id = ? AND name IN ('Devon', 'Noel')
          ORDER BY name ASC`,
@@ -421,6 +426,9 @@ async function run() {
         openclaw_agent_id: string | null;
         project_id: string | null;
         reporting_to: string | null;
+        avatar_url: string | null;
+        voice_id: string | null;
+        avatar_gender: string | null;
       }>;
 
     assert.strictEqual(starterRows.length, 1);
@@ -431,6 +439,9 @@ async function run() {
     assert.strictEqual(starterRows[0]?.openclaw_agent_id, null);
     assert.strictEqual(starterRows[0]?.project_id, payload.project.id);
     assert.strictEqual(starterRows[0]?.reporting_to, payload.agent.id);
+    assert.strictEqual(starterRows[0]?.avatar_url, "/starter-agent-avatars/corey.webp");
+    assert.strictEqual(starterRows[0]?.voice_id, "Alnilam");
+    assert.strictEqual(starterRows[0]?.avatar_gender, "male");
     assert.ok(!existsSync(path.join(homeDir, ".openclaw", "agents", "devon")), "starter agents must not create OpenClaw scaffolds by default");
 
     const workspaceAgents = readFileSync(path.join(payload.workspace, "AGENTS.md"), "utf8");
@@ -491,6 +502,74 @@ async function run() {
         message: "workspace path unavailable",
       },
     ]);
+  });
+
+  await test("create-full can launch every starter pack with bundled identities and no provider keys", async () => {
+    const db = getOrchestrationDb();
+    for (const workType of STARTER_TEAM_WORK_TYPE_IDS) {
+      const setup = buildStarterTeamSetupPayload(workType);
+      const slug = `pack-${workType}`;
+      const selectedDefaults = setup.starterTeam.agents.filter((agent) => agent.selected);
+      const req = {
+        async json() {
+          return {
+            company: {
+              name: `Pack ${workType}`,
+              slug,
+              description: `Fixture company for ${workType} starter pack.`,
+            },
+            owner: {
+              displayName: "Test Owner",
+              email: "owner@example.test",
+            },
+            project: null,
+            starterTeam: {
+              workType,
+              agents: setup.starterTeam.agents,
+            },
+            ceo: {
+              name: `Lead ${workType}`,
+              model: "",
+              guidance: "",
+            },
+            task: {
+              title: setup.kickoffTask.title,
+              description: setup.kickoffTask.description,
+              priority: "P1",
+            },
+          };
+        },
+      };
+
+      const res = await createFullRoute(req as never);
+      if (res.status !== 201) {
+        const errorPayload = (await res.json()) as { error?: string };
+        throw new Error(`Expected 201 for ${workType}, got ${res.status}: ${errorPayload.error ?? "missing error payload"}`);
+      }
+
+      const payload = (await res.json()) as {
+        company: { id: string };
+        starterTeam: { selectedCount: number; agents: Array<{ name: string }> };
+      };
+      assert.strictEqual(payload.starterTeam.selectedCount, selectedDefaults.length, `${workType} selected count`);
+
+      if (workType === "blank-custom") {
+        assert.strictEqual(payload.starterTeam.agents.length, 0);
+        continue;
+      }
+
+      const identityRows = db
+        .prepare(
+          `SELECT COUNT(*) AS count
+           FROM agents
+           WHERE company_id = ?
+             AND avatar_url LIKE '/starter-agent-avatars/%'
+             AND voice_id IS NOT NULL
+             AND voice_id <> ''`,
+        )
+        .get(payload.company.id) as { count: number };
+      assert.strictEqual(identityRows.count, selectedDefaults.length, `${workType} starter identities should persist`);
+    }
   });
 
   await test("create-full keeps blank/custom starter team empty even if role cards are submitted", async () => {

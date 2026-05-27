@@ -2,6 +2,7 @@
 
 import { getAgentByAnyId } from "@/config/agents";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 
 interface AgentAvatarProps {
   /** Agent ID — any variant: "t1", "backend-eng", etc. */
@@ -37,7 +38,7 @@ export function AgentAvatar({
 }: AgentAvatarProps) {
   const agent = getAgentByAnyId(agentId);
   const border = borderColor ?? agent?.divisionColor ?? "#6b7280";
-  const label = title ?? (agent ? `${agent.emoji} ${agent.name}` : agentId);
+  const label = title ?? (agent ? agentDisplayLabel(agent.emoji, agent.name) : agentId);
 
   if (agent?.avatar) {
     return (
@@ -102,7 +103,7 @@ export function AgentAvatarWithFallback({
 }: AgentAvatarProps) {
   const agent = getAgentByAnyId(agentId);
   const border = borderColor ?? agent?.divisionColor ?? "#6b7280";
-  const label = agent ? `${agent.emoji} ${agent.name}` : agentId;
+  const label = agent ? agentDisplayLabel(agent.emoji, agent.name) : agentId;
 
   const sharedStyle: React.CSSProperties = {
     width: size,

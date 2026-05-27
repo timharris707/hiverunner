@@ -50,10 +50,6 @@ function hasLinkVerificationNotice(text: string): boolean {
     /Unverified links:/i.test(text);
 }
 
-function hasVoiceSessionRecord(text: string): boolean {
-  return /^Voice session recorded\b/i.test(text);
-}
-
 function hasAgentCoordinationMarker(text: string): boolean {
   return /^\[(AWAITING_CLARIFICATION|AWAITING_AGENT|NEEDS_REVISION|REVISION_REQUESTED|REVIEW_FEEDBACK|INTERNAL|SYSTEM)\]/i.test(text);
 }
@@ -69,7 +65,6 @@ export function isOperatorFacingComment(input: CommentVisibilityInput): boolean 
   if (
     hasExecutionTelemetry(text) ||
     hasLinkVerificationNotice(text) ||
-    hasVoiceSessionRecord(text) ||
     hasAgentCoordinationMarker(text) ||
     hasReviewRoutingStatus(text)
   ) {

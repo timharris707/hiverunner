@@ -28,10 +28,8 @@ import { ConversationFlow } from "@/components/voice/ConversationFlow";
 import { ToolOutcomePanel } from "@/components/voice/ToolOutcomePanel";
 import { useConversationFlow } from "@/hooks/useConversationFlow";
 import {
-  getStoredVoiceProviderOverride,
-  storeVoiceProviderOverride,
+  isVoiceSessionConnectedState,
   useVoiceSession,
-  type VoiceSessionProvider,
   type VoiceState,
 } from "@/hooks/useVoiceSession";
 import {
@@ -275,15 +273,17 @@ function VoiceVisualizer({ state }: { state: VoiceState }) {
 
 // ─── Setup Guide ─────────────────────────────────────────────────────────────
 
-function SetupGuide() {
+function SetupGuide({ error }: { error?: string | null }) {
   return (
     <div className="bg-stone-800/40 border border-stone-600/30 rounded-lg p-4 space-y-3">
       <div className="flex items-center gap-2 text-stone-300 font-medium">
         <AlertCircle size={18} />
-        Google AI API Key Required
+        Voice setup required
       </div>
       <div className="text-sm text-zinc-300 space-y-2">
-        <p>To use Voice Chat, you need a Google AI API key with Gemini Live access:</p>
+        <p>
+          {error || "Voice chat is optional and needs a Google AI key before Start session can connect."}
+        </p>
         <ol className="list-decimal list-inside space-y-1 text-zinc-400">
           <li>
             Go to{" "}
@@ -297,12 +297,16 @@ function SetupGuide() {
             <code className="bg-zinc-800 px-1 py-0.5 rounded text-xs">
               GOOGLE_AI_API_KEY=***
             </code>{" "}
+            or{" "}
+            <code className="bg-zinc-800 px-1 py-0.5 rounded text-xs">
+              GEMINI_API_KEY=***
+            </code>{" "}
             to <code className="bg-zinc-800 px-1 py-0.5 rounded text-xs">.env.local</code>
           </li>
           <li>Restart the dev server</li>
         </ol>
         <p className="text-xs text-zinc-500 mt-2">
-          Gemini 3.1 Flash Live is available on the free tier with generous rate limits.
+          Voice chat is experimental and the rest of HiveRunner works without this optional key.
         </p>
       </div>
     </div>
@@ -324,7 +328,7 @@ function VoiceWorkflowArchitecture() {
             Current Flow
           </div>
           <div>┌──────────┐ mic audio  ┌──────────────┐</div>
-          <div>│ Browser  │───────────▶│ Gemini Live  │</div>
+          <div>│ Browser  │───────────▶│ Voice runtime│</div>
           <div>│ Voice UI │◀───────────│ (assistant)  │</div>
           <div>└────┬─────┘ audio+text └──────┬───────┘</div>
           <div>     │ transcript               │ tool_call</div>
@@ -339,7 +343,7 @@ function VoiceWorkflowArchitecture() {
         <div className="text-sm font-sans text-zinc-300 space-y-2">
           <p>
             <strong>Voice Chat:</strong> Direct 1:1 voice
-            conversation with the HiveRunner assistant via Gemini Live WebSocket. Validates audio I/O,
+            conversation with the HiveRunner assistant via the live voice runtime. Validates audio I/O,
             latency, interruption handling, and persona consistency.
           </p>
           <p>
@@ -350,7 +354,7 @@ function VoiceWorkflowArchitecture() {
               Voice moderator accepts spoken instructions and routes to workspace agents
             </li>
             <li>
-              Gemini Live function calling to trigger agent responses (Atlas, Nimbus, etc.)
+              Voice function calling to trigger agent responses (Atlas, Nimbus, etc.)
             </li>
             <li>
               Task context syncs bidirectionally — voice transcript feeds into workspace events
@@ -360,14 +364,14 @@ function VoiceWorkflowArchitecture() {
               the assistant delegates and reads back Atlas&apos;s response aloud
             </li>
             <li>
-              Text-to-speech for non-voice agents via Gemini or browser TTS fallback
+              Text-to-speech for non-voice agents via the configured voice runtime or browser fallback
             </li>
           </ul>
           <p>
             <strong>Key findings:</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 text-zinc-400 ml-2">
-            <li>Gemini 3.1 Flash Live supports bidirectional audio streaming via WebSocket</li>
+            <li>The live voice runtime supports bidirectional audio streaming via WebSocket</li>
             <li>Interruption is native — client can speak over server audio, server detects and stops</li>
             <li>Audio format: PCM16 @ 16kHz input, PCM16 @ 24kHz output</li>
             <li>System instruction sets persona at connection time (no per-turn system prompts)</li>
@@ -393,13 +397,6 @@ export default function VoicePage() {
     () => buildRequestedVoiceBindingFromSearchParams(searchParams) ?? undefined,
     [searchParams]
   );
-  const queryVoiceProvider = searchParams.get("voiceProvider");
-  const [voiceProvider, setVoiceProvider] = useState<VoiceSessionProvider>(() => {
-    if (queryVoiceProvider === "openai-realtime-2" || queryVoiceProvider === "gemini-live") {
-      return queryVoiceProvider;
-    }
-    return getStoredVoiceProviderOverride() ?? "gemini-live";
-  });
 
   const {
     state,
@@ -413,12 +410,12 @@ export default function VoicePage() {
     disconnect,
     sendText,
     acknowledgeIntent,
-  } = useVoiceSession({ bindingRequest, voiceProvider });
+  } = useVoiceSession({ bindingRequest, voiceProvider: "gemini-live" });
 
   const [textInput, setTextInput] = useState("");
   const [showArchitecture, setShowArchitecture] = useState(false);
 
-  const isConnected = state !== "idle" && state !== "error" && state !== "connecting";
+  const isConnected = isVoiceSessionConnectedState(state);
   const conversationEntries = useConversationFlow(transcript, toolEvents);
   const hasInflightTool = useMemo(
     () => conversationEntries.some((entry) => entry.kind === "tool" && entry.inflight),
@@ -444,11 +441,6 @@ export default function VoicePage() {
     setTextInput("");
   }
 
-  function handleVoiceProviderChange(provider: VoiceSessionProvider) {
-    setVoiceProvider(provider);
-    storeVoiceProviderOverride(provider);
-  }
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -456,9 +448,6 @@ export default function VoicePage() {
           <h1 className="text-2xl font-bold text-zinc-100 flex items-center gap-2">
             <Zap className="text-stone-400" size={24} />
             {presenterCopy.heading}
-            <span className="text-sm font-normal text-zinc-500 ml-2">
-              {voiceProvider === "openai-realtime-2" ? "OpenAI Realtime 2" : "Gemini Live"}
-            </span>
           </h1>
           <p className="text-sm text-zinc-400 mt-1">
             {presenterCopy.subtitle}
@@ -484,26 +473,6 @@ export default function VoicePage() {
           )}
         </div>
         <div className="flex items-center gap-3">
-          <div className={`inline-flex rounded-lg border border-zinc-700 bg-zinc-900 p-1 ${isConnected ? "opacity-50" : ""}`}>
-            {([
-              ["gemini-live", "Gemini"],
-              ["openai-realtime-2", "Realtime 2"],
-            ] as const).map(([provider, label]) => (
-              <button
-                key={provider}
-                type="button"
-                disabled={isConnected}
-                onClick={() => handleVoiceProviderChange(provider)}
-                className={`rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
-                  voiceProvider === provider
-                    ? "bg-amber-500/15 text-amber-200"
-                    : "text-zinc-500 hover:text-zinc-300"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
           <StateIndicator state={state} speakingLabel={presenterCopy.speakingLabel} />
           <button
             onClick={() => setShowArchitecture(!showArchitecture)}
@@ -514,7 +483,7 @@ export default function VoicePage() {
         </div>
       </div>
 
-      {isSetupRequired && <SetupGuide />}
+      {isSetupRequired && <SetupGuide error={error} />}
       {showArchitecture && <VoiceWorkflowArchitecture />}
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.15fr)] gap-6 items-stretch">
@@ -595,7 +564,7 @@ export default function VoicePage() {
           )}
 
           <div className="mt-6 text-xs text-zinc-600 text-center">
-            Gemini 3.1 Flash Live · PCM16 @ 16kHz in / 24kHz out · WebSocket direct
+            Voice chat is optional · PCM16 @ 16kHz in / 24kHz out · WebSocket direct
           </div>
         </div>
 
@@ -626,38 +595,37 @@ export default function VoicePage() {
 
       <div className="bg-zinc-900/50 border border-zinc-700/50 rounded-lg p-4">
         <h3 className="text-sm font-medium text-zinc-300 mb-2">
-          Runtime Status
+          Experimental Status
         </h3>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
           <div className="space-y-1">
-            <div className="text-green-400 font-medium">Confirmed</div>
+            <div className="text-green-400 font-medium">Implemented</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>Gemini 3.1 Flash Live model available</li>
-              <li>WebSocket bidirectional audio streaming</li>
-              <li>Native interruption support (VAD)</li>
-              <li>System instruction for persona injection</li>
-              <li>Text + audio dual output modality</li>
-              <li>Function calling for tool use</li>
+              <li>Optional provider-key detection before session startup</li>
+              <li>Voice runtime bootstrap for live browser sessions</li>
+              <li>Clear setup messaging for missing keys or unsupported browsers</li>
+              <li>Task/project context injection for bound sessions</li>
+              <li>Transcript and tool-action surfaces during connected sessions</li>
             </ul>
           </div>
           <div className="space-y-1">
             <div className="text-stone-300 font-medium">Next Hardening</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>GOOGLE_AI_API_KEY access (add to .env.local)</li>
+              <li>Provider key access in the local environment</li>
               <li>AudioWorklet browser compatibility (Chrome/Edge)</li>
               <li>Latency under real network conditions</li>
               <li>Persona consistency over extended sessions</li>
-              <li>Function calling for multi-agent delegation</li>
+              <li>Extended function-calling validation for multi-agent delegation</li>
             </ul>
           </div>
           <div className="space-y-1">
-            <div className="text-stone-300 font-medium">Workspace Path</div>
+            <div className="text-stone-300 font-medium">Planned Hardening</div>
             <ul className="text-zinc-400 space-y-0.5">
-              <li>Voice Chat with the HiveRunner assistant</li>
-              <li>Voice moderator for workspace agents</li>
-              <li>Multi-agent voice with agent-switching</li>
-              <li>Reconnect logic for 15min+ sessions</li>
-              <li>Server-side WS proxy for production auth</li>
+              <li>Long-session reconnect behavior</li>
+              <li>Voice moderator flows for workspace agents</li>
+              <li>Multi-agent voice with agent switching</li>
+              <li>Server-side proxy path for hardened auth</li>
+              <li>Production readiness review after end-to-end validation</li>
             </ul>
           </div>
         </div>
