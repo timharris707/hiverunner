@@ -13,6 +13,14 @@ const paramsSchema = z.object({
   id: z.string().trim().min(1),
 });
 
+function normalizeAvatarUrlInput(value: unknown): string | null | undefined {
+  if (value === null || value === undefined || value === "") return null;
+  if (typeof value !== "string") return undefined;
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -132,10 +140,12 @@ export async function PATCH(
     }
 
     if ("avatarUrl" in body) {
+      const avatarUrl = normalizeAvatarUrlInput(body.avatarUrl);
+      if (avatarUrl === undefined) {
+        return errorResponse(400, "avatar_url_invalid", "avatarUrl must be a string, null, or empty string");
+      }
       updates.push("avatar_url = @avatar_url");
-      values.avatar_url = typeof body.avatarUrl === "string" && body.avatarUrl.trim()
-        ? body.avatarUrl.trim()
-        : null;
+      values.avatar_url = avatarUrl;
     }
 
     if ("avatarAge" in body) {

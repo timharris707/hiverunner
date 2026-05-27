@@ -28,7 +28,7 @@ import {
 } from "@/lib/orchestration/client";
 import { InlineStatusPicker } from "@/components/tasks/InlineStatusPicker";
 import { InlinePriorityPicker } from "@/components/tasks/InlinePriorityPicker";
-import { InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
+import { AgentAvatarInline, InlineAssigneePicker, resolveAvatar } from "@/components/tasks/InlineAssigneePicker";
 import { InlineTagsEditor } from "@/components/tasks/InlineTagsEditor";
 import { getAgentByAnyId } from "@/config/agents";
 import { TaskVoiceModal } from "@/components/voice/TaskVoiceModal";
@@ -38,7 +38,7 @@ import {
   isOperationalStatusComment as isOperationalStatusCommentRecord,
 } from "@/lib/orchestration/comment-visibility";
 import { STATUS_LABEL, formatShortDate, assigneeInitials } from "@/components/tasks/types";
-import { findAgentByReference, getTaskAgentOfRecord, shouldShowAgentOfRecord } from "@/components/tasks/task-display-agent";
+import { findAgentByReference, getTaskAgentOfRecord, shouldShowAgentOfRecord, taskAgentDisplayLabel } from "@/components/tasks/task-display-agent";
 import type {
   OrchestrationAgent,
   OrchestrationCompany,
@@ -2791,9 +2791,9 @@ export default function TaskDetailPage() {
               {useAgentOfRecord ? (
                 <div style={{ display: "grid", gap: 3, minWidth: 0 }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 7, color: color.text, minWidth: 0 }}>
-                    <AvatarGlyph value={voiceLaunchAgent?.emoji} size={13} />
+                    {voiceLaunchAgent ? <AgentAvatarInline agent={voiceLaunchAgent} size={18} /> : null}
                     <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {voiceLaunchAgent?.name ?? task.displayAgentName ?? task.assignee ?? "Unassigned"}
+                      {voiceLaunchAgent?.name ?? taskAgentDisplayLabel(task) ?? "Unassigned"}
                     </span>
                   </span>
                   {currentAssigneeAgent && currentAssigneeAgent.id !== voiceLaunchAgent?.id ? (

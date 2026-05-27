@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { avatarDisplaySymbol } from "@/lib/orchestration/avatar-icons";
 
 interface HabboCharacterProps {
   agent: {
@@ -182,7 +183,7 @@ export function HabboCharacter({ agent, position }: HabboCharacterProps) {
         )}
         
         {/* Agent emoji badge */}
-        <text x="32" y="16" fontSize="12">{agent.emoji}</text>
+        <text x="32" y="16" fontSize="12">{avatarDisplaySymbol(agent.emoji, agent.name.slice(0, 1).toUpperCase())}</text>
       </svg>
 
       {/* Name tag */}

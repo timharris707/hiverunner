@@ -34,6 +34,7 @@ export interface VoiceTaskContextResolution {
 interface CompanyRecord {
   id: string;
   slug: string;
+  companyCode?: string | null;
   name: string;
 }
 
@@ -59,6 +60,22 @@ function clip(text: string | undefined, maxChars = 1200): string {
 
 function normalizeStatusCopy(text: string): string {
   return replaceTaskStatusTokensInText(text).replace(/\btimed_out\b/g, "timed-out");
+}
+
+function normalizeVoiceBindingAvatarUrl(value: string | null | undefined): string | undefined {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  // Generated avatars may be stored as large inline data URLs. The voice
+  // session bootstrap does not need that payload, and sending it can add a
+  // visible delay before live audio even starts.
+  if (normalized.startsWith("data:") || normalized.length > 2048) {
+    return undefined;
+  }
+
+  return normalized;
 }
 
 function toLines(items: string[]): string {
@@ -99,12 +116,43 @@ function lookupCompany(companyId?: string): CompanyRecord | undefined {
   return db
     .prepare(
       `SELECT id, slug, name
+            , company_code AS companyCode
          FROM companies
         WHERE id = ?
           AND archived_at IS NULL
         LIMIT 1`
     )
     .get(companyId) as CompanyRecord | undefined;
+}
+
+function lookupCompanyBySlug(companySlug?: string): CompanyRecord | undefined {
+  if (!companySlug) {
+    return undefined;
+  }
+
+  const db = getOrchestrationDb();
+  return db
+    .prepare(
+      `SELECT id, slug, name
+            , company_code AS companyCode
+         FROM companies
+        WHERE (slug = ? OR UPPER(company_code) = UPPER(?))
+          AND archived_at IS NULL
+        LIMIT 1`
+    )
+    .get(companySlug, companySlug) as CompanyRecord | undefined;
+}
+
+function matchesCompanyAlias(company: CompanyRecord | undefined, requestedCompanySlug?: string): boolean {
+  if (!requestedCompanySlug || !company) {
+    return true;
+  }
+
+  const requested = requestedCompanySlug.trim().toLowerCase();
+  return (
+    company.slug.toLowerCase() === requested ||
+    (company.companyCode?.trim().toLowerCase() === requested)
+  );
 }
 
 interface AgentLookupRow {
@@ -126,7 +174,7 @@ function toAgentRecord(row: AgentLookupRow | undefined): AgentRecord | undefined
     name: row.name,
     role: row.role,
     personality: row.personality?.trim() ? row.personality : undefined,
-    avatarUrl: row.avatar_url ?? undefined,
+    avatarUrl: normalizeVoiceBindingAvatarUrl(row.avatar_url),
     voiceId: row.voice_id ?? undefined,
   };
 }
@@ -239,7 +287,7 @@ function buildTaskContext(binding: NormalizedVoiceBindingRequest): VoiceTaskCont
   const { task, detail } = getTaskDetail(taskIdentifier);
   const { project } = getProject(task.project);
   const company = lookupCompany(project.companyId);
-  if (binding.companySlug && company?.slug && binding.companySlug !== company.slug) {
+  if (!matchesCompanyAlias(company, binding.companySlug)) {
     throw new OrchestrationApiError(404, "task_not_found", "Task not found");
   }
   const taskAssignee = lookupTaskAssignee(task.id, project.companyId);
@@ -357,7 +405,7 @@ function buildProjectContext(binding: NormalizedVoiceBindingRequest): VoiceTaskC
 
   const { project } = getProject(projectIdentifier);
   const company = lookupCompany(project.companyId);
-  if (binding.companySlug && company?.slug && binding.companySlug !== company.slug) {
+  if (!matchesCompanyAlias(company, binding.companySlug)) {
     throw new OrchestrationApiError(404, "project_not_found", "Project not found");
   }
   const agent = resolveBindingAgent({
@@ -430,6 +478,65 @@ function buildProjectContext(binding: NormalizedVoiceBindingRequest): VoiceTaskC
           },
         }
       : {}),
+  };
+}
+
+export function resolveVoiceAgentContext(
+  input: VoiceBindingRequest | NormalizedVoiceBindingRequest
+): VoiceTaskContextResolution | null {
+  const binding = normalizeVoiceBindingRequest(input);
+  if (!binding.agentId) {
+    return null;
+  }
+
+  const company = lookupCompanyBySlug(binding.companySlug);
+  if (!company) {
+    if (binding.companySlug) {
+      throw new OrchestrationApiError(404, "company_not_found", "Company not found");
+    }
+    return null;
+  }
+
+  const agent = resolveRequestedBindingAgent({
+    companyId: company.id,
+    requestedAgentId: binding.agentId,
+  });
+  if (!agent) {
+    return null;
+  }
+
+  const resolvedBinding: ResolvedVoiceBinding = {
+    scope: "global",
+    companySlug: company.slug,
+    agentId: agent.id,
+    agentName: agent.name,
+    ...(agent.avatarUrl ? { agentAvatarUrl: agent.avatarUrl } : {}),
+    ...(agent.voiceId ? { agentVoiceId: agent.voiceId } : {}),
+    mode: binding.mode,
+    source: binding.source,
+  };
+
+  const promptContext = [
+    "### Bound voice agent",
+    `- Company: ${company.name} (${company.slug})`,
+    `- Agent: ${agent.name}`,
+    `- Role: ${agent.role}`,
+    `- Session mode: ${binding.mode}`,
+    `- Session source: ${binding.source}`,
+    "",
+    "### Operating frame",
+    "No specific task or project is bound to this call. Speak as the named agent, keep the conversation concise, and use voice tools for fresh workspace context before making claims about current tasks or runs.",
+  ].join("\n");
+
+  return {
+    binding: resolvedBinding,
+    promptContext,
+    agent: {
+      id: agent.id,
+      name: agent.name,
+      role: agent.role,
+      ...(agent.personality ? { personality: agent.personality } : {}),
+    },
   };
 }
 

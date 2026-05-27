@@ -5,13 +5,26 @@ export function findAgentByReference(
   agents: OrchestrationAgent[],
   reference?: string | null,
 ): OrchestrationAgent | null {
-  const normalized = reference?.trim().toLowerCase();
+  const normalized = cleanAgentReference(reference)?.toLowerCase();
   if (!normalized) return null;
   return agents.find((agent) =>
     agent.id.toLowerCase() === normalized ||
     agent.name.toLowerCase() === normalized ||
     agent.slug?.toLowerCase() === normalized
   ) ?? null;
+}
+
+export function cleanAgentReference(reference?: string | null): string {
+  return reference?.trim().replace(/^icon:[a-z0-9-]+\s+/i, "").trim() ?? "";
+}
+
+export function taskAgentDisplayLabel(
+  task: Pick<TaskRow, "assignee" | "displayAgentName"> | null | undefined,
+): string | undefined {
+  const displayName = cleanAgentReference(task?.displayAgentName);
+  if (displayName) return displayName;
+  const assignee = cleanAgentReference(task?.assignee);
+  return assignee || undefined;
 }
 
 export function getTaskAgentOfRecord(
@@ -30,7 +43,7 @@ export function shouldShowAgentOfRecord(
   task: Pick<TaskRow, "status" | "assignee" | "displayAgentId" | "displayAgentName"> | null | undefined,
 ): boolean {
   if (!task || task.status !== "done") return false;
-  const displayRef = (task.displayAgentId ?? task.displayAgentName ?? "").trim().toLowerCase();
-  const assigneeRef = (task.assignee ?? "").trim().toLowerCase();
+  const displayRef = (task.displayAgentId ?? cleanAgentReference(task.displayAgentName)).trim().toLowerCase();
+  const assigneeRef = cleanAgentReference(task.assignee).toLowerCase();
   return Boolean(displayRef && displayRef !== assigneeRef);
 }

@@ -85,6 +85,7 @@ function buildSessionProofBody(input: PersistTaskBoundVoiceOutcomeInput): string
   if (input.transcript) {
     lines.push(`Duration: ${input.transcript.durationSeconds}s`);
     lines.push(`Messages: ${input.transcript.messages}`);
+    lines.push(`Transcript: ${input.transcript.relativePath}`);
   }
 
   return lines.join("\n");

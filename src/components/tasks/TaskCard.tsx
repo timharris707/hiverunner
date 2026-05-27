@@ -17,6 +17,7 @@ import type { OrchestrationAgent } from "@/lib/orchestration/types";
 import { font, P, radius, type as tokenType } from "@/lib/ui/tokens";
 import type { TaskBoardDropTarget } from "./useTaskDragDrop";
 import { selectPrimaryTaskUpdateComment, taskCardActivityLabel } from "./task-card-activity";
+import { cleanAgentReference } from "./task-display-agent";
 
 export interface TaskModelQuickOption {
   id: string;
@@ -90,12 +91,14 @@ export function TaskCard({
     minHeight: assignedModelDisplay ? 126 : undefined,
   };
 
+  const displayAgentReference = cleanAgentReference(task.displayAgentName);
+  const assigneeReference = cleanAgentReference(task.assignee);
   const displayAgent = task.displayAgentId
     ? agentMap.get(task.displayAgentId.toLowerCase())
-    : task.displayAgentName
-      ? agentMap.get(task.displayAgentName.toLowerCase())
+    : displayAgentReference
+      ? agentMap.get(displayAgentReference.toLowerCase())
       : undefined;
-  const assigneeAgent = task.assignee ? agentMap.get(task.assignee.toLowerCase()) : undefined;
+  const assigneeAgent = assigneeReference ? agentMap.get(assigneeReference.toLowerCase()) : undefined;
   const agent = displayAgent ?? assigneeAgent;
   const meta = PRIORITY_META[task.priority];
   const waitingOn = getWaitingOnLabel(task);
@@ -114,7 +117,7 @@ export function TaskCard({
   const modelLaneLabel = task.modelLane && task.modelLane !== "default" ? taskModelLaneLabel(task.modelLane) : null;
   const latestComment = selectPrimaryTaskUpdateComment(task.comments);
   const latestCommentPreview = latestComment ? plainTextCommentPreview(latestComment.text) : "";
-  const assignedName = task.displayAgentName?.trim() || task.assignee?.trim() || undefined;
+  const assignedName = displayAgentReference || assigneeReference || undefined;
   const activeOwnerName = assignedName ? undefined : activeAgentName;
   const displayAssigneeName = assignedName ?? activeOwnerName;
   const assigneeLabel = assignedName

@@ -135,11 +135,11 @@
   "description": "Local-first command center for running AI agent teams.",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TimHarris707/HiveRunner.git"
+    "url": "git+https://github.com/timharris707/hiverunner.git"
   },
-  "homepage": "https://github.com/TimHarris707/HiveRunner#readme",
+  "homepage": "https://github.com/timharris707/hiverunner#readme",
   "bugs": {
-    "url": "https://github.com/TimHarris707/HiveRunner/issues"
+    "url": "https://github.com/timharris707/hiverunner/issues"
   },
   "engines": {
     "node": ">=20 <23",

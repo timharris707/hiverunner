@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { avatarDisplaySymbol } from "@/lib/orchestration/avatar-icons";
 
 interface PixelCharacterProps {
   agent: {
@@ -229,7 +230,7 @@ export function PixelCharacter({
           animation: typing ? "pixel-typing 0.8s infinite" : "pixel-idle 3s infinite",
         }}
       >
-        {agent.emoji}
+        {avatarDisplaySymbol(agent.emoji, agent.name.slice(0, 1).toUpperCase())}
       </div>
 
       {/* Name Tag */}

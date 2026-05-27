@@ -14,14 +14,17 @@ import { buildConversationFlowEntries } from "@/hooks/useConversationFlow";
 import {
   findAutoApprovedToolIntent,
   findDirectlyAuthorizedToolIntents,
+  formatGeminiWebSocketCloseMessage,
   getGeminiAssistantPlaybackUntil,
+  isVoiceSessionActiveState,
+  isVoiceSessionConnectedState,
   parseVoiceTurnOutput,
   shouldSendGeminiMicFrame,
   shouldSynthesizeDirectTaskActionFallback,
   type TranscriptEntry,
 } from "@/hooks/useVoiceSession";
 import type { ToolDispatchEvent } from "@/lib/voice-tool-dispatch";
-import { VOICE_ASSISTANT_SYSTEM_PROMPT } from "@/lib/gemini-live";
+import { buildSetupMessage, VOICE_ASSISTANT_SYSTEM_PROMPT } from "@/lib/gemini-live";
 import { shouldPollLiveRuns } from "@/hooks/useLiveRuns";
 import { readStoredDemoModeFromStorage } from "@/lib/demo-mode";
 import { createHiddenProjectsSnapshotReader, getEmptyHiddenProjectsSnapshot, parseHiddenProjects } from "@/lib/hidden-project-state";
@@ -196,6 +199,25 @@ async function run() {
     );
   });
 
+  await test("Gemini Live setup uses the current raw WebSocket setup envelope", () => {
+    const setup = buildSetupMessage({
+      apiKey: "",
+      model: "gemini-test-live",
+      systemInstruction: "Speak plainly.",
+      voiceName: "Charon",
+    }) as Record<string, unknown>;
+    const liveSetup = setup.setup as Record<string, unknown>;
+    const generationConfig = liveSetup.generationConfig as Record<string, unknown>;
+
+    assert.equal("config" in setup, false);
+    assert.equal(liveSetup.model, "models/gemini-test-live");
+    assert.deepEqual(generationConfig.responseModalities, ["AUDIO"]);
+    assert.equal(
+      ((liveSetup.systemInstruction as { parts?: Array<{ text?: string }> }).parts ?? [])[0]?.text,
+      "Speak plainly.",
+    );
+  });
+
   await test("Gemini mic echo guard suppresses assistant playback bleed but still allows deliberate barge-in", () => {
     const now = 10_000;
     const playbackUntil = getGeminiAssistantPlaybackUntil({
@@ -236,6 +258,41 @@ async function run() {
       }),
       true,
       "normal mic streaming resumes after playback drains",
+    );
+  });
+
+  await test("voice session state predicates distinguish startup, live, and terminal states", () => {
+    assert.equal(isVoiceSessionActiveState("idle"), false);
+    assert.equal(isVoiceSessionActiveState("error"), false);
+    assert.equal(isVoiceSessionActiveState("connecting"), true);
+    assert.equal(isVoiceSessionActiveState("connected"), true);
+    assert.equal(isVoiceSessionActiveState("listening"), true);
+    assert.equal(isVoiceSessionActiveState("speaking"), true);
+
+    assert.equal(isVoiceSessionConnectedState("idle"), false);
+    assert.equal(isVoiceSessionConnectedState("error"), false);
+    assert.equal(isVoiceSessionConnectedState("connecting"), false);
+    assert.equal(isVoiceSessionConnectedState("connected"), true);
+    assert.equal(isVoiceSessionConnectedState("listening"), true);
+    assert.equal(isVoiceSessionConnectedState("speaking"), true);
+  });
+
+  await test("Gemini startup close reasons become operator-facing setup errors", () => {
+    const message = formatGeminiWebSocketCloseMessage(
+      {
+        code: 1011,
+        reason: "Your project has exceeded its monthly spending cap.",
+        wasClean: false,
+      },
+      false,
+    );
+
+    assert.match(message ?? "", /closed before setup completed/);
+    assert.match(message ?? "", /monthly spending cap/);
+    assert.doesNotMatch(message ?? "", /\[object Object\]/);
+    assert.equal(
+      formatGeminiWebSocketCloseMessage({ code: 1000, reason: "", wasClean: true }, true),
+      null,
     );
   });
 

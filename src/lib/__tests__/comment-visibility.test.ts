@@ -93,14 +93,14 @@ test("keeps polished long comments visible", () => {
   );
 });
 
-test("hides voice session receipts but keeps voice-authored messages visible", () => {
+test("keeps voice session receipts and voice-authored messages visible", () => {
   assert.equal(
     isOperatorFacingComment({
       source: "voice",
       type: "comment",
       text: "Voice session recorded\nTask: NEV-45",
     }),
-    false,
+    true,
   );
   assert.equal(
     isOperatorFacingComment({
