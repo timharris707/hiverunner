@@ -106,7 +106,7 @@ required to boot the app.
 git clone https://github.com/timharris707/hiverunner.git hive-runner
 cd hive-runner
 cp .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
@@ -137,6 +137,13 @@ scripts/lane.sh dev logs
 
 The script-managed `dev` lane is an internal build/UI lane and remains
 observer-only. Do not use `3010` as an execution owner.
+
+If Node is installed in a non-standard location and a lane script cannot find
+it, set an explicit path instead of creating symlinks:
+
+```bash
+HIVERUNNER_NODE_BIN=/absolute/path/to/node scripts/lane.sh dev start
+```
 
 ![HiveRunner local login](docs/screenshots/hiverunner-local-login.png)
 
@@ -256,15 +263,27 @@ For a first local validation, run:
 
 ```bash
 npm ci
-npm audit --json
-npx tsc --noEmit --incremental false --pretty false
-npm run build:tracked
+npm run verify:local
 ```
+
+`npm run verify:local` runs the public-facing readiness checks:
+`npm run lint`, `npm run build`, `npm test`, and
+`npm audit --audit-level=moderate`.
 
 `npm run build:tracked` exports committed files into a temporary directory, runs
 `npm ci`, then runs audit, typecheck, and build from that tracked-only tree. It
 is the safest public validation path because it ignores local databases, logs,
 workspaces, screenshots-in-progress, and other untracked state.
+
+For explicit CI-style checks, run:
+
+```bash
+npm run lint
+npm run build
+npm test
+npm audit --audit-level=moderate
+npx tsc --noEmit --incremental false --pretty false
+```
 
 The broader test suite is useful for development but can be slower and more
 specialized:

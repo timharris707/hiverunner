@@ -18,7 +18,7 @@ The mode is resolved at request time by `getAuthMode()` in
 
 ## Local-single-user mode (default for GitHub installs)
 
-This is the "clone the repo, `npm install`, `npm run dev`, done" path.
+This is the "clone the repo, `npm ci`, `npm run dev`, done" path.
 
 What happens:
 

@@ -5,6 +5,8 @@
   "scripts": {
     "test": "node scripts/run-orchestration-tests.mjs",
     "test:orchestration": "node scripts/run-orchestration-tests.mjs",
+    "test:runtime-node-resolution": "sh scripts/test-runtime-node-resolution.sh",
+    "verify:local": "npm run lint && npm run build && npm test && npm audit --audit-level=moderate",
     "dev": "NODE_ENV=development node --max-old-space-size=8192 server.js",
     "build": "node scripts/run-next-build.mjs",
     "build:tracked": "sh scripts/validate_tracked_build.sh",

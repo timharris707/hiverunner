@@ -26,17 +26,7 @@ assert_no_root_app_router_shadow "$STABLE_DIR" "hr-stable"
 
 cd "$STABLE_DIR"
 
-NODE_BIN=""
-for candidate in /opt/homebrew/bin/node /usr/local/bin/node ${HOME:-}/.local/share/fnm/node-versions/*/installation/bin/node; do
-  if [ -x "$candidate" ]; then
-    NODE_BIN="$candidate"
-    break
-  fi
-done
-if [ -z "$NODE_BIN" ]; then
-  echo "[hr-stable] ERROR: cannot find node binary. Install Node.js or set PATH."
-  exit 1
-fi
+NODE_BIN="$(resolve_hiverunner_node_bin "hr-stable")"
 
 EXISTING_PID="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ]; then
