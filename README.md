@@ -111,18 +111,32 @@ npm run dev
 ```
 
 Open [http://localhost:3010](http://localhost:3010).
-In the default local-first mode, `/` redirects to `/login` so a fresh clone
-lands in the app entry flow instead of the public marketing page.
+In the default local-first mode, `/` checks local workspace state. A fresh clone
+with no completed workspace redirects to `/companies/new` so setup starts
+immediately instead of showing the public marketing page. After a workspace
+exists, `/` opens the workspace task board.
 
 With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
-Use the local continue button on the login page. No Supabase project, OAuth app,
-password, or admin account is required for the local path.
+If the login page appears, use the local continue button. No Supabase project,
+OAuth app, password, or admin account is required for the local path.
 
 During company creation, HiveRunner can create a starter agent pack such as
 Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
 Operations/Support, or Content/Marketing. These starter agents use bundled
 public-safe avatar images and saved voice IDs so a fresh workspace feels alive
 immediately. The Blank/custom option creates no extra starter agents.
+
+The setup flow also shows optional provider readiness. OpenAI, Gemini / Google
+AI, and Anthropic keys can be skipped; HiveRunner will keep core onboarding,
+bundled avatars, starter packs, goals, tasks, and local board workflows working
+while clearly marking provider-backed avatar generation, live voice, or direct
+provider routes as not configured.
+
+The public-safe Overseer skill is bundled at
+`.agents/skills/hiverunner-orchestration-overseer/SKILL.md` and is seeded into
+new workspaces as `hiverunner-orchestration-overseer`. Agents should read it
+before supervising goals, board movement, stale runners, blocked/review cards,
+or multi-agent orchestration work.
 
 Port `3010` is the local UI/build lane. It is forced observer-only so it can
 stay responsive while you edit, test, and inspect the app. Autonomous execution
@@ -154,13 +168,14 @@ HIVERUNNER_NODE_BIN=/absolute/path/to/node scripts/lane.sh dev start
 Useful local routes after boot:
 
 - `/login` — auth entry point.
-- `/HIVE/dashboard` — default dashboard on a fresh local install.
+- `/companies/new` — first-run workspace setup with starter packs and provider readiness.
+- `/marketing` — public marketing page, kept separate from local first-run UX.
+- `/HIVE/dashboard` — dashboard for the default workspace when present.
 - `/HIVE/tasks` — task board/list views.
 - `/HIVE/goals` — workspace goals and supporting sprints.
 - `/HIVE/memory` — memory workspace.
 - `/HIVE/hives` — runtime/provider configuration.
 - `/HIVE/runtime-inventory` — optional CLI/runtime readiness.
-- `/companies/new` — create a workspace and review a starter team.
 
 Existing local data may still use older workspace routes when you point
 HiveRunner at an existing data directory.
@@ -214,6 +229,11 @@ OPENAI_API_KEY=your-openai-key
 GOOGLE_AI_API_KEY=your-google-ai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 ```
+
+The first-run provider step reports whether these are configured, but it never
+prints secret values. Add keys to `.env.local`, restart the local lane, and rerun
+setup or open the runtime/provider settings when you want to enable those
+optional features.
 
 `GOOGLE_AI_API_KEY` enables Gemini-backed voice features such as Gemini Live
 voice. Voice is optional; agents can be created and used without it.
@@ -311,9 +331,9 @@ infrastructure. Important limits:
   path. Supabase auth alone does not make HiveRunner horizontally scalable.
 - Runtime integrations depend on local CLIs or provider keys being present.
   Missing optional runtimes are expected until configured.
-- First-run setup is intentionally narrow: `/companies/new` can create a
-  workspace and optional starter team, but runtime readiness and provider-key
-  configuration remain separate settings surfaces.
+- First-run setup creates a workspace, optional starter team, and provider
+  readiness review. Deeper runtime readiness and provider-specific debugging
+  still live in the settings/runtime surfaces.
 
 For the exact supported boundary and the B5/B6 audit, see
 [docs/local-first-boundary.md](docs/local-first-boundary.md).

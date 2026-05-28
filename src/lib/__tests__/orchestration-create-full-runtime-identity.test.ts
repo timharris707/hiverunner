@@ -74,6 +74,7 @@ async function run() {
   const { POST: createFullRoute } = await import("@/app/api/orchestration/companies/create-full/route");
   const { provisionSelectedStarterAgentsForCreateFull } = await import("@/lib/orchestration/create-full-starter-team-provisioning");
   const { closeOrchestrationDb, getOrchestrationDb } = await import("@/lib/orchestration/db");
+  const { listTasks } = await import("@/lib/orchestration/service/task");
   const {
     STARTER_TEAM_WORK_TYPE_IDS,
     buildStarterTeamSetupPayload,
@@ -671,7 +672,7 @@ async function run() {
       }
 
       const payload = (await res.json()) as {
-        company: { id: string };
+        company: { id: string; code: string };
         project: { id: string };
         agent: { id: string };
         goal: { id: string; title: string };
@@ -685,6 +686,14 @@ async function run() {
         expectedGoalTitle: setup.kickoffGoal.title,
         expectedGoalDescription: setup.kickoffGoal.description,
       });
+      const visibleTasks = listTasks({
+        companyIdOrSlug: payload.company.code,
+        includeNonProduction: true,
+      }).tasks;
+      assert.ok(
+        visibleTasks.some((task) => task.id === payload.planningTask.id),
+        `${workType} planning task should be visible on the default company task board`,
+      );
       assert.strictEqual(payload.starterTeam.selectedCount, selectedDefaults.length, `${workType} selected count`);
 
       if (workType === "blank-custom") {
