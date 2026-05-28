@@ -12,7 +12,7 @@ It is not trying to be a hosted enterprise platform yet. The public path is
 honest and simple: clone it, run it locally, connect the runtimes and API keys
 you want, and start building your own agent team.
 
-![HiveRunner dashboard](docs/screenshots/hiverunner-dashboard.png)
+![HiveRunner task board with active agents and review lanes](docs/screenshots/hiverunner-overseer-board.png)
 
 ## What You Can Do In The First 10 Minutes
 
@@ -30,6 +30,18 @@ After a fresh clone, you can:
 
 The goal is fast evaluation without fake magic. Missing optional CLIs or API keys
 show up as setup work, not as broken onboarding.
+
+## Product Screenshots
+
+HiveRunner should look alive before anyone installs it. These screenshots show the
+starter-pack setup and the active operator board instead of an empty zero-state
+workspace.
+
+![Starter agent role cards with bundled avatars and voice choices](docs/screenshots/hiverunner-starter-pack-role-cards.png)
+
+<p align="center">
+  <img src="docs/screenshots/hiverunner-starter-pack-mobile.png" alt="Mobile starter team setup flow" width="360" />
+</p>
 
 ## Why HiveRunner Exists
 
