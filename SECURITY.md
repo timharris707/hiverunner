@@ -22,9 +22,14 @@ Include:
 ## Local-First Security Model
 
 HiveRunner defaults to `local-single-user` auth for GitHub clones. That mode is
-intended for a trusted local machine or private network only.
+intended for the trusted local machine running the install. Anything that can
+reach the host is treated as the local owner.
 
-Do not expose a local-single-user install directly to the public internet.
+Do not expose a local-single-user install to a LAN, shared network, reverse
+tunnel (ngrok / Cloudflare Tunnel / Tailscale Funnel), or the public internet.
+"Private network only" still means a network you control end-to-end — a shared
+office LAN, coffee-shop Wi-Fi, or kiosked machine is not safe.
+
 `MC_AUTH_MODE=supabase` is required for hosted auth, but it is not by itself a
 complete hosted deployment model. HiveRunner still uses local SQLite storage,
 local workspace files, and one execution owner per data lane.
