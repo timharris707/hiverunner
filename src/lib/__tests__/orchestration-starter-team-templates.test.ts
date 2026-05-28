@@ -109,8 +109,8 @@ test("public display and role copy stays neutral and vendor-free", () => {
     assertNoBannedPublicCopy(template.templateShortName, `${template.workTypeId} templateShortName`);
     assertNoBannedPublicCopy(Object.values(template.displayCopy).join(" "), `${template.workTypeId} displayCopy`);
     assertNoBannedPublicCopy(template.kickoffIntentCopy, `${template.workTypeId} kickoffIntentCopy`);
-    assertNoBannedPublicCopy(template.kickoffTask.title, `${template.workTypeId} kickoffTask.title`);
-    assertNoBannedPublicCopy(template.kickoffTask.description, `${template.workTypeId} kickoffTask.description`);
+    assertNoBannedPublicCopy(template.kickoffGoal.title, `${template.workTypeId} kickoffGoal.title`);
+    assertNoBannedPublicCopy(template.kickoffGoal.description, `${template.workTypeId} kickoffGoal.description`);
     assertNoBannedPublicCopy(template.leadershipRule.rule, `${template.workTypeId} leadershipRule.rule`);
     assertNoBannedPublicCopy(template.providerKeyRequirement.setupCopy, `${template.workTypeId} setupCopy`);
 
@@ -154,7 +154,8 @@ test("work type maps to a provisioning payload", () => {
 
     assert.equal(payload.workType, template.workTypeId);
     assert.equal(payload.templateName, template.templateName);
-    assert.deepEqual(payload.kickoffTask, template.kickoffTask);
+    assert.deepEqual(payload.kickoffGoal, template.kickoffGoal);
+    assert.deepEqual(payload.kickoffTask, template.kickoffGoal);
     assert.deepEqual(payload.initialProject, template.initialProject);
     assert.equal(payload.starterTeam.workType, template.workTypeId);
     assert.deepEqual(

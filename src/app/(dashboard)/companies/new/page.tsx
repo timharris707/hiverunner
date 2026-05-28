@@ -41,7 +41,7 @@ interface WizardData {
   project: { name: string; description: string; sourceWorkspaceRoot?: string } | null;
   starterTeam: { workType: StarterTeamWorkType; agents: StarterTeamSelectedRoleCard[] };
   ceo: { name: string; model: string; guidance: string };
-  task: { title: string; description: string; priority: string };
+  goal: { title: string; description: string; priority: string };
 }
 
 const STEPS = [
@@ -49,7 +49,7 @@ const STEPS = [
   { num: 2, label: "Project", icon: FolderGit2 },
   { num: 3, label: "Team", icon: Users },
   { num: 4, label: "CEO", icon: Crown },
-  { num: 5, label: "First Task", icon: ClipboardList },
+  { num: 5, label: "First Goal", icon: ClipboardList },
   { num: 6, label: "Launch", icon: Rocket },
 ];
 
@@ -299,11 +299,11 @@ function starterTeamValidationMessage(starterTeam: WizardData["starterTeam"]) {
 function StepStarterTeam({
   data,
   onChange,
-  onTaskChange,
+  onGoalChange,
 }: {
   data: WizardData["starterTeam"];
   onChange: (d: WizardData["starterTeam"]) => void;
-  onTaskChange: (d: WizardData["task"]) => void;
+  onGoalChange: (d: WizardData["goal"]) => void;
 }) {
   const template = getStarterTeamTemplate(data.workType);
   const selectedRoles = data.agents.filter((agent) => agent.selected);
@@ -316,7 +316,7 @@ function StepStarterTeam({
       workType,
       agents: cloneStarterTeamRoles(workType),
     });
-    onTaskChange({ ...nextTemplate.kickoffTask });
+    onGoalChange({ ...nextTemplate.kickoffGoal });
   };
 
   const updateAgent = (id: string, patch: Partial<StarterTeamSelectedRoleCard>) => {
@@ -641,17 +641,19 @@ function StepCEO({
   );
 }
 
-function StepTask({ data, onChange }: { data: WizardData["task"]; onChange: (d: WizardData["task"]) => void }) {
-  const setField = (k: keyof WizardData["task"], v: string) => onChange({ ...data, [k]: v });
+function StepGoal({ data, onChange }: { data: WizardData["goal"]; onChange: (d: WizardData["goal"]) => void }) {
+  const setField = (k: keyof WizardData["goal"], v: string) => onChange({ ...data, [k]: v });
   return (
     <div className="space-y-5">
       <div>
         <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
-          <ClipboardList size={20} className="text-[var(--accent)]" /> First Task
+          <ClipboardList size={20} className="text-[var(--accent)]" /> First Goal
         </h2>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">Give your CEO their first assignment.</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">
+          Define the first outcome. HiveRunner will create the goal and a planning task for the CEO or lead.
+        </p>
       </div>
-      <Field label="Task Title" required>
+      <Field label="Goal Title" required>
         <input className={inputClass} value={data.title} onChange={(e) => setField("title", e.target.value)} />
       </Field>
       <Field label="Description (Optional)">
@@ -707,13 +709,13 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
           <p><strong className="text-[var(--text-primary)]">{data.ceo.name}</strong> <span className="text-[var(--text-muted)]">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p>
           <p className="flex items-center gap-1 text-[var(--accent)]"><Sparkles size={11} /> AI-generated identity files</p>
         </SummaryCard>
-        <SummaryCard icon={ClipboardList} title="First Task">
-          <p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p>
-          <p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p>
+        <SummaryCard icon={ClipboardList} title="First Goal">
+          <p><strong className="text-[var(--text-primary)]">{data.goal.title}</strong></p>
+          <p className="line-clamp-3">{data.goal.description || "No additional goal description provided."}</p>
         </SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
-        Launch will create the company, preserve the CEO or lead, pass the selected starter roles forward, start the first task, and open the dashboard with live company activity.
+        Launch will create the company, preserve the CEO or lead, create the first goal, and attach an initial planning task so an agent can own the next step before review.
       </div>
     </div>
   );
@@ -765,7 +767,7 @@ export default function CompanyOnboardingWizard() {
     if (highestStepVisited > 2 && (data.project === null || data.project.name.trim())) s.add(2);
     if (highestStepVisited > 3 && !starterTeamValidationMessage(data.starterTeam)) s.add(3);
     if (highestStepVisited > 4 && data.ceo.name.trim()) s.add(4);
-    if (highestStepVisited > 5 && data.task.title.trim()) s.add(5);
+    if (highestStepVisited > 5 && data.goal.title.trim()) s.add(5);
     return s;
   }, [data, highestStepVisited]);
 
@@ -774,7 +776,7 @@ export default function CompanyOnboardingWizard() {
     if (step === 2) return data.project === null || !!data.project.name.trim();
     if (step === 3) return !starterTeamValidationMessage(data.starterTeam);
     if (step === 4) return !!data.ceo.name.trim() && (!modelsLoading || modelOptions.length > 0);
-    if (step === 5) return !!data.task.title.trim();
+    if (step === 5) return !!data.goal.title.trim();
     return true;
   }, [step, data, modelOptions.length, modelsLoading]);
 
@@ -808,6 +810,7 @@ export default function CompanyOnboardingWizard() {
           ...data.starterTeam,
           agents: data.starterTeam.agents.filter((agent) => agent.selected),
         },
+        task: data.goal,
       };
       const res = await fetch("/api/orchestration/companies/create-full", {
         method: "POST",
@@ -871,7 +874,7 @@ export default function CompanyOnboardingWizard() {
             <StepStarterTeam
               data={data.starterTeam}
               onChange={(starterTeam) => setData((d) => ({ ...d, starterTeam }))}
-              onTaskChange={(task) => setData((d) => ({ ...d, task }))}
+              onGoalChange={(goal) => setData((d) => ({ ...d, goal }))}
             />
           )}
           {step === 4 && (
@@ -882,7 +885,7 @@ export default function CompanyOnboardingWizard() {
               loadingModels={modelsLoading}
             />
           )}
-          {step === 5 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
+          {step === 5 && <StepGoal data={data.goal} onChange={(goal) => setData((d) => ({ ...d, goal }))} />}
           {step === 6 && <StepReview data={data} modelOptions={modelOptions} />}
           {error && <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
           <div className="mt-8 flex items-center justify-between gap-4 border-t border-[var(--border)] pt-5">
