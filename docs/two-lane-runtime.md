@@ -2,10 +2,19 @@
 
 HiveRunner runs two independent lanes on the same machine:
 
-| Lane   | Port | Mode       | Directory    | Purpose                    |
-|--------|------|------------|--------------|----------------------------|
-| Dev    | 3010 | development| repo root    | UI/build observer lane     |
-| Stable | 3001 | production | `.stable/`   | Execution owner + last-known-good build |
+| Lane   | Port | Mode       | Directory    | `MC_ENGINE_TICK` | Purpose                    |
+|--------|------|------------|--------------|------------------|----------------------------|
+| Dev    | 3010 | development| repo root    | `off` (forced)   | UI/build observer lane — no autonomous execution |
+| Stable | 3001 | production | `.stable/`   | `on`             | Execution owner + last-known-good build |
+
+`3010` is the UI/build observer lane. It is forced observer-only and **must
+not** execute autonomous work. Active execution belongs on stable `3001`, or
+on a separate explicit isolated execution lane (different port, different
+`MC_DATA_DIR`, different `MC_WORKSPACE_ROOT`) — see
+[Active Dev Execution](#active-dev-execution).
+
+`MC_ENGINE_TICK=off` is the safe posture for sandbox lanes, CI smoke runs,
+and any process you do not want to claim queued orchestration work.
 
 Port `3000` is retired for HiveRunner. It is not a supported dev lane or stable lane. If anything is listening on `3000`, treat that as a separate app or an accidental/manual compatibility run, not part of the two-lane runtime.
 

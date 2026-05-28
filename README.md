@@ -1,5 +1,9 @@
 # HiveRunner
 
+[![CI](https://github.com/timharris707/hiverunner/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/timharris707/hiverunner/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Status: pre-1.0](https://img.shields.io/badge/status-pre--1.0-orange.svg)](#current-boundaries)
+
 **HiveRunner is a local-first command center for running AI agent teams.**
 
 It gives one operator a single place to create agent workspaces, plan goals,
@@ -82,7 +86,14 @@ terminal tabs, prompt logs, and one-off scripts.
 
 ## Requirements
 
-- Node.js 20 or 22 LTS.
+- Node.js 20 LTS is the recommended first-setup version. CI runs on Node 20,
+  and `package.json` declares `engines.node` as `>=20 <23`, so Node 20 LTS is
+  the closest match to a verified environment. Node 22 is the next supported
+  major and is acceptable when your runtime relies on something Node 20 does
+  not provide.
+- Avoid bleeding-edge or non-LTS Node releases (Node 23 / current / nightly /
+  random `brew install node` versions) for first-time setup. They are outside
+  the supported engines range and may break native modules or `npm ci`.
 - npm.
 - macOS or Linux for the local runtime scripts.
 
@@ -371,7 +382,9 @@ MC_DATA_DIR=./data-dev npm run dev
 - Keep `.env.local` private.
 - Set `MC_API_KEY` before allowing non-loopback agent or automation traffic.
 - Use `MC_AUTH_MODE=supabase` for any hosted multi-user deployment.
-- Do not expose local-single-user mode directly to the public internet.
+- Do not expose local-single-user mode to a LAN, shared network, tunnel, or
+  the public internet. It assumes anything that can reach the host is the
+  trusted local owner.
 - Treat `data/`, `data-dev/`, and workspace directories as private runtime
   state.
 

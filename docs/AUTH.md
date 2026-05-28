@@ -34,9 +34,12 @@ What happens:
 - `/auth/callback` short-circuits to the destination URL (no OAuth exchange).
 
 **Security model.** Local-single-user mode is designed for a trusted local
-environment: your own laptop or a private machine behind a VPN/Tailscale.
-**Do not expose a local-single-user install to the public internet.**
-Anything that reaches the host is treated as the owner.
+environment: your own laptop or a private machine you fully control.
+**Do not expose a local-single-user install to a LAN, shared network, reverse
+tunnel, or the public internet.** Anything that can reach the host is treated
+as the owner. If you need multi-user access from a network, use
+`MC_AUTH_MODE=supabase` with real auth instead of opening the local-single-user
+listener.
 
 Protected mutation routes are still defended by:
 

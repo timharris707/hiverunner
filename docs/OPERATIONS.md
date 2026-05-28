@@ -59,21 +59,30 @@ Port `3000` is retired for HiveRunner itself. The only supported local lanes are
 ## Execution Ownership
 
 By default, **only the stable lane executes orchestration work**.
-The dev lane is observer-only — it serves pages and API responses
-but does not claim or execute queued heartbeat runs.
+The dev lane on port `3010` is observer-only — it serves pages and API
+responses but does not claim or execute queued heartbeat runs. The 3010 lane
+is *forced* observer-only by `scripts/run_dev_service.sh`, `server.js`, and
+`/api/hiverunner/health`; an accidental `MC_ENGINE_TICK=on` export against
+3010 is ignored.
+
+`MC_ENGINE_TICK=off` is also the safe posture for sandbox testing, CI smoke
+runs, and any throwaway lane where you do not want the process to claim
+queued work.
 
 This is controlled by `MC_ENGINE_TICK`:
 
 | Value | Behavior | Default for |
 |-------|----------|-------------|
-| `on` | Engine tick active — claims and executes queued runs | Stable lane |
-| `off` | Engine tick disabled — observer-only | Dev lane |
+| `on` | Engine tick active — claims and executes queued runs | Stable lane (`3001`) |
+| `off` | Engine tick disabled — observer-only (safe sandbox/test posture) | Dev lane (`3010`) |
 | `auto` | Active if production, disabled if development | Fallback |
 
-**Override:** If you want dev to execute (e.g., no stable lane exists):
-```bash
-MC_ENGINE_TICK=on scripts/lane.sh dev start
-```
+**Active execution must not live on `3010`.** If you need a dev-flavored
+execution lane, create a separate lane on a different port (for example
+`3011` or `3020`) with its own `MC_DATA_DIR` and `MC_WORKSPACE_ROOT` and set
+`MC_ENGINE_TICK=on` there. See
+[Active Dev Execution](two-lane-runtime.md#active-dev-execution) for the
+shape of that lane.
 
 Only one process should have `MC_ENGINE_TICK=on` for a given `MC_DATA_DIR`.
 Additional processes against the same data lane must be observer-only. The
