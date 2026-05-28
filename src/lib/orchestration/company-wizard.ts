@@ -35,6 +35,7 @@ export function createInitialCompanyWizardData() {
     project: null,
     starterTeam: starterTeam.starterTeam,
     ceo: { name: "", model: "openai-codex/gpt-5.5", guidance: "" },
-    task: starterTeam.kickoffTask,
+    goal: starterTeam.kickoffGoal,
+    task: starterTeam.kickoffGoal,
   };
 }

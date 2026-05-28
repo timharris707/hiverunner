@@ -12,14 +12,14 @@ interface WizardData {
   company: { name: string; description: string; slug: string };
   project: { name: string; description: string } | null;
   ceo: { name: string; model: string; guidance: string };
-  task: { title: string; description: string; priority: string };
+  goal: { title: string; description: string; priority: string };
 }
 
 const STEPS = [
   { num: 1, label: "Company", icon: Building2 },
   { num: 2, label: "Project", icon: FolderGit2 },
   { num: 3, label: "CEO", icon: Crown },
-  { num: 4, label: "First Task", icon: ClipboardList },
+  { num: 4, label: "First Goal", icon: ClipboardList },
   { num: 5, label: "Launch", icon: Rocket },
 ];
 
@@ -188,15 +188,15 @@ function StepCEO({
   );
 }
 
-function StepTask({ data, onChange }: { data: WizardData["task"]; onChange: (d: WizardData["task"]) => void }) {
-  const setField = (k: keyof WizardData["task"], v: string) => onChange({ ...data, [k]: v });
+function StepGoal({ data, onChange }: { data: WizardData["goal"]; onChange: (d: WizardData["goal"]) => void }) {
+  const setField = (k: keyof WizardData["goal"], v: string) => onChange({ ...data, [k]: v });
   return (
     <div className="space-y-5">
       <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"><ClipboardList size={20} className="text-[var(--accent)]" /> First Task</h2>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">Give your CEO their first assignment.</p>
+        <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]"><ClipboardList size={20} className="text-[var(--accent)]" /> First Goal</h2>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">Define the first outcome. HiveRunner will create a planning task for the CEO or lead.</p>
       </div>
-      <Field label="Task Title" required><input className={inputClass} value={data.title} onChange={(e) => setField("title", e.target.value)} /></Field>
+      <Field label="Goal Title" required><input className={inputClass} value={data.title} onChange={(e) => setField("title", e.target.value)} /></Field>
       <Field label="Description (Optional)"><textarea className={inputClass} rows={4} value={data.description} onChange={(e) => setField("description", e.target.value)} /></Field>
     </div>
   );
@@ -217,10 +217,10 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
         <SummaryCard icon={Building2} title="Company"><p><strong className="text-[var(--text-primary)]">{data.company.name}</strong></p>{data.company.description && <p className="line-clamp-2">{data.company.description}</p>}<p className="text-[var(--text-muted)]">slug: {data.company.slug}</p></SummaryCard>
         {data.project ? <SummaryCard icon={FolderGit2} title="Project"><p><strong className="text-[var(--text-primary)]">{data.project.name}</strong></p>{data.project.description && <p className="line-clamp-2">{data.project.description}</p>}</SummaryCard> : <SummaryCard icon={FolderGit2} title="Project"><p><strong className="text-[var(--text-primary)]">Operations</strong></p><p>HiveRunner will create the default Operations project at launch.</p></SummaryCard>}
         <SummaryCard icon={Crown} title="CEO"><p><strong className="text-[var(--text-primary)]">{data.ceo.name}</strong> <span className="text-[var(--text-muted)]">({modelOptions.find((m) => m.value === data.ceo.model)?.label})</span></p><p className="flex items-center gap-1 text-[var(--accent)]"><Sparkles size={11} /> AI-generated identity files</p></SummaryCard>
-        <SummaryCard icon={ClipboardList} title="First Task"><p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p><p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p></SummaryCard>
+        <SummaryCard icon={ClipboardList} title="First Goal"><p><strong className="text-[var(--text-primary)]">{data.goal.title}</strong></p><p className="line-clamp-3">{data.goal.description || "No additional goal description provided."}</p></SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
-        Launch will create the company, start the CEO on the first task, and open the dashboard with live company activity.
+        Launch will create the company, create the first goal, attach a planning task, and open the dashboard with live company activity.
       </div>
     </div>
   );
@@ -303,7 +303,7 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
     if (highestStepVisited > 1 && data.company.name.trim() && effectiveSlug) s.add(1);
     if (highestStepVisited > 2 && (data.project === null || data.project.name.trim())) s.add(2);
     if (highestStepVisited > 3 && data.ceo.name.trim()) s.add(3);
-    if (highestStepVisited > 4 && data.task.title.trim()) s.add(4);
+    if (highestStepVisited > 4 && data.goal.title.trim()) s.add(4);
     return s;
   }, [data, highestStepVisited]);
 
@@ -311,7 +311,7 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
     if (step === 1) return !!data.company.name.trim() && !!(data.company.slug.trim() || slugify(data.company.name));
     if (step === 2) return data.project === null || !!data.project.name.trim();
     if (step === 3) return !!data.ceo.name.trim() && (!modelsLoading || modelOptions.length > 0);
-    if (step === 4) return !!data.task.title.trim();
+    if (step === 4) return !!data.goal.title.trim();
     return true;
   }, [step, data, modelOptions.length, modelsLoading]);
 
@@ -329,7 +329,11 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
     setLaunching(true);
     setError(null);
     try {
-      const payload = { ...data, company: { ...data.company, slug: data.company.slug.trim() || slugify(data.company.name) } };
+      const payload = {
+        ...data,
+        task: data.goal,
+        company: { ...data.company, slug: data.company.slug.trim() || slugify(data.company.name) },
+      };
       const res = await fetch("/api/orchestration/companies/create-full", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
@@ -380,7 +384,7 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
               loadingModels={modelsLoading}
             />
           )}
-          {step === 4 && <StepTask data={data.task} onChange={(t) => setData((d) => ({ ...d, task: t }))} />}
+          {step === 4 && <StepGoal data={data.goal} onChange={(goal) => setData((d) => ({ ...d, goal }))} />}
           {step === 5 && <StepReview data={data} modelOptions={modelOptions} />}
           {error && <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
           <div className="mt-8 flex items-center justify-between border-t border-[var(--border)] pt-5">
