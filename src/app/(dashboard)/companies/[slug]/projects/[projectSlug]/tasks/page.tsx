@@ -556,7 +556,7 @@ export default function ProjectTasksPage({
     sortField: "updated" as "status" | "priority" | "title" | "created" | "updated",
     sortDir: "desc" as "asc" | "desc",
     groupBy: "none" as "status" | "priority" | "assignee" | "none",
-    viewMode: "list" as "list" | "board",
+    viewMode: "board" as "list" | "board",
     collapsedGroups: [] as string[],
   });
 
