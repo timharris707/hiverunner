@@ -111,6 +111,8 @@ npm run dev
 ```
 
 Open [http://localhost:3010](http://localhost:3010).
+In the default local-first mode, `/` redirects to `/login` so a fresh clone
+lands in the app entry flow instead of the public marketing page.
 
 With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
 Use the local continue button on the login page. No Supabase project, OAuth app,
