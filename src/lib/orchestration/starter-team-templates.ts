@@ -36,6 +36,12 @@ export type StarterTeamProviderKeyRequirement = {
   setupCopy: string;
 };
 
+export type StarterTeamKickoffGoal = {
+  title: string;
+  description: string;
+  priority: "P1";
+};
+
 export type StarterTeamRoleIdentity = {
   sourceAgentName: string;
   avatarUrl: string;
@@ -92,11 +98,7 @@ export type StarterTeamTemplate = {
     selectionHint: string;
   };
   kickoffIntentCopy: string;
-  kickoffTask: {
-    title: string;
-    description: string;
-    priority: "P1";
-  };
+  kickoffGoal: StarterTeamKickoffGoal;
   defaultSelectedRoleIds: readonly string[];
   optionalRoleIds: readonly string[];
   editableFields: readonly StarterTeamEditableField[];
@@ -112,8 +114,8 @@ export type StarterTeamTemplate = {
     name: string | null;
     description: string | null;
   };
-  recommendedTaskTitle: string;
-  recommendedTaskDescription: string;
+  recommendedGoalTitle: string;
+  recommendedGoalDescription: string;
   roleCards: readonly StarterTeamRoleTemplate[];
 };
 
@@ -124,11 +126,11 @@ export type StarterTeamSetupPayload = {
     workType: StarterTeamWorkTypeId;
     agents: StarterTeamSelectedRoleCard[];
   };
-  kickoffTask: {
-    title: string;
-    description: string;
-    priority: "P1";
-  };
+  kickoffGoal: StarterTeamKickoffGoal;
+  /**
+   * Legacy alias for older callers. New onboarding should use kickoffGoal.
+   */
+  kickoffTask: StarterTeamKickoffGoal;
   initialProject: {
     name: string | null;
     description: string | null;
@@ -434,15 +436,15 @@ export const STARTER_TEAM_TEMPLATES = [
     },
     kickoffIntentCopy:
       "Use this team to turn the workspace mission into scoped product work, implementation tasks, review loops, and release-ready handoffs.",
-    kickoffTask: {
-      title: "Plan the first product milestone",
+    kickoffGoal: {
+      title: "Ship the first product milestone",
       description:
-        "Turn the company mission into a small product milestone. Define the user outcome, implementation tasks, validation plan, and release checklist for the starter team.",
+        "Define the user outcome, implementation path, validation plan, and review checklist for the first product milestone.",
       priority: "P1",
     },
-    recommendedTaskTitle: "Plan the first product milestone",
-    recommendedTaskDescription:
-      "Turn the company mission into a small product milestone. Define the user outcome, implementation tasks, validation plan, and release checklist for the starter team.",
+    recommendedGoalTitle: "Ship the first product milestone",
+    recommendedGoalDescription:
+      "Define the user outcome, implementation path, validation plan, and review checklist for the first product milestone.",
     defaultSelectedRoleIds: [
       "software-implementation-engineer",
       "software-product-ux-analyst",
@@ -610,15 +612,15 @@ export const STARTER_TEAM_TEMPLATES = [
     },
     kickoffIntentCopy:
       "Use this setup to preserve one accountable lead, create a practical first plan, and move work through small visible tasks with a builder and reviewer.",
-    kickoffTask: {
-      title: "Create the first execution plan",
+    kickoffGoal: {
+      title: "Complete the first execution outcome",
       description:
-        "Turn the company mission into a short execution plan with immediate priorities, next actions, and the first review checkpoint.",
+        "Turn the company mission into a focused outcome with immediate priorities, next actions, and the first review checkpoint.",
       priority: "P1",
     },
-    recommendedTaskTitle: "Create the first execution plan",
-    recommendedTaskDescription:
-      "Turn the company mission into a short execution plan with immediate priorities, next actions, and the first review checkpoint.",
+    recommendedGoalTitle: "Complete the first execution outcome",
+    recommendedGoalDescription:
+      "Turn the company mission into a focused outcome with immediate priorities, next actions, and the first review checkpoint.",
     defaultSelectedRoleIds: ["solo-builder", "solo-reviewer"],
     optionalRoleIds: ["solo-operator-copilot"],
     editableFields: STARTER_TEAM_ROLE_EDITABLE_FIELDS,
@@ -700,10 +702,10 @@ export const STARTER_TEAM_TEMPLATES = [
     },
     kickoffIntentCopy:
       "Use this desk to gather evidence, compare options, synthesize recommendations, and preserve decision context.",
-    kickoffTask: {
-      title: "Frame the first research question",
+    kickoffGoal: {
+      title: "Answer the first strategic question",
       description:
-        "Define the first research question, the sources or evidence needed, decision criteria, and the recommendation format for the research desk.",
+        "Define the first research outcome, evidence needed, decision criteria, and recommendation format for the research desk.",
       priority: "P1",
     },
     defaultSelectedRoleIds: ["research-source-analyst", "research-strategy-synthesizer", "research-review-editor", "research-operator-briefing-lead"],
@@ -721,9 +723,9 @@ export const STARTER_TEAM_TEMPLATES = [
       name: "Research Desk",
       description: "First project for research questions, option comparison, synthesis, and decision records.",
     },
-    recommendedTaskTitle: "Frame the first research question",
-    recommendedTaskDescription:
-      "Define the first research question, the sources or evidence needed, decision criteria, and the recommendation format for the research desk.",
+    recommendedGoalTitle: "Answer the first strategic question",
+    recommendedGoalDescription:
+      "Define the first research outcome, evidence needed, decision criteria, and recommendation format for the research desk.",
     roleCards: [
       {
         id: "research-source-analyst",
@@ -822,8 +824,8 @@ export const STARTER_TEAM_TEMPLATES = [
     },
     kickoffIntentCopy:
       "Use this team to organize incoming work, define support flows, document repeatable process, and check follow-through.",
-    kickoffTask: {
-      title: "Set up the first operations queue",
+    kickoffGoal: {
+      title: "Stabilize the first operations queue",
       description:
         "Define the initial intake categories, triage rules, owners, escalation points, and completion checks for the operations/support team.",
       priority: "P1",
@@ -843,8 +845,8 @@ export const STARTER_TEAM_TEMPLATES = [
       name: "Operations Desk",
       description: "First project for queues, support workflows, operating notes, and escalation tracking.",
     },
-    recommendedTaskTitle: "Set up the first operations queue",
-    recommendedTaskDescription:
+    recommendedGoalTitle: "Stabilize the first operations queue",
+    recommendedGoalDescription:
       "Define the initial intake categories, triage rules, owners, escalation points, and completion checks for the operations/support team.",
     roleCards: [
       {
@@ -960,8 +962,8 @@ export const STARTER_TEAM_TEMPLATES = [
     },
     kickoffIntentCopy:
       "Use this team to clarify audience, draft useful content, review claims, and prepare a practical publishing plan.",
-    kickoffTask: {
-      title: "Draft the first content plan",
+    kickoffGoal: {
+      title: "Publish the first content plan",
       description:
         "Define the audience, message, first content pieces, review path, publishing steps, and basic measurement plan for the content team.",
       priority: "P1",
@@ -981,8 +983,8 @@ export const STARTER_TEAM_TEMPLATES = [
       name: "Content Studio",
       description: "First project for positioning, drafts, review, campaign coordination, and publishing handoff.",
     },
-    recommendedTaskTitle: "Draft the first content plan",
-    recommendedTaskDescription:
+    recommendedGoalTitle: "Publish the first content plan",
+    recommendedGoalDescription:
       "Define the audience, message, first content pieces, review path, publishing steps, and basic measurement plan for the content team.",
     roleCards: [
       {
@@ -1109,13 +1111,13 @@ export const STARTER_TEAM_TEMPLATES = [
     displayCopy: {
       label: "Blank/custom",
       headline: "Start empty and define your own team.",
-      body: "Skip recommendations and create only the company owner, lead, project, and kickoff task.",
+      body: "Skip recommendations and create only the company owner, lead, project, and first goal.",
       selectionHint: "Best when you already know the exact roles you want or want no starter roles.",
     },
     kickoffIntentCopy:
       "Use this setup when the operator wants to define custom roles later. Create no recommended teammates by default.",
-    kickoffTask: {
-      title: "Define the first custom workspace task",
+    kickoffGoal: {
+      title: "Define the first workspace outcome",
       description:
         "Clarify the first outcome, who owns it, what decisions are needed, and what should be reviewed before creating custom roles.",
       priority: "P1",
@@ -1135,8 +1137,8 @@ export const STARTER_TEAM_TEMPLATES = [
       name: null,
       description: null,
     },
-    recommendedTaskTitle: "Define the first custom workspace task",
-    recommendedTaskDescription:
+    recommendedGoalTitle: "Define the first workspace outcome",
+    recommendedGoalDescription:
       "Clarify the first outcome, who owns it, what decisions are needed, and what should be reviewed before creating custom roles.",
     roleCards: [],
   },
@@ -1175,6 +1177,9 @@ export function cloneStarterTeamRoles(workTypeId: StarterTeamWorkTypeId): Starte
 
 export function buildStarterTeamSetupPayload(workTypeId: StarterTeamWorkTypeId): StarterTeamSetupPayload {
   const template = getStarterTeamTemplate(workTypeId);
+  const kickoffGoal = {
+    ...template.kickoffGoal,
+  };
   return {
     workType: template.workTypeId,
     templateName: template.templateName,
@@ -1182,8 +1187,9 @@ export function buildStarterTeamSetupPayload(workTypeId: StarterTeamWorkTypeId):
       workType: template.workTypeId,
       agents: cloneStarterTeamRoles(workTypeId),
     },
+    kickoffGoal,
     kickoffTask: {
-      ...template.kickoffTask,
+      ...kickoffGoal,
     },
     initialProject: {
       ...template.initialProject,
