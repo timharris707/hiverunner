@@ -60,18 +60,19 @@ So nothing in the new `/setup` flow depends on the `[companyCode]` rewrite, and
 the characterization test asserts that `/setup` and `/companies/new` are never
 rewritten/redirected by the company rewriters.
 
-## Follow-up (recommended, separate change)
+## Update — RESOLVED
 
-Resolving the underlying issue means changing how short company-code URLs are
-served — options, roughly in increasing cost:
+Follow-up investigation found the underlying cause was more specific (and worse)
+than the RSC-fallback theory above: a **hard infinite rewrite ↔ redirect loop**.
+`tryCanonicalRewrite` rewrote `/{CODE}/sub` → `/companies/{canonicalSlug}/sub`,
+and `tryLegacyRedirect` then redirected that **canonical** slug straight back to
+`/{CODE}/sub` (Next re-runs middleware on the rewrite target), so `/HIVE/...`
+returned `ERR_TOO_MANY_REDIRECTS`.
 
-1. Make in-app navigation emit **canonical** `/companies/[slug]/...` hrefs for
-   soft transitions (Dock/TopBar/breadcrumbs) and keep `[companyCode]` only for
-   external/bookmarkable entry (hard navigations). Lowest risk.
-2. Ensure the canonical dashboard pages never `redirect()` during an RSC fetch
-   for a known-good company; render an explicit empty/not-found state instead.
-3. Replace the middleware `rewrite` with a `redirect` for `[companyCode]` board
-   paths so the URL and the RSC tree always agree (changes the visible URL).
+Fixed in `src/middleware.ts` by making `tryLegacyRedirect` redirect only
+**non-canonical alias** slugs; the canonical slug renders. `/HIVE/...` now
+returns `200` in both dev and a production build, soft navigation is a single
+click, and no "Failed to fetch RSC payload" is logged.
 
-Each touches the broader routing architecture and is intentionally deferred from
-the onboarding-separation change.
+See **`docs/ui-navigation-lag.md`** for the full before/after evidence, and
+`src/lib/__tests__/middleware-canonical-redirect-loop.test.ts` for the guard.

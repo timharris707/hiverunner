@@ -317,6 +317,18 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   const companyCode = routeMaps.companySlugToCode[companySlug];
   if (!companyCode) return null;
 
+  // The canonical visible URL for a company is /{CODE}/...; tryCanonicalRewrite
+  // rewrites that onto this physical /companies/{canonicalSlug}/... route. Next
+  // re-runs middleware on that internal rewrite target, so if we redirected the
+  // canonical slug back to /{CODE}/... it would be rewritten straight here again
+  // — an infinite rewrite<->redirect loop that breaks ALL company navigation
+  // (the two-click / ERR_TOO_MANY_REDIRECTS bug). Only NON-canonical legacy
+  // alias slugs should redirect to the code form; the canonical slug renders.
+  const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
+  if (canonicalSlugForCode && canonicalSlugForCode === companySlug) {
+    return null;
+  }
+
   const rest = match[2] || "";
   const qs = new URLSearchParams(searchParams);
 
@@ -325,14 +337,10 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   }
 
   if (!rest || rest === "/") {
-    // Preserve canonical /companies/{slug} detail routes, but redirect known legacy aliases.
-    const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
-    if (canonicalSlugForCode && canonicalSlugForCode !== companySlug) {
-      const url = new URL(`/${companyCode}/dashboard`, origin);
-      copyQuery(url, qs);
-      return url;
-    }
-    return null;
+    // Non-canonical alias slug at the company root → redirect to the canonical code URL.
+    const url = new URL(`/${companyCode}/dashboard`, origin);
+    copyQuery(url, qs);
+    return url;
   }
 
   const projectMatch = rest.match(/^\/projects\/([^/]+)(\/.*)?$/);

@@ -6,13 +6,15 @@ import { tryCanonicalRewrite, tryLegacyRedirect } from "@/middleware";
 import { EDGE_ROUTE_MAPS_FALLBACK } from "@/lib/orchestration/edge-route-maps";
 
 /**
- * Characterization test for the `/HIVE/...` dev navigation issue (RSC payload
- * fallback). See docs/onboarding-rsc-navigation.md for the full write-up.
+ * Characterizes how `/HIVE/...` (short company-code) URLs are served: they have
+ * NO physical page and rely entirely on the middleware rewrite onto
+ * `(dashboard)/companies/[slug]/...`.
  *
- * This does NOT fix the issue (that touches the broader `[companyCode]` ->
- * `(dashboard)/companies/[slug]` rewrite architecture, out of scope for the
- * onboarding split). It pins the architectural facts behind the symptom so a
- * future fix has a clear target and this test will flag if the shape changes.
+ * The infinite rewrite<->redirect loop that this rewrite originally caused
+ * (ERR_TOO_MANY_REDIRECTS / "two-click" navigation) has since been FIXED in
+ * src/middleware.ts — see docs/ui-navigation-lag.md and the dedicated guard
+ * src/lib/__tests__/middleware-canonical-redirect-loop.test.ts. This test still
+ * pins the rewrite shape so a future change that breaks it is flagged.
  */
 const origin = "http://localhost:3010";
 const repoRoot = process.cwd();
