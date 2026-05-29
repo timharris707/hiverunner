@@ -25,7 +25,7 @@ const ALLOWED_BASE_COMMANDS = new Set([
   'git', 'ping', 'nslookup', 'dig', 'host',
   'netstat', 'ss', 'ip', 'ifconfig', 'lsof',
   'echo', 'printf', 'which', 'type', 'file',
-  'sort', 'uniq', 'awk', 'sed', 'tr', 'cut', 'xargs',
+  'sort', 'uniq', 'sed', 'tr', 'cut',
   'locate',
 ]);
 
@@ -51,6 +51,12 @@ const BLOCKED_PATTERNS: RegExp[] = [
   /\bnode\b/,       // arbitrary JS execution
   /\bnpm\b/,        // can run arbitrary scripts
   /\bpython3?\b/,   // arbitrary code execution
+  /\bsh\b/,
+  /\bbash\b/,
+  /\bzsh\b/,
+  /\bawk\b/,        // can execute shell commands via system()
+  /\bxargs\b/,      // can invoke non-allowlisted commands indirectly
+  /\s-exec\b/,      // find -exec can invoke non-allowlisted commands
   /`[^`]*`/,        // command substitution
   /\$\(/,           // command substitution
   />{1,2}\s*[^|&]/,  // output redirect (not pipe)
@@ -95,7 +101,7 @@ export async function POST(request: NextRequest) {
     if (!isCommandAllowed(command)) {
       return NextResponse.json({
         error: `Command not allowed: "${command}"`,
-        hint: 'Only safe read-only commands are permitted (ls, cat, df, ps, git, ping, etc.). Commands like env, curl, wget, node, python are blocked for security.',
+        hint: 'Only safe read-only commands are permitted (ls, cat, df, ps, git, ping, etc.). Commands like env, curl, wget, node, python, awk, and xargs are blocked for security.',
       }, { status: 403 });
     }
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -717,6 +718,11 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
         Launch will create the company, preserve the CEO or lead, create the first goal, and attach an initial planning task so an agent can own the next step before review.
       </div>
+      <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+        Optional provider keys (avatar generation, live voice, direct provider routes) are configured during
+        software setup — see <Link href="/setup" className="text-[var(--accent)] underline-offset-2 hover:underline">Set up HiveRunner</Link>.
+        The workspace launches with bundled avatars and saved voices either way.
+      </p>
     </div>
   );
 }
@@ -781,7 +787,7 @@ export default function CompanyOnboardingWizard() {
   }, [step, data, modelOptions.length, modelsLoading]);
 
   const next = useCallback(() => {
-    if (step < 6) {
+    if (step < STEPS.length) {
       const nextStep = step + 1;
       setStep(nextStep);
       setHighestStepVisited((prev) => Math.max(prev, nextStep));
@@ -819,13 +825,20 @@ export default function CompanyOnboardingWizard() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
-      const launchHref = typeof json.dashboardHref === "string"
-        ? json.dashboardHref
+      const companyCode = typeof json.company?.code === "string"
+        ? json.company.code
+        : typeof json.company?.slug === "string"
+          ? json.company.slug
+          : null;
+      const launchHref = companyCode
+        ? `/${encodeURIComponent(companyCode)}/tasks?view=board&group=status`
         : typeof json.taskHref === "string"
           ? json.taskHref
-          : typeof json.company?.slug === "string"
-            ? `/companies/${encodeURIComponent(json.company.slug)}/dashboard`
-            : "/";
+          : typeof json.dashboardHref === "string"
+            ? json.dashboardHref
+            : typeof json.company?.slug === "string"
+              ? `/companies/${encodeURIComponent(json.company.slug)}/dashboard`
+              : "/";
       router.replace(launchHref);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -892,8 +905,8 @@ export default function CompanyOnboardingWizard() {
             <div>{step > 1 && <button onClick={back} disabled={launching} className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-40"><ChevronLeft size={16} /> Back</button>}</div>
             <div className="flex flex-wrap items-center justify-end gap-3">
               {step === 2 && <button onClick={skipProject} className="flex items-center gap-1.5 text-sm text-[var(--text-muted)] transition-colors hover:text-[var(--text-primary)]"><SkipForward size={14} /> Use Default</button>}
-              {step < 6 && <button onClick={next} disabled={!canAdvance} className="hr-primary-cta flex items-center gap-1.5 rounded-md px-5 py-2.5 text-sm font-medium transition-colors">Next <ChevronRight size={16} /></button>}
-              {step === 6 && <button onClick={launch} disabled={launching || !completed.has(1) || !completed.has(3) || !completed.has(4) || !completed.has(5)} className="hr-primary-cta flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-semibold transition-colors">{launching ? <><Loader2 size={16} className="animate-spin" /> Creating company...</> : <><Rocket size={16} /> Launch Company</>}</button>}
+              {step < STEPS.length && <button onClick={next} disabled={!canAdvance} className="hr-primary-cta flex items-center gap-1.5 rounded-md px-5 py-2.5 text-sm font-medium transition-colors">Next <ChevronRight size={16} /></button>}
+              {step === STEPS.length && <button onClick={launch} disabled={launching || !completed.has(1) || !completed.has(3) || !completed.has(4) || !completed.has(5)} className="hr-primary-cta flex items-center gap-2 rounded-md px-6 py-2.5 text-sm font-semibold transition-colors">{launching ? <><Loader2 size={16} className="animate-spin" /> Creating company...</> : <><Rocket size={16} /> Launch Company</>}</button>}
             </div>
           </div>
         </div>

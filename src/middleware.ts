@@ -317,6 +317,18 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   const companyCode = routeMaps.companySlugToCode[companySlug];
   if (!companyCode) return null;
 
+  // The canonical visible URL for a company is /{CODE}/...; tryCanonicalRewrite
+  // rewrites that onto this physical /companies/{canonicalSlug}/... route. Next
+  // re-runs middleware on that internal rewrite target, so if we redirected the
+  // canonical slug back to /{CODE}/... it would be rewritten straight here again
+  // — an infinite rewrite<->redirect loop that breaks ALL company navigation
+  // (the two-click / ERR_TOO_MANY_REDIRECTS bug). Only NON-canonical legacy
+  // alias slugs should redirect to the code form; the canonical slug renders.
+  const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
+  if (canonicalSlugForCode && canonicalSlugForCode === companySlug) {
+    return null;
+  }
+
   const rest = match[2] || "";
   const qs = new URLSearchParams(searchParams);
 
@@ -325,14 +337,10 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   }
 
   if (!rest || rest === "/") {
-    // Preserve canonical /companies/{slug} detail routes, but redirect known legacy aliases.
-    const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
-    if (canonicalSlugForCode && canonicalSlugForCode !== companySlug) {
-      const url = new URL(`/${companyCode}/dashboard`, origin);
-      copyQuery(url, qs);
-      return url;
-    }
-    return null;
+    // Non-canonical alias slug at the company root → redirect to the canonical code URL.
+    const url = new URL(`/${companyCode}/dashboard`, origin);
+    copyQuery(url, qs);
+    return url;
   }
 
   const projectMatch = rest.match(/^\/projects\/([^/]+)(\/.*)?$/);
@@ -424,6 +432,16 @@ const INTERNAL_API_PREFIXES = [
   "/api/orchestration/",
 ];
 
+const LOCAL_SINGLE_USER_SENSITIVE_API_PREFIXES = [
+  "/api/files",
+  "/api/terminal",
+  "/api/settings",
+  "/api/tasks",
+  "/api/git",
+  "/api/search",
+  "/api/sessions",
+];
+
 type OrchestrationAuthDecisionInput = {
   expectedApiKey?: string | null;
   providedApiKey?: string | null;
@@ -470,6 +488,23 @@ function hostnameFromHostHeader(hostHeader: string | null): string {
 export function isLoopbackHost(hostHeader: string | null): boolean {
   const hostname = hostnameFromHostHeader(hostHeader);
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function matchesApiPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(prefix.endsWith("/") ? prefix : `${prefix}/`);
+}
+
+export function isSensitiveLocalSingleUserApiPath(pathname: string): boolean {
+  return LOCAL_SINGLE_USER_SENSITIVE_API_PREFIXES.some((prefix) => matchesApiPrefix(pathname, prefix));
+}
+
+export function shouldBlockLocalSingleUserSensitiveApi(pathname: string, hostHeader: string | null): boolean {
+  // Host/browser-origin hardening for normal local browser flows. Next middleware
+  // does not expose a reliable remote socket address, so this is not a substitute
+  // for loopback binding when local-single-user mode runs on an untrusted LAN.
+  return getAuthMode() === "local-single-user"
+    && isSensitiveLocalSingleUserApiPath(pathname)
+    && !isLoopbackHost(hostHeader);
 }
 
 export function canBypassLocalDevAuth(hostHeader: string | null): boolean {
@@ -743,6 +778,24 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
   // Always allow public API routes
   if (PUBLIC_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return finalize(NextResponse.next());
+  }
+
+  if (shouldBlockLocalSingleUserSensitiveApi(pathname, host)) {
+    securityLog("auth.local_sensitive_api_non_loopback_rejected", {
+      requestId,
+      method: request.method,
+      path: pathname,
+      host,
+    });
+    return finalize(NextResponse.json(
+      {
+        error: {
+          code: "local_access_required",
+          message: "This local HiveRunner API is available only from localhost in local-single-user mode.",
+        },
+      },
+      { status: 403 }
+    ));
   }
 
   // Allow internal API routes through (they handle their own auth if needed)
