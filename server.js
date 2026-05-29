@@ -5,8 +5,36 @@ const v8 = require("v8");
 const { execFileSync } = require("child_process");
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = "0.0.0.0";
+const hostname = process.env.HOST?.trim() || "127.0.0.1";
 const port = parseInt(process.env.PORT || "3010", 10);
+
+function normalizeAuthMode(value) {
+  const mode = (value || "").trim().toLowerCase();
+  if (mode === "supabase" || mode === "hosted") return "supabase";
+  return "local-single-user";
+}
+
+function isLoopbackBindHostname(value) {
+  const normalized = (value || "").trim().toLowerCase();
+  return (
+    normalized === "localhost"
+    || normalized === "127.0.0.1"
+    || normalized === "::1"
+    || normalized === "[::1]"
+  );
+}
+
+if (
+  normalizeAuthMode(process.env.MC_AUTH_MODE) === "local-single-user"
+  && !isLoopbackBindHostname(hostname)
+) {
+  console.warn("");
+  console.warn(`[hr-runtime] WARNING: binding HiveRunner to ${hostname} in local-single-user mode.`);
+  console.warn("[hr-runtime] This can expose local control-plane APIs on your LAN.");
+  console.warn("[hr-runtime] Use HOST=127.0.0.1 for loopback-only, or switch to MC_AUTH_MODE=supabase for hosted access.");
+  console.warn("[hr-runtime] Keep HOST=0.0.0.0 only when you intentionally want LAN access; it is unsafe for untrusted LANs.");
+  console.warn("");
+}
 
 if (port === 3000 && process.env.MC_ALLOW_PORT_3000_COMPAT !== "1") {
   console.error("");

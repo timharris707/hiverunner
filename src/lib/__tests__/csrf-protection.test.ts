@@ -154,10 +154,10 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
 
-    await test("accepts loopback-equivalent origin (Origin localhost, server bound to 0.0.0.0)", async () => {
-      // Reproduces the real dev scenario: server.js binds to 0.0.0.0, so
-      // request.nextUrl.origin is http://0.0.0.0:3010 even though the browser
-      // hits localhost or 127.0.0.1 (and sends those in the Host/Origin).
+    await test("accepts loopback-equivalent origin (Origin localhost, explicit HOST=0.0.0.0)", async () => {
+      // Reproduces an explicit LAN-bind dev scenario: request.nextUrl.origin
+      // is http://0.0.0.0:3010 even though the browser hits localhost or
+      // 127.0.0.1 (and sends those in the Host/Origin).
       const request = new NextRequest("http://0.0.0.0:3010/api/orchestration/companies", {
         method: "POST",
         headers: {

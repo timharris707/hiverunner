@@ -100,43 +100,108 @@ terminal tabs, prompt logs, and one-off scripts.
 Optional integrations can require their own CLIs or API keys. They are not
 required to boot the app.
 
-## Quickstart
+## Requirements
+
+- **Node 20 LTS recommended; Node 22 acceptable. Node 24 is not yet supported.**
+  The repo declares `engines: node >=20 <23`. Run `nvm use 20` (or 22) before
+  installing. An unsupported Node version (e.g. 24) is not a clean baseline and
+  can contribute to slow/laggy behavior.
+- npm 10+.
+
+## Quickstart (production)
+
+Normal users should run the **production** build. It is dramatically faster than
+dev mode (no webpack/HMR/on-demand route compilation) and is the right mode for
+day-to-day use:
 
 ```bash
 git clone https://github.com/timharris707/hiverunner.git hive-runner
 cd hive-runner
 cp .env.example .env.local
-npm install
-npm run dev
+npm ci
+scripts/lane.sh promote        # build a production bundle + deploy it to the stable lane
+scripts/lane.sh stable start   # run production on the execution-owning stable lane
 ```
 
-Open [http://localhost:3010](http://localhost:3010).
+Open **[http://localhost:3001](http://localhost:3001)** — the stable lane (port
+`3001`) is the production, execution-owning lane.
+
+> **One-off production run** (without the stable-lane machinery): after `npm ci`,
+> run `npm run build` then `PORT=3001 npm start`, and open `http://localhost:3001`.
+> A plain `npm start` listens on `3010`, which is **observer-only** — fine for a
+> quick look, but it does not own execution. Dev mode (`npm run dev`) is for
+> editing HiveRunner — see [Developing HiveRunner](#developing-hiverunner).
+
+In the default local-first mode, `/` checks local state and routes you through
+two distinct stages:
+
+1. **Software setup first.** A fresh clone with no completed setup redirects to
+   `/setup` — a one-time, lightweight software onboarding wizard (welcome,
+   optional provider keys, the bundled Overseer skill, and a workspace choice).
+   It never auto-creates a company and does not load the dashboard shell.
+2. **Then create or open a workspace.** From the last setup step you explicitly
+   choose to create your first workspace (`/companies/new`), open an existing
+   one, or skip for now. Completing setup is recorded in durable server-side
+   state, so you only see `/setup` once.
+
+After a workspace exists, `/` opens the workspace task board. If setup is
+complete but no workspace exists yet, `/` points you at `/companies/new`.
 
 With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
-Use the local continue button on the login page. No Supabase project, OAuth app,
-password, or admin account is required for the local path.
+If the login page appears, use the local continue button. No Supabase project,
+OAuth app, password, or admin account is required for the local path.
 
-During company creation, HiveRunner can create a starter agent pack such as
-Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
-Operations/Support, or Content/Marketing. These starter agents use bundled
-public-safe avatar images and saved voice IDs so a fresh workspace feels alive
-immediately. The Blank/custom option creates no extra starter agents.
+During company creation (`/companies/new`), HiveRunner can create a starter
+agent pack such as Software/Product Studio, Solo Operator Copilot, Research &
+Strategy Desk, Operations/Support, or Content/Marketing. These starter agents
+use bundled public-safe avatar images and saved voice IDs so a fresh workspace
+feels alive immediately. The Blank/custom option creates no extra starter
+agents. Company creation is now purely the workspace wizard — provider-key setup
+lives in `/setup`, not as a numbered step here.
 
-Port `3010` is the local UI/build lane. It is forced observer-only so it can
-stay responsive while you edit, test, and inspect the app. Autonomous execution
-belongs to a separate execution owner such as the stable `3001` lane or an
-explicit isolated execution lane.
+The `/setup` flow shows optional provider readiness. OpenAI, Gemini / Google AI,
+and Anthropic keys can be skipped; HiveRunner will keep core onboarding, bundled
+avatars, starter packs, goals, tasks, and local board workflows working while
+clearly marking provider-backed avatar generation, live voice, or direct
+provider routes as not configured.
 
-For a script-managed background dev lane with PID/log files, use:
+The public-safe Overseer skill is bundled at
+`.agents/skills/hiverunner-orchestration-overseer/SKILL.md` and is seeded into
+new workspaces as `hiverunner-orchestration-overseer`. Agents should read it
+before supervising goals, board movement, stale runners, blocked/review cards,
+or multi-agent orchestration work.
+
+## Developing HiveRunner
+
+Dev mode runs the Next.js **webpack dev server with HMR**. It is **significantly
+slower than the production build** — the first navigation to each route triggers
+an on-demand webpack compile, and the dev server can feel laggy under host memory
+pressure. Use it only when you are editing HiveRunner, not for normal use.
 
 ```bash
+npm run dev                    # foreground dev server on http://localhost:3010
+# or a script-managed background dev lane with PID/log files:
 scripts/lane.sh dev start
 scripts/lane.sh dev status
 scripts/lane.sh dev logs
 ```
 
-The script-managed `dev` lane is an internal build/UI lane and remains
-observer-only. Do not use `3010` as an execution owner.
+Port `3010` is the local UI/build lane. It is forced **observer-only** so it can
+stay responsive while you edit, test, and inspect the app. Autonomous execution
+belongs to a separate execution owner — the stable `3001` lane
+([Quickstart](#quickstart-production)) or an explicit isolated execution lane.
+**Do not use `3010` as an execution owner.**
+
+If Node is installed in a non-standard location and a lane script cannot find
+it, set an explicit path instead of creating symlinks:
+
+```bash
+HIVERUNNER_NODE_BIN=/absolute/path/to/node scripts/lane.sh dev start
+```
+
+The optional OpenClaw gateway powers live agent streaming. If it is not running,
+HiveRunner degrades quietly (the bridge backs off and goes offline rather than
+spamming logs). To turn the bridge off entirely, set `OPENCLAW_GATEWAY_DISABLED=1`.
 
 ![HiveRunner local login](docs/screenshots/hiverunner-local-login.png)
 
@@ -145,13 +210,15 @@ observer-only. Do not use `3010` as an execution owner.
 Useful local routes after boot:
 
 - `/login` — auth entry point.
-- `/HIVE/dashboard` — default dashboard on a fresh local install.
+- `/setup` — one-time software onboarding (provider keys, Overseer, workspace choice). Fresh installs land here.
+- `/companies/new` — explicit New Company / New Workspace wizard (starter packs, team, CEO, first goal).
+- `/marketing` — public marketing page, kept separate from local first-run UX.
+- `/HIVE/dashboard` — dashboard for the default workspace when present.
 - `/HIVE/tasks` — task board/list views.
 - `/HIVE/goals` — workspace goals and supporting sprints.
 - `/HIVE/memory` — memory workspace.
 - `/HIVE/hives` — runtime/provider configuration.
 - `/HIVE/runtime-inventory` — optional CLI/runtime readiness.
-- `/companies/new` — create a workspace and review a starter team.
 
 Existing local data may still use older workspace routes when you point
 HiveRunner at an existing data directory.
@@ -206,6 +273,11 @@ GOOGLE_AI_API_KEY=your-google-ai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
+The `/setup` provider step reports whether these are configured, but it never
+prints secret values. Add keys to `.env.local`, restart the local lane, and
+reopen `/setup` (or the runtime/provider settings) when you want to enable those
+optional features.
+
 `GOOGLE_AI_API_KEY` enables Gemini-backed voice features such as Gemini Live
 voice. Voice is optional; agents can be created and used without it.
 
@@ -256,15 +328,27 @@ For a first local validation, run:
 
 ```bash
 npm ci
-npm audit --json
-npx tsc --noEmit --incremental false --pretty false
-npm run build:tracked
+npm run verify:local
 ```
+
+`npm run verify:local` runs the public-facing readiness checks:
+`npm run lint`, `npm run build`, `npm test`, and
+`npm audit --audit-level=moderate`.
 
 `npm run build:tracked` exports committed files into a temporary directory, runs
 `npm ci`, then runs audit, typecheck, and build from that tracked-only tree. It
 is the safest public validation path because it ignores local databases, logs,
 workspaces, screenshots-in-progress, and other untracked state.
+
+For explicit CI-style checks, run:
+
+```bash
+npm run lint
+npm run build
+npm test
+npm audit --audit-level=moderate
+npx tsc --noEmit --incremental false --pretty false
+```
 
 The broader test suite is useful for development but can be slower and more
 specialized:
@@ -290,9 +374,9 @@ infrastructure. Important limits:
   path. Supabase auth alone does not make HiveRunner horizontally scalable.
 - Runtime integrations depend on local CLIs or provider keys being present.
   Missing optional runtimes are expected until configured.
-- First-run setup is intentionally narrow: `/companies/new` can create a
-  workspace and optional starter team, but runtime readiness and provider-key
-  configuration remain separate settings surfaces.
+- First-run setup creates a workspace, optional starter team, and provider
+  readiness review. Deeper runtime readiness and provider-specific debugging
+  still live in the settings/runtime surfaces.
 
 For the exact supported boundary and the B5/B6 audit, see
 [docs/local-first-boundary.md](docs/local-first-boundary.md).
