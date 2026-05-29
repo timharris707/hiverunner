@@ -75,41 +75,84 @@ rewrite target does not cycle.
 
 ---
 
-## Symptom 2 — general sluggishness (characterized; see follow-ups)
+## Symptom 2 — general sluggishness (measured; root-cause hypotheses ranked)
 
-Once a single click works, transitions can still feel slow. Measured with a
-headless Chromium driver against the dev lane:
+> **Scope caveat (important):** the dev `data-dev` workspace measured here is
+> **near-empty** (1 company `HIVE`, **0** projects/agents/tasks/goals). So the
+> data-volume-dependent paths below were **not exercised**; "fast on empty data"
+> does **not** clear a populated workspace. This is stated explicitly because an
+> earlier draft over-claimed "could not reproduce general lag" — corrected here.
 
-| Navigation | Time | Notes |
-|---|---|---|
-| First visit to an uncompiled route (`/HIVE/activity`, `/HIVE/tasks`) | ~1.0–2.0 s | **dev-only**: webpack on-demand route compilation |
-| **Warm** soft `<Link>` nav (`/HIVE/activity`) | **~68 ms** | proper SPA transition, `fullReload:false`, 0 RSC failures |
-| Click on a plain `<a href="/companies/{slug}">` link | full reload | not a Next `<Link>` → hard navigation |
+### What was measured (Playwright + pure-JS micro-bench)
 
-**Conclusion:** the dominant first-click slowness on the dev lane is **webpack
-on-demand compilation**, which does not exist in a production build (routes are
-pre-compiled). Warm steady-state soft navigation is already fast (~68 ms). The
-heavy dashboard shell does mount continuous background work, but it did not block
-navigation in measurement (warm nav stayed ~68 ms):
+**Navigation latency** (single soft `<Link>` click, content-change time):
 
-- `Dock.tsx` — 4 `setInterval` pollers
-- `AgentActivityPanel.tsx` — a 1 s `setNow(Date.now())` re-render ticker + 1 interval
-- `RealtimeProvider.tsx` — snapshot poll (15 s; skips re-render when payload is unchanged)
-- `use-event-stream.ts` — an SSE `EventSource`
+| Lane | Warm soft-nav | First visit | Client long tasks (14 s idle) | Server CPU idle / RSS |
+|---|---|---|---|---|
+| **Production build** (`next build`) | **30–65 ms** | n/a (pre-compiled) | **0** (0 ms blocking) | ~0–1% / **251 MB** |
+| **Dev lane** (`:3010`, webpack) | **300–480 ms** | **0.5–2.0 s** | **0** (0 ms blocking) | spikes to 175% / **8.6 GB** |
 
-`e2e/dashboard-request-count.spec.ts` already bounds steady-state request counts.
+- No full reloads, **0 RSC failures**, 0 redirects on soft nav in either lane.
+- **Client main thread is clean in both** (0 long tasks while idle on the dashboard) — so the lag is **not** client-side jank/GC.
+- The dev↔prod gap (~6–10×) is **dev-mode server overhead**: webpack on-demand
+  first-visit compile, unminified bundles, the React dev runtime, and dev-server
+  RSC render on an 8.6 GB heap. **All of it is eliminated by `next build`** and is
+  therefore **dev-only**. (Dev polls *less* than prod — 20 vs 82 req/min — so dev
+  lag is not a polling-load problem.)
 
-### Ranked follow-ups (not done here — narrow-fix discipline / stopping rule)
+**Snapshot poll cost — suspect refuted by measurement.** `RealtimeProvider.pollSnapshot`
+runs `JSON.parse(raw)` + a `raw.replace(/"generatedAt":"…"/, "")` every 5 s (prod).
+A code comment anticipates ~1.2 MB payloads. Measuring the *exact* operations:
 
-These are incremental and unproven as the *blocking* cost (warm nav is ~68 ms),
-so they are intentionally deferred to a focused performance pass:
+| Snapshot payload | `JSON.parse` | regex `replace` | total per 5 s poll |
+|---|---|---|---|
+| 73 KB | 0.08 ms | ~0 ms | 0.08 ms |
+| 585 KB | 0.54 ms | ~0 ms | 0.54 ms |
+| **1.8 MB** | **1.62 ms** | ~0 ms | **1.62 ms** |
+| 4.4 MB | 4.04 ms | ~0 ms | 4.04 ms |
 
-1. **Convert remaining plain `<a href>` internal links to `next/link`** (e.g. the
-   company-overview links in `companies/[slug]/dashboard/page.tsx`) so they do a
-   soft transition instead of a full reload. Low risk, user-visible.
-2. **Gate/defer the 1 s `AgentActivityPanel` ticker** (and pause pollers when the
-   tab is hidden / panel collapsed) to cut idle re-renders and background fetches.
-3. **Dev ergonomics:** evaluate Turbopack for the dev lane (`NEXT_TURBOPACK=1`) to
-   reduce first-visit compile latency; this is dev-only and does not affect prod.
-4. Add a `webpack`-vs-`prod` click-to-interactive benchmark to the e2e suite to
-   keep steady-state navigation under a threshold.
+Even at 1.8 MB the main-thread cost is **~1.6 ms** — far below the 50 ms long-task
+threshold (V8 parses fast; the non-global regex stops at the first match). So the
+snapshot is **not** a client UI-thread stall. It **is** a real **network/server-load**
+concern at scale: 5 s polling of a large payload (~14 MB/min) that the server
+rebuilds per client via unbounded `readTasks()` + O(projects×tasks) `getProjects()`
+(`src/lib/realtime-snapshot.ts`, `src/lib/projects.ts`). Actual payload on the
+current empty workspace: **2.9 KB**.
+
+### Primary forward-looking hypothesis (could NOT measure here — empty board)
+
+The **populated task board** is the most likely real-world sluggishness and was
+not reproducible (0 tasks). Code-confirmed anti-patterns:
+
+- `TaskBoardView.tsx` is **unvirtualized** — `SortableContext items={tasks.map(t=>t.id)}`
+  (dnd-kit) and `tasks.map(...)` render **every** task; `new Map(tasks.map(...))` is O(N) per render (lines 81, 82, 419).
+- `TaskCard` is **not** `React.memo`'d (`export function TaskCard`, line 59).
+- Each card with an **active run** mounts its own **1 s `setInterval`→`setState`**
+  (`useElapsedLabel`, line 646) — N active cards ⇒ N timers ⇒ up to N re-renders/s
+  through an unmemoized list.
+
+On a board with hundreds of tasks this is a credible source of scroll/INP jank —
+but it does **not** affect Rick's current (empty) lane.
+
+### Conclusion
+
+- **Two-click navigation bug: FIXED** (measured, dev + prod — see Symptom 1).
+- **Production navigation lag: not reproduced** on the available data — prod soft-nav 30–65 ms, 0 client long tasks. The exact pages/clicks/timings are tabled above.
+- **Dev-lane sluggishness Rick feels: dev-only overhead** (first-visit webpack compile + warm dev-mode server overhead), eliminated by `next build`. Not client jank (0 long tasks), not a polling-load issue (dev polls less than prod).
+- **Not yet cleared at scale:** the board-rendering and snapshot network/server-load paths require a **populated workspace** to measure. The snapshot *main-thread parse* sub-hypothesis is **refuted** (≤4 ms even at 4.4 MB); the **board rendering** at scale is the top open hypothesis.
+
+### Ranked follow-ups (deferred — narrow-fix discipline; no rewrite)
+
+1. **Reproduce at scale first** — seed (or copy Rick's `data/`) a workspace with
+   realistic task/project/agent counts, then re-run the harness capturing board
+   render time, INP/scroll long tasks, and snapshot payload bytes. Required before
+   any board fix. (Harness: `/tmp/perf-harness.cjs`, `/tmp/snap-bench.cjs`.)
+2. **Virtualize the task board** + wrap `TaskCard` in `React.memo`, and hoist the
+   per-card 1 s elapsed-time timer to one shared ticker — only if (1) confirms cost.
+3. **Bound / throttle the snapshot** — cap or paginate `readTasks()`/`getProjects()`
+   in the snapshot, send counts/deltas instead of full arrays, and/or
+   visibility-gate the 5 s poll. Reduces ~14 MB/min and per-client server rebuild.
+4. **Convert remaining plain `<a href>` internal links to `next/link`** so they
+   soft-navigate instead of full-reloading (e.g. company-overview links).
+5. **Dev ergonomics:** evaluate Turbopack for the dev lane to cut first-visit
+   compile latency (dev-only; does not affect prod).
