@@ -78,6 +78,32 @@ async function loadAvatarSource(avatarUrl: string): Promise<{ buffer: Buffer; co
   };
 }
 
+/**
+ * In-flight thumbnail generations keyed by cache path. Concurrent cold requests
+ * for the SAME agent/signature/size share one `sharp` conversion + disk write
+ * instead of each paying the (~1s) cold cost — the avatar-boot stampede fix.
+ */
+const inflightThumbnails = new Map<string, Promise<Buffer>>();
+
+function generateThumbnailBuffer(cachePath: string, sourceBuffer: Buffer, size: number): Promise<Buffer> {
+  const existing = inflightThumbnails.get(cachePath);
+  if (existing) return existing;
+
+  const work = (async () => {
+    const thumbnail = await sharp(sourceBuffer, { failOn: "none" })
+      .rotate()
+      .resize(size, size, { fit: "cover", position: "center" })
+      .webp({ quality: DEFAULT_THUMBNAIL_QUALITY })
+      .toBuffer();
+    await fs.mkdir(AVATAR_CACHE_DIR, { recursive: true });
+    await fs.writeFile(cachePath, thumbnail).catch(() => undefined);
+    return thumbnail;
+  })();
+
+  inflightThumbnails.set(cachePath, work);
+  return work.finally(() => { inflightThumbnails.delete(cachePath); });
+}
+
 async function thumbnailResponse(input: {
   avatarUrl: string;
   agentId: string;
@@ -92,14 +118,7 @@ async function thumbnailResponse(input: {
   const cachePath = path.join(AVATAR_CACHE_DIR, cacheName);
 
   const source = await loadAvatarSource(input.avatarUrl);
-  const thumbnail = await sharp(source.buffer, { failOn: "none" })
-    .rotate()
-    .resize(input.size, input.size, { fit: "cover", position: "center" })
-    .webp({ quality: DEFAULT_THUMBNAIL_QUALITY })
-    .toBuffer();
-
-  await fs.mkdir(AVATAR_CACHE_DIR, { recursive: true });
-  await fs.writeFile(cachePath, thumbnail).catch(() => undefined);
+  const thumbnail = await generateThumbnailBuffer(cachePath, source.buffer, input.size);
 
   return new NextResponse(bufferBody(thumbnail), {
     headers: {

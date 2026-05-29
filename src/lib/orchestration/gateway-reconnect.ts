@@ -26,3 +26,42 @@ export function shouldLogReconnectFailure(attempt: number): boolean {
   if (attempt <= 0) return true;
   return attempt % 20 === 0;
 }
+
+export type GatewayMode = "disabled" | "configured" | "unconfigured";
+
+/** Max connection attempts before an UNCONFIGURED (optional) gateway goes quietly offline. */
+export const MAX_UNCONFIGURED_ATTEMPTS = 3;
+
+const TRUTHY = new Set(["1", "true", "yes", "on"]);
+
+/**
+ * Decide how the bridge should treat the gateway:
+ *  - "disabled": explicitly turned off via OPENCLAW_GATEWAY_DISABLED.
+ *  - "configured": the operator clearly intends to use a gateway (auth token
+ *    present, or an explicit OPENCLAW_GATEWAY_URL override) → keep retrying.
+ *  - "unconfigured": optional/absent gateway → connect-attempt a few times then
+ *    go quietly offline instead of churning forever.
+ */
+export function resolveGatewayMode(input: {
+  disabledFlag?: string | undefined;
+  explicitUrl?: string | undefined;
+  hasToken: boolean;
+}): GatewayMode {
+  if (TRUTHY.has((input.disabledFlag ?? "").trim().toLowerCase())) return "disabled";
+  if (input.hasToken || (input.explicitUrl ?? "").trim().length > 0) return "configured";
+  return "unconfigured";
+}
+
+/**
+ * When the gateway is optional (unconfigured) and has never connected, stop
+ * retrying after a few attempts so an absent gateway does not churn forever.
+ * A configured gateway (or one that has connected before) keeps retrying.
+ */
+export function shouldStopReconnecting(input: {
+  mode: GatewayMode;
+  everConnected: boolean;
+  attempt: number;
+}): boolean {
+  if (input.mode === "configured" || input.everConnected) return false;
+  return input.attempt >= MAX_UNCONFIGURED_ATTEMPTS;
+}

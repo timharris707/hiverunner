@@ -21,7 +21,13 @@ import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
 import { getOrchestrationDb } from "./db";
-import { computeReconnectDelayMs, shouldLogReconnectFailure } from "./gateway-reconnect";
+import {
+  computeReconnectDelayMs,
+  resolveGatewayMode,
+  shouldLogReconnectFailure,
+  shouldStopReconnecting,
+  type GatewayMode,
+} from "./gateway-reconnect";
 
 /* ── Types ── */
 
@@ -97,6 +103,12 @@ let disposed = false;
 let lastWsError: string | null = null;
 /** True once we've logged that the gateway is offline, so recovery logs once. */
 let offlineLogged = false;
+/** How this process treats the gateway (disabled / configured / unconfigured). */
+let gatewayMode: GatewayMode = "configured";
+/** True once a gateway connection has succeeded at least once. */
+let everConnected = false;
+/** True once we've logged the "gave up / offline until restart" message. */
+let offlineDisabledLogged = false;
 
 /**
  * Map of gateway session key → MC run mapping.
@@ -165,7 +177,16 @@ export function getBridgeStatus() {
  */
 export function initGatewayStreamBridge(): void {
   if (ws || disposed) return;
-  console.log("[gateway-bridge] initializing, target:", GATEWAY_URL);
+  gatewayMode = resolveGatewayMode({
+    disabledFlag: process.env.OPENCLAW_GATEWAY_DISABLED,
+    explicitUrl: process.env.OPENCLAW_GATEWAY_URL,
+    hasToken: resolveGatewayToken() !== null,
+  });
+  if (gatewayMode === "disabled") {
+    console.log("[gateway-bridge] disabled (OPENCLAW_GATEWAY_DISABLED set); live agent streaming is off");
+    return;
+  }
+  console.log(`[gateway-bridge] initializing, target: ${GATEWAY_URL} (${gatewayMode})`);
   refreshActiveRuns();
   connectToGateway();
   activeRunRefreshTimer = setInterval(refreshActiveRuns, ACTIVE_RUN_REFRESH_MS);
@@ -186,6 +207,11 @@ export function destroyGatewayStreamBridge(): void {
   agentIdByOpenclawId.clear();
   subscribers.clear();
   lastSeqBySession.clear();
+  reconnectAttempt = 0;
+  everConnected = false;
+  offlineLogged = false;
+  offlineDisabledLogged = false;
+  lastWsError = null;
 }
 
 /* ── Gateway WebSocket Connection ── */
@@ -270,6 +296,16 @@ function sendToGateway(msg: Record<string, unknown>) {
 
 function scheduleReconnect() {
   if (disposed || reconnectTimer) return;
+  if (shouldStopReconnecting({ mode: gatewayMode, everConnected, attempt: reconnectAttempt })) {
+    if (!offlineDisabledLogged) {
+      console.warn(`[gateway-bridge] no gateway configured and ${GATEWAY_URL} is unreachable; live agent streaming disabled until restart (set OPENCLAW_GATEWAY_TOKEN or start the OpenClaw gateway to enable)`);
+      offlineDisabledLogged = true;
+    }
+    // Without a connection no events arrive, so the 5s active-run DB refresh is
+    // pure churn — stop it too.
+    if (activeRunRefreshTimer) { clearInterval(activeRunRefreshTimer); activeRunRefreshTimer = null; }
+    return;
+  }
   const delay = computeReconnectDelayMs(reconnectAttempt);
   reconnectAttempt++;
   reconnectTimer = setTimeout(() => {
@@ -290,6 +326,7 @@ function handleGatewayMessage(data: Record<string, unknown>) {
       console.log(offlineLogged
         ? "[gateway-bridge] gateway connection recovered"
         : "[gateway-bridge] connected to gateway successfully");
+      everConnected = true;
       offlineLogged = false;
       lastWsError = null;
     } else {

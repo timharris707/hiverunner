@@ -159,7 +159,7 @@ but it does **not** affect Rick's current (empty) lane.
 
 ---
 
-## Addendum — Rick's real-environment audit (2026-05-29): reconciliation + gateway fix
+## Addendum — Rick's real-environment audit (2026-05-29): reconciliation + share-readiness patch (A–D)
 
 Rick ran an independent audit on his **populated, memory-pressured** install
 (Node `v24.10.0`; host at ~35 GB/36 GB used; company `RIC`/`ricktest`, 26 tasks).
@@ -173,24 +173,36 @@ app process was ~0 % CPU, and the 21 MB SQLite DB is not oversized. His contribu
 - **Unsupported Node 24** — `package.json` engines declare `node >=20 <23`; re-test
   on Node 22 LTS before treating timings as a clean baseline.
 
-**Software-side churn (code):**
-- **Gateway reconnect log-spam — FIXED here.** With the OpenClaw gateway offline,
-  `gateway-stream-bridge` logged on every reconnect cycle forever → Rick saw
-  **10,448** `[gateway-bridge]` log lines. Reproduced against a dead port:
-  **11 lines / 20 s and unbounded → 2 lines / 20 s** after the fix (first failure +
-  a periodic heartbeat ~every 20th attempt), plus **jittered** backoff. The bridge
-  is a read-only `operator` client, so this does not change execution-lane ownership
-  or behaviour when the gateway is up. Guard: `gateway-bridge-reconnect.test.ts`
-  (`npm run test:gateway-bridge-reconnect`); pure helpers live in
-  `src/lib/orchestration/gateway-reconnect.ts`.
-- **Duplicate boot polling** (`/api/live/snapshot` ×2, live-runs ×2 on load) —
-  ranked follow-up: consolidate live-runs/snapshot behind one shared per-company
-  provider + coalesce identical in-flight requests (`src/hooks/useLiveRuns.ts`).
-- **Avatar thumbnail cold cache** (~1.1–1.3 s via `sharp` on first load) — ranked
-  follow-up: prewarm on agent save/startup + coalesce concurrent cold requests for
-  the same avatar (`.../agents/[agentId]/avatar/route.ts`).
+**Share-readiness patch (A–D) — all shipped:**
 
-**Net:** Rick's dominant causes are environmental; the highest-volume *software*
-churn (gateway log-spam, #2 on his list) is fixed and verified here. The board /
-snapshot-at-scale and boot-polling items remain ranked follow-ups (need a populated
-workspace to measure their UI impact before changing them — narrow-fix discipline).
+- **(A) Production-first install docs.** The README Quickstart now leads with the
+  **production** path (`scripts/lane.sh promote && scripts/lane.sh stable start` →
+  **port 3001**, execution-owning), a one-off `PORT=3001 npm start` alternative,
+  and a Node-version requirement (20 LTS / 22 ok / **24 unsupported**). `npm run dev`
+  moved to a **Developing HiveRunner** section with an explicit slowness warning.
+  `docs/AUTH.md` no longer presents `npm run dev` as the user path. A normal fresh
+  install now lands in **production** (smoke: `Mode: production`, `Runtime role:
+  executor`), not webpack dev mode.
+- **(B) Gateway bridge offline behaviour — completed.** Beyond the log throttle:
+  `OPENCLAW_GATEWAY_DISABLED=1` skips the bridge entirely; an **unconfigured**
+  gateway (no token, no explicit URL) goes **quietly offline** after a few attempts
+  (stops reconnecting *and* stops the 5 s active-run DB refresh); a **configured**
+  gateway keeps retrying with throttled logging + **jittered** backoff. Reproduced
+  against a dead port: **11 lines / 20 s (unbounded) → 2 lines / 20 s**; Rick's
+  10,448 → a handful. The bridge is a read-only `operator` client — execution-lane
+  ownership and connected-state behaviour are unchanged. Pure helpers +
+  `gateway-bridge-reconnect.test.ts`.
+- **(C) Duplicate boot polling — coalesced.** `src/lib/orchestration/live-runs-cache.ts`
+  shares one in-flight `/api/orchestration/engine/live-runs?company=…` request (plus
+  a 750 ms result cache) per company, so the Dock / dashboard / task board collapse
+  their boot burst to a single fetch instead of N. `useLiveRuns` calls it; polling
+  cadence is unchanged (TTL ≪ poll interval). Guard: `live-runs-cache.test.ts`.
+- **(D) Avatar thumbnail cold cache — coalesced.** The avatar route now keys
+  in-flight `sharp` conversions by cache path, so concurrent cold requests for the
+  *same* agent/signature/size share one conversion + disk write instead of each
+  paying the ~1 s cost (`.../agents/[agentId]/avatar/route.ts`).
+
+**Environment (Rick's to address — not code):** host memory pressure (the dominant
+amplifier) and unsupported Node 24. **Still requiring Rick's machine/data to
+measure:** the board-rendering-at-scale and snapshot-payload-at-scale hypotheses
+(both need a populated workspace; deferred per narrow-fix discipline).

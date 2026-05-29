@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 
-import { computeReconnectDelayMs, shouldLogReconnectFailure } from "@/lib/orchestration/gateway-reconnect";
+import {
+  computeReconnectDelayMs,
+  resolveGatewayMode,
+  shouldLogReconnectFailure,
+  shouldStopReconnecting,
+  MAX_UNCONFIGURED_ATTEMPTS,
+} from "@/lib/orchestration/gateway-reconnect";
 
 // ── Backoff with jitter ──
 // attempt 0 ≈ 2000ms ± 15%
@@ -25,5 +31,19 @@ assert.equal(shouldLogReconnectFailure(40), true);
 // Over 100 failed attempts, at most a handful of log lines (was: 1 per attempt → thousands over a long outage).
 const logged = Array.from({ length: 100 }, (_, i) => shouldLogReconnectFailure(i)).filter(Boolean).length;
 assert.ok(logged <= 6, `<=6 log lines per 100 failed attempts (got ${logged})`);
+
+// ── Gateway mode resolution (offline / degrade handling) ──
+assert.equal(resolveGatewayMode({ disabledFlag: "1", hasToken: true }), "disabled", "explicit disable wins");
+assert.equal(resolveGatewayMode({ disabledFlag: "true", hasToken: false }), "disabled");
+assert.equal(resolveGatewayMode({ hasToken: true }), "configured", "token => configured");
+assert.equal(resolveGatewayMode({ hasToken: false, explicitUrl: "ws://host:1" }), "configured", "explicit URL => configured");
+assert.equal(resolveGatewayMode({ hasToken: false }), "unconfigured", "no token, no URL => unconfigured");
+assert.equal(resolveGatewayMode({ hasToken: false, explicitUrl: "" }), "unconfigured");
+
+// ── Reconnect stop policy: optional gateway goes offline; configured keeps trying ──
+assert.equal(shouldStopReconnecting({ mode: "configured", everConnected: false, attempt: 999 }), false, "configured never gives up");
+assert.equal(shouldStopReconnecting({ mode: "unconfigured", everConnected: true, attempt: 999 }), false, "if it connected once, keep retrying");
+assert.equal(shouldStopReconnecting({ mode: "unconfigured", everConnected: false, attempt: 0 }), false, "tries a few times first");
+assert.equal(shouldStopReconnecting({ mode: "unconfigured", everConnected: false, attempt: MAX_UNCONFIGURED_ATTEMPTS }), true, "absent optional gateway stops churning");
 
 console.log("PASS gateway-bridge-reconnect");

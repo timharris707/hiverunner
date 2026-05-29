@@ -13,6 +13,7 @@
     "test:companycode-rewrite-rsc": "npx tsx src/lib/__tests__/companycode-rewrite-rsc.test.ts",
     "test:middleware-redirect-loop": "npx tsx src/lib/__tests__/middleware-canonical-redirect-loop.test.ts",
     "test:gateway-bridge-reconnect": "npx tsx src/lib/__tests__/gateway-bridge-reconnect.test.ts",
+    "test:live-runs-cache": "npx tsx src/lib/__tests__/live-runs-cache.test.ts",
     "test:onboarding": "npm run test:root-route && npm run test:onboarding-state && npm run test:onboarding-provider-status && npm run test:onboarding-complete-route && npm run test:companycode-rewrite-rsc",
     "verify:local": "npm run lint && npm run build && npm test && npm audit --audit-level=moderate",
     "dev": "NODE_ENV=development node --max-old-space-size=8192 server.js",

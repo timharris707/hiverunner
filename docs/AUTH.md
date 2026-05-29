@@ -18,7 +18,11 @@ The mode is resolved at request time by `getAuthMode()` in
 
 ## Local-single-user mode (default for GitHub installs)
 
-This is the "clone the repo, `npm ci`, `npm run dev`, done" path.
+This is the "clone the repo, `npm ci`, run it locally, done" path. For normal
+use run the **production** lane — `scripts/lane.sh promote && scripts/lane.sh
+stable start` (port `3001`), per the
+[README Quickstart](../README.md#quickstart-production). `npm run dev` (port
+`3010`) is the slower webpack dev mode, intended for editing HiveRunner.
 
 What happens:
 
@@ -93,14 +97,14 @@ between modes by editing env and restarting:
 # Hosted -> local-first:
 unset MC_AUTH_MODE
 # (or set MC_AUTH_MODE=local-single-user explicitly; Supabase env may remain)
-npm run dev
+# then restart your lane — dev: npm run dev · stable: scripts/lane.sh stable restart
 
 # Local-first -> hosted:
 export MC_AUTH_MODE=supabase
 export NEXT_PUBLIC_SUPABASE_URL=...
 export NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 export SUPABASE_SERVICE_ROLE_KEY=...
-npm run dev
+# then restart your lane — dev: npm run dev · stable: scripts/lane.sh stable restart
 ```
 
 Session cookies from a previous mode are harmless — the active mode ignores
