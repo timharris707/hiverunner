@@ -21,6 +21,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { randomUUID } from "crypto";
 import { getOrchestrationDb } from "./db";
+import { computeReconnectDelayMs, shouldLogReconnectFailure } from "./gateway-reconnect";
 
 /* ── Types ── */
 
@@ -58,8 +59,6 @@ interface ActiveRunMapping {
 /* ── Constants ── */
 
 const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || "ws://127.0.0.1:18789";
-const RECONNECT_BASE_MS = 2000;
-const RECONNECT_MAX_MS = 30000;
 const ACTIVE_RUN_REFRESH_MS = 5000;
 const HEARTBEAT_SESSION_PATTERN = /^agent:([^:]+):heartbeat:(.+)$/;
 
@@ -94,6 +93,10 @@ let reconnectAttempt = 0;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let activeRunRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let disposed = false;
+/** Last WebSocket error message, surfaced once in the throttled close log. */
+let lastWsError: string | null = null;
+/** True once we've logged that the gateway is offline, so recovery logs once. */
+let offlineLogged = false;
 
 /**
  * Map of gateway session key → MC run mapping.
@@ -239,14 +242,22 @@ function connectToGateway() {
   });
 
   ws.on("close", () => {
-    console.log("[gateway-bridge] disconnected from gateway");
     ws = null;
+    // Throttled: log the first failure (and a periodic heartbeat), then stay
+    // quiet. Previously this logged on every close → thousands of lines while
+    // the gateway is offline. Reconnect cadence is unchanged.
+    if (shouldLogReconnectFailure(reconnectAttempt)) {
+      const reason = lastWsError ? ` (${lastWsError})` : "";
+      console.warn(`[gateway-bridge] gateway unavailable at ${GATEWAY_URL}${reason}; will keep retrying quietly`);
+      offlineLogged = true;
+    }
     scheduleReconnect();
   });
 
   ws.on("error", (err) => {
-    console.warn("[gateway-bridge] WebSocket error:", err.message);
-    // 'close' event will follow and trigger reconnect
+    // Capture for the throttled close log; do not log here ('close' always
+    // follows and owns the throttled logging).
+    lastWsError = err.message;
   });
 }
 
@@ -259,7 +270,7 @@ function sendToGateway(msg: Record<string, unknown>) {
 
 function scheduleReconnect() {
   if (disposed || reconnectTimer) return;
-  const delay = Math.min(RECONNECT_BASE_MS * Math.pow(1.5, reconnectAttempt), RECONNECT_MAX_MS);
+  const delay = computeReconnectDelayMs(reconnectAttempt);
   reconnectAttempt++;
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null;
@@ -276,7 +287,11 @@ function handleGatewayMessage(data: Record<string, unknown>) {
   if (type === "res") {
     const ok = data.ok as boolean | undefined;
     if (ok) {
-      console.log("[gateway-bridge] connected to gateway successfully");
+      console.log(offlineLogged
+        ? "[gateway-bridge] gateway connection recovered"
+        : "[gateway-bridge] connected to gateway successfully");
+      offlineLogged = false;
+      lastWsError = null;
     } else {
       console.warn("[gateway-bridge] request failed:", (data.error as Record<string, unknown>)?.message ?? data.error);
     }

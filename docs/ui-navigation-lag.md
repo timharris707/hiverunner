@@ -156,3 +156,41 @@ but it does **not** affect Rick's current (empty) lane.
    soft-navigate instead of full-reloading (e.g. company-overview links).
 5. **Dev ergonomics:** evaluate Turbopack for the dev lane to cut first-visit
    compile latency (dev-only; does not affect prod).
+
+---
+
+## Addendum — Rick's real-environment audit (2026-05-29): reconciliation + gateway fix
+
+Rick ran an independent audit on his **populated, memory-pressured** install
+(Node `v24.10.0`; host at ~35 GB/36 GB used; company `RIC`/`ricktest`, 26 tasks).
+It **agrees with the measurements above on what is _not_ the cause**: warm backend
+APIs are fast (`/api/live/snapshot` ~19 ms, live-runs ~10 ms, inbox ~16 ms), the
+app process was ~0 % CPU, and the 21 MB SQLite DB is not oversized. His contributors:
+
+**Environment (Rick's to address — not code):**
+- **Host memory pressure** (≈82 MB free, ~11 GB compressed, 1.6 M swapouts) — the
+  dominant local amplifier for Chromium + Next dev + image processing.
+- **Unsupported Node 24** — `package.json` engines declare `node >=20 <23`; re-test
+  on Node 22 LTS before treating timings as a clean baseline.
+
+**Software-side churn (code):**
+- **Gateway reconnect log-spam — FIXED here.** With the OpenClaw gateway offline,
+  `gateway-stream-bridge` logged on every reconnect cycle forever → Rick saw
+  **10,448** `[gateway-bridge]` log lines. Reproduced against a dead port:
+  **11 lines / 20 s and unbounded → 2 lines / 20 s** after the fix (first failure +
+  a periodic heartbeat ~every 20th attempt), plus **jittered** backoff. The bridge
+  is a read-only `operator` client, so this does not change execution-lane ownership
+  or behaviour when the gateway is up. Guard: `gateway-bridge-reconnect.test.ts`
+  (`npm run test:gateway-bridge-reconnect`); pure helpers live in
+  `src/lib/orchestration/gateway-reconnect.ts`.
+- **Duplicate boot polling** (`/api/live/snapshot` ×2, live-runs ×2 on load) —
+  ranked follow-up: consolidate live-runs/snapshot behind one shared per-company
+  provider + coalesce identical in-flight requests (`src/hooks/useLiveRuns.ts`).
+- **Avatar thumbnail cold cache** (~1.1–1.3 s via `sharp` on first load) — ranked
+  follow-up: prewarm on agent save/startup + coalesce concurrent cold requests for
+  the same avatar (`.../agents/[agentId]/avatar/route.ts`).
+
+**Net:** Rick's dominant causes are environmental; the highest-volume *software*
+churn (gateway log-spam, #2 on his list) is fixed and verified here. The board /
+snapshot-at-scale and boot-polling items remain ranked follow-ups (need a populated
+workspace to measure their UI impact before changing them — narrow-fix discipline).
