@@ -40,6 +40,8 @@ HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-}"
 MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "data")"
 MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "${HOME:-}/.hiverunner/stable/workspaces")"
 
+assert_no_empty_stable_data_dir_when_legacy_exists "hr-stable" "$APP_DIR" "$MC_DATA_DIR"
+
 dotenv_value() {
   KEY="$1"
   FILE="$APP_DIR/.env.local"

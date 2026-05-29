@@ -53,6 +53,60 @@ resolve_mc_workspace_root() {
   printf '%s\n' "$DEFAULT_ROOT"
 }
 
+hiverunner_db_has_real_company() {
+  DB_PATH="$1"
+  if [ ! -s "$DB_PATH" ]; then
+    return 1
+  fi
+  if ! command -v sqlite3 >/dev/null 2>&1; then
+    return 1
+  fi
+
+  REAL_COMPANY_COUNT="$(sqlite3 "$DB_PATH" "select count(*) from companies where coalesce(company_code, '') <> 'HIVE' or coalesce(slug, '') <> 'hiverunner-workspace';" 2>/dev/null || printf '0')"
+  case "$REAL_COMPANY_COUNT" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  [ "$REAL_COMPANY_COUNT" -gt 0 ]
+}
+
+assert_no_empty_stable_data_dir_when_legacy_exists() {
+  LABEL="${1:-hr-stable}"
+  APP_DIR="$2"
+  DATA_DIR="$3"
+
+  if [ "${HIVERUNNER_ALLOW_EMPTY_STABLE_DATA:-}" = "1" ]; then
+    return 0
+  fi
+  if [ -n "${ORCHESTRATION_DB_PATH:-}" ]; then
+    return 0
+  fi
+  if [ -z "${HOME:-}" ]; then
+    return 0
+  fi
+
+  LEGACY_APP_DIR="$HOME/.mission-control/app"
+  LEGACY_DATA_DIR="$LEGACY_APP_DIR/data"
+  LEGACY_DB="$LEGACY_DATA_DIR/orchestration.db"
+  CURRENT_DB="$DATA_DIR/orchestration.db"
+
+  if [ "$APP_DIR" = "$LEGACY_APP_DIR" ] || [ "$DATA_DIR" = "$LEGACY_DATA_DIR" ]; then
+    return 0
+  fi
+
+  if ! hiverunner_db_has_real_company "$CURRENT_DB" && hiverunner_db_has_real_company "$LEGACY_DB"; then
+    echo "[$LABEL] ERROR: refusing to start stable with an empty/new data directory while a populated legacy HiveRunner DB exists." >&2
+    echo "[$LABEL] Current app root: $APP_DIR" >&2
+    echo "[$LABEL] Current data dir: $DATA_DIR" >&2
+    echo "[$LABEL] Legacy data dir:  $LEGACY_DATA_DIR" >&2
+    echo "[$LABEL] This usually means the app root moved but the stable data directory was not migrated." >&2
+    echo "[$LABEL] Fix one of these ways:" >&2
+    echo "[$LABEL]   1. Start with MC_DATA_DIR=$LEGACY_DATA_DIR to keep using the existing data." >&2
+    echo "[$LABEL]   2. Copy/migrate the legacy data into $DATA_DIR before starting stable." >&2
+    echo "[$LABEL]   3. If you intentionally want a fresh stable install, set HIVERUNNER_ALLOW_EMPTY_STABLE_DATA=1." >&2
+    return 1
+  fi
+}
+
 append_node_search_path() {
   PATH_TO_ADD="$1"
   if [ -n "$PATH_TO_ADD" ]; then
