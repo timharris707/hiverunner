@@ -111,25 +111,37 @@ npm run dev
 ```
 
 Open [http://localhost:3010](http://localhost:3010).
-In the default local-first mode, `/` checks local workspace state. A fresh clone
-with no completed workspace redirects to `/companies/new` so setup starts
-immediately instead of showing the public marketing page. After a workspace
-exists, `/` opens the workspace task board.
+In the default local-first mode, `/` checks local state and routes you through
+two distinct stages:
+
+1. **Software setup first.** A fresh clone with no completed setup redirects to
+   `/setup` — a one-time, lightweight software onboarding wizard (welcome,
+   optional provider keys, the bundled Overseer skill, and a workspace choice).
+   It never auto-creates a company and does not load the dashboard shell.
+2. **Then create or open a workspace.** From the last setup step you explicitly
+   choose to create your first workspace (`/companies/new`), open an existing
+   one, or skip for now. Completing setup is recorded in durable server-side
+   state, so you only see `/setup` once.
+
+After a workspace exists, `/` opens the workspace task board. If setup is
+complete but no workspace exists yet, `/` points you at `/companies/new`.
 
 With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
 If the login page appears, use the local continue button. No Supabase project,
 OAuth app, password, or admin account is required for the local path.
 
-During company creation, HiveRunner can create a starter agent pack such as
-Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
-Operations/Support, or Content/Marketing. These starter agents use bundled
-public-safe avatar images and saved voice IDs so a fresh workspace feels alive
-immediately. The Blank/custom option creates no extra starter agents.
+During company creation (`/companies/new`), HiveRunner can create a starter
+agent pack such as Software/Product Studio, Solo Operator Copilot, Research &
+Strategy Desk, Operations/Support, or Content/Marketing. These starter agents
+use bundled public-safe avatar images and saved voice IDs so a fresh workspace
+feels alive immediately. The Blank/custom option creates no extra starter
+agents. Company creation is now purely the workspace wizard — provider-key setup
+lives in `/setup`, not as a numbered step here.
 
-The setup flow also shows optional provider readiness. OpenAI, Gemini / Google
-AI, and Anthropic keys can be skipped; HiveRunner will keep core onboarding,
-bundled avatars, starter packs, goals, tasks, and local board workflows working
-while clearly marking provider-backed avatar generation, live voice, or direct
+The `/setup` flow shows optional provider readiness. OpenAI, Gemini / Google AI,
+and Anthropic keys can be skipped; HiveRunner will keep core onboarding, bundled
+avatars, starter packs, goals, tasks, and local board workflows working while
+clearly marking provider-backed avatar generation, live voice, or direct
 provider routes as not configured.
 
 The public-safe Overseer skill is bundled at
@@ -168,7 +180,8 @@ HIVERUNNER_NODE_BIN=/absolute/path/to/node scripts/lane.sh dev start
 Useful local routes after boot:
 
 - `/login` — auth entry point.
-- `/companies/new` — first-run workspace setup with starter packs and provider readiness.
+- `/setup` — one-time software onboarding (provider keys, Overseer, workspace choice). Fresh installs land here.
+- `/companies/new` — explicit New Company / New Workspace wizard (starter packs, team, CEO, first goal).
 - `/marketing` — public marketing page, kept separate from local first-run UX.
 - `/HIVE/dashboard` — dashboard for the default workspace when present.
 - `/HIVE/tasks` — task board/list views.
@@ -230,9 +243,9 @@ GOOGLE_AI_API_KEY=your-google-ai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
-The first-run provider step reports whether these are configured, but it never
-prints secret values. Add keys to `.env.local`, restart the local lane, and rerun
-setup or open the runtime/provider settings when you want to enable those
+The `/setup` provider step reports whether these are configured, but it never
+prints secret values. Add keys to `.env.local`, restart the local lane, and
+reopen `/setup` (or the runtime/provider settings) when you want to enable those
 optional features.
 
 `GOOGLE_AI_API_KEY` enables Gemini-backed voice features such as Gemini Live

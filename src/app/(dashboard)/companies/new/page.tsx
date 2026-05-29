@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Building2,
@@ -15,7 +16,6 @@ import {
   Loader2,
   Sparkles,
   AlertCircle,
-  KeyRound,
   X,
   Users,
   Plus,
@@ -45,26 +45,13 @@ interface WizardData {
   goal: { title: string; description: string; priority: string };
 }
 
-type ProviderSetupStatus = {
-  id: "openai" | "google" | "anthropic";
-  label: string;
-  configured: boolean;
-  configuredSecretName: string | null;
-  source: string | null;
-  envVars: string[];
-  enables: string[];
-  missingImpact: string;
-  setupCopy: string;
-};
-
 const STEPS = [
   { num: 1, label: "Company", icon: Building2 },
   { num: 2, label: "Project", icon: FolderGit2 },
   { num: 3, label: "Team", icon: Users },
   { num: 4, label: "CEO", icon: Crown },
   { num: 5, label: "First Goal", icon: ClipboardList },
-  { num: 6, label: "Providers", icon: KeyRound },
-  { num: 7, label: "Launch", icon: Rocket },
+  { num: 6, label: "Launch", icon: Rocket },
 ];
 
 function slugify(s: string) {
@@ -677,79 +664,6 @@ function StepGoal({ data, onChange }: { data: WizardData["goal"]; onChange: (d: 
   );
 }
 
-function StepProviderSetup({ providers }: { providers: ProviderSetupStatus[] | null }) {
-  return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--text-primary)]">
-          <KeyRound size={20} className="text-[var(--accent)]" /> Optional Provider Keys
-        </h2>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Connect keys now if they are already in your local environment, or skip them. HiveRunner launches the workspace either way.
-        </p>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-3">
-        {(providers ?? []).map((provider) => (
-          <div
-            key={provider.id}
-            className={`rounded-lg border p-4 ${
-              provider.configured
-                ? "border-[var(--positive)] bg-[var(--positive-soft)]"
-                : "border-[var(--border)] bg-[var(--surface)]"
-            }`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-semibold text-[var(--text-primary)]">{provider.label}</p>
-                <p className={`mt-1 text-xs font-semibold ${provider.configured ? "text-[var(--positive)]" : "text-[var(--text-muted)]"}`}>
-                  {provider.configured
-                    ? `Configured via ${provider.configuredSecretName} (${provider.source})`
-                    : "Not configured"}
-                </p>
-              </div>
-              {provider.configured ? (
-                <Check size={16} className="mt-0.5 shrink-0 text-[var(--positive)]" />
-              ) : (
-                <AlertCircle size={16} className="mt-0.5 shrink-0 text-[var(--text-muted)]" />
-              )}
-            </div>
-            <div className="mt-4 space-y-3 border-t border-[var(--border)] pt-3">
-              <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">Enables</p>
-                <p className="mt-1 text-xs leading-relaxed text-[var(--text-secondary)]">{provider.enables.join(", ")}</p>
-              </div>
-              <p className="text-xs leading-relaxed text-[var(--text-muted)]">{provider.missingImpact}</p>
-            </div>
-          </div>
-        ))}
-        {!providers && (
-          <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4 text-sm text-[var(--text-secondary)]">
-            Checking provider readiness...
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
-        <p className="text-sm font-semibold text-[var(--text-primary)]">To configure later</p>
-        <p className="mt-1 text-sm text-[var(--text-secondary)]">
-          Add keys to <code className="rounded bg-[var(--surface-elevated)] px-1 py-0.5">.env.local</code>, restart the local lane,
-          and revisit Settings or rerun setup.
-        </p>
-        <pre className="mt-3 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--surface-elevated)] p-3 text-xs text-[var(--text-secondary)]">
-{`OPENAI_API_KEY=your-openai-key
-GOOGLE_AI_API_KEY=your-google-ai-key
-ANTHROPIC_API_KEY=your-anthropic-key`}
-        </pre>
-        <p className="mt-3 text-xs leading-relaxed text-[var(--text-muted)]">
-          Skipping keys leaves avatar generation, live voice, and direct paid-provider routes marked as not configured. Bundled avatars,
-          saved voice selections, starter packs, goals, tasks, and local board workflows still work.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function SummaryCard({ icon: Icon, title, children }: { icon: typeof Building2; title: string; children: React.ReactNode }) {
   return (
     <div className="space-y-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-4">
@@ -804,6 +718,11 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
         Launch will create the company, preserve the CEO or lead, create the first goal, and attach an initial planning task so an agent can own the next step before review.
       </div>
+      <p className="text-xs leading-relaxed text-[var(--text-muted)]">
+        Optional provider keys (avatar generation, live voice, direct provider routes) are configured during
+        software setup — see <Link href="/setup" className="text-[var(--accent)] underline-offset-2 hover:underline">Set up HiveRunner</Link>.
+        The workspace launches with bundled avatars and saved voices either way.
+      </p>
     </div>
   );
 }
@@ -816,7 +735,6 @@ export default function CompanyOnboardingWizard() {
   const [highestStepVisited, setHighestStepVisited] = useState(1);
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string }>>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
-  const [providerStatus, setProviderStatus] = useState<ProviderSetupStatus[] | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -846,22 +764,6 @@ export default function CompanyOnboardingWizard() {
     };
   }, []);
 
-  useEffect(() => {
-    let active = true;
-    fetch("/api/onboarding/provider-status")
-      .then((r) => r.json())
-      .then((payload: { providers?: ProviderSetupStatus[] }) => {
-        if (!active) return;
-        setProviderStatus(Array.isArray(payload.providers) ? payload.providers : []);
-      })
-      .catch(() => {
-        if (active) setProviderStatus([]);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
   const [data, setData] = useState<WizardData>(() => createInitialCompanyWizardData());
 
   const completed = useMemo(() => {
@@ -872,7 +774,6 @@ export default function CompanyOnboardingWizard() {
     if (highestStepVisited > 3 && !starterTeamValidationMessage(data.starterTeam)) s.add(3);
     if (highestStepVisited > 4 && data.ceo.name.trim()) s.add(4);
     if (highestStepVisited > 5 && data.goal.title.trim()) s.add(5);
-    if (highestStepVisited > 6) s.add(6);
     return s;
   }, [data, highestStepVisited]);
 
@@ -882,7 +783,6 @@ export default function CompanyOnboardingWizard() {
     if (step === 3) return !starterTeamValidationMessage(data.starterTeam);
     if (step === 4) return !!data.ceo.name.trim() && (!modelsLoading || modelOptions.length > 0);
     if (step === 5) return !!data.goal.title.trim();
-    if (step === 6) return true;
     return true;
   }, [step, data, modelOptions.length, modelsLoading]);
 
@@ -960,7 +860,7 @@ export default function CompanyOnboardingWizard() {
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--text-muted)]">Create Company</p>
               <h1 className="mt-1 text-2xl font-semibold tracking-normal text-[var(--text-primary)]">Launch a New Company</h1>
-              <p className="mt-1 max-w-2xl text-sm text-[var(--text-secondary)]">Build a fully operational AI company in seven steps.</p>
+              <p className="mt-1 max-w-2xl text-sm text-[var(--text-secondary)]">Build a fully operational AI company in six steps.</p>
             </div>
             <button
               type="button"
@@ -999,8 +899,7 @@ export default function CompanyOnboardingWizard() {
             />
           )}
           {step === 5 && <StepGoal data={data.goal} onChange={(goal) => setData((d) => ({ ...d, goal }))} />}
-          {step === 6 && <StepProviderSetup providers={providerStatus} />}
-          {step === 7 && <StepReview data={data} modelOptions={modelOptions} />}
+          {step === 6 && <StepReview data={data} modelOptions={modelOptions} />}
           {error && <div className="mt-4 flex items-start gap-2 rounded-lg border border-[var(--negative)] bg-[var(--negative-soft)] p-3 text-sm text-[var(--negative)]"><AlertCircle size={16} className="mt-0.5 shrink-0" />{error}</div>}
           <div className="mt-8 flex items-center justify-between gap-4 border-t border-[var(--border)] pt-5">
             <div>{step > 1 && <button onClick={back} disabled={launching} className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)] disabled:opacity-40"><ChevronLeft size={16} /> Back</button>}</div>

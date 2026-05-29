@@ -11,31 +11,43 @@ type TestCase = {
 
 const cases: TestCase[] = [
   {
-    name: "default local install redirects root to onboarding when no durable workspace exists",
+    name: "fresh local install redirects root to first-run software setup",
     env: {},
-    expected: { kind: "redirect", destination: "/companies/new" },
+    expected: { kind: "redirect", destination: "/setup" },
   },
   {
-    name: "explicit local-single-user redirects root to onboarding when no durable workspace exists",
+    name: "explicit local-single-user with no setup/workspace redirects root to /setup",
     env: { MC_AUTH_MODE: "local-single-user" },
-    expected: { kind: "redirect", destination: "/companies/new" },
+    expected: { kind: "redirect", destination: "/setup" },
   },
   {
-    name: "invalid auth mode stays local-first and redirects root to onboarding",
+    name: "invalid auth mode stays local-first and redirects root to /setup",
     env: { MC_AUTH_MODE: "unexpected" },
-    expected: { kind: "redirect", destination: "/companies/new" },
+    expected: { kind: "redirect", destination: "/setup" },
   },
   {
-    name: "completed local install redirects root to selected company task board",
+    name: "an existing workspace is treated as setup-complete and routes to the task board",
     env: {},
-    state: { hasCompletedOnboarding: true, defaultCompanyCode: "HIVE" },
+    state: { hasWorkspace: true, defaultCompanyCode: "HIVE" },
     expected: { kind: "redirect", destination: "/HIVE/tasks?view=board&group=status" },
   },
   {
-    name: "completed local install falls back to login if company code cannot be resolved",
+    name: "completed software setup without any workspace points at the explicit company wizard",
     env: {},
-    state: { hasCompletedOnboarding: true, defaultCompanyCode: null },
-    expected: { kind: "redirect", destination: "/login" },
+    state: { hasCompletedSoftwareSetup: true, defaultCompanyCode: null },
+    expected: { kind: "redirect", destination: "/companies/new" },
+  },
+  {
+    name: "completed software setup with a resolvable workspace routes to the task board",
+    env: {},
+    state: { hasCompletedSoftwareSetup: true, hasWorkspace: true, defaultCompanyCode: "INS" },
+    expected: { kind: "redirect", destination: "/INS/tasks?view=board&group=status" },
+  },
+  {
+    name: "software setup not completed and no workspace still goes to /setup even with a stray default code",
+    env: {},
+    state: { hasCompletedSoftwareSetup: false, hasWorkspace: false, defaultCompanyCode: "HIVE" },
+    expected: { kind: "redirect", destination: "/setup" },
   },
   {
     name: "hosted Supabase mode keeps root marketing page",
