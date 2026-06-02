@@ -1,5 +1,6 @@
 type DefaultCompanyEnv = {
-  MC_DEFAULT_COMPANY_CODE?: string | null;
+  readonly [key: string]: string | undefined;
+  MC_DEFAULT_COMPANY_CODE?: string;
 };
 
 export function normalizeCompanyCode(value: string | undefined | null): string {
