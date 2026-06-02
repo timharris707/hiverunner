@@ -18,11 +18,7 @@ The mode is resolved at request time by `getAuthMode()` in
 
 ## Local-single-user mode (default for GitHub installs)
 
-This is the "clone the repo, `npm ci`, run it locally, done" path. For normal
-use run the **production** lane — `scripts/lane.sh promote && scripts/lane.sh
-stable start` (port `3001`), per the
-[README Quickstart](../README.md#quickstart-production). `npm run dev` (port
-`3010`) is the slower webpack dev mode, intended for editing HiveRunner.
+This is the "clone the repo, `npm install`, `npm run dev`, done" path.
 
 What happens:
 
@@ -38,12 +34,9 @@ What happens:
 - `/auth/callback` short-circuits to the destination URL (no OAuth exchange).
 
 **Security model.** Local-single-user mode is designed for a trusted local
-environment: your own laptop or a private machine you fully control.
-**Do not expose a local-single-user install to a LAN, shared network, reverse
-tunnel, or the public internet.** Anything that can reach the host is treated
-as the owner. If you need multi-user access from a network, use
-`MC_AUTH_MODE=supabase` with real auth instead of opening the local-single-user
-listener.
+environment: your own laptop or a private machine behind a VPN/Tailscale.
+**Do not expose a local-single-user install to the public internet.**
+Anything that reaches the host is treated as the owner.
 
 Protected mutation routes are still defended by:
 
@@ -97,14 +90,14 @@ between modes by editing env and restarting:
 # Hosted -> local-first:
 unset MC_AUTH_MODE
 # (or set MC_AUTH_MODE=local-single-user explicitly; Supabase env may remain)
-# then restart your lane — dev: npm run dev · stable: scripts/lane.sh stable restart
+npm run dev
 
 # Local-first -> hosted:
 export MC_AUTH_MODE=supabase
 export NEXT_PUBLIC_SUPABASE_URL=...
 export NEXT_PUBLIC_SUPABASE_ANON_KEY=...
 export SUPABASE_SERVICE_ROLE_KEY=...
-# then restart your lane — dev: npm run dev · stable: scripts/lane.sh stable restart
+npm run dev
 ```
 
 Session cookies from a previous mode are harmless — the active mode ignores

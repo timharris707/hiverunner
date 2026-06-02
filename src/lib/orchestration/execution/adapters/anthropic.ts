@@ -60,9 +60,21 @@ type ClaudeExecConfig = {
   command: string;
   args: string[];
   model: string;
+  reasoningEffort: string | null;
+  speedPreference: string | null;
+  fastMode: boolean | null;
+  serviceTier: string | null;
   permissionMode: string;
   stdinPrompt: string;
   cliDisplay: string;
+};
+
+type AnthropicRuntimeControls = {
+  model: string;
+  reasoningEffort: string | null;
+  speedPreference: string | null;
+  fastMode: boolean | null;
+  serviceTier: string | null;
 };
 
 type ClaudeExecResult = {
@@ -176,6 +188,50 @@ function normalizedClaudeModelFromCandidate(candidate: unknown): string | null {
   return normalizeClaudeModel(value);
 }
 
+function normalizeReasoningEffort(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "balanced" || normalized === "standard") return "medium";
+  if (normalized === "deep") return "high";
+  if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
+  if (["low", "medium", "high", "xhigh"].includes(normalized)) return normalized;
+  return null;
+}
+
+function normalizeSpeedPreference(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (["fast", "faster", "fast_1_5x", "fast-1.5x", "1.5x", "low_latency", "low-latency"].includes(normalized)) {
+    return "fast_1_5x";
+  }
+  if (["normal", "standard", "balanced"].includes(normalized)) return "normal";
+  return normalized;
+}
+
+function normalizeServiceTier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "default" || normalized === "auto" || normalized === "normal") return null;
+  return normalized;
+}
+
+function boolFrom(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on", "fast"].includes(normalized)) return true;
+  if (["false", "0", "no", "off", "normal"].includes(normalized)) return false;
+  return null;
+}
+
+function routeAttemptModel(input: ExecutionInput): unknown {
+  const source = input.executionRouteAttempt?.target.source as Record<string, unknown> | undefined;
+  if (source?.modelSourceId === "agent_profile") return null;
+  return input.executionRouteAttempt?.target.model;
+}
+
 function resolveAnthropicRuntime(
   db: Database.Database,
   input: ExecutionInput,
@@ -251,11 +307,11 @@ function resolveCommand(runtime: AnthropicRuntimeRow | null): string {
   return metadataCommand || runtime?.command?.trim() || "claude";
 }
 
-function resolveModel(
+function resolveRuntimeControls(
   db: Database.Database,
   input: ExecutionInput,
   runtime: AnthropicRuntimeRow | null,
-): string {
+): AnthropicRuntimeControls {
   const runtimeMetadata = parseJson(runtime?.metadata_json);
   const adapterConfig = parseJson(input.agent.adapter_config_json);
   const runtimeConfig = parseJson(input.agent.runtime_config_json);
@@ -273,33 +329,69 @@ function resolveModel(
     .prepare("SELECT model FROM agents WHERE id = ? LIMIT 1")
     .get(input.agent.id) as AgentModelRow | undefined;
 
-  const routeModel = normalizedClaudeModelFromCandidate(input.executionRouteAttempt?.target.model);
-  if (routeModel) return routeModel;
+  const routeModel = normalizedClaudeModelFromCandidate(routeAttemptModel(input));
 
   const configuredCandidates = [
+    runtimeConfig.model,
     runtimeMetadata.model,
     runtimeMetadata.modelId,
     runtimeMetadata.claudeModel,
     seededAdapterConfig.model,
     seededRuntimeConfig.model,
     adapterConfig.model,
-    runtimeConfig.model,
   ];
 
-  for (const candidate of configuredCandidates) {
-    const model = normalizedClaudeModelFromCandidate(candidate);
-    if (model) return model;
+  let resolvedModel = routeModel ?? "";
+  if (!resolvedModel) {
+    for (const candidate of configuredCandidates) {
+      const model = normalizedClaudeModelFromCandidate(candidate);
+      if (model) {
+        resolvedModel = model;
+        break;
+      }
+    }
   }
 
   // Lane-routed Anthropic execution may run a Codex/Gemini-profile agent via
   // Claude. In that case the agent profile model is legacy metadata and must
   // not be passed to `claude --model`.
-  const agentModelValue = stringFrom(agentModel?.model);
-  if (agentModelValue && isClaudeModelCandidate(agentModelValue)) {
-    return normalizeClaudeModel(agentModelValue);
+  if (!resolvedModel) {
+    const agentModelValue = stringFrom(agentModel?.model);
+    if (agentModelValue && isClaudeModelCandidate(agentModelValue)) {
+      resolvedModel = normalizeClaudeModel(agentModelValue);
+    }
   }
 
-  return "claude-sonnet-4-6";
+  let reasoningEffort: string | null = null;
+  for (const candidate of [
+    runtimeConfig.reasoningEffort,
+    runtimeConfig.modelReasoningEffort,
+    runtimeConfig.thinkingLevel,
+    runtimeMetadata.reasoningEffort,
+    runtimeMetadata.modelReasoningEffort,
+    runtimeMetadata.thinkingLevel,
+  ]) {
+    reasoningEffort = normalizeReasoningEffort(candidate);
+    if (reasoningEffort) break;
+  }
+
+  return {
+    model: resolvedModel || "claude-sonnet-4-6",
+    reasoningEffort,
+    speedPreference:
+      normalizeSpeedPreference(runtimeConfig.speedPreference) ??
+      normalizeSpeedPreference(runtimeConfig.speed) ??
+      normalizeSpeedPreference(runtimeConfig.thinkingSpeed) ??
+      normalizeSpeedPreference(runtimeMetadata.speedPreference) ??
+      normalizeSpeedPreference(runtimeMetadata.speed) ??
+      normalizeSpeedPreference(runtimeMetadata.thinkingSpeed),
+    fastMode: boolFrom(runtimeConfig.fastMode) ?? boolFrom(runtimeMetadata.fastMode),
+    serviceTier:
+      normalizeServiceTier(runtimeConfig.serviceTier) ??
+      normalizeServiceTier(runtimeConfig.service_tier) ??
+      normalizeServiceTier(runtimeMetadata.serviceTier) ??
+      normalizeServiceTier(runtimeMetadata.service_tier),
+  };
 }
 
 function resolvePermissionMode(runtime: AnthropicRuntimeRow | null): string {
@@ -326,6 +418,10 @@ function buildEnv(command: string): NodeJS.ProcessEnv {
 function buildClaudeConfig(input: {
   command: string;
   model: string;
+  reasoningEffort: string | null;
+  speedPreference: string | null;
+  fastMode: boolean | null;
+  serviceTier: string | null;
   permissionMode: string;
   prompt: string;
 }): ClaudeExecConfig {
@@ -341,12 +437,19 @@ function buildClaudeConfig(input: {
     "stream-json",
     "--verbose",
   ];
+  if (input.reasoningEffort) {
+    args.push("--effort", input.reasoningEffort);
+  }
   const cliDisplay =
     `${path.basename(input.command)} ${args.join(" ")} <stdin-prompt>`;
   return {
     command: input.command,
     args,
     model: input.model,
+    reasoningEffort: input.reasoningEffort,
+    speedPreference: input.speedPreference,
+    fastMode: input.fastMode,
+    serviceTier: input.serviceTier,
     permissionMode: input.permissionMode,
     stdinPrompt: input.prompt,
     cliDisplay,
@@ -561,11 +664,16 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const runtime = resolveAnthropicRuntime(db, input);
   const command = resolveCommand(runtime);
   const workspaceRoot = resolveWorkspaceRoot(db, input, runtime);
-  const model = resolveModel(db, input, runtime);
+  const controls = resolveRuntimeControls(db, input, runtime);
+  const { model } = controls;
   const permissionMode = resolvePermissionMode(runtime);
   const config = buildClaudeConfig({
     command,
     model,
+    reasoningEffort: controls.reasoningEffort,
+    speedPreference: controls.speedPreference,
+    fastMode: controls.fastMode,
+    serviceTier: controls.serviceTier,
     permissionMode,
     prompt: input.prompt,
   });
@@ -659,6 +767,15 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     runtimeDisplayName: runtime?.display_name ?? null,
     workspaceRoot,
     model,
+    reasoningEffort: controls.reasoningEffort,
+    speedPreference: controls.speedPreference,
+    fastMode: controls.fastMode,
+    serviceTier: controls.serviceTier,
+    unsupportedRuntimeControls: {
+      speedPreference: controls.speedPreference,
+      fastMode: controls.fastMode,
+      serviceTier: controls.serviceTier,
+    },
     permissionMode,
     taskEvidenceCommentCreated,
     startedAt,
@@ -683,6 +800,15 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
           runtimeSlug: runtime?.runtime_slug ?? null,
           runtimeScope: runtime?.scope ?? null,
           model,
+          reasoningEffort: controls.reasoningEffort,
+          speedPreference: controls.speedPreference,
+          fastMode: controls.fastMode,
+          serviceTier: controls.serviceTier,
+          unsupportedRuntimeControls: {
+            speedPreference: controls.speedPreference,
+            fastMode: controls.fastMode,
+            serviceTier: controls.serviceTier,
+          },
           permissionMode,
         },
       },

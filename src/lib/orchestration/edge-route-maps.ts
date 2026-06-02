@@ -34,6 +34,7 @@ export const EDGE_ROUTE_MAPS_FALLBACK: EdgeRouteMaps = {
 };
 
 export function withEdgeRouteMapFallback(routeMaps?: Partial<EdgeRouteMaps> | null): EdgeRouteMaps {
+  const hasActualCompanyCodes = (routeMaps?.actualCompanyCodes ?? []).length > 0;
   const mergedProjectMaps: Record<string, Record<string, string>> = {
     ...PROJECT_ID_TO_SLUG_BY_COMPANY,
   };
@@ -46,14 +47,18 @@ export function withEdgeRouteMapFallback(routeMaps?: Partial<EdgeRouteMaps> | nu
   }
 
   return {
-    companyCodeToSlug: {
-      ...COMPANY_CODE_TO_SLUG,
-      ...(routeMaps?.companyCodeToSlug ?? {}),
-    },
-    companySlugToCode: {
-      ...COMPANY_SLUG_TO_CODE,
-      ...(routeMaps?.companySlugToCode ?? {}),
-    },
+    companyCodeToSlug: hasActualCompanyCodes
+      ? { ...(routeMaps?.companyCodeToSlug ?? {}) }
+      : {
+          ...COMPANY_CODE_TO_SLUG,
+          ...(routeMaps?.companyCodeToSlug ?? {}),
+        },
+    companySlugToCode: hasActualCompanyCodes
+      ? { ...(routeMaps?.companySlugToCode ?? {}) }
+      : {
+          ...COMPANY_SLUG_TO_CODE,
+          ...(routeMaps?.companySlugToCode ?? {}),
+        },
     actualCompanyCodes: routeMaps?.actualCompanyCodes ?? [],
     projectIdToSlugByCompany: mergedProjectMaps,
     projectSlugAliasToCanonical: {

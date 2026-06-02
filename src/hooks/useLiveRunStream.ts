@@ -108,7 +108,9 @@ function detectMcActions(
       } else if (actionType === "hire_agent" && parsed.name) {
         summary = `${label}: ${parsed.name}`;
       } else if (actionType === "update_task" && parsed.taskKey) {
-        summary = `${label} ${parsed.taskKey}${parsed.status ? ` → ${parsed.status}` : ""}`;
+        const status = typeof parsed.status === "string" && parsed.status.trim() ? ` → ${parsed.status}` : "";
+        const assignee = typeof parsed.assignee === "string" && parsed.assignee.trim() ? ` → ${parsed.assignee}` : "";
+        summary = `${label} ${parsed.taskKey}${status || assignee}`;
       } else if (actionType === "report" && parsed.summary) {
         summary = `${label}: ${parsed.summary.slice(0, 50)}`;
       }

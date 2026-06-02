@@ -1,9 +1,10 @@
 #!/bin/sh
 set -eu
 
-# ── Ensure Homebrew PATH for node/npm/npx ──
-# Scripts may run from launchd or nohup with minimal PATH.
-export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+# ── Ensure Homebrew tools are discoverable without overriding explicit runtime ──
+# Scripts may run from launchd or nohup with minimal PATH, but callers can also
+# put a supported Node version first in PATH for release builds.
+export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 # shellcheck source=scripts/lib/runtime-paths.sh

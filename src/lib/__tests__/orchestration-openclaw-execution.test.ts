@@ -268,7 +268,7 @@ async function run() {
     });
 
     await test("Active hive idempotency key reuses run and does not trigger duplicate wakeup", async () => {
-      const wakeupCalls = 0;
+      let wakeupCalls = 0;
 
       try {
         const project = createProject({

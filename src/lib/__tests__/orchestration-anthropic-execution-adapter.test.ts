@@ -324,6 +324,118 @@ async function run() {
     assert.ok(!args.includes("claude-3-7-sonnet"), `stale alias should not reach CLI: ${args}`);
   });
 
+  await test("agent runtime configuration passes supported Claude effort and keeps speed telemetry-only", async () => {
+    const configuredAgent = createProjectAgent({
+      projectId: project.id,
+      name: "Configured Claude Runner",
+      emoji: "A",
+      role: "Engineer",
+      personality: "Uses Claude runtime controls from agent configuration.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    db.prepare(
+      `UPDATE agents
+       SET adapter_type = 'anthropic',
+           model = 'anthropic/claude-sonnet-4-6',
+           runtime_config_json = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      JSON.stringify({
+        model: "anthropic/claude-opus-4-7",
+        reasoningEffort: "xhigh",
+        speedPreference: "fast_1_5x",
+        fastMode: true,
+        serviceTier: "fast",
+      }),
+      new Date().toISOString(),
+      configuredAgent.id,
+    );
+
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      agentId: configuredAgent.id,
+      provider: "anthropic",
+      runtimeSlug: "fixture-claude-configured",
+      displayName: "Fixture Claude Configured",
+      runtimeKind: "cli",
+      scope: "agent",
+      command: fakeClaude,
+      status: "online",
+      workspaceRoot: company.workspace.root,
+      metadata: {
+        commandPath: fakeClaude,
+        permissionMode: "bypassPermissions",
+      },
+    });
+
+    const agentRow = db.prepare(
+      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
+              adapter_type, adapter_config_json, runtime_config_json,
+              capabilities
+       FROM agents
+       WHERE id = ?`,
+    ).get(configuredAgent.id) as {
+      id: string;
+      name: string;
+      role: string;
+      personality: string;
+      company_id: string;
+      openclaw_agent_id: string | null;
+      adapter_type: string;
+      adapter_config_json: string;
+      runtime_config_json: string;
+      capabilities: string;
+      runtime_workspace_root: string | null;
+    };
+    agentRow.runtime_workspace_root = null;
+
+    const directResult = await anthropicExecutionAdapter.execute({
+      agent: agentRow,
+      prompt: "Run the configured Claude runtime controls fixture.",
+      session: {
+        id: "claude-runtime-config-session",
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "anthropic",
+        taskKey: "__heartbeat__",
+        sessionParams: {},
+        sessionDisplayId: null,
+        lastRunId: null,
+        lastError: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      runtimeState: {
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "anthropic",
+        sessionId: null,
+        state: {},
+        lastRunId: null,
+        lastRunStatus: null,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCostCents: 0,
+        lastError: null,
+      },
+    });
+
+    assert.strictEqual(directResult.error, undefined);
+    assert.strictEqual(directResult.runnerModel, "claude-opus-4-7");
+    const args = readFileSync(argsFile, "utf8");
+    assert.ok(args.includes("--model claude-opus-4-7"), `runtime config model should pass through: ${args}`);
+    assert.ok(args.includes("--effort xhigh"), `supported Claude effort should pass through: ${args}`);
+    assert.ok(!args.includes("service_tier"), `Claude speed/service controls should stay telemetry-only: ${args}`);
+    assert.ok(!args.includes("--speed"), `Claude speed controls should stay telemetry-only: ${args}`);
+    const usage = directResult.usage ?? {};
+    assert.strictEqual(usage.reasoningEffort, "xhigh");
+    assert.strictEqual(usage.speedPreference, "fast_1_5x");
+    assert.strictEqual(usage.fastMode, true);
+    assert.strictEqual(usage.serviceTier, "fast");
+  });
+
   await test("lane-routed Claude execution ignores non-Claude agent profile model", async () => {
     const codexProfileAgent = createProjectAgent({
       projectId: project.id,
@@ -339,6 +451,23 @@ async function run() {
        SET adapter_type = 'codex', model = 'openai-codex/gpt-5.5', updated_at = ?
        WHERE id = ?`,
     ).run(new Date().toISOString(), codexProfileAgent.id);
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      agentId: codexProfileAgent.id,
+      provider: "anthropic",
+      runtimeSlug: "fixture-claude-routed-codex-profile",
+      displayName: "Fixture Claude Routed Codex Profile",
+      runtimeKind: "cli",
+      scope: "agent",
+      command: fakeClaude,
+      status: "online",
+      workspaceRoot: company.workspace.root,
+      metadata: {
+        commandPath: fakeClaude,
+        model: "anthropic/claude-sonnet-4-6",
+        permissionMode: "bypassPermissions",
+      },
+    });
     const agentRow = db.prepare(
       `SELECT id, name, role, personality, company_id, openclaw_agent_id,
               adapter_type, adapter_config_json, runtime_config_json,

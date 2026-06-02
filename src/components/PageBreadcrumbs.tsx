@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { ChevronRight } from "lucide-react";
 import { useEffect, useState } from "react";
 import { getTaskDetail, listCompanies } from "@/lib/orchestration/client";
+import { COMPANY_SLUG_TO_CODE } from "@/lib/orchestration/edge-route-maps";
 
 const LABEL_MAP: Record<string, string> = {
   agents: "Team",
@@ -52,6 +53,7 @@ const LABEL_MAP: Record<string, string> = {
   goals: "Goals",
   org: "Org",
   "manage-projects": "Manage Projects",
+  overseer: "Overseer",
   export: "Export",
   import: "Import",
   ideas: "Ideas",
@@ -72,7 +74,7 @@ const SECTION_FOR_PAGE: Record<string, string> = {
   tasks: "Operations", dashboard: "Operations",
   inbox: "Operations", approvals: "Operations", routines: "Operations", goals: "Operations",
   // Company
-  org: "Company", "manage-projects": "Company", skills: "Company", hives: "Company", runtimes: "Company", "runtime-inventory": "Company",
+  org: "Company", "manage-projects": "Company", overseer: "Company", skills: "Company", hives: "Company", runtimes: "Company", "runtime-inventory": "Company",
   costs: "Company", activity: "Company", files: "Company", settings: "Company",
   // Systems
   terminal: "Systems", sessions: "Systems", logs: "Systems",
@@ -89,9 +91,9 @@ const PATH_CRUMBS: Record<string, { section: string; label: string }> = {
   "/systems/companies": { section: "Systems", label: "Manage Companies" },
 };
 
-/** Check if a segment looks like a short company code (e.g. NEV, TIM). */
+/** Check if a segment looks like a short company code (e.g. NEV, TIM, HIV2). */
 function isCompanyCode(seg: string): boolean {
-  return /^[A-Z]{2,5}$/.test(seg);
+  return /^[A-Z][A-Z0-9]{1,7}$/.test(seg);
 }
 
 /** Check if a segment is a UUID (e.g. 5ffcef58-87f7-4da8-9c2d-7e56bc564903). */
@@ -99,9 +101,9 @@ function isUUID(seg: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg);
 }
 
-/** Check if a segment is a task key (e.g. NEV-26, TIM-103). */
+/** Check if a segment is a task key (e.g. NEV-26, TIM-103, HIV2-10). */
 function isTaskKey(seg: string): boolean {
-  return /^[A-Z]{2,5}-\d+$/.test(seg);
+  return /^[A-Z][A-Z0-9]{1,7}-\d+$/.test(seg);
 }
 
 /** Format a slug into a readable label: "hiverunner-orchestration" -> "HiveRunner Orchestration" */
@@ -120,8 +122,13 @@ export function PageBreadcrumbs({ inline = false }: PageBreadcrumbsProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const segments = pathname.split("/").filter(Boolean);
-  const companySlug = segments.length === 2 && segments[0] === "companies" ? segments[1] : null;
+  const rawSegments = pathname.split("/").filter(Boolean);
+  const companyRouteSlug = rawSegments[0] === "companies" ? rawSegments[1] : null;
+  const companyCodeFromSlug = companyRouteSlug ? COMPANY_SLUG_TO_CODE[companyRouteSlug] : "";
+  const segments = companyRouteSlug && rawSegments.length >= 3
+    ? [companyCodeFromSlug || companyRouteSlug.toUpperCase(), ...rawSegments.slice(2)]
+    : rawSegments;
+  const companySlug = rawSegments.length === 2 && rawSegments[0] === "companies" ? rawSegments[1] : null;
   const routeTaskKey = segments.length >= 3 && segments[1] === "tasks" && isTaskKey(decodeURIComponent(segments[2]))
     ? decodeURIComponent(segments[2])
     : null;
@@ -223,7 +230,8 @@ export function PageBreadcrumbs({ inline = false }: PageBreadcrumbsProps) {
     let sectionInserted = false;
     for (let i = 0; i < segments.length; i++) {
       const seg = segments[i];
-      if (HIDDEN_SEGMENTS.has(seg) || isCompanyCode(seg)) continue;
+      const isNormalizedCompanyPrefix = Boolean(companyRouteSlug && rawSegments.length >= 3 && i === 0);
+      if (HIDDEN_SEGMENTS.has(seg) || isCompanyCode(seg) || isNormalizedCompanyPrefix) continue;
 
       // Insert section parent crumb (Operations / Company / Systems / Preserved Tools) only when
       // the segment is the first meaningful crumb (top-level route).

@@ -8,6 +8,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { OPENCLAW_BIN, callGateway } from "@/lib/orchestration/execution/adapters";
 import { materializeApprovedHireAgent, stagePendingHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { createApproval } from "@/lib/orchestration/service/approval";
+import type { AgentRuntimeUpdateAction } from "@/lib/orchestration/service/agent-runtime-update";
 import { shouldAutoApproveNewHires } from "@/lib/orchestration/service/hiring-governance";
 import { reconcileTaskHierarchy, refreshAgentLoad, resolveTaskExecutionEngine, resolveTaskExecutionRouting } from "@/lib/orchestration/service/shared";
 import { sanitizeAgentCommentLinks } from "@/lib/orchestration/comment-link-verification";
@@ -133,6 +134,7 @@ export type McAction =
     }
   | { action: "report"; summary: string }
   | { action: "update_task"; taskKey: string; status?: string; assignee?: string; comment?: string }
+  | AgentRuntimeUpdateAction
   | { action: "add_comment"; taskKey: string; body: string; source?: string }
   | { action: "use_skill"; skill: string; taskKey?: string; note?: string }
   | MemoryReceiptAction
@@ -454,6 +456,10 @@ export async function executeMcAction(
           taskId: updated.taskId,
           dependentAutostartDeferred: updated.dependentAutostartDeferred,
         };
+      }
+      case "update_agent": {
+        const approvalId = executeUpdateAgentApproval(action, input, db);
+        return { kind: "created_approval", approvalId };
       }
       case "add_comment": {
         const added = executeAddComment(action, input, db);
@@ -892,6 +898,7 @@ const VALID_ACTION_TYPES = new Set([
   "hire_agent",
   "report",
   "update_task",
+  "update_agent",
   "add_comment",
   "use_skill",
   "memory_receipt",
@@ -927,6 +934,7 @@ export function getActionTarget(action: McAction): string {
     case "hire_agent": return `${action.name} (${action.role})`;
     case "report": return (action.summary ?? "").slice(0, 50);
     case "update_task": return action.taskKey ?? "";
+    case "update_agent": return action.agentName ?? action.agentId ?? "";
     case "add_comment": return action.taskKey ?? "";
     case "use_skill": return action.skill ?? "";
     case "memory_receipt": return action.taskKey ?? "";
@@ -950,7 +958,9 @@ export function actionFingerprint(action: McAction): string {
     case "report":
       return `report:${action.summary?.slice(0, 50).toLowerCase().trim()}`;
     case "update_task":
-      return `update_task:${action.taskKey}:${action.status ?? ""}:${action.comment?.slice(0, 30) ?? ""}`;
+      return `update_task:${action.taskKey}:${action.status ?? ""}:${action.assignee ?? ""}:${action.comment?.slice(0, 30) ?? ""}`;
+    case "update_agent":
+      return `update_agent:${action.agentId ?? action.agentName ?? ""}:${JSON.stringify(action.changes ?? {}).slice(0, 180)}`;
     case "add_comment":
       return `add_comment:${action.taskKey}:${action.body?.slice(0, 30)}`;
     case "use_skill":
@@ -1285,8 +1295,34 @@ function validateActionFields(parsed: Record<string, unknown>): string | null {
       break;
     case "update_task":
       if (!parsed.taskKey || typeof parsed.taskKey !== "string") return "update_task: 'taskKey' is required";
-      if (!parsed.status && !parsed.comment) return "update_task: must provide 'status' or 'comment'";
+      if (parsed.status !== undefined && typeof parsed.status !== "string") return "update_task: 'status' must be a string";
+      if (parsed.assignee !== undefined && typeof parsed.assignee !== "string") return "update_task: 'assignee' must be a string";
+      if (parsed.comment !== undefined && typeof parsed.comment !== "string") return "update_task: 'comment' must be a string";
+      if (!parsed.status && !parsed.assignee && !parsed.comment) return "update_task: must provide 'status', 'assignee', or 'comment'";
       break;
+    case "update_agent": {
+      const agentId = typeof parsed.agentId === "string" && parsed.agentId.trim();
+      const agentName = typeof parsed.agentName === "string" && parsed.agentName.trim();
+      if (!agentId && !agentName) return "update_agent: 'agentId' or 'agentName' is required";
+      if (!parsed.changes || typeof parsed.changes !== "object" || Array.isArray(parsed.changes)) {
+        return "update_agent: 'changes' object is required";
+      }
+      const changes = parsed.changes as Record<string, unknown>;
+      if (
+        changes.model === undefined &&
+        changes.runtimeConfig === undefined &&
+        changes.runtimeMetadataPatch === undefined
+      ) {
+        return "update_agent: changes must include model, runtimeConfig, or runtimeMetadataPatch";
+      }
+      for (const key of ["runtimeConfig", "runtimeMetadataPatch"]) {
+        if (changes[key] !== undefined && (!changes[key] || typeof changes[key] !== "object" || Array.isArray(changes[key]))) {
+          return `update_agent: changes.${key} must be an object`;
+        }
+      }
+      if (parsed.reason !== undefined && typeof parsed.reason !== "string") return "update_agent: 'reason' must be a string";
+      break;
+    }
     case "add_comment":
       if (!parsed.taskKey || typeof parsed.taskKey !== "string") return "add_comment: 'taskKey' is required";
       if (!parsed.body || typeof parsed.body !== "string") return "add_comment: 'body' is required";
@@ -3130,6 +3166,46 @@ export function executeHireAgent(
     db,
   });
 
+  return approval.id;
+}
+
+function executeUpdateAgentApproval(
+  action: Extract<McAction, { action: "update_agent" }>,
+  input: ExecuteMcActionInput,
+  db: Database.Database,
+): string {
+  const taskRow = db
+    .prepare("SELECT id FROM tasks WHERE task_key = ? AND archived_at IS NULL LIMIT 1")
+    .get(input.taskKey) as { id: string } | undefined;
+  const fingerprint = createHash("sha256")
+    .update(JSON.stringify({
+      companyId: input.companyId,
+      action: {
+        agentId: action.agentId ?? null,
+        agentName: action.agentName ?? null,
+        changes: action.changes ?? {},
+      },
+    }))
+    .digest("hex")
+    .slice(0, 32);
+
+  const { approval } = createApproval({
+    companyIdOrSlug: input.companyId,
+    type: "protected_runtime_command",
+    requestedByAgentId: input.agentId,
+    linkedTaskId: taskRow?.id,
+    payload: {
+      source: "mc-action",
+      summary: `Update agent runtime settings for ${action.agentName ?? action.agentId ?? "agent"}`,
+      command: JSON.stringify(action),
+      reason: action.reason ?? "Agent requested a governed runtime/profile update.",
+      actionType: "update_agent",
+      action,
+      fingerprint,
+      risks: [{ code: "agent_runtime_settings_update" }],
+    },
+    db,
+  });
   return approval.id;
 }
 

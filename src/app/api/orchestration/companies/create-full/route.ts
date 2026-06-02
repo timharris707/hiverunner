@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import fs from "fs";
 import path from "path";
@@ -11,8 +11,9 @@ import {
 } from "@/lib/orchestration/default-skills";
 import { generateAgentDossier, writeAgentDossierFiles } from "@/lib/orchestration/agent-dossier";
 import { defaultAgentIconToken } from "@/lib/orchestration/avatar-icons";
-import { createCompany, createCompanyGoal } from "@/lib/orchestration/company-service";
+import { createCompany } from "@/lib/orchestration/company-service";
 import { refreshEdgeRouteMapCache } from "@/lib/orchestration/edge-route-map-service";
+import { triggerTaskExecution } from "@/lib/orchestration/execution";
 import { ensureOpenClawAgentScaffold } from "@/lib/orchestration/openclaw-agent-scaffold";
 import { upsertCompanyRuntime } from "@/lib/orchestration/runtime-registry";
 import { provisionSelectedStarterAgentsForCreateFull } from "@/lib/orchestration/create-full-starter-team-provisioning";
@@ -25,12 +26,14 @@ import {
   buildCanonicalCompanyPath,
   buildCanonicalDashboardPath,
 } from "@/lib/orchestration/route-paths";
+import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 import {
   defaultCommandForRuntimeProvider,
   normalizeModelForRuntimeProvider,
   normalizeRuntimeProvider,
 } from "@/lib/orchestration/service/company-agent-provisioning";
 import { readSelectedStarterAgents } from "@/lib/orchestration/starter-team-templates";
+import { createTask } from "@/lib/orchestration/service/task";
 import { resolveRequestCompanyOwnerUserId } from "@/lib/orchestration/request-auth";
 import {
   ensureAgentSourceWorkspaceLink,
@@ -82,31 +85,6 @@ function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-type FirstGoalInput = {
-  title: string;
-  description: string;
-  priority: string;
-};
-
-type PlanningTaskRow = {
-  id: string;
-  task_key: string | null;
-  title: string;
-};
-
-function resolveFirstGoalInput(goal: unknown, legacyTask: unknown): FirstGoalInput | null {
-  const value = typeof goal === "object" && goal !== null ? goal : legacyTask;
-  if (typeof value !== "object" || value === null) return null;
-  const record = value as Record<string, unknown>;
-  const title = readString(record.title);
-  if (!title) return null;
-  return {
-    title,
-    description: readString(record.description) ?? "",
-    priority: readString(record.priority) ?? "P1",
-  };
-}
-
 function resolveCeoRuntimeProvider(ceo: unknown): string {
   const explicitProvider = readRuntimeProviderInput(ceo);
   if (explicitProvider) {
@@ -116,6 +94,18 @@ function resolveCeoRuntimeProvider(ceo: unknown): string {
     ? inferRuntimeProviderFromModel((ceo as Record<string, unknown>).model)
     : null;
   return inferredProvider ?? "manual";
+}
+
+async function triggerImmediateHeartbeatRun(runId: string) {
+  try {
+    const { executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+    const result = await executeHeartbeatRun(runId);
+    if (result.status === "failed") {
+      console.warn("[create-full] immediate heartbeat execution failed:", result.error);
+    }
+  } catch (error) {
+    console.warn("[create-full] immediate heartbeat execution failed (non-fatal):", error);
+  }
 }
 
 function generateWorkspaceAgentsMd(
@@ -150,8 +140,7 @@ async function resolveCreateFullOwnerUserId(req: NextRequest): Promise<string | 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { company, owner, project, ceo, goal, task, starterTeam } = body;
-    const firstGoal = resolveFirstGoalInput(goal, task);
+    const { company, owner, project, ceo, task, starterTeam } = body;
 
     // ---------- Validate required fields ----------
     if (!company?.name?.trim()) {
@@ -160,8 +149,8 @@ export async function POST(req: NextRequest) {
     if (!ceo?.name?.trim()) {
       return NextResponse.json({ error: "CEO name is required" }, { status: 400 });
     }
-    if (!firstGoal?.title.trim()) {
-      return NextResponse.json({ error: "First goal title is required" }, { status: 400 });
+    if (!task?.title?.trim()) {
+      return NextResponse.json({ error: "Task title is required" }, { status: 400 });
     }
     if (!owner?.displayName?.trim()) {
       return NextResponse.json({ error: "Owner name is required" }, { status: 400 });
@@ -214,7 +203,7 @@ export async function POST(req: NextRequest) {
 
     // ---------- 2. Create project ----------
     // If the user provided a project, use it. Otherwise auto-create a
-    // default "Operations" project so the first goal and planning task have a home.
+    // default "Operations" project so the first task always has a home.
     const projectSourceWorkspaceRoot =
       project && typeof project === "object" && typeof project.sourceWorkspaceRoot === "string"
         ? project.sourceWorkspaceRoot.trim()
@@ -442,44 +431,59 @@ export async function POST(req: NextRequest) {
     );
     fs.chmodSync(mcToolTarget, "755");
 
-    // ---------- 7. Create the first company goal and its planning task ----------
-    const createdGoal = createCompanyGoal({
-      companyIdOrSlug: companyId,
+    // ---------- 7. Create and start first task ----------
+    const createdTask = createTask({
       projectId,
-      name: firstGoal.title,
-      goal: firstGoal.description || firstGoal.title,
-      goalKind: "company",
-      status: "active",
-      owner: createdCompany.owner?.id ?? owner.displayName.trim(),
-      leadAgentId: agentId,
-      defaultExecutionEngine: "hiverunner",
-      defaultModelLane: "default",
-      actorUserId: createdCompany.owner?.id ?? owner.displayName.trim(),
+      title: task.title.trim(),
+      description: task.description?.trim() || "",
+      priority: task.priority || "P1",
+      type: "directive",
+      status: "in-progress",
+      assignee: agentId,
+      labels: [],
+      createdBy: createdCompany.owner?.id ?? owner.displayName.trim(),
     });
-    const goalId = createdGoal.goal.sprint.id;
-    const goalKey = createdGoal.goal.sprint.goalKey ?? goalId;
-    const planningTask = db.prepare(
-      `SELECT id, task_key, title
-       FROM tasks
-       WHERE sprint_id = ?
-       ORDER BY created_at ASC
-       LIMIT 1`,
-    ).get(goalId) as PlanningTaskRow | undefined;
-    if (!planningTask?.id) {
-      throw new Error("First company goal was created without an initial planning task.");
+    const taskId = createdTask.task.id;
+    const taskKey = createdTask.task.key;
+    if (!taskKey) {
+      throw new Error("Initial company task was created without a task key.");
     }
-    const taskId = planningTask.id;
-    const taskKey = planningTask.task_key ?? planningTask.id;
 
     // ---------- 8. Refresh edge route map cache ----------
     refreshEdgeRouteMapCache();
 
+    // ---------- 8b. Kick off execution for the first task ----------
+    let initialExecution: Awaited<ReturnType<typeof triggerTaskExecution>>;
+    try {
+      initialExecution = await triggerTaskExecution({
+        taskId,
+        idempotencyKey: `company-launch:${companyId}:initial-task`,
+        reason: "company_creation_kickoff",
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`[create-full] initial task execution was not queued: ${message}`);
+      initialExecution = {
+        status: "skipped",
+        reason: "company_creation_kickoff",
+        mode: "manual",
+        error: message,
+      } as unknown as Awaited<ReturnType<typeof triggerTaskExecution>>;
+    }
+
+    // Claim the queued run immediately so dashboard-first landing feels alive.
+    if (
+      initialExecution.status === "queued" &&
+      initialExecution.runId &&
+      canAutonomouslyExecuteCompany(companyId)
+    ) {
+      after(async () => {
+        await triggerImmediateHeartbeatRun(initialExecution.runId!);
+      });
+    }
+
     // ---------- 9. Return success ----------
     const dashboardHref = buildCanonicalDashboardPath(createdCompany.code);
-    const goalHref = buildCanonicalCompanyPath(
-      createdCompany.code,
-      `/goals/${encodeURIComponent(goalKey)}`,
-    );
     const taskHref = buildCanonicalCompanyPath(
       createdCompany.code,
       `/tasks/${encodeURIComponent(taskKey)}`,
@@ -503,28 +507,11 @@ export async function POST(req: NextRequest) {
           agents: provisionedStarterAgents,
           warnings: starterTeamProvisioningWarnings,
         },
-        goal: {
-          id: goalId,
-          key: goalKey,
-          title: createdGoal.goal.sprint.name,
-          description: createdGoal.goal.sprint.goal,
-          href: goalHref,
-        },
-        planningTask: { id: taskId, key: taskKey, title: planningTask.title, href: taskHref },
-        // Compatibility aliases for older callers that still expect the first launch item to be a task.
-        task: { id: taskId, key: taskKey, title: planningTask.title, href: taskHref },
+        task: { id: taskId, key: taskKey, title: task.title.trim(), href: taskHref },
         taskKey,
         taskHref,
-        goalKey,
-        goalHref,
         dashboardHref,
-        initialExecution: {
-          status: "queued",
-          reason: "company_goal_planning",
-          mode: "hiverunner",
-          taskId,
-          runId: null,
-        },
+        initialExecution,
         workspace: workspacePath,
         agentDir,
         filesCreated: [

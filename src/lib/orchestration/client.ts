@@ -61,6 +61,12 @@ import { distinctProjectColor, suggestProjectColor } from "@/lib/ui/project-colo
 type JsonRecord = Record<string, unknown>;
 const FALLBACK_AGENT_ICON = "icon:bot";
 
+function jsonRecord(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as JsonRecord
+    : {};
+}
+
 function normalizeAgentEmoji(value: unknown): string {
   const trimmed = typeof value === "string" ? value.trim() : "";
   return trimmed.startsWith(AVATAR_ICON_PREFIX) ? trimmed : FALLBACK_AGENT_ICON;
@@ -437,6 +443,10 @@ function normalizeRuntimeDependency(raw: JsonRecord): OrchestrationRuntimeDepend
     command: raw.command ? String(raw.command) : null,
     commandPath: raw.commandPath ? String(raw.commandPath) : raw.command_path ? String(raw.command_path) : null,
     version: raw.version ? String(raw.version) : null,
+    versionLatest: typeof raw.versionLatest === "boolean" ? raw.versionLatest : null,
+    latestVersion: raw.latestVersion ? String(raw.latestVersion) : null,
+    versionCheckSource: raw.versionCheckSource ? String(raw.versionCheckSource) : null,
+    versionCheckDetail: raw.versionCheckDetail ? String(raw.versionCheckDetail) : null,
     authReady: typeof raw.authReady === "boolean" ? raw.authReady : null,
     envVars: Array.isArray(raw.envVars) ? raw.envVars.map((item) => String(item)).filter(Boolean) : [],
     note: String(raw.note ?? ""),
@@ -815,7 +825,44 @@ function normalizeRuntimeCliUpdate(raw: JsonRecord): OrchestrationRuntimeCliUpda
     afterVersion: raw.afterVersion ? String(raw.afterVersion) : null,
     output: String(raw.output ?? ""),
     error: raw.error ? String(raw.error) : null,
+    jobId: raw.jobId ? String(raw.jobId) : null,
+    phase: typeof raw.phase === "string"
+      && ["queued", "running", "succeeded", "failed"].includes(raw.phase)
+      ? raw.phase as OrchestrationRuntimeCliUpdateResult["phase"]
+      : null,
+    startedAt: raw.startedAt ? String(raw.startedAt) : null,
+    completedAt: raw.completedAt ? String(raw.completedAt) : null,
+    finished: typeof raw.finished === "boolean" ? raw.finished : undefined,
   };
+}
+
+function normalizeRuntimeCliUpdatePayload(json: {
+  update?: JsonRecord;
+  updateJob?: JsonRecord;
+  runtimes?: JsonRecord[];
+  detectedLocalRuntimes?: JsonRecord[];
+}) {
+  const update = json.updateJob
+    ? normalizeRuntimeCliUpdate(json.updateJob)
+    : json.update
+      ? normalizeRuntimeCliUpdate(json.update)
+      : null;
+  if (!update) return null;
+  return {
+    update,
+    runtimes: (json.runtimes ?? []).map(normalizeRuntime),
+    detectedLocalRuntimes: (json.detectedLocalRuntimes ?? []).map(normalizeDetectedRuntime),
+  };
+}
+
+function runtimeCliUpdateIsFinished(update: OrchestrationRuntimeCliUpdateResult): boolean {
+  if (update.finished === true) return true;
+  if (update.phase === "succeeded" || update.phase === "failed") return true;
+  return !update.jobId && update.phase !== "running" && update.phase !== "queued";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 export async function updateCompanyRuntimeCli(
@@ -835,16 +882,42 @@ export async function updateCompanyRuntimeCli(
   if (!response?.ok) return null;
   const json = (await response.json()) as {
     update?: JsonRecord;
+    updateJob?: JsonRecord;
     runtimes?: JsonRecord[];
     detectedLocalRuntimes?: JsonRecord[];
   };
-  if (!json.update) return null;
+  let payload = normalizeRuntimeCliUpdatePayload(json);
+  if (!payload) return null;
 
-  return {
-    update: normalizeRuntimeCliUpdate(json.update),
-    runtimes: (json.runtimes ?? []).map(normalizeRuntime),
-    detectedLocalRuntimes: (json.detectedLocalRuntimes ?? []).map(normalizeDetectedRuntime),
-  };
+  const startedAt = Date.now();
+  while (!runtimeCliUpdateIsFinished(payload.update) && payload.update.jobId && Date.now() - startedAt < 305_000) {
+    await sleep(1500);
+    const poll = await fetch(
+      `/api/orchestration/companies/${encodeURIComponent(companySlug)}/runtimes/update?jobId=${encodeURIComponent(payload.update.jobId)}`,
+    ).catch(() => null);
+    if (!poll?.ok) break;
+    const pollJson = (await poll.json()) as {
+      update?: JsonRecord;
+      updateJob?: JsonRecord;
+      runtimes?: JsonRecord[];
+      detectedLocalRuntimes?: JsonRecord[];
+    };
+    const nextPayload = normalizeRuntimeCliUpdatePayload(pollJson);
+    if (nextPayload) payload = nextPayload;
+  }
+
+  if (!runtimeCliUpdateIsFinished(payload.update)) {
+    payload = {
+      ...payload,
+      update: {
+        ...payload.update,
+        ok: false,
+        error: "CLI update is still running. Refresh the runtime inventory in a moment.",
+      },
+    };
+  }
+
+  return payload;
 }
 
 export type CompanyExecutionHivesPayload = {
@@ -2553,6 +2626,7 @@ export async function listCompanyAgents(
       personality: a.personality ? String(a.personality) : undefined,
       model: a.model ? String(a.model) : undefined,
       adapterType: a.adapterType ? String(a.adapterType) : a.adapter_type ? String(a.adapter_type) : undefined,
+      runtimeConfig: jsonRecord(a.runtimeConfig),
       runtimeSlug: a.runtimeSlug ? String(a.runtimeSlug) : undefined,
       openclawAgentId: a.openclawAgentId ? String(a.openclawAgentId) : undefined,
       reportingTo: a.reportingTo ? String(a.reportingTo) : undefined,
@@ -2690,6 +2764,7 @@ export async function getCompanyAgentProfile(
       personality: agentRaw.personality ? String(agentRaw.personality) : undefined,
       model: agentRaw.model ? String(agentRaw.model) : undefined,
       adapterType: agentRaw.adapterType ? String(agentRaw.adapterType) : agentRaw.adapter_type ? String(agentRaw.adapter_type) : undefined,
+      runtimeConfig: jsonRecord(agentRaw.runtimeConfig),
       runtimeSlug: agentRaw.runtimeSlug ? String(agentRaw.runtimeSlug) : undefined,
       openclawAgentId: agentRaw.openclawAgentId ? String(agentRaw.openclawAgentId) : undefined,
       reportingTo: agentRaw.reportingTo ? String(agentRaw.reportingTo) : undefined,
@@ -2837,6 +2912,7 @@ export async function getAgentProfileById(
       personality: agentRaw.personality ? String(agentRaw.personality) : undefined,
       model: agentRaw.model ? String(agentRaw.model) : undefined,
       adapterType: agentRaw.adapterType ? String(agentRaw.adapterType) : agentRaw.adapter_type ? String(agentRaw.adapter_type) : undefined,
+      runtimeConfig: jsonRecord(agentRaw.runtimeConfig),
       runtimeSlug: agentRaw.runtimeSlug ? String(agentRaw.runtimeSlug) : undefined,
       openclawAgentId: agentRaw.openclawAgentId ? String(agentRaw.openclawAgentId) : undefined,
       reportingTo: agentRaw.reportingTo ? String(agentRaw.reportingTo) : undefined,

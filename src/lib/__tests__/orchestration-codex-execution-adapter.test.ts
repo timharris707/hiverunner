@@ -99,6 +99,7 @@ async function run() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
   const { enqueueWakeup, executeHeartbeatRun, executeMcAction } = await import("@/lib/orchestration/engine/engine");
   const { upsertCompanyRuntime } = await import("@/lib/orchestration/runtime-registry");
+  const { codexExecutionAdapter } = await import("@/lib/orchestration/execution/adapters");
   const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
   const { assignCompanySkillToAgent, createCompanySkill, listRuntimeAgentSkills, updateCompanySkill } = await import("@/lib/orchestration/company-skills");
   const { updateApprovalStatus } = await import("@/lib/orchestration/service/approval");
@@ -334,6 +335,116 @@ async function run() {
     assert.strictEqual(runtimeState.last_run_id, wake.heartbeatRunId);
     assert.strictEqual(runtimeState.last_run_status, "succeeded");
     assert.strictEqual(runtimeState.last_error, null);
+  });
+
+  await test("agent runtime configuration overrides implicit default-lane Codex controls", async () => {
+    const configuredAgent = createProjectAgent({
+      projectId: project.id,
+      name: "Configured Codex Runner",
+      emoji: "R",
+      role: "Engineer",
+      personality: "Uses runtime controls from agent configuration.",
+      status: "idle",
+      skills: [],
+    }).agent;
+    db.prepare(
+      `UPDATE agents
+       SET adapter_type = 'codex',
+           model = 'openai-codex/gpt-5.3-codex',
+           runtime_config_json = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      JSON.stringify({
+        model: "openai-codex/gpt-5.5",
+        reasoningEffort: "xhigh",
+        speedPreference: "fast_1_5x",
+        fastMode: true,
+      }),
+      new Date().toISOString(),
+      configuredAgent.id,
+    );
+
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      agentId: configuredAgent.id,
+      provider: "codex",
+      runtimeSlug: "fixture-codex-configured",
+      displayName: "Fixture Codex Configured",
+      runtimeKind: "cli",
+      scope: "agent",
+      command: fakeCodex,
+      status: "online",
+      workspaceRoot: company.workspace.root,
+      metadata: { commandPath: fakeCodex },
+    });
+
+    const agentRow = db.prepare(
+      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
+              adapter_type, adapter_config_json, runtime_config_json,
+              capabilities
+       FROM agents
+       WHERE id = ?`,
+    ).get(configuredAgent.id) as typeof agent & {
+      company_id: string;
+      openclaw_agent_id: string | null;
+      adapter_type: string;
+      adapter_config_json: string;
+      runtime_config_json: string;
+      capabilities: string;
+      runtime_workspace_root: string | null;
+    };
+    agentRow.runtime_workspace_root = null;
+
+    const directResult = await codexExecutionAdapter.execute({
+      agent: agentRow,
+      prompt: "Run the configured Codex runtime controls fixture.",
+      session: {
+        id: "codex-runtime-config-session",
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "codex",
+        taskKey: "__heartbeat__",
+        sessionParams: {},
+        sessionDisplayId: null,
+        lastRunId: null,
+        lastError: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      runtimeState: {
+        agentId: agentRow.id,
+        companyId: agentRow.company_id,
+        adapterType: "codex",
+        sessionId: null,
+        state: {},
+        lastRunId: null,
+        lastRunStatus: null,
+        totalInputTokens: 0,
+        totalOutputTokens: 0,
+        totalCostCents: 0,
+        lastError: null,
+      },
+      taskModelRouting: {
+        lane: "default",
+        label: "Default",
+        reasoningEffort: "high",
+        speedPreference: "fast_1_5x",
+      },
+    });
+
+    assert.strictEqual(directResult.runnerModel, "gpt-5.5");
+    const args = readFileSync(argsFile, "utf8");
+    assert.ok(args.includes('-c model_reasoning_effort="xhigh"'), `runtime reasoning should override default lane reasoning: ${args}`);
+    assert.ok(!args.includes('model_reasoning_effort="high"'), `implicit default lane reasoning must not mask runtime config: ${args}`);
+    assert.ok(args.includes('-c service_tier="fast"'), `supported Codex fast service tier should pass through: ${args}`);
+    assert.ok(args.includes("--model gpt-5.5"), `runtime config model should pass through: ${args}`);
+    const usage = directResult.usage ?? {};
+    assert.strictEqual(usage.reasoningEffort, "xhigh");
+    assert.strictEqual(usage.speedPreference, "fast_1_5x");
+    assert.strictEqual(usage.fastMode, true);
+    assert.strictEqual(usage.serviceTier, "fast");
+    assert.strictEqual(usage.serviceTierApplied, true);
   });
 
   await test("manual heartbeat execution refuses preclaimed running runs", async () => {

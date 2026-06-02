@@ -128,11 +128,32 @@ function sanitizeConfigForDisplay(value: unknown): unknown {
   return value;
 }
 
+function buildMissingLegacyRuntimeConfig() {
+  return {
+    agents: {
+      defaults: {},
+      list: [],
+      optionalRuntime: {
+        configured: false,
+        status: 'not_configured',
+        message: 'Legacy OpenClaw runtime config is optional and was not found.',
+      },
+    },
+    gateway: {
+      configured: false,
+      status: 'not_configured',
+    },
+  };
+}
+
 export async function GET() {
   try {
     const configPath = `${LEGACY_RUNTIME_DIR}/openclaw.json`;
     if (!existsSync(configPath)) {
-      return NextResponse.json({ error: 'Config not found' }, { status: 404 });
+      return NextResponse.json({
+        config: buildMissingLegacyRuntimeConfig(),
+        providers: [],
+      });
     }
     const raw = readFileSync(configPath, 'utf-8');
     const config = JSON.parse(raw);

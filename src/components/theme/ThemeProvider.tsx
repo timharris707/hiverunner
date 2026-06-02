@@ -6,7 +6,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
@@ -16,6 +15,7 @@ export type ResolvedTheme = "light" | "dark";
 
 const STORAGE_KEY = "hiverunner.theme";
 const THEME_CHANGE_EVENT = "hiverunner-theme-change";
+const THEME_CHANGING_CLASS = "theme-changing";
 
 type ThemeContextValue = {
   theme: ThemePreference;
@@ -71,7 +71,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     getServerThemeSnapshot,
   );
   const [system, setSystem] = useState<ResolvedTheme>(() => readSystem());
-  const didReflectTheme = useRef(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
@@ -83,10 +82,6 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   // Reflect theme attribute on <html> whenever it changes.
   useEffect(() => {
-    if (!didReflectTheme.current) {
-      didReflectTheme.current = true;
-      return;
-    }
     document.documentElement.setAttribute("data-theme", theme);
   }, [theme]);
 
@@ -96,8 +91,12 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
+    document.documentElement.classList.add(THEME_CHANGING_CLASS);
     document.documentElement.setAttribute("data-theme", next);
     window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+    window.setTimeout(() => {
+      document.documentElement.classList.remove(THEME_CHANGING_CLASS);
+    }, 180);
   }, []);
 
   const resolved: ResolvedTheme = theme === "auto" ? system : theme;

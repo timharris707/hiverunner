@@ -2,8 +2,10 @@ import fs from "fs";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
 
+import { buildCompanyAccessCondition } from "@/lib/orchestration/company-access";
 import { handleRouteError, OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resolveRequestCompanyOwnerUserId } from "@/lib/orchestration/request-auth";
 import { isPathContained } from "@/lib/workspaces/delete-safety";
 import { resolveCompanyAgentWorkspacePath } from "@/lib/workspaces/company-paths";
 
@@ -84,8 +86,36 @@ function resolveAgentWorkspace(agentIdOrSlug: string): { agent: AgentWorkspaceRo
   return { agent, root: fallbackRoot ? path.resolve(fallbackRoot) : null };
 }
 
-function fileStats(filePath: string): { exists: boolean; size: number; updatedAt: string | null; content: string } {
+function assertAgentCompanyAccess(agent: AgentWorkspaceRow, ownerUserId: string | undefined) {
+  const access = buildCompanyAccessCondition("c", ownerUserId);
+  if (!access) {
+    throw new OrchestrationApiError(401, "unauthorized", "Authentication required.");
+  }
+
+  const row = getOrchestrationDb()
+    .prepare(
+      `SELECT c.id
+         FROM companies c
+        WHERE c.id = ?
+          AND c.archived_at IS NULL
+          AND ${access.sql}
+        LIMIT 1`,
+    )
+    .get(agent.company_id, ...access.args) as { id: string } | undefined;
+
+  if (!row) {
+    throw new OrchestrationApiError(404, "agent_not_found", "Agent not found.");
+  }
+}
+
+function fileStats(root: string, filePath: string): { exists: boolean; size: number; updatedAt: string | null; content: string } {
   try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      return { exists: false, size: 0, updatedAt: null, content: "" };
+    }
+    if (!isPathContained(fs.realpathSync(root), fs.realpathSync(filePath))) {
+      return { exists: false, size: 0, updatedAt: null, content: "" };
+    }
     const stat = fs.statSync(filePath);
     if (!stat.isFile()) {
       return { exists: false, size: 0, updatedAt: null, content: "" };
@@ -105,7 +135,7 @@ function fileStats(filePath: string): { exists: boolean; size: number; updatedAt
 
 function readAgentFiles(root: string): AgentFileWire[] {
   const files: AgentFileWire[] = CORE_FILE_NAMES.map((name) => {
-    const stats = fileStats(path.join(root, name));
+    const stats = fileStats(root, path.join(root, name));
     return {
       relativePath: name,
       name,
@@ -120,6 +150,9 @@ function readAgentFiles(root: string): AgentFileWire[] {
 
   const memoryRoot = path.join(root, "memory");
   try {
+    if (fs.lstatSync(memoryRoot).isSymbolicLink()) {
+      return files;
+    }
     const memoryFiles = fs
       .readdirSync(memoryRoot, { withFileTypes: true })
       .filter((entry) => entry.isFile() && /\.(md|txt)$/i.test(entry.name))
@@ -128,7 +161,7 @@ function readAgentFiles(root: string): AgentFileWire[] {
 
     for (const entry of memoryFiles) {
       const relativePath = path.join("memory", entry.name);
-      const stats = fileStats(path.join(memoryRoot, entry.name));
+      const stats = fileStats(root, path.join(memoryRoot, entry.name));
       files.push({
         relativePath,
         name: entry.name,
@@ -181,12 +214,14 @@ function resolveEditableFile(root: string, relativePath: string): { path: string
 }
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
     const { id } = await params;
+    const ownerUserId = await resolveRequestCompanyOwnerUserId(request);
     const { agent, root } = resolveAgentWorkspace(id);
+    assertAgentCompanyAccess(agent, ownerUserId);
     if (!root) {
       return NextResponse.json({
         agentId: agent.id,
@@ -212,6 +247,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
+    const ownerUserId = await resolveRequestCompanyOwnerUserId(request);
     const body = await request.json().catch(() => null) as { relativePath?: unknown; content?: unknown } | null;
     const relativePath = typeof body?.relativePath === "string" ? body.relativePath.trim() : "";
     const content = typeof body?.content === "string" ? body.content : null;
@@ -223,7 +259,8 @@ export async function PATCH(
       throw new OrchestrationApiError(400, "agent_file_too_large", "Agent file content is too large for this editor.");
     }
 
-    const { root } = resolveAgentWorkspace(id);
+    const { agent, root } = resolveAgentWorkspace(id);
+    assertAgentCompanyAccess(agent, ownerUserId);
     if (!root) {
       throw new OrchestrationApiError(400, "workspace_unresolved", "Agent workspace could not be resolved.");
     }

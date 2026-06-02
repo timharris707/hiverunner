@@ -64,15 +64,18 @@ export async function GET(
 ) {
   const { id: agentId } = await params;
 
-  let config: OpenClawConfig;
-  try {
-    config = JSON.parse(fs.readFileSync(OPENCLAW_JSON, "utf-8"));
-  } catch {
-    return NextResponse.json({ error: "Could not read openclaw.json" }, { status: 500 });
+  let config: OpenClawConfig | null = null;
+  const legacyConfigExists = fs.existsSync(OPENCLAW_JSON);
+  if (legacyConfigExists) {
+    try {
+      config = JSON.parse(fs.readFileSync(OPENCLAW_JSON, "utf-8"));
+    } catch {
+      return NextResponse.json({ error: "Could not read openclaw.json" }, { status: 500 });
+    }
   }
 
-  const defaults = config.agents.defaults;
-  const entry = config.agents.list.find((a) => a.id === agentId);
+  const defaults = config?.agents.defaults ?? {};
+  const entry = config?.agents.list.find((a) => a.id === agentId);
 
   // If the agent isn't in openclaw.json, still return DB-backed config fields
   if (!entry) {
@@ -106,6 +109,7 @@ export async function GET(
           permissions,
           runtimeConfig,
           scaffoldMissing: true,
+          legacyConfigMissing: !legacyConfigExists,
         });
       }
     } catch { /* fall through */ }
@@ -212,7 +216,7 @@ export async function PATCH(
   const openclawFields = ["model", "workspace", "name"] as const;
   const hasOpenclawUpdate = openclawFields.some((f) => f in body);
 
-  if (hasOpenclawUpdate) {
+  if (hasOpenclawUpdate && fs.existsSync(OPENCLAW_JSON)) {
     let config: OpenClawConfig;
     try {
       config = JSON.parse(fs.readFileSync(OPENCLAW_JSON, "utf-8"));
@@ -222,20 +226,27 @@ export async function PATCH(
 
     const entry = config.agents.list.find((a) => a.id === agentId);
     if (!entry) {
-      return NextResponse.json({ error: `Agent "${agentId}" not found in openclaw.json` }, { status: 404 });
-    }
+      if ("workspace" in body) {
+        return NextResponse.json({ error: `Agent "${agentId}" not found in openclaw.json` }, { status: 404 });
+      }
+    } else {
+      for (const field of openclawFields) {
+        if (field in body && typeof body[field] === "string") {
+          (entry as unknown as Record<string, unknown>)[field] = body[field];
+        }
+      }
 
-    for (const field of openclawFields) {
-      if (field in body && typeof body[field] === "string") {
-        (entry as unknown as Record<string, unknown>)[field] = body[field];
+      try {
+        fs.writeFileSync(OPENCLAW_JSON, JSON.stringify(config, null, 2) + "\n", "utf-8");
+      } catch (err) {
+        return NextResponse.json({ error: `Failed to write openclaw.json: ${err}` }, { status: 500 });
       }
     }
-
-    try {
-      fs.writeFileSync(OPENCLAW_JSON, JSON.stringify(config, null, 2) + "\n", "utf-8");
-    } catch (err) {
-      return NextResponse.json({ error: `Failed to write openclaw.json: ${err}` }, { status: 500 });
-    }
+  } else if ("workspace" in body) {
+    return NextResponse.json(
+      { error: "Workspace edits require legacy openclaw.json; DB-backed runtime config remains available." },
+      { status: 409 },
+    );
   }
 
   // --- Update orchestration DB for MC-only fields ---

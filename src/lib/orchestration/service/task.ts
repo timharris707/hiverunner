@@ -4,6 +4,7 @@ import type { TaskModelLaneInput } from "@/lib/orchestration/contracts";
 import { cancelRunningExecutionRunsForTask, type ExecutionRunTerminator } from "@/lib/orchestration/execution-run-cancellation";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
 import { resolveReviewProducerAssigneeId } from "@/lib/orchestration/service/review-assignment";
+import { buildAccessibleCompanyIdSubquery } from "@/lib/orchestration/company-access";
 
 import {
   type OrchestrationTask,
@@ -311,8 +312,9 @@ export function listTasks(filters: {
     whereParts.push("t.company_id = ?");
     args.push(companyId);
   } else if (filters.ownerUserId?.trim()) {
-    whereParts.push("t.company_id IN (SELECT id FROM companies WHERE owner_user_id = ? AND archived_at IS NULL)");
-    args.push(filters.ownerUserId.trim());
+    const accessibleCompanies = buildAccessibleCompanyIdSubquery(filters.ownerUserId);
+    whereParts.push(`t.company_id IN (${accessibleCompanies.sql})`);
+    args.push(...accessibleCompanies.args);
   }
 
   if (filters.projectId) {

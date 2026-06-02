@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Hexagon, LoaderCircle, Music2 } from "lucide-react";
+import { Hexagon, LoaderCircle, Music2, Wrench } from "lucide-react";
 import { PRIORITY_META } from "@/components/orchestration/task-display";
 import { PriorityBars } from "@/components/orchestration/PriorityBars";
 import { StatusCircle } from "@/components/orchestration/StatusCircle";
@@ -693,8 +693,27 @@ function normalizeModelKey(value: string): string {
 }
 
 function OrchestrationBadge({ engine }: { engine?: string | null }) {
-  // Manual = omit: operator-controlled tasks have no orchestration layer to surface.
-  if (!engine || engine === "manual") return null;
+  if (engine === "manual") {
+    return (
+      <span
+        title="Manual only: no autonomous runtime will run this task"
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 3,
+          color: P.textMuted,
+          fontSize: 10,
+          fontWeight: 700,
+          flexShrink: 0,
+        }}
+      >
+        <Wrench size={11} strokeWidth={1.5} />
+        Manual
+      </span>
+    );
+  }
+
+  if (!engine) return null;
 
   if (engine === "hiverunner") {
     return (

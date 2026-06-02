@@ -48,6 +48,7 @@ async function run() {
   process.env.ORCHESTRATION_DB_PATH = dbPath;
   process.env.MC_DATA_DIR = tempRoot;
   process.env.NODE_ENV = "development";
+  process.env.PORT = "3010";
 
   const { closeOrchestrationDb, getOrchestrationDb } = await import("@/lib/orchestration/db");
   getOrchestrationDb().prepare("SELECT 1").get();
@@ -55,6 +56,7 @@ async function run() {
 
   const { GET: platformHealth } = await import("@/app/api/health/route");
   const { GET: hiveRunnerHealth } = await import("@/app/api/hiverunner/health/route");
+  const { GET: hiveRunnerBuild } = await import("@/app/api/hiverunner/build/route");
 
   await test("/api/health uses only local process and DB checks", async () => {
     const { result: response, calls } = await withBlockedFetch(() => platformHealth());
@@ -77,9 +79,30 @@ async function run() {
     const { result: response, calls } = await withBlockedFetch(() => hiveRunnerHealth());
     assert.equal(response.status, 200);
     assert.deepEqual(calls, []);
-    const payload = await response.json() as { status?: string; migrationCompatibility?: { ok?: boolean } };
+    const payload = await response.json() as { status?: string; build?: { version?: string }; migrationCompatibility?: { ok?: boolean } };
     assert.equal(payload.status, "ok");
+    assert.equal(payload.build?.version, "0.2.0-preview.1");
     assert.equal(payload.migrationCompatibility?.ok, true);
+  });
+
+  await test("/api/hiverunner/build exposes local build metadata", async () => {
+    const { result: response, calls } = await withBlockedFetch(() => hiveRunnerBuild());
+    assert.equal(response.status, 200);
+    assert.deepEqual(calls, []);
+    const payload = await response.json() as {
+      version?: string;
+      versionLabel?: string;
+      mode?: string;
+      lane?: string;
+      port?: string;
+      displayLabel?: string;
+    };
+    assert.equal(payload.version, "0.2.0-preview.1");
+    assert.equal(payload.versionLabel, "v0.2.0-preview.1");
+    assert.equal(payload.mode, "dev");
+    assert.equal(payload.lane, "dev");
+    assert.equal(payload.port, "3010");
+    assert.match(payload.displayLabel ?? "", /^v0\.2\.0-preview\.1/);
   });
 
   closeOrchestrationDb();

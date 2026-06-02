@@ -6,8 +6,10 @@ import type { CSSProperties, ReactNode } from "react";
 import {
   ArrowRight,
   CheckCircle2,
+  Download,
   KeyRound,
   Plus,
+  RefreshCw,
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
@@ -22,6 +24,7 @@ import {
   runCompanyModelSourceProbe,
   runCompanyExecutionHiveProbe,
   saveCompanyModelSourceCredential,
+  updateCompanyRuntimeCli,
 } from "@/lib/orchestration/client";
 import {
   SEEDED_EXECUTION_HIVES,
@@ -44,6 +47,7 @@ import type {
   DetectedOrchestrationRuntime,
   OrchestrationCompany,
   OrchestrationRuntime,
+  OrchestrationRuntimeDependencyReadiness,
   OrchestrationRuntimeExecutionRun,
   OrchestrationRuntimeHealthStatus,
   TaskExecutionEngine,
@@ -190,6 +194,19 @@ type RuntimeInventoryGroup = RuntimeInventoryItem & {
   detectedCount: number;
   versions: Set<string>;
   details: Set<string>;
+};
+
+type RuntimePayload = Awaited<ReturnType<typeof listCompanyRuntimes>>;
+
+type CodexCliStatus = {
+  version: string | null;
+  versionLatest: boolean | null;
+  latestVersion: string | null;
+  versionCheckDetail: string | null;
+  commandPath: string | null;
+  status: string;
+  authReady: boolean | null;
+  source: "dependency" | "attached" | "detected";
 };
 
 const runtimeStatusRank: Record<RuntimeInventoryItem["status"], number> = {
@@ -374,6 +391,61 @@ function buildLiveModelSources(
   });
 }
 
+function buildCodexCliStatus(payload: RuntimePayload): CodexCliStatus | null {
+  const dependency = payload.runtimeDependencies.find((item) => item.provider === "codex" && item.kind === "cli");
+  if (dependency) {
+    return codexStatusFromDependency(dependency);
+  }
+
+  const attached = payload.runtimes.find((runtime) => runtime.provider === "codex");
+  if (attached) {
+    return {
+      version: attached.health?.version ?? attached.version ?? null,
+      versionLatest: attached.health?.versionLatest ?? null,
+      latestVersion: attached.health?.latestVersion ?? null,
+      versionCheckDetail: attached.health?.versionCheckDetail ?? null,
+      commandPath: attached.health?.commandPath ?? attached.command ?? null,
+      status: attached.health?.status ?? attached.status,
+      authReady: attached.health?.authReady ?? null,
+      source: "attached",
+    };
+  }
+
+  const detected = payload.detectedLocalRuntimes.find((runtime) => runtime.provider === "codex");
+  if (!detected) return null;
+  return {
+    version: detected.version ?? null,
+    versionLatest: typeof detected.metadata.versionLatest === "boolean" ? detected.metadata.versionLatest : null,
+    latestVersion: typeof detected.metadata.latestVersion === "string" ? detected.metadata.latestVersion : null,
+    versionCheckDetail: typeof detected.metadata.versionCheckDetail === "string" ? detected.metadata.versionCheckDetail : null,
+    commandPath: detected.commandPath,
+    status: detected.status,
+    authReady: null,
+    source: "detected",
+  };
+}
+
+function codexStatusFromDependency(dependency: OrchestrationRuntimeDependencyReadiness): CodexCliStatus {
+  return {
+    version: dependency.version ?? null,
+    versionLatest: dependency.versionLatest ?? null,
+    latestVersion: dependency.latestVersion ?? null,
+    versionCheckDetail: dependency.versionCheckDetail ?? null,
+    commandPath: dependency.commandPath ?? null,
+    status: dependency.status,
+    authReady: dependency.authReady ?? null,
+    source: "dependency",
+  };
+}
+
+function codexVersionCopy(status: CodexCliStatus | null): { label: string; tone: "default" | "positive" | "negative" | "warning" } {
+  if (!status) return { label: "Not detected", tone: "negative" };
+  if (status.versionLatest === true) return { label: "Current", tone: "positive" };
+  if (status.versionLatest === false) return { label: "Update available", tone: "warning" };
+  if (!status.commandPath) return { label: "CLI missing", tone: "negative" };
+  return { label: "Check pending", tone: "default" };
+}
+
 function HiveCard({ hive, selected, onSelect }: { hive: ExecutionHive; selected: boolean; onSelect: () => void }) {
   const verificationTone = hive.verification.fail > 0 ? "negative" : hive.verification.warn > 0 ? "warning" : "positive";
   return (
@@ -524,6 +596,102 @@ function ActiveStatusChip() {
       />
       Active
     </span>
+  );
+}
+
+function CodexCliStatusPanel({
+  status,
+  loading,
+  updating,
+  notice,
+  onRefresh,
+  onUpdate,
+}: {
+  status: CodexCliStatus | null;
+  loading: boolean;
+  updating: boolean;
+  notice: string | null;
+  onRefresh: () => void;
+  onUpdate: () => void;
+}) {
+  const version = status?.version ?? (status?.commandPath ? "Detected" : "Not detected");
+  const freshness = codexVersionCopy(status);
+  const canUpdate = Boolean(status && status.versionLatest === false);
+
+  return (
+    <div
+      style={{
+        marginBottom: space.xl,
+        borderRadius: radius.lg,
+        border: `0.5px solid ${color.border}`,
+        background: color.surface,
+        padding: space.lg,
+        display: "grid",
+        gap: space.md,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: space.lg, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: space.md, minWidth: 0 }}>
+          <span
+            aria-hidden="true"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: radius.md,
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: color.accentSoft,
+              color: color.accent,
+              flex: "0 0 auto",
+            }}
+          >
+            <Sparkles size={17} />
+          </span>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap" }}>
+              <h2 style={{ margin: 0, color: color.text, fontSize: T.cardTitle.size, fontWeight: 750 }}>
+                Codex CLI
+              </h2>
+              <Badge label={freshness.label} tone={freshness.tone} />
+              {status?.authReady === false ? <Badge label="Needs login" tone="warning" /> : null}
+            </div>
+            <div style={{ marginTop: 4, color: color.textMuted, fontSize: T.bodySmall.size, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {status?.commandPath ?? "Codex command was not found on PATH"}
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: space.sm, flexWrap: "wrap", justifyContent: "flex-end" }}>
+          <ActionButton
+            label={loading ? "Checking..." : "Check CLI"}
+            icon={<RefreshCw size={14} />}
+            onClick={onRefresh}
+            disabled={loading || updating}
+            size="sm"
+            variant="ghost"
+          />
+          {canUpdate ? (
+            <ActionButton
+              label={updating ? "Updating..." : "Update CLI"}
+              icon={<Download size={14} />}
+              onClick={onUpdate}
+              disabled={updating || loading}
+              size="sm"
+            />
+          ) : null}
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: space.sm }}>
+        <Metric label="Installed" value={version} caption={status?.source ? `from ${status.source}` : "not found"} tone={status?.commandPath ? "positive" : "negative"} />
+        <Metric label="Latest" value={status?.latestVersion ?? "Unknown"} caption={status?.versionCheckDetail ?? "Run a full check to compare versions"} tone={status?.versionLatest === false ? "warning" : "muted"} />
+        <Metric label="Auth" value={status?.authReady === true ? "Ready" : status?.authReady === false ? "Needs login" : "Not verified"} caption={status?.status ?? "missing"} tone={status?.authReady === false ? "warning" : status?.authReady === true ? "positive" : "muted"} />
+      </div>
+      {notice ? (
+        <div style={{ color: color.textSecondary, fontSize: T.bodySmall.size }}>
+          {notice}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -1480,6 +1648,9 @@ export default function CompanyRuntimesPage() {
   const [modelSourceProbes, setModelSourceProbes] = useState<ModelSourceProbeMap>({});
   const [selectedModelSource, setSelectedModelSource] = useState<ModelSourceInventoryItem | null>(null);
   const [loadingInventory, setLoadingInventory] = useState(false);
+  const [codexCliStatus, setCodexCliStatus] = useState<CodexCliStatus | null>(null);
+  const [updatingCodexCli, setUpdatingCodexCli] = useState(false);
+  const [codexCliNotice, setCodexCliNotice] = useState<string | null>(null);
 
   const refreshRuntimeInventory = useCallback(async (fast = true) => {
     if (!slug) return;
@@ -1489,6 +1660,7 @@ export default function CompanyRuntimesPage() {
         listCompanyRuntimes(slug, { fast }),
         listCompanyModelSources(slug),
       ]);
+      setCodexCliStatus(buildCodexCliStatus(result));
       setRuntimeItems(buildLiveRuntimeItems(result.runtimes, result.detectedLocalRuntimes));
       setModelSources(buildLiveModelSources(result.runtimes, result.detectedLocalRuntimes, result.recentExecutionRuns, credentialSources));
     } catch {
@@ -1515,7 +1687,7 @@ export default function CompanyRuntimesPage() {
   }, [slug]);
 
   useEffect(() => {
-    void refreshRuntimeInventory(true);
+    void refreshRuntimeInventory(true).then(() => refreshRuntimeInventory(false));
   }, [refreshRuntimeInventory]);
 
   useEffect(() => {
@@ -1630,6 +1802,27 @@ export default function CompanyRuntimesPage() {
     void refreshRuntimeInventory(true);
   };
 
+  const updateCodexCli = async () => {
+    if (!slug || updatingCodexCli) return;
+    setUpdatingCodexCli(true);
+    setCodexCliNotice(null);
+    try {
+      const result = await updateCompanyRuntimeCli(slug, "codex");
+      if (!result) {
+        setCodexCliNotice("Codex CLI update could not be started.");
+        return;
+      }
+      setCodexCliNotice(
+        result.update.ok
+          ? `Codex CLI updated${result.update.afterVersion ? ` to ${result.update.afterVersion}` : ""}.`
+          : result.update.error || result.update.output || "Codex CLI update failed.",
+      );
+      await refreshRuntimeInventory(false);
+    } finally {
+      setUpdatingCodexCli(false);
+    }
+  };
+
   return (
     <div style={{ ...pageStyle, maxWidth: 1280 }}>
       <PageHeader
@@ -1657,6 +1850,15 @@ export default function CompanyRuntimesPage() {
           {hiveNotice}
         </div>
       ) : null}
+
+      <CodexCliStatusPanel
+        status={codexCliStatus}
+        loading={loadingInventory}
+        updating={updatingCodexCli}
+        notice={codexCliNotice}
+        onRefresh={() => void refreshRuntimeInventory(false)}
+        onUpdate={() => void updateCodexCli()}
+      />
 
       <Section
         title="Hive Profiles"

@@ -60,8 +60,7 @@ is_healthy() {
     fi
   fi
 
-  curl -sf --max-time 5 "$URL/api/hiverunner/health" >/dev/null 2>&1 ||
-    curl -sf --max-time 5 "$URL/api/orchestration/companies" >/dev/null 2>&1
+  curl -sf --max-time 5 "$URL/api/hiverunner/health" >/dev/null 2>&1
 }
 
 reconcile_pid

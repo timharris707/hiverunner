@@ -27,8 +27,7 @@ listener_pids() {
 }
 
 is_healthy() {
-  curl -sf --max-time 10 "$URL/api/hiverunner/health" >/dev/null 2>&1 ||
-    curl -sf --max-time 10 "$URL/api/orchestration/companies" >/dev/null 2>&1
+  curl -sf --max-time 10 "$URL/api/hiverunner/health" >/dev/null 2>&1
 }
 
 stop_pid() {

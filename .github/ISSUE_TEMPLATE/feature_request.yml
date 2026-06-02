@@ -1,0 +1,93 @@
+name: Feature request
+description: Suggest an improvement or new capability for HiveRunner.
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the workflow you want HiveRunner to support. Concrete local setup details help separate product gaps from environment-specific issues.
+  - type: input
+    id: version_build
+    attributes:
+      label: HiveRunner version/build
+      description: Package version, commit SHA, branch, release tag, or build identifier.
+      placeholder: "0.1.0, main@abc1234, or release build name"
+    validations:
+      required: true
+  - type: input
+    id: lane_port
+    attributes:
+      label: Lane/port
+      description: Which local lane or port is relevant to this request?
+      placeholder: "3010 dev UI lane, 3001 stable lane, or N/A"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: OS/browser
+      description: Include operating system, browser, Node.js version, and npm version if relevant.
+      placeholder: |
+        macOS 15.5
+        Chrome 125 / Safari 18 / Firefox 126
+        Node 22.x, npm 10.x
+    validations:
+      required: true
+  - type: textarea
+    id: install_source
+    attributes:
+      label: Install/source
+      description: How did you get and run HiveRunner?
+      placeholder: |
+        Fresh git clone from https://github.com/harris-autonomous/mission-control
+        Existing checkout updated from main
+        npm install completed
+        .env.example copied to .env.local
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow
+      description: What are you trying to accomplish, and where does HiveRunner fall short today?
+      placeholder: "When I am running a local agent team, I need to..."
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected outcome
+      description: What would a good solution let you do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Current behavior or workaround
+      description: What happens now, or what workaround are you using?
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots_logs
+    attributes:
+      label: Screenshots/logs
+      description: Attach screenshots, workflow sketches, or short sanitized logs if they clarify the request.
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Add runtime readiness, lane status, or other local context if the request depends on your environment.
+      placeholder: |
+        scripts/lane.sh dev status:
+        Runtime inventory notes:
+        Relevant optional CLIs/provider setup:
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request does not include secrets, private workspace data, or unsanitized local logs.
+          required: true

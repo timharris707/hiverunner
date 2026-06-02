@@ -15,6 +15,7 @@ import {
   X,
   Radio,
   Layers,
+  Zap,
 } from "lucide-react";
 import { useAgentProfile, A } from "../agent-context";
 import { listCompanyAgents, listCompanyRuntimes } from "@/lib/orchestration/client";
@@ -37,6 +38,14 @@ import {
   CAPABILITY_LABELS,
 } from "@/components/orchestration/ProviderPresentation";
 import { ProviderLogo } from "@/components/orchestration/ProviderLogo";
+import {
+  buildProviderRuntimeConfigPatch,
+  getProviderRuntimeControls,
+  readProviderRuntimeSelection,
+  runtimeReasoningLabel,
+  runtimeSpeedLabel,
+  type ProviderRuntimeSelection,
+} from "@/lib/orchestration/provider-runtime-controls";
 import { font, type as typography } from "@/lib/ui/tokens";
 
 /* ── Types ── */
@@ -287,6 +296,12 @@ function titleize(value: string): string {
   return value.replace(/[_-]/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function recordFromUnknown(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
 function profileForProvider(profiles: ProviderBillingProfileWire[], providerId: string): ProviderBillingProfileWire | null {
   const normalized = normalizeSwitchProviderId(providerId).toLowerCase();
   return profiles.find((profile) => normalizeSwitchProviderId(profile.provider).toLowerCase() === normalized) ?? null;
@@ -346,6 +361,12 @@ function resolveRuntimeSupport(
 
 function runtimeSupportCopy(providerId: string, support: RuntimeSupportSummary, agentName: string): { tone: "neutral" | "error"; text: string } {
   const providerLabel = providerLabelForSwitchId(providerId);
+  if (normalizeSwitchProviderId(providerId) === "manual") {
+    return {
+      tone: "neutral",
+      text: `${agentName} is manual only. HiveRunner will show the profile for assignment context, but no autonomous runtime will execute its tasks until a runnable provider is attached.`,
+    };
+  }
   if (support.agentRuntime) {
     return {
       tone: support.agentRuntime.status === "error" || support.agentRuntime.status === "offline" ? "error" : "neutral",
@@ -372,6 +393,7 @@ function runtimeSupportCopy(providerId: string, support: RuntimeSupportSummary, 
 
 function providerLabelForSwitchId(providerId: string): string {
   const normalized = normalizeSwitchProviderId(providerId);
+  if (normalized === "manual") return "Manual only";
   const descriptor = PROVIDER_PRODUCT_DESCRIPTORS.find((entry) => normalizeSwitchProviderId(entry.providerId) === normalized);
   return descriptor?.displayName ?? normalized;
 }
@@ -393,6 +415,7 @@ function defaultModelForSwitchProvider(providerId: string, currentModel: string)
 
 function humanProviderSummary(providerId: string): string {
   const normalized = normalizeSwitchProviderId(providerId);
+  if (normalized === "manual") return "Manual only profile. Tasks assigned here are operator-controlled and will not start an autonomous runtime.";
   if (normalized === "codex") return "Runs OpenAI Codex models as a first-class HiveRunner runtime for coding and orchestration work. HiveRunner captures assistant updates, lifecycle, tool activity, structured actions, and final output from Codex JSON events.";
   if (normalized === "anthropic") return "Runs Claude Code with structured activity telemetry, including live text, tool calls, and token/cost details.";
   if (normalized === "gemini") return "Runs Gemini models through the local CLI with lifecycle and final-output capture.";
@@ -807,10 +830,16 @@ export default function AgentConfigurationPage() {
       !SWITCHABLE_PROVIDER_IDS.includes(normalizeSwitchProviderId(runtime.provider) as typeof SWITCHABLE_PROVIDER_IDS[number]),
   );
   const runtimeWorkspaceEditable = shouldUseOpenClawConfig && Boolean(oc && !ocError);
-  const modelEditable = shouldUseOpenClawConfig
-    ? Boolean(oc && !ocError)
-    : true;
   const modelValue = executionSettingsRow?.modelId || oc?.model || agent.model || "";
+  const agentRuntimeConfig = shouldUseOpenClawConfig
+    ? recordFromUnknown(oc?.runtimeConfig)
+    : recordFromUnknown(agent.runtimeConfig);
+  const selectedRuntimeControls = getProviderRuntimeControls(switchTarget, switchModel || modelValue);
+  const selectedRuntimeSelection = readProviderRuntimeSelection(
+    switchTarget,
+    agentRuntimeConfig,
+    switchModel || modelValue,
+  );
   const switchModelOptions = useMemo(() => {
     const rows: RuntimeModelWire[] = switchModels.length
       ? switchModels
@@ -895,6 +924,19 @@ export default function AgentConfigurationPage() {
     [oc, patchConfig],
   );
 
+  const patchProviderRuntimeControls = useCallback(
+    (selection: Partial<ProviderRuntimeSelection>) => {
+      const patch = buildProviderRuntimeConfigPatch(switchTarget, selection);
+      if (Object.keys(patch).length === 0) return Promise.resolve();
+      return patchConfig({
+        runtimeConfig: shouldUseOpenClawConfig
+          ? { ...agentRuntimeConfig, ...patch }
+          : patch,
+      });
+    },
+    [agentRuntimeConfig, patchConfig, shouldUseOpenClawConfig, switchTarget],
+  );
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18, paddingBottom: 20, maxWidth: 1180 }}>
       {/* ── Identity ── */}
@@ -956,6 +998,8 @@ export default function AgentConfigurationPage() {
             switchModelOptions={switchModelOptions}
             switchModelsLoading={switchModelsLoading}
             switchModelsError={switchModelsError}
+            runtimeControls={selectedRuntimeControls}
+            runtimeSelection={selectedRuntimeSelection}
             switchLoading={switchLoading}
             switchPlan={switchPlan}
             switchNotice={switchNotice}
@@ -979,6 +1023,7 @@ export default function AgentConfigurationPage() {
               setSwitchError(null);
               setSwitchNotice(null);
             }}
+            onRuntimeSelectionChange={patchProviderRuntimeControls}
             onTest={() => void loadSwitchPlan(switchTarget)}
             onApply={() => void switchProvider()}
           />
@@ -1223,26 +1268,7 @@ export default function AgentConfigurationPage() {
             title="Runtime configuration"
             subtitle="Controls backed by the local runtime scaffold and HiveRunner agent record."
           >
-            {modelEditable ? (
-              <EditableSelect
-                label="Model"
-                value={modelValue}
-                options={MODEL_OPTIONS.map((m) => ({ value: m, label: m }))}
-                onSave={(value) =>
-                  shouldUseOpenClawConfig
-                      ? patchConfig({ model: value })
-                      : patchConfig({ model: value })
-                }
-                mono
-                helpText={
-                  shouldUseOpenClawConfig
-                      ? "Writes to the local runtime config and HiveRunner agent record."
-                      : "Writes to HiveRunner's provider execution settings."
-                }
-              />
-            ) : (
-              <ReadOnlyRow label="Model" value={modelValue || "\u2014"} mono />
-            )}
+            <ReadOnlyRow label="Model" value={modelValue || "\u2014"} mono />
             {runtimeWorkspaceEditable ? (
               <EditableText
                 label="Workspace"
@@ -1256,7 +1282,10 @@ export default function AgentConfigurationPage() {
             {shouldUseOpenClawConfig && oc?.agentDir ? <ReadOnlyRow label="Agent dir" value={oc.agentDir} mono /> : null}
             {shouldUseOpenClawConfig && agent.openclawAgentId ? <ReadOnlyRow label="OpenClaw ID" value={agent.openclawAgentId} mono /> : null}
             {shouldUseOpenClawConfig && oc ? <ReadOnlyRow label="Sessions" value={String(oc.sessionCount ?? "\u2014")} /> : null}
-            {!runtimeWorkspaceEditable || !modelEditable ? (
+            <InlineStatusText>
+              Model, reasoning, and speed are managed in the Provider & model control above.
+            </InlineStatusText>
+            {!runtimeWorkspaceEditable ? (
               <InlineStatusText>
                 Local runtime edits are only available when HiveRunner can resolve a writable runtime configuration for this provider.
               </InlineStatusText>
@@ -1835,6 +1864,8 @@ function IdentityProviderModelControl({
   switchModelOptions,
   switchModelsLoading,
   switchModelsError,
+  runtimeControls,
+  runtimeSelection,
   switchLoading,
   switchPlan,
   switchNotice,
@@ -1846,6 +1877,7 @@ function IdentityProviderModelControl({
   onBillingConfirmedChange,
   onProviderChange,
   onModelChange,
+  onRuntimeSelectionChange,
   onTest,
   onApply,
 }: {
@@ -1856,6 +1888,8 @@ function IdentityProviderModelControl({
   switchModelOptions: RuntimeModelWire[];
   switchModelsLoading: boolean;
   switchModelsError: string | null;
+  runtimeControls: ReturnType<typeof getProviderRuntimeControls>;
+  runtimeSelection: ProviderRuntimeSelection;
   switchLoading: boolean;
   switchPlan: SwitchPlanWire | null;
   switchNotice: string | null;
@@ -1867,6 +1901,7 @@ function IdentityProviderModelControl({
   onBillingConfirmedChange: (checked: boolean) => void;
   onProviderChange: (providerId: string) => void;
   onModelChange: (modelId: string) => void;
+  onRuntimeSelectionChange: (selection: Partial<ProviderRuntimeSelection>) => Promise<unknown>;
   onTest: () => void;
   onApply: () => void;
 }) {
@@ -2005,6 +2040,14 @@ function IdentityProviderModelControl({
         </div>
       </div>
 
+      <RuntimeProfileSelector
+        model={switchModel || currentModel}
+        controls={runtimeControls}
+        selection={runtimeSelection}
+        disabled={switchLoading}
+        onChange={onRuntimeSelectionChange}
+      />
+
       <div
         style={{
           marginTop: 14,
@@ -2098,6 +2141,268 @@ function IdentityProviderModelControl({
           </SupportNote>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function RuntimeProfileSelector({
+  model,
+  controls,
+  selection,
+  disabled,
+  onChange,
+}: {
+  model: string;
+  controls: ReturnType<typeof getProviderRuntimeControls>;
+  selection: ProviderRuntimeSelection;
+  disabled?: boolean;
+  onChange: (selection: Partial<ProviderRuntimeSelection>) => Promise<unknown>;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const { status, trigger } = useSaveStatus();
+  const reasoningLabel = runtimeReasoningLabel(selection.reasoningEffort);
+  const speedLabel = runtimeSpeedLabel(selection.speedMode);
+  const hasReasoning = controls?.reasoning.available === true;
+  const hasSpeed = controls?.speed.available === true && selection.speedMode !== null;
+  const modelLabel = model || "Provider default";
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const commit = (next: Partial<ProviderRuntimeSelection>) => {
+    void trigger(() => onChange(next));
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ ...microHeadingStyle, marginBottom: 7 }}>Runtime profile</div>
+      <div ref={menuRef} style={{ position: "relative" }}>
+        <button
+          type="button"
+          disabled={disabled || !controls}
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          title={`${modelLabel} · ${hasReasoning ? reasoningLabel : "Reasoning unavailable"} · ${hasSpeed ? speedLabel : "Speed unavailable"}`}
+          style={{
+            width: "100%",
+            minHeight: 44,
+            borderRadius: 12,
+            border: `0.5px solid ${UI.surfaceBorder}`,
+            background: "var(--surface-elevated)",
+            color: A.text,
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            alignItems: "center",
+            gap: 10,
+            padding: "8px 10px 8px 12px",
+            cursor: disabled || !controls ? "not-allowed" : "pointer",
+            opacity: disabled || !controls ? 0.6 : 1,
+            textAlign: "left",
+          }}
+        >
+          <span style={{ minWidth: 0 }}>
+            <span
+              style={{
+                display: "block",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                fontFamily: font.mono,
+                fontSize: 12,
+                color: A.text,
+              }}
+            >
+              {modelLabel}
+            </span>
+            <span style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4, fontSize: 11, color: A.textSec }}>
+              <span>{hasReasoning ? reasoningLabel : "Reasoning unavailable"}</span>
+              <span>·</span>
+              <span>{hasSpeed ? speedLabel : "Speed unavailable"}</span>
+            </span>
+          </span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <SaveIndicator status={status} />
+            <ChevronDown size={15} color={A.muted} />
+          </span>
+        </button>
+
+        {open && controls ? (
+          <div
+            role="menu"
+            aria-label="Runtime profile"
+            style={{
+              position: "absolute",
+              right: 0,
+              top: 50,
+              zIndex: 20,
+              width: "min(320px, 100%)",
+              maxHeight: "min(420px, 70vh)",
+              overflowY: "auto",
+              padding: 8,
+              borderRadius: 14,
+              border: `0.5px solid ${A.cardBorder}`,
+              background: "var(--surface-elevated)",
+              boxShadow: UI.shadow,
+            }}
+          >
+            <div style={{ padding: "7px 10px 5px", color: A.muted, fontSize: 12 }}>
+              {controls.label} runtime
+            </div>
+            <RuntimeProfileMenuSection title="Reasoning">
+              {controls.reasoning.available ? (
+                controls.reasoning.options.map((option) => {
+                  const selected = selection.reasoningEffort === option.value;
+                  return (
+                    <RuntimeProfileMenuItem
+                      key={option.value}
+                      selected={selected}
+                      label={option.label}
+                      onClick={() => commit({ reasoningEffort: option.value })}
+                    />
+                  );
+                })
+              ) : (
+                <RuntimeProfileUnavailableRow text={controls.reasoning.unavailableReason ?? "Reasoning controls are not available for this provider."} />
+              )}
+            </RuntimeProfileMenuSection>
+
+            <RuntimeProfileMenuSection title="Speed">
+              {controls.speed.available ? (
+                controls.speed.options.map((option) => {
+                  const selected = selection.speedMode === option.value;
+                  const unavailable = !option.available;
+                  return (
+                    <RuntimeProfileMenuItem
+                      key={option.value}
+                      selected={selected}
+                      disabled={unavailable}
+                      icon={option.value === "fast" ? <Zap size={14} color={selected ? A.accent : A.textSec} /> : undefined}
+                      label={option.label}
+                      detail={unavailable ? option.unavailableReason ?? controls.speed.unavailableReason : undefined}
+                      onClick={() => {
+                        if (!unavailable) commit({ speedMode: option.value });
+                      }}
+                    />
+                  );
+                })
+              ) : (
+                <RuntimeProfileUnavailableRow text={controls.speed.unavailableReason ?? "Speed controls are not available for this provider."} />
+              )}
+            </RuntimeProfileMenuSection>
+          </div>
+        ) : null}
+      </div>
+      <div style={{ marginTop: 6, fontSize: 11, color: A.textSec, lineHeight: 1.45 }}>
+        Runtime choices are persisted to this agent runtime_config_json and merged with existing keys.
+      </div>
+    </div>
+  );
+}
+
+function RuntimeProfileMenuSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div style={{ borderTop: `0.5px solid ${UI.divider}`, marginTop: 8, paddingTop: 8 }}>
+      <div style={{ padding: "0 10px 5px", color: A.muted, fontSize: 12 }}>{title}</div>
+      {children}
+    </div>
+  );
+}
+
+function RuntimeProfileMenuItem({
+  selected,
+  disabled,
+  icon,
+  label,
+  detail,
+  onClick,
+}: {
+  selected: boolean;
+  disabled?: boolean;
+  icon?: React.ReactNode;
+  label: string;
+  detail?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitemradio"
+      aria-checked={selected}
+      disabled={disabled}
+      title={detail}
+      onClick={onClick}
+      style={{
+        width: "100%",
+        display: "grid",
+        gridTemplateColumns: "minmax(0, 1fr) auto",
+        alignItems: "center",
+        gap: 10,
+        minHeight: 34,
+        border: 0,
+        borderRadius: 10,
+        background: selected ? "var(--surface)" : "transparent",
+        color: A.text,
+        padding: "7px 10px",
+        fontSize: 13,
+        cursor: disabled ? "not-allowed" : "pointer",
+        textAlign: "left",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <span style={{ minWidth: 0, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        {icon}
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: "block", color: A.text }}>{label}</span>
+          {detail ? (
+            <span style={{ display: "block", marginTop: 2, color: A.muted, fontSize: 11, lineHeight: 1.35 }}>
+              {detail}
+            </span>
+          ) : null}
+        </span>
+      </span>
+      {selected ? <Check size={15} color={A.text} /> : null}
+    </button>
+  );
+}
+
+function RuntimeProfileUnavailableRow({ text }: { text: string }) {
+  return (
+    <div
+      style={{
+        margin: "0 2px",
+        padding: "8px 10px",
+        borderRadius: 10,
+        background: "var(--surface)",
+        color: A.muted,
+        fontSize: 12,
+        lineHeight: 1.45,
+      }}
+    >
+      {text}
     </div>
   );
 }
