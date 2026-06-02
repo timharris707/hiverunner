@@ -12,6 +12,12 @@ implementation records and compatibility references.
 - [Auth modes](AUTH.md) — local-single-user versus optional Supabase auth.
 - [Runtime dependencies](runtime-dependencies.md) — required, optional, and
   degraded runtime states.
+- [Runtime isolation](runtime-isolation.md) — Docker and Node permission entry
+  points for defense in depth.
+- [Repository feedback forms](../.github/feedback-intake.md) — GitHub issue
+  intake, labels, and prefilled links for bugs, feature requests, and first-run
+  feedback.
+- [Changelog](../CHANGELOG.md) — share-build release notes and recent changes.
 - [Starter agent packs](starter-agent-packs.md) — bundled public-safe agent
   identities, avatars, and voice choices for first-run workspace setup.
 - [Local-first boundary](local-first-boundary.md) — what the current public path
@@ -37,6 +43,7 @@ implementation records and compatibility references.
 - [External runner contract](hiverunner-external-runner-contract.md)
 - [HiveRunner Symphony runner](hiverunner-symphony-runner.md)
 - [Two-lane runtime](two-lane-runtime.md)
+- [Runtime isolation](runtime-isolation.md)
 - [Cost tracking](COST-TRACKING.md)
 - [Model/source credential architecture](model-source-credential-architecture.md)
 - [Design system standard](design-system-standard.md)

@@ -59,6 +59,10 @@ export function buildCanonicalInboxPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/inbox");
 }
 
+export function buildCanonicalOverseerPath(companyCode: string): string {
+  return buildCanonicalCompanyPath(companyCode, "/overseer");
+}
+
 export function buildCanonicalTasksPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/tasks");
 }

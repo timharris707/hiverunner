@@ -60,6 +60,9 @@ async function run() {
     await test("classifies sensitive local-single-user APIs", () => {
       assert.equal(isSensitiveLocalSingleUserApiPath("/api/files"), true);
       assert.equal(isSensitiveLocalSingleUserApiPath("/api/files/workspace/read"), true);
+      assert.equal(isSensitiveLocalSingleUserApiPath("/api/browse"), true);
+      assert.equal(isSensitiveLocalSingleUserApiPath("/api/media/company-logo.png"), true);
+      assert.equal(isSensitiveLocalSingleUserApiPath("/api/skills/file"), true);
       assert.equal(isSensitiveLocalSingleUserApiPath("/api/terminal"), true);
       assert.equal(isSensitiveLocalSingleUserApiPath("/api/settings/profile"), true);
       assert.equal(isSensitiveLocalSingleUserApiPath("/api/tasks/INS-1"), true);
@@ -123,7 +126,7 @@ async function run() {
       assert.match(serverSource, /unsafe for untrusted LANs/);
     });
 
-    await test("does not apply local-only sensitive API guard in hosted Supabase mode", async () => {
+    await test("requires hosted auth for sensitive APIs outside local-single-user mode", async () => {
       process.env.MC_AUTH_MODE = "supabase";
 
       const request = new NextRequest("http://app.example.com/api/tasks", {
@@ -135,8 +138,7 @@ async function run() {
       });
 
       assert.equal(shouldBlockLocalSingleUserSensitiveApi("/api/tasks", "app.example.com"), false);
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      assert.equal(response.status, 401);
     });
 
     await test("terminal allowlist blocks obvious indirect command execution escapes", () => {

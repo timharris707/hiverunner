@@ -1,25 +1,15 @@
 {
   "name": "hiverunner",
-  "version": "0.1.0",
+  "version": "0.2.0-preview.1",
   "private": true,
   "scripts": {
     "test": "node scripts/run-orchestration-tests.mjs",
     "test:orchestration": "node scripts/run-orchestration-tests.mjs",
-    "test:runtime-node-resolution": "sh scripts/test-runtime-node-resolution.sh",
-    "test:root-route": "npx tsx src/lib/__tests__/root-route.test.ts",
-    "test:onboarding-state": "npx tsx src/lib/__tests__/onboarding-state.test.ts",
-    "test:onboarding-provider-status": "npx tsx src/lib/__tests__/onboarding-provider-status.test.ts",
-    "test:onboarding-complete-route": "sh -c 'MC_DATA_DIR=\"/tmp/hiverunner-onboarding-complete-$$\" npx tsx src/lib/__tests__/onboarding-complete-route.test.ts'",
-    "test:companycode-rewrite-rsc": "npx tsx src/lib/__tests__/companycode-rewrite-rsc.test.ts",
-    "test:middleware-redirect-loop": "npx tsx src/lib/__tests__/middleware-canonical-redirect-loop.test.ts",
-    "test:gateway-bridge-reconnect": "npx tsx src/lib/__tests__/gateway-bridge-reconnect.test.ts",
-    "test:live-runs-cache": "npx tsx src/lib/__tests__/live-runs-cache.test.ts",
-    "test:onboarding": "npm run test:root-route && npm run test:onboarding-state && npm run test:onboarding-provider-status && npm run test:onboarding-complete-route && npm run test:companycode-rewrite-rsc",
-    "verify:local": "npm run lint && npm run build && npm test && npm audit --audit-level=moderate",
     "dev": "NODE_ENV=development node --max-old-space-size=8192 server.js",
     "build": "node scripts/run-next-build.mjs",
     "build:tracked": "sh scripts/validate_tracked_build.sh",
     "start": "NODE_ENV=production node server.js",
+    "start:permissioned": "scripts/run_permissioned_service.sh",
     "lint": "eslint && node scripts/check-openclaw-project-deps.mjs && node scripts/check-external-http-deps.mjs",
     "check:openclaw-project-deps": "node scripts/check-openclaw-project-deps.mjs",
     "check:external-http-deps": "node scripts/check-external-http-deps.mjs",
@@ -83,6 +73,8 @@
     "test:orchestration:symphony-tracker-shim": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-symphony-tracker-shim.test.ts",
     "test:orchestration:symphony-tracker-route": "node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-symphony-tracker-route.test.ts",
     "test:orchestration:runtime-registry": "ORCHESTRATION_DB_PATH=/tmp/orchestration-runtime-registry.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-runtime-registry.test.ts",
+    "test:orchestration:overseer-cockpit": "ORCHESTRATION_DB_PATH=/tmp/orchestration-overseer-cockpit.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-overseer-cockpit.test.ts",
+    "test:orchestration:overseer-context-snapshots": "ORCHESTRATION_DB_PATH=/tmp/orchestration-overseer-context-snapshots.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-overseer-context-snapshots.test.ts",
     "test:orchestration:review-decision": "ORCHESTRATION_DB_PATH=/tmp/orchestration-review-decision.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-review-decision.test.ts",
     "test:orchestration:review-routing": "ORCHESTRATION_DB_PATH=/tmp/orchestration-review-routing.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-review-routing.test.ts",
     "test:orchestration:wiki-writeback-requests": "ORCHESTRATION_DB_PATH=/tmp/orchestration-wiki-writeback-requests.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-wiki-writeback-requests.test.ts",
@@ -130,7 +122,7 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
@@ -153,7 +145,7 @@
     "url": "https://github.com/timharris707/hiverunner/issues"
   },
   "engines": {
-    "node": ">=20 <23",
+    "node": ">=22 <23",
     "npm": ">=10"
   }
 }

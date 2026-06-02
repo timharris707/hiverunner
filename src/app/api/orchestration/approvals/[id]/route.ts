@@ -12,11 +12,16 @@ import {
 import { enqueueWakeup, executeHeartbeatRun } from "@/lib/orchestration/engine/engine";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 import { materializeApprovedHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
+import { applyApprovedAgentRuntimeUpdate } from "@/lib/orchestration/service/agent-runtime-update";
 import { switchAgentProvider } from "@/lib/orchestration/service/provider-switch";
 import { triggerTaskExecution } from "@/lib/orchestration/execution";
 import { moveTask } from "@/lib/orchestration/service";
 import { resolveTaskExecutionEngine } from "@/lib/orchestration/service/shared";
 import { normalizeTaskModelLane } from "@/lib/orchestration/task-model-routing";
+import {
+  applyApprovedOverseerCompaction,
+  recordOverseerCompactionApprovalDecision,
+} from "@/lib/orchestration/overseer/service";
 
 export const dynamic = "force-dynamic";
 
@@ -256,6 +261,8 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
   });
   let providerSwitch: ReturnType<typeof switchAgentProvider> | null = null;
   let protectedRuntimeResume: Awaited<ReturnType<typeof resumeApprovedProtectedRuntimeTask>> | null = null;
+  let approvedAgentUpdate: ReturnType<typeof applyApprovedAgentRuntimeUpdate> | null = null;
+  let approvedOverseerCompaction: ReturnType<typeof applyApprovedOverseerCompaction> | null = null;
 
   if (approval.type === "hire_agent") {
     materializeApprovedHireAgent({
@@ -286,13 +293,40 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
   }
 
   if (approval.type === "protected_runtime_command") {
-    protectedRuntimeResume = await resumeApprovedProtectedRuntimeTask({
-      approvalId,
-      companyId: approval.companyId,
-      linkedTaskId: approval.linkedTaskId,
-      payload: approval.payload,
-      actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
-    });
+    const payloadAction = approval.payload.action;
+    const actionType = typeof approval.payload.actionType === "string" ? approval.payload.actionType : "";
+    const isAgentUpdateAction =
+      actionType === "update_agent" ||
+      (
+        typeof payloadAction === "object" &&
+        payloadAction !== null &&
+        !Array.isArray(payloadAction) &&
+        (payloadAction as { action?: unknown }).action === "update_agent"
+      );
+
+    if (actionType === "compact_overseer_session") {
+      approvedOverseerCompaction = applyApprovedOverseerCompaction({
+        approvalId,
+        actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
+        db,
+      });
+    } else if (isAgentUpdateAction) {
+      approvedAgentUpdate = applyApprovedAgentRuntimeUpdate({
+        companyId: approval.companyId,
+        action: payloadAction,
+        approvalId,
+        actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
+        db,
+      });
+    } else {
+      protectedRuntimeResume = await resumeApprovedProtectedRuntimeTask({
+        approvalId,
+        companyId: approval.companyId,
+        linkedTaskId: approval.linkedTaskId,
+        payload: approval.payload,
+        actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
+      });
+    }
   }
 
   // Approval feedback loop: queue wakeup for the requesting agent so they can act on the decision
@@ -326,7 +360,7 @@ async function handleApprove(approvalId: string, body: Record<string, unknown>) 
     }
   }
 
-  return NextResponse.json({ ...result, providerSwitch, protectedRuntimeResume });
+  return NextResponse.json({ ...result, providerSwitch, protectedRuntimeResume, approvedAgentUpdate, approvedOverseerCompaction });
 }
 
 function handleReject(approvalId: string, body: Record<string, unknown>) {
@@ -343,6 +377,16 @@ function handleReject(approvalId: string, body: Record<string, unknown>) {
     decidedByUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
     decisionNote: typeof body.decisionNote === "string" ? body.decisionNote : undefined,
   });
+
+  if (approval.type === "protected_runtime_command") {
+    recordOverseerCompactionApprovalDecision({
+      approvalId,
+      status: "rejected",
+      actorUserId: typeof body.decidedByUserId === "string" ? body.decidedByUserId : "operator",
+      decisionNote: typeof body.decisionNote === "string" ? body.decisionNote : undefined,
+      db,
+    });
+  }
 
   if (approval.type === "hire_agent") {
     const agentId = typeof approval.payload.agentId === "string" ? approval.payload.agentId : null;

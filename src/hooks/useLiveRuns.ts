@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
-import { fetchLiveRunsCoalesced } from "@/lib/orchestration/live-runs-cache";
 
 /* ── types ── */
 
@@ -137,10 +136,12 @@ export function useLiveRuns({ companySlug, enabled }: UseLiveRunsOptions): UseLi
     if (requestInFlightRef.current) return;
     requestInFlightRef.current = true;
     try {
-      // Coalesced so the Dock, dashboard, and task board share one in-flight
-      // live-runs request per company during boot instead of each firing its own.
-      const data = await fetchLiveRunsCoalesced(companySlug);
-      const runs: LiveRun[] = (data.runs as LiveRun[] | undefined) ?? [];
+      const res = await fetch(`/api/orchestration/engine/live-runs?company=${encodeURIComponent(companySlug)}`, {
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const runs: LiveRun[] = data.runs ?? [];
 
       // Build map by agent (most recent run per agent)
       const byAgent = new Map<string, LiveRun>();

@@ -27,6 +27,7 @@ import type {
   TaskType,
 } from "@/lib/orchestration/types";
 import { createTask } from "@/lib/orchestration/service/task";
+import { buildCompanyAccessCondition } from "@/lib/orchestration/company-access";
 import {
   readDefaultExecutionEngine,
   resolveTaskExecutionEngine,
@@ -999,7 +1000,8 @@ function commentPreviewForInboxEvent(
 
 function getCompanyRowBySlug(slug: string, ownerUserId?: string): CompanyRow | undefined {
   const db = getOrchestrationDb();
-  const ownerClause = ownerUserId ? "AND c.owner_user_id = ?" : "";
+  const access = buildCompanyAccessCondition("c", ownerUserId);
+  const accessClause = access ? `AND ${access.sql}` : "";
   // Try the canonical slug first, then fall back to a stored slug alias.
   const row = db
     .prepare(
@@ -1038,10 +1040,10 @@ function getCompanyRowBySlug(slug: string, ownerUserId?: string): CompanyRow | u
         AND t.archived_at IS NULL
         AND t.status IN ('backlog', 'to-do', 'in_progress', 'review', 'blocked')
        WHERE c.slug = ? AND c.archived_at IS NULL
-         ${ownerClause}
+         ${accessClause}
        GROUP BY c.id`
     )
-    .get(...(ownerUserId ? [slug, ownerUserId] : [slug])) as CompanyRow | undefined;
+    .get(slug, ...(access?.args ?? [])) as CompanyRow | undefined;
 
   if (row) return row;
 
@@ -1056,7 +1058,8 @@ function getCompanyRowBySlug(slug: string, ownerUserId?: string): CompanyRow | u
 
 function getCompanyRowById(companyId: string, ownerUserId?: string): CompanyRow | undefined {
   const db = getOrchestrationDb();
-  const ownerClause = ownerUserId ? "AND c.owner_user_id = ?" : "";
+  const access = buildCompanyAccessCondition("c", ownerUserId);
+  const accessClause = access ? `AND ${access.sql}` : "";
   return db
     .prepare(
       `SELECT
@@ -1094,10 +1097,10 @@ function getCompanyRowById(companyId: string, ownerUserId?: string): CompanyRow 
         AND t.archived_at IS NULL
         AND t.status IN ('backlog', 'to-do', 'in_progress', 'review', 'blocked')
        WHERE c.id = ? AND c.archived_at IS NULL
-         ${ownerClause}
+         ${accessClause}
        GROUP BY c.id`
     )
-    .get(...(ownerUserId ? [companyId, ownerUserId] : [companyId])) as CompanyRow | undefined;
+    .get(companyId, ...(access?.args ?? [])) as CompanyRow | undefined;
 }
 
 function themeFromRow(row: CompanyRow): CompanyThemeView {
@@ -1188,17 +1191,17 @@ function enqueueSprintApprovalWakeup(input: {
   sprintId: string;
   companyGoalId: string;
   now: string;
-}): "queued" | "coalesced" {
+}): { status: "queued" | "coalesced"; runId: string | null } {
   const idempotencyKey = `sprint_approval_start:${input.taskId}:${input.agentId}`;
   const existing = input.db
     .prepare(
-      `SELECT id
+      `SELECT id, run_id
        FROM agent_wakeup_requests
        WHERE idempotency_key = ?
          AND status = 'queued'
        LIMIT 1`
     )
-    .get(idempotencyKey) as { id: string } | undefined;
+    .get(idempotencyKey) as { id: string; run_id: string | null } | undefined;
 
   if (existing) {
     input.db
@@ -1209,7 +1212,7 @@ function enqueueSprintApprovalWakeup(input: {
          WHERE id = ?`
       )
       .run(input.now, existing.id);
-    return "coalesced";
+    return { status: "coalesced", runId: existing.run_id };
   }
 
   input.db
@@ -1270,7 +1273,7 @@ function enqueueSprintApprovalWakeup(input: {
       input.now
     );
 
-  return "queued";
+  return { status: "queued", runId: heartbeatRunId };
 }
 
 function enqueueSprintApprovalRootTaskWakeups(input: {
@@ -1280,8 +1283,8 @@ function enqueueSprintApprovalRootTaskWakeups(input: {
   sprintId: string;
   taskIds: string[];
   now: string;
-}): number {
-  if (input.taskIds.length === 0) return 0;
+}): { count: number; runIds: string[] } {
+  if (input.taskIds.length === 0) return { count: 0, runIds: [] };
   const placeholders = input.taskIds.map(() => "?").join(",");
   const rows = input.db
     .prepare(
@@ -1309,6 +1312,7 @@ function enqueueSprintApprovalRootTaskWakeups(input: {
     .all(...input.taskIds, input.companyId, input.sprintId) as SprintApprovalRootTaskWakeRow[];
 
   let queued = 0;
+  const runIds: string[] = [];
   for (const row of rows) {
     if (!row.assignee_agent_id) continue;
     if (row.status !== "to-do" && row.status !== "backlog") continue;
@@ -1327,10 +1331,11 @@ function enqueueSprintApprovalRootTaskWakeups(input: {
       companyGoalId: input.companyGoalId,
       now: input.now,
     });
-    if (result === "queued") queued += 1;
+    if (result.status === "queued") queued += 1;
+    if (result.runId) runIds.push(result.runId);
   }
 
-  return queued;
+  return { count: queued, runIds };
 }
 
 function mapGoalContractEvidence(row: GoalContractItemRow): OrchestrationGoalContractEvidence | null {
@@ -2240,10 +2245,10 @@ export function listCompanies(input?: {
   const includeNonProduction = input?.includeNonProduction ?? false;
   const whereParts = [includeArchived ? "1=1" : "c.archived_at IS NULL"];
   const args: unknown[] = [];
-  const ownerUserId = input?.ownerUserId?.trim();
-  if (ownerUserId) {
-    whereParts.push("c.owner_user_id = ?");
-    args.push(ownerUserId);
+  const access = buildCompanyAccessCondition("c", input?.ownerUserId);
+  if (access) {
+    whereParts.push(access.sql);
+    args.push(...access.args);
   }
 
   const rows = db
@@ -2461,20 +2466,20 @@ export function resolveCompanyIdBySlug(
   workspace_source: "openclaw" | "provisioned" | "imported" | "manual" | null;
 } | undefined {
   const includeArchived = input?.includeArchived ?? false;
-  const ownerUserId = input?.ownerUserId?.trim();
-  const archivedClause = includeArchived ? "1=1" : "archived_at IS NULL";
-  const ownerClause = ownerUserId ? "AND owner_user_id = ?" : "";
+  const archivedClause = includeArchived ? "1=1" : "c.archived_at IS NULL";
+  const access = buildCompanyAccessCondition("c", input?.ownerUserId);
+  const accessClause = access ? `AND ${access.sql}` : "";
   // Direct match on id, current slug, or stable company code.
   const direct = db
     .prepare(
-      `SELECT id, slug, company_code, name, workspace_root, workspace_source
-       , workspace_slug, runtime_slug
-       FROM companies
-       WHERE (id = ? OR slug = ? OR UPPER(company_code) = UPPER(?)) AND ${archivedClause}
-         ${ownerClause}
+      `SELECT c.id, c.slug, c.company_code, c.name, c.workspace_root, c.workspace_source,
+              c.workspace_slug, c.runtime_slug
+       FROM companies c
+       WHERE (c.id = ? OR c.slug = ? OR UPPER(c.company_code) = UPPER(?)) AND ${archivedClause}
+         ${accessClause}
        LIMIT 1`
     )
-    .get(...(ownerUserId ? [slugOrId, slugOrId, slugOrId, ownerUserId] : [slugOrId, slugOrId, slugOrId])) as {
+    .get(slugOrId, slugOrId, slugOrId, ...(access?.args ?? [])) as {
       id: string;
       slug: string;
       workspace_slug: string | null;
@@ -2494,14 +2499,14 @@ export function resolveCompanyIdBySlug(
 
   return db
     .prepare(
-      `SELECT id, slug, company_code, name, workspace_root, workspace_source
-       , workspace_slug, runtime_slug
-       FROM companies
-       WHERE id = ? AND ${archivedClause}
-         ${ownerClause}
+      `SELECT c.id, c.slug, c.company_code, c.name, c.workspace_root, c.workspace_source,
+              c.workspace_slug, c.runtime_slug
+       FROM companies c
+       WHERE c.id = ? AND ${archivedClause}
+         ${accessClause}
        LIMIT 1`
     )
-    .get(...(ownerUserId ? [alias.company_id, ownerUserId] : [alias.company_id])) as {
+    .get(alias.company_id, ...(access?.args ?? [])) as {
       id: string;
       slug: string;
       workspace_slug: string | null;
@@ -5220,6 +5225,7 @@ export function approveSprintPlanDraft(input: {
   draft: OrchestrationSprintPlanDraft;
   sprint: OrchestrationCompanyGoal;
   taskIds: string[];
+  sprintStartRunIds?: string[];
   assigneeResolutionFailures?: Array<{ taskId: string; title: string; assignee: string }>;
 } {
   const db = getOrchestrationDb();
@@ -5435,7 +5441,7 @@ export function approveSprintPlanDraft(input: {
       .run(JSON.stringify(resolvedDependsOn), now, createdTaskId);
   }
 
-  const sprintStartWakeCount = enqueueSprintApprovalRootTaskWakeups({
+  const sprintStartWakeups = enqueueSprintApprovalRootTaskWakeups({
     db,
     companyId: companyRow.id,
     companyGoalId: parent.id,
@@ -5463,7 +5469,8 @@ export function approveSprintPlanDraft(input: {
         filledPrecreatedSprint: Boolean(precreatedSprint),
         sequenceNumber: row.sequence_number,
         taskCount: taskIds.length,
-        sprintStartWakeCount,
+        sprintStartWakeCount: sprintStartWakeups.count,
+        sprintStartRunCount: sprintStartWakeups.runIds.length,
       },
       now,
     });
@@ -5498,6 +5505,7 @@ export function approveSprintPlanDraft(input: {
     draft: sprintPlanDraftFromRow(updated),
     sprint: created,
     taskIds,
+    sprintStartRunIds: sprintStartWakeups.runIds,
     ...(assigneeResolutionFailures.length > 0 ? { assigneeResolutionFailures } : {}),
   };
 }
@@ -5513,6 +5521,7 @@ export function approveSprintPlanDraftGroup(input: {
   sprints: OrchestrationCompanyGoal[];
   sprint?: OrchestrationCompanyGoal;
   taskIds: string[];
+  sprintStartRunIds?: string[];
   assigneeResolutionFailures?: Array<{ taskId: string; title: string; assignee: string }>;
 } {
   const db = getOrchestrationDb();
@@ -5546,6 +5555,7 @@ export function approveSprintPlanDraftGroup(input: {
     const approvedDrafts: OrchestrationSprintPlanDraft[] = [];
     const approvedSprints: OrchestrationCompanyGoal[] = [];
     const taskIds: string[] = [];
+    const sprintStartRunIds: string[] = [];
     const assigneeResolutionFailures: Array<{ taskId: string; title: string; assignee: string }> = [];
     for (const row of rows) {
       const result = approveSprintPlanDraft({
@@ -5557,6 +5567,7 @@ export function approveSprintPlanDraftGroup(input: {
       approvedDrafts.push(result.draft);
       approvedSprints.push(result.sprint);
       taskIds.push(...result.taskIds);
+      if (result.sprintStartRunIds?.length) sprintStartRunIds.push(...result.sprintStartRunIds);
       if (result.assigneeResolutionFailures?.length) {
         assigneeResolutionFailures.push(...result.assigneeResolutionFailures);
       }
@@ -5567,6 +5578,7 @@ export function approveSprintPlanDraftGroup(input: {
       sprints: approvedSprints,
       sprint: approvedSprints[0],
       taskIds,
+      sprintStartRunIds,
       ...(assigneeResolutionFailures.length > 0 ? { assigneeResolutionFailures } : {}),
     };
   });

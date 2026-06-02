@@ -76,6 +76,31 @@ type DevExecutionTestModeView = {
   defaultDurationMinutes: number;
   maxDurationMinutes: number;
 };
+type OverseerSettingsView = {
+  ready: boolean;
+  codex: {
+    installed: boolean;
+    authReady: boolean;
+    authMode: string;
+    version: string | null;
+    loginStatus: string;
+  };
+  workspace: {
+    root: string | null;
+    exists: boolean;
+    writable: boolean;
+    source: string;
+  };
+  quota: {
+    status: "available" | "unavailable";
+    reason?: string;
+  };
+  settings: {
+    enabled: boolean;
+    approvalMode: "writes" | "manual";
+    sandboxMode: "read-only";
+  };
+};
 
 function textSetting(value: unknown, fallback = "Not configured"): string {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
@@ -123,6 +148,7 @@ export default function CompanySettingsPage() {
   const [hbSettings, setHbSettings] = useState<HbSettings | null>(null);
   const [symphonySettings, setSymphonySettings] = useState<SymphonySettingsView | null>(null);
   const [devExecutionTestMode, setDevExecutionTestMode] = useState<DevExecutionTestModeView | null>(null);
+  const [overseerSettings, setOverseerSettings] = useState<OverseerSettingsView | null>(null);
   const [executionHives, setExecutionHives] = useState<CompanyExecutionHivesPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -171,7 +197,7 @@ export default function CompanySettingsPage() {
     const load = async () => {
       setLoading(true);
       try {
-        const [companies, execResp, hbResp, hiringResp, runtimeGovernanceResp, symphonySettingsResp, devExecutionResp, hivesResp] = await Promise.all([
+        const [companies, execResp, hbResp, hiringResp, runtimeGovernanceResp, symphonySettingsResp, devExecutionResp, overseerResp, hivesResp] = await Promise.all([
           listCompanies(),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/execution`).then((r) => r.ok ? r.json() : null),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/heartbeats`).then((r) => r.ok ? r.json() : null),
@@ -179,6 +205,7 @@ export default function CompanySettingsPage() {
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/runtime-governance`).then((r) => r.ok ? r.json() : null),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/symphony`).then((r) => r.ok ? r.json() : null),
           fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/dev-execution-test-mode`).then((r) => r.ok ? r.json() : null),
+          fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/settings/overseer`).then((r) => r.ok ? r.json() : null),
           getCompanyExecutionHives(slug),
         ]);
         if (cancelled) return;
@@ -193,6 +220,7 @@ export default function CompanySettingsPage() {
         );
         setSymphonySettings(symphonySettingsResp as SymphonySettingsView | null);
         setDevExecutionTestMode(devExecutionResp as DevExecutionTestModeView | null);
+        setOverseerSettings(overseerResp as OverseerSettingsView | null);
         setExecutionHives(hivesResp);
         if (c) {
           setName(c.name);
@@ -555,6 +583,46 @@ export default function CompanySettingsPage() {
               />
             </div>
           </Section>
+
+          {/* ── OVERSEER ── */}
+          {overseerSettings ? (
+            <Section
+              title="Overseer Setup"
+              trailing={<Badge label={overseerSettings.ready ? "Ready" : "Setup"} tone={overseerSettings.ready ? "positive" : "warning"} />}
+            >
+              <div style={{ display: "grid", gap: 10 }}>
+                <PropRow label="Codex CLI">
+                  <span style={{ fontSize: 13, color: P.textSec }}>
+                    {overseerSettings.codex.installed ? overseerSettings.codex.version ?? "Installed" : "Not installed"}
+                  </span>
+                </PropRow>
+                <PropRow label="ChatGPT auth">
+                  <span style={{ fontSize: 13, color: P.textSec }}>
+                    {overseerSettings.codex.authReady ? overseerSettings.codex.loginStatus : "Login required"}
+                  </span>
+                </PropRow>
+                <PropRow label="Workspace">
+                  <span style={{ fontSize: 12, color: P.textSec, fontFamily: "var(--font-mono, monospace)", overflowWrap: "anywhere" }}>
+                    {overseerSettings.workspace.root ?? "Not configured"}
+                  </span>
+                </PropRow>
+                <PropRow label="Approval gate">
+                  <span style={{ fontSize: 13, color: P.textSec }}>
+                    {overseerSettings.settings.approvalMode === "writes" ? "State-changing actions require approval" : "Manual approval mode"}
+                  </span>
+                </PropRow>
+                <PropRow label="Quota">
+                  <span style={{ fontSize: 13, color: P.textSec }}>
+                    {overseerSettings.quota.status === "available" ? "Available" : overseerSettings.quota.reason ?? "Best effort"}
+                  </span>
+                </PropRow>
+              </div>
+              <div style={{ display: "flex", gap: space.sm, marginTop: space.md, flexWrap: "wrap" }}>
+                <ActionButton label="Open Overseer" href={buildCanonicalCompanyPath(companyCode, "/overseer")} />
+                <ActionButton label="Model setup" href={buildCanonicalCompanyPath(companyCode, "/settings/models")} variant="ghost" />
+              </div>
+            </Section>
+          ) : null}
 
           {/* ── COMPANY PACKAGES ── */}
           <Section title="Company Packages">

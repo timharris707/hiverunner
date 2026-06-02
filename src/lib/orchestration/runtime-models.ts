@@ -3,6 +3,9 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
+import type { AvailableModel, AvailableModelProvider } from "@/lib/orchestration/available-models";
+import { listAvailableModels } from "@/lib/orchestration/service/available-models";
+
 export type RuntimeModel = {
   id: string;
   label: string;
@@ -58,7 +61,10 @@ function cached(key: string, discover: () => RuntimeModelsResult): RuntimeModels
 
 function claudeModels(): RuntimeModel[] {
   return [
-    { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic", default: true },
+    { id: "anthropic/claude-sonnet-4-8", label: "Claude Sonnet 4.8", provider: "anthropic", default: true },
+    { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8", provider: "anthropic" },
+    { id: "anthropic/claude-haiku-4-8", label: "Claude Haiku 4.8", provider: "anthropic" },
+    { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic" },
     { id: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7", provider: "anthropic" },
     { id: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" },
     { id: "anthropic/claude-opus-4-6", label: "Claude Opus 4.6", provider: "anthropic" },
@@ -88,6 +94,131 @@ function geminiModels(): RuntimeModel[] {
   ];
 }
 
+function runtimeCatalogProvider(provider: string): AvailableModelProvider | null {
+  switch (provider) {
+    case "anthropic":
+      return "anthropic";
+    case "codex":
+      return "openai";
+    case "gemini":
+      return "google";
+    default:
+      return null;
+  }
+}
+
+function runtimeModelProvider(provider: AvailableModelProvider): string {
+  switch (provider) {
+    case "openai":
+      return "openai-codex";
+    case "google":
+      return "google";
+    default:
+      return provider;
+  }
+}
+
+function stripRuntimeModelPrefix(id: string, provider: AvailableModelProvider): string {
+  switch (provider) {
+    case "anthropic":
+      return id.replace(/^anthropic\//i, "").trim();
+    case "openai":
+      return id
+        .replace(/^openai-codex\//i, "")
+        .replace(/^openai\//i, "")
+        .replace(/^codex\//i, "")
+        .trim();
+    case "google":
+      return id
+        .replace(/^google\//i, "")
+        .replace(/^gemini\//i, "gemini-")
+        .replace(/^models\//i, "")
+        .trim();
+    default:
+      return id.trim();
+  }
+}
+
+function runtimeModelIdForCatalogModel(model: AvailableModel): string {
+  const id = stripRuntimeModelPrefix(model.id, model.runtimeProvider);
+  switch (model.runtimeProvider) {
+    case "anthropic":
+      return id ? `anthropic/${id}` : model.id;
+    case "openai":
+      return id ? `openai-codex/${id}` : model.id;
+    case "google":
+      return id ? `google/${id}` : model.id;
+    default:
+      return model.id;
+  }
+}
+
+function canonicalRuntimeModelId(id: string): string {
+  return id
+    .trim()
+    .toLowerCase()
+    .replace(/^anthropic\//, "")
+    .replace(/^openai-codex\//, "")
+    .replace(/^openai\//, "")
+    .replace(/^codex\//, "")
+    .replace(/^google\//, "")
+    .replace(/^gemini\//, "gemini-")
+    .replace(/^models\//, "");
+}
+
+function mergeCatalogWithFallback(
+  catalogModels: RuntimeModel[],
+  fallback: RuntimeModel[],
+  suppressedFallbackIds = new Set<string>(),
+): RuntimeModel[] {
+  if (catalogModels.length === 0) return fallback;
+  const seen = new Set<string>();
+  const merged: RuntimeModel[] = [];
+  const fallbackDefaultId = fallback.find((model) => model.default)?.id;
+  const fallbackDefaultCanonical = fallbackDefaultId ? canonicalRuntimeModelId(fallbackDefaultId) : "";
+
+  for (const model of [...catalogModels, ...fallback]) {
+    const canonical = canonicalRuntimeModelId(model.id);
+    if (!canonical || seen.has(canonical)) continue;
+    if (suppressedFallbackIds.has(canonical) && !catalogModels.includes(model)) continue;
+    seen.add(canonical);
+    merged.push({ ...model, default: Boolean(fallbackDefaultCanonical && canonical === fallbackDefaultCanonical) });
+  }
+
+  if (!merged.some((model) => model.default) && merged[0]) {
+    return [{ ...merged[0], default: true }, ...merged.slice(1)];
+  }
+  return merged;
+}
+
+function catalogRuntimeModels(provider: string, fallback: RuntimeModel[]): RuntimeModel[] {
+  const catalogProvider = runtimeCatalogProvider(provider);
+  if (!catalogProvider) return fallback;
+
+  try {
+    const catalogRows = listAvailableModels({ provider: catalogProvider, includeInactive: true });
+    const inactiveCatalogIds = new Set(
+      catalogRows
+        .filter((model) => !model.isActive)
+        .map((model) => canonicalRuntimeModelId(runtimeModelIdForCatalogModel(model))),
+    );
+    const models = catalogRows
+      .filter((model) => model.isActive)
+      .map((model): RuntimeModel => ({
+        id: runtimeModelIdForCatalogModel(model),
+        label: model.displayName,
+        provider: runtimeModelProvider(model.runtimeProvider),
+      }));
+    return mergeCatalogWithFallback(models, fallback, inactiveCatalogIds);
+  } catch (error) {
+    console.warn("[runtime-models] catalog lookup failed; using static fallback", {
+      provider,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return fallback;
+  }
+}
+
 function parseOpenClawModelCatalog(raw: string): RuntimeModel[] {
   const parsed = JSON.parse(raw) as unknown;
   const rows = Array.isArray(parsed)
@@ -103,16 +234,24 @@ function parseOpenClawModelCatalog(raw: string): RuntimeModel[] {
       ? record.value.trim()
       : typeof record.id === "string"
         ? record.id.trim()
-        : "";
+        : typeof record.key === "string"
+          ? record.key.trim()
+          : "";
     if (!id) return [];
     const label = typeof record.label === "string" && record.label.trim()
       ? record.label.trim()
-      : id;
+      : typeof record.name === "string" && record.name.trim()
+        ? record.name.trim()
+        : id;
     const provider = typeof record.provider === "string" && record.provider.trim()
       ? record.provider.trim()
       : id.split("/")[0] || undefined;
     const tags = Array.isArray(record.tags) ? record.tags.map(String) : [];
-    const option: RuntimeModel = { id, label, default: tags.includes("default") };
+    const option: RuntimeModel = {
+      id,
+      label,
+      default: tags.includes("default") || record.default === true,
+    };
     if (provider) option.provider = provider;
     return [option];
   });
@@ -226,14 +365,17 @@ export function discoverRuntimeModels(input: {
   const command = commandForProvider(provider, input.command, input.commandPath);
   const cacheKey = `${provider}:${command}`;
 
+  switch (provider) {
+    case "anthropic":
+      return { models: catalogRuntimeModels(provider, claudeModels()), supported: true };
+    case "codex":
+      return { models: catalogRuntimeModels(provider, codexModels()), supported: true };
+    case "gemini":
+      return { models: catalogRuntimeModels(provider, geminiModels()), supported: true };
+  }
+
   return cached(cacheKey, () => {
     switch (provider) {
-      case "anthropic":
-        return { models: claudeModels(), supported: true };
-      case "codex":
-        return { models: codexModels(), supported: true };
-      case "gemini":
-        return { models: geminiModels(), supported: true };
       case "hermes":
         return { models: withFallback(acpModels(command, input.env), [...claudeModels(), ...codexModels(), ...geminiModels()]), supported: true };
       case "symphony":

@@ -16,6 +16,9 @@ const nextConfig = {
   // ws/bufferutil/utf-8-validate: required for WebSocket gateway bridge;
   //   without this, webpack dev mode fails with "bufferUtil.mask is not a function".
   serverExternalPackages: ["better-sqlite3", "ws", "bufferutil", "utf-8-validate"],
+  experimental: {
+    webpackMemoryOptimizations: true,
+  },
   webpack: (config, { dev }) => {
     // In dev mode, the Fast Refresh watcher was treating SQLite WAL/SHM files
     // as source changes — every orchestration API call writes to

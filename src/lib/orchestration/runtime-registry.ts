@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
-import { spawnSync } from "child_process";
+import { spawn, spawnSync } from "child_process";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -99,6 +99,10 @@ export type RuntimeDependencyReadiness = {
   command: string | null;
   commandPath: string | null;
   version: string | null;
+  versionLatest?: boolean | null;
+  latestVersion?: string | null;
+  versionCheckSource?: string | null;
+  versionCheckDetail?: string | null;
   authReady: boolean | null;
   envVars: string[];
   note: string;
@@ -119,6 +123,19 @@ export type RuntimeCliUpdateResult = {
   output: string;
   error: string | null;
 };
+
+export type RuntimeCliUpdateJobPhase = "queued" | "running" | "succeeded" | "failed";
+
+export type RuntimeCliUpdateJob = RuntimeCliUpdateResult & {
+  jobId: string;
+  phase: RuntimeCliUpdateJobPhase;
+  startedAt: string;
+  completedAt: string | null;
+  finished: boolean;
+};
+
+const runtimeCliUpdateJobs = new Map<string, RuntimeCliUpdateJob>();
+const activeRuntimeCliUpdateJobsByProvider = new Map<string, string>();
 
 type AgentRuntimeRow = {
   id: string;
@@ -711,6 +728,47 @@ function boundedOutput(value: string, maxChars = 12_000): string {
   return value.length > maxChars ? `${value.slice(0, maxChars)}\n...[truncated]` : value;
 }
 
+function cloneRuntimeCliUpdateJob(job: RuntimeCliUpdateJob): RuntimeCliUpdateJob {
+  return {
+    ...job,
+    args: [...job.args],
+  };
+}
+
+function createRuntimeCliUpdateJob(input: {
+  provider: string;
+  packageName: string | null;
+  command: string;
+  args: string[];
+  latestVersion: string | null;
+  beforeVersion: string | null;
+  error?: string | null;
+  phase?: RuntimeCliUpdateJobPhase;
+  finished?: boolean;
+}): RuntimeCliUpdateJob {
+  const phase = input.phase ?? "running";
+  const finished = input.finished ?? (phase === "failed" || phase === "succeeded");
+  return {
+    provider: input.provider,
+    packageName: input.packageName,
+    command: input.command,
+    args: [...input.args],
+    ok: phase === "succeeded",
+    status: null,
+    currentVersion: input.beforeVersion,
+    latestVersion: input.latestVersion,
+    beforeVersion: input.beforeVersion,
+    afterVersion: null,
+    output: "",
+    error: input.error ?? null,
+    jobId: randomUUID(),
+    phase,
+    startedAt: new Date().toISOString(),
+    completedAt: finished ? new Date().toISOString() : null,
+    finished,
+  };
+}
+
 export function updateLocalRuntimeCli(
   providerValue: string,
   env: NodeJS.ProcessEnv = process.env,
@@ -772,6 +830,134 @@ export function updateLocalRuntimeCli(
     output,
     error,
   };
+}
+
+export function getLocalRuntimeCliUpdateJob(jobId: string): RuntimeCliUpdateJob | null {
+  const job = runtimeCliUpdateJobs.get(jobId);
+  return job ? cloneRuntimeCliUpdateJob(job) : null;
+}
+
+export function getLocalRuntimeCliUpdateJobForProvider(
+  providerValue: string,
+): RuntimeCliUpdateJob | null {
+  const provider = normalizeProvider(providerValue);
+  const jobId = activeRuntimeCliUpdateJobsByProvider.get(provider);
+  if (!jobId) return null;
+  const job = runtimeCliUpdateJobs.get(jobId);
+  return job ? cloneRuntimeCliUpdateJob(job) : null;
+}
+
+export function startLocalRuntimeCliUpdate(
+  providerValue: string,
+  env: NodeJS.ProcessEnv = process.env,
+): RuntimeCliUpdateJob {
+  const provider = normalizeProvider(providerValue);
+  const activeJob = getLocalRuntimeCliUpdateJobForProvider(provider);
+  if (activeJob && !activeJob.finished) return activeJob;
+
+  const packageName = packageNameForProvider(provider);
+  const latest = readLatestVersion(provider, env);
+  const command = "npm";
+  const args = packageName ? ["install", "-g", `${packageName}@latest`] : [];
+  const probe = LOCAL_RUNTIME_PROBES.find((candidate) => candidate.provider === provider);
+  const commandPath = probe ? resolveExecutablePath(probe.command, env) : null;
+  const before = commandPath && probe ? readVersion(commandPath, probe.versionArgs, env).version ?? null : null;
+
+  if (!packageName) {
+    const job = createRuntimeCliUpdateJob({
+      provider,
+      packageName: null,
+      command,
+      args,
+      latestVersion: latest.latestVersion,
+      beforeVersion: before,
+      error: "No npm package update strategy is configured for this runtime.",
+      phase: "failed",
+      finished: true,
+    });
+    runtimeCliUpdateJobs.set(job.jobId, job);
+    return cloneRuntimeCliUpdateJob(job);
+  }
+
+  const job = createRuntimeCliUpdateJob({
+    provider,
+    packageName,
+    command,
+    args,
+    latestVersion: latest.latestVersion,
+    beforeVersion: before,
+  });
+  runtimeCliUpdateJobs.set(job.jobId, job);
+  activeRuntimeCliUpdateJobsByProvider.set(provider, job.jobId);
+
+  let output = "";
+  let settled = false;
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const finish = (patch: Partial<RuntimeCliUpdateJob>) => {
+    if (settled) return;
+    settled = true;
+    if (timeout) clearTimeout(timeout);
+    const nextCommandPath = probe ? resolveExecutablePath(probe.command, env) : commandPath;
+    const after = nextCommandPath && probe ? readVersion(nextCommandPath, probe.versionArgs, env).version ?? null : null;
+    const phase = patch.phase ?? (patch.ok ? "succeeded" : "failed");
+    const updated: RuntimeCliUpdateJob = {
+      ...job,
+      ...patch,
+      phase,
+      ok: phase === "succeeded",
+      currentVersion: after ?? before,
+      afterVersion: after,
+      output: boundedOutput(output.trim()),
+      completedAt: new Date().toISOString(),
+      finished: true,
+    };
+    runtimeCliUpdateJobs.set(job.jobId, updated);
+    activeRuntimeCliUpdateJobsByProvider.delete(provider);
+    versionCheckCache.clear();
+  };
+
+  const child = spawn(command, args, {
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  const collect = (chunk: Buffer | string) => {
+    output = boundedOutput(`${output}${chunk.toString()}`);
+  };
+  child.stdout?.on("data", collect);
+  child.stderr?.on("data", collect);
+  child.once("error", (error) => {
+    finish({
+      phase: "failed",
+      status: null,
+      error: error.message,
+    });
+  });
+  child.once("close", (code, signal) => {
+    const ok = code === 0 && !signal;
+    finish({
+      phase: ok ? "succeeded" : "failed",
+      status: typeof code === "number" ? code : null,
+      error: ok
+        ? null
+        : signal
+          ? `npm terminated by signal ${signal}`
+          : `npm exited with status ${code ?? "unknown"}`,
+    });
+  });
+
+  timeout = setTimeout(() => {
+    try {
+      child.kill("SIGTERM");
+    } catch {}
+    finish({
+      phase: "failed",
+      status: null,
+      error: "npm install timed out after 5 minutes",
+    });
+  }, 5 * 60 * 1000);
+
+  return cloneRuntimeCliUpdateJob(job);
 }
 
 function selfReportedVersionFreshness(
@@ -949,12 +1135,21 @@ export function listRuntimeDependencyReadiness(
     const commandPath = command ? resolveExecutablePath(command, env) : null;
     const envConfigured = anyEnvConfigured(dependency.envVars ?? [], env);
     let version: string | null = null;
+    let rawVersionOutput: string | null = null;
+    let versionFreshness: VersionFreshness = {
+      versionLatest: null,
+      latestVersion: null,
+      versionCheckSource: null,
+      versionCheckDetail: commandPath ? "Run a full scan to check CLI freshness" : null,
+    };
     let authReady: boolean | null = null;
     let status: RuntimeDependencyStatus = commandPath || envConfigured ? "ready" : "missing_optional";
 
     if (commandPath && !input.fast) {
       const versionProbe = readVersion(commandPath, catalogVersionArgs(command ?? ""), env);
       version = versionProbe.version ?? null;
+      rawVersionOutput = versionProbe.rawOutput ?? null;
+      versionFreshness = checkVersionFreshness(dependency.provider, version, rawVersionOutput, env);
       const auth = authReadiness(dependency.provider, commandPath, env);
       authReady = auth.ready;
       if (auth.ready === false) status = "needs_login";
@@ -976,6 +1171,10 @@ export function listRuntimeDependencyReadiness(
       command,
       commandPath,
       version,
+      versionLatest: versionFreshness.versionLatest,
+      latestVersion: versionFreshness.latestVersion,
+      versionCheckSource: versionFreshness.versionCheckSource,
+      versionCheckDetail: versionFreshness.versionCheckDetail,
       authReady,
       envVars: dependency.envVars ?? [],
       note: dependency.note,

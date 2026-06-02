@@ -488,6 +488,26 @@ async function run() {
     assert.equal(response.headers.get("x-middleware-rewrite"), "http://localhost:3010/companies/insight/dashboard");
   });
 
+  await test("allows internal company-code rewrites to render without legacy redirect loop", async () => {
+    setNodeEnv("development");
+    process.env.MC_REQUIRE_LOCAL_DEV_AUTH = "0";
+
+    const request = new NextRequest("http://localhost:3010/companies/insight/dashboard", {
+      headers: {
+        host: "localhost:3010",
+        "x-mc-canonical-rewrite": "1",
+      },
+    });
+
+    const response = await middleware(request, async () => {
+      throw new Error("Explicit local-dev bypass should not need Supabase");
+    });
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("location"), null);
+    assert.equal(response.headers.get("x-middleware-next"), "1");
+  });
+
   if (originalNodeEnv === undefined) {
     Reflect.deleteProperty(process.env, "NODE_ENV");
   } else {

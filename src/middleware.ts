@@ -4,6 +4,7 @@ import { validateCsrfRequest } from "@/lib/auth/csrf";
 import { getAuthMode } from "@/lib/auth/auth-mode";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { apiLog, securityLog } from "@/lib/observability/logging";
+import { selectDefaultCompanyCode } from "@/lib/orchestration/default-company";
 import { EDGE_ROUTE_MAPS_FALLBACK, withEdgeRouteMapFallback } from "@/lib/orchestration/edge-route-maps";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { updateSession } from "@/lib/supabase/middleware";
@@ -17,7 +18,7 @@ const APP_ROOT_PREFIXES = new Set([
 ]);
 
 const COMPANY_SUB_PATHS = new Set([
-  "dashboard", "inbox", "team", "org", "skills", "costs",
+  "dashboard", "inbox", "overseer", "team", "org", "skills", "costs",
   "activity", "files", "settings", "projects", "goals", "agents", "routines", "tasks", "approvals", "runtimes", "runtime-inventory", "hives",
   "export", "import", "manage-projects", "memory",
 ]);
@@ -100,30 +101,8 @@ function isEdgeRouteMapsPayload(value: unknown): value is EdgeRouteMaps {
   );
 }
 
-function normalizeCompanyCode(value: string | undefined | null): string {
-  return value?.trim().toUpperCase() ?? "";
-}
-
 export function getRootRedirectCompanyCode(routeMaps: EdgeRouteMaps, env: NodeJS.ProcessEnv = process.env): string {
-  const actualCodes: string[] = [];
-  for (const code of routeMaps.actualCompanyCodes ?? []) {
-    const normalized = code.trim().toUpperCase();
-    if (normalized && routeMaps.companyCodeToSlug[normalized]) {
-      actualCodes.push(normalized);
-    }
-  }
-
-  const configuredDefault = normalizeCompanyCode(env.MC_DEFAULT_COMPANY_CODE);
-  if (configuredDefault && actualCodes.includes(configuredDefault)) return configuredDefault;
-  if (actualCodes.includes("HIVE")) return "HIVE";
-  if (actualCodes.includes("INS")) return "INS";
-  if (actualCodes.length > 0) return actualCodes[0];
-
-  const fallbackCodes = Object.keys(routeMaps.companyCodeToSlug);
-  if (configuredDefault && routeMaps.companyCodeToSlug[configuredDefault]) return configuredDefault;
-  if (routeMaps.companyCodeToSlug.HIVE) return "HIVE";
-  if (routeMaps.companyCodeToSlug.INS) return "INS";
-  return fallbackCodes[0] ?? "HIVE";
+  return selectDefaultCompanyCode(routeMaps.actualCompanyCodes ?? [], routeMaps.companyCodeToSlug, env);
 }
 
 function shouldResolveEdgeRouteMaps(pathname: string): boolean {
@@ -317,18 +296,6 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   const companyCode = routeMaps.companySlugToCode[companySlug];
   if (!companyCode) return null;
 
-  // The canonical visible URL for a company is /{CODE}/...; tryCanonicalRewrite
-  // rewrites that onto this physical /companies/{canonicalSlug}/... route. Next
-  // re-runs middleware on that internal rewrite target, so if we redirected the
-  // canonical slug back to /{CODE}/... it would be rewritten straight here again
-  // — an infinite rewrite<->redirect loop that breaks ALL company navigation
-  // (the two-click / ERR_TOO_MANY_REDIRECTS bug). Only NON-canonical legacy
-  // alias slugs should redirect to the code form; the canonical slug renders.
-  const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
-  if (canonicalSlugForCode && canonicalSlugForCode === companySlug) {
-    return null;
-  }
-
   const rest = match[2] || "";
   const qs = new URLSearchParams(searchParams);
 
@@ -337,10 +304,14 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
   }
 
   if (!rest || rest === "/") {
-    // Non-canonical alias slug at the company root → redirect to the canonical code URL.
-    const url = new URL(`/${companyCode}/dashboard`, origin);
-    copyQuery(url, qs);
-    return url;
+    // Preserve canonical /companies/{slug} detail routes, but redirect known legacy aliases.
+    const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
+    if (canonicalSlugForCode && canonicalSlugForCode !== companySlug) {
+      const url = new URL(`/${companyCode}/dashboard`, origin);
+      copyQuery(url, qs);
+      return url;
+    }
+    return null;
   }
 
   const projectMatch = rest.match(/^\/projects\/([^/]+)(\/.*)?$/);
@@ -412,28 +383,25 @@ const INTERNAL_API_PREFIXES = [
   "/api/logs/",
   "/api/notifications",
   "/api/office",
-  "/api/files",
   "/api/memory/",
   "/api/search",
   "/api/sessions",
-  "/api/skills",
   "/api/reliability",
   "/api/reports",
   "/api/costs",
   "/api/analytics",
   "/api/dashboard/",
   "/api/activities",
-  "/api/tasks",
-  "/api/browse",
   "/api/git",
-  "/api/media/",
-  "/api/settings",
   "/api/admin/",
   "/api/orchestration/",
 ];
 
 const LOCAL_SINGLE_USER_SENSITIVE_API_PREFIXES = [
   "/api/files",
+  "/api/browse",
+  "/api/media",
+  "/api/skills",
   "/api/terminal",
   "/api/settings",
   "/api/tasks",
@@ -441,6 +409,8 @@ const LOCAL_SINGLE_USER_SENSITIVE_API_PREFIXES = [
   "/api/search",
   "/api/sessions",
 ];
+
+const CANONICAL_REWRITE_REQUEST_HEADER = "x-mc-canonical-rewrite";
 
 type OrchestrationAuthDecisionInput = {
   expectedApiKey?: string | null;
@@ -544,6 +514,16 @@ function getRequestHost(request: NextRequest): string {
 
 type SessionLoader = typeof updateSession;
 
+function canonicalRewriteResponse(request: NextRequest, rewriteTarget: URL): NextResponse {
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set(CANONICAL_REWRITE_REQUEST_HEADER, "1");
+  return NextResponse.rewrite(rewriteTarget, {
+    request: {
+      headers: requestHeaders,
+    },
+  });
+}
+
 export async function middleware(request: NextRequest, sessionLoaderOrEvent: SessionLoader | unknown = updateSession) {
   const sessionLoader: SessionLoader = typeof sessionLoaderOrEvent === "function"
     ? sessionLoaderOrEvent as SessionLoader
@@ -552,6 +532,7 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
   const host = getRequestHost(request);
   const hasLocalDevBypass = canBypassLocalDevAuth(host);
   const hasLocalDevSession = hasLocalDevSessionCookie(request, host);
+  const isCanonicalRewriteRequest = request.headers.get(CANONICAL_REWRITE_REQUEST_HEADER) === "1";
   let pendingRewriteTarget: URL | null = null;
   let pendingLegacyRedirectTarget: URL | null = null;
   const requestId = request.headers.get("x-request-id")?.trim() || crypto.randomUUID();
@@ -616,7 +597,7 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
   }
 
   if (!pathname.startsWith("/api/") && !pathname.startsWith("/_next/")) {
-    const origin = request.nextUrl.origin;
+    const origin = `${request.nextUrl.protocol || "http:"}//${host}`;
     const needsRouteMaps = shouldResolveEdgeRouteMaps(pathname);
     let fetchedRouteMapsForRequest = false;
     let routeMaps = EDGE_ROUTE_MAPS_FALLBACK;
@@ -657,12 +638,12 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
     const rewriteTarget = tryCanonicalRewrite(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (rewriteTarget) {
       if (hasLocalDevBypass) {
-        return finalize(NextResponse.rewrite(rewriteTarget));
+        return finalize(canonicalRewriteResponse(request, rewriteTarget));
       }
       pendingRewriteTarget = rewriteTarget;
     }
 
-    const legacyTarget = pendingRewriteTarget
+    const legacyTarget = pendingRewriteTarget || isCanonicalRewriteRequest
       ? null
       : tryLegacyRedirect(pathname, request.nextUrl.searchParams, origin, routeMaps);
     if (legacyTarget) {
@@ -685,7 +666,7 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
       return finalize(NextResponse.redirect(pendingLegacyRedirectTarget, 308));
     }
     if (pendingRewriteTarget) {
-      return finalize(NextResponse.rewrite(pendingRewriteTarget));
+      return finalize(canonicalRewriteResponse(request, pendingRewriteTarget));
     }
     return finalize(NextResponse.next());
   }
@@ -798,6 +779,14 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
     ));
   }
 
+  if (
+    pathname.startsWith("/api/")
+    && getAuthMode() === "local-single-user"
+    && isLoopbackHost(host)
+  ) {
+    return finalize(NextResponse.next());
+  }
+
   // Allow internal API routes through (they handle their own auth if needed)
   if (INTERNAL_API_PREFIXES.some((prefix) => pathname.startsWith(prefix))) {
     return finalize(NextResponse.next());
@@ -822,7 +811,7 @@ export async function middleware(request: NextRequest, sessionLoaderOrEvent: Ses
     }
 
     if (pendingRewriteTarget) {
-      const rewriteResponse = NextResponse.rewrite(pendingRewriteTarget);
+      const rewriteResponse = canonicalRewriteResponse(request, pendingRewriteTarget);
       supabaseResponse.headers.forEach((value, key) => {
         if (key.toLowerCase().startsWith("x-middleware-")) return;
         rewriteResponse.headers.set(key, value);

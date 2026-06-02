@@ -74,93 +74,10 @@ async function run() {
   const { POST: createFullRoute } = await import("@/app/api/orchestration/companies/create-full/route");
   const { provisionSelectedStarterAgentsForCreateFull } = await import("@/lib/orchestration/create-full-starter-team-provisioning");
   const { closeOrchestrationDb, getOrchestrationDb } = await import("@/lib/orchestration/db");
-  const { listTasks } = await import("@/lib/orchestration/service/task");
   const {
     STARTER_TEAM_WORK_TYPE_IDS,
     buildStarterTeamSetupPayload,
   } = await import("@/lib/orchestration/starter-team-templates");
-
-  function assertLaunchGoalAndPlanningTask(input: {
-    projectId: string;
-    leadAgentId: string;
-    expectedGoalTitle: string;
-    expectedGoalDescription: string;
-  }) {
-    const db = getOrchestrationDb();
-    const goalRow = db
-      .prepare(
-        `SELECT id, goal_key, name, goal, goal_kind, status, lead_agent_id, default_execution_engine, default_model_lane
-         FROM sprints
-         WHERE project_id = ?
-           AND goal_kind = 'company'
-           AND name = ?
-         ORDER BY created_at DESC
-         LIMIT 1`,
-      )
-      .get(input.projectId, input.expectedGoalTitle) as
-      | {
-          id: string;
-          goal_key: string | null;
-          name: string;
-          goal: string;
-          goal_kind: string;
-          status: string;
-          lead_agent_id: string | null;
-          default_execution_engine: string | null;
-          default_model_lane: string | null;
-        }
-      | undefined;
-
-    assert.ok(goalRow, `Expected company goal "${input.expectedGoalTitle}" to exist`);
-    assert.strictEqual(goalRow.name, input.expectedGoalTitle);
-    assert.strictEqual(goalRow.goal, input.expectedGoalDescription);
-    assert.strictEqual(goalRow.goal_kind, "company");
-    assert.strictEqual(goalRow.status, "active");
-    assert.strictEqual(goalRow.lead_agent_id, input.leadAgentId);
-    assert.strictEqual(goalRow.default_execution_engine, "hiverunner");
-    assert.strictEqual(goalRow.default_model_lane, "default");
-    assert.ok(goalRow.goal_key, "company goal should have a public goal key");
-
-    const planningTask = db
-      .prepare(
-        `SELECT id, task_key, title, sprint_id, assignee_agent_id, status, priority, type, labels_json, execution_engine, model_lane
-         FROM tasks
-         WHERE sprint_id = ?
-         ORDER BY created_at ASC
-         LIMIT 1`,
-      )
-      .get(goalRow.id) as
-      | {
-          id: string;
-          task_key: string | null;
-          title: string;
-          sprint_id: string | null;
-          assignee_agent_id: string | null;
-          status: string;
-          priority: string;
-          type: string;
-          labels_json: string;
-          execution_engine: string | null;
-          model_lane: string | null;
-        }
-      | undefined;
-
-    assert.ok(planningTask, `Expected planning task for goal "${input.expectedGoalTitle}"`);
-    assert.strictEqual(planningTask.title, `Plan sprint for ${input.expectedGoalTitle}`);
-    assert.strictEqual(planningTask.sprint_id, goalRow.id);
-    assert.strictEqual(planningTask.assignee_agent_id, input.leadAgentId);
-    assert.strictEqual(planningTask.status, "to-do");
-    assert.strictEqual(planningTask.priority, "critical");
-    assert.strictEqual(planningTask.type, "research");
-    assert.strictEqual(planningTask.execution_engine, "hiverunner");
-    assert.strictEqual(planningTask.model_lane, "default");
-    assert.ok(planningTask.task_key, "planning task should have a public task key");
-    const labels = JSON.parse(planningTask.labels_json) as string[];
-    assert.ok(labels.includes("sprint-planning"), "planning task should keep the sprint-planning label");
-    assert.ok(labels.includes("goal-contract"), "planning task should keep the goal-contract label");
-
-    return { goal: goalRow, planningTask };
-  }
 
   await test("create-full provisions a human-readable OpenClaw runtime id for the CEO when explicitly enabled", async () => {
     process.env.MC_ENABLE_OPENCLAW_AGENT_PROVISIONING = "1";
@@ -286,7 +203,7 @@ async function run() {
             model: "openai/gpt-5.4",
             guidance: "",
           },
-          goal: {
+          task: {
             title: "Plan the first milestone",
             description: "Do not auto-provision OpenClaw.",
             priority: "P1",
@@ -302,36 +219,15 @@ async function run() {
     }
 
     const payload = (await res.json()) as {
-      company: { code: string };
-      project: { id: string };
       agent: { id: string; runtimeProvider: string; openclawAgentId: string | null };
-      goal: { id: string; key: string; title: string; description: string; href: string };
-      planningTask: { id: string; key: string; title: string; href: string };
-      task: { id: string; key: string; title: string; href: string };
-      initialExecution: { status: string; reason?: string; mode?: string; taskId?: string; runId?: string | null };
+      initialExecution: { status: string; reason?: string; mode?: string };
       agentDir: string;
     };
     assert.strictEqual(payload.agent.runtimeProvider, "codex");
     assert.strictEqual(payload.agent.openclawAgentId, null);
-    assert.strictEqual(payload.initialExecution.status, "queued");
-    assert.strictEqual(payload.initialExecution.reason, "company_goal_planning");
-    assert.strictEqual(payload.initialExecution.mode, "hiverunner");
-    assert.strictEqual(payload.initialExecution.taskId, payload.planningTask.id);
-    assert.strictEqual(payload.task.id, payload.planningTask.id);
-    assert.strictEqual(payload.task.key, payload.planningTask.key);
-
-    const launchArtifacts = assertLaunchGoalAndPlanningTask({
-      projectId: payload.project.id,
-      leadAgentId: payload.agent.id,
-      expectedGoalTitle: "Plan the first milestone",
-      expectedGoalDescription: "Do not auto-provision OpenClaw.",
-    });
-    assert.strictEqual(payload.goal.id, launchArtifacts.goal.id);
-    assert.strictEqual(payload.goal.key, launchArtifacts.goal.goal_key);
-    assert.strictEqual(payload.goal.href, `/${payload.company.code}/goals/${launchArtifacts.goal.goal_key}`);
-    assert.strictEqual(payload.planningTask.id, launchArtifacts.planningTask.id);
-    assert.strictEqual(payload.planningTask.key, launchArtifacts.planningTask.task_key);
-    assert.strictEqual(payload.planningTask.href, `/${payload.company.code}/tasks/${launchArtifacts.planningTask.task_key}`);
+    assert.ok(["queued", "skipped"].includes(payload.initialExecution.status));
+    assert.strictEqual(payload.initialExecution.reason, "company_creation_kickoff");
+    assert.ok(["codex", "manual"].includes(payload.initialExecution.mode));
 
     const db = getOrchestrationDb();
     const row = db
@@ -406,10 +302,6 @@ async function run() {
 
     const payload = (await res.json()) as {
       company: { id: string; owner?: { id?: string; email?: string } };
-      project: { id: string };
-      agent: { id: string };
-      goal: { title: string };
-      planningTask: { id: string };
       dashboardHref: string;
     };
 
@@ -423,13 +315,6 @@ async function run() {
     assert.strictEqual(payload.company.owner?.id, "local-owner");
     assert.strictEqual(payload.company.owner?.email, "browser-operator@example.test");
     assert.strictEqual(payload.dashboardHref, "/LOC/dashboard");
-    assert.strictEqual(payload.goal.title, "Plan the first local milestone");
-    assertLaunchGoalAndPlanningTask({
-      projectId: payload.project.id,
-      leadAgentId: payload.agent.id,
-      expectedGoalTitle: "Plan the first local milestone",
-      expectedGoalDescription: "Verify local owner authorization after company launch.",
-    });
   });
 
   await test("create-full materializes selected starter-team agents through manual provisioning", async () => {
@@ -506,20 +391,11 @@ async function run() {
       company: { id: string };
       project: { id: string; name: string };
       agent: { id: string };
-      goal: { id: string; title: string };
-      planningTask: { id: string; title: string };
       starterTeam: { selectedCount: number; agents: Array<{ id: string; name: string; runtimeProvider: string }> };
       workspace: string;
     };
 
     assert.strictEqual(payload.project.name, "Operations");
-    assert.strictEqual(payload.goal.title, "Plan the first starter milestone");
-    assertLaunchGoalAndPlanningTask({
-      projectId: payload.project.id,
-      leadAgentId: payload.agent.id,
-      expectedGoalTitle: "Plan the first starter milestone",
-      expectedGoalDescription: "Kick off execution with selected starter teammates.",
-    });
     assert.strictEqual(payload.starterTeam.selectedCount, 1);
     assert.strictEqual(payload.starterTeam.agents[0]?.name, "Devon");
     assert.strictEqual(payload.starterTeam.agents[0]?.runtimeProvider, "manual");
@@ -656,9 +532,9 @@ async function run() {
               model: "",
               guidance: "",
             },
-            goal: {
-              title: setup.kickoffGoal.title,
-              description: setup.kickoffGoal.description,
+            task: {
+              title: setup.kickoffTask.title,
+              description: setup.kickoffTask.description,
               priority: "P1",
             },
           };
@@ -672,28 +548,9 @@ async function run() {
       }
 
       const payload = (await res.json()) as {
-        company: { id: string; code: string };
-        project: { id: string };
-        agent: { id: string };
-        goal: { id: string; title: string };
-        planningTask: { id: string; title: string };
+        company: { id: string };
         starterTeam: { selectedCount: number; agents: Array<{ name: string }> };
       };
-      assert.strictEqual(payload.goal.title, setup.kickoffGoal.title);
-      assertLaunchGoalAndPlanningTask({
-        projectId: payload.project.id,
-        leadAgentId: payload.agent.id,
-        expectedGoalTitle: setup.kickoffGoal.title,
-        expectedGoalDescription: setup.kickoffGoal.description,
-      });
-      const visibleTasks = listTasks({
-        companyIdOrSlug: payload.company.code,
-        includeNonProduction: true,
-      }).tasks;
-      assert.ok(
-        visibleTasks.some((task) => task.id === payload.planningTask.id),
-        `${workType} planning task should be visible on the default company task board`,
-      );
       assert.strictEqual(payload.starterTeam.selectedCount, selectedDefaults.length, `${workType} selected count`);
 
       if (workType === "blank-custom") {
@@ -747,8 +604,8 @@ async function run() {
             model: "",
             guidance: "",
           },
-          goal: {
-            title: "Define the first custom workspace outcome",
+          task: {
+            title: "Define the first custom workspace task",
             description: "No starter agents should be created by default.",
             priority: "P1",
           },
@@ -761,22 +618,12 @@ async function run() {
 
     const payload = (await res.json()) as {
       company: { id: string };
-      project: { id: string };
       agent: { id: string; name: string; runtimeProvider: string; openclawAgentId: string | null };
-      goal: { title: string };
-      planningTask: { id: string };
       starterTeam: { selectedCount: number; agents: Array<{ id: string; name: string }> };
     };
 
     assert.strictEqual(payload.agent.runtimeProvider, "manual");
     assert.strictEqual(payload.agent.openclawAgentId, null);
-    assert.strictEqual(payload.goal.title, "Define the first custom workspace outcome");
-    assertLaunchGoalAndPlanningTask({
-      projectId: payload.project.id,
-      leadAgentId: payload.agent.id,
-      expectedGoalTitle: "Define the first custom workspace outcome",
-      expectedGoalDescription: "No starter agents should be created by default.",
-    });
     assert.strictEqual(payload.starterTeam.selectedCount, 0);
     assert.deepStrictEqual(payload.starterTeam.agents, []);
 

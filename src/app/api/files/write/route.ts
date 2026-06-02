@@ -7,7 +7,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { logActivity } from '@/lib/activities-db';
-import { resolveWorkspacePath } from '@/lib/files/workspace-resolver';
+import { resolveWorkspacePathStrict } from '@/lib/files/workspace-resolver';
 
 export async function POST(request: NextRequest) {
   try {
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing path or content' }, { status: 400 });
     }
 
-    const resolved = resolveWorkspacePath(workspace, filePath);
+    const resolved = resolveWorkspacePathStrict(workspace, filePath, { forWrite: true });
     if (!resolved) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }

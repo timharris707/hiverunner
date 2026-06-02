@@ -21,6 +21,7 @@ let failed = 0;
 const ORIGINAL_ENV = {
   NODE_ENV: process.env.NODE_ENV,
   PORT: process.env.PORT,
+  MC_ENGINE_TICK: process.env.MC_ENGINE_TICK,
   MC_DEV_EXECUTION_TEST_MODE: process.env.MC_DEV_EXECUTION_TEST_MODE,
   MC_DATA_DIR: process.env.MC_DATA_DIR,
   MC_WORKSPACE_ROOT: process.env.MC_WORKSPACE_ROOT,
@@ -217,10 +218,27 @@ async function run() {
     process.env.MC_DEV_EXECUTION_TEST_MODE = "1";
   });
 
+  await test("explicit non-3010 dev executor can claim queued work without a lease", () => {
+    process.env.PORT = "3002";
+    process.env.MC_ENGINE_TICK = "on";
+    process.env.MC_DEV_EXECUTION_TEST_MODE = "0";
+    assert.strictEqual(canAutonomouslyExecuteCompany(company.id), true);
+    assert.strictEqual(resolveQueuedHeartbeatClaimCompanyId(), null);
+
+    process.env.MC_ENGINE_TICK = "off";
+    assert.strictEqual(canAutonomouslyExecuteCompany(company.id), false);
+    assert.strictEqual(resolveQueuedHeartbeatClaimCompanyId(), "__disabled__");
+
+    process.env.PORT = "3010";
+    process.env.MC_ENGINE_TICK = ORIGINAL_ENV.MC_ENGINE_TICK;
+    process.env.MC_DEV_EXECUTION_TEST_MODE = "1";
+  });
+
   console.log(`\n${passed} passed, ${failed} failed\n`);
 
   process.env.NODE_ENV = ORIGINAL_ENV.NODE_ENV;
   process.env.PORT = ORIGINAL_ENV.PORT;
+  process.env.MC_ENGINE_TICK = ORIGINAL_ENV.MC_ENGINE_TICK;
   process.env.MC_DEV_EXECUTION_TEST_MODE = ORIGINAL_ENV.MC_DEV_EXECUTION_TEST_MODE;
   process.env.MC_DATA_DIR = ORIGINAL_ENV.MC_DATA_DIR;
   process.env.MC_WORKSPACE_ROOT = ORIGINAL_ENV.MC_WORKSPACE_ROOT;

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import fs from "fs";
 import path from "path";
 import { scanAllSkills } from "@/lib/skill-parser";
+import { isPathContained } from "@/lib/workspaces/delete-safety";
 
 export async function GET(req: NextRequest) {
   const skillName = req.nextUrl.searchParams.get("skill");
@@ -21,15 +22,21 @@ export async function GET(req: NextRequest) {
   // Resolve and validate the file path (prevent directory traversal)
   const normalizedPath = path.normalize(filePath);
   const fullPath = path.resolve(skill.location, normalizedPath);
-  if (!fullPath.startsWith(skill.location)) {
-    return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
-  }
 
   if (!fs.existsSync(fullPath)) {
     return NextResponse.json({ error: "File not found", path: filePath }, { status: 404 });
   }
 
   try {
+    const realSkillRoot = fs.realpathSync(skill.location);
+    if (fs.lstatSync(fullPath).isSymbolicLink()) {
+      return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
+    }
+    const realTarget = fs.realpathSync(fullPath);
+    if (!isPathContained(realSkillRoot, realTarget)) {
+      return NextResponse.json({ error: "Invalid file path" }, { status: 400 });
+    }
+
     const stat = fs.statSync(fullPath);
     if (stat.isDirectory()) {
       return NextResponse.json({ error: "Path is a directory" }, { status: 400 });

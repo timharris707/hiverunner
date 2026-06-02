@@ -304,6 +304,7 @@ async function run() {
     assert.equal(approved.sprint.sprint.leadAgentId, lead.id);
     assert.match(approved.sprint.sprint.name, /^Sprint 1 — /);
     assert.equal(approved.sprint.sprint.sprintKey, `${company.code}-S001`);
+    assert.equal(approved.sprintStartRunIds?.length, 1, "sprint approval should expose the queued root wake run for immediate execution");
     const taskRow = db.prepare("SELECT sprint_id, status FROM tasks WHERE id = ?").get(materializedTaskIds[0]) as { sprint_id: string; status: string };
     assert.equal(taskRow.sprint_id, precreatedSprintId);
     const startWake = db.prepare(

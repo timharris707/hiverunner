@@ -1,6 +1,7 @@
 import "server-only";
 
 import { listCompanies } from "@/lib/orchestration/company-service";
+import { selectDefaultCompanyCode } from "@/lib/orchestration/default-company";
 import { listProjects } from "@/lib/orchestration/service";
 import {
   FALLBACK_COMPANY_SLUG,
@@ -67,16 +68,20 @@ export function findProjectSlugById(companySlug: string, projectIdOrSlug: string
   return project?.slug ?? null;
 }
 
-// Stable ID for fallback resolution — never changes, unlike slugs.
-const FALLBACK_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
-const PRIMARY_COMPANY_CODE = "INS";
-
 export function resolvePrimaryCompanySlug(): string {
   const { companies } = listCompanies();
-  const primary = companies.find((company) => company.code?.trim().toUpperCase() === PRIMARY_COMPANY_CODE);
-  if (primary) return primary.slug;
-  const canonical = companies.find((company) => company.id === FALLBACK_COMPANY_ID);
-  return canonical?.slug ?? companies[0]?.slug ?? FALLBACK_COMPANY_SLUG;
+  const companyCodeToSlug: Record<string, string> = {};
+  const actualCompanyCodes: string[] = [];
+
+  for (const company of companies) {
+    const code = company.code?.trim().toUpperCase();
+    if (!code) continue;
+    companyCodeToSlug[code] = company.slug;
+    actualCompanyCodes.push(code);
+  }
+
+  const code = selectDefaultCompanyCode(actualCompanyCodes, companyCodeToSlug, process.env);
+  return companyCodeToSlug[code] ?? companies[0]?.slug ?? FALLBACK_COMPANY_SLUG;
 }
 
 export { FALLBACK_COMPANY_SLUG, buildCompanyPath };

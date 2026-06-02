@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import {
   resolveWorkspaceBase,
-  resolveWorkspacePath,
+  resolveWorkspacePathStrict,
 } from "@/lib/files/workspace-resolver";
 
 // Files to show in the memory browser
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const resolvedFilePath = resolveWorkspacePath(workspace, safePath);
+    const resolvedFilePath = resolveWorkspacePathStrict(workspace, safePath);
     if (!resolvedFilePath) {
       return NextResponse.json(
         { error: "Invalid file path" },
@@ -195,7 +195,7 @@ export async function PUT(request: NextRequest) {
       );
     }
 
-    const resolvedFilePath = resolveWorkspacePath(workspace, safePath);
+    const resolvedFilePath = resolveWorkspacePathStrict(workspace, safePath, { forWrite: true });
     if (!resolvedFilePath) {
       return NextResponse.json(
         { error: "Invalid file path" },

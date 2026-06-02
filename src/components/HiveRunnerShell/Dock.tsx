@@ -13,6 +13,7 @@ import {
   Check,
   ChevronRight,
   CircleDollarSign,
+  Copy,
   FolderKanban,
   FolderOpen,
   Goal,
@@ -45,10 +46,13 @@ import type { CompanyStatus, OrchestrationAgent, OrchestrationProject } from "@/
 import { useDockCollapsed } from "@/lib/dock-state";
 import { useActiveProjectState } from "@/lib/active-project-state";
 import { useHiddenProjects } from "@/lib/hidden-project-state";
+import { selectDefaultCompanyCode } from "@/lib/orchestration/default-company";
+import { COMPANY_CODE_TO_SLUG, COMPANY_SLUG_TO_CODE } from "@/lib/orchestration/edge-route-maps";
 import {
   buildCanonicalCompanyPath,
   buildCanonicalDashboardPath,
   buildCanonicalInboxPath,
+  buildCanonicalOverseerPath,
   buildCanonicalTasksPath,
   buildCanonicalGoalsPath,
   buildCanonicalTeamPath,
@@ -133,6 +137,37 @@ interface CompanyNavState {
   status: CompanyStatus;
 }
 
+interface AppBuildMetadataClient {
+  version: string;
+  versionLabel: string;
+  mode: string;
+  lane: string;
+  port: string;
+  cwd?: string;
+  buildTag?: string | null;
+  buildCommit?: string | null;
+  buildCommitShort?: string | null;
+  buildTime?: string | null;
+  displayLabel?: string;
+  release?: {
+    releaseId?: string | null;
+    releaseTag?: string | null;
+    releaseCommit?: string | null;
+    releaseCommitShort?: string | null;
+    releaseBranch?: string | null;
+    releaseReason?: string | null;
+    promotedAt?: string | null;
+    promotedBy?: string | null;
+    repoDirty?: string | null;
+  };
+  git?: {
+    commit?: string | null;
+    commitShort?: string | null;
+    branch?: string | null;
+    dirty?: boolean | null;
+  };
+}
+
 const DOCK_WIDTH = 204;
 const DOCK_COLLAPSED_WIDTH = 44;
 const DOCK_BG = "var(--surface)";
@@ -149,8 +184,6 @@ const DOCK_ACCENT = "var(--accent)";
 const DOCK_ACCENT_SOFT = "var(--accent-soft)";
 const DOCK_POSITIVE = "var(--positive)";
 const DOCK_POSITIVE_SOFT = "var(--positive-soft)";
-// Use stable company ID for fallback resolution, not mutable slug/code.
-const FALLBACK_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
 const OPERATIONS_ITEMS: DockIconNavItem[] = [
   { label: "Tasks", icon: ListChecks, animatedIcon: true, iconMotion: "task" },
@@ -163,6 +196,7 @@ const OPERATIONS_ITEMS: DockIconNavItem[] = [
 const COMPANY_ITEMS: DockIconNavItem[] = [
   { label: "Org", icon: OrgChartBuildIcon as LucideIcon, animatedIcon: true, iconMotion: "org-chart-build-wide" },
   { label: "Manage Projects", icon: FolderKanban },
+  { label: "Overseer", icon: Bot },
   { label: "Skills", icon: Sparkles },
   { label: "Memory", icon: Brain },
   { label: "Hives", icon: HiveRunnerMarkIcon as LucideIcon, animatedIcon: true, iconMotion: "hive-runner-grow" },
@@ -178,6 +212,21 @@ const SYSTEM_ITEMS: DockHrefIconNavItem[] = [
   { href: "/sessions", label: "Sessions", icon: Server, animatedIcon: true, iconMotion: "runtime-server" },
   { href: "/logs", label: "Logs", icon: Logs, animatedIcon: true, iconMotion: "terminal-cursor" },
 ];
+
+function selectFallbackCompany<T extends { code: string }>(companies: T[]): T | undefined {
+  const companyCodeToSlug: Record<string, string> = {};
+  const actualCompanyCodes: string[] = [];
+
+  for (const company of companies) {
+    const code = company.code?.trim().toUpperCase();
+    if (!code) continue;
+    companyCodeToSlug[code] = code;
+    actualCompanyCodes.push(code);
+  }
+
+  const selectedCode = selectDefaultCompanyCode(actualCompanyCodes, companyCodeToSlug, {});
+  return companies.find((candidate) => candidate.code.trim().toUpperCase() === selectedCode) ?? companies[0];
+}
 
 const NON_COMPANY_ROUTE_ROOTS = new Set([
   "api",
@@ -665,6 +714,107 @@ function shimmerStyle() {
   } as const;
 }
 
+function buildDiagnosticsText(metadata: AppBuildMetadataClient): string {
+  const release = metadata.release ?? {};
+  const git = metadata.git ?? {};
+  return [
+    "HiveRunner build diagnostics",
+    `version: ${metadata.versionLabel || `v${metadata.version}`}`,
+    `build tag: ${metadata.buildTag ?? release.releaseTag ?? "unavailable"}`,
+    `commit: ${metadata.buildCommit ?? release.releaseCommit ?? git.commit ?? "unavailable"}`,
+    `commit short: ${metadata.buildCommitShort ?? release.releaseCommitShort ?? git.commitShort ?? "unavailable"}`,
+    `release time: ${metadata.buildTime ?? release.promotedAt ?? "unavailable"}`,
+    `release branch: ${release.releaseBranch ?? git.branch ?? "unavailable"}`,
+    `release id: ${release.releaseId ?? "unavailable"}`,
+    `release reason: ${release.releaseReason ?? "unavailable"}`,
+    `repo dirty: ${release.repoDirty ?? (git.dirty == null ? "unavailable" : String(git.dirty))}`,
+    `lane: ${metadata.lane || "unavailable"}`,
+    `mode: ${metadata.mode || "unavailable"}`,
+    `port: ${metadata.port || "unavailable"}`,
+  ].join("\n");
+}
+
+function copyTextFallback(text: string): boolean {
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  textarea.style.top = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    return document.execCommand("copy");
+  } finally {
+    document.body.removeChild(textarea);
+  }
+}
+
+function BuildMetadataFooter({
+  metadata,
+  copied,
+  compact,
+  onCopy,
+}: {
+  metadata: AppBuildMetadataClient | null;
+  copied: boolean;
+  compact?: boolean;
+  onCopy: () => void;
+}) {
+  if (!metadata) return null;
+
+  const title = `${buildDiagnosticsText(metadata)}\n\nClick to copy diagnostics.`;
+  const label = metadata.displayLabel || [metadata.versionLabel || `v${metadata.version}`, metadata.buildCommitShort].filter(Boolean).join(" · ");
+
+  return (
+    <button
+      type="button"
+      onClick={onCopy}
+      aria-label="Copy build diagnostics"
+      title={title}
+      style={{
+        width: compact ? 32 : "auto",
+        minWidth: 0,
+        height: compact ? 28 : "auto",
+        margin: compact ? "4px 0 2px" : "4px 4px 2px",
+        padding: compact ? "0" : "4px 6px",
+        borderRadius: compact ? 8 : 7,
+        border: "0.5px solid transparent",
+        background: "transparent",
+        color: copied ? DOCK_ACCENT : DOCK_TEXT_MUTED,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: compact ? "center" : "flex-start",
+        gap: 5,
+        cursor: "copy",
+        fontFamily: "var(--font-mono)",
+        fontSize: "10px",
+        fontWeight: 500,
+        lineHeight: 1.2,
+        transition: "all 120ms ease",
+      }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.background = DOCK_BG_ELEVATED;
+        event.currentTarget.style.border = `0.5px solid ${DOCK_BORDER}`;
+        event.currentTarget.style.color = copied ? DOCK_ACCENT : DOCK_TEXT_SECONDARY;
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.background = "transparent";
+        event.currentTarget.style.border = "0.5px solid transparent";
+        event.currentTarget.style.color = copied ? DOCK_ACCENT : DOCK_TEXT_MUTED;
+      }}
+    >
+      <Copy size={compact ? 13 : 11} strokeWidth={2} style={{ flexShrink: 0 }} />
+      {compact ? null : (
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {copied ? "Copied" : label}
+        </span>
+      )}
+    </button>
+  );
+}
+
 function isProjectPaused(project: OrchestrationProject): boolean {
   return project.status === "paused" || project.status === "on-hold" || project.status === "inactive";
 }
@@ -692,6 +842,8 @@ function companyItemHref(code: string, itemLabel: string): string {
       return buildCanonicalOrgPath(code);
     case "Manage Projects":
       return buildCanonicalManageProjectsPath(code);
+    case "Overseer":
+      return buildCanonicalOverseerPath(code);
     case "Skills":
       return buildCanonicalSkillsPath(code);
     case "Memory":
@@ -720,15 +872,42 @@ function inferCompanyCodeFromPath(pathname: string, companies: Array<CompanyNavS
 
   if (root === "companies" && slugOrCode) {
     const bySlug = companies.find((candidate) => candidate.slug === slugOrCode);
-    return bySlug?.code || "";
+    return bySlug?.code || COMPANY_SLUG_TO_CODE[slugOrCode] || "";
   }
 
   if (root && !NON_COMPANY_ROUTE_ROOTS.has(root.toLowerCase())) {
-    return root.toUpperCase();
+    const normalizedRoot = root.toUpperCase();
+    const byCode = companies.find((candidate) => candidate.code.toUpperCase() === normalizedRoot);
+    if (byCode) return byCode.code || normalizedRoot;
+    if (COMPANY_CODE_TO_SLUG[normalizedRoot]) return normalizedRoot;
+    return "";
   }
 
-  const fallback = companies.find((candidate) => candidate.id === FALLBACK_COMPANY_ID) ?? companies[0];
+  const fallback = selectFallbackCompany(companies);
   return fallback?.code || "";
+}
+
+function normalizeDockPathForActive(pathname: string, companies: Array<CompanyNavState & { code: string }>): string {
+  const [pathOnly = "/"] = pathname.split("?");
+  const segments = pathOnly.split("/").filter(Boolean);
+  const root = segments[0] ?? "";
+
+  if (root === "companies" && segments[1]) {
+    const slug = decodeURIComponent(segments[1]);
+    const bySlug = companies.find((candidate) => candidate.slug === slug);
+    const code = bySlug?.code || COMPANY_SLUG_TO_CODE[slug] || "";
+    if (code) {
+      const subpath = segments.length > 2 ? `/${segments.slice(2).join("/")}` : "";
+      return buildCanonicalCompanyPath(code, subpath);
+    }
+  }
+
+  if (root && !NON_COMPANY_ROUTE_ROOTS.has(root.toLowerCase())) {
+    const normalizedRoot = root.toUpperCase();
+    return `/${[normalizedRoot, ...segments.slice(1)].join("/")}`;
+  }
+
+  return pathOnly || "/";
 }
 
 async function withDockTimeout<T>(promise: Promise<T>, ms = 5000): Promise<T> {
@@ -776,10 +955,17 @@ export function Dock() {
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [showCreateTaskAction, setShowCreateTaskAction] = useState(false);
   const [companyPauseBusy, setCompanyPauseBusy] = useState(false);
+  const [buildMetadata, setBuildMetadata] = useState<AppBuildMetadataClient | null>(null);
+  const [buildDiagnosticsCopied, setBuildDiagnosticsCopied] = useState(false);
   const companySwitcherRef = useRef<HTMLDivElement | null>(null);
+  const buildDiagnosticsCopyTimeoutRef = useRef<number | null>(null);
 
   const activeProjectForCompany =
     activeProject && activeProject.companySlug === company.slug ? activeProject : null;
+  const activePathname = useMemo(
+    () => normalizeDockPathForActive(pathname, companies),
+    [companies, pathname],
+  );
   const { hiddenProjects } = useHiddenProjects(company.slug);
 
   const projectsReadyForCompany = projectsCompanySlug === company.slug;
@@ -831,30 +1017,30 @@ export function Dock() {
 
   const checkActive = useCallback(
     (href: string, exact?: boolean) => {
-      const hrefPath = href.split("?")[0];
-      if (pathname === hrefPath) return true;
+      const hrefPath = normalizeDockPathForActive(href.split("?")[0], companies);
+      if (activePathname === hrefPath) return true;
       if (exact) return false;
       // Only match children if no sibling nav item owns a more specific prefix
-      return pathname.startsWith(`${hrefPath}/`);
+      return activePathname.startsWith(`${hrefPath}/`);
     },
-    [pathname]
+    [activePathname, companies]
   );
 
   // For items that share a prefix,
   // use exact matching to avoid double-highlighting.
   const checkActiveExact = useCallback(
     (href: string, allHrefs: string[]) => {
-      const hrefPath = href.split("?")[0];
-      const siblingPaths = allHrefs.map((itemHref) => itemHref.split("?")[0]);
-      if (pathname === hrefPath) return true;
+      const hrefPath = normalizeDockPathForActive(href.split("?")[0], companies);
+      const siblingPaths = allHrefs.map((itemHref) => normalizeDockPathForActive(itemHref.split("?")[0], companies));
+      if (activePathname === hrefPath) return true;
       // If another nav item has a longer prefix that also matches, don't highlight this one
       const hasMoreSpecificSibling = siblingPaths.some(
-        (other) => other !== hrefPath && other.startsWith(`${hrefPath}/`) && (pathname === other || pathname.startsWith(`${other}/`))
+        (other) => other !== hrefPath && other.startsWith(`${hrefPath}/`) && (activePathname === other || activePathname.startsWith(`${other}/`))
       );
       if (hasMoreSpecificSibling) return false;
-      return pathname.startsWith(`${hrefPath}/`);
+      return activePathname.startsWith(`${hrefPath}/`);
     },
-    [pathname]
+    [activePathname, companies]
   );
 
   const isApprovalPathForCurrentCompany = useMemo(() => {
@@ -892,11 +1078,64 @@ export function Dock() {
     }
   };
 
+  const copyBuildDiagnostics = useCallback(() => {
+    if (!buildMetadata) return;
+    const diagnostics = buildDiagnosticsText(buildMetadata);
+
+    const markCopied = () => {
+      setBuildDiagnosticsCopied(true);
+      if (buildDiagnosticsCopyTimeoutRef.current != null) {
+        window.clearTimeout(buildDiagnosticsCopyTimeoutRef.current);
+      }
+      buildDiagnosticsCopyTimeoutRef.current = window.setTimeout(() => {
+        setBuildDiagnosticsCopied(false);
+        buildDiagnosticsCopyTimeoutRef.current = null;
+      }, 1400);
+    };
+
+    if (!navigator.clipboard?.writeText) {
+      if (copyTextFallback(diagnostics)) markCopied();
+      return;
+    }
+
+    void navigator.clipboard.writeText(diagnostics).then(markCopied).catch(() => {
+      if (copyTextFallback(diagnostics)) {
+        markCopied();
+      } else {
+        setBuildDiagnosticsCopied(false);
+      }
+    });
+  }, [buildMetadata]);
+
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 768);
     checkMobile();
     window.addEventListener("resize", checkMobile);
     return () => window.removeEventListener("resize", checkMobile);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadBuildMetadata = async () => {
+      try {
+        const response = await fetch("/api/hiverunner/build", { cache: "no-store" });
+        if (!response.ok) return;
+        const metadata = await response.json() as AppBuildMetadataClient;
+        if (!cancelled) setBuildMetadata(metadata);
+      } catch {
+        if (!cancelled) setBuildMetadata(null);
+      }
+    };
+
+    void loadBuildMetadata();
+    return () => {
+      cancelled = true;
+      if (buildDiagnosticsCopyTimeoutRef.current != null) {
+        window.clearTimeout(buildDiagnosticsCopyTimeoutRef.current);
+        buildDiagnosticsCopyTimeoutRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -992,7 +1231,7 @@ export function Dock() {
       if (!resolved) {
         // URL doesn't contain a company code — keep current selection if we have one.
         if (company.id) return;
-        const fallback = companies.find((candidate) => candidate.id === FALLBACK_COMPANY_ID) ?? companies[0];
+        const fallback = selectFallbackCompany(companies);
         resolved = {
           id: fallback?.id,
           slug: fallback?.slug ?? "",
@@ -1874,6 +2113,11 @@ export function Dock() {
 
       {/* collapse toggle */}
       <div style={{ flex: 1, minHeight: 18 }} />
+      <BuildMetadataFooter
+        metadata={buildMetadata}
+        copied={buildDiagnosticsCopied}
+        onCopy={copyBuildDiagnostics}
+      />
       <button
         onClick={toggleDock}
         title="Collapse sidebar"
@@ -1954,6 +2198,12 @@ export function Dock() {
         })}
 
         <div style={{ flex: 1, minHeight: 18 }} />
+        <BuildMetadataFooter
+          metadata={buildMetadata}
+          copied={buildDiagnosticsCopied}
+          compact
+          onCopy={copyBuildDiagnostics}
+        />
         <button
           onClick={toggleDock}
           title="Expand sidebar"

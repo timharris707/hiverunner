@@ -1,0 +1,112 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly in HiveRunner.
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a HiveRunner bug. Include local-only details that help reproduce the issue, but do not paste secrets, API keys, private workspace data, or unsanitized logs.
+  - type: input
+    id: version_build
+    attributes:
+      label: HiveRunner version/build
+      description: Package version, commit SHA, branch, release tag, or build identifier.
+      placeholder: "0.1.0, main@abc1234, or release build name"
+    validations:
+      required: true
+  - type: dropdown
+    id: lane_port
+    attributes:
+      label: Lane/port
+      description: Which local lane or port showed the problem?
+      options:
+        - "3010 - dev UI/build lane"
+        - "3001 - stable/execution lane"
+        - "3000 - alternate local lane"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: lane_port_other
+    attributes:
+      label: Lane/port details
+      description: If you selected Other, include the exact lane, port, or script command.
+      placeholder: "scripts/lane.sh dev start, PORT=3020, etc."
+  - type: textarea
+    id: environment
+    attributes:
+      label: OS/browser
+      description: Include operating system, browser, Node.js version, and npm version if relevant.
+      placeholder: |
+        macOS 15.5
+        Chrome 125 / Safari 18 / Firefox 126
+        Node 22.x, npm 10.x
+    validations:
+      required: true
+  - type: textarea
+    id: install_source
+    attributes:
+      label: Install/source
+      description: How did you get and run HiveRunner?
+      placeholder: |
+        Fresh git clone from https://github.com/harris-autonomous/mission-control
+        Existing checkout updated from main
+        npm install completed
+        .env.example copied to .env.local
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Write the smallest sequence that reproduces the problem.
+      placeholder: |
+        1. Start with `npm run dev`
+        2. Open `/login`
+        3. Click ...
+        4. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect HiveRunner to do?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include exact error text when possible.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots_logs
+    attributes:
+      label: Screenshots/logs
+      description: Attach screenshots or paste short sanitized log excerpts. Remove secrets, private workspace paths, customer data, and API keys.
+      placeholder: |
+        Browser console:
+        Server log:
+        Screenshot:
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste relevant outputs from health checks or local commands.
+      placeholder: |
+        npm run build:
+        npm test:
+        scripts/lane.sh dev status:
+        /api/health response:
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets, private workspace data, and unsanitized local logs from this report.
+          required: true

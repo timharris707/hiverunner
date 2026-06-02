@@ -15,6 +15,7 @@ LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 
 usage() {
   echo "Usage: $0 <dev|stable> <start|stop|restart|status|logs|rollback>"
+  echo "       $0 <dev|stable> logs watchdog"
   echo "       $0 promote   (build + deploy to stable lane)"
   echo "       $0 rollback  (restore stable to previous promoted checkpoint)"
   echo "       $0 doctor    (diagnose both lanes, PIDs, health)"
@@ -24,6 +25,7 @@ usage() {
   echo "  $0 stable restart  Restart stable server on port 3001"
   echo "  $0 stable status   Check if stable lane is running"
   echo "  $0 stable logs     Tail stable lane logs"
+  echo "  $0 dev logs watchdog Tail dev watchdog logs"
   echo "  $0 promote         Build and promote to stable"
   echo "  $0 rollback        Roll back stable to previous checkpoint"
   echo "  $0 doctor          Full runtime health diagnostic"
@@ -57,6 +59,9 @@ case "$LANE" in
     PORT=3010
     PID_FILE="$LOG_DIR/hiverunner-dev.pid"
     LOG_FILE="$LOG_DIR/hiverunner-dev.log"
+    FAILURE_FILE="$LOG_DIR/hiverunner-dev.health-failures"
+    WATCHDOG_OUT_LOG="$LOG_DIR/hr-dev-watchdog.out.log"
+    WATCHDOG_ERR_LOG="$LOG_DIR/hr-dev-watchdog.err.log"
     START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
     STOP_SCRIPT="$APP_DIR/scripts/stop_dev_service.sh"
     ;;
@@ -64,6 +69,9 @@ case "$LANE" in
     PORT=3001
     PID_FILE="$LOG_DIR/hiverunner-stable.pid"
     LOG_FILE="$LOG_DIR/hiverunner-stable.log"
+    FAILURE_FILE="$LOG_DIR/hiverunner-stable.health-failures"
+    WATCHDOG_OUT_LOG="$LOG_DIR/hr-stable-watchdog.out.log"
+    WATCHDOG_ERR_LOG="$LOG_DIR/hr-stable-watchdog.err.log"
     START_SCRIPT="$APP_DIR/scripts/start_stable_service.sh"
     STOP_SCRIPT="$APP_DIR/scripts/stop_stable_service.sh"
     ;;
@@ -100,19 +108,44 @@ case "$ACTION" in
     fi
     if [ -n "$PID" ]; then
       echo "[$LANE] running (PID $PID, port $PORT)"
-      if curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/hiverunner/health" >/dev/null 2>&1 ||
-         curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/orchestration/companies" >/dev/null 2>&1; then
+      if curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/hiverunner/health" >/dev/null 2>&1; then
         echo "[$LANE] health: OK"
+      elif [ "$LANE" = "dev" ] &&
+           curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/orchestration/companies" >/dev/null 2>&1; then
+        echo "[$LANE] health: OK (legacy companies fallback)"
       else
         echo "[$LANE] health: UNHEALTHY (process alive but not responding)"
+      fi
+      if [ -f "$FAILURE_FILE" ]; then
+        FAILURE_COUNT="$(cat "$FAILURE_FILE" 2>/dev/null || true)"
+        [ -n "$FAILURE_COUNT" ] && echo "[$LANE] watchdog pending failures: $FAILURE_COUNT"
+      fi
+      if [ -f "$WATCHDOG_OUT_LOG" ] || [ -f "$WATCHDOG_ERR_LOG" ]; then
+        echo "[$LANE] watchdog logs: $WATCHDOG_OUT_LOG $WATCHDOG_ERR_LOG"
       fi
       exit 0
     fi
     echo "[$LANE] not running"
+    if [ -f "$FAILURE_FILE" ]; then
+      FAILURE_COUNT="$(cat "$FAILURE_FILE" 2>/dev/null || true)"
+      [ -n "$FAILURE_COUNT" ] && echo "[$LANE] watchdog pending failures: $FAILURE_COUNT"
+    fi
     exit 1
     ;;
   logs)
-    if [ -f "$LOG_FILE" ]; then
+    LOG_KIND="${3:-main}"
+    if [ "$LOG_KIND" = "watchdog" ]; then
+      WATCHDOG_LOGS=""
+      [ -f "$WATCHDOG_OUT_LOG" ] && WATCHDOG_LOGS="$WATCHDOG_LOGS $WATCHDOG_OUT_LOG"
+      [ -f "$WATCHDOG_ERR_LOG" ] && WATCHDOG_LOGS="$WATCHDOG_LOGS $WATCHDOG_ERR_LOG"
+      if [ -n "$WATCHDOG_LOGS" ]; then
+        # shellcheck disable=SC2086
+        tail -f $WATCHDOG_LOGS
+      else
+        echo "No watchdog log files found at $WATCHDOG_OUT_LOG or $WATCHDOG_ERR_LOG"
+        exit 1
+      fi
+    elif [ -f "$LOG_FILE" ]; then
       tail -f "$LOG_FILE"
     else
       echo "No log file found at $LOG_FILE"

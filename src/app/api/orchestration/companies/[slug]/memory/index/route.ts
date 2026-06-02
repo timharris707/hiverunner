@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
-import { listMemoryIndexRecords } from "@/lib/orchestration/memory-vault";
+import { getMemoryIndexStatus, listMemoryIndexRecords } from "@/lib/orchestration/memory-vault";
 
 export const dynamic = "force-dynamic";
 
@@ -29,16 +29,19 @@ export async function GET(
     const limitRaw = Number(request.nextUrl.searchParams.get("limit") ?? "200");
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 200;
 
-    return NextResponse.json(
-      listMemoryIndexRecords(slug, {
-        q: request.nextUrl.searchParams.get("q") ?? undefined,
-        layer: request.nextUrl.searchParams.get("layer") ?? undefined,
-        sourceId: request.nextUrl.searchParams.get("sourceId") ?? undefined,
-        tag: request.nextUrl.searchParams.get("tag") ?? undefined,
-        status,
-        limit,
-      }),
-    );
+    const index = listMemoryIndexRecords(slug, {
+      q: request.nextUrl.searchParams.get("q") ?? undefined,
+      layer: request.nextUrl.searchParams.get("layer") ?? undefined,
+      sourceId: request.nextUrl.searchParams.get("sourceId") ?? undefined,
+      tag: request.nextUrl.searchParams.get("tag") ?? undefined,
+      status,
+      limit,
+    });
+
+    return NextResponse.json({
+      ...index,
+      indexStatus: getMemoryIndexStatus(slug),
+    });
   } catch (error) {
     return handleRouteError(error, "memory.index:get");
   }

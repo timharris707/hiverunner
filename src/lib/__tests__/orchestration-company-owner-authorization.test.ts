@@ -6,9 +6,11 @@ import { NextRequest } from "next/server";
 import { GET as listCompaniesRoute } from "@/app/api/orchestration/companies/route";
 import { GET as getCompanyRoute } from "@/app/api/orchestration/companies/[slug]/route";
 import { GET as listProjectsRoute } from "@/app/api/orchestration/projects/route";
+import { GET as listTasksRoute } from "@/app/api/orchestration/tasks/route";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { createCompany, getCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { createProject, createTask } from "@/lib/orchestration/service";
 import { middleware } from "@/middleware";
 
 let passed = 0;
@@ -47,6 +49,26 @@ function setNodeEnv(value: string) {
   });
 }
 
+function addActiveCompanyMembership(input: { companyId: string; userId: string; role?: "owner" | "admin" | "member" | "viewer" }) {
+  const db = getOrchestrationDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO company_members (id, company_id, user_id, role, status, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'active', ?, ?)
+     ON CONFLICT(company_id, user_id) DO UPDATE SET
+       role = excluded.role,
+       status = excluded.status,
+       updated_at = excluded.updated_at`
+  ).run(
+    `member-${input.companyId}-${input.userId}`,
+    input.companyId,
+    input.userId,
+    input.role ?? "member",
+    now,
+    now,
+  );
+}
+
 async function run() {
   console.log("\nOrchestration Company Owner Authorization Test\n");
 
@@ -81,14 +103,42 @@ async function run() {
       status: "active",
       owner: { displayName: "Owner B", email: `owner-b-${suffix}@example.test` },
     }).company;
+    const memberCompany = createCompany({
+      name: `Member Auth ${suffix}`,
+      description: "member authorization",
+      status: "active",
+      owner: { displayName: "Owner B", email: `owner-b-member-${suffix}@example.test` },
+    }).company;
     const ownerA = owned.owner?.id;
     const ownerB = unowned.owner?.id;
     assert.ok(ownerA);
     assert.ok(ownerB);
+    addActiveCompanyMembership({ companyId: memberCompany.id, userId: ownerA, role: "owner" });
+    const memberProject = createProject({
+      companyId: memberCompany.id,
+      name: `Member Project ${suffix}`,
+      description: "visible through membership",
+      color: "#0ea5e9",
+      emoji: "H",
+      owner: ownerA,
+      status: "active",
+    }).project;
+    const memberTask = createTask({
+      companyIdOrSlug: memberCompany.slug,
+      projectId: memberProject.id,
+      title: `Member Task ${suffix}`,
+      description: "visible through membership",
+      priority: "P2",
+      type: "feature",
+      status: "backlog",
+      labels: [],
+      createdBy: "operator",
+    }).task;
 
-    await test("company service lists only companies owned by the scoped user", () => {
+    await test("company service lists owned and active-member companies for the scoped user", () => {
       const rows = listCompanies({ includeNonProduction: true, ownerUserId: ownerA }).companies;
       assert.ok(rows.some((row) => row.id === owned.id));
+      assert.ok(rows.some((row) => row.id === memberCompany.id));
       assert.equal(rows.some((row) => row.id === unowned.id), false);
     });
 
@@ -103,6 +153,52 @@ async function run() {
       assert.equal(response.status, 200);
       const payload = await response.json() as { companies: Array<{ id: string }> };
       assert.deepEqual(payload.companies, []);
+    });
+
+    await test("company list route includes active owner-role memberships that are not owner_user_id", async () => {
+      const response = await listCompaniesRoute(apiRequest("http://localhost/api/orchestration/companies?includeNonProduction=true", ownerA));
+      assert.equal(response.status, 200);
+      const payload = await response.json() as { companies: Array<{ id: string }> };
+      const ids = new Set(payload.companies.map((company) => company.id));
+      assert.equal(ids.has(owned.id), true);
+      assert.equal(ids.has(memberCompany.id), true);
+      assert.equal(ids.has(unowned.id), false);
+    });
+
+    await test("company detail route resolves an active member company by slug", async () => {
+      const response = await getCompanyRoute(
+        apiRequest(`http://localhost/api/orchestration/companies/${memberCompany.slug}`, ownerA),
+        { params: Promise.resolve({ slug: memberCompany.slug }) },
+      );
+      assert.equal(response.status, 200);
+      const payload = await response.json() as { company: { id: string } };
+      assert.equal(payload.company.id, memberCompany.id);
+    });
+
+    await test("project and task query routes include active member company data", async () => {
+      const projectsResponse = await listProjectsRoute(apiRequest(
+        `http://localhost/api/orchestration/projects?company=${encodeURIComponent(memberCompany.slug)}`,
+        ownerA,
+      ));
+      assert.equal(projectsResponse.status, 200);
+      const projectsPayload = await projectsResponse.json() as { projects: Array<{ id: string }> };
+      assert.equal(
+        projectsPayload.projects.some((project) => project.id === memberProject.id),
+        true,
+        "Expected member-visible company project to be listed",
+      );
+
+      const tasksResponse = await listTasksRoute(apiRequest(
+        `http://localhost/api/orchestration/tasks?company=${encodeURIComponent(memberCompany.slug)}`,
+        ownerA,
+      ));
+      assert.equal(tasksResponse.status, 200);
+      const tasksPayload = await tasksResponse.json() as { tasks: Array<{ id: string }> };
+      assert.equal(
+        tasksPayload.tasks.some((task) => task.id === memberTask.id),
+        true,
+        "Expected member-visible company task to be listed",
+      );
     });
 
     await test("loopback local-dev session resolves to the configured local owner", async () => {

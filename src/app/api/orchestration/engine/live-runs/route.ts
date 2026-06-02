@@ -4,6 +4,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { resolveQueuedHeartbeatClaimCompanyId } from "@/lib/orchestration/service/dev-execution-test-mode";
 import { deriveRunLiveness, probeRunnerPidAlive } from "@/lib/orchestration/live-run-liveness";
+import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 
 export const dynamic = "force-dynamic";
 
@@ -36,6 +37,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ runs: [], timestamp: new Date().toISOString() });
     }
     const company = { id: resolved.id };
+    const runtime = getRuntimeLaneStatus();
 
     // Fetch active runs + recently completed (last 2 min).
     // In dev, queued heartbeats are only truly live for the company that currently
@@ -43,10 +45,12 @@ export async function GET(request: NextRequest) {
     // wakeups that are not claimable, so do not surface those as live runs.
     const cutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
     const queuedClaimCompanyId = resolveQueuedHeartbeatClaimCompanyId(db);
-    const includeQueuedRuns = queuedClaimCompanyId === null || queuedClaimCompanyId === company.id;
+    const includeQueuedRuns = runtime.engineTickActive && (queuedClaimCompanyId === null || queuedClaimCompanyId === company.id);
     const liveStatusSql = includeQueuedRuns
       ? "hr.status IN ('queued', 'running')"
-      : "hr.status = 'running'";
+      : runtime.engineTickActive
+        ? "hr.status = 'running'"
+        : "0";
 
     const runs = db
       .prepare(
@@ -292,6 +296,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       runs: result,
+      runtime: {
+        role: runtime.role,
+        engineTick: runtime.engineTick,
+        observerOnly: runtime.observerOnly,
+        executionDisabledReason: runtime.executionDisabledReason,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

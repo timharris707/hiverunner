@@ -2,15 +2,63 @@ import { NextRequest, NextResponse } from "next/server";
 import { promises as fs } from "fs";
 import path from "path";
 import crypto from "crypto";
+import { isPathContained } from "@/lib/workspaces/delete-safety";
 
 export const dynamic = "force-dynamic";
 
-const ATTACHMENTS_DIR = path.join(process.cwd(), "data", "attachments");
+const ATTACHMENTS_DIR = path.resolve(process.cwd(), "data", "attachments");
+const SAFE_ATTACHMENT_SEGMENT = /^[A-Za-z0-9._-]{1,160}$/;
+
+function sanitizeAttachmentSegment(value: string | null | undefined): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  if (!SAFE_ATTACHMENT_SEGMENT.test(trimmed)) return null;
+  return trimmed;
+}
+
+async function resolveAttachmentPath(relativePath: string, options: { forWrite?: boolean } = {}): Promise<string | null> {
+  const normalized = path.normalize(relativePath).replace(/^[/\\]+/, "");
+  if (!normalized || normalized === "." || normalized.startsWith("..") || path.isAbsolute(normalized)) {
+    return null;
+  }
+
+  const segments = normalized.split(/[\\/]+/);
+  if (segments.some((segment) => !sanitizeAttachmentSegment(segment))) {
+    return null;
+  }
+
+  const fullPath = path.resolve(ATTACHMENTS_DIR, ...segments);
+  if (!isPathContained(ATTACHMENTS_DIR, fullPath)) {
+    return null;
+  }
+
+  try {
+    const link = await fs.lstat(fullPath);
+    if (link.isSymbolicLink()) return null;
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : null;
+    if (!options.forWrite || code !== "ENOENT") return null;
+  }
+
+  if (!options.forWrite) {
+    const [realRoot, realTarget] = await Promise.all([
+      fs.realpath(ATTACHMENTS_DIR),
+      fs.realpath(fullPath),
+    ]);
+    if (!isPathContained(realRoot, realTarget)) return null;
+  }
+
+  return fullPath;
+}
 
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
-    const taskId = formData.get("taskId") as string;
+    const rawTaskId = typeof formData.get("taskId") === "string" ? formData.get("taskId") as string : "";
+    const taskId = rawTaskId ? sanitizeAttachmentSegment(rawTaskId) : "unsorted";
+    if (!taskId) {
+      return NextResponse.json({ error: "Invalid taskId" }, { status: 400 });
+    }
     const files = [
       ...formData.getAll("files"),
       ...formData.getAll("file"),
@@ -20,7 +68,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No files provided" }, { status: 400 });
     }
 
-    const taskDir = path.join(ATTACHMENTS_DIR, taskId || "unsorted");
+    const taskDir = await resolveAttachmentPath(taskId, { forWrite: true });
+    if (!taskDir) {
+      return NextResponse.json({ error: "Invalid taskId" }, { status: 400 });
+    }
     await fs.mkdir(taskDir, { recursive: true });
 
     const attachments: Array<{
@@ -33,19 +84,23 @@ export async function POST(request: NextRequest) {
 
     for (const file of files) {
       const id = crypto.randomUUID();
-      const ext = path.extname(file.name);
+      const ext = sanitizeAttachmentSegment(path.extname(file.name).replace(/^\./, "")) ?? "bin";
       const sanitizedName = path.basename(file.name);
-      const storedName = `${id}${ext}`;
+      const storedName = `${id}.${ext}`;
+      const targetPath = await resolveAttachmentPath(`${taskId}/${storedName}`, { forWrite: true });
+      if (!targetPath) {
+        return NextResponse.json({ error: "Invalid upload path" }, { status: 400 });
+      }
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      await fs.writeFile(path.join(taskDir, storedName), buffer);
+      await fs.writeFile(targetPath, buffer);
 
       attachments.push({
         id,
         name: sanitizedName,
         type: file.type || "application/octet-stream",
         size: buffer.length,
-        path: `${taskId || "unsorted"}/${storedName}`,
+        path: `${taskId}/${storedName}`,
       });
     }
 
@@ -65,8 +120,8 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "No path provided" }, { status: 400 });
     }
 
-    const fullPath = path.resolve(ATTACHMENTS_DIR, filePath);
-    if (!fullPath.startsWith(ATTACHMENTS_DIR)) {
+    const fullPath = await resolveAttachmentPath(filePath);
+    if (!fullPath) {
       return NextResponse.json({ error: "Invalid path" }, { status: 400 });
     }
 
@@ -109,8 +164,8 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: "No path provided" }, { status: 400 });
     }
 
-    const fullPath = path.resolve(ATTACHMENTS_DIR, filePath);
-    if (!fullPath.startsWith(ATTACHMENTS_DIR)) {
+    const fullPath = await resolveAttachmentPath(filePath);
+    if (!fullPath) {
       return NextResponse.json({ error: "Invalid path" }, { status: 400 });
     }
 

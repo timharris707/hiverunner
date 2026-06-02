@@ -480,6 +480,7 @@ export interface OrchestrationAgent {
   model?: string;
   /** Execution provider. Source of truth for provider identity (Phase 1). */
   adapterType?: string;
+  runtimeConfig?: Record<string, unknown>;
   runtimeSlug?: string;
   openclawAgentId?: string;
   reportingTo?: string;
@@ -585,6 +586,10 @@ export interface OrchestrationRuntimeDependencyReadiness {
   command?: string | null;
   commandPath?: string | null;
   version?: string | null;
+  versionLatest?: boolean | null;
+  latestVersion?: string | null;
+  versionCheckSource?: string | null;
+  versionCheckDetail?: string | null;
   authReady?: boolean | null;
   envVars: string[];
   note: string;
@@ -614,6 +619,11 @@ export interface OrchestrationRuntimeCliUpdateResult {
   afterVersion: string | null;
   output: string;
   error: string | null;
+  jobId?: string | null;
+  phase?: "queued" | "running" | "succeeded" | "failed" | null;
+  startedAt?: string | null;
+  completedAt?: string | null;
+  finished?: boolean;
 }
 
 export interface OrchestrationRuntimeExecutionRun {

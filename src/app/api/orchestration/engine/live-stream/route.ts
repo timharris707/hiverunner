@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 
 import { subscribe, initAdapterRegistry, getRegistryStatus } from "@/lib/orchestration/adapters/registry";
 import { toLegacyWireEvent } from "@/lib/orchestration/live-events";
+import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 import type { MCLiveEvent } from "@/lib/orchestration/live-events";
 
 export const dynamic = "force-dynamic";
@@ -27,7 +28,10 @@ export async function GET(req: NextRequest) {
 
   // Diagnostic endpoint: ?company=__status__
   if (companySlug === "__status__") {
-    return new Response(JSON.stringify(getRegistryStatus(), null, 2), {
+    return new Response(JSON.stringify({
+      ...getRegistryStatus(),
+      runtime: getRuntimeLaneStatus(),
+    }, null, 2), {
       headers: { "Content-Type": "application/json" },
     });
   }

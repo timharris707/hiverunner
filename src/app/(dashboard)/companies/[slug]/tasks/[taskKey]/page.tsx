@@ -112,6 +112,7 @@ const TASK_MODEL_ROUTING_OPTIONS = [
   { value: "openai", label: "OpenAI Direct" },
   { value: "google", label: "Google Direct" },
 ];
+const DIRECT_WORK_ONLY_LABEL = "direct-work-only";
 type CreatorDisplay = {
   label: string;
   title: string;
@@ -1271,6 +1272,15 @@ export default function TaskDetailPage() {
       setMutationError("Could not save the tag change.");
     }
   }, [task]);
+
+  const onDirectWorkOnlyChange = useCallback((enabled: boolean) => {
+    if (!task) return;
+    const currentTags = task.tags ?? [];
+    const nextTags = enabled
+      ? Array.from(new Set([...currentTags, DIRECT_WORK_ONLY_LABEL]))
+      : currentTags.filter((tag) => tag.toLowerCase() !== DIRECT_WORK_ONLY_LABEL);
+    void onTagsChange(task.id, nextTags);
+  }, [onTagsChange, task]);
 
   const onExecutionOverrideChange = useCallback(async (patch: Partial<TaskExecutionOverridePatch>) => {
     if (!task) return;
@@ -2784,6 +2794,28 @@ export default function TaskDetailPage() {
                 <Tag size={12} />
                 <InlineTagsEditor tags={task.tags ?? []} onChange={(tags) => onTagsChange(task.id, tags)} />
               </div>
+            </PropertyRow>
+
+            <PropertyRow label="Work mode">
+              <label
+                title="Direct work only: do not delegate this task or create child execution tasks"
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  color: color.textSecondary,
+                  fontSize: 12,
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={(task.tags ?? []).some((tag) => tag.toLowerCase() === DIRECT_WORK_ONLY_LABEL)}
+                  onChange={(event) => onDirectWorkOnlyChange(event.currentTarget.checked)}
+                  style={{ accentColor: color.accent }}
+                />
+                Direct work only
+              </label>
             </PropertyRow>
 
             {/* Assignee */}

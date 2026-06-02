@@ -19,6 +19,7 @@ import {
   Link2,
   MapPinned,
   Network,
+  RefreshCw,
   Search,
   ShieldCheck,
   Sparkles,
@@ -29,10 +30,10 @@ import {
 import { listCompanies } from "@/lib/orchestration/client";
 import type { OrchestrationCompany } from "@/lib/orchestration/types";
 import { buildCanonicalCompanyPath } from "@/lib/orchestration/route-paths";
-import { PageHeader, Section, EmptyState } from "@/lib/ui/primitives";
+import { ActionButton, PageHeader, Section, EmptyState } from "@/lib/ui/primitives";
 import { color, type as T, space, radius, pageStyle } from "@/lib/ui/tokens";
 import type { MemoryCandidate } from "@/lib/orchestration/memory-candidates";
-import type { MemoryIndexRecord } from "@/lib/orchestration/memory-vault";
+import type { MemoryIndexRecord, MemoryIndexStatus, MemorySyncResult } from "@/lib/orchestration/memory-vault";
 import type {
   MemoryQualityDashboard,
   MemoryQualityQueueItem,
@@ -182,6 +183,11 @@ type CandidateReviewResponse = {
   error?: string;
 };
 
+type MemorySyncResponse = MemorySyncResult & {
+  indexStatus?: MemoryIndexStatus;
+  error?: string | { message?: string };
+};
+
 /* ── Helpers ── */
 
 function routingLabel(routingTarget: string | null, category: string | null, operatorLabel = PUBLIC_HUMAN_LABEL): string {
@@ -210,6 +216,13 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
+}
+
+function formatIndexTimestamp(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+  return `${new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date)} (${formatRelative(iso)})`;
 }
 
 function formatLabel(value: string): string {
@@ -2415,6 +2428,7 @@ export default function CompanyMemoryPage() {
   const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [activeTab, setActiveTab] = useState<MemoryTab>("cards");
   const [records, setRecords] = useState<MemoryIndexRecord[]>([]);
+  const [indexStatus, setIndexStatus] = useState<MemoryIndexStatus | null>(null);
   const [graph, setGraph] = useState<MemoryGraph | null>(null);
   const [candidates, setCandidates] = useState<MemoryCandidate[]>([]);
   const [selectedRecordId, setSelectedRecordId] = useState<string | null>(null);
@@ -2422,10 +2436,16 @@ export default function CompanyMemoryPage() {
   const [layerFilter, setLayerFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [graphError, setGraphError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [writebackNotice, setWritebackNotice] = useState<{
     tone: "success" | "error" | "info";
+    title: string;
+    detail: string;
+  } | null>(null);
+  const [syncNotice, setSyncNotice] = useState<{
+    tone: "success" | "error";
     title: string;
     detail: string;
   } | null>(null);
@@ -2461,9 +2481,10 @@ export default function CompanyMemoryPage() {
       if (!indexRes.ok) throw new Error("Failed to load memory cards");
       if (!candidatesRes.ok) throw new Error("Failed to load candidates");
 
-      const indexData = await indexRes.json() as { records?: MemoryIndexRecord[] };
+      const indexData = await indexRes.json() as { records?: MemoryIndexRecord[]; indexStatus?: MemoryIndexStatus };
       const candidateData = await candidatesRes.json() as { candidates?: MemoryCandidate[] };
       setRecords(indexData.records ?? []);
+      setIndexStatus(indexData.indexStatus ?? null);
       setSelectedRecordId((current) => current ?? indexData.records?.[0]?.recordId ?? null);
       setCandidates(candidateData.candidates ?? []);
 
@@ -2482,6 +2503,46 @@ export default function CompanyMemoryPage() {
   }, [slug]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const handleSyncNow = useCallback(async () => {
+    setSyncing(true);
+    setError(null);
+    setSyncNotice(null);
+    try {
+      const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/memory/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => null) as MemorySyncResponse | null;
+
+      if (!res.ok) {
+        const responseError = body?.error;
+        const message = typeof responseError === "string"
+          ? responseError
+          : responseError?.message ?? `Sync failed: ${res.status}`;
+        throw new Error(message);
+      }
+
+      setIndexStatus(body?.indexStatus ?? null);
+      setSyncNotice({
+        tone: "success",
+        title: "Memory sync complete",
+        detail: `${body?.filesReindexed ?? 0} file${body?.filesReindexed === 1 ? "" : "s"} indexed, ${body?.filesRemoved ?? 0} removed, ${body?.errors.length ?? 0} error${body?.errors.length === 1 ? "" : "s"}.`,
+      });
+      void load();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to sync memory";
+      setSyncNotice({
+        tone: "error",
+        title: "Memory sync failed",
+        detail: message,
+      });
+    } finally {
+      setSyncing(false);
+    }
+  }, [load, slug]);
 
   const operatorLabel = publicHumanDisplayName(company?.owner?.displayName);
   const viewer = (searchParams.get("as") ?? operatorLabel).trim();
@@ -2622,6 +2683,15 @@ export default function CompanyMemoryPage() {
         icon={<Brain size={16} style={{ color: color.textSecondary }} />}
         title="Memory"
         description={`Browse indexed company memory${!isOperatorViewer ? ` — viewing as ${viewer}` : ""}`}
+        actions={
+          <ActionButton
+            label={syncing ? "Syncing" : "Sync now"}
+            icon={<RefreshCw size={14} />}
+            onClick={handleSyncNow}
+            disabled={syncing || !slug}
+            variant="primary"
+          />
+        }
       />
 
       {/* Viewer switcher — for specialist validation */}
@@ -2713,6 +2783,78 @@ export default function CompanyMemoryPage() {
           </div>
         </div>
       )}
+
+      {syncNotice && (
+        <div
+          role="status"
+          data-testid="memory-sync-notice"
+          style={{
+            marginBottom: space.md,
+            padding: `${space.sm}px ${space.lg}px`,
+            borderRadius: radius.md,
+            background: syncNotice.tone === "error" ? color.negativeSoft : `${color.positive}12`,
+            border: `0.5px solid ${syncNotice.tone === "error" ? "rgba(239,68,68,0.2)" : `${color.positive}33`}`,
+            display: "grid",
+            gap: 4,
+          }}
+        >
+          <div
+            style={{
+              fontSize: T.bodySmall.size,
+              color: syncNotice.tone === "error" ? color.negative : color.positive,
+              fontWeight: 600,
+            }}
+          >
+            {syncNotice.title}
+          </div>
+          <div style={{ fontSize: T.caption.size, color: color.textSecondary, wordBreak: "break-word" }}>
+            {syncNotice.detail}
+          </div>
+        </div>
+      )}
+
+      <div
+        data-testid="memory-sync-status"
+        style={{
+          marginBottom: space.xl,
+          padding: `${space.lg}px ${space.xl}px`,
+          borderRadius: radius.lg,
+          border: `0.5px solid ${color.border}`,
+          background: color.surface,
+          display: "grid",
+          gridTemplateColumns: "minmax(0, 1fr) auto",
+          gap: space.lg,
+          alignItems: "center",
+        }}
+      >
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))", gap: space.md, minWidth: 0 }}>
+          {[
+            { label: "Last indexed", value: formatIndexTimestamp(indexStatus?.lastIndexedAt) },
+            { label: "Indexed files", value: String(indexStatus?.indexedFileCount ?? records.length) },
+            { label: "Errors", value: String(indexStatus?.errorCount ?? records.filter((record) => record.status === "error" || record.indexError).length) },
+          ].map((item) => (
+            <div key={item.label} style={{ display: "grid", gap: 2, minWidth: 0 }}>
+              <span style={{ fontSize: T.caption.size, color: color.textMuted, textTransform: "uppercase" }}>{item.label}</span>
+              <span style={{ fontSize: T.bodySmall.size, color: color.text, fontWeight: 600, overflowWrap: "anywhere" }}>{item.value}</span>
+            </div>
+          ))}
+          <div style={{ display: "grid", gap: 2, minWidth: 0 }}>
+            <span style={{ fontSize: T.caption.size, color: color.textMuted, textTransform: "uppercase" }}>Latest sync</span>
+            <span style={{ fontSize: T.bodySmall.size, color: color.textSecondary, overflowWrap: "anywhere" }}>
+              {indexStatus?.latestSync
+                ? `${indexStatus.latestSync.filesChecked} checked · ${indexStatus.latestSync.filesReindexed} indexed · ${indexStatus.latestSync.filesRemoved} removed`
+                : "No sync run recorded"}
+            </span>
+          </div>
+        </div>
+        <ActionButton
+          label={syncing ? "Re-indexing" : "Re-index"}
+          icon={<RefreshCw size={14} />}
+          onClick={handleSyncNow}
+          disabled={syncing || !slug}
+          variant="secondary"
+        />
+      </div>
 
       <div
         style={{
@@ -2854,11 +2996,38 @@ export default function CompanyMemoryPage() {
                 ))}
               </div>
             ) : filteredRecords.length === 0 ? (
-              <EmptyState
-                icon={<FileText size={24} />}
-                title="No memory cards"
-                description="No indexed memory records match the current filters."
-              />
+              records.length === 0 ? (
+                <div
+                  style={{
+                    border: `0.5px solid ${color.border}`,
+                    borderRadius: radius.lg,
+                    background: color.surface,
+                    display: "grid",
+                    justifyItems: "center",
+                    gap: space.md,
+                    paddingBottom: space.xl,
+                  }}
+                >
+                  <EmptyState
+                    icon={<FileText size={24} />}
+                    title="No indexed memory yet"
+                    description="Run Sync now to index the company vault and make memory available for search, graph, and retrieval evidence."
+                  />
+                  <ActionButton
+                    label={syncing ? "Syncing" : "Sync now"}
+                    icon={<RefreshCw size={14} />}
+                    onClick={handleSyncNow}
+                    disabled={syncing || !slug}
+                    variant="primary"
+                  />
+                </div>
+              ) : (
+                <EmptyState
+                  icon={<FileText size={24} />}
+                  title="No memory cards"
+                  description="No indexed memory records match the current filters."
+                />
+              )
             ) : (
               <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(280px, 360px)", gap: space.xl, alignItems: "start" }}>
                 <div style={{ display: "grid", gap: space.md }}>
