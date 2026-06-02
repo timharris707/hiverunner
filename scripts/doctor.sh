@@ -189,7 +189,8 @@ if [ -n "${STABLE_PORT_PID:-}" ]; then
       info "Engine tick: $STABLE_TICK"
     fi
   elif curl -sf --max-time 5 "http://127.0.0.1:$STABLE_PORT/api/orchestration/companies" >/dev/null 2>&1; then
-    ok "Healthcheck: /api/orchestration/companies OK"
+    fail "Healthcheck: /api/hiverunner/health FAILED (companies API still responds)"
+    issues=$((issues + 1))
   else
     fail "Healthcheck: FAILED"
     issues=$((issues + 1))
@@ -237,6 +238,83 @@ if [ -f "$DB_FILE" ]; then
   if [ -f "$WAL_FILE" ]; then
     WAL_SIZE="$(du -sh "$WAL_FILE" 2>/dev/null | cut -f1)"
     info "WAL file: ${WAL_SIZE}"
+  fi
+
+  AUTH_MODE="${MC_AUTH_MODE:-local-single-user}"
+  if [ "$AUTH_MODE" = "local-single-user" ] || [ "$AUTH_MODE" = "local" ] || [ "$AUTH_MODE" = "single-user" ]; then
+    IDENTITY_REPORT="$(DB_FILE="$DB_FILE" MC_LOCAL_OWNER_EMAIL="${MC_LOCAL_OWNER_EMAIL:-owner@localhost.local}" python3 <<'PY' 2>/dev/null || true
+import os
+import sqlite3
+
+db_path = os.environ["DB_FILE"]
+local_email = os.environ.get("MC_LOCAL_OWNER_EMAIL", "owner@localhost.local").strip().lower()
+owner_ids = {"local-owner"}
+
+conn = sqlite3.connect(db_path)
+try:
+    for (user_id,) in conn.execute(
+        "SELECT id FROM users WHERE lower(email) = lower(?) AND archived_at IS NULL",
+        (local_email,),
+    ):
+        if user_id:
+            owner_ids.add(str(user_id))
+
+    placeholders = ",".join("?" for _ in owner_ids)
+    params = list(owner_ids)
+
+    member_not_owner = conn.execute(
+        f"""
+        SELECT COUNT(*)
+          FROM companies c
+         WHERE c.archived_at IS NULL
+           AND COALESCE(c.owner_user_id, '') NOT IN ({placeholders})
+           AND EXISTS (
+             SELECT 1
+               FROM company_members cm
+              WHERE cm.company_id = c.id
+                AND cm.user_id IN ({placeholders})
+                AND cm.status = 'active'
+           )
+        """,
+        params + params,
+    ).fetchone()[0]
+
+    hidden = conn.execute(
+        f"""
+        SELECT COUNT(*)
+          FROM companies c
+         WHERE c.archived_at IS NULL
+           AND COALESCE(c.owner_user_id, '') NOT IN ({placeholders})
+           AND NOT EXISTS (
+             SELECT 1
+               FROM company_members cm
+              WHERE cm.company_id = c.id
+                AND cm.user_id IN ({placeholders})
+                AND cm.status = 'active'
+           )
+        """,
+        params + params,
+    ).fetchone()[0]
+
+    print(f"{member_not_owner},{hidden},{','.join(sorted(owner_ids))}")
+finally:
+    conn.close()
+PY
+)"
+    if [ -n "$IDENTITY_REPORT" ]; then
+      MEMBER_NOT_OWNER="$(printf "%s" "$IDENTITY_REPORT" | cut -d, -f1)"
+      HIDDEN_COMPANIES="$(printf "%s" "$IDENTITY_REPORT" | cut -d, -f2)"
+      LOCAL_IDS="$(printf "%s" "$IDENTITY_REPORT" | cut -d, -f3-)"
+      if [ "$MEMBER_NOT_OWNER" != "0" ]; then
+        warn "Auth ownership: $MEMBER_NOT_OWNER active company(s) are member-visible but owned by another identity (local ids: $LOCAL_IDS)"
+      else
+        ok "Auth ownership: no member-visible owner mismatches"
+      fi
+      if [ "$HIDDEN_COMPANIES" != "0" ]; then
+        warn "Auth visibility: $HIDDEN_COMPANIES active company(s) are neither owned by nor active-member-visible to the local identity"
+        issues=$((issues + 1))
+      fi
+    fi
   fi
 else
   fail "orchestration.db: not found"

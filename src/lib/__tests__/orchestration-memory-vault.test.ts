@@ -6,6 +6,11 @@ import path from "node:path";
 import { NextRequest } from "next/server";
 
 import { PATCH as patchMemoryCandidate } from "@/app/api/orchestration/companies/[slug]/memory/candidates/route";
+import { GET as getMemoryIndexRoute } from "@/app/api/orchestration/companies/[slug]/memory/index/route";
+import {
+  GET as getMemorySyncRoute,
+  POST as postMemorySyncRoute,
+} from "@/app/api/orchestration/companies/[slug]/memory/sync/route";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getMemoryCandidate, listMemoryCandidates, reviewMemoryCandidate } from "@/lib/orchestration/memory-candidates";
@@ -14,6 +19,7 @@ import {
   generateKnowledgeMapNotes,
   generateGraphNoteMetadata,
   getCompanyMemorySettings,
+  getMemoryIndexStatus,
   getMemoryGraph,
   initializeCompanyMemoryVault,
   listMemoryIndexRecords,
@@ -144,6 +150,58 @@ async function run() {
     assert.strictEqual(indexed.records.length, 1);
     assert.strictEqual(indexed.records[0].recordId, "fixture-memory-note");
     assert.deepStrictEqual(indexed.records[0].linkedIds.sort(), [task.key, "Retrieval Evidence"].sort());
+
+    const status = getMemoryIndexStatus(company.slug);
+    assert.ok(status.lastIndexedAt);
+    assert.ok(status.indexedFileCount >= 1);
+    assert.strictEqual(status.errorCount, 0);
+    assert.ok(status.latestSync);
+    assert.strictEqual(status.latestSync.errors, 0);
+  });
+
+  await test("index and sync routes expose memory index status", async () => {
+    const params = { params: Promise.resolve({ slug: company.slug }) };
+    const indexRes = await getMemoryIndexRoute(
+      new NextRequest(`http://localhost/api/orchestration/companies/${company.slug}/memory/index?status=active&limit=10`),
+      params,
+    );
+    assert.strictEqual(indexRes.status, 200);
+    const indexPayload = await indexRes.json() as {
+      records: unknown[];
+      indexStatus: { lastIndexedAt: string | null; indexedFileCount: number; errorCount: number };
+    };
+    assert.ok(indexPayload.records.length >= 1);
+    assert.ok(indexPayload.indexStatus.lastIndexedAt);
+    assert.ok(indexPayload.indexStatus.indexedFileCount >= 1);
+    assert.strictEqual(indexPayload.indexStatus.errorCount, 0);
+
+    const syncStatusRes = await getMemorySyncRoute(
+      new NextRequest(`http://localhost/api/orchestration/companies/${company.slug}/memory/sync`),
+      params,
+    );
+    assert.strictEqual(syncStatusRes.status, 200);
+    const syncStatusPayload = await syncStatusRes.json() as {
+      indexStatus: { indexedFileCount: number; latestSync: { errors: number } | null };
+    };
+    assert.ok(syncStatusPayload.indexStatus.indexedFileCount >= 1);
+    assert.strictEqual(syncStatusPayload.indexStatus.latestSync?.errors, 0);
+
+    const syncRes = await postMemorySyncRoute(
+      new NextRequest(`http://localhost/api/orchestration/companies/${company.slug}/memory/sync`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeGlobalWiki: false }),
+      }),
+      params,
+    );
+    assert.strictEqual(syncRes.status, 200);
+    const syncPayload = await syncRes.json() as {
+      filesChecked: number;
+      indexStatus: { indexedFileCount: number; latestSync: { errors: number } | null };
+    };
+    assert.ok(syncPayload.filesChecked >= 1);
+    assert.ok(syncPayload.indexStatus.indexedFileCount >= 1);
+    assert.strictEqual(syncPayload.indexStatus.latestSync?.errors, 0);
   });
 
   await test("graph endpoint data includes wikilink/task-key edges", () => {

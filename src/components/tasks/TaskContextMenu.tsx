@@ -14,9 +14,9 @@ import type { TaskExecutionEngine, TaskModelLane } from "@/lib/orchestration/typ
 const PRIORITIES: TaskPriority[] = ["P0", "P1", "P2", "P3"];
 const EXECUTION_ENGINES: Array<{ value: TaskExecutionEngine | null; label: string }> = [
   { value: null, label: "Inherit engine" },
-  { value: "hiverunner", label: "HiveRunner" },
+  { value: "hiverunner", label: "HiveRunner runnable" },
   { value: "symphony", label: "External runner" },
-  { value: "manual", label: "Manual" },
+  { value: "manual", label: "Manual only" },
 ];
 
 interface Props {

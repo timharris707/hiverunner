@@ -4,6 +4,7 @@ import { handleRouteError } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { listActiveAgentLiveStates } from "@/lib/orchestration/agent-live-state";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +26,24 @@ export async function GET(request: NextRequest) {
     const company = resolveCompanyIdBySlug(companyParam, db);
     if (!company) {
       return NextResponse.json({ runs: [], timestamp: new Date().toISOString() });
+    }
+
+    const runtime = getRuntimeLaneStatus();
+    if (!runtime.engineTickActive) {
+      return NextResponse.json({
+        company: {
+          slug: company.slug,
+          code: company.company_code,
+        },
+        runs: [],
+        runtime: {
+          role: runtime.role,
+          engineTick: runtime.engineTick,
+          observerOnly: runtime.observerOnly,
+          executionDisabledReason: runtime.executionDisabledReason,
+        },
+        timestamp: new Date().toISOString(),
+      });
     }
 
     const runs = listActiveAgentLiveStates({ db, companyId: company.id }).map((state) => ({
@@ -55,6 +74,12 @@ export async function GET(request: NextRequest) {
         code: company.company_code,
       },
       runs,
+      runtime: {
+        role: runtime.role,
+        engineTick: runtime.engineTick,
+        observerOnly: runtime.observerOnly,
+        executionDisabledReason: runtime.executionDisabledReason,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {

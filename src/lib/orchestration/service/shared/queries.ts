@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 
+import { buildCompanyAccessCondition } from "@/lib/orchestration/company-access";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { normalizeAgentSymbol } from "@/lib/orchestration/avatar-icons";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -17,7 +18,7 @@ import {
   toApiStatus,
   toApiType,
 } from "./mappers";
-import { parseJsonArray, parseProjectSettings } from "./validators";
+import { parseJsonArray, parseJsonObject, parseProjectSettings } from "./validators";
 import type {
   OrchestrationTaskDependency,
 } from "@/lib/orchestration/types";
@@ -45,14 +46,18 @@ function resolveCompanyId(
   companyIdOrSlug: string,
   input?: { ownerUserId?: string }
 ): string | undefined {
-  const ownerUserId = input?.ownerUserId?.trim();
-  const ownerClause = ownerUserId ? "AND owner_user_id = ?" : "";
+  const access = buildCompanyAccessCondition("c", input?.ownerUserId);
+  const accessClause = access ? `AND ${access.sql}` : "";
   // Try direct match first (id or current slug).
   const direct = db
-    .prepare(`SELECT id FROM companies WHERE (id = ? OR slug = ? OR UPPER(company_code) = UPPER(?)) AND archived_at IS NULL ${ownerClause}`)
-    .get(...(ownerUserId
-      ? [companyIdOrSlug, companyIdOrSlug, companyIdOrSlug, ownerUserId]
-      : [companyIdOrSlug, companyIdOrSlug, companyIdOrSlug])) as { id: string } | undefined;
+    .prepare(
+      `SELECT c.id
+         FROM companies c
+        WHERE (c.id = ? OR c.slug = ? OR UPPER(c.company_code) = UPPER(?))
+          AND c.archived_at IS NULL
+          ${accessClause}`
+    )
+    .get(companyIdOrSlug, companyIdOrSlug, companyIdOrSlug, ...(access?.args ?? [])) as { id: string } | undefined;
   if (direct) return direct.id;
 
   // Fall back to stored slug alias.
@@ -60,12 +65,19 @@ function resolveCompanyId(
     .prepare("SELECT company_id FROM company_slug_aliases WHERE slug_alias = ? LIMIT 1")
     .get(companyIdOrSlug) as { company_id: string } | undefined;
   if (!alias) return undefined;
-  if (!ownerUserId) return alias.company_id;
+  if (!access) return alias.company_id;
 
-  const ownedAliasTarget = db
-    .prepare("SELECT id FROM companies WHERE id = ? AND owner_user_id = ? AND archived_at IS NULL LIMIT 1")
-    .get(alias.company_id, ownerUserId) as { id: string } | undefined;
-  return ownedAliasTarget?.id;
+  const accessibleAliasTarget = db
+    .prepare(
+      `SELECT c.id
+         FROM companies c
+        WHERE c.id = ?
+          AND c.archived_at IS NULL
+          AND ${access.sql}
+        LIMIT 1`
+    )
+    .get(alias.company_id, ...access.args) as { id: string } | undefined;
+  return accessibleAliasTarget?.id;
 }
 
 function generateTaskKey(db: Database.Database, companyOrProjectId: string): { taskNumber: number; taskKey: string } {
@@ -797,6 +809,7 @@ function agentFromRow(
       adapterType: row.adapter_type,
       openclawAgentId: row.openclaw_agent_id,
     }),
+    runtimeConfig: parseJsonObject(row.runtime_config_json),
     runtimeSlug: row.runtime_slug ?? undefined,
     openclawAgentId: row.openclaw_agent_id ?? undefined,
     reportingTo: row.reporting_to ?? undefined,

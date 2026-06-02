@@ -73,6 +73,14 @@ type GeminiUsage = {
   totalTokens: number;
 };
 
+type GeminiRuntimeControls = {
+  model: string;
+  reasoningEffort: string | null;
+  speedPreference: string | null;
+  fastMode: boolean | null;
+  serviceTier: string | null;
+};
+
 const DEFAULT_GEMINI_TIMEOUT_MS = 9 * 60 * 1000;
 const DEFAULT_GEMINI_MAX_BUFFER = 10 * 1024 * 1024;
 const DEFAULT_GEMINI_MODEL = "gemini-2.5-pro";
@@ -167,6 +175,77 @@ function normalizeGeminiModel(value: string): string {
   if (/^auto-gemini-2\.5$/i.test(model)) return DEFAULT_GEMINI_MODEL;
   if (/^auto-gemini-3$/i.test(model)) return DEFAULT_GEMINI_MODEL;
   return model;
+}
+
+function normalizedGeminiModelFromCandidate(candidate: unknown): string | null {
+  const value = stringFrom(candidate);
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === "auto" ||
+    normalized === "default" ||
+    normalized.includes("gemini") ||
+    normalized.startsWith("google/")
+  ) {
+    return normalizeGeminiModel(value);
+  }
+  return null;
+}
+
+function normalizeReasoningEffort(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "balanced" || normalized === "standard") return "medium";
+  if (normalized === "deep") return "high";
+  if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
+  if (["minimal", "low", "medium", "high", "xhigh"].includes(normalized)) return normalized;
+  return null;
+}
+
+function normalizeSpeedPreference(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (["fast", "faster", "fast_1_5x", "fast-1.5x", "1.5x", "low_latency", "low-latency"].includes(normalized)) {
+    return "fast_1_5x";
+  }
+  if (["normal", "standard", "balanced"].includes(normalized)) return "normal";
+  return normalized;
+}
+
+function normalizeServiceTier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "default" || normalized === "auto" || normalized === "normal") return null;
+  return normalized;
+}
+
+function boolFrom(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on", "fast"].includes(normalized)) return true;
+  if (["false", "0", "no", "off", "normal"].includes(normalized)) return false;
+  return null;
+}
+
+function routeAttemptModel(input: ExecutionInput): unknown {
+  const source = input.executionRouteAttempt?.target.source as Record<string, unknown> | undefined;
+  if (source?.modelSourceId === "agent_profile") return null;
+  return input.executionRouteAttempt?.target.model;
+}
+
+function explicitTaskReasoning(input: ExecutionInput): unknown {
+  return input.taskModelRouting?.lane && input.taskModelRouting.lane !== "default"
+    ? input.taskModelRouting.reasoningEffort
+    : null;
+}
+
+function explicitTaskSpeed(input: ExecutionInput): unknown {
+  return input.taskModelRouting?.lane && input.taskModelRouting.lane !== "default"
+    ? input.taskModelRouting.speedPreference
+    : null;
 }
 
 function resolveGeminiRuntime(db: Database.Database, input: ExecutionInput): GeminiRuntimeRow | null {
@@ -268,21 +347,67 @@ function resolveCommand(runtime: GeminiRuntimeRow | null): string {
   return metadataCommand || runtime?.command?.trim() || "gemini";
 }
 
-function resolveModel(
+function resolveRuntimeControls(
   db: Database.Database,
   input: ExecutionInput,
   runtime: GeminiRuntimeRow | null,
-): string {
+): GeminiRuntimeControls {
   const metadata = parseJson(runtime?.metadata_json);
+  const runtimeConfig = parseJson(input.agent.runtime_config_json);
   const agentModel = db
     .prepare("SELECT model FROM agents WHERE id = ? LIMIT 1")
     .get(input.agent.id) as AgentModelRow | undefined;
 
-  for (const candidate of [metadata.model, metadata.modelId, agentModel?.model]) {
-    const model = normalizeGeminiModel(stringFrom(candidate));
-    if (model) return model;
+  let model = "";
+  for (const candidate of [
+    input.taskModelRouting?.model,
+    routeAttemptModel(input),
+    runtimeConfig.model,
+    metadata.model,
+    metadata.modelId,
+    agentModel?.model,
+  ]) {
+    const normalized = normalizedGeminiModelFromCandidate(candidate);
+    if (normalized) {
+      model = normalized;
+      break;
+    }
   }
-  return DEFAULT_GEMINI_MODEL;
+
+  let reasoningEffort: string | null = null;
+  for (const candidate of [
+    explicitTaskReasoning(input),
+    runtimeConfig.reasoningEffort,
+    runtimeConfig.modelReasoningEffort,
+    runtimeConfig.thinkingLevel,
+    metadata.reasoningEffort,
+    metadata.modelReasoningEffort,
+    metadata.thinkingLevel,
+    input.taskModelRouting?.reasoningEffort,
+  ]) {
+    reasoningEffort = normalizeReasoningEffort(candidate);
+    if (reasoningEffort) break;
+  }
+
+  return {
+    model: model || DEFAULT_GEMINI_MODEL,
+    reasoningEffort,
+    speedPreference:
+      normalizeSpeedPreference(explicitTaskSpeed(input)) ??
+      normalizeSpeedPreference(runtimeConfig.speedPreference) ??
+      normalizeSpeedPreference(runtimeConfig.speed) ??
+      normalizeSpeedPreference(runtimeConfig.thinkingSpeed) ??
+      normalizeSpeedPreference(metadata.speedPreference) ??
+      normalizeSpeedPreference(metadata.speed) ??
+      normalizeSpeedPreference(metadata.thinkingSpeed) ??
+      normalizeSpeedPreference(input.taskModelRouting?.speedPreference),
+    fastMode: boolFrom(runtimeConfig.fastMode) ?? boolFrom(metadata.fastMode),
+    serviceTier:
+      normalizeServiceTier(runtimeConfig.serviceTier) ??
+      normalizeServiceTier(runtimeConfig.service_tier) ??
+      normalizeServiceTier(metadata.serviceTier) ??
+      normalizeServiceTier(metadata.service_tier),
+  };
 }
 
 function buildEnv(command: string): NodeJS.ProcessEnv {
@@ -443,7 +568,8 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const db = getDb();
   const runtime = resolveGeminiRuntime(db, input);
   const command = resolveCommand(runtime);
-  const model = resolveModel(db, input, runtime);
+  const controls = resolveRuntimeControls(db, input, runtime);
+  const { model } = controls;
   const workspace = resolveWorkspaceRoot(db, input, runtime);
   const workspaceRoot = workspace.cwd;
   const startedAt = new Date().toISOString();
@@ -471,6 +597,16 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     integrationPath: "cli-batch",
     command: path.basename(command),
     model,
+    reasoningEffort: controls.reasoningEffort,
+    speedPreference: controls.speedPreference,
+    fastMode: controls.fastMode,
+    serviceTier: controls.serviceTier,
+    unsupportedRuntimeControls: {
+      reasoningEffort: controls.reasoningEffort,
+      speedPreference: controls.speedPreference,
+      fastMode: controls.fastMode,
+      serviceTier: controls.serviceTier,
+    },
     runtimeSlug: runtime?.runtime_slug ?? null,
     runtimeScope: runtime?.scope ?? null,
     runtimeDisplayName: runtime?.display_name ?? null,
@@ -498,6 +634,16 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
         metadata: {
           command,
           model: model || null,
+          reasoningEffort: controls.reasoningEffort,
+          speedPreference: controls.speedPreference,
+          fastMode: controls.fastMode,
+          serviceTier: controls.serviceTier,
+          unsupportedRuntimeControls: {
+            reasoningEffort: controls.reasoningEffort,
+            speedPreference: controls.speedPreference,
+            fastMode: controls.fastMode,
+            serviceTier: controls.serviceTier,
+          },
           workspaceRoot,
           companyWorkspaceRoot: workspace.companyWorkspaceRoot,
           includeDirectories: workspace.includeDirectories,

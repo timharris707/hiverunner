@@ -14,6 +14,7 @@ import {
 import {
   resolveWorkspaceBase,
   resolveWorkspacePath,
+  resolveWorkspacePathStrict,
 } from "@/lib/files/workspace-resolver";
 
 let passed = 0;
@@ -48,8 +49,11 @@ function run() {
   }
 
   const sourceRoot = path.join(tempRoot, "loanmeld-source");
+  const outsideRoot = path.join(tempRoot, "outside");
   fs.mkdirSync(path.join(sourceRoot, "src"), { recursive: true });
+  fs.mkdirSync(outsideRoot, { recursive: true });
   fs.writeFileSync(path.join(sourceRoot, "src", "index.ts"), "export const ok = true;\n");
+  fs.writeFileSync(path.join(outsideRoot, "secret.txt"), "outside\n");
 
   const company = createCompany({
     name: `Workspace Registry ${Date.now()}`,
@@ -171,6 +175,28 @@ function run() {
 
   test("blocks path traversal outside linked source roots", () => {
     assert.strictEqual(resolveWorkspacePath(projectSourceId, "../outside.txt"), null);
+  });
+
+  test("strict resolver blocks symlink escapes from workspace reads", () => {
+    const linkPath = path.join(sourceRoot, "src", "outside-link.txt");
+    fs.symlinkSync(path.join(outsideRoot, "secret.txt"), linkPath);
+
+    assert.strictEqual(resolveWorkspacePath(projectSourceId, "src/outside-link.txt")?.fullPath, linkPath);
+    assert.strictEqual(resolveWorkspacePathStrict(projectSourceId, "src/index.ts")?.fullPath, path.join(sourceRoot, "src", "index.ts"));
+    assert.strictEqual(resolveWorkspacePathStrict(projectSourceId, "src/outside-link.txt"), null);
+  });
+
+  test("strict resolver blocks writes through symlinked directories", () => {
+    const linkDirPath = path.join(company.workspace.root, "linked-outside");
+    fs.symlinkSync(outsideRoot, linkDirPath, "dir");
+
+    assert.strictEqual(resolveWorkspacePath(companyId, "linked-outside/created.txt")?.fullPath, path.join(linkDirPath, "created.txt"));
+    assert.strictEqual(resolveWorkspacePathStrict(companyId, "linked-outside/created.txt", { forWrite: true }), null);
+  });
+
+  test("strict resolver blocks writes to linked project source workspaces", () => {
+    assert.strictEqual(resolveWorkspacePathStrict(projectSourceId, "src/new.ts", { forWrite: true }), null);
+    assert.strictEqual(resolveWorkspacePathStrict(projectFilesId, "notes/new.md", { forWrite: true })?.base, resolveWorkspaceBase(projectFilesId));
   });
 
   test("resolves agent memory as a scoped workspace", () => {

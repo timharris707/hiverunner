@@ -49,6 +49,12 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+function formatExecutionEngineLabel(engine?: string | null): string {
+  if (engine === "manual") return "Manual only";
+  if (engine === "symphony") return "External runner";
+  return "HiveRunner runnable";
+}
+
 function AgentRecordAvatar({ agent }: { agent: OrchestrationAgent | null }) {
   if (!agent) return null;
 
@@ -618,7 +624,7 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
             <DetailRow label="Engine">
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
                 <Bot size={13} />
-                {task.executionEngine ?? "hiverunner"}
+                {formatExecutionEngineLabel(task.executionEngine)}
                 {task.executionEngineSource ? ` (${task.executionEngineSource})` : ""}
               </span>
             </DetailRow>

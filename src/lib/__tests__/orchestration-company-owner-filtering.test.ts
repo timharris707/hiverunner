@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 
 import { createCompany, listCompanies } from "@/lib/orchestration/company-service";
+import { getOrchestrationDb } from "@/lib/orchestration/db";
 
 let passed = 0;
 let failed = 0;
@@ -66,6 +67,27 @@ async function run() {
   assert.ok(ownerB, "Expected owner B fixture to expose an owner id");
   assert.notEqual(ownerA, ownerB, "Expected fixtures to belong to distinct owners");
 
+  const memberAccessible = createCompany({
+    name: `Owner Filter Member ${timestamp}`,
+    slug: `owner-filter-member-${timestamp}`,
+    description: "Owner filtering fixture with active membership",
+    status: "active",
+    owner: {
+      displayName: "Owner B",
+      email: `owner-b-member-${timestamp}@example.test`,
+    },
+  }).company;
+  const db = getOrchestrationDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO company_members (id, company_id, user_id, role, status, created_at, updated_at)
+     VALUES (?, ?, ?, 'owner', 'active', ?, ?)
+     ON CONFLICT(company_id, user_id) DO UPDATE SET
+       role = excluded.role,
+       status = excluded.status,
+       updated_at = excluded.updated_at`
+  ).run(`member-${memberAccessible.id}-${ownerA}`, memberAccessible.id, ownerA, now, now);
+
   await test("unscoped company list can still return both owned fixtures", () => {
     const companies = listCompanies({ includeNonProduction: true }).companies;
     const slugs = new Set(companies.map((company) => company.slug));
@@ -74,7 +96,7 @@ async function run() {
     assert.equal(slugs.has(ownedByB.slug), true);
   });
 
-  await test("ownerUserId limits company list to companies owned by that user", () => {
+  await test("ownerUserId limits company list to owned and active-member companies", () => {
     const companies = listCompanies({
       includeNonProduction: true,
       ownerUserId: ownerA,
@@ -82,6 +104,7 @@ async function run() {
     const slugs = new Set(companies.map((company) => company.slug));
 
     assert.equal(slugs.has(ownedByA.slug), true, "Expected owner A to see their company");
+    assert.equal(slugs.has(memberAccessible.slug), true, "Expected owner A to see active membership company");
     assert.equal(slugs.has(ownedByB.slug), false, "Expected owner A not to see owner B company");
   });
 

@@ -1,11 +1,30 @@
-import { NextRequest, NextResponse } from "next/server";
+import { after, NextRequest, NextResponse } from "next/server";
 import { ZodError } from "zod";
 
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { reviewSprintPlanDraftSchema } from "@/lib/orchestration/contracts";
-import { approveSprintPlanDraft, approveSprintPlanDraftGroup, rejectSprintPlanDraft, updateSprintPlanDraft } from "@/lib/orchestration/company-service";
+import { approveSprintPlanDraft, approveSprintPlanDraftGroup, rejectSprintPlanDraft, resolveCompanyIdBySlug, updateSprintPlanDraft } from "@/lib/orchestration/company-service";
+import { executeHeartbeatRun } from "@/lib/orchestration/engine/engine";
+import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 
 export const dynamic = "force-dynamic";
+
+function triggerImmediateSprintRunsIfAllowed(slug: string, runIds: string[] | undefined): void {
+  if (!runIds?.length) return;
+  const company = resolveCompanyIdBySlug(slug);
+  if (!company || !canAutonomouslyExecuteCompany(company.id)) return;
+  after(async () => {
+    await Promise.allSettled(
+      runIds.map(async (runId) => {
+        try {
+          await executeHeartbeatRun(runId);
+        } catch (error) {
+          console.warn("[company-goal-draft:patch] immediate sprint heartbeat execution failed:", error);
+        }
+      }),
+    );
+  });
+}
 
 export async function PATCH(
   req: NextRequest,
@@ -37,21 +56,25 @@ export async function PATCH(
       }));
     }
     if (parsed.action === "approve_all") {
-      return NextResponse.json(approveSprintPlanDraftGroup({
+      const result = approveSprintPlanDraftGroup({
         companyIdOrSlug: slug,
         companyGoalId: goalId,
         draftId,
         actorUserId: "operator",
-      }));
+      });
+      triggerImmediateSprintRunsIfAllowed(slug, result.sprintStartRunIds);
+      return NextResponse.json(result);
     }
-    return NextResponse.json(approveSprintPlanDraft({
+    const result = approveSprintPlanDraft({
       companyIdOrSlug: slug,
       companyGoalId: goalId,
       draftId,
       sprint: parsed.sprint,
       tasks,
       actorUserId: "operator",
-    }));
+    });
+    triggerImmediateSprintRunsIfAllowed(slug, result.sprintStartRunIds);
+    return NextResponse.json(result);
   } catch (error) {
     if (error instanceof ZodError) {
       return errorResponse(400, "validation_error", "Invalid sprint plan review payload", error.flatten());

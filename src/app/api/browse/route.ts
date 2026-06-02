@@ -3,7 +3,7 @@ import { promises as fs } from "fs";
 import path from "path";
 import {
   resolveWorkspaceBase,
-  resolveWorkspacePath,
+  resolveWorkspacePathStrict,
 } from "@/lib/files/workspace-resolver";
 
 interface FileEntry {
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     
     // Normalize and validate path to prevent directory traversal
     const normalizedPath = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, "");
-    const resolvedPath = resolveWorkspacePath(workspace, normalizedPath);
+    const resolvedPath = resolveWorkspacePathStrict(workspace, normalizedPath);
     if (!resolvedPath) {
       return NextResponse.json(
         { error: "Access denied: Path outside workspace" },

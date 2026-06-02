@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { randomUUID } from "crypto";
 
+import { buildAccessibleCompanyIdSubquery } from "@/lib/orchestration/company-access";
 import {
   DEFAULT_STALE_ALERT_THRESHOLDS_HOURS,
   type OrchestrationProject,
@@ -54,8 +55,9 @@ export function listProjects(input?: {
     whereParts.push("p.company_id = ?");
     args.push(companyId);
   } else if (input?.ownerUserId?.trim()) {
-    whereParts.push("p.company_id IN (SELECT id FROM companies WHERE owner_user_id = ? AND archived_at IS NULL)");
-    args.push(input.ownerUserId.trim());
+    const accessibleCompanies = buildAccessibleCompanyIdSubquery(input.ownerUserId);
+    whereParts.push(`p.company_id IN (${accessibleCompanies.sql})`);
+    args.push(...accessibleCompanies.args);
   }
 
   const rows = db

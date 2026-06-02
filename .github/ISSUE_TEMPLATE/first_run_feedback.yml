@@ -1,0 +1,108 @@
+name: First-run feedback
+description: Share what happened during your first local HiveRunner setup.
+title: "[First-run]: "
+labels:
+  - first-run
+  - feedback
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when you are trying HiveRunner from a fresh clone or a clean local lane. The goal is to find setup friction, confusing copy, missing diagnostics, and first-use surprises.
+  - type: input
+    id: version_build
+    attributes:
+      label: HiveRunner version/build
+      description: Package version, commit SHA, branch, release tag, or build identifier.
+      placeholder: "0.1.0, main@abc1234, or release build name"
+    validations:
+      required: true
+  - type: dropdown
+    id: lane_port
+    attributes:
+      label: Lane/port
+      description: Which local lane or port did you use first?
+      options:
+        - "3010 - dev UI/build lane"
+        - "3001 - stable/execution lane"
+        - "3000 - alternate local lane"
+        - "Other"
+    validations:
+      required: true
+  - type: input
+    id: lane_port_other
+    attributes:
+      label: Lane/port details
+      description: If you selected Other, include the exact lane, port, or script command.
+      placeholder: "scripts/lane.sh dev start, PORT=3020, etc."
+  - type: textarea
+    id: environment
+    attributes:
+      label: OS/browser
+      description: Include operating system, browser, Node.js version, and npm version.
+      placeholder: |
+        macOS 15.5
+        Chrome 125 / Safari 18 / Firefox 126
+        Node 22.x, npm 10.x
+    validations:
+      required: true
+  - type: textarea
+    id: install_source
+    attributes:
+      label: Install/source
+      description: How did you get and run HiveRunner?
+      placeholder: |
+        Fresh git clone from https://github.com/harris-autonomous/mission-control
+        npm install completed
+        .env.example copied to .env.local
+        Used README quickstart / another guide
+    validations:
+      required: true
+  - type: textarea
+    id: first_success
+    attributes:
+      label: First successful moment
+      description: What was the first point where HiveRunner clearly worked?
+      placeholder: "Reached /login, entered local owner mode, opened /HIVE/dashboard, created a workspace, etc."
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected first-run path
+      description: Before starting, what did you expect would happen?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual first-run path
+      description: What actually happened? Include confusing steps, blockers, delays, or surprises.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshots_logs
+    attributes:
+      label: Screenshots/logs
+      description: Attach screenshots or paste short sanitized setup logs. Remove secrets, private workspace paths, customer data, and API keys.
+      placeholder: |
+        Terminal output:
+        Browser console:
+        Screenshot:
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste local command outputs that describe your setup state.
+      placeholder: |
+        node --version:
+        npm --version:
+        npm run build:
+        scripts/lane.sh dev status:
+        /api/health response:
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets, private workspace data, and unsanitized local logs from this report.
+          required: true

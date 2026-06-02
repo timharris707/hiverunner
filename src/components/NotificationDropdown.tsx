@@ -52,15 +52,21 @@ export function NotificationDropdown() {
   const [loading, setLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const reportNotificationFetchFailure = (_operation: string, _error: unknown) => {
+    // Notification polling should not trip the Next.js dev overlay when the
+    // local server restarts or a transient request is interrupted.
+  };
+
   const fetchNotifications = async () => {
     try {
       setLoading(true);
       const res = await fetch("/api/notifications");
+      if (!res.ok) throw new Error(`GET /api/notifications returned ${res.status}`);
       const data = await res.json();
       setNotifications(data.notifications || []);
       setUnreadCount(data.unreadCount || 0);
     } catch (error) {
-      console.error("Failed to fetch notifications:", error);
+      reportNotificationFetchFailure("fetch", error);
     } finally {
       setLoading(false);
     }
@@ -110,7 +116,7 @@ export function NotificationDropdown() {
       });
       await fetchNotifications();
     } catch (error) {
-      console.error("Failed to mark as read:", error);
+      reportNotificationFetchFailure("mark as read", error);
     }
   };
 
@@ -123,7 +129,7 @@ export function NotificationDropdown() {
       });
       await fetchNotifications();
     } catch (error) {
-      console.error("Failed to mark all as read:", error);
+      reportNotificationFetchFailure("mark all as read", error);
     }
   };
 
@@ -134,7 +140,7 @@ export function NotificationDropdown() {
       });
       await fetchNotifications();
     } catch (error) {
-      console.error("Failed to delete notification:", error);
+      reportNotificationFetchFailure("delete", error);
     }
   };
 
@@ -145,7 +151,7 @@ export function NotificationDropdown() {
       });
       await fetchNotifications();
     } catch (error) {
-      console.error("Failed to clear read notifications:", error);
+      reportNotificationFetchFailure("clear read", error);
     }
   };
 

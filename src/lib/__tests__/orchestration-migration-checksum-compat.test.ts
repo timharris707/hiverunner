@@ -119,6 +119,19 @@ async function run() {
     db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(999);
   });
 
+  await test("allows legacy v58 company workspace checksum", () => {
+    const LEGACY_V58_COMPANY_WORKSPACES_CHECKSUM =
+      "02fc1820898915e7e21e81008dd4399019dc87d1883eba32e1a90712ff63183a";
+    db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 58").run(
+      "provider_neutral_company_workspaces",
+      LEGACY_V58_COMPANY_WORKSPACES_CHECKSUM
+    );
+
+    const compatibility = checkOrchestrationMigrationCompatibility(db);
+    assert.strictEqual(compatibility.ok, true);
+    assert.doesNotThrow(() => runOrchestrationMigrations(db));
+  });
+
 
   await test("allows compatible dev-lane v70 runner metadata checksum", () => {
     const DEV_V70_RUNNER_METADATA_CHECKSUM =
@@ -142,6 +155,25 @@ async function run() {
       .prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_execution_runs_runner_identity'")
       .get() as { name: string } | undefined;
     assert.strictEqual(indexRow?.name, "idx_execution_runs_runner_identity");
+  });
+
+  await test("allows compatible stable-lane v58 company workspace checksum", () => {
+    const STABLE_V58_COMPANY_WORKSPACE_CHECKSUM =
+      "70f6f12688817005f373b1bd4ad8d0b4a1fa22d2c6e11047810d7a9feaa90f97";
+    db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 58").run(
+      "provider_neutral_company_workspaces",
+      STABLE_V58_COMPANY_WORKSPACE_CHECKSUM
+    );
+
+    const compatibility = checkOrchestrationMigrationCompatibility(db);
+    assert.strictEqual(compatibility.ok, true);
+    assert.doesNotThrow(() => runOrchestrationMigrations(db));
+
+    const row = db
+      .prepare("SELECT name, checksum FROM schema_migrations WHERE version = 58")
+      .get() as { name: string; checksum: string } | undefined;
+    assert.strictEqual(row?.name, "provider_neutral_company_workspaces");
+    assert.notStrictEqual(row?.checksum, STABLE_V58_COMPANY_WORKSPACE_CHECKSUM);
   });
 
   await test("records execution-engine migrations when schema was applied out of band", () => {

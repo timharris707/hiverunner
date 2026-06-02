@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Quickstart and local setup
+    url: https://github.com/harris-autonomous/mission-control#quickstart
+    about: Check the README quickstart before filing setup feedback.
+  - name: Security report
+    url: https://github.com/harris-autonomous/mission-control/security/policy
+    about: Report vulnerabilities through the security policy instead of public issues.

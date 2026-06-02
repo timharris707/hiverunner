@@ -32,6 +32,91 @@ const TABS = [
   { id: "budget", label: "Budget" },
 ] as const;
 
+function AgentProfileSkeleton() {
+  return (
+    <div
+      style={{
+        padding: "0 20px 16px",
+        maxWidth: 1200,
+        color: A.text,
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "116px minmax(0, 1fr)",
+          alignItems: "center",
+          gap: 18,
+          marginBottom: 14,
+          minHeight: 116,
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            width: 116,
+            height: 116,
+            borderRadius: 24,
+            background: A.card,
+            border: `0.5px solid ${A.cardBorder}`,
+          }}
+        />
+        <div style={{ display: "grid", gap: 12 }}>
+          <div
+            style={{
+              width: 180,
+              height: 32,
+              borderRadius: 8,
+              background: A.card,
+              border: `0.5px solid ${A.cardBorder}`,
+            }}
+          />
+          <div
+            style={{
+              width: 260,
+              height: 20,
+              borderRadius: 8,
+              background: A.card,
+              border: `0.5px solid ${A.cardBorder}`,
+            }}
+          />
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: 28,
+          borderBottom: `1px solid ${A.cardBorder}`,
+          marginBottom: 16,
+          paddingBottom: 12,
+        }}
+      >
+        {TABS.map((tab) => (
+          <div
+            key={tab.id}
+            style={{
+              width: tab.label.length * 8 + 28,
+              height: 22,
+              borderRadius: 8,
+              background: tab.id === "dashboard" ? "var(--accent-soft)" : A.card,
+            }}
+          />
+        ))}
+      </div>
+      <div
+        aria-label="Loading agent profile"
+        style={{
+          minHeight: 220,
+          borderRadius: 12,
+          background: A.card,
+          border: `0.5px solid ${A.cardBorder}`,
+        }}
+      />
+    </div>
+  );
+}
+
 export default function AgentDetailLayout({
   children,
   params,
@@ -158,11 +243,7 @@ export default function AgentDetailLayout({
   };
 
   if (loading) {
-    return (
-      <div style={{ padding: 24 }}>
-        <div style={{ height: 200, borderRadius: 12, background: A.card, border: `0.5px solid ${A.cardBorder}`, animation: "pulse 1.5s infinite" }} />
-      </div>
-    );
+    return <AgentProfileSkeleton />;
   }
 
   if (error || !profile) {

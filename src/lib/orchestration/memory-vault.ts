@@ -66,6 +66,21 @@ export type MemorySyncResult = {
   errors: Array<{ path: string; error: string }>;
 };
 
+export type MemoryIndexStatus = {
+  company: { id: string; slug: string; name: string };
+  lastIndexedAt: string | null;
+  indexedFileCount: number;
+  errorCount: number;
+  latestSync: {
+    startedAt: string;
+    completedAt: string | null;
+    filesChecked: number;
+    filesReindexed: number;
+    filesRemoved: number;
+    errors: number;
+  } | null;
+};
+
 export type KnowledgeMapKind = "entities" | "projects" | "workflows" | "evidence";
 
 export type KnowledgeMapCluster = {
@@ -818,6 +833,58 @@ export function syncCompanyMemoryVault(
   ).run(now, filesChecked, filesReindexed, filesRemoved, errors.length, errors.length ? JSON.stringify(errors.slice(0, 20)) : null, logId ?? logUuid);
 
   return { companyId: company.id, vaultRoot: settings.vaultRoot, filesChecked, filesReindexed, filesRemoved, errors };
+}
+
+export function getMemoryIndexStatus(
+  companyIdOrSlug: string,
+  options: { db?: Database.Database } = {},
+): MemoryIndexStatus {
+  const db = options.db ?? getOrchestrationDb();
+  const company = resolveCompany(companyIdOrSlug, db);
+  const aggregate = db.prepare(`
+    SELECT
+      COUNT(*) AS indexed_file_count,
+      MAX(indexed_at) AS last_indexed_at,
+      SUM(CASE WHEN status = 'error' OR index_error IS NOT NULL THEN 1 ELSE 0 END) AS error_count
+    FROM memory_source_index
+    WHERE company_id = ?
+      AND status != 'archived'
+  `).get(company.id) as {
+    indexed_file_count: number;
+    last_indexed_at: string | null;
+    error_count: number | null;
+  };
+  const latestSync = db.prepare(`
+    SELECT started_at, completed_at, files_checked, files_reindexed, files_removed, errors
+    FROM memory_sync_log
+    WHERE company_id = ?
+    ORDER BY started_at DESC
+    LIMIT 1
+  `).get(company.id) as {
+    started_at: string;
+    completed_at: string | null;
+    files_checked: number;
+    files_reindexed: number;
+    files_removed: number;
+    errors: number;
+  } | undefined;
+
+  return {
+    company,
+    lastIndexedAt: aggregate.last_indexed_at ?? latestSync?.completed_at ?? null,
+    indexedFileCount: aggregate.indexed_file_count ?? 0,
+    errorCount: latestSync?.errors ?? aggregate.error_count ?? 0,
+    latestSync: latestSync
+      ? {
+          startedAt: latestSync.started_at,
+          completedAt: latestSync.completed_at,
+          filesChecked: latestSync.files_checked,
+          filesReindexed: latestSync.files_reindexed,
+          filesRemoved: latestSync.files_removed,
+          errors: latestSync.errors,
+        }
+      : null,
+  };
 }
 
 function rowToIndexRecord(row: IndexedRow): MemoryIndexRecord {

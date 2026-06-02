@@ -455,6 +455,9 @@ function dependencyToItem(dependency: OrchestrationRuntimeDependencyReadiness): 
             ? "missing_cli"
             : "unknown",
     version: dependency.version,
+    versionLatest: dependency.versionLatest ?? null,
+    latestVersion: dependency.latestVersion ?? null,
+    versionCheckDetail: dependency.versionCheckDetail ?? null,
     command: dependency.command,
     commandPath: dependency.commandPath,
     workspaceRoot: null,

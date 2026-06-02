@@ -2024,6 +2024,8 @@ const MIGRATIONS: Migration[] = [
       "d601e0e8cd79dd429e2b0ad7525a71106276ce80df00930a79fe8fa6c8408dbe",
       "569ae591a276a52c8bb8c14956bc8b2c52e1328d185ea1cc91a77d1f8ff21412",
       "504030f664096cccedf5a032707510a09733dc4a1a6e018df7a0f15b04ca6184",
+      "02fc1820898915e7e21e81008dd4399019dc87d1883eba32e1a90712ff63183a",
+      "70f6f12688817005f373b1bd4ad8d0b4a1fa22d2c6e11047810d7a9feaa90f97",
     ],
     sql: `
       UPDATE companies
@@ -3179,6 +3181,166 @@ const MIGRATIONS: Migration[] = [
       )
       WHERE json_extract(frontmatter_json, '$.approval_state') IS NULL
         AND json_extract(frontmatter_json, '$.review_state') IS NOT NULL;
+    `,
+  },
+  {
+    version: 111,
+    name: "overseer_cockpit_persistence",
+    sql: `
+      CREATE TABLE IF NOT EXISTS overseer_sessions (
+        id                  TEXT PRIMARY KEY,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        project_id          TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        title               TEXT NOT NULL,
+        status              TEXT NOT NULL DEFAULT 'idle'
+                            CHECK (status IN ('idle','running','completed','failed','cancelled','approval_required')),
+        codex_session_id    TEXT,
+        workspace_root      TEXT NOT NULL,
+        model               TEXT,
+        reasoning_effort    TEXT,
+        approval_mode       TEXT NOT NULL DEFAULT 'writes'
+                            CHECK (approval_mode IN ('writes','manual')),
+        scope_json          TEXT NOT NULL DEFAULT '{}',
+        usage_json          TEXT NOT NULL DEFAULT '{}',
+        quota_json          TEXT NOT NULL DEFAULT '{}',
+        last_error          TEXT,
+        process_pid         INTEGER,
+        created_by          TEXT,
+        last_turn_at        TEXT,
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        archived_at         TEXT
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_sessions_company_updated
+        ON overseer_sessions(company_id, archived_at, updated_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_overseer_sessions_project_updated
+        ON overseer_sessions(project_id, updated_at DESC)
+        WHERE project_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS overseer_turns (
+        id                  TEXT PRIMARY KEY,
+        session_id          TEXT NOT NULL REFERENCES overseer_sessions(id) ON DELETE CASCADE,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        user_message_id     TEXT REFERENCES overseer_session_messages(id) ON DELETE SET NULL,
+        assistant_message_id TEXT REFERENCES overseer_session_messages(id) ON DELETE SET NULL,
+        status              TEXT NOT NULL DEFAULT 'running'
+                            CHECK (status IN ('running','completed','failed','cancelled','approval_required')),
+        codex_session_id    TEXT,
+        prompt              TEXT NOT NULL DEFAULT '',
+        usage_json          TEXT NOT NULL DEFAULT '{}',
+        error_message       TEXT,
+        process_pid         INTEGER,
+        started_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        completed_at        TEXT,
+        duration_ms         INTEGER,
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_turns_session_created
+        ON overseer_turns(session_id, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS overseer_session_messages (
+        id                  TEXT PRIMARY KEY,
+        session_id          TEXT NOT NULL REFERENCES overseer_sessions(id) ON DELETE CASCADE,
+        turn_id             TEXT REFERENCES overseer_turns(id) ON DELETE SET NULL,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        role                TEXT NOT NULL CHECK (role IN ('user','assistant','system','tool','approval')),
+        content             TEXT NOT NULL DEFAULT '',
+        metadata_json       TEXT NOT NULL DEFAULT '{}',
+        sequence            INTEGER NOT NULL DEFAULT 0,
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_overseer_messages_session_sequence
+        ON overseer_session_messages(session_id, sequence);
+      CREATE INDEX IF NOT EXISTS idx_overseer_messages_session_created
+        ON overseer_session_messages(session_id, created_at ASC);
+
+      CREATE TABLE IF NOT EXISTS overseer_session_events (
+        id                  TEXT PRIMARY KEY,
+        session_id          TEXT NOT NULL REFERENCES overseer_sessions(id) ON DELETE CASCADE,
+        turn_id             TEXT REFERENCES overseer_turns(id) ON DELETE SET NULL,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        event_type          TEXT NOT NULL,
+        event_json          TEXT NOT NULL DEFAULT '{}',
+        sequence            INTEGER NOT NULL DEFAULT 0,
+        occurred_at         TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_events_session_sequence
+        ON overseer_session_events(session_id, sequence ASC);
+      CREATE INDEX IF NOT EXISTS idx_overseer_events_turn_sequence
+        ON overseer_session_events(turn_id, sequence ASC)
+        WHERE turn_id IS NOT NULL;
+    `,
+  },
+  {
+    version: 112,
+    name: "overseer_session_compaction",
+    sql: `
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compaction_policy TEXT NOT NULL DEFAULT 'ask'
+        CHECK (compaction_policy IN ('manual','ask','auto'));
+
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compaction_context_threshold INTEGER NOT NULL DEFAULT 70
+        CHECK (compaction_context_threshold BETWEEN 1 AND 100);
+
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compacted_summary TEXT;
+
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compacted_at TEXT;
+
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compacted_by TEXT;
+
+      ALTER TABLE overseer_sessions
+        ADD COLUMN compaction_metadata_json TEXT NOT NULL DEFAULT '{}';
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_sessions_compaction
+        ON overseer_sessions(company_id, compaction_policy, compacted_at DESC);
+    `,
+  },
+  {
+    version: 113,
+    name: "overseer_context_snapshots",
+    sql: `
+      CREATE TABLE IF NOT EXISTS overseer_context_snapshots (
+        id                            TEXT PRIMARY KEY,
+        session_id                    TEXT NOT NULL REFERENCES overseer_sessions(id) ON DELETE CASCADE,
+        company_id                    TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        version                       INTEGER NOT NULL CHECK (version >= 1),
+        summary                       TEXT NOT NULL,
+        summary_hash                  TEXT NOT NULL,
+        source_message_min_sequence   INTEGER,
+        source_message_max_sequence   INTEGER,
+        source_message_count          INTEGER NOT NULL DEFAULT 0 CHECK (source_message_count >= 0),
+        source_event_min_sequence     INTEGER,
+        source_event_max_sequence     INTEGER,
+        source_event_count            INTEGER NOT NULL DEFAULT 0 CHECK (source_event_count >= 0),
+        source_turn_count             INTEGER NOT NULL DEFAULT 0 CHECK (source_turn_count >= 0),
+        source_turn_first_started_at  TEXT,
+        source_turn_last_started_at   TEXT,
+        usage_snapshot_json           TEXT NOT NULL DEFAULT '{}',
+        attachment_manifest_json      TEXT NOT NULL DEFAULT '[]',
+        compaction_metadata_json      TEXT NOT NULL DEFAULT '{}',
+        created_by                    TEXT,
+        created_at                    TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(company_id, session_id, version)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_context_snapshots_session_version
+        ON overseer_context_snapshots(session_id, version DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_context_snapshots_company_created
+        ON overseer_context_snapshots(company_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_overseer_context_snapshots_summary_hash
+        ON overseer_context_snapshots(company_id, session_id, summary_hash);
     `,
   },
 ];

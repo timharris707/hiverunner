@@ -53,6 +53,15 @@ type AgentModelRow = {
   model: string | null;
 };
 
+type CodexRuntimeControls = {
+  model: string;
+  reasoningEffort: string;
+  speedPreference: string | null;
+  fastMode: boolean | null;
+  serviceTier: string | null;
+  serviceTierApplied: boolean;
+};
+
 type WorkspaceRow = {
   company_id: string;
   company_code: string | null;
@@ -206,6 +215,55 @@ function normalizeReasoningEffort(value: unknown): string {
   if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
   if (["minimal", "low", "medium", "high", "xhigh"].includes(normalized)) return normalized;
   return "";
+}
+
+function boolFrom(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["true", "1", "yes", "on", "fast"].includes(normalized)) return true;
+  if (["false", "0", "no", "off", "normal"].includes(normalized)) return false;
+  return null;
+}
+
+function normalizeSpeedPreference(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+  if (["fast", "faster", "fast_1_5x", "fast-1.5x", "1.5x", "low_latency", "low-latency"].includes(normalized)) {
+    return "fast_1_5x";
+  }
+  if (["normal", "standard", "balanced"].includes(normalized)) return "normal";
+  return normalized;
+}
+
+function normalizeServiceTier(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || normalized === "default" || normalized === "auto" || normalized === "normal") return null;
+  return normalized === "fast" ? "fast" : normalized;
+}
+
+function routeAttemptModel(input: ExecutionInput): unknown {
+  const source = input.executionRouteAttempt?.target.source as Record<string, unknown> | undefined;
+  if (source?.modelSourceId === "agent_profile") return null;
+  return input.executionRouteAttempt?.target.model;
+}
+
+function explicitTaskReasoning(input: ExecutionInput): unknown {
+  return input.taskModelRouting?.lane && input.taskModelRouting.lane !== "default"
+    ? input.taskModelRouting.reasoningEffort
+    : null;
+}
+
+function explicitTaskSpeed(input: ExecutionInput): unknown {
+  return input.taskModelRouting?.lane && input.taskModelRouting.lane !== "default"
+    ? input.taskModelRouting.speedPreference
+    : null;
+}
+
+function supportsCodexFastTier(model: string | null | undefined): boolean {
+  return model === "gpt-5.5" || model === "gpt-5.4";
 }
 
 function numberFromEnv(name: string, fallback: number): number {
@@ -713,45 +771,79 @@ function resolveCommand(runtime: CodexRuntimeRow | null): string {
   return metadataCommand || runtime?.command?.trim() || "codex";
 }
 
-function resolveModel(
+function resolveRuntimeControls(
   db: Database.Database,
   input: ExecutionInput,
   runtime: CodexRuntimeRow | null,
-): string {
+): CodexRuntimeControls {
   const runtimeMetadata = parseJson(runtime?.metadata_json);
+  const runtimeConfig = parseJson(input.agent.runtime_config_json);
   const agentModel = db
     .prepare("SELECT model FROM agents WHERE id = ? LIMIT 1")
     .get(input.agent.id) as AgentModelRow | undefined;
-  const candidates = [
+
+  const modelCandidates = [
     input.taskModelRouting?.model,
+    routeAttemptModel(input),
+    runtimeConfig.model,
     runtimeMetadata.model,
     runtimeMetadata.modelId,
     agentModel?.model,
   ];
-
-  for (const candidate of candidates) {
+  let model = "";
+  for (const candidate of modelCandidates) {
     const value = normalizeCodexModel(stringFrom(candidate));
-    if (value) return value;
+    if (value) {
+      model = value;
+      break;
+    }
   }
-  return "";
-}
 
-function resolveReasoningEffort(input: ExecutionInput, runtime: CodexRuntimeRow | null): string {
-  const runtimeMetadata = parseJson(runtime?.metadata_json);
-  const runtimeConfig = parseJson(input.agent.runtime_config_json);
+  let reasoningEffort = "";
   for (const candidate of [
-    input.taskModelRouting?.reasoningEffort,
-    runtimeMetadata.reasoningEffort,
-    runtimeMetadata.modelReasoningEffort,
-    runtimeMetadata.thinkingLevel,
+    explicitTaskReasoning(input),
     runtimeConfig.reasoningEffort,
     runtimeConfig.modelReasoningEffort,
     runtimeConfig.thinkingLevel,
+    runtimeMetadata.reasoningEffort,
+    runtimeMetadata.modelReasoningEffort,
+    runtimeMetadata.thinkingLevel,
+    input.taskModelRouting?.reasoningEffort,
   ]) {
     const value = normalizeReasoningEffort(candidate);
-    if (value) return value;
+    if (value) {
+      reasoningEffort = value;
+      break;
+    }
   }
-  return "";
+
+  const fastMode = boolFrom(runtimeConfig.fastMode) ?? boolFrom(runtimeMetadata.fastMode);
+  const configuredSpeedPreference =
+    normalizeSpeedPreference(explicitTaskSpeed(input)) ??
+    normalizeSpeedPreference(runtimeConfig.speedPreference) ??
+    normalizeSpeedPreference(runtimeConfig.speed) ??
+    normalizeSpeedPreference(runtimeConfig.thinkingSpeed) ??
+    normalizeSpeedPreference(runtimeMetadata.speedPreference) ??
+    normalizeSpeedPreference(runtimeMetadata.speed) ??
+    normalizeSpeedPreference(runtimeMetadata.thinkingSpeed);
+  const speedPreference = configuredSpeedPreference ?? normalizeSpeedPreference(input.taskModelRouting?.speedPreference);
+  const configuredServiceTier =
+    normalizeServiceTier(runtimeConfig.serviceTier) ??
+    normalizeServiceTier(runtimeConfig.service_tier) ??
+    normalizeServiceTier(runtimeMetadata.serviceTier) ??
+    normalizeServiceTier(runtimeMetadata.service_tier);
+  const requestedServiceTier = configuredServiceTier ?? (fastMode === true || configuredSpeedPreference === "fast_1_5x" ? "fast" : null);
+  // TODO: Codex fast service tier is only applied for models already proven by the Overseer runtime path.
+  const serviceTierApplied = requestedServiceTier === "fast" && supportsCodexFastTier(model);
+
+  return {
+    model,
+    reasoningEffort,
+    speedPreference,
+    fastMode,
+    serviceTier: requestedServiceTier,
+    serviceTierApplied,
+  };
 }
 
 function buildEnv(command: string): NodeJS.ProcessEnv {
@@ -771,6 +863,7 @@ function runCodex(
   cwd: string,
   model: string,
   reasoningEffort: string,
+  serviceTier: string | null,
   additionalWritableDirs: string[],
   options: {
     onTranscriptEvent?: (event: TranscriptEventInput) => void;
@@ -794,6 +887,9 @@ function runCodex(
   }
   if (reasoningEffort) {
     args.push("-c", `model_reasoning_effort="${reasoningEffort}"`);
+  }
+  if (serviceTier === "fast") {
+    args.push("-c", `service_tier="fast"`);
   }
   if (model) {
     args.push("--model", model);
@@ -834,6 +930,7 @@ function runCodex(
         maxBufferBytes: maxBuffer,
         cwd,
         model: model || null,
+        serviceTier: serviceTier ?? null,
         additionalWritableDirs,
       },
     });
@@ -1023,6 +1120,7 @@ function buildCommentBody(input: {
   command: string;
   model: string;
   reasoningEffort: string;
+  serviceTier: string | null;
   workspaceRoot: string;
   additionalWritableDirs: string[];
   durationMs: number;
@@ -1034,7 +1132,7 @@ function buildCommentBody(input: {
   const parts = [
     `Codex execution ${status}.`,
     "",
-    `Command: ${path.basename(input.command)} exec --json --full-auto --skip-git-repo-check${input.reasoningEffort ? ` -c model_reasoning_effort="${input.reasoningEffort}"` : ""}${input.model ? ` --model ${input.model}` : ""}`,
+    `Command: ${path.basename(input.command)} exec --json --full-auto --skip-git-repo-check${input.reasoningEffort ? ` -c model_reasoning_effort="${input.reasoningEffort}"` : ""}${input.serviceTier === "fast" ? ` -c service_tier="fast"` : ""}${input.model ? ` --model ${input.model}` : ""}`,
     `Workspace: ${input.workspaceRoot}`,
     `Duration: ${formatDuration(input.durationMs)}`,
   ];
@@ -1059,8 +1157,9 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const db = getDb();
   const runtime = resolveCodexRuntime(db, input);
   const command = resolveCommand(runtime);
-  const model = resolveModel(db, input, runtime);
-  const reasoningEffort = resolveReasoningEffort(input, runtime);
+  const controls = resolveRuntimeControls(db, input, runtime);
+  const { model, reasoningEffort } = controls;
+  const appliedServiceTier = controls.serviceTierApplied ? controls.serviceTier : null;
   const workspace = resolveWorkspaceRoot(db, input, runtime);
   const runtimeSkills = listRuntimeAgentSkills(input.agent.company_id, input.agent.id).skills;
   const workspaceRoot = workspace.cwd;
@@ -1074,7 +1173,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     input.emitEvent?.(liveEventTypeForTranscript(event), liveDetailForTranscript(event));
   };
   const { executionRunId } = input;
-  const result = await runCodex(command, input.prompt, workspaceRoot, model, reasoningEffort, workspace.additionalWritableDirs, {
+  const result = await runCodex(command, input.prompt, workspaceRoot, model, reasoningEffort, appliedServiceTier, workspace.additionalWritableDirs, {
     onTranscriptEvent: (event) => {
       input.emitEvent?.(liveEventTypeForTranscript(event), liveDetailForTranscript(event));
     },
@@ -1128,6 +1227,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     command,
     model,
     reasoningEffort,
+    serviceTier: appliedServiceTier,
     workspaceRoot,
     additionalWritableDirs: workspace.additionalWritableDirs,
     durationMs: result.durationMs,
@@ -1185,9 +1285,13 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     totalCostCents: codexTelemetry.totalCostCents,
     command: path.basename(command),
     model: model || null,
+    reasoningEffort: reasoningEffort || null,
     taskModelLane: input.taskModelRouting?.lane ?? "default",
     taskModelRoutingLabel: input.taskModelRouting?.label ?? "Default",
-    speedPreference: input.taskModelRouting?.speedPreference ?? null,
+    speedPreference: controls.speedPreference,
+    fastMode: controls.fastMode,
+    serviceTier: controls.serviceTier,
+    serviceTierApplied: controls.serviceTierApplied,
     runtimeSkillCount: runtimeSkills.length,
     runtimeSkillContract: {
       schema: "hiverunner.runtime_skills.v1",
@@ -1224,11 +1328,16 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
         kind: "run_start",
         role: "system",
         title: "Codex CLI command",
-        body: `${path.basename(command)} exec --json --full-auto --skip-git-repo-check${model ? ` --model ${model}` : ""}`,
+        body: `${path.basename(command)} exec --json --full-auto --skip-git-repo-check${reasoningEffort ? ` -c model_reasoning_effort="${reasoningEffort}"` : ""}${appliedServiceTier === "fast" ? ` -c service_tier="fast"` : ""}${model ? ` --model ${model}` : ""}`,
         occurredAt: startedAt,
         metadata: {
           command,
           model: model || null,
+          reasoningEffort: reasoningEffort || null,
+          speedPreference: controls.speedPreference,
+          fastMode: controls.fastMode,
+          serviceTier: controls.serviceTier,
+          serviceTierApplied: controls.serviceTierApplied,
           taskModelLane: input.taskModelRouting?.lane ?? "default",
           taskModelRoutingLabel: input.taskModelRouting?.label ?? "Default",
           workspaceRoot,

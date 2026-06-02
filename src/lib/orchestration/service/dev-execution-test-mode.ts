@@ -70,6 +70,14 @@ function isDevExecutionGateEnabled(env: NodeJS.ProcessEnv = process.env): boolea
   return (env.MC_DEV_EXECUTION_TEST_MODE || "").trim() === "1";
 }
 
+function isExplicitDevExecutionOwner(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    resolveHiveRunnerLane(env) === "dev" &&
+    (env.PORT || "3010") !== "3010" &&
+    (env.MC_ENGINE_TICK || "").trim().toLowerCase() === "on"
+  );
+}
+
 export function isDevExecutionTestModeSupported(env: NodeJS.ProcessEnv = process.env): boolean {
   return resolveHiveRunnerLane(env) === "dev" && (env.PORT || "3010") === "3010";
 }
@@ -315,6 +323,9 @@ export function canAutonomouslyExecuteCompany(
   if (lane !== "dev") {
     return true;
   }
+  if (isExplicitDevExecutionOwner(env)) {
+    return true;
+  }
   if (!isDevExecutionTestModeAvailable(env)) {
     return false;
   }
@@ -328,6 +339,9 @@ export function resolveQueuedHeartbeatClaimCompanyId(
 ): string | null {
   const lane = resolveHiveRunnerLane(env);
   if (lane !== "dev") {
+    return null;
+  }
+  if (isExplicitDevExecutionOwner(env)) {
     return null;
   }
   if (!isDevExecutionTestModeAvailable(env)) {

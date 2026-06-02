@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { logActivity } from '@/lib/activities-db';
-import { resolveWorkspacePath } from '@/lib/files/workspace-resolver';
+import { resolveWorkspacePathStrict } from '@/lib/files/workspace-resolver';
 
 export async function POST(request: NextRequest) {
   try {
@@ -15,21 +15,28 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'No files provided' }, { status: 400 });
     }
 
-    const targetDirectory = resolveWorkspacePath(workspace, dirPath);
+    const targetDirectory = resolveWorkspacePathStrict(workspace, dirPath, { forWrite: true });
     if (!targetDirectory) {
       return NextResponse.json({ error: 'Invalid path' }, { status: 400 });
     }
-    const { base, fullPath: targetDir } = targetDirectory;
+    const { fullPath: targetDir } = targetDirectory;
 
     const results: Array<{ name: string; size: number; path: string }> = [];
 
     for (const file of files) {
       const sanitizedName = path.basename(file.name);
+      const targetFile = resolveWorkspacePathStrict(
+        workspace,
+        path.join(dirPath, sanitizedName),
+        { forWrite: true },
+      );
+      if (!targetFile) {
+        return NextResponse.json({ error: 'Invalid upload path' }, { status: 400 });
+      }
       await fs.mkdir(targetDir, { recursive: true });
-      const targetPath = path.join(targetDir, sanitizedName);
 
       const buffer = Buffer.from(await file.arrayBuffer());
-      await fs.writeFile(targetPath, buffer);
+      await fs.writeFile(targetFile.fullPath, buffer);
 
       results.push({
         name: sanitizedName,

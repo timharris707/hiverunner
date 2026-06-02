@@ -1028,6 +1028,7 @@ export default function CompanyDetailPage() {
           {[
             { label: "Dashboard", icon: <LayoutDashboard size={14} />, path: "/dashboard" },
             { label: "Inbox", icon: <Inbox size={14} />, path: "/inbox" },
+            { label: "Overseer", icon: <Bot size={14} />, path: "/overseer" },
             { label: "Org Chart", icon: <Network size={14} />, path: "/org" },
             { label: "Projects", icon: <FolderKanban size={14} />, path: "/projects" },
             { label: "Hives", icon: <Cpu size={14} />, path: "/hives" },

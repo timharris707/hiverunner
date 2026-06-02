@@ -56,6 +56,7 @@ async function run() {
     //
     // Simpler: import the action runner from the engine module's barrel.
     const engineMod = await import("@/lib/orchestration/engine/engine");
+    const dispatcherMod = await import("@/lib/orchestration/engine/action-dispatcher");
 
     const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
     const db = getOrchestrationDb();
@@ -290,6 +291,23 @@ async function run() {
         )
         .get(task.id) as { n: number } | undefined;
       assert.equal(events?.n ?? 0, 0, "no reassign event when new assignee equals current");
+    });
+
+    await test("parser accepts assignee-only update_task blocks and preserves the action", () => {
+      const parsed = dispatcherMod.parseActionsFromText([
+        "Routing this task.",
+        "```mc-action",
+        JSON.stringify({ action: "update_task", taskKey: "REASSIGN-PARSE", assignee: "Reassign Target" }),
+        "```",
+      ].join("\n"));
+
+      assert.deepEqual(parsed.parseErrors, []);
+      assert.equal(parsed.actions.length, 1);
+      assert.deepEqual(parsed.actions[0], {
+        action: "update_task",
+        taskKey: "REASSIGN-PARSE",
+        assignee: "Reassign Target",
+      });
     });
   } finally {
     if (dbPath) rmSync(dbPath, { force: true });

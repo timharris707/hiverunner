@@ -883,6 +883,7 @@ export function getCompanyAgentProfile(input: {
           t.title AS current_task_title,
           a.model,
           a.adapter_type,
+          a.runtime_config_json,
           a.runtime_slug,
           a.openclaw_agent_id,
           a.reporting_to,

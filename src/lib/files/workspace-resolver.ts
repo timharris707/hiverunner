@@ -204,6 +204,77 @@ export function resolveWorkspacePath(inputWorkspace: string | null | undefined, 
   return { base, fullPath };
 }
 
+function nearestExistingParent(candidatePath: string): string | null {
+  let current = path.resolve(candidatePath);
+  while (current && current !== path.dirname(current)) {
+    try {
+      if (fs.statSync(current).isDirectory()) {
+        return current;
+      }
+    } catch {
+      // Keep walking upward.
+    }
+    current = path.dirname(current);
+  }
+  return null;
+}
+
+export function resolveWorkspacePathStrict(
+  inputWorkspace: string | null | undefined,
+  targetPath = "",
+  options: { forWrite?: boolean } = {},
+): { base: string; fullPath: string; realBase: string } | null {
+  if (options.forWrite && (inputWorkspace || "").trim().endsWith(":source")) {
+    return null;
+  }
+
+  const resolved = resolveWorkspacePath(inputWorkspace, targetPath);
+  if (!resolved) return null;
+
+  let realBase: string;
+  try {
+    realBase = fs.realpathSync(resolved.base);
+  } catch {
+    return null;
+  }
+
+  if (options.forWrite) {
+    try {
+      if (fs.lstatSync(resolved.fullPath).isSymbolicLink()) {
+        return null;
+      }
+    } catch (error) {
+      const code = error instanceof Error && "code" in error ? (error as NodeJS.ErrnoException).code : null;
+      if (code !== "ENOENT") return null;
+    }
+
+    const parent = nearestExistingParent(path.dirname(resolved.fullPath));
+    if (!parent) return null;
+    let realParent: string;
+    try {
+      realParent = fs.realpathSync(parent);
+    } catch {
+      return null;
+    }
+    if (!isPathContained(realBase, realParent)) return null;
+    return { ...resolved, realBase };
+  }
+
+  try {
+    if (fs.lstatSync(resolved.fullPath).isSymbolicLink()) {
+      return null;
+    }
+    const realTarget = fs.realpathSync(resolved.fullPath);
+    if (!isPathContained(realBase, realTarget)) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return { ...resolved, realBase };
+}
+
 export function workspaceExists(inputWorkspace?: string | null): boolean {
   const base = resolveWorkspaceBase(inputWorkspace);
   return Boolean(base && fs.existsSync(base));

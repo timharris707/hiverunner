@@ -37,6 +37,7 @@ const MODULE_DIR =
 const ONBOARDING_DIR = path.join(MODULE_DIR, "onboarding-assets");
 const OPENCLAW_HOME = process.env.OPENCLAW_HOME?.trim() || resolveOpenClawDir();
 const LEAD_SUPERVISOR_TICK_REASON = "goal_lead_supervisor_tick";
+const DIRECT_WORK_ONLY_LABEL = "direct-work-only";
 
 function approvalPromptLabel(type: string, payload: Record<string, unknown>, id: string): string {
   if (type === "hire_agent") {
@@ -134,6 +135,19 @@ function allowsExplicitFixtureMemoryAccess(task: { title: string; description: s
   return (namesGraphExplorer && namesFixtureSet) || (namesFixtureTest && namesMemorySystem);
 }
 
+function hasDirectWorkOnlyLabel(labelsJson: string | null | undefined): boolean {
+  if (!labelsJson) return false;
+  try {
+    const parsed = JSON.parse(labelsJson) as unknown;
+    if (Array.isArray(parsed)) {
+      return parsed.some((label) => String(label).trim().toLowerCase() === DIRECT_WORK_ONLY_LABEL);
+    }
+  } catch {
+    return labelsJson.toLowerCase().includes(DIRECT_WORK_ONLY_LABEL);
+  }
+  return false;
+}
+
 /* ── Prompt Building ── */
 
 export function buildHeartbeatPrompt(
@@ -148,6 +162,7 @@ export function buildHeartbeatPrompt(
   const focusedTask = focusedTaskId && focusedTaskId !== "__heartbeat__"
     ? db.prepare(
         `SELECT t.id, t.title, t.description, t.status, t.priority, t.type, t.task_key, t.sprint_id,
+                t.labels_json,
                 t.assignee_agent_id,
                 p.id AS project_id, p.name AS project_name, p.slug AS project_slug,
                 p.settings_json AS project_settings_json
@@ -164,6 +179,7 @@ export function buildHeartbeatPrompt(
         type: string;
         task_key: string;
         sprint_id: string | null;
+        labels_json: string | null;
         assignee_agent_id: string | null;
         project_id: string;
         project_name: string;
@@ -358,6 +374,9 @@ export function buildHeartbeatPrompt(
     sections.push(`  Project: ${focusedTask.project_name}`);
     if (focusedTask.description) {
       sections.push(`  Description: ${focusedTask.description}`);
+    }
+    if (hasDirectWorkOnlyLabel(focusedTask.labels_json)) {
+      sections.push("  Work mode: DIRECT WORK ONLY. Do not delegate this task, hire agents for it, or create child execution tasks unless the operator explicitly changes the task.");
     }
     sections.push("  Instruction: Stay centered on this task. Do not drift into other projects unless this task explicitly requires it.");
     const goalContext = buildTaskGoalContextSection({ db, taskId: focusedTask.id, agentId: agent.id });
@@ -718,6 +737,7 @@ export function buildHeartbeatPrompt(
   sections.push("- If you hire agents for a directive, create their scoped worker tasks in the same response before moving the directive to review/done. Hire-only delegation is incomplete.");
   sections.push("- Only assign tasks to agents marked RUNNABLE in Agent Runtime Readiness. Manual/unconfigured agents cannot execute autonomous work.");
   sections.push("- Move status: `update_task` with `{ \"taskKey\", \"status\" }`. Avoid `comment` on status updates unless the note is truly needed; use `add_comment` for operator-facing content.");
+  sections.push("- Reassign work: `update_task` with `{ \"taskKey\", \"assignee\" }` and only choose a RUNNABLE agent.");
   sections.push("- Record goal-contract evidence: `record_validation_evidence` or `record_success_evidence` with `{ \"itemId\", \"status\": \"proposed\" | \"failed\", \"resultText\", \"commandExitCode\", \"artifactUri\" }`. Agents may propose or flag evidence, but only the operator can confirm evidence as passed.");
   sections.push("- Review decisions: if you are reviewing a task and it passes, use `add_comment` for QA notes and then `update_task` with `{ \"taskKey\", \"status\": \"done\" }`. Do not leave accepted work sitting in `review`.");
   sections.push("- Explicit skill use: when you materially apply one of your Active Runtime Skills, emit exactly one `use_skill` with `{ \"skill\", \"taskKey\", \"note\" }`. Prefer the skill slug. The note should name the concrete procedure or checklist you applied.");

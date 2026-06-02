@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
+
+import { getAppBuildMetadata } from "@/lib/app-build-metadata";
+import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 
 export const dynamic = "force-dynamic";
 
@@ -22,44 +23,12 @@ export const dynamic = "force-dynamic";
  *
  * NOT used for comprehensive system health (use /api/health for that).
  */
-type PromotionMetadata = {
-  release_id?: string;
-  release_tag?: string;
-  release_commit?: string;
-  release_branch?: string;
-  release_reason?: string;
-  promoted_at?: string;
-  promoted_by?: string;
-  repo_dirty?: string;
-};
-
-function readPromotionMetadata(): PromotionMetadata | null {
-  const metadataPath = path.join(process.cwd(), ".promotion-metadata.json");
-  try {
-    return JSON.parse(fs.readFileSync(metadataPath, "utf8")) as PromotionMetadata;
-  } catch {
-    return null;
-  }
-}
-
 export async function GET() {
-  const isDev = process.env.NODE_ENV !== "production";
-  const requestedEngineTickSetting = (process.env.MC_ENGINE_TICK || (isDev ? "off" : "on")).toLowerCase();
-  const port = process.env.PORT || "3010";
-  const engineTickForcedObserver = port === "3010";
-  const engineTickSetting = engineTickForcedObserver ? "off" : requestedEngineTickSetting;
-  const mode = isDev ? "dev" : "stable";
-  const baseEngineTickActive =
-    engineTickSetting === "on" ? true :
-    engineTickSetting === "off" ? false :
-    /* auto */ !isDev;
-  const devExecutionTestModeGateEnabled =
-    isDev &&
-    port === "3010" &&
-    (process.env.MC_DEV_EXECUTION_TEST_MODE || "").trim() === "1";
-  const engineTickActive = baseEngineTickActive ||
-    (!engineTickForcedObserver && engineTickSetting !== "off" && devExecutionTestModeGateEnabled);
-  const release = readPromotionMetadata();
+  const appBuild = getAppBuildMetadata();
+  const runtime = getRuntimeLaneStatus({
+    ...process.env,
+    PORT: appBuild.port,
+  });
 
   let migrationCompatibility:
     | {
@@ -134,33 +103,47 @@ export async function GET() {
     };
   }
 
-  const stableMigrationFailure = mode === "stable" && migrationCompatibility?.ok === false;
+  const stableMigrationFailure = runtime.mode === "stable" && migrationCompatibility?.ok === false;
   const status = stableMigrationFailure ? "unhealthy" : "ok";
 
   return NextResponse.json({
     status,
     ts: new Date().toISOString(),
     pid: process.pid,
-    mode,
-    port,
+    mode: runtime.mode,
+    port: runtime.port,
     uptime: Math.floor(process.uptime()),
     build: {
+      version: appBuild.version,
+      versionLabel: appBuild.versionLabel,
+      displayLabel: appBuild.displayLabel,
       cwd: process.cwd(),
-      releaseId: release?.release_id ?? null,
-      releaseTag: release?.release_tag ?? null,
-      releaseCommit: release?.release_commit ?? null,
-      releaseBranch: release?.release_branch ?? null,
-      releaseReason: release?.release_reason ?? null,
-      promotedAt: release?.promoted_at ?? null,
-      promotedBy: release?.promoted_by ?? null,
-      repoDirty: release?.repo_dirty ?? null,
+      buildTag: appBuild.buildTag,
+      buildCommit: appBuild.buildCommit,
+      buildCommitShort: appBuild.buildCommitShort,
+      buildTime: appBuild.buildTime,
+      releaseId: appBuild.release.releaseId,
+      releaseTag: appBuild.release.releaseTag,
+      releaseCommit: appBuild.release.releaseCommit,
+      releaseCommitShort: appBuild.release.releaseCommitShort,
+      releaseBranch: appBuild.release.releaseBranch,
+      releaseReason: appBuild.release.releaseReason,
+      promotedAt: appBuild.release.promotedAt,
+      promotedBy: appBuild.release.promotedBy,
+      repoDirty: appBuild.release.repoDirty,
+      gitCommit: appBuild.git.commit,
+      gitCommitShort: appBuild.git.commitShort,
+      gitBranch: appBuild.git.branch,
+      gitDirty: appBuild.git.dirty,
     },
     migrationCompatibility,
-    engineTick: engineTickActive ? "active" : "disabled",
-    engineTickSetting,
-    requestedEngineTickSetting,
-    engineTickForcedObserver,
-    role: baseEngineTickActive ? "executor" : "observer",
-    devExecutionTestModeGate: devExecutionTestModeGateEnabled ? "enabled" : "disabled",
+    engineTick: runtime.engineTick,
+    engineTickSetting: runtime.engineTickSetting,
+    requestedEngineTickSetting: runtime.requestedEngineTickSetting,
+    engineTickForcedObserver: runtime.engineTickForcedObserver,
+    role: runtime.role,
+    observerOnly: runtime.observerOnly,
+    executionDisabledReason: runtime.executionDisabledReason,
+    devExecutionTestModeGate: runtime.devExecutionTestModeGate,
   }, { status: stableMigrationFailure ? 503 : 200 });
 }
