@@ -20,6 +20,38 @@ if (!existsSync(nextBin)) {
   process.exit(1);
 }
 
+function liveDevLanePids() {
+  const result = spawnSync("lsof", ["-tiTCP:3010", "-sTCP:LISTEN"], {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+
+  if (result.status !== 0 || !result.stdout.trim()) {
+    return [];
+  }
+
+  return result.stdout
+    .split(/\s+/)
+    .map((pid) => pid.trim())
+    .filter(Boolean);
+}
+
+function assertNoLiveDevLane() {
+  if (!isolateRootArtifacts || process.env.HIVERUNNER_BUILD_ALLOW_LIVE_DEV === "1") {
+    return;
+  }
+
+  const pids = liveDevLanePids();
+  if (pids.length === 0) {
+    return;
+  }
+
+  console.error(`[build] Refusing to hide .next while the dev lane is running on port 3010 (PID${pids.length === 1 ? "" : "s"} ${pids.join(", ")}).`);
+  console.error("[build] Stop the dev lane first with scripts/lane.sh dev stop, then rerun the build.");
+  console.error("[build] Set HIVERUNNER_BUILD_ALLOW_LIVE_DEV=1 only if you already plan to restart 3010 afterward.");
+  process.exit(1);
+}
+
 const transientRootNames = new Set([
   ".next",
   ".playwright-cli",
@@ -95,6 +127,7 @@ function restoreRootArtifacts({ entries, holdDir, buildSucceeded }) {
 }
 
 console.log(`[build] Using Node heap ${heapMb}MB for Next.js production compile`);
+assertNoLiveDevLane();
 
 let result;
 let hiddenArtifacts;
