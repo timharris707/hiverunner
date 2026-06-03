@@ -1,16 +1,18 @@
 # HiveRunner
 
-**HiveRunner is a local-first command center for running AI agent teams.**
+**Give your agents a goal. Get back a finished sprint.**
 
-It gives one operator a single place to create agent workspaces, plan goals,
-track tasks, watch runtime activity, review outputs, manage memory, and see what
-each local or external agent runner is ready to do.
+HiveRunner is the control plane for AI-agent sprints. It turns one goal into a
+sprint plan, splits it into tasks, and assigns your agents — Codex, Claude Code,
+Gemini, and the CLIs you already run — then executes the work on a lane you own
+and keeps every result reviewable.
+
+> **Automate the sprint. Keep the review.**
 
 HiveRunner is built for developers and technical operators who are past toy
 chatbots and want a real console for coordinating AI work on their own machine.
-It is not trying to be a hosted enterprise platform yet. The public path is
-honest and simple: clone it, run it locally, connect the runtimes and API keys
-you want, and start building your own agent team.
+It is local-first by default — clone it, run it locally, and connect the runtimes
+and API keys you want. No hosted account is required to start.
 
 ![HiveRunner dashboard](docs/screenshots/hiverunner-dashboard.png)
 
@@ -33,7 +35,10 @@ show up as setup work, not as broken onboarding.
 
 ## Why HiveRunner Exists
 
-Modern AI work quickly becomes an operations problem:
+AI coding agents are powerful one chat at a time. But real work isn't one chat —
+it's a sprint: many tasks, many agents, context that has to survive handoffs, and
+output someone actually has to review. Run that across a pile of terminal tabs,
+prompt logs, and one-off scripts and it quickly becomes an operations problem:
 
 - which agent owns which task?
 - what context did it use?
@@ -43,26 +48,53 @@ Modern AI work quickly becomes an operations problem:
 - what is local state versus hosted state?
 - how much are the agents spending?
 
-HiveRunner turns those questions into an operator console instead of a pile of
-terminal tabs, prompt logs, and one-off scripts.
+HiveRunner gives that work a structure. Goals become sprint plans, sprint plans
+become tasks, tasks run through your agents, and every run stays visible and
+reviewable in one operator console.
+
+## How It Works
+
+```text
+   Goal  ─▶  Sprint plan  ─▶  Tasks  ─▶  Agents + runners  ─▶  Runs  ─▶  Review
+ (objective)  (scoped unit)  (the board)  (Codex/Claude/…)  (on a   (you sign
+                                                             lane you  off)
+                                                             own)
+```
+
+1. **Define a goal.** A project or company objective (created during onboarding).
+2. **HiveRunner proposes a sprint plan.** The goal becomes a scoped, plannable
+   unit of work — not a flat to-do list.
+3. **The sprint splits into tasks.** Typed, prioritized, tracked on a board.
+4. **Agents take the tasks.** Each task is assigned to an agent and a runner
+   (Codex, Claude Code, Gemini, Hermes, or an external runner), routed by role
+   and model.
+5. **Runs execute on a lane you own.** Execution happens on the stable execution
+   lane; observer lanes stay read-only.
+6. **You review before it's done.** Work moves through review states — agent
+   output is never auto-accepted. Memory and cost carry into the next sprint.
 
 ## Core Features
 
+- **Goal-to-sprint orchestration** — turn a goal into a sprint plan, split it
+  into tasks, assign agents, and track every run through to review.
+- **Bring-your-own runners** — coordinate Codex, Claude Code, and Gemini as
+  first-class runners, plus Hermes, OpenClaw, and any external CLI through the
+  runner boundary. Each appears as a readiness state, so you wire up only what
+  your sprint needs.
+- **Review loops** — route work through review states instead of treating every
+  agent output as automatically done. Agent output is never silently accepted.
+- **Agent team management** — create agents, assign work, keep roles and context
+  visible, and make handoffs explicit.
+- **Run visibility & cost tracking** — inspect execution runs, context,
+  comments, and artifacts, and see what each sprint is spending.
+- **Memory and file surfaces** — keep durable context, files, and decisions
+  close to the work they support, and carry them into the next sprint.
 - **Local-first control plane** — SQLite-backed local state with a single-owner
-  default mode for trusted local machines.
-- **Workspace and company dashboards** — goals, tasks, inbox, memory, files,
-  costs, activity, runtime inventory, and settings per workspace.
-- **Agent team management** — create agents, assign work, review outputs, and
-  keep roles/context visible.
+  default mode; execution runs on a lane you own, with no hosted account
+  required to boot.
 - **Starter agent packs** — launch with public-safe curated agent identities,
   bundled avatars, saved voice choices, and neutral role instructions without
   needing image or voice provider keys.
-- **Runtime readiness views** — see which optional CLIs, provider keys, and
-  runner adapters are available before you depend on them.
-- **Review loops** — route work through review states instead of treating every
-  agent output as automatically done.
-- **Memory and file surfaces** — keep operational context closer to the work it
-  supports.
 - **Optional voice and avatar features** — configure your own keys/backends when
   you want voice-enabled agent interaction; ignore them when you do not.
 - **Hosted-auth path** — Supabase auth is available for hosted multi-user
@@ -243,19 +275,23 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 When `MC_AUTH_MODE=supabase`, `/login` shows email/password and Google OAuth.
 Public signup is disabled by design; users should be provisioned by an admin.
 
-## Optional Runtime CLIs
+## Runners
 
-Autonomous runtime CLIs are optional. Missing CLIs should appear as degraded or
-missing-optional readiness states, not boot failures.
+Bring the agents you already run. HiveRunner coordinates Codex, Claude Code, and
+Gemini as first-class runners, plus Hermes, OpenClaw, and any external CLI
+through the runner boundary. Every runner is optional and appears as a readiness
+state — live when its CLI is installed and authenticated, clearly flagged when
+it is not. Missing CLIs are degraded/missing-optional states, not boot failures,
+so you wire up only what your sprint needs.
 
 | Runtime | Command | Required? | Notes |
 |---|---|---:|---|
-| Codex | `codex` | No | Optional coding/runtime agent path. |
-| Claude Code | `claude` | No | Optional runtime auth; separate from `ANTHROPIC_API_KEY`. |
-| Gemini CLI | `gemini` | No | Optional runtime; Gemini API keys are separate and can also power voice/direct Google routes. |
-| Hermes | `hermes` | No | Optional local runner. |
-| OpenClaw | `openclaw` | No | Optional legacy/local runtime adapter. |
-| External runner | configured command/env | No | Optional runner integration for external execution systems. |
+| Codex | `codex` | No | First-class runner; preferred for GPT coding work, falls back to Claude/Sonnet when the `codex` CLI is not on `PATH`. |
+| Claude Code | `claude` | No | First-class runner. Runtime auth is separate from `ANTHROPIC_API_KEY`. |
+| Gemini CLI | `gemini` | No | First-class runner; Gemini API keys are separate and can also power voice/direct Google routes. |
+| Hermes | `hermes` | No | Provider-neutral ACP runner. |
+| OpenClaw | `openclaw` | No | Provider-neutral gateway runner. |
+| External runner | configured command/env | No | Plug any external execution system in through the runner boundary. |
 
 Check `/HIVE/runtime-inventory` or `/HIVE/hives` after boot to see which
 runtimes are ready, missing, or waiting for login. For the full classification,
