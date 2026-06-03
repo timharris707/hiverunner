@@ -11,6 +11,28 @@ import { getDb } from "../tasks-db";
 let passed = 0;
 let failed = 0;
 
+type LegacyTaskFixture = {
+  id: string;
+  title: string;
+  project: string;
+  status: string;
+  updated: string;
+  [key: string]: unknown;
+};
+
+type BuildLogEntry = {
+  id?: string;
+  taskId?: string;
+  status?: string;
+  pid?: number | null;
+  error?: string | null;
+  [key: string]: unknown;
+};
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function test(name: string, fn: () => Promise<void> | void) {
   return Promise.resolve()
     .then(fn)
@@ -18,14 +40,14 @@ function test(name: string, fn: () => Promise<void> | void) {
       passed++;
       console.log(`  \u2713 ${name}`);
     })
-    .catch((error: any) => {
+    .catch((error: unknown) => {
       failed++;
       console.error(`  \u2717 ${name}`);
-      console.error(`    ${error?.message || String(error)}`);
+      console.error(`    ${errorMessage(error)}`);
     });
 }
 
-function makeTask(project = "mission-control", overrides: Record<string, unknown> = {}) {
+function makeTask(project = "mission-control", overrides: Record<string, unknown> = {}): LegacyTaskFixture {
   const id = `test-build-route-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     id,
@@ -42,7 +64,7 @@ function makeTask(project = "mission-control", overrides: Record<string, unknown
   };
 }
 
-function upsertTask(task: any) {
+function upsertTask(task: LegacyTaskFixture) {
   const db = getDb();
   db.prepare(`
     INSERT INTO tasks (id, data, status, project, updated)
@@ -67,7 +89,7 @@ function deleteTaskFixtures(ids: string[]) {
 }
 
 function getTask(id: string) {
-  const task = readTasks().find((entry: any) => entry.id === id);
+  const task = (readTasks() as LegacyTaskFixture[]).find((entry) => entry.id === id);
   assert.ok(task, `expected task ${id} to exist`);
   return task;
 }
@@ -77,7 +99,7 @@ function makeRequest(taskId: string) {
     async json() {
       return { taskId };
     },
-  } as any;
+  } as unknown as Parameters<typeof POST>[0];
 }
 
 console.log("\nTasks Build Route Contract Test\n");
@@ -121,7 +143,7 @@ async function run() {
       assert.strictEqual(persistedTask.buildState, "running");
       assert.strictEqual(typeof persistedTask.buildPid, "number");
 
-      const persistedBuild = readBuildLog().builds.find((entry: any) => entry.id === payload.build.id);
+      const persistedBuild = (readBuildLog().builds as BuildLogEntry[]).find((entry) => entry.id === payload.build.id);
       assert.ok(persistedBuild);
       assert.strictEqual(persistedBuild.status, "running");
       assert.strictEqual(typeof persistedBuild.pid, "number");
@@ -149,7 +171,7 @@ async function run() {
       assert.strictEqual(blockedTask.buildState, "blocked");
       assert.ok(String(blockedTask.blockedReason || "").includes("Forced builder spawn failure for route test"));
 
-      const blockedBuild = readBuildLog().builds.find((entry: any) => entry.taskId === task.id);
+      const blockedBuild = (readBuildLog().builds as BuildLogEntry[]).find((entry) => entry.taskId === task.id);
       assert.ok(blockedBuild);
       assert.strictEqual(blockedBuild.status, "blocked");
       assert.strictEqual(blockedBuild.pid, null);

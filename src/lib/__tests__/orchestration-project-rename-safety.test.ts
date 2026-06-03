@@ -13,15 +13,21 @@ import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 let passed = 0;
 let failed = 0;
 
+type ProjectSlugError = Error & { code?: string };
+
+function asProjectSlugError(error: unknown): ProjectSlugError {
+  return error instanceof Error ? error as ProjectSlugError : new Error(String(error));
+}
+
 function test(name: string, fn: () => void) {
   try {
     fn();
     passed += 1;
     console.log(`  ✓ ${name}`);
-  } catch (error: any) {
+  } catch (error: unknown) {
     failed += 1;
     console.error(`  ✗ ${name}`);
-    console.error(`    ${error?.message || String(error)}`);
+    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -121,10 +127,11 @@ test("slug change: rejects slug already used by another project", () => {
   try {
     updateProjectSettings({ projectIdOrSlug: thirdSlug, slug: other.slug });
     assert.fail("Expected slug collision error");
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const slugError = asProjectSlugError(error);
     assert.ok(
-      error.message?.includes("slug") || error.code === "project_slug_taken",
-      `Unexpected error: ${error.message}`,
+      slugError.message.includes("slug") || slugError.code === "project_slug_taken",
+      `Unexpected error: ${slugError.message}`,
     );
   }
 });
@@ -143,10 +150,11 @@ test("slug change: rejects slug that collides with an existing alias", () => {
   try {
     updateProjectSettings({ projectIdOrSlug: other2.slug, slug: originalSlug });
     assert.fail("Expected alias collision error");
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const slugError = asProjectSlugError(error);
     assert.ok(
-      error.message?.includes("slug") || error.code === "project_slug_taken",
-      `Unexpected error: ${error.message}`,
+      slugError.message.includes("slug") || slugError.code === "project_slug_taken",
+      `Unexpected error: ${slugError.message}`,
     );
   }
 });

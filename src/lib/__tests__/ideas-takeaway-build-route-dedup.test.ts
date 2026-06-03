@@ -75,6 +75,7 @@ async function run() {
 
   const { POST } = await import("@/app/api/ideas/[reviewId]/takeaways/[takeawayId]/build/route");
   const { createProject, createProjectAgent, listTasks } = await import("@/lib/orchestration/service");
+  type TakeawayBuildRequest = Parameters<typeof POST>[0];
 
   const project = createProject({
     companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -102,7 +103,7 @@ async function run() {
           async json() {
             return { action: "add-to-queue", projectId: project.id, assignee: agent.name };
           },
-        }) as any;
+        }) as unknown as TakeawayBuildRequest;
 
       const routeParams = Promise.resolve({ reviewId, takeawayId });
 

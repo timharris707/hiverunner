@@ -108,18 +108,18 @@ function loadTypeScriptModule(filename, parent, isMain) {
     return cachedModule.exports;
   }
 
-  const module = new Module(filename, parent);
-  Module._cache[filename] = module;
-  module.filename = `${filename}.cjs`;
-  module.paths = Module._nodeModulePaths(path.dirname(filename));
+  const cjsModule = new Module(filename, parent);
+  Module._cache[filename] = cjsModule;
+  cjsModule.filename = `${filename}.cjs`;
+  cjsModule.paths = Module._nodeModulePaths(path.dirname(filename));
 
-  if (parent?.children && !parent.children.includes(module)) {
-    parent.children.push(module);
+  if (parent?.children && !parent.children.includes(cjsModule)) {
+    parent.children.push(cjsModule);
   }
 
   let threw = true;
   try {
-    compileCommonJs(module, filename, transpile(filename, readFileSync(filename, "utf8")));
+    compileCommonJs(cjsModule, filename, transpile(filename, readFileSync(filename, "utf8")));
     threw = false;
   } finally {
     if (threw) {
@@ -127,12 +127,12 @@ function loadTypeScriptModule(filename, parent, isMain) {
     }
   }
 
-  module.loaded = true;
+  cjsModule.loaded = true;
   if (isMain) {
-    process.mainModule = module;
+    process.mainModule = cjsModule;
   }
 
-  return module.exports;
+  return cjsModule.exports;
 }
 
 function compileCommonJs(module, filename, source) {

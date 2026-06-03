@@ -40,6 +40,7 @@ async function run() {
   try {
     const { POST } = await import("@/app/api/ideas/route");
     const { getProject, listTasks, lookupAgentByName } = await import("@/lib/orchestration/service");
+    type IdeasPostRequest = Parameters<typeof POST>[0];
 
     await test("youtube review intake bootstraps the ideas pipeline project and Scout agent when missing", async () => {
       const req = {
@@ -49,7 +50,7 @@ async function run() {
             title: "Bootstrap fixture",
           };
         },
-      } as any;
+      } as unknown as IdeasPostRequest;
 
       const response = await POST(req);
       const body = await response.json() as { id: string; processingTask?: { created?: boolean; taskId?: string } | null };

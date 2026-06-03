@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { readFileSync } from "fs";
+import { readFileSync, statSync } from "fs";
 import { join } from "path";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 
@@ -26,6 +26,32 @@ interface Agent {
   activeSessions: number;
 }
 
+type OpenClawAgentConfig = {
+  id: string;
+  name?: string;
+  workspace?: string;
+  model?: { primary?: string };
+  ui?: { emoji?: string; color?: string };
+  subagents?: { allowAgents?: string[] };
+};
+
+type OpenClawConfig = {
+  agents?: {
+    list?: OpenClawAgentConfig[];
+    defaults?: {
+      workspace?: string;
+      model?: { primary?: string };
+      subagents?: OpenClawAgentConfig["subagents"];
+    };
+  };
+  channels?: {
+    telegram?: {
+      dmPolicy?: string;
+      accounts?: Record<string, { botToken?: string; dmPolicy?: string }>;
+    };
+  };
+};
+
 // Fallback config used when an agent doesn't define its own ui config in openclaw.json.
 // The main agent reads name/emoji from env vars; all others fall back to generic defaults.
 // Override via each agent's openclaw.json → ui.emoji / ui.color / name fields.
@@ -40,7 +66,7 @@ const DEFAULT_AGENT_CONFIG: Record<string, { emoji: string; color: string; name?
 /**
  * Get agent display info (emoji, color, name) from openclaw.json or defaults
  */
-function getAgentDisplayInfo(agentId: string, agentConfig: any): { emoji: string; color: string; name: string } {
+function getAgentDisplayInfo(agentId: string, agentConfig: OpenClawAgentConfig | null): { emoji: string; color: string; name: string } {
   // First try to get from agent's own config in openclaw.json
   const configEmoji = agentConfig?.ui?.emoji;
   const configColor = agentConfig?.ui?.color;
@@ -56,7 +82,7 @@ function getAgentDisplayInfo(agentId: string, agentConfig: any): { emoji: string
   };
 }
 
-function resolveAgentWorkspace(agent: any, openclawDir: string, config: any): string {
+function resolveAgentWorkspace(agent: OpenClawAgentConfig, openclawDir: string, config: OpenClawConfig): string {
   if (typeof agent?.workspace === "string" && agent.workspace.trim().length > 0) {
     return agent.workspace;
   }
@@ -74,10 +100,10 @@ export async function GET() {
     // Read openclaw config
     const OPENCLAW_DIR = resolveOpenClawDir();
     const configPath = OPENCLAW_DIR + "/openclaw.json";
-    const config = JSON.parse(readFileSync(configPath, "utf-8"));
+    const config = JSON.parse(readFileSync(configPath, "utf-8")) as OpenClawConfig;
 
     // Build agent list: use config.agents.list if it exists, otherwise synthesize from defaults
-    const agentList: any[] = config.agents?.list ?? [
+    const agentList: OpenClawAgentConfig[] = config.agents?.list ?? [
       {
         id: "main",
         name: process.env.NEXT_PUBLIC_AGENT_NAME || "HiveRunner",
@@ -87,7 +113,7 @@ export async function GET() {
     ];
 
     // Get agents from config
-    const agents: Agent[] = agentList.map((agent: any) => {
+    const agents: Agent[] = agentList.map((agent) => {
       const agentInfo = getAgentDisplayInfo(agent.id, agent);
       const workspace = resolveAgentWorkspace(agent, OPENCLAW_DIR, config);
 
@@ -104,14 +130,14 @@ export async function GET() {
       try {
         const today = new Date().toISOString().split("T")[0];
         const memoryFile = join(memoryPath, `${today}.md`);
-        const stat = require("fs").statSync(memoryFile);
+        const stat = statSync(memoryFile);
         lastActivity = stat.mtime.toISOString();
         // Consider online if activity within last 5 minutes
         status =
           Date.now() - stat.mtime.getTime() < 5 * 60 * 1000
             ? "online"
             : "offline";
-      } catch (e) {
+      } catch {
         // No recent activity
       }
 
@@ -120,7 +146,7 @@ export async function GET() {
       const allowAgentsDetails = allowAgents.map((subagentId: string) => {
         // Find subagent in config
         const subagentConfig = agentList.find(
-          (a: any) => a.id === subagentId
+          (a) => a.id === subagentId
         );
         if (subagentConfig) {
           const subagentInfo = getAgentDisplayInfo(subagentId, subagentConfig);
@@ -147,7 +173,7 @@ export async function GET() {
         emoji: agentInfo.emoji,
         color: agentInfo.color,
         model:
-          agent.model?.primary || config.agents.defaults.model.primary,
+          agent.model?.primary || config.agents?.defaults?.model?.primary || "unknown",
         workspace,
         dmPolicy:
           telegramAccount?.dmPolicy ||

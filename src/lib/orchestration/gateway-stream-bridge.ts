@@ -64,9 +64,6 @@ const GATEWAY_ABSENT_LOG_INTERVAL_MS = 5 * 60 * 1000;
 const ACTIVE_RUN_REFRESH_MS = 5000;
 const HEARTBEAT_SESSION_PATTERN = /^agent:([^:]+):heartbeat:(.+)$/;
 
-/** Message sequence counter for the gateway JSON-RPC protocol */
-let msgSeq = 0;
-
 /** Read the gateway auth token from the OpenClaw config file */
 function resolveGatewayToken(): string | null {
   // 1. Explicit env var

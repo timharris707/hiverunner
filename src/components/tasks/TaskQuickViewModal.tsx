@@ -393,7 +393,15 @@ function formatRelativeUpdate(isoString: string) {
 }
 
 export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, callbacks, onClose, onVoiceSessionEnd, companySlug }: Props) {
-  const [voiceModalOpen, setVoiceModalOpen] = useState(false);
+  const activeTaskId = task?.id ?? null;
+  const [voiceModalState, setVoiceModalState] = useState<{ taskId: string | null; open: boolean }>({
+    taskId: null,
+    open: false,
+  });
+  const voiceModalOpen = voiceModalState.taskId === activeTaskId && voiceModalState.open;
+  const setVoiceModalOpenForCurrentTask = (open: boolean) => {
+    setVoiceModalState({ taskId: activeTaskId, open });
+  };
 
   useEffect(() => {
     if (!task) return;
@@ -403,10 +411,6 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose, task, voiceModalOpen]);
-
-  useEffect(() => {
-    setVoiceModalOpen(false);
-  }, [task?.id]);
 
   if (!task) return null;
 
@@ -651,7 +655,7 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button
               type="button"
-              onClick={() => setVoiceModalOpen(true)}
+              onClick={() => setVoiceModalOpenForCurrentTask(true)}
               disabled={!voiceLaunchAgent || voiceModalOpen}
               title={
                 voiceModalOpen
@@ -709,7 +713,7 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
       {voiceBindingRequest && (
         <TaskVoiceModal
           open={voiceModalOpen}
-          onClose={() => setVoiceModalOpen(false)}
+          onClose={() => setVoiceModalOpenForCurrentTask(false)}
           agent={voiceLaunchAgent}
           bindingRequest={voiceBindingRequest}
           taskTitle={task.title}

@@ -7,9 +7,15 @@ export const dynamic = "force-dynamic";
 
 const TASKS_FILE = join(process.cwd(), "data", "tasks.json");
 
-function readTasks() {
+type RoutableTask = TaskInput & {
+  id: string;
+  status?: string;
+  title: string;
+};
+
+function readTasks(): RoutableTask[] {
   try {
-    return JSON.parse(readFileSync(TASKS_FILE, "utf-8"));
+    return JSON.parse(readFileSync(TASKS_FILE, "utf-8")) as RoutableTask[];
   } catch {
     return [];
   }
@@ -38,7 +44,7 @@ export async function GET(req: NextRequest) {
   // Route a specific task
   const taskId = searchParams.get("taskId");
   if (taskId) {
-    const task = tasks.find((t: any) => t.id === taskId);
+    const task = tasks.find((t) => t.id === taskId);
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }
@@ -49,9 +55,9 @@ export async function GET(req: NextRequest) {
   // Route all active tasks (for dashboard/overview)
   if (searchParams.get("all") === "true") {
     const activeTasks = tasks.filter(
-      (t: any) => t.status !== "done" && t.status !== "review"
+      (t) => t.status !== "done" && t.status !== "review"
     );
-    const routed = activeTasks.map((t: any) => ({
+    const routed = activeTasks.map((t) => ({
       taskId: t.id,
       title: t.title,
       priority: t.priority,

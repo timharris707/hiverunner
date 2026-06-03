@@ -186,7 +186,27 @@ async function run() {
     const stored = db
       .prepare("SELECT metadata_json FROM execution_runs WHERE id = ?")
       .get(executionRunId) as { metadata_json: string };
-    const metadata = JSON.parse(stored.metadata_json) as Record<string, any>;
+    const metadata = JSON.parse(stored.metadata_json) as {
+      existingKey?: string;
+      injected_memory_sha256?: string;
+      injectedMemoryEvidence: { recordCount: number };
+      injectedMemoryQuality: { score: number };
+      memoryUtilizationReceipts: {
+        version: number;
+        receipts: Array<{
+          source: string;
+          runId: string;
+          heartbeatRunId: string;
+          injectedMemorySha256: string;
+          claims: {
+            used: Array<{ recordId: string; evidenceEnvelopeId: string; availableInInjection: boolean }>;
+            ignored: Array<{ evidenceEnvelopeId: string }>;
+            irrelevant: Array<{ availableInInjection: boolean }>;
+          };
+        }>;
+      };
+      memoryUtilizationMatchedUse: { status: string; matches: unknown[] };
+    };
     assert.strictEqual(metadata.existingKey, "preserved");
     assert.strictEqual(metadata.injected_memory_sha256, injectedMemorySha);
     assert.strictEqual(metadata.injectedMemoryEvidence.recordCount, 2);
@@ -212,7 +232,16 @@ async function run() {
     const payload = getMemoryInjectionEvidenceForRun(company.id, executionRunId, {
       db,
       includeDiagnostics: true,
-    }) as any;
+    }) as {
+      run: { injectedMemorySha256: string };
+      utilization: {
+        receipts: {
+          receipts: Array<{ claims: { used: Array<{ recordId: string }> } }>;
+        };
+        matchedUse: { status: string };
+      };
+      evidence: unknown[];
+    };
     assert.strictEqual(payload.run.injectedMemorySha256, injectedMemorySha);
     assert.strictEqual(payload.utilization.receipts.receipts.length, 1);
     assert.strictEqual(payload.utilization.receipts.receipts[0].claims.used[0].recordId, "receipt-used-record");

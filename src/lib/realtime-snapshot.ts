@@ -1,4 +1,4 @@
-import { getAgentStatusSnapshot } from "@/lib/agent-status";
+import { getAgentStatusSnapshot, type AgentStatusEntry } from "@/lib/agent-status";
 import { getDashboardHighlights, type DashboardHighlights } from "@/lib/dashboard-highlights";
 import { getDashboardStats, type DashboardStats } from "@/lib/dashboard-stats";
 import { getIdeasProcessedState } from "@/lib/ideas";
@@ -6,7 +6,7 @@ import { getProjects } from "@/lib/projects";
 import { getSystemStats, type SystemStats } from "@/lib/system-stats";
 import { readTasks } from "@/lib/build-queue";
 
-function readTasksSafely(): any[] {
+function readTasksSafely(): unknown[] {
   try {
     return readTasks();
   } catch (error) {
@@ -23,9 +23,9 @@ export interface HiveRunnerRealtimeSnapshot {
   generatedAt: string;
   dashStats: DashboardStats;
   highlights: DashboardHighlights;
-  tasks: any[];
-  projects: any[];
-  agentStatuses: Record<string, any>;
+  tasks: unknown[];
+  projects: ReturnType<typeof getProjects>;
+  agentStatuses: Record<string, AgentStatusEntry>;
   systemStats: SystemStats;
   ideas: {
     processedIds: string[];
@@ -42,7 +42,7 @@ export async function getHiveRunnerRealtimeSnapshot(now = Date.now()): Promise<H
 
   const agentStatusSnapshot = getAgentStatusSnapshot(now);
   const agentStatuses = Object.fromEntries(
-    (agentStatusSnapshot.agents || []).map((agent: any) => [agent.id, agent]),
+    (agentStatusSnapshot.agents || []).map((agent) => [agent.id, agent]),
   );
 
   return {

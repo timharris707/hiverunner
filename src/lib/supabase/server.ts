@@ -1,4 +1,5 @@
 import { createServerClient } from "@supabase/ssr";
+import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { getAuthMode, isSupabaseConfigured } from "@/lib/auth/auth-mode";
 import { securityLog } from "@/lib/observability/logging";
@@ -81,7 +82,6 @@ export function createAdminClient(context: SupabaseAdminAuditContext) {
     ...context,
     operation: `createAdminClient:${context.operation}`,
   });
-  const { createClient } = require("@supabase/supabase-js");
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,

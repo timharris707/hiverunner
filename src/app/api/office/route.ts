@@ -59,6 +59,12 @@ interface AgentSession {
   createdAt?: string;
 }
 
+type OpenClawAgentConfig = {
+  id: string;
+  name?: string;
+  workspace: string;
+};
+
 async function getAgentStatusFromGateway(): Promise<
   Record<string, { isActive: boolean; currentTask: string; lastSeen: number }>
 > {
@@ -190,7 +196,7 @@ export async function GET() {
     // Try gateway first, fallback to file-based
     const gatewayStatus = await getAgentStatusFromGateway();
 
-    const agents = config.agents.list.map((agent: any) => {
+    const agents = (config.agents.list as OpenClawAgentConfig[]).map((agent) => {
       const agentInfo = AGENT_CONFIG[agent.id as keyof typeof AGENT_CONFIG] || {
         emoji: "🤖",
         color: "#666",

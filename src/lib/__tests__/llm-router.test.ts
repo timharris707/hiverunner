@@ -14,10 +14,10 @@ function test(name: string, fn: () => void) {
     fn();
     passed++;
     console.log(`  \u2713 ${name}`);
-  } catch (e: any) {
+  } catch (error: unknown) {
     failed++;
     console.error(`  \u2717 ${name}`);
-    console.error(`    ${e.message}`);
+    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
