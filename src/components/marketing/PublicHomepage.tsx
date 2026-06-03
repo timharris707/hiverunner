@@ -22,19 +22,19 @@ import {
 
 const navItems = [
   { label: "Product", href: "#top" },
-  { label: "Quickstart", href: "#quickstart" },
   { label: "How it works", href: "#how-it-works" },
+  { label: "Runners", href: "#compatibility" },
   { label: "Features", href: "#features" },
   { label: "Local-first", href: "#local-first" },
-  { label: "Compatibility", href: "#compatibility" },
+  { label: "Quickstart", href: "#quickstart" },
   { label: "FAQ", href: "#faq" },
 ] as const;
 
 const proofPoints = [
-  "Local-first by default",
-  "Goals, tasks, runs, reviews, memory, and files in one console",
-  "Optional runners and provider keys stay visible as readiness states",
-  "Review loops keep agent output from being treated as done automatically",
+  "One goal → sprint plan → tasks → runs → review",
+  "Codex, Claude Code, Gemini + the CLIs you already run",
+  "Review gates baked in — agent output is never auto-accepted",
+  "Local-first: runs on a lane you own",
 ] as const;
 
 const quickstartSteps = [
@@ -48,56 +48,60 @@ const quickstartSteps = [
 const howItWorksSteps = [
   {
     title: "Define the goal",
-    body: "Turn a company or project objective into tasks and reviewable work.",
+    body: "Turn a project or company objective into a unit of work HiveRunner can plan.",
   },
   {
-    title: "Assign the right agent",
-    body: "Route work to configured local or external runners and keep ownership visible.",
+    title: "Get a sprint plan",
+    body: "HiveRunner decomposes the goal into a scoped sprint — a complete unit of work, not a flat to-do list.",
   },
   {
-    title: "Track the run",
-    body: "Watch task state, runtime readiness, comments, artifacts, and execution context from the operator console.",
+    title: "Split into tasks",
+    body: "The sprint becomes typed, prioritized tasks on a board you can see end to end.",
+  },
+  {
+    title: "Assign agents + runners",
+    body: "Each task routes to an agent and a runner — Codex, Claude Code, Gemini, Hermes, or external — by role and model.",
+  },
+  {
+    title: "Run on a lane you own",
+    body: "Work executes on the stable execution lane. Observer lanes stay read-only, so nothing runs that you did not authorize.",
   },
   {
     title: "Review before closure",
-    body: "Move completed work through review instead of treating every agent output as automatically done.",
-  },
-  {
-    title: "Preserve context",
-    body: "Keep memory, files, decisions, and task history close to the work they support.",
+    body: "Output moves through review states instead of being treated as done. Memory and cost carry into the next sprint.",
   },
 ] as const;
 
 const features = [
   {
-    title: "Goals and tasks",
-    description: "Plan work, split it into reviewable tasks, track status, and keep the operator in control of closure.",
+    title: "Goal-to-sprint engine",
+    description: "Turn one goal into a sprint plan, split it into tasks, and track every run to review — the whole unit of work, not a scattered to-do list.",
     icon: Workflow,
   },
   {
-    title: "Run visibility",
-    description: "Inspect task runs, execution context, comments, artifacts, and runtime state without searching through terminal history.",
+    title: "Bring your own runners",
+    description: "Coordinate Codex, Claude Code, and Gemini as first-class runners, plus Hermes, OpenClaw, and external CLIs. Each appears as a readiness state.",
+    icon: Wrench,
+  },
+  {
+    title: "Review gates",
+    description: "Agent output routes through review states, so work never silently becomes accepted work. You hold the gate on every result.",
+    icon: RefreshCcw,
+  },
+  {
+    title: "Run visibility & cost",
+    description: "Inspect runs, execution context, comments, and artifacts — and see what each sprint is spending — without digging through terminal history.",
     icon: SquareTerminal,
   },
   {
     title: "Agent coordination",
-    description: "Create agent roles, assign work, preserve ownership, and make handoffs visible.",
+    description: "Create agent roles, assign tasks, preserve ownership, and make handoffs visible across the whole sprint.",
     icon: Users,
   },
   {
-    title: "Runtime readiness",
-    description: "See which optional CLIs, provider keys, and runner adapters are ready before you rely on them.",
-    icon: Wrench,
-  },
-  {
-    title: "Memory and files",
-    description: "Keep durable project context, files, notes, and task evidence close to the workflows that use them.",
+    title: "Memory that carries",
+    description: "Keep durable context, files, and decisions close to the work — and carry them into the next sprint instead of starting cold.",
     icon: FolderOpen,
-  },
-  {
-    title: "Review loops",
-    description: "Route outputs through review states so agent work does not silently become accepted work.",
-    icon: RefreshCcw,
   },
 ] as const;
 
@@ -112,7 +116,7 @@ const compatibilityRows = [
   {
     label: "Codex CLI",
     status: "Supported",
-    note: "The Codex CLI is a first-class optional runtime path when the command is installed and authenticated locally.",
+    note: "First-class runner, preferred for GPT coding work, with an automatic fallback to Claude/Sonnet when the codex command is not on your PATH.",
   },
   {
     label: "Claude / Claude Code",
@@ -153,6 +157,11 @@ const compatibilityRows = [
 
 const faqItems = [
   {
+    question: "What does HiveRunner actually do?",
+    answer:
+      "It turns a goal into a sprint plan, splits the plan into tasks, assigns each task to an agent and a runner, executes the work on a lane you own, and holds every result at review until you sign off. One goal in, a coordinated and reviewable sprint out.",
+  },
+  {
     question: "Is HiveRunner a hosted SaaS?",
     answer:
       "No. HiveRunner is presented as a local-first, open-source command center, not a finished multi-tenant hosted product.",
@@ -165,7 +174,7 @@ const faqItems = [
   {
     question: "Which agents are supported?",
     answer:
-      "HiveRunner models Codex, Claude Code, Gemini, Hermes, OpenClaw, and external runner commands. OpenCode, Cursor, and other CLI or browser agents are compatible when you expose them through a command, browser target, or reviewable runner path.",
+      "Codex, Claude Code, and Gemini are first-class runners; Hermes, OpenClaw, and external runner commands round out the bundled set. OpenCode, Cursor, and other CLI or browser agents are compatible when you expose them through a command, browser target, or reviewable runner path.",
   },
   {
     question: "Do I need API keys to try it?",
@@ -299,11 +308,15 @@ export default function HomePage() {
 
       <section className="mx-auto grid max-w-7xl gap-10 px-4 pb-8 pt-10 sm:px-6 sm:pb-10 sm:pt-12 md:grid-cols-[1.05fr_0.95fr] lg:px-8">
         <div className="relative z-10 max-w-3xl">
+          <p className="mb-5 inline-flex w-fit items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--surface)] px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--accent)]">
+            <Workflow className="h-3.5 w-3.5" />
+            Automate the sprint. Keep the review.
+          </p>
           <h1 className="max-w-3xl text-4xl font-semibold leading-[1.02] text-[var(--text-primary)] sm:text-6xl sm:leading-[0.96] lg:text-7xl">
-            HiveRunner runs AI agent work from one local command center.
+            Give your agents a goal. Get back a finished sprint.
           </h1>
           <p className="mt-6 max-w-2xl text-lg leading-8 text-[var(--text-secondary)] sm:text-xl">
-            HiveRunner helps you define goals, assign agents, track runs, review outputs, preserve context, and see which runtimes are ready before you depend on them. Clone it, run it locally, and build your agent workflow from your own machine.
+            HiveRunner decomposes one goal into a sprint plan, splits it into tasks, and assigns your agents — Codex, Claude Code, Gemini, and the CLIs you already run. They execute on a lane you own; nothing ships until you clear review.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -355,40 +368,42 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="grid gap-3 p-4 lg:p-5">
+            <div className="grid gap-2 p-4 lg:p-5">
               <ConsoleBlock
                 label="Goal"
-                title="Ship a useful workspace"
-                body="Coordinate goals, task ownership, review states, and runtime readiness from the local workspace."
+                title="Ship the billing redesign"
+                body="One objective in. HiveRunner plans the sprint."
                 tone="accent"
               />
-              <div className="grid gap-4 md:grid-cols-2">
-                <ConsoleBlock
-                  label="Task"
-                  title="Break work into tasks"
-                  body="Keep planning, execution, review, and evidence visible as separate operator panels."
-                  tone="neutral"
-                />
-                <ConsoleBlock
-                  label="Run"
-                  title="Needs review"
-                  body="Agent work stays in review until an operator confirms the output."
-                  tone="warning"
-                />
+
+              <CascadeConnector label="proposes a sprint plan" />
+
+              <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--surface-elevated)] p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-muted)]">
+                    Sprint plan
+                  </p>
+                  <span className="text-[11px] text-[var(--text-muted)]">6 tasks · 3 agents</span>
+                </div>
+                <div className="mt-3 grid grid-cols-3 gap-2">
+                  <TaskChip runner="Codex" status="done" />
+                  <TaskChip runner="Claude" status="done" />
+                  <TaskChip runner="Gemini" status="running" />
+                </div>
               </div>
-              <div className="grid gap-4 md:grid-cols-[1.1fr_0.9fr]">
-                <ConsoleBlock
-                  label="Runtime readiness"
-                  title="Optional runners"
-                  body="Codex, Claude Code, Gemini, Hermes, OpenClaw, and external commands appear as readiness states."
-                  tone="success"
-                />
-                <ConsoleBlock
-                  label="Memory"
-                  title="Context attached"
-                  body="Files, notes, and decisions remain close to the work they support."
-                  tone="info"
-                />
+
+              <CascadeConnector label="converges on review" />
+
+              <div className="rounded-2xl border border-[rgba(255,214,10,0.22)] bg-[color:color-mix(in_srgb,var(--warning)_10%,var(--surface))] p-4">
+                <div className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-[var(--warning)]" />
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--warning)]">
+                    Needs review
+                  </p>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-[var(--text-secondary)]">
+                  Nothing ships until you sign off.
+                </p>
               </div>
             </div>
           </div>
@@ -446,9 +461,9 @@ npm run dev`}
       </section>
 
       <section id="how-it-works" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-        <SectionHeading eyebrow="Operator loop" title="One operator loop for agent work." description="HiveRunner organizes agent work around the operational loop a human already needs: set the goal, route the task, watch execution, review output, and preserve the useful context for the next run." />
+        <SectionHeading eyebrow="Goal → sprint → review" title="One goal in. A whole sprint out." description="HiveRunner organizes agent work the way a software team already does: a goal becomes a sprint plan, the plan becomes tasks, tasks run through your agents, and every result converges on review before it counts as done." />
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {howItWorksSteps.map((step, index) => (
             <article
               key={step.title}
@@ -525,10 +540,10 @@ npm run dev`}
       </section>
 
       <section id="compatibility" className="mx-auto max-w-7xl px-4 py-14 sm:px-6 lg:px-8">
-        <SectionHeading eyebrow="Compatibility" title="Bring the runners you actually use." description="HiveRunner is built to coordinate optional local and external agent runners. Missing CLIs or provider keys should appear as setup work in runtime readiness, not as broken onboarding." />
+        <SectionHeading eyebrow="Runners" title="Bring the agents you already run." description="Codex, Claude Code, and Gemini are first-class runners; Hermes, OpenClaw, and external CLIs plug in through the runner boundary. Every runner is optional and shows up as a readiness state, so missing CLIs are setup work, not broken onboarding." />
 
         <p className="mt-4 max-w-4xl text-sm leading-7 text-[var(--text-secondary)]">
-          HiveRunner models Codex, Claude Code, Gemini, Hermes, OpenClaw, and the external runner path directly. OpenCode, Cursor, and similar editor or browser agents are compatible when they are exposed as a command, a browser target, or another reviewable runner integration; this page does not claim a native integration where the repo does not provide one.
+          HiveRunner coordinates Codex, Claude Code, Gemini, Hermes, OpenClaw, and the external runner path directly. OpenCode, Cursor, and similar editor or browser agents are compatible when they are exposed as a command, a browser target, or another reviewable runner integration; this page does not claim a native integration where the repo does not provide one.
         </p>
 
         <div className="mt-10 overflow-hidden rounded-3xl border border-[var(--border)] bg-[var(--surface)]">
@@ -587,13 +602,13 @@ npm run dev`}
         <div className="rounded-[2rem] border border-[var(--border-strong)] bg-[linear-gradient(180deg,var(--surface)_0%,var(--surface-elevated)_100%)] px-6 py-8 sm:px-8 sm:py-10">
           <div className="max-w-3xl">
             <p className="text-sm font-semibold uppercase tracking-[0.2em] text-[var(--accent)]">
-              Start local
+              Get started
             </p>
             <h2 className="mt-3 text-3xl font-semibold tracking-tight text-[var(--text-primary)] sm:text-4xl">
-              Start with the local path. Add more runners when you need them.
+              Run your AI agents like a software team.
             </h2>
             <p className="mt-4 text-[var(--text-secondary)]">
-              HiveRunner stays useful when the workflow is local, inspectable, and under human control.
+              Clone it, define a goal, and watch it become a sprint your agents run — on a lane you own, with you on the review gate. Add more runners when you need them.
             </p>
 
             <div className="mt-7 flex flex-wrap gap-3">
@@ -699,6 +714,31 @@ function ConsoleBlock({
       <p className={`text-[11px] font-semibold uppercase tracking-[0.18em] ${styles.chip}`}>{label}</p>
       <h3 className="mt-3 text-lg font-semibold tracking-tight text-[var(--text-primary)]">{title}</h3>
       <p className={`mt-2 text-sm leading-6 ${styles.text}`}>{body}</p>
+    </div>
+  );
+}
+
+function CascadeConnector({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 pl-1 text-[10px] font-medium uppercase tracking-[0.18em] text-[var(--text-muted)]">
+      <ChevronRight className="h-3.5 w-3.5 rotate-90 text-[var(--accent)]" aria-hidden="true" />
+      {label}
+    </div>
+  );
+}
+
+function TaskChip({ runner, status }: { runner: string; status: "done" | "running" }) {
+  const isDone = status === "done";
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-2.5">
+      <div className="flex items-center justify-between gap-1">
+        <span className="truncate text-[11px] font-medium text-[var(--text-primary)]">{runner}</span>
+        <span
+          className={`h-1.5 w-1.5 shrink-0 rounded-full ${isDone ? "bg-[var(--positive)]" : "bg-[var(--accent)]"}`}
+          aria-hidden="true"
+        />
+      </div>
+      <p className="mt-1 text-[10px] text-[var(--text-muted)]">{isDone ? "run done" : "running"}</p>
     </div>
   );
 }

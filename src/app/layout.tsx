@@ -5,9 +5,9 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3010"),
-  title: "HiveRunner",
+  title: "HiveRunner — Turn goals into AI-agent sprints",
   description:
-    "Local-first command center for AI agent teams. Define goals, coordinate agents, track tasks, and keep humans in control.",
+    "Give your agents a goal; get back a finished sprint. HiveRunner turns a goal into a sprint plan, splits it into tasks, assigns your runners (Codex, Claude Code, Gemini), and keeps every result reviewable — on a lane you own.",
   alternates: {
     canonical: "/",
   },
@@ -26,9 +26,9 @@ export const metadata: Metadata = {
     apple: [{ url: "/apple-touch-icon.png", sizes: "180x180" }],
   },
   openGraph: {
-    title: "HiveRunner - Local-first command center for AI agent teams",
+    title: "HiveRunner — Turn goals into AI-agent sprints",
     description:
-      "Define goals, coordinate agents, track tasks, preserve context, and keep humans in control.",
+      "Give your agents a goal; get back a finished sprint. Plan, tasks, runners, execution, and review — automate the sprint, keep the review.",
     url: "/",
     siteName: "HiveRunner",
     images: [
@@ -36,7 +36,7 @@ export const metadata: Metadata = {
         url: "/og-image.png",
         width: 1200,
         height: 630,
-        alt: "HiveRunner local-first AI agent command center",
+        alt: "HiveRunner — turn goals into AI-agent sprints",
       },
     ],
     locale: "en_US",
@@ -44,12 +44,12 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "HiveRunner - Command center for AI agent teams",
-    description: "Define goals, coordinate agents, track tasks, and keep humans in control.",
+    title: "HiveRunner — Turn goals into AI-agent sprints",
+    description: "Give your agents a goal; get back a finished sprint. Automate the sprint. Keep the review.",
     images: [
       {
         url: "/og-image.png",
-        alt: "HiveRunner local-first AI agent command center",
+        alt: "HiveRunner — turn goals into AI-agent sprints",
       },
     ],
   },
