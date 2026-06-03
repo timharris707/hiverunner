@@ -16,8 +16,8 @@ and API keys you want. No hosted account is required to start.
 
 ![HiveRunner task board control center](docs/screenshots/readme/04-agent-task-board-control-center.jpg)
 
-_Public-safe RunnerOps demo: starter agents, task ownership, review state, and
-runtime-ready work are visible from one local control center._
+_The sprint board in a public-safe demo workspace — tasks owned by agents and
+runners, flowing through an In Review lane before anything counts as done._
 
 ## What You Can Do In The First 10 Minutes
 
@@ -38,8 +38,9 @@ show up as setup work, not as broken onboarding.
 
 ## Product Tour
 
-The screenshots below use a deterministic, public-safe local demo workspace with
-no real provider keys, secrets, or private company data.
+The screenshots below walk the HiveRunner loop — goal → sprint → tasks → runs →
+review — on a deterministic, public-safe local demo workspace with no real
+provider keys, secrets, or private company data.
 
 ![Fresh local setup with optional provider keys](docs/screenshots/readme/01-setup-provider-readiness.jpg)
 
@@ -63,8 +64,8 @@ needs attention before a workflow depends on them._
 
 ![Task detail review and activity flow](docs/screenshots/readme/06-task-detail-review-activity.jpg)
 
-_Task detail keeps ownership, review notes, comments, and run usage close to the
-work being reviewed._
+_Task detail keeps ownership, review notes, comments, and run usage together —
+so agent work passes review before it counts as done._
 
 ## Why HiveRunner Exists
 
@@ -253,7 +254,7 @@ MC_WORKSPACE_ROOT=/absolute/path/to/hiverunner/workspace
 MC_DATA_DIR=./data-dev
 
 # Optional. Force `/` to prefer a specific existing workspace/company code.
-MC_DEFAULT_COMPANY_CODE=RUN
+MC_DEFAULT_COMPANY_CODE=YOUR_COMPANY_CODE
 ```
 
 ### Agent And Automation Traffic
@@ -407,7 +408,7 @@ the local same-origin signal or use an API-key-authenticated path:
 curl -X POST \
   -H "Origin: http://127.0.0.1:3010" \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:3010/api/orchestration/companies/RUN/memory/sync \
+  http://127.0.0.1:3010/api/orchestration/companies/<CODE>/memory/sync \
   -d '{}'
 ```
 
