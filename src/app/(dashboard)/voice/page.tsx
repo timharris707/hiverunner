@@ -377,7 +377,7 @@ function VoiceWorkflowArchitecture() {
             <li>System instruction sets persona at connection time (no per-turn system prompts)</li>
             <li>Function calling is supported — enables tool-use patterns for agent delegation</li>
             <li>Session duration: ~15 min default, extendable. Reconnect logic needed for long sessions.</li>
-            <li>Recommended architecture: browser-direct WebSocket (no server proxy needed for audio)</li>
+            <li>Recommended architecture: short-lived browser tokens or a server proxy; never browser-exposed provider keys</li>
           </ul>
         </div>
       </div>

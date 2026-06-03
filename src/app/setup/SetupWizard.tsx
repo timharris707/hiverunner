@@ -232,10 +232,12 @@ function StepOverseer() {
 {`.agents/skills/hiverunner-orchestration-overseer/SKILL.md`}
         </pre>
         <p className="mt-3 text-sm text-[var(--text-secondary)]">
-          Every new workspace is seeded with this skill as
-          <code className="mx-1 rounded bg-[var(--surface-elevated)] px-1 py-0.5">hiverunner-orchestration-overseer</code>,
-          so supervising agents can read it before intervening. You don&apos;t need to install or configure anything —
-          it&apos;s ready the moment a workspace exists.
+          HiveRunner keeps the repo-bundled source above, then seeds each new company workspace with an active company
+          skill named
+          <code className="mx-1 rounded bg-[var(--surface-elevated)] px-1 py-0.5">hiverunner-orchestration-overseer</code>.
+          When a workspace root is available, that active skill is also exported into the workspace under
+          <code className="mx-1 rounded bg-[var(--surface-elevated)] px-1 py-0.5">skills/hiverunner-orchestration-overseer/SKILL.md</code>.
+          You don&apos;t need to install or configure anything.
         </p>
       </div>
       <div className="flex items-start gap-2.5 rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3">
