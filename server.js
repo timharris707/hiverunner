@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports -- server.js is intentionally CommonJS because npm scripts run it with plain `node server.js`. */
 const http = require("http");
 const next = require("next");
 const { WebSocketServer } = require("ws");

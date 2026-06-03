@@ -22,6 +22,7 @@ export function PixelCharacter({
 }: PixelCharacterProps) {
   const [showBubble, setShowBubble] = useState(false);
   const [typing, setTyping] = useState(false);
+  const isTyping = agent.isActive && typing;
 
   useEffect(() => {
     if (agent.isActive) {
@@ -29,8 +30,6 @@ export function PixelCharacter({
         setTyping((prev) => !prev);
       }, 800);
       return () => clearInterval(typingInterval);
-    } else {
-      setTyping(false);
     }
   }, [agent.isActive]);
 
@@ -227,7 +226,7 @@ export function PixelCharacter({
           left: deskType === "large" ? "40px" : "30px",
           fontSize: "48px",
           filter: agent.isActive ? "none" : "grayscale(50%) opacity(70%)",
-          animation: typing ? "pixel-typing 0.8s infinite" : "pixel-idle 3s infinite",
+          animation: isTyping ? "pixel-typing 0.8s infinite" : "pixel-idle 3s infinite",
         }}
       >
         {avatarDisplaySymbol(agent.emoji, agent.name.slice(0, 1).toUpperCase())}

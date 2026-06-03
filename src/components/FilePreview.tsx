@@ -135,10 +135,10 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
   const isImage = isImageFile(ext);
   const isMd = isMarkdown(ext);
   const isCode = isCodeFile(ext);
+  const previewLoading = isImage ? false : loading;
 
   useEffect(() => {
     if (isImage) {
-      setLoading(false);
       return;
     }
 
@@ -277,7 +277,7 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
 
         {/* Content */}
         <div className="flex-1 overflow-auto p-6">
-          {loading && (
+          {previewLoading && (
             <div className="flex items-center justify-center h-full">
               <Loader2
                 className="w-8 h-8 animate-spin"
@@ -296,7 +296,7 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
             </div>
           )}
 
-          {!loading && !error && isImage && (
+          {!previewLoading && !error && isImage && (
             <div className="flex items-center justify-center h-full">
               <img
                 src={`/api/browse?workspace=${encodeURIComponent(workspace)}&path=${encodeURIComponent(path)}&raw=true`}
@@ -307,7 +307,7 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
             </div>
           )}
 
-          {!loading && !error && isMd && content && (
+          {!previewLoading && !error && isMd && content && (
             <div
               className="prose prose-invert max-w-none"
               style={{ color: "var(--text-secondary)" }}
@@ -317,7 +317,7 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
             />
           )}
 
-          {!loading && !error && isCode && content && (
+          {!previewLoading && !error && isCode && content && (
             <pre
               className="p-4 rounded-lg overflow-x-auto"
               style={{ backgroundColor: "var(--background)" }}
@@ -331,7 +331,7 @@ export function FilePreview({ workspace, path, name, onClose }: FilePreviewProps
             </pre>
           )}
 
-          {!loading && !error && !isImage && !isMd && !isCode && content && (
+          {!previewLoading && !error && !isImage && !isMd && !isCode && content && (
             <pre
               className="p-4 rounded-lg overflow-x-auto text-sm whitespace-pre-wrap"
               style={{

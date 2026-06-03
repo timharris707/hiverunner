@@ -157,7 +157,12 @@ export default function RoutineDetailPage({
     setLoading(false);
   }, [slug, routineId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
+    return () => window.clearTimeout(timeoutId);
+  }, [load]);
 
   const handleSave = async () => {
     if (!data || saving) return;

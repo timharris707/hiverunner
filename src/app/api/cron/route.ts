@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { execSync } from "child_process";
+import { existsSync, readFileSync } from "fs";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 
 function getGatewayConfig() {
   try {
-    const configRaw = require("fs").readFileSync(`${resolveOpenClawDir()}/openclaw.json`, "utf-8");
+    const configRaw = readFileSync(`${resolveOpenClawDir()}/openclaw.json`, "utf-8");
     const config = JSON.parse(configRaw);
     return {
       token: config.gateway?.auth?.token || "",
@@ -29,9 +30,8 @@ export async function GET() {
     } catch {
       // Fallback: read directly from jobs.json
       const jobsPath = `${resolveOpenClawDir()}/cron/jobs.json`;
-      const fs = require("fs");
-      if (fs.existsSync(jobsPath)) {
-        data = JSON.parse(fs.readFileSync(jobsPath, "utf-8"));
+      if (existsSync(jobsPath)) {
+        data = JSON.parse(readFileSync(jobsPath, "utf-8"));
       } else {
         data = { jobs: [] };
       }

@@ -17,6 +17,28 @@ import { getDb } from "../tasks-db";
 let passed = 0;
 let failed = 0;
 
+type LegacyTaskFixture = {
+  id: string;
+  title: string;
+  project: string;
+  status: string;
+  updated: string;
+  [key: string]: unknown;
+};
+
+type BuildLogEntry = {
+  id?: string;
+  taskId?: string;
+  status?: string;
+  pid?: number | null;
+  error?: string | null;
+  [key: string]: unknown;
+};
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function test(name: string, fn: () => Promise<void> | void) {
   return Promise.resolve()
     .then(fn)
@@ -24,14 +46,14 @@ function test(name: string, fn: () => Promise<void> | void) {
       passed++;
       console.log(`  \u2713 ${name}`);
     })
-    .catch((error: any) => {
+    .catch((error: unknown) => {
       failed++;
       console.error(`  \u2717 ${name}`);
-      console.error(`    ${error?.message || String(error)}`);
+      console.error(`    ${errorMessage(error)}`);
     });
 }
 
-function makeTask(overrides: Record<string, unknown> = {}) {
+function makeTask(overrides: Record<string, unknown> = {}): LegacyTaskFixture {
   const id = `test-build-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     id,
@@ -48,7 +70,7 @@ function makeTask(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function upsertTask(task: any) {
+function upsertTask(task: LegacyTaskFixture) {
   const db = getDb();
   db.prepare(`
     INSERT INTO tasks (id, data, status, project, updated)
@@ -73,7 +95,7 @@ function deleteTaskFixtures(ids: string[]) {
 }
 
 function getTask(id: string) {
-  const task = readTasks().find((entry: any) => entry.id === id);
+  const task = (readTasks() as LegacyTaskFixture[]).find((entry) => entry.id === id);
   assert.ok(task, `expected task ${id} to exist`);
   return task;
 }
@@ -152,7 +174,7 @@ async function run() {
       assert.ok(runningTask.buildStartedAt);
       assert.strictEqual(runningTask.buildPid, 42424);
 
-      const runningBuild = readBuildLog().builds.find((entry: any) => entry.id === decision.build.id);
+      const runningBuild = (readBuildLog().builds as BuildLogEntry[]).find((entry) => entry.id === decision.build.id);
       assert.ok(runningBuild);
       assert.strictEqual(runningBuild.status, "running");
       assert.strictEqual(runningBuild.pid, 42424);
@@ -195,7 +217,7 @@ async function run() {
       assert.ok(!blockedTask.activeBuildId);
       assert.ok(!blockedTask.buildPid);
 
-      const blockedBuild = readBuildLog().builds.find((entry: any) => entry.id === "spawn-failed-build");
+      const blockedBuild = (readBuildLog().builds as BuildLogEntry[]).find((entry) => entry.id === "spawn-failed-build");
       assert.ok(blockedBuild);
       assert.strictEqual(blockedBuild.status, "blocked");
       assert.strictEqual(blockedBuild.pid, null);
@@ -248,7 +270,7 @@ async function run() {
         assert.strictEqual(runningTask.buildState, "running");
         assert.strictEqual(typeof runningTask.buildPid, "number");
 
-        const runningBuild = readBuildLog().builds.find((entry: any) => entry.id === "stubbed-spawn-build");
+        const runningBuild = (readBuildLog().builds as BuildLogEntry[]).find((entry) => entry.id === "stubbed-spawn-build");
         assert.ok(runningBuild);
         assert.strictEqual(runningBuild.status, "running");
         assert.strictEqual(typeof runningBuild.pid, "number");
@@ -324,14 +346,14 @@ async function run() {
         assert.strictEqual(startedResult.task.buildState, "running");
         assert.strictEqual(typeof startedResult.task.buildPid, "number");
 
-        const builds = readBuildLog().builds;
-        const staleBuild = builds.find((entry: any) => entry.id === "stale-build-entry");
+        const builds = readBuildLog().builds as BuildLogEntry[];
+        const staleBuild = builds.find((entry) => entry.id === "stale-build-entry");
         assert.ok(staleBuild);
         assert.strictEqual(staleBuild.status, "failed");
         assert.strictEqual(staleBuild.pid, null);
         assert.ok(String(staleBuild.error || "").includes("Builder process missing"));
 
-        const runningBuild = builds.find((entry: any) => entry.id === startedResult.build.id);
+        const runningBuild = builds.find((entry) => entry.id === startedResult.build.id);
         assert.ok(runningBuild);
         assert.strictEqual(runningBuild.status, "running");
         assert.strictEqual(typeof runningBuild.pid, "number");

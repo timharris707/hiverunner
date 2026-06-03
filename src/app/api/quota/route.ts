@@ -12,6 +12,14 @@ import { readTasks } from "@/lib/build-queue";
 
 export const dynamic = "force-dynamic";
 
+type LegacyTask = {
+  id: string;
+  status: string;
+  title?: string;
+  priority?: string;
+  [key: string]: unknown;
+};
+
 /**
  * GET /api/quota — returns current quota summary and scheduling state
  */
@@ -56,8 +64,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: "taskId is required" }, { status: 400 });
       }
 
-      const tasks = readTasks();
-      const task = tasks.find((t: any) => t.id === taskId);
+      const tasks = readTasks() as LegacyTask[];
+      const task = tasks.find((t) => t.id === taskId);
       if (!task) {
         return NextResponse.json({ error: "Task not found" }, { status: 404 });
       }
@@ -67,7 +75,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (action === "drain") {
-      const tasks = readTasks();
+      const tasks = readTasks() as LegacyTask[];
       const eligible = drainDeferredQueue(tasks);
       return NextResponse.json({
         drained: eligible.length,

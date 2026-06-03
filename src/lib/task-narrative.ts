@@ -1,4 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { getAgentByAnyId, getDisplayName } from "@/config/agents";
 
 export interface NarrativeItem {

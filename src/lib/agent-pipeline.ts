@@ -9,7 +9,7 @@
  * - Get routed by identity (Pixel = frontend, Forge = backend, etc.)
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync } from "fs";
 import { join } from "path";
 import { getAgentByAnyId, AGENT_MD_FILENAMES, TAG_AGENT_MAP, BUILDER_AGENT_IDS, type AgentConfig } from "@/config/agents";
 import { buildVisualQAChecklist } from "@/lib/visual-qa";
@@ -255,7 +255,6 @@ export function appendAgentMarkdownMemory(
 /** List all agents that have memory files */
 export function listAgentsWithMemory(): AgentMemoryFile[] {
   if (!existsSync(AGENT_MEMORY_DIR)) return [];
-  const { readdirSync } = require("fs");
   const files: string[] = readdirSync(AGENT_MEMORY_DIR);
   return files
     .filter((f: string) => f.endsWith(".json"))

@@ -3,22 +3,29 @@ import { queueOrStartBuild, readBuildLog, reconcileBuildQueue, retryBuild } from
 
 export const dynamic = "force-dynamic";
 
-function serializeTask(task: any, build?: any) {
+type SerializableTask = {
+  status?: string;
+  buildState?: unknown;
+  [key: string]: unknown;
+};
+
+function serializeTask(task: unknown, build?: { status?: string }) {
   if (!task || typeof task !== "object") return task;
-  if (task.buildState !== undefined) return task;
+  const taskRecord = task as SerializableTask;
+  if (taskRecord.buildState !== undefined) return taskRecord;
 
   const buildStatus = build?.status;
   if (buildStatus === "queued" || buildStatus === "spawning" || buildStatus === "running") {
-    return { ...task, buildState: buildStatus };
+    return { ...taskRecord, buildState: buildStatus };
   }
-  if (task.status === "done") {
-    return { ...task, buildState: "completed" };
+  if (taskRecord.status === "done") {
+    return { ...taskRecord, buildState: "completed" };
   }
-  if (task.status === "blocked") {
-    return { ...task, buildState: "blocked" };
+  if (taskRecord.status === "blocked") {
+    return { ...taskRecord, buildState: "blocked" };
   }
 
-  return { ...task, buildState: null };
+  return { ...taskRecord, buildState: null };
 }
 
 export async function POST(req: NextRequest) {

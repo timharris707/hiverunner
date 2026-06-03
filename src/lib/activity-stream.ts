@@ -1,5 +1,3 @@
-/* eslint-disable @typescript-eslint/no-explicit-any */
-
 /**
  * In-memory activity stream for live build events.
  * Agents POST events here; the SSE endpoint streams them to the frontend.

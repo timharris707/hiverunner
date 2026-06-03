@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { chromium, webkit, type Browser } from "playwright";
-import { mkdirSync, existsSync } from "fs";
+import { mkdirSync, existsSync, statSync } from "fs";
 import { join } from "path";
 
 const SCREENSHOTS_DIR = join(process.cwd(), "public", "screenshots");
@@ -134,7 +134,6 @@ export async function captureScreenshotAllBrowsers(
 export function validateCapture(filePath: string): boolean {
   try {
     if (!existsSync(filePath)) return false;
-    const { statSync } = require("fs");
     const stat = statSync(filePath);
     return stat.size > 1024; // a real page screenshot should be > 1KB
   } catch {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { StickyNote, Save, Trash2 } from "lucide-react";
 
 const STORAGE_KEY = "hiverunner-notepad";
@@ -12,12 +12,20 @@ export function Notepad() {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const saveTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  const save = useCallback(() => {
+    const now = new Date();
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, ts: now.toISOString() }));
+    setSaved(true);
+    setLastSaved(now);
+  }, [text]);
+
   // Load from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY) ?? localStorage.getItem(LEGACY_STORAGE_KEY);
       if (stored) {
         const data = JSON.parse(stored);
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- Hydrates persisted client-only localStorage state after mount.
         setText(data.text || "");
         setLastSaved(data.ts ? new Date(data.ts) : null);
         if (!localStorage.getItem(STORAGE_KEY)) {
@@ -30,19 +38,13 @@ export function Notepad() {
   // Auto-save after 2 seconds of no typing
   useEffect(() => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Marks pending client-only autosave state before the debounce fires.
     setSaved(false);
     saveTimerRef.current = setTimeout(() => {
       save();
     }, 2000);
     return () => { if (saveTimerRef.current) clearTimeout(saveTimerRef.current); };
-  }, [text]);
-
-  const save = () => {
-    const now = new Date();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ text, ts: now.toISOString() }));
-    setSaved(true);
-    setLastSaved(now);
-  };
+  }, [text, save]);
 
   const clear = () => {
     setText("");

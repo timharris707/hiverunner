@@ -41,6 +41,7 @@ async function run() {
   try {
     const { POST } = await import("@/app/api/ideas/route");
     const { createProject, createProjectAgent, listTasks } = await import("@/lib/orchestration/service");
+    type IdeasPostRequest = Parameters<typeof POST>[0];
 
     const legacyProject = createProject({
       companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -69,7 +70,7 @@ async function run() {
             title: "Legacy project alias fixture",
           };
         },
-      } as any;
+      } as unknown as IdeasPostRequest;
 
       const response = await POST(req);
       const body = await response.json() as { id: string; processingTask?: { created?: boolean; deduplicated?: boolean; taskId?: string } | null };

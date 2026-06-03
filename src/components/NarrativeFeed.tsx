@@ -126,9 +126,14 @@ export function NarrativeFeed({
   }, []);
 
   useEffect(() => {
-    load();
+    const timeoutId = window.setTimeout(() => {
+      void load();
+    }, 0);
     const id = setInterval(load, pollMs);
-    return () => clearInterval(id);
+    return () => {
+      window.clearTimeout(timeoutId);
+      clearInterval(id);
+    };
   }, [load, pollMs]);
 
   // ── Loading skeleton ────────────────────────────────────────────────────

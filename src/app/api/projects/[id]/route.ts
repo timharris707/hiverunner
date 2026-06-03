@@ -7,11 +7,24 @@ export const dynamic = "force-dynamic";
 
 const PROJECTS_FILE = join(process.cwd(), "data", "projects.json");
 
-function readJSON(path: string) {
+type LegacyProject = {
+  id: string;
+  created?: string;
+  [key: string]: unknown;
+};
+
+type LegacyTask = {
+  id: string;
+  project?: string;
+  status?: string;
+  [key: string]: unknown;
+};
+
+function readJSON<T>(path: string, fallback: T): T {
   try {
-    return JSON.parse(readFileSync(path, "utf-8"));
+    return JSON.parse(readFileSync(path, "utf-8")) as T;
   } catch {
-    return [];
+    return fallback;
   }
 }
 
@@ -21,24 +34,24 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const projects = readJSON(PROJECTS_FILE);
-    const tasks = readTasks();
+    const projects = readJSON<LegacyProject[]>(PROJECTS_FILE, []);
+    const tasks = readTasks() as LegacyTask[];
 
-    const project = projects.find((p: any) => p.id === id);
+    const project = projects.find((p) => p.id === id);
     if (!project) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    const projectTasks = tasks.filter((t: any) => t.project === id);
+    const projectTasks = tasks.filter((t) => t.project === id);
 
     return NextResponse.json({
       project: {
         ...project,
         taskCount: projectTasks.length,
-        inProgress: projectTasks.filter((t: any) => t.status === "in-progress").length,
-        completed: projectTasks.filter((t: any) => t.status === "done").length,
-        backlog: projectTasks.filter((t: any) => t.status === "backlog").length,
-        review: projectTasks.filter((t: any) => t.status === "review").length,
+        inProgress: projectTasks.filter((t) => t.status === "in-progress").length,
+        completed: projectTasks.filter((t) => t.status === "done").length,
+        backlog: projectTasks.filter((t) => t.status === "backlog").length,
+        review: projectTasks.filter((t) => t.status === "review").length,
       },
       tasks: projectTasks,
     });

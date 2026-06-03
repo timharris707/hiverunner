@@ -84,6 +84,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
           });
 
           // Process chroma key
+          // eslint-disable-next-line react-hooks/immutability -- Hoisted local renderer helper is called from the mount-time image loader.
           const processed = processChromaKey(img);
           processedSprites[agentId] = processed;
         }
@@ -106,7 +107,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
   }, []);
 
   // Process sprite with chroma key (remove green #00FF00)
-  const processChromaKey = (img: HTMLImageElement): HTMLCanvasElement => {
+  function processChromaKey(img: HTMLImageElement): HTMLCanvasElement {
     const offscreen = document.createElement("canvas");
     offscreen.width = img.width;
     offscreen.height = img.height;
@@ -136,7 +137,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
     // Put processed data back
     ctx.putImageData(imageData, 0, 0);
     return offscreen;
-  };
+  }
 
   useEffect(() => {
     if (!imagesLoaded) return;
@@ -156,6 +157,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
 
     const animate = () => {
       timeRef.current += 0.016; // ~60fps
+      // eslint-disable-next-line react-hooks/immutability -- Hoisted canvas renderer helper draws the current frame inside requestAnimationFrame.
       render(ctx, timeRef.current);
       animationFrameRef.current = requestAnimationFrame(animate);
     };
@@ -169,7 +171,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
     };
   }, [agents, hoveredAgent, imagesLoaded, bgImage, spriteImages]);
 
-  const render = (ctx: CanvasRenderingContext2D, time: number) => {
+  function render(ctx: CanvasRenderingContext2D, time: number) {
     ctx.clearRect(0, 0, 1200, 675);
 
     // 1. Draw background
@@ -194,16 +196,16 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
         drawSpeechBubble(ctx, agent, position);
       }
     });
-  };
+  }
 
-  const drawAgent = (
+  function drawAgent(
     ctx: CanvasRenderingContext2D,
     agent: OfficeAgent,
     sprite: HTMLCanvasElement,
     position: { x: number; y: number },
     time: number,
     isHovered: boolean
-  ) => {
+  ) {
     // Scale position from 1920x1080 to 1200x675
     const x = (position.x / 1920) * 1200;
     const y = (position.y / 1080) * 675;
@@ -301,14 +303,14 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
       );
       ctx.restore();
     }
-  };
+  }
 
-  const drawSleepIndicator = (
+  function drawSleepIndicator(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
     time: number
-  ) => {
+  ) {
     const offset1 = Math.sin(time * 2) * 2;
     const offset2 = Math.sin(time * 2 + 0.5) * 3;
     const offset3 = Math.sin(time * 2 + 1) * 4;
@@ -330,13 +332,13 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
     ctx.fillText("z", x + 35, y - 28 + offset2);
     ctx.fillText("Z", x + 45, y - 36 + offset3);
     ctx.restore();
-  };
+  }
 
-  const drawSpeechBubble = (
+  function drawSpeechBubble(
     ctx: CanvasRenderingContext2D,
     agent: OfficeAgent,
     position: { x: number; y: number }
-  ) => {
+  ) {
     if (!agent.currentTask) return;
 
     // Scale position
@@ -408,16 +410,16 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
     lines.slice(0, 3).forEach((line, i) => {
       ctx.fillText(line, bubbleX + padding, bubbleY + padding + i * lineHeight);
     });
-  };
+  }
 
-  const roundRect = (
+  function roundRect(
     ctx: CanvasRenderingContext2D,
     x: number,
     y: number,
     width: number,
     height: number,
     radius: number
-  ) => {
+  ) {
     ctx.beginPath();
     ctx.moveTo(x + radius, y);
     ctx.lineTo(x + width - radius, y);
@@ -429,7 +431,7 @@ export function OfficeCanvas({ agents }: OfficeCanvasProps) {
     ctx.lineTo(x, y + radius);
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.closePath();
-  };
+  }
 
   const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;

@@ -41,6 +41,26 @@ function isVisualUiTask(task: { tags?: string[] }) {
   return Array.isArray(task.tags) && task.tags.some((tag) => String(tag).toLowerCase() === "ui");
 }
 
+type VisualQcTask = {
+  id: string;
+  tags?: string[];
+  visualReview?: {
+    required?: boolean;
+    status?: string;
+    targetPath?: string;
+    targetUrl?: string;
+    captureStatus?: string;
+    browser?: string;
+    lastCapturedAt?: string;
+    lastUpdatedAt?: string;
+    captures?: unknown[];
+    screenshotEvidenceCount?: number;
+  };
+  attachments?: Array<{ type?: string; path?: string; [key: string]: unknown }>;
+  source_url?: string;
+  [key: string]: unknown;
+};
+
 export async function POST(request: NextRequest) {
   try {
     const browserPath = getBrowserPath();
@@ -53,8 +73,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
     }
 
-    const tasks = readTasks();
-    const task = tasks.find((entry: any) => entry.id === taskId);
+    const tasks = readTasks() as VisualQcTask[];
+    const task = tasks.find((entry) => entry.id === taskId);
     if (!task) {
       return NextResponse.json({ error: "Task not found" }, { status: 404 });
     }

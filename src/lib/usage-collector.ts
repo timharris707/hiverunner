@@ -35,13 +35,33 @@ export interface UsageSnapshot {
   cost: number;
 }
 
+interface OpenClawSession {
+  key: string;
+  sessionId: string;
+  model?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  totalTokens?: number;
+  updatedAt: number;
+  percentUsed?: number;
+}
+
+interface OpenClawStatus {
+  sessions?: {
+    byAgent?: Array<{
+      agentId: string;
+      recent?: OpenClawSession[];
+    }>;
+  };
+}
+
 /**
  * Get current OpenClaw status with session data
  */
-export async function getOpenClawStatus(): Promise<any> {
+export async function getOpenClawStatus(): Promise<OpenClawStatus> {
   try {
     const { stdout } = await execAsync("openclaw status --json");
-    return JSON.parse(stdout);
+    return JSON.parse(stdout) as OpenClawStatus;
   } catch (error) {
     console.error("Error getting OpenClaw status:", error);
     throw error;
@@ -51,7 +71,7 @@ export async function getOpenClawStatus(): Promise<any> {
 /**
  * Extract session data from status
  */
-export function extractSessionData(status: any): SessionData[] {
+export function extractSessionData(status: OpenClawStatus): SessionData[] {
   const sessions: SessionData[] = [];
 
   if (!status.sessions?.byAgent) {

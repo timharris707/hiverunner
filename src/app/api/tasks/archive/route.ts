@@ -7,11 +7,20 @@ export const dynamic = "force-dynamic";
 
 const ARCHIVE_FILE = join(process.cwd(), "data", "tasks-archive.json");
 
-function readArchive(): any[] {
-  return readJSON(ARCHIVE_FILE, [] as any[]);
+type LegacyTask = {
+  id: string;
+  status?: string;
+  completedAt?: string;
+  updated?: string;
+  archivedAt?: string;
+  [key: string]: unknown;
+};
+
+function readArchive(): LegacyTask[] {
+  return readJSON<LegacyTask[]>(ARCHIVE_FILE, []);
 }
 
-function writeArchive(tasks: any[]) {
+function writeArchive(tasks: LegacyTask[]) {
   writeFileSync(ARCHIVE_FILE, JSON.stringify(tasks, null, 2));
 }
 
@@ -38,12 +47,12 @@ export async function POST(req: NextRequest) {
       all?: boolean;
     };
 
-    const tasks = readTasks();
+    const tasks = readTasks() as LegacyTask[];
     const archive = readArchive();
     const now = Date.now();
 
-    const toArchive: any[] = [];
-    const remaining: any[] = [];
+    const toArchive: LegacyTask[] = [];
+    const remaining: LegacyTask[] = [];
 
     for (const task of tasks) {
       let shouldArchive = false;
@@ -83,16 +92,17 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   try {
     const { id } = await req.json();
-    const tasks = readTasks();
+    const tasks = readTasks() as LegacyTask[];
     const archive = readArchive();
 
-    const taskIdx = archive.findIndex((t: any) => t.id === id);
+    const taskIdx = archive.findIndex((t) => t.id === id);
     if (taskIdx === -1) {
       return NextResponse.json({ error: "Task not found in archive" }, { status: 404 });
     }
 
     const [task] = archive.splice(taskIdx, 1);
-    const { archivedAt: _, ...restoredTask } = task;
+    const restoredTask = { ...task };
+    delete restoredTask.archivedAt;
     tasks.unshift({ ...restoredTask, updated: new Date().toISOString() });
 
     writeTasks(tasks);
