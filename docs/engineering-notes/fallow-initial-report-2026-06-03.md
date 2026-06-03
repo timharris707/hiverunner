@@ -4,6 +4,13 @@ Date: 2026-06-03
 
 This is the first advisory Fallow pass for HiveRunner. Fallow is configured as an optional codebase-intelligence tool only. It is not part of production runtime, and this report does not recommend automatic deletion without separate validation.
 
+## Tool Reference
+
+- npm package: `fallow`
+- Docs: https://docs.fallow.tools
+- GitHub: https://github.com/fallow-rs/fallow
+- HiveRunner pins `fallow@2.85.0` because `.npmrc` `min-release-age=3` blocks today's latest `fallow@2.87.0`.
+
 ## Version Choice
 
 The repository `.npmrc` uses `min-release-age=3`, so scripts pin `fallow@2.85.0` instead of `fallow@latest`. At the time this report was generated, `fallow@latest` was `2.87.0`, published on 2026-06-03, and npm correctly blocked it as too new for the release-age policy. Version `2.85.0` is the newest verified version that satisfied the guard and includes `health --report-only`.
