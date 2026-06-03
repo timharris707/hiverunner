@@ -85,6 +85,7 @@ next-env.d.ts
 /data/cache/
 /data/voice-preview-cache/
 /output/
+/.fallow/
 /public/screenshots/TASK-*/
 /_quarantine/
 /memory/agents/

@@ -90,7 +90,14 @@
     "test:e2e": "playwright test",
     "test:e2e:smoke": "playwright test e2e/smoke.spec.ts",
     "test:e2e:ui": "playwright test --ui",
-    "test:e2e:report": "playwright show-report"
+    "test:e2e:report": "playwright show-report",
+    "fallow": "npx --yes fallow@2.85.0 --config .fallowrc.jsonc",
+    "fallow:health": "npm run fallow -- health --report-only",
+    "fallow:dead-code": "npm run fallow -- dead-code",
+    "fallow:dupes": "npm run fallow -- dupes",
+    "fallow:audit": "npm run fallow -- audit --base origin/main",
+    "fallow:changed": "npm run fallow -- audit --changed-since origin/main",
+    "fallow:report": "mkdir -p output/fallow && npm --silent run fallow -- health --report-only --format markdown > output/fallow/fallow-health.md && npm --silent run fallow -- dead-code --format markdown > output/fallow/fallow-dead-code.md && npm --silent run fallow -- dupes --format markdown > output/fallow/fallow-dupes.md && npm --silent run fallow -- audit --base origin/main --format markdown > output/fallow/fallow-audit.md"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
