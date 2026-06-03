@@ -220,7 +220,7 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
         <SummaryCard icon={ClipboardList} title="First Task"><p><strong className="text-[var(--text-primary)]">{data.task.title}</strong></p><p className="line-clamp-3">{data.task.description || "No additional task description provided."}</p></SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
-        Launch will create the company, start the CEO on the first task, and open the dashboard with live company activity.
+        Launch will create the company, start the CEO on the first task, and open the task board with live company activity.
       </div>
     </div>
   );
@@ -228,6 +228,7 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
 
 type CompanyLaunchResult = {
   companyCode?: string;
+  boardHref?: string;
   dashboardHref?: string;
   taskHref?: string;
   taskKey?: string;
@@ -335,6 +336,7 @@ export function CreateCompanyModal({ open, onClose, onCreated }: { open: boolean
       if (!res.ok) throw new Error(json.error || "Launch failed");
       const launchResult: CompanyLaunchResult = {
         companyCode: typeof json.company?.code === "string" ? json.company.code : undefined,
+        boardHref: typeof json.boardHref === "string" ? json.boardHref : undefined,
         dashboardHref: typeof json.dashboardHref === "string" ? json.dashboardHref : undefined,
         taskHref: typeof json.taskHref === "string" ? json.taskHref : undefined,
         taskKey: typeof json.taskKey === "string" ? json.taskKey : undefined,

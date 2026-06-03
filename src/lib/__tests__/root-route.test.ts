@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 
-import { resolveRootRouteBehavior, selectDefaultCompanyCode } from "@/lib/root-route";
+import {
+  countsAsCreatedLocalWorkspace,
+  resolveLocalRootStateFromWorkspaces,
+  resolveRootRouteBehavior,
+  selectDefaultCompanyCode,
+} from "@/lib/root-route";
 
 type TestCase = {
   name: string;
@@ -68,4 +73,41 @@ assert.equal(selectDefaultCompanyCode(["NEV", "INS"]), "INS");
 assert.equal(selectDefaultCompanyCode(["HIVE", "INS"]), "HIVE");
 assert.equal(selectDefaultCompanyCode(["NEV", "ABC"], { MC_DEFAULT_COMPANY_CODE: "ABC" }), "ABC");
 
-console.log(`PASS root-route (${cases.length + 3} cases)`);
+assert.equal(
+  countsAsCreatedLocalWorkspace({ code: "HIVE", slug: "hiverunner-workspace", stats: { agents: 0 } }),
+  false,
+);
+assert.equal(
+  countsAsCreatedLocalWorkspace({ code: "HIVE", slug: "hiverunner-workspace", stats: { agents: 1 } }),
+  true,
+);
+assert.equal(
+  countsAsCreatedLocalWorkspace({ code: "ACME", slug: "acme", stats: { agents: 0 } }),
+  true,
+);
+
+assert.deepEqual(
+  resolveRootRouteBehavior(
+    {},
+    resolveLocalRootStateFromWorkspaces({
+      hasCompletedSoftwareSetup: false,
+      workspaces: [{ code: "HIVE", slug: "hiverunner-workspace", stats: { agents: 0 } }],
+    }),
+  ),
+  { kind: "redirect", destination: "/setup" },
+  "fresh local bootstrap HIVE shell must not skip software setup",
+);
+
+assert.deepEqual(
+  resolveRootRouteBehavior(
+    {},
+    resolveLocalRootStateFromWorkspaces({
+      hasCompletedSoftwareSetup: true,
+      workspaces: [{ code: "ACME", slug: "acme", stats: { agents: 1 } }],
+    }),
+  ),
+  { kind: "redirect", destination: "/ACME/tasks?view=board&group=status" },
+  "completed local setup with a created workspace opens the task board",
+);
+
+console.log(`PASS root-route (${cases.length + 8} cases)`);

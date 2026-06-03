@@ -10,7 +10,7 @@ import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { updateSession } from "@/lib/supabase/middleware";
 
 const APP_ROOT_PREFIXES = new Set([
-  "api", "auth", "_next", "login", "companies", "projects", "ideas",
+  "api", "auth", "_next", "login", "setup", "companies", "projects", "ideas",
   "marketing", "voice", "terminal", "sessions",
   "logs", "search", "settings", "skills", "workflows", "system",
   "office", "monitoring", "reliability", "reports", "memory", "files",
@@ -303,10 +303,14 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
     return null;
   }
 
+  const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
+  if (canonicalSlugForCode === companySlug) {
+    return null;
+  }
+
   if (!rest || rest === "/") {
     // Preserve canonical /companies/{slug} detail routes, but redirect known legacy aliases.
-    const canonicalSlugForCode = routeMaps.companyCodeToSlug[companyCode];
-    if (canonicalSlugForCode && canonicalSlugForCode !== companySlug) {
+    if (canonicalSlugForCode) {
       const url = new URL(`/${companyCode}/dashboard`, origin);
       copyQuery(url, qs);
       return url;
@@ -348,7 +352,7 @@ export function tryLegacyRedirect(pathname: string, searchParams: URLSearchParam
 }
 
 // Pages that don't require authentication
-const PUBLIC_PAGES = new Set(["/", "/login"]);
+const PUBLIC_PAGES = new Set(["/", "/login", "/setup"]);
 
 const ORCHESTRATION_API_PREFIX = "/api/orchestration/";
 const ORCHESTRATION_HEALTH_PATHS = new Set<string>();

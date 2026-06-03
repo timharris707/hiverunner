@@ -302,6 +302,7 @@ async function run() {
 
     const payload = (await res.json()) as {
       company: { id: string; owner?: { id?: string; email?: string } };
+      boardHref: string;
       dashboardHref: string;
     };
 
@@ -314,7 +315,20 @@ async function run() {
     assert.strictEqual(row.owner_user_id, "local-owner");
     assert.strictEqual(payload.company.owner?.id, "local-owner");
     assert.strictEqual(payload.company.owner?.email, "browser-operator@example.test");
+    assert.strictEqual(payload.boardHref, "/LOC/tasks?view=board&group=status");
     assert.strictEqual(payload.dashboardHref, "/LOC/dashboard");
+
+    const overseerSkill = db
+      .prepare("SELECT status, source, scope, review_state FROM company_skills WHERE company_id = ? AND slug = ?")
+      .get(payload.company.id, "hiverunner-orchestration-overseer") as
+      | { status: string; source: string; scope: string; review_state: string }
+      | undefined;
+    assert.deepStrictEqual(overseerSkill, {
+      status: "active",
+      source: "seed",
+      scope: "company",
+      review_state: "approved",
+    });
   });
 
   await test("create-full materializes selected starter-team agents through manual provisioning", async () => {

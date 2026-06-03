@@ -22,6 +22,9 @@ const sp = (q = "") => new URLSearchParams(q);
 const canonicalSlug = maps.companyCodeToSlug.HIVE;
 assert.ok(canonicalSlug, "fixture: HIVE must have a canonical slug");
 
+assert.equal(tryCanonicalRewrite("/setup", sp(), origin, maps), null, "/setup must remain an app route");
+assert.equal(tryCanonicalRewrite("/setup/check", sp(), origin, maps), null, "/setup subpaths must remain app routes");
+
 // 1. Canonical code URL rewrites onto the physical slug route.
 const rw = tryCanonicalRewrite("/HIVE/dashboard", sp(), origin, maps);
 assert.ok(rw, "/HIVE/dashboard should rewrite");
