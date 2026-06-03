@@ -1,0 +1,105 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "entry": [
+    "src/app/**/*.{ts,tsx}",
+    "src/middleware.ts",
+    "server.js",
+    "next.config.mjs",
+    "eslint.config.mjs",
+    "playwright.config.ts",
+    "tailwind.config.ts",
+    "scripts/**/*.{js,mjs,ts}",
+    "e2e/**/*.{ts,tsx}"
+  ],
+  "ignorePatterns": [
+    "node_modules/**",
+    ".next/**",
+    "out/**",
+    "build/**",
+    "coverage/**",
+    ".stable/**",
+    ".stable.backup-*/**",
+    ".stable-release-worktree/**",
+    ".vercel/**",
+    ".fallow/**",
+    "output/**",
+    "playwright-report/**",
+    "test-results/**",
+    ".playwright-cli/**",
+    "data/**",
+    "data-dev/**",
+    "_quarantine/**",
+    ".archive/**",
+    "archives/**",
+    "memory/**",
+    "projects/panely-app/**",
+    "pipecat-server/.venv/**",
+    "public/screenshots/TASK-*/**",
+    "**/*.tsbuildinfo",
+    "next-env.d.ts"
+  ],
+  "dynamicallyLoaded": [
+    ".agents/skills/**",
+    "data/factory/**",
+    "public/models/**",
+    "public/starter-agent-avatars/**"
+  ],
+  "duplicates": {
+    "mode": "mild",
+    "minOccurrences": 3,
+    "minLines": 8,
+    "ignoreImports": true,
+    "ignore": [
+      "src/lib/__tests__/fixtures/**",
+      "docs/**",
+      "public/**",
+      "pipecat-server/**"
+    ]
+  },
+  "health": {
+    "maxCyclomatic": 25,
+    "maxCognitive": 25,
+    "maxCrap": 60,
+    "ignore": [
+      "src/lib/__tests__/**",
+      "e2e/**"
+    ],
+    "ownership": {
+      "emailMode": "handle"
+    },
+    "suggestInlineSuppression": false
+  },
+  "rules": {
+    "unused-files": "warn",
+    "unused-exports": "warn",
+    "unused-types": "warn",
+    "private-type-leaks": "off",
+    "unused-dependencies": "warn",
+    "unused-dev-dependencies": "warn",
+    "unused-optional-dependencies": "warn",
+    "unused-enum-members": "warn",
+    "unused-class-members": "warn",
+    "unresolved-imports": "warn",
+    "unlisted-dependencies": "warn",
+    "duplicate-exports": "warn",
+    "type-only-dependencies": "warn",
+    "test-only-dependencies": "warn",
+    "circular-dependencies": "warn",
+    "re-export-cycle": "warn",
+    "boundary-violation": "warn",
+    "coverage-gaps": "off",
+    "feature-flags": "off",
+    "stale-suppressions": "warn",
+    "unused-catalog-entries": "warn",
+    "empty-catalog-groups": "warn",
+    "unresolved-catalog-references": "warn",
+    "unused-dependency-overrides": "warn",
+    "misconfigured-dependency-overrides": "warn"
+  },
+  "audit": {
+    "gate": "new-only"
+  },
+  "cache": {
+    "maxSizeMb": 256
+  }
+}

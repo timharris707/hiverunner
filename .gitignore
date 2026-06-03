@@ -75,6 +75,7 @@ next-env.d.ts
 *.tmp
 /.tmp_*
 /.agents/
+/.codegraph/
 /.claude/
 /.obsidian/
 /.next_backup_*/
@@ -85,6 +86,7 @@ next-env.d.ts
 /data/cache/
 /data/voice-preview-cache/
 /output/
+/.fallow/
 /public/screenshots/TASK-*/
 /_quarantine/
 /memory/agents/
