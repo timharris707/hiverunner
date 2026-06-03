@@ -10,7 +10,7 @@ import { NextRequest } from "next/server";
 
 import { GET as authCallback } from "@/app/auth/callback/route";
 import { structuredLog } from "@/lib/observability/logging";
-import { middleware } from "@/middleware";
+import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

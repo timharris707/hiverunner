@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 
-import { middleware } from "@/middleware";
+import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

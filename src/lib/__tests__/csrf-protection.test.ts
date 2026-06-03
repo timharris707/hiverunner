@@ -10,7 +10,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { validateCsrfRequest } from "@/lib/auth/csrf";
-import { middleware } from "@/middleware";
+import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

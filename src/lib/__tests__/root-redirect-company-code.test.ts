@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { getRootRedirectCompanyCode } from "@/middleware";
+import { getRootRedirectCompanyCode } from "@/proxy";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 
 let passed = 0;

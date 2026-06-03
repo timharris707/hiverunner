@@ -41,7 +41,7 @@ deployment model that the architecture does not support yet.
 - `server.js` owns the autonomous engine tick loop through `MC_ENGINE_TICK`.
 - `server.js` keeps local WebSocket client sets, polling intervals, and an
   `engineTickRunning` flag in process memory.
-- The edge-route map cache uses `globalThis` in `src/middleware.ts` and
+- The edge-route map cache uses `globalThis` in `src/proxy.ts` and
   `src/lib/orchestration/edge-route-map-service.ts`.
 - Several runtime helpers use in-memory maps or timers for local process
   coordination, including gateway stream state and local file/session locks.

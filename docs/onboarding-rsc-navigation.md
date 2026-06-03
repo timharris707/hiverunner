@@ -20,7 +20,7 @@ sequences this chains with a server `redirect()` and reads as a redirect loop.
 
 Short company-code URLs under `src/app/[companyCode]/...` have **no physical
 page** for most sub-paths. For example there is no `src/app/[companyCode]/tasks/page.tsx`.
-Those URLs are served only because `src/middleware.ts` rewrites them onto the
+Those URLs are served only because `src/proxy.ts` rewrites them onto the
 canonical dashboard route via `tryCanonicalRewrite()`:
 
 ```
@@ -69,7 +69,7 @@ and `tryLegacyRedirect` then redirected that **canonical** slug straight back to
 `/{CODE}/sub` (Next re-runs middleware on the rewrite target), so `/HIVE/...`
 returned `ERR_TOO_MANY_REDIRECTS`.
 
-Fixed in `src/middleware.ts` by making `tryLegacyRedirect` redirect only
+Fixed in `src/proxy.ts` by making `tryLegacyRedirect` redirect only
 **non-canonical alias** slugs; the canonical slug renders. `/HIVE/...` now
 returns `200` in both dev and a production build, soft navigation is a single
 click, and no "Failed to fetch RSC payload" is logged.

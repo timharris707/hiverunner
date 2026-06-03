@@ -12,16 +12,16 @@ they have **different** root causes and are kept separate below.
 > full page reload but stays on the same page. Second finally goes where it's
 > supposed to."
 
-### Root cause — an infinite middleware rewrite ↔ redirect loop on company routes
+### Root cause — an infinite proxy rewrite ↔ redirect loop on company routes
 
-`src/middleware.ts` has two rules that, together, formed a cycle:
+`src/proxy.ts` has two rules that, together, formed a cycle:
 
 ```
 tryCanonicalRewrite:  /{CODE}/sub             --(rewrite)--> /companies/{canonicalSlug}/sub
 tryLegacyRedirect:    /companies/{slug}/sub   --(308)-------> /{CODE}/sub
 ```
 
-Next.js **re-runs middleware on the internal rewrite target**. So a request to the
+Next.js **re-runs proxy on the internal rewrite target**. So a request to the
 canonical code URL `/HIVE/dashboard` was rewritten to
 `/companies/hiverunner-workspace/dashboard`, and that rewrite target was then
 **redirected straight back** to `/HIVE/dashboard` by `tryLegacyRedirect` — forever.
@@ -50,7 +50,7 @@ never advances; a later attempt (warm cache / different entry) eventually lands.
 `tryLegacyRedirect` now returns `null` when the slug is **already the canonical
 slug** for its code (the rewrite target of `/{CODE}/…`). Only **non-canonical
 legacy alias** slugs still redirect to the code form. One ~5-line guard, no
-architecture change. See `src/middleware.ts`.
+architecture change. See `src/proxy.ts`.
 
 ### Evidence (after)
 

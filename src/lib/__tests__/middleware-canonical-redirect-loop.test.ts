@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { tryCanonicalRewrite, tryLegacyRedirect } from "@/middleware";
+import { tryCanonicalRewrite, tryLegacyRedirect } from "@/proxy";
 import { EDGE_ROUTE_MAPS_FALLBACK } from "@/lib/orchestration/edge-route-maps";
 
 /**

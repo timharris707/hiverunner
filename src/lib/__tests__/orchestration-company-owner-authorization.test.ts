@@ -11,7 +11,7 @@ import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { createCompany, getCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createTask } from "@/lib/orchestration/service";
-import { middleware } from "@/middleware";
+import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

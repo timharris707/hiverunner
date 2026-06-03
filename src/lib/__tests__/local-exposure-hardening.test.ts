@@ -11,9 +11,9 @@ import { NextRequest } from "next/server";
 
 import {
   isSensitiveLocalSingleUserApiPath,
-  middleware,
+  proxy as middleware,
   shouldBlockLocalSingleUserSensitiveApi,
-} from "@/middleware";
+} from "@/proxy";
 
 let passed = 0;
 let failed = 0;
@@ -118,7 +118,7 @@ async function run() {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-middleware-next"), "1");
 
-      const middlewareSource = readFileSync(join(process.cwd(), "src/middleware.ts"), "utf8");
+      const middlewareSource = readFileSync(join(process.cwd(), "src/proxy.ts"), "utf8");
       assert.match(middlewareSource, /Host\/browser-origin hardening/);
       assert.match(middlewareSource, /not a substitute/);
 

@@ -67,7 +67,7 @@ function getEdgeRouteMapCacheStore(): { cache?: EdgeRouteMapCache } {
 
 /**
  * Invalidate the edge route map cache immediately. Called by the service layer
- * after slug changes so the next middleware request fetches fresh maps.
+ * after slug changes so the next proxy request fetches fresh maps.
  */
 export function invalidateEdgeRouteMapCache(): void {
   const scoped = globalThis as typeof globalThis & GlobalCacheState;
@@ -528,7 +528,7 @@ function canonicalRewriteResponse(request: NextRequest, rewriteTarget: URL): Nex
   });
 }
 
-export async function middleware(request: NextRequest, sessionLoaderOrEvent: SessionLoader | unknown = updateSession) {
+export async function proxy(request: NextRequest, sessionLoaderOrEvent: SessionLoader | unknown = updateSession) {
   const sessionLoader: SessionLoader = typeof sessionLoaderOrEvent === "function"
     ? sessionLoaderOrEvent as SessionLoader
     : updateSession;
