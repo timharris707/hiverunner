@@ -14,7 +14,10 @@ chatbots and want a real console for coordinating AI work on their own machine.
 It is local-first by default — clone it, run it locally, and connect the runtimes
 and API keys you want. No hosted account is required to start.
 
-![HiveRunner dashboard](docs/screenshots/hiverunner-dashboard.png)
+![HiveRunner task board control center](docs/screenshots/readme/04-agent-task-board-control-center.jpg)
+
+_Public-safe RunnerOps demo: starter agents, task ownership, review state, and
+runtime-ready work are visible from one local control center._
 
 ## What You Can Do In The First 10 Minutes
 
@@ -32,6 +35,36 @@ After a fresh clone, you can:
 
 The goal is fast evaluation without fake magic. Missing optional CLIs or API keys
 show up as setup work, not as broken onboarding.
+
+## Product Tour
+
+The screenshots below use a deterministic, public-safe local demo workspace with
+no real provider keys, secrets, or private company data.
+
+![Fresh local setup with optional provider keys](docs/screenshots/readme/01-setup-provider-readiness.jpg)
+
+_Fresh local setup separates software readiness from workspace creation and
+shows provider keys as optional._
+
+![Company and workspace creation wizard](docs/screenshots/readme/02-company-workspace-wizard.jpg)
+
+_The company wizard creates the local workspace, owner context, starter team,
+CEO, and first task only when you choose to launch it._
+
+![Starter agent team role cards](docs/screenshots/readme/03-starter-team-role-cards.jpg)
+
+_Starter packs give a new workspace useful agent roles, bundled portraits, and
+manual-runtime defaults without requiring avatar or voice provider keys._
+
+![Runtime and provider readiness inventory](docs/screenshots/readme/05-runtime-provider-readiness.jpg)
+
+_Runtime Inventory shows optional CLIs and provider keys as ready, missing, or
+needs attention before a workflow depends on them._
+
+![Task detail review and activity flow](docs/screenshots/readme/06-task-detail-review-activity.jpg)
+
+_Task detail keeps ownership, review notes, comments, and run usage close to the
+work being reviewed._
 
 ## Why HiveRunner Exists
 
@@ -159,8 +192,6 @@ observer-only. Do not use `3010` as an execution owner.
 For optional Docker or Node-permission isolation, see
 [docs/runtime-isolation.md](docs/runtime-isolation.md).
 
-![HiveRunner local login](docs/screenshots/hiverunner-local-login.png)
-
 ## First Places To Look
 
 Useful local routes after boot:
@@ -169,12 +200,12 @@ Useful local routes after boot:
 - `/setup` — first-run software setup.
 - `/companies/new` — create a workspace/company and review a starter team.
 - `/<CODE>/tasks?view=board&group=status` — default task board after setup and workspace creation.
-- `/HIVE/dashboard` — dashboard for the bootstrap/local workspace once it has been opened or populated.
-- `/HIVE/tasks` — task board/list views.
-- `/HIVE/goals` — workspace goals and supporting sprints.
-- `/HIVE/memory` — memory workspace.
-- `/HIVE/hives` — runtime/provider configuration.
-- `/HIVE/runtime-inventory` — optional CLI/runtime readiness.
+- `/<CODE>/dashboard` — dashboard for a workspace once it has been opened or populated.
+- `/<CODE>/tasks` — task board/list views.
+- `/<CODE>/goals` — workspace goals and supporting sprints.
+- `/<CODE>/memory` — memory workspace.
+- `/<CODE>/hives` — runtime/provider configuration.
+- `/<CODE>/runtime-inventory` — optional CLI/runtime readiness.
 
 Existing local data may still use older workspace routes when you point
 HiveRunner at an existing data directory.
@@ -222,7 +253,7 @@ MC_WORKSPACE_ROOT=/absolute/path/to/hiverunner/workspace
 MC_DATA_DIR=./data-dev
 
 # Optional. Force `/` to prefer a specific existing workspace/company code.
-MC_DEFAULT_COMPANY_CODE=HIVE
+MC_DEFAULT_COMPANY_CODE=RUN
 ```
 
 ### Agent And Automation Traffic
@@ -293,7 +324,7 @@ so you wire up only what your sprint needs.
 | OpenClaw | `openclaw` | No | Provider-neutral gateway runner. |
 | External runner | configured command/env | No | Plug any external execution system in through the runner boundary. |
 
-Check `/HIVE/runtime-inventory` or `/HIVE/hives` after boot to see which
+Check `/<CODE>/runtime-inventory` or `/<CODE>/hives` after boot to see which
 runtimes are ready, missing, or waiting for login. For the full classification,
 see [docs/runtime-dependencies.md](docs/runtime-dependencies.md).
 
@@ -376,7 +407,7 @@ the local same-origin signal or use an API-key-authenticated path:
 curl -X POST \
   -H "Origin: http://127.0.0.1:3010" \
   -H "Content-Type: application/json" \
-  http://127.0.0.1:3010/api/orchestration/companies/HIVE/memory/sync \
+  http://127.0.0.1:3010/api/orchestration/companies/RUN/memory/sync \
   -d '{}'
 ```
 
