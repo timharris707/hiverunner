@@ -76,6 +76,7 @@ next-env.d.ts
 /.tmp_*
 /.agents/
 /.codegraph/
+/.understand-anything/
 /.claude/
 /.obsidian/
 /.next_backup_*/
