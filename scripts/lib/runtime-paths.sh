@@ -52,3 +52,70 @@ resolve_mc_workspace_root() {
 
   printf '%s\n' "$DEFAULT_ROOT"
 }
+
+node_major_version() {
+  NODE_CANDIDATE="$1"
+  "$NODE_CANDIDATE" -e 'process.stdout.write(String(process.versions.node.split(".")[0]))' 2>/dev/null || true
+}
+
+is_hiverunner_node_compatible() {
+  NODE_CANDIDATE="$1"
+  [ -x "$NODE_CANDIDATE" ] || return 1
+
+  NODE_MAJOR="$(node_major_version "$NODE_CANDIDATE")"
+  [ "$NODE_MAJOR" = "22" ]
+}
+
+resolve_hiverunner_node_bin() {
+  LABEL="$1"
+
+  if [ -n "${HIVERUNNER_NODE_BIN:-}" ]; then
+    if is_hiverunner_node_compatible "$HIVERUNNER_NODE_BIN"; then
+      printf '%s\n' "$HIVERUNNER_NODE_BIN"
+      return 0
+    fi
+    echo "[$LABEL] ERROR: cannot find a usable Node.js binary for HiveRunner." >&2
+    echo "[$LABEL] Required: Node.js >=22 <23." >&2
+    echo "[$LABEL] HIVERUNNER_NODE_BIN is not usable: $HIVERUNNER_NODE_BIN" >&2
+    echo "[$LABEL] Set HIVERUNNER_NODE_BIN=/absolute/path/to/node to choose one explicitly." >&2
+    return 1
+  fi
+
+  if [ -n "${NODE_BIN:-}" ]; then
+    if is_hiverunner_node_compatible "$NODE_BIN"; then
+      printf '%s\n' "$NODE_BIN"
+      return 0
+    fi
+    echo "[$LABEL] ERROR: cannot find a usable Node.js binary for HiveRunner." >&2
+    echo "[$LABEL] Required: Node.js >=22 <23." >&2
+    echo "[$LABEL] NODE_BIN is not usable: $NODE_BIN" >&2
+    echo "[$LABEL] Set HIVERUNNER_NODE_BIN=/absolute/path/to/node to choose one explicitly." >&2
+    return 1
+  fi
+
+  SEEN=":"
+  for candidate in \
+    "$(command -v node 2>/dev/null || true)" \
+    "${HOME:-}/.local/share/fnm/node-versions/"*/installation/bin/node \
+    /usr/local/bin/node \
+    /opt/homebrew/bin/node
+  do
+    [ -n "$candidate" ] || continue
+    case "$candidate" in
+      *'*'*) continue ;;
+    esac
+    case "$SEEN" in
+      *:"$candidate":*) continue ;;
+    esac
+    SEEN="$SEEN$candidate:"
+    if is_hiverunner_node_compatible "$candidate"; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+
+  echo "[$LABEL] ERROR: cannot find a usable Node.js binary for HiveRunner." >&2
+  echo "[$LABEL] Required: Node.js >=22 <23." >&2
+  echo "[$LABEL] Set HIVERUNNER_NODE_BIN=/absolute/path/to/node to choose one explicitly." >&2
+  return 1
+}

@@ -16,6 +16,10 @@ make_fake_node() {
   mkdir -p "$(dirname "$TARGET")"
   {
     printf '%s\n' '#!/bin/sh'
+    printf '%s\n' 'if [ "$1" = "-e" ]; then'
+    printf '%s\n' '  printf 22'
+    printf '%s\n' '  exit 0'
+    printf '%s\n' 'fi'
     printf '%s\n' 'echo fake-node'
   } > "$TARGET"
   chmod +x "$TARGET"
