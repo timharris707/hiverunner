@@ -53,7 +53,7 @@ as an auth bypass.
 - **Status: ADDRESSED** ✅
 
 **B4. Localhost auth bypass**
-`src/middleware.ts:415` — all auth skipped when Host starts with `localhost`/`127.0.0.1`.
+`src/proxy.ts` — all auth skipped when Host starts with `localhost`/`127.0.0.1`.
 - **Status: ADDRESSED for default behavior** ✅
 - Default loopback protected-route requests require real auth and return 401 without a valid session or API key.
 - Local development can explicitly opt into bypass with `MC_REQUIRE_LOCAL_DEV_AUTH=0`; this is development-only and disabled by default. The legacy `MC_LOCAL_DEV_AUTH_BYPASS=1` flag has been removed.

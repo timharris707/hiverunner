@@ -13,7 +13,7 @@ import { withEdgeRouteMapFallback } from "@/lib/orchestration/edge-route-maps";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 import { closeOrchestrationDb, getOrchestrationDb } from "@/lib/orchestration/db";
-import { getRootRedirectCompanyCode } from "@/middleware";
+import { getRootRedirectCompanyCode } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

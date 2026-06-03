@@ -4,7 +4,7 @@
  */
 
 import assert from "node:assert";
-import { canAccessOrchestrationApi, isValidOrchestrationApiKey } from "@/middleware";
+import { canAccessOrchestrationApi, isValidOrchestrationApiKey } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

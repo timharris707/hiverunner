@@ -16,7 +16,7 @@ import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
 
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
-import { middleware } from "@/middleware";
+import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

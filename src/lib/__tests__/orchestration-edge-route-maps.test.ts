@@ -1,6 +1,6 @@
 import assert from "node:assert";
 
-import { tryCanonicalRewrite, tryLegacyRedirect } from "@/middleware";
+import { tryCanonicalRewrite, tryLegacyRedirect } from "@/proxy";
 import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject } from "@/lib/orchestration/service";

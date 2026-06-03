@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
-import { canBypassLocalDevAuth, isLoopbackHost, middleware } from "@/middleware";
+import { canBypassLocalDevAuth, isLoopbackHost, proxy as middleware } from "@/proxy";
 
 let passed = 0;
 let failed = 0;

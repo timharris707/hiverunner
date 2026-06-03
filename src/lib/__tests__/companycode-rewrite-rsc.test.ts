@@ -2,17 +2,17 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-import { tryCanonicalRewrite, tryLegacyRedirect } from "@/middleware";
+import { tryCanonicalRewrite, tryLegacyRedirect } from "@/proxy";
 import { EDGE_ROUTE_MAPS_FALLBACK } from "@/lib/orchestration/edge-route-maps";
 
 /**
  * Characterizes how `/HIVE/...` (short company-code) URLs are served: they have
- * NO physical page and rely entirely on the middleware rewrite onto
+ * NO physical page and rely entirely on the proxy rewrite onto
  * `(dashboard)/companies/[slug]/...`.
  *
  * The infinite rewrite<->redirect loop that this rewrite originally caused
  * (ERR_TOO_MANY_REDIRECTS / "two-click" navigation) has since been FIXED in
- * src/middleware.ts — see docs/ui-navigation-lag.md and the dedicated guard
+ * src/proxy.ts — see docs/ui-navigation-lag.md and the dedicated guard
  * src/lib/__tests__/middleware-canonical-redirect-loop.test.ts. This test still
  * pins the rewrite shape so a future change that breaks it is flagged.
  */
@@ -20,12 +20,12 @@ const origin = "http://localhost:3010";
 const repoRoot = process.cwd();
 
 // 1. The short company-code board path (`/HIVE/tasks`) has NO physical page.
-//    It exists only because middleware rewrites it onto the canonical route.
+//    It exists only because proxy rewrites it onto the canonical route.
 const companyCodeTasksPage = path.join(repoRoot, "src", "app", "[companyCode]", "tasks", "page.tsx");
 assert.equal(
   fs.existsSync(companyCodeTasksPage),
   false,
-  "`/HIVE/tasks` is served via middleware rewrite, not a physical [companyCode]/tasks page",
+  "`/HIVE/tasks` is served via proxy rewrite, not a physical [companyCode]/tasks page",
 );
 
 // 2. The canonical destination IS a physical page under the dashboard group.
@@ -53,7 +53,7 @@ assert.equal(
 assert.equal(rewrite?.searchParams.get("view"), "board");
 
 // 4. A bare `/HIVE` is handled separately (a redirect to /HIVE/dashboard happens
-//    in middleware itself), and canonical rewrite returns the dashboard target.
+//    in proxy itself), and canonical rewrite returns the dashboard target.
 const bareRewrite = tryCanonicalRewrite("/HIVE", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);
 assert.equal(bareRewrite?.pathname, "/companies/hiverunner-workspace/dashboard");
 
