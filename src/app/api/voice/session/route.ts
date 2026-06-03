@@ -2,19 +2,16 @@
  * /api/voice/session — Voice session configuration endpoint.
  *
  * Returns provider-specific live voice connection parameters for the client.
- * Gemini uses browser-direct WebSocket; OpenAI Realtime uses a short-lived
- * client secret for browser WebRTC.
+ * OpenAI Realtime uses a short-lived client secret for browser WebRTC.
  *
  * Security note: OpenAI Realtime keeps the permanent API key server-side.
- * Gemini still returns a direct provider URL containing the key for the legacy
- * browser WebSocket path.
+ * Gemini Live's legacy browser-direct WebSocket path is intentionally disabled:
+ * it requires a key-bearing provider URL in the browser, which is not public-safe.
  */
 
 import { NextResponse } from "next/server";
 import {
-  GEMINI_LIVE_MODEL,
   buildBoundAgentSystemPrompt,
-  buildWebSocketUrl,
   VOICE_ASSISTANT_SYSTEM_PROMPT,
   type BoundAgentPersona,
 } from "@/lib/gemini-live";
@@ -117,8 +114,8 @@ function getVoiceProviderReadiness(provider: VoiceProvider): VoiceProviderReadin
     return { ready: true, apiKey: openaiApiKey };
   }
 
-  const apiKey = getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY");
-  if (!apiKey) {
+  const hasGeminiApiKey = Boolean(getSecret("GOOGLE_AI_API_KEY") || getSecret("GEMINI_API_KEY"));
+  if (!hasGeminiApiKey) {
     return {
       ready: false,
       response: voiceSetupErrorResponse({
@@ -135,7 +132,21 @@ function getVoiceProviderReadiness(provider: VoiceProvider): VoiceProviderReadin
     };
   }
 
-  return { ready: true, apiKey };
+  return {
+    ready: false,
+    response: voiceSetupErrorResponse({
+      status: 503,
+      code: "gemini_browser_websocket_disabled",
+      message:
+        "Gemini Live voice is currently disabled because the legacy browser WebSocket path would expose a provider API key.",
+      steps: [
+        "Use OpenAI Realtime 2 voice for browser-safe live calls, or keep voice disabled.",
+        "Wait for the server-side Gemini Live proxy before enabling Gemini browser voice.",
+      ],
+      note:
+        "HiveRunner does not return Google/Gemini API keys or key-bearing provider URLs to browser clients.",
+    }),
+  };
 }
 
 function buildGlobalSystemPrompt(currentContext: string): string {
@@ -359,26 +370,17 @@ export async function POST(req: Request) {
       });
     }
 
-    // Return connection config — client will open WebSocket directly
-    const wsUrl = buildWebSocketUrl({
-      apiKey: providerReadiness.apiKey,
-      model: GEMINI_LIVE_MODEL,
-    });
-
-    return NextResponse.json({
-      provider,
-      model: GEMINI_LIVE_MODEL,
-      wsUrl,
-      systemPrompt,
-      voiceName,
-      binding,
-      capabilities: {
-        audioInput: true,
-        audioOutput: true,
-        textInput: true,
-        textOutput: true,
-        interruption: true,
-      },
+    return voiceSetupErrorResponse({
+      status: 503,
+      code: "gemini_browser_websocket_disabled",
+      message:
+        "Gemini Live voice is currently disabled because the legacy browser WebSocket path would expose a provider API key.",
+      steps: [
+        "Use OpenAI Realtime 2 voice for browser-safe live calls, or keep voice disabled.",
+        "Wait for the server-side Gemini Live proxy before enabling Gemini browser voice.",
+      ],
+      note:
+        "HiveRunner does not return Google/Gemini API keys or key-bearing provider URLs to browser clients.",
     });
   } catch (error) {
     return handleRouteError(error, "voice-session:post");

@@ -11,7 +11,7 @@ AI avatar generation is an optional enhancement, not a hard dependency.
 
 - The app boots and runs without `OPENAI_API_KEY`, `FAL_KEY`, `GOOGLE_AI_API_KEY`, or `GOOGLE_API_KEY`
 - Agent/company pages still render normally without broken controls
-- Users can still use default/local avatars when no provider is configured
+- Users can still use default/basic icon avatars when no provider is configured
 - First-run starter-team setup may encourage choosing recognizable avatar images,
   but it must not require an image provider key
 - The avatar wizard must show a clear message when AI generation is unavailable
@@ -42,7 +42,7 @@ These should remain optional and be documented in:
 ## UX expectations
 
 When no provider is configured:
-- show default/local avatar choices
+- show default/basic icon avatar choices
 - allow preview/apply of non-AI options
 - show a clear note like: "AI avatar generation is not configured for this install"
 

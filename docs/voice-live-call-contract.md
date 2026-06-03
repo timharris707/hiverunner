@@ -1,19 +1,24 @@
 # Voice Live Call Contract (Phase 4 first-stream plumbing)
 
-This keeps the current Gemini voice flow intact while exposing just enough structure for:
+This keeps the current voice-call UI contract intact while exposing just enough structure for:
 1. **real local webcam preview now**
 2. **renderer-ready assistant tile contract now**
 
 ## Available now
 
-- `POST /api/voice/session` returns `liveCall` scaffold alongside `wsUrl`/voice config.
+- `POST /api/voice/session` returns voice session config for browser-safe providers.
 - Avatar Lab local preview tile uses browser `getUserMedia` and mirrors self-view.
 - `liveCall.media.localPreview.defaultConstraints.video` is the source of truth for preview constraints.
 - Voice + transcript flow remains unchanged.
 
 ## Setup boundary
 
-- Gemini Live voice requires a Gemini API key such as `GOOGLE_AI_API_KEY`.
+- OpenAI Realtime voice uses short-lived client secrets, keeping the permanent
+  provider key server-side.
+- Gemini Live voice is disabled in the browser-direct path even when
+  `GOOGLE_AI_API_KEY` or `GEMINI_API_KEY` is configured, because that legacy
+  WebSocket path requires returning a key-bearing provider URL to the browser.
+  Re-enable Gemini only through a server-side proxy/session-token adapter.
 - Voice is optional. Company creation, first-run starter-team setup, agent
   provisioning, and kickoff task creation must still work when no Gemini key or
   other provider key is configured.

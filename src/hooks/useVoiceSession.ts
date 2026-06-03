@@ -2,7 +2,7 @@
  * useVoiceSession — React hook for managing live voice sessions.
  *
  * Handles:
- *   - Gemini Live WebSocket lifecycle
+ *   - Disabled/degraded Gemini Live WebSocket path until a server-safe proxy exists
  *   - OpenAI Realtime 2 WebRTC lifecycle
  *   - Mic capture/playback setup
  *   - Transcript accumulation

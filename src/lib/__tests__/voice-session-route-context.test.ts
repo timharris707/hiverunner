@@ -59,7 +59,10 @@ async function run() {
     ORCHESTRATION_DB_PATH: process.env.ORCHESTRATION_DB_PATH,
     GOOGLE_AI_API_KEY: process.env.GOOGLE_AI_API_KEY,
     GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+    HIVERUNNER_VOICE_PROVIDER: process.env.HIVERUNNER_VOICE_PROVIDER,
   };
+  const originalFetch = globalThis.fetch;
 
   mkdirSync(memoryDir, { recursive: true });
   writeFileSync(
@@ -83,8 +86,29 @@ async function run() {
     process.env.OPENCLAW_WORKSPACE = workspaceRoot;
     process.env.OPENCLAW_WORKSPACE_ROOT = workspaceRoot;
     process.env.ORCHESTRATION_DB_PATH = dbPath;
-    process.env.GOOGLE_AI_API_KEY = "***";
+    process.env.OPENAI_API_KEY = "test-openai-key";
+    process.env.HIVERUNNER_VOICE_PROVIDER = "openai-realtime-2";
+    delete process.env.GOOGLE_AI_API_KEY;
     delete process.env.GEMINI_API_KEY;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+      if (url === "https://api.openai.com/v1/realtime/client_secrets") {
+        const headers = new Headers(init?.headers);
+        assert.equal(headers.get("Authorization"), "Bearer test-openai-key");
+        return new Response(
+          JSON.stringify({
+            value: "test-openai-client-secret",
+            expires_at: 1_893_456_000,
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+
+      return originalFetch(input, init);
+    }) as typeof fetch;
 
     const { POST } = await import("@/app/api/voice/session/route");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -218,23 +242,24 @@ async function run() {
     await test("POST with empty body still returns 200 and generic startup context", async () => {
       const response = await POST(makeRequest() as never);
       const body = await response.json() as {
+        provider: string;
         wsUrl: string;
         voiceName: string;
         systemPrompt: string;
+        openai?: { clientSecret?: string };
         binding?: { scope: string; mode: string; source: string };
       };
 
       assert.equal(response.status, 200);
+      assert.equal(body.provider, "openai-realtime-2");
       assert.equal(body.voiceName, "Charon");
-      assert.match(body.wsUrl, /^wss:\/\//);
-      assert.match(body.wsUrl, /\?key=/);
+      assert.equal(body.wsUrl, "");
+      assert.equal(body.openai?.clientSecret, "test-openai-client-secret");
       assert.equal(body.binding?.scope, "global");
       assert.equal(body.binding?.mode, "discuss");
       assert.equal(body.binding?.source, "voice-lab");
       assert.match(body.systemPrompt, /## Fresh startup context/);
-      assert.match(body.systemPrompt, /## Gemini Voice Direction/);
-      assert.match(body.systemPrompt, /Selected Gemini voice: Charon\./);
-      assert.match(body.systemPrompt, /Delivery style: News desk\./);
+      assert.match(body.systemPrompt, /## OpenAI Realtime 2 Voice Behavior/);
       assert.match(body.systemPrompt, /Global startup memory fixture\./);
       assert.match(body.systemPrompt, /session\.marker/);
       assert.doesNotMatch(body.systemPrompt, /Fresh heartbeat instructions/);
@@ -374,9 +399,7 @@ async function run() {
 
       assert.equal(response.status, 200);
       assert.match(body.systemPrompt, /### Bound scope/);
-      assert.match(body.systemPrompt, /## Gemini Voice Direction/);
-      assert.match(body.systemPrompt, /Selected Gemini voice: Schedar\./);
-      assert.match(body.systemPrompt, /Delivery style: Neutral coordinator\./);
+      assert.match(body.systemPrompt, /## OpenAI Realtime 2 Voice Behavior/);
       assert.match(body.systemPrompt, /Scope: task/);
       assert.match(body.systemPrompt, /Project: HiveRunner Voice Control/);
       assert.match(body.systemPrompt, /Task: \[/);
@@ -557,6 +580,9 @@ async function run() {
     restoreEnvVar("ORCHESTRATION_DB_PATH", originalEnv.ORCHESTRATION_DB_PATH);
     restoreEnvVar("GOOGLE_AI_API_KEY", originalEnv.GOOGLE_AI_API_KEY);
     restoreEnvVar("GEMINI_API_KEY", originalEnv.GEMINI_API_KEY);
+    restoreEnvVar("OPENAI_API_KEY", originalEnv.OPENAI_API_KEY);
+    restoreEnvVar("HIVERUNNER_VOICE_PROVIDER", originalEnv.HIVERUNNER_VOICE_PROVIDER);
+    globalThis.fetch = originalFetch;
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 

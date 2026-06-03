@@ -135,17 +135,18 @@ async function run() {
       assert.doesNotMatch(message, /Task not found/);
     });
 
-    await test("Gemini Live configured key path returns a browser session bootstrap", async () => {
+    await test("Gemini Live configured key path is disabled without exposing the provider key", async () => {
       setSecretStoreForTests(geminiSecretStore);
       try {
         const response = await POST(makeRequest({ voiceProvider: "gemini-live" }) as never);
-        const body = await response.json() as { provider?: unknown; wsUrl?: unknown; capabilities?: { audioInput?: unknown } };
+        const body = await response.json() as unknown;
+        const serialized = JSON.stringify(body);
+        const message = normalizeSafeErrorMessage(body, "Fallback");
 
-        assert.equal(response.status, 200);
-        assert.equal(body.provider, "gemini-live");
-        assert.equal(typeof body.wsUrl, "string");
-        assert.match(String(body.wsUrl), /test-gemini-key/);
-        assert.equal(body.capabilities?.audioInput, true);
+        assert.equal(response.status, 503);
+        assert.match(message, /Gemini Live voice is currently disabled/);
+        assert.doesNotMatch(serialized, /test-gemini-key/);
+        assert.doesNotMatch(serialized, /\\?key=/);
       } finally {
         setSecretStoreForTests(emptySecretStore);
       }

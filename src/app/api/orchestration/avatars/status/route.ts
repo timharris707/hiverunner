@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * Returns the current avatar generation provider status.
  * The wizard uses this to show appropriate UI:
  *   - If aiAvailable=true: show "AI-Generated Avatar" option with full confidence
- *   - If aiAvailable=false: show "Styled Avatar" with note that it's local SVG,
+ *   - If aiAvailable=false: keep generated portraits disabled and use the basic icon path,
  *     and include setupHint for how to enable AI
  */
 export async function GET() {

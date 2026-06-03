@@ -13,11 +13,12 @@ The wizard walks through:
 4. **Preview** — view 4 generated options, pick one, regenerate if needed
 5. **Apply** — saves to the agent's `avatar_url` in the database
 
-## Generation Modes
+## Avatar Modes
 
-### Local SVG (default, always available)
+### Basic icon (default, always available)
 
-No API keys needed. Generates deterministic styled SVG portraits server-side using the agent's name, role, chosen style, and gender as seeds. Each regeneration produces unique variations.
+No API keys needed. The wizard always offers a basic Lucide icon path so agents
+can launch and remain editable without any image provider configured.
 
 Good for: development, self-hosted instances, offline setups, or anywhere you want zero external dependencies.
 
@@ -30,14 +31,16 @@ When an image generation API key is configured, the wizard generates richer AI p
 | OpenAI (DALL-E / gpt-image-1) | `OPENAI_API_KEY` | Recommended |
 | Replicate (Flux etc.) | `REPLICATE_API_TOKEN` | Alternative |
 
-The system auto-detects which provider is available at runtime. If none is configured, it falls back to local SVG with a setup hint shown in the wizard.
+The system auto-detects which provider is available at runtime. If none is
+configured, generated portrait controls stay unavailable and the wizard falls
+back to the basic icon path with a setup hint.
 
 ## Setup
 
 ### Minimal (no config needed)
 
 ```bash
-# Just run the app — local SVG avatars work out of the box
+# Just run the app — basic icon avatars work out of the box
 npm run dev
 ```
 
@@ -64,7 +67,9 @@ Restart the dev server. The wizard will auto-detect the provider.
 
 ## Storage
 
-Generated avatars are stored as data URIs in the agent's `avatar_url` column. This keeps things simple and portable — no external storage dependency.
+Generated avatars are stored as data URIs in the agent's `avatar_url` column.
+Basic icon selections use icon tokens rather than generated image data. This
+keeps the default path simple and portable.
 
 For production deployments with AI-generated images, you may want to upload to a CDN and store the URL instead. The `avatar_url` field accepts any valid URL or data URI.
 
@@ -75,7 +80,7 @@ If a company's `avatarMode` setting is `"company_theme"`, the wizard constrains 
 ## Files
 
 ```
-src/lib/orchestration/avatar-provider.ts    — Provider detection + local SVG generation
+src/lib/orchestration/avatar-provider.ts    — Provider detection + optional AI portrait generation
 src/components/orchestration/AvatarWizard.tsx — Wizard modal component
 src/components/orchestration/avatar-theme-data.ts — Client-safe theme preset metadata
 src/app/api/orchestration/avatars/status/route.ts — Provider status endpoint

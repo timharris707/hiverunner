@@ -5,8 +5,8 @@
  * biased for Zoom-style call sessions with local webcam + assistant video
  * presence.
  *
- * Goal: keep Gemini Live voice untouched while giving UI/server a stable shape
- * for swapping renderer backends (mock tonight, fal/Replicate/self-host later).
+ * Goal: keep voice transport separate from avatar rendering while giving
+ * UI/server a stable shape for swapping renderer backends.
  */
 
 import { randomUUID } from "crypto";

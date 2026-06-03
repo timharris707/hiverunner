@@ -96,9 +96,11 @@ required for the local path.
 
 `/setup` and `/companies/new` are intentionally different flows. `/setup`
 checks the local software lane, optional provider-key status, the bundled
-Overseer skill, and the handoff to a workspace choice. `/companies/new` is the
-workspace/company wizard where you define the company, team, CEO, and first
-task.
+public-safe Overseer skill, and the handoff to a workspace choice. When a
+workspace is created, HiveRunner seeds the Overseer as an active company skill
+and exports it into that workspace when a workspace root is available.
+`/companies/new` is the workspace/company wizard where you define the company,
+team, CEO, and first task.
 
 During company creation, HiveRunner can create a starter agent pack such as
 Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
@@ -213,8 +215,10 @@ GOOGLE_AI_API_KEY=your-google-ai-key
 ANTHROPIC_API_KEY=your-anthropic-key
 ```
 
-`GOOGLE_AI_API_KEY` enables Gemini-backed voice features such as Gemini Live
-voice. Voice is optional; agents can be created and used without it.
+`GOOGLE_AI_API_KEY` enables Gemini-backed server-side voice previews and direct
+Google/Gemini model-source routes. Browser Gemini Live voice remains disabled
+until a server-side proxy/session-token adapter is added. Voice is optional;
+agents can be created and used without it.
 
 `OPENAI_API_KEY` can enable optional AI avatar generation where configured.
 Without an image provider key, bundled starter-pack avatars and local/default
@@ -298,9 +302,10 @@ infrastructure. Important limits:
 - Runtime integrations depend on local CLIs or provider keys being present.
   Missing optional runtimes are expected until configured.
 - First-run software setup is intentionally narrow: `/setup` checks local mode,
-  optional provider-key status, the bundled Overseer skill, and the workspace
-  handoff. `/companies/new` remains the separate workspace/company wizard for
-  creating a team and first task.
+  optional provider-key status, the bundled public-safe Overseer skill, and the
+  workspace handoff. Workspace creation seeds and exports the active company
+  skill separately. `/companies/new` remains the separate workspace/company
+  wizard for creating a team and first task.
 - Docker and Node-permission entry points are available for defense in depth,
   but the default local path remains a trusted local-machine workflow.
 

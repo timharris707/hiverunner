@@ -32,9 +32,11 @@ const PROVIDERS: ProviderConfig[] = [
     id: "google",
     label: "Gemini / Google AI",
     envVars: ["GOOGLE_AI_API_KEY", "GEMINI_API_KEY"],
-    enables: ["Gemini Live voice", "voice previews", "Gemini model-source routes"],
-    missingImpact: "Starter agents still keep saved voice choices, but live voice calls stay disabled until configured.",
-    setupCopy: "Add GOOGLE_AI_API_KEY to .env.local when you want live voice and Gemini-backed voice previews.",
+    enables: ["Gemini-backed voice previews", "Gemini model-source routes"],
+    missingImpact:
+      "Starter agents still keep saved voice choices. Browser Gemini Live voice stays disabled until a server-side proxy exists.",
+    setupCopy:
+      "Add GOOGLE_AI_API_KEY to .env.local when you want Gemini-backed voice previews or direct Google model-source routes.",
   },
   {
     id: "anthropic",

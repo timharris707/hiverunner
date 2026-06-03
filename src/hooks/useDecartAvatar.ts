@@ -58,6 +58,23 @@ async function loadDecartSdk(): Promise<DecartSdk> {
   return importModule("@decartai/sdk");
 }
 
+async function readDecartConfigError(response: Response): Promise<string> {
+  const fallback =
+    "Decart live avatar is unavailable in this build. Use the basic avatar fallback until a server-side adapter is available.";
+  try {
+    const body = await response.json() as {
+      error?: {
+        message?: unknown;
+      };
+    };
+    return typeof body.error?.message === "string" && body.error.message.trim()
+      ? body.error.message
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 /** Minimum ms of audio to accumulate before flushing to Decart. */
 const FLUSH_INTERVAL_MS = 250;
 const SAMPLE_RATE = 24_000; // Gemini output is 24kHz PCM16
@@ -161,7 +178,7 @@ export function useDecartAvatar() {
     try {
       // Fetch API key from server-side route
       const configRes = await fetch("/api/voice/decart-config");
-      if (!configRes.ok) throw new Error("Failed to fetch Decart config");
+      if (!configRes.ok) throw new Error(await readDecartConfigError(configRes));
       const { apiKey } = await configRes.json();
       if (!apiKey) throw new Error("DECART_API_KEY not configured");
 

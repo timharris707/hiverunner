@@ -17,7 +17,7 @@ HiveRunner to hand work to that runtime.
 | Codex CLI | Optional runtime | No | Codex-backed autonomous agent runs are unavailable. |
 | Claude Code CLI | Optional runtime | No | Claude-backed autonomous agent runs are unavailable. |
 | Gemini CLI | Optional runtime | No | Gemini-backed autonomous agent runs are unavailable. |
-| Gemini/Google API key | Optional provider key | No | Gemini Live voice and direct Google model-source routes are unavailable. |
+| Gemini/Google API key | Optional provider key | No | Gemini-backed voice previews and direct Google model-source routes are unavailable. Browser Gemini Live voice also requires a future server-side proxy. |
 | OpenAI API key | Optional provider key | No | Direct OpenAI model-source routes and optional AI avatar generation are unavailable. |
 | Anthropic API key | Optional provider key | No | Direct Anthropic model-source routes are unavailable. Claude Code CLI auth is separate. |
 | OpenRouter API key | Optional provider key | No | Broker model-source routes are unavailable. |

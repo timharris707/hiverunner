@@ -1,8 +1,8 @@
 /**
- * DecartAvatarMode — Combines Gemini Live voice with Decart Avatar Live lip sync.
+ * DecartAvatarMode — experimental Decart Avatar Live lip-sync shell.
  *
- * Gemini stays the voice + brain; Decart receives the audio tap and returns
- * a lip-synced video stream of the assistant portrait via WebRTC.
+ * The browser SDK path is disabled unless/until a server-side adapter can avoid
+ * exposing DECART_API_KEY to the browser.
  */
 
 "use client";
