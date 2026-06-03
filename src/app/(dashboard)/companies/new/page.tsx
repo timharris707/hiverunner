@@ -713,7 +713,7 @@ function StepReview({ data, modelOptions }: { data: WizardData; modelOptions: Ar
         </SummaryCard>
       </div>
       <div className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm text-[var(--text-secondary)]">
-        Launch will create the company, preserve the CEO or lead, pass the selected starter roles forward, start the first task, and open the dashboard with live company activity.
+        Launch will create the company, preserve the CEO or lead, pass the selected starter roles forward, start the first task, and open the task board with live company activity.
       </div>
     </div>
   );
@@ -816,10 +816,12 @@ export default function CompanyOnboardingWizard() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Launch failed");
-      const launchHref = typeof json.dashboardHref === "string"
-        ? json.dashboardHref
+      const launchHref = typeof json.boardHref === "string"
+        ? json.boardHref
         : typeof json.taskHref === "string"
           ? json.taskHref
+          : typeof json.dashboardHref === "string"
+            ? json.dashboardHref
           : typeof json.company?.slug === "string"
             ? `/companies/${encodeURIComponent(json.company.slug)}/dashboard`
             : "/";

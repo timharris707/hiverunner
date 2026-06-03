@@ -1,7 +1,7 @@
 import { getAuthMode } from "@/lib/auth/auth-mode";
 import { isSoftwareSetupComplete, readOnboardingState } from "@/lib/onboarding/onboarding-state";
 import { listCompanies } from "@/lib/orchestration/company-service";
-import { selectDefaultCompanyCode } from "@/lib/root-route";
+import { countsAsCreatedLocalWorkspace, selectDefaultCompanyCode } from "@/lib/root-route";
 
 import SetupWizard, { type SetupWorkspace } from "./SetupWizard";
 
@@ -27,10 +27,11 @@ function resolveSetupState(): ResolvedSetupState {
 
   try {
     const { companies } = listCompanies({ includeNonProduction: true });
-    const completed = companies.filter((company) => {
-      const code = (company.code || company.slug).toUpperCase();
-      return code !== "HIVE" || company.stats.agents > 0;
-    });
+    const completed = companies.filter((company) => countsAsCreatedLocalWorkspace({
+      code: company.code || company.slug,
+      slug: company.slug,
+      stats: company.stats,
+    }));
 
     const workspaces: SetupWorkspace[] = completed.map((company) => ({
       code: company.code || company.slug,

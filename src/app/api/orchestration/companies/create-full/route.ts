@@ -25,6 +25,7 @@ import {
 import {
   buildCanonicalCompanyPath,
   buildCanonicalDashboardPath,
+  buildCanonicalTasksPath,
 } from "@/lib/orchestration/route-paths";
 import { canAutonomouslyExecuteCompany } from "@/lib/orchestration/service/dev-execution-test-mode";
 import {
@@ -484,6 +485,7 @@ export async function POST(req: NextRequest) {
 
     // ---------- 9. Return success ----------
     const dashboardHref = buildCanonicalDashboardPath(createdCompany.code);
+    const boardHref = `${buildCanonicalTasksPath(createdCompany.code)}?view=board&group=status`;
     const taskHref = buildCanonicalCompanyPath(
       createdCompany.code,
       `/tasks/${encodeURIComponent(taskKey)}`,
@@ -510,6 +512,7 @@ export async function POST(req: NextRequest) {
         task: { id: taskId, key: taskKey, title: task.title.trim(), href: taskHref },
         taskKey,
         taskHref,
+        boardHref,
         dashboardHref,
         initialExecution,
         workspace: workspacePath,

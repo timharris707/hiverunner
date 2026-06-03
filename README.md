@@ -19,9 +19,9 @@ you want, and start building your own agent team.
 After a fresh clone, you can:
 
 - boot HiveRunner locally with no Supabase project, OAuth app, or provider key;
-- enter as the local owner;
-- open the default `HIVE` workspace dashboard;
-- create a company/workspace and choose a starter team with bundled portraits,
+- enter the first-run software setup walkthrough;
+- create or open a workspace/company when you are ready;
+- choose a starter team with bundled portraits,
   saved voice choices, and role instructions;
 - inspect runtime readiness for Codex, Claude Code, Gemini, Hermes, OpenClaw, or
   external runners;
@@ -80,18 +80,25 @@ required to boot the app.
 ## Quickstart
 
 ```bash
-git clone https://github.com/harris-autonomous/mission-control.git hive-runner
-cd hive-runner
+git clone https://github.com/timharris707/hiverunner.git
+cd hiverunner
 cp .env.example .env.local
-npm install
+npm ci
 npm run dev
 ```
 
 Open [http://localhost:3010](http://localhost:3010).
 
 With the default `.env.example`, HiveRunner runs in `local-single-user` mode.
-Use the local continue button on the login page. No Supabase project, OAuth app,
-password, or admin account is required for the local path.
+On a fresh local install, `/` sends you to `/setup` for the one-time software
+setup walkthrough. No Supabase project, OAuth app, password, or admin account is
+required for the local path.
+
+`/setup` and `/companies/new` are intentionally different flows. `/setup`
+checks the local software lane, optional provider-key status, the bundled
+Overseer skill, and the handoff to a workspace choice. `/companies/new` is the
+workspace/company wizard where you define the company, team, CEO, and first
+task.
 
 During company creation, HiveRunner can create a starter agent pack such as
 Software/Product Studio, Solo Operator Copilot, Research & Strategy Desk,
@@ -125,13 +132,15 @@ For optional Docker or Node-permission isolation, see
 Useful local routes after boot:
 
 - `/login` — auth entry point.
-- `/HIVE/dashboard` — default dashboard on a fresh local install.
+- `/setup` — first-run software setup.
+- `/companies/new` — create a workspace/company and review a starter team.
+- `/<CODE>/tasks?view=board&group=status` — default task board after setup and workspace creation.
+- `/HIVE/dashboard` — dashboard for the bootstrap/local workspace once it has been opened or populated.
 - `/HIVE/tasks` — task board/list views.
 - `/HIVE/goals` — workspace goals and supporting sprints.
 - `/HIVE/memory` — memory workspace.
 - `/HIVE/hives` — runtime/provider configuration.
 - `/HIVE/runtime-inventory` — optional CLI/runtime readiness.
-- `/companies/new` — create a workspace and review a starter team.
 
 Existing local data may still use older workspace routes when you point
 HiveRunner at an existing data directory.
@@ -173,7 +182,7 @@ None beyond copying `.env.example` to `.env.local`.
 MC_LOCAL_OWNER_EMAIL=owner@localhost.local
 
 # Optional. Use an absolute path for company workspaces.
-MC_WORKSPACE_ROOT=/absolute/path/to/hive-runner/workspace
+MC_WORKSPACE_ROOT=/absolute/path/to/hiverunner/workspace
 
 # Optional. Use a separate data dir when testing a fresh local lane.
 MC_DATA_DIR=./data-dev
@@ -288,9 +297,10 @@ infrastructure. Important limits:
   path. Supabase auth alone does not make HiveRunner horizontally scalable.
 - Runtime integrations depend on local CLIs or provider keys being present.
   Missing optional runtimes are expected until configured.
-- First-run setup is intentionally narrow: `/companies/new` can create a
-  workspace and optional starter team, but runtime readiness and provider-key
-  configuration remain separate settings surfaces.
+- First-run software setup is intentionally narrow: `/setup` checks local mode,
+  optional provider-key status, the bundled Overseer skill, and the workspace
+  handoff. `/companies/new` remains the separate workspace/company wizard for
+  creating a team and first task.
 - Docker and Node-permission entry points are available for defense in depth,
   but the default local path remains a trusted local-machine workflow.
 
@@ -303,7 +313,7 @@ By default, local runtime data is stored under the app data directory. Set
 `MC_WORKSPACE_ROOT` when you want company workspaces in a specific location:
 
 ```text
-/absolute/path/to/hive-runner/workspace
+/absolute/path/to/hiverunner/workspace
 ```
 
 Set `MC_DATA_DIR` when you want an isolated SQLite/data lane for testing. Keep
@@ -335,7 +345,7 @@ Browser clicks handle this automatically. Plain `curl` without an `Origin`,
 ## Project Structure
 
 ```text
-hive-runner/
+hiverunner/
   src/
     app/              Next.js App Router pages and API routes
     components/       Shared UI and orchestration components

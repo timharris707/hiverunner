@@ -12,6 +12,14 @@ export type LocalRootState = {
   defaultCompanyCode?: string | null;
 };
 
+export type LocalRootWorkspaceSummary = {
+  code?: string | null;
+  slug?: string | null;
+  stats?: {
+    agents?: number | null;
+  } | null;
+};
+
 // First-run software setup is a distinct, lightweight wizard — separate from
 // creating a workspace. A fresh local install lands here.
 const LOCAL_SOFTWARE_SETUP_ENTRY = "/setup";
@@ -21,6 +29,39 @@ const LOCAL_CREATE_WORKSPACE_ENTRY = "/companies/new";
 
 export function rootTasksDestination(companyCode: string): string {
   return `/${encodeURIComponent(companyCode)}/tasks?view=board&group=status`;
+}
+
+function workspaceCode(workspace: LocalRootWorkspaceSummary): string | null {
+  return workspace.code?.trim() || workspace.slug?.trim() || null;
+}
+
+export function countsAsCreatedLocalWorkspace(workspace: LocalRootWorkspaceSummary): boolean {
+  const code = workspaceCode(workspace)?.toUpperCase();
+  if (!code) return false;
+
+  // The fresh local database bootstraps a neutral HIVE workspace so route maps
+  // and local owner state exist. It is not the operator's created workspace
+  // until at least one agent has been provisioned.
+  if (code === "HIVE") {
+    return Number(workspace.stats?.agents ?? 0) > 0;
+  }
+
+  return true;
+}
+
+export function resolveLocalRootStateFromWorkspaces(
+  input: {
+    hasCompletedSoftwareSetup?: boolean;
+    workspaces: LocalRootWorkspaceSummary[];
+  },
+  env: NodeJS.ProcessEnv = process.env,
+): LocalRootState {
+  const createdWorkspaces = input.workspaces.filter(countsAsCreatedLocalWorkspace);
+  return {
+    hasCompletedSoftwareSetup: Boolean(input.hasCompletedSoftwareSetup),
+    hasWorkspace: createdWorkspaces.length > 0,
+    defaultCompanyCode: selectDefaultCompanyCode(createdWorkspaces.map(workspaceCode), env),
+  };
 }
 
 export function selectDefaultCompanyCode(

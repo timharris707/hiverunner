@@ -43,6 +43,7 @@ async function run() {
     assert.equal(google.configured, true);
     assert.equal(google.configuredSecretName, "GOOGLE_AI_API_KEY");
     assert.equal(google.source, "environment");
+    assert.equal(JSON.stringify(payload).includes("test-google-key"), false);
 
     assert.ok(openai, "OpenAI provider status should be present");
     assert.equal(openai.configured, false);
