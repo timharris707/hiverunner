@@ -1,7 +1,7 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { GET as getMemoryEvidenceRoute } from "@/app/api/orchestration/companies/[slug]/memory/evidence/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createCompanyMemoryRecord } from "@/lib/orchestration/company-memory";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -32,12 +32,7 @@ function getRequest(url: string): Request {
 async function run() {
   console.log("\nOrchestration Memory Evidence Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   const stamp = Date.now();

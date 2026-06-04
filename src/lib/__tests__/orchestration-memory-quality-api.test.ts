@@ -1,11 +1,11 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { GET as getMemoryQualityRoute } from "@/app/api/orchestration/companies/[slug]/memory/quality/route";
 import {
   GET as getMemoryQualityIssueRoute,
   PATCH as patchMemoryQualityIssueRoute,
 } from "@/app/api/orchestration/companies/[slug]/memory/quality/issues/[targetType]/[targetId]/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createCompanyMemoryRecord } from "@/lib/orchestration/company-memory";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -58,12 +58,7 @@ async function routeJson<T>(url: string, slug: string): Promise<{ status: number
 async function run() {
   console.log("\nOrchestration Memory Quality API Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   const stamp = Date.now();
