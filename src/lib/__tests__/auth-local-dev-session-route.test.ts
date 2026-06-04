@@ -25,26 +25,11 @@ import {
   setTestNodeEnv,
   snapshotEnv,
 } from "@/lib/__tests__/helpers/env-test-harness";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 function setAuthMode(value: string | undefined) {
   restoreEnvVar("MC_AUTH_MODE", value);
@@ -386,9 +371,7 @@ async function run() {
     restoreEnvSnapshot(envSnapshot);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
