@@ -2,28 +2,13 @@ import assert from "node:assert";
 
 import { GET as getMemoryEvidenceRoute } from "@/app/api/orchestration/companies/[slug]/memory/evidence/route";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createCompanyMemoryRecord } from "@/lib/orchestration/company-memory";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 function getRequest(url: string): Request {
   return new Request(url, { method: "GET" });
@@ -390,8 +375,7 @@ async function run() {
     assert.strictEqual(payload.diagnostics, undefined);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {

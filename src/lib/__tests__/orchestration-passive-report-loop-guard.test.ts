@@ -11,24 +11,10 @@ import os from "node:os";
 import path from "node:path";
 
 import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 function createStubOpenClawCli(): string {
   const statePath = path.join(
@@ -88,7 +74,7 @@ async function run() {
   const stubCli = createStubOpenClawCli();
 
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
 
     await test("Passive NO_REPLY output fails once, leaves no comment, and queues no continuation", async () => {
@@ -188,12 +174,10 @@ async function run() {
   } finally {
     process.env.ORCHESTRATION_OPENCLAW_CLI = originalCli;
     rmSync(stubCli, { force: true });
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
