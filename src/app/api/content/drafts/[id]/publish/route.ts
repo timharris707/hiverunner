@@ -1,22 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
-import type { ContentDraft } from "@/types/content";
-
-const DRAFTS_FILE = path.join(process.cwd(), "data", "content-drafts.json");
-
-function loadDrafts(): ContentDraft[] {
-  try {
-    if (!fs.existsSync(DRAFTS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(DRAFTS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveDrafts(drafts: ContentDraft[]): void {
-  fs.writeFileSync(DRAFTS_FILE, JSON.stringify(drafts, null, 2));
-}
+import { loadContentDrafts, saveContentDrafts } from "@/lib/content-drafts-store";
 
 /**
  * POST /api/content/drafts/[id]/publish
@@ -32,7 +15,7 @@ export async function POST(
 ) {
   const { id } = await params;
 
-  const drafts = loadDrafts();
+  const drafts = loadContentDrafts();
   const idx = drafts.findIndex((d) => d.id === id);
   if (idx === -1) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -71,7 +54,7 @@ export async function POST(
     publishedAt: now,
     updatedAt: now,
   };
-  saveDrafts(drafts);
+  saveContentDrafts(drafts);
 
   return NextResponse.json({
     draft: drafts[idx],

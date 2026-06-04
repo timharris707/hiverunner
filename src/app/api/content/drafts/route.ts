@@ -1,29 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
-import path from "path";
 import type { ContentDraft } from "@/types/content";
-
-const DRAFTS_FILE = path.join(process.cwd(), "data", "content-drafts.json");
-
-function loadDrafts(): ContentDraft[] {
-  try {
-    if (!fs.existsSync(DRAFTS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(DRAFTS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveDrafts(drafts: ContentDraft[]): void {
-  fs.writeFileSync(DRAFTS_FILE, JSON.stringify(drafts, null, 2));
-}
+import { loadContentDrafts, saveContentDrafts } from "@/lib/content-drafts-store";
 
 // GET /api/content/drafts — list all drafts, optional ?status= filter
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const statusFilter = searchParams.get("status");
 
-  let drafts = loadDrafts();
+  let drafts = loadContentDrafts();
   if (statusFilter) {
     drafts = drafts.filter((d) => d.status === statusFilter);
   }
@@ -52,9 +36,9 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    const drafts = loadDrafts();
+    const drafts = loadContentDrafts();
     drafts.unshift(draft);
-    saveDrafts(drafts);
+    saveContentDrafts(drafts);
 
     return NextResponse.json({ draft }, { status: 201 });
   } catch (err) {

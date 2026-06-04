@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import fs from "fs";
 import path from "path";
 import { readFileSync } from "fs";
 import { AGENT_CONFIGS } from "@/config/agents";
 import type { ContentDraft, ContentType, ContentPlatform } from "@/types/content";
-
-const DRAFTS_FILE = path.join(process.cwd(), "data", "content-drafts.json");
+import { loadContentDrafts, saveContentDrafts } from "@/lib/content-drafts-store";
 
 // ─── Gateway config ─────────────────────────────────────────────────────────────
 
@@ -117,21 +115,6 @@ ${typeInstructions[type]}
 Respond ONLY with valid JSON matching the format above. No markdown fences. No explanation outside the JSON.`;
 }
 
-// ─── Draft persistence ─────────────────────────────────────────────────────────
-
-function loadDrafts(): ContentDraft[] {
-  try {
-    if (!fs.existsSync(DRAFTS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(DRAFTS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-}
-
-function saveDrafts(drafts: ContentDraft[]): void {
-  fs.writeFileSync(DRAFTS_FILE, JSON.stringify(drafts, null, 2));
-}
-
 // ─── POST /api/content/generate ───────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -191,9 +174,9 @@ export async function POST(req: NextRequest) {
       updatedAt: now,
     };
 
-    const drafts = loadDrafts();
+    const drafts = loadContentDrafts();
     drafts.unshift(draft);
-    saveDrafts(drafts);
+    saveContentDrafts(drafts);
 
     return NextResponse.json({ draft });
   } catch (err) {
