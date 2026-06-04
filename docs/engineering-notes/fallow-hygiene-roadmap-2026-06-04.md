@@ -92,6 +92,24 @@ Latest checkpoint after PR #70:
 
 Net movement from the PR #65 checkpoint: 1 fewer clone group, 1 fewer clone family, 47 fewer duplicated lines, and 1 fewer dead-code finding. This batch intentionally stayed low-risk, but the return was smaller than earlier fixture-helper batches; future work should keep using expected-gain/risk triage instead of treating every Fallow warning as equally valuable.
 
+Latest checkpoint after PR #76:
+
+- Scan commit: `f3c6bd4e7` (`Dedupe bundle5 review fixtures`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 458 total
+  - unused files: 47
+  - unused exports: 287
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 134 clone groups, 117 clone families, 28,029 duplicated lines, 9.4% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,730
+
+Net movement from the PR #70 checkpoint: 12 fewer clone groups, 8 fewer clone families, 1,085 fewer duplicated lines, and a 0.4 percentage-point reduction in reported duplication. Dead-code counts did not move because this batch focused on test-harness and fixture duplication.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -129,6 +147,11 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #68: clean up create task dependency test fixtures
 - #69: refactor CSRF test case fixtures
 - #70: remove unused middleware test env helper
+- #72: reuse simple runner harness in runner tests
+- #73: clean up OpenClaw heartbeat test harnesses
+- #74: tidy route dispatch test fixtures
+- #75: reduce provisioning runtime alias fixture duplication
+- #76: dedupe bundle5 review fixtures
 
 Related but not cleanup:
 
@@ -257,6 +280,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: this moved the metrics only slightly. Keep future batches focused on slices with clear repetition and low behavioral risk; do not spend hours polishing tiny clone groups with little navigation or maintenance payoff.
 
+- Test harness and local fixture cleanup
+  - Source signal: high-weight clone groups around repeated pass/fail harnesses and local fixture setup in runner tests, OpenClaw heartbeat tests, route dispatch tests, provisioning runtime alias tests, and Bundle 5 review tests.
+  - Completed by #72, #73, #74, #75, and #76 with explicit worktrees and one worker per branch.
+  - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: #73 intentionally left `orchestration-openclaw-session-mc-action-extraction.test.ts` and `orchestration-openclaw-suffixed-session-import.test.ts` untouched after they reproduced a pre-existing isolated-DB failure: no active execution hive configured for the fixture company.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -292,4 +321,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, OpenClaw/heartbeat setup clusters, and single-file fixture bodies with obvious repeated setup. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. If a candidate appears to save only a handful of lines or mostly duplicate import blocks, skip it for now. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially test files that can still adopt `createTestRunner`, route-test fixture setup, and single-file fixture bodies with obvious repeated setup. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. If a candidate appears to save only a handful of lines or mostly duplicate import blocks, skip it for now. Do not fold the two fragile OpenClaw session tests from #73 into general hygiene until their isolated-DB fixture setup is understood. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
