@@ -13,20 +13,17 @@ import {
 import { normalizeRouteModelForRunner } from "@/lib/orchestration/route-target-builder";
 import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-execution-route-resolver-${Date.now()}.db`,
-  );
-}
+process.env.ORCHESTRATION_DB_PATH ??= path.join(
+  os.tmpdir(),
+  `mc-execution-route-resolver-${Date.now()}.db`,
+);
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 async function run() {
   console.log("\nExecution Route Resolver Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  resetSqliteDatabaseFiles(dbPath);
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const company = createCompany({
     name: `Execution Route Resolver ${Date.now()}`,

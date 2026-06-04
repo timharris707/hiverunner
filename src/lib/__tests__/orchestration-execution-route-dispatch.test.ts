@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
@@ -15,20 +17,18 @@ import { updateDevExecutionTestMode } from "@/lib/orchestration/service/dev-exec
 import { configureCompanyExecutionHive, ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 import type { RoutingLane } from "@/lib/orchestration/execution-hives";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-execution-route-dispatch-${Date.now()}.db`,
-  );
-}
+process.env.ORCHESTRATION_DB_PATH ??= path.join(
+  os.tmpdir(),
+  `mc-execution-route-dispatch-${Date.now()}.db`,
+);
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
-function writeFakeRunner(dir: string): string {
-  const file = path.join(dir, "fake-symphony-runner.cjs");
-  writeFileSync(
-    file,
-    `#!${process.execPath}
+function createFakeSymphonyRunner(): string {
+  return createExecutableScriptStub({
+    prefix: "mc-fake-symphony-runner",
+    extension: "cjs",
+    script: `#!${process.execPath}
 let body = "";
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => body += chunk);
@@ -58,9 +58,7 @@ process.stdin.on("end", () => {
   }));
 });
 `,
-  );
-  chmodSync(file, 0o755);
-  return file;
+  });
 }
 
 function latestRun(taskId: string) {
@@ -108,17 +106,32 @@ function routeAttemptSummaries(runRow: RouteRunRow): string[] {
 async function run() {
   console.log("\nExecution Route Dispatch Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  resetSqliteDatabaseFiles(dbPath);
+  const envSnapshot = snapshotEnv([
+    "FAIL_ANTHROPIC",
+    "FAIL_CODEX_USAGE_LIMIT",
+    "FAIL_GEMINI_UNKNOWN_EXIT",
+    "MC_DEV_EXECUTION_TEST_MODE",
+    "NODE_ENV",
+    "PORT",
+    "ROUTE_AUDIT_FILE",
+    "SYMPHONY_EXEC_TIMEOUT_MS",
+  ]);
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), "mc-route-dispatch-"));
   const auditFile = path.join(tmp, "route-audit.jsonl");
-  const fakeRunner = writeFakeRunner(tmp);
+  const fakeRunner = createFakeSymphonyRunner();
+  process.once("exit", () => {
+    restoreEnvSnapshot(envSnapshot);
+    rmSync(tmp, { recursive: true, force: true });
+    rmSync(fakeRunner, { force: true });
+  });
+
   process.env.ROUTE_AUDIT_FILE = auditFile;
   process.env.MC_DEV_EXECUTION_TEST_MODE = "1";
   process.env.PORT = "3010";
   process.env.SYMPHONY_EXEC_TIMEOUT_MS = "5000";
-  (process.env as Record<string, string | undefined>).NODE_ENV = "development";
+  setTestNodeEnv("development");
 
   const company = createCompany({
     name: `Execution Route Dispatch ${Date.now()}`,
