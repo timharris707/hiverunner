@@ -1,8 +1,12 @@
 import assert from "node:assert";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject } from "@/lib/orchestration/service";
@@ -16,24 +20,17 @@ import {
   resolveWorkspacePath,
   resolveWorkspacePathStrict,
 } from "@/lib/files/workspace-resolver";
-import { createTestRunner } from "./helpers/simple-test-runner";
 
-const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nFile Workspace Registry Tests\n");
 
-  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-file-workspaces-"));
-  process.env.MC_WORKSPACE_ROOT = path.join(tempRoot, "workspaces");
-  process.env.OPENCLAW_DIR = path.join(tempRoot, "openclaw");
-  process.env.OPENCLAW_WORKSPACE_ROOT = path.join(tempRoot, "openclaw", "workspace");
-
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    fs.rmSync(dbPath, { force: true });
-    fs.rmSync(`${dbPath}-wal`, { force: true });
-    fs.rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
+  const workspaceIsolation = createIsolatedOrchestrationWorkspace({
+    prefix: "mc-file-workspaces-",
+  });
+  const tempRoot = workspaceIsolation.tempRoot;
 
   const sourceRoot = path.join(tempRoot, "loanmeld-source");
   const outsideRoot = path.join(tempRoot, "outside");
