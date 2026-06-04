@@ -20,24 +20,9 @@ import {
   createIsolatedOrchestrationWorkspace,
   resetSqliteDatabaseFiles,
 } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function createFixture() {
   const project = createProject({
@@ -172,11 +157,7 @@ async function run() {
     workspaceIsolation.dispose();
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) {
-    process.exitCode = 1;
-  }
+  finish();
 }
 
 run().catch((error) => {
