@@ -6,7 +6,7 @@ import {
   shouldIncludeWorkspaceInOperatorRails,
 } from "@/lib/workspace-visibility";
 
-const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nWorkspace Visibility Tests\n");

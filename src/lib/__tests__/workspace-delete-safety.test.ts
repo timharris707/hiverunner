@@ -6,7 +6,7 @@ import {
   isPathContained,
 } from "@/lib/workspaces/delete-safety";
 
-const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nWorkspace Delete Safety Tests\n");
