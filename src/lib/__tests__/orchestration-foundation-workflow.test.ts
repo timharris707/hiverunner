@@ -16,6 +16,7 @@ import {
   GET as listTaskCommentsRoute,
   POST as createTaskCommentRoute,
 } from "@/app/api/orchestration/tasks/[id]/comments/route";
+import { configureCompanyExecutionHive, ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 
 let passed = 0;
 let failed = 0;
@@ -59,6 +60,16 @@ async function run() {
     description: "Workflow regression fixture",
     status: "active",
   }).company;
+  ensureCompanyExecutionHives({ companyIdOrSlug: company.slug });
+  configureCompanyExecutionHive({
+    companyIdOrSlug: company.slug,
+    hiveId: "balanced-builder",
+    orchestrationMode: "manual",
+    runtimeProvider: "openclaw",
+    runtimeLabel: "OpenClaw",
+    modelRouting: "runtime-managed",
+    modelRoutingLabel: "Runtime managed",
+  });
 
   const createProjectRes = await createProjectRoute(
     makeJsonRequest("http://localhost/api/orchestration/projects", {
@@ -223,7 +234,7 @@ async function run() {
     assert.equal(payload.task.assignee, createAgentPayload.agent.name);
     assert.equal(payload.heartbeat.attempted, true);
     assert.equal(payload.heartbeat.status, "skipped");
-    assert.equal(payload.heartbeat.reason, "manual_runtime");
+    assert.equal(payload.heartbeat.reason, "manual_execution_engine");
 
     const agents = listProjectAgents(projectId).agents;
     const updatedAgent = agents.find((agent) => agent.id === agentId);

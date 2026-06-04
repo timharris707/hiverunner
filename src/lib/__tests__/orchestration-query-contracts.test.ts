@@ -13,6 +13,10 @@ import {
   listTasks,
   syncCompanyAgentsFromOpenClaw,
 } from "@/lib/orchestration/service";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  DEFAULT_ORCHESTRATION_COMPANY_SLUG,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -41,7 +45,7 @@ async function run() {
     rmSync(`${dbPath}-shm`, { force: true });
   }
 
-  const defaultCompanySlug = "neveridle-core";
+  const defaultCompanySlug = DEFAULT_ORCHESTRATION_COMPANY_SLUG;
   const otherCompany = createCompany({
     name: `Query Scope ${Date.now()}`,
     description: "fixture",
@@ -49,7 +53,7 @@ async function run() {
   }).company;
 
   const defaultProject = createProject({
-    companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+    companyId: DEFAULT_ORCHESTRATION_COMPANY_ID,
     name: `Default Scope ${Date.now()}`,
     description: "Default company project",
     color: "#b45309",
@@ -222,7 +226,7 @@ async function run() {
     );
   });
 
-  await test("company agent/task queries reconcile stale terminal openclaw state", () => {
+  await test("company agent query reconciles stale terminal openclaw state before task list reads", () => {
     const staleAgent = qaRoleAgent;
 
     const staleTask = createTask({
@@ -275,6 +279,12 @@ async function run() {
       now,
     );
 
+    const agents = listCompanyAgents(defaultCompanySlug, { includeNonProduction: true }).agents;
+    const reconciledAgent = agents.find((agent) => agent.id === staleAgent.id);
+    assert.ok(reconciledAgent, "Expected reconciled agent in company roster");
+    assert.strictEqual(reconciledAgent?.status, "idle");
+    assert.strictEqual(reconciledAgent?.currentTask, undefined);
+
     const refreshedTask = getTask(staleTask.id).task;
     assert.strictEqual(refreshedTask.status, "review");
 
@@ -282,12 +292,6 @@ async function run() {
       .prepare("SELECT execution_session_id FROM tasks WHERE id = ?")
       .get(staleTask.id) as { execution_session_id: string | null } | undefined;
     assert.strictEqual(taskRow?.execution_session_id ?? null, null);
-
-    const agents = listCompanyAgents(defaultCompanySlug, { includeNonProduction: true }).agents;
-    const reconciledAgent = agents.find((agent) => agent.id === staleAgent.id);
-    assert.ok(reconciledAgent, "Expected reconciled agent in company roster");
-    assert.strictEqual(reconciledAgent?.status, "idle");
-    assert.strictEqual(reconciledAgent?.currentTask, undefined);
 
     const scopedTasks = listTasks({
       companyIdOrSlug: defaultCompanySlug,

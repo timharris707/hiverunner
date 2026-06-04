@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { randomUUID } from "node:crypto";
 
 export const DEFAULT_ORCHESTRATION_COMPANY_ID = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+export const DEFAULT_ORCHESTRATION_COMPANY_SLUG = "hiverunner-workspace";
 
 type ProjectFixture = {
   id: string;
