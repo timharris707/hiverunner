@@ -9,8 +9,8 @@
 import assert from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -41,14 +41,11 @@ function test(name: string, fn: () => Promise<void> | void) {
 }
 
 async function run() {
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
   const originalCancelGrace = process.env.MC_CANCEL_SIGKILL_GRACE_MS;
   process.env.MC_CANCEL_SIGKILL_GRACE_MS = "25";
 
   try {
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-    }
+    resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
     await test("cancelTaskExecution cancels subprocess-backed Codex runs through the adapter", async () => {
       const { cancelTaskExecution } = await import("@/lib/orchestration/execution");

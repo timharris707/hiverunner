@@ -14,12 +14,13 @@
  */
 
 import assert from "node:assert";
-import { existsSync, writeFileSync, rmSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -62,8 +63,7 @@ function processAlive(pid: number): boolean {
 }
 
 async function run() {
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) rmSync(dbPath, { force: true });
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const originalCancelGrace = process.env.MC_CANCEL_SIGKILL_GRACE_MS;
   process.env.MC_CANCEL_SIGKILL_GRACE_MS = "50";
