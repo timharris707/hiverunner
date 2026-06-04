@@ -38,6 +38,24 @@ Latest checkpoint after PR #55:
   - circular dependencies: 9
 - Duplication: 169 clone groups, 152 clone families, 31,192 duplicated lines, 10.4% duplication across 418 files
 
+Latest checkpoint after PR #60:
+
+- Scan commit: `46f400316` (`Reuse orchestration DB reset test helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 459 total
+  - unused files: 47
+  - unused exports: 288
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 160 clone groups, 136 clone families, 29,840 duplicated lines, 10.0% duplication across 410 files
+- Health score: 73, grade B
+- Total measured LOC: 245,730
+
+Net movement from the PR #55 checkpoint: 9 fewer clone groups, 16 fewer clone families, 1,352 fewer duplicated lines, and 8 fewer files with clones. Dead-code counts did not move in this batch because the work was deliberately test-fixture cleanup.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -63,6 +81,10 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #53: prune unused utility exports
 - #54: use shared runner in sync tests
 - #55: clean up memory quality test helpers
+- #57: reuse execution route test helpers
+- #58: reuse build route test helpers
+- #59: reuse auth route test helpers
+- #60: reuse orchestration DB reset test helpers
 
 Related but not cleanup:
 
@@ -83,21 +105,21 @@ Related but not cleanup:
 
 These are good near-term hygiene targets because they are mostly test-only or small helper extractions. Pick by expected gain and risk, not by raw Fallow ordering.
 
-1. Remaining repeated test runner/setup shells
-   - Source signal: large inherited clone families still visible in `fallow:changed`, especially repeated imports, pass/fail counters, test runners, and cleanup tails across test files.
-   - Expected shape: continue reusing existing helpers, especially `createTestRunner`, `resetSqliteDatabaseFiles`, auth env, middleware, voice session, and orchestration fixtures. Avoid one global harness.
+1. Remaining repeated setup shells and route-test fixtures
+   - Source signal: the largest remaining duplication family spans repeated test setup/import/env blocks across 39 files, plus smaller setup families in OpenClaw/heartbeat/voice-style orchestration tests.
+   - Expected shape: continue reusing existing helpers, especially `createTestRunner`, `resetSqliteDatabaseFiles`, auth env, middleware, voice session, and orchestration fixtures. Prefer small clusters with shared setup semantics; avoid one global harness.
    - Validation: touched test files plus `npm run fallow:changed`.
    - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
-2. Small route-test fixture duplication
-   - Source signal: route tests still have repeated owner/session/company setup patterns outside the clusters already completed.
-   - Expected shape: narrow helper reuse within a route-test family, not a route-framework abstraction.
+2. Single-file or tiny-family test fixture extractions
+   - Source signal: remaining clone families include `orchestration-execution-cancel.test.ts`, `orchestration-execution-route-dispatch.test.ts`, `orchestration-bundle5-reliability.test.ts`, and build-route fixture bodies.
+   - Expected shape: local helper functions inside the test file or a narrow existing test helper, not a broad framework abstraction.
    - Validation: touched route tests plus `npm run fallow:changed`.
-   - Estimate: one to two PRs.
+   - Estimate: two to four small PRs.
 
 3. Dead export micro-prunes
-   - Source signal: remaining unused exports in isolated utilities and small helper modules.
-   - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports.
+   - Source signal: dead-code remains at 459 findings; near-term candidates include isolated helper exports such as `setMiddlewareNodeEnv` and utilities that direct import searches prove unused.
+   - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
 
@@ -145,6 +167,26 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Completed by #55 with `createTestRunner`, `resetSqliteDatabaseFiles`, and existing learning fixtures where semantics matched.
   - Validation: six touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
 
+- Execution route test helper duplication
+  - Source signal: repeated pass/fail runners and DB cleanup in execution route, hives, inbox, and wiki governance tests.
+  - Completed by #57 with `createTestRunner` and `resetSqliteDatabaseFiles`.
+  - Validation: six touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Build/status/continuation test helper duplication
+  - Source signal: repeated tiny runners and DB cleanup in build route, factory status, local health, passive report, and continuation tests.
+  - Completed by #58 with `createTestRunner` and `resetSqliteDatabaseFiles`.
+  - Validation: seven touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Auth and route-adjacent test helper duplication
+  - Source signal: repeated pass/fail runners in auth, CSRF, ideas migration, and company owner authorization tests.
+  - Completed by #59 with `createTestRunner` and one SQLite reset-helper reuse.
+  - Validation: five touched tests, `npm run test:csrf`, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Orchestration DB reset/setup shell duplication
+  - Source signal: repeated manual db/wal/shm cleanup and local pass/fail runners across orchestration contract tests.
+  - Completed by #60 with `createTestRunner`, `resetSqliteDatabaseFiles`, and an opt-in stack-preview option to preserve existing bundle-test diagnostics.
+  - Validation: nine touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -180,4 +222,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test runner/setup duplication first, especially DB reset/setup shells and route-test fixture reuse. Keep dead-export work to isolated utilities with direct import searches. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, execution-cancel single-file repetition, and small repeated build-route fixture bodies. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
