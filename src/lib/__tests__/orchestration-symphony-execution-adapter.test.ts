@@ -355,26 +355,96 @@ async function run() {
       return JSON.parse(executionRun.token_usage_json ?? "{}") as Record<string, unknown>;
     }
 
+    function createSymphonyAgentFixture(options: {
+      projectId?: string;
+      name: string;
+      emoji: string;
+      role?: string;
+      personality?: string;
+      openclawAgentId?: string;
+    }) {
+      return createProjectAgent({
+        projectId: options.projectId ?? project.id,
+        name: options.name,
+        emoji: options.emoji,
+        role: options.role ?? "Engineer",
+        personality: options.personality ?? "Runs selected tasks.",
+        ...(options.openclawAgentId ? { openclawAgentId: options.openclawAgentId } : {}),
+        status: "idle",
+        skills: [],
+      }).agent;
+    }
+
+    function createSymphonyTaskFixture(options: {
+      projectId?: string;
+      title: string;
+      description: string;
+      priority?: string;
+      type?: string;
+      assignee?: string;
+      labels?: string[];
+      executionRuntimeProvider?: string;
+      executionRuntimeLabel?: string;
+      executionModelRouting?: string;
+      executionModelRoutingLabel?: string;
+    }) {
+      return createTask({
+        projectId: options.projectId ?? project.id,
+        title: options.title,
+        description: options.description,
+        priority: options.priority ?? "P2",
+        type: options.type ?? "feature",
+        status: "in-progress",
+        assignee: options.assignee ?? agent.id,
+        labels: options.labels ?? ["symphony"],
+        createdBy: "test",
+        executionEngine: "symphony",
+        ...(options.executionRuntimeProvider ? { executionRuntimeProvider: options.executionRuntimeProvider } : {}),
+        ...(options.executionRuntimeLabel ? { executionRuntimeLabel: options.executionRuntimeLabel } : {}),
+        ...(options.executionModelRouting ? { executionModelRouting: options.executionModelRouting } : {}),
+        ...(options.executionModelRoutingLabel ? { executionModelRoutingLabel: options.executionModelRoutingLabel } : {}),
+      }).task;
+    }
+
+    function upsertSymphonyRuntimeFixture(options: {
+      agentId: string;
+      runtimeSlug: string;
+      displayName: string;
+      runtimeKind?: "cli" | "external";
+      command?: string | null;
+      status?: string;
+      workspaceRoot?: string;
+      metadata?: Record<string, unknown>;
+    }) {
+      return upsertCompanyRuntime({
+        companyIdOrSlug: company.id,
+        agentId: options.agentId,
+        provider: "symphony",
+        runtimeSlug: options.runtimeSlug,
+        displayName: options.displayName,
+        runtimeKind: options.runtimeKind ?? "cli",
+        scope: "agent",
+        command: options.command === undefined ? fakeSymphony : options.command,
+        status: options.status ?? "online",
+        ...(options.workspaceRoot ? { workspaceRoot: options.workspaceRoot } : {}),
+        ...(options.metadata ? { metadata: options.metadata } : {}),
+      });
+    }
+
     setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
-    const staleQaAgent = createProjectAgent({
-      projectId: project.id,
+    const staleQaAgent = createSymphonyAgentFixture({
       name: "QA Batch Fixture",
       emoji: "Q",
       role: "QA",
       personality: "Old generated QA fixture that must not receive fresh review handoffs.",
-      status: "idle",
-      skills: [],
-    }).agent;
+    });
     db.prepare("UPDATE agents SET adapter_type = ?, runtime_slug = ? WHERE id = ?")
       .run("symphony", "qa-batch-fixture", staleQaAgent.id);
-    upsertCompanyRuntime({
-      companyIdOrSlug: company.id,
+    upsertSymphonyRuntimeFixture({
       agentId: staleQaAgent.id,
-      provider: "symphony",
       runtimeSlug: "qa-batch-fixture",
       displayName: "Stale QA Batch Runtime",
       runtimeKind: "cli",
-      scope: "agent",
       command: path.join(tempRoot, "missing-stale-qa-runner.mjs"),
       status: "error",
       workspaceRoot: path.join(company.workspace.root, "agents", "qa-batch-fixture"),
@@ -387,14 +457,11 @@ async function run() {
     });
 
     const agentScopedRuntimeRoot = path.join(company.workspace.root, "agents", "hiverunner-agent");
-    upsertCompanyRuntime({
-      companyIdOrSlug: company.id,
+    upsertSymphonyRuntimeFixture({
       agentId: agent.id,
-      provider: "symphony",
       runtimeSlug: "fixture-symphony",
       displayName: "Fixture External Runner",
       runtimeKind: "cli",
-      scope: "agent",
       command: fakeSymphony,
       status: "online",
       workspaceRoot: agentScopedRuntimeRoot,
@@ -439,18 +506,11 @@ async function run() {
       note: "External runner adapter test",
     }, db);
 
-    const task = createTask({
-      projectId: project.id,
+    const task = createSymphonyTaskFixture({
       title: "Run external runner adapter fixture",
       description: "Exercise the external runner execution adapter from a HiveRunner task.",
       priority: "P1",
-      type: "feature",
-      status: "in-progress",
-      assignee: agent.id,
-      labels: ["symphony"],
-      createdBy: "test",
-      executionEngine: "symphony",
-    }).task;
+    });
 
     await test("task executionEngine=symphony dispatches through the external runner contract", async () => {
       const { queued, runId } = await executeQueuedSymphonyHeartbeat({
@@ -600,18 +660,10 @@ async function run() {
           company.id,
         );
 
-        const matrixTask = createTask({
-          projectId: project.id,
+        const matrixTask = createSymphonyTaskFixture({
           title: "Run external runner matrix default fixture",
           description: "Exercise company Matrix runner provider defaults.",
-          priority: "P2",
-          type: "feature",
-          status: "in-progress",
-          assignee: agent.id,
-          labels: ["symphony"],
-          createdBy: "test",
-          executionEngine: "symphony",
-        }).task;
+        });
 
         await executeQueuedSymphonyHeartbeat({
           taskId: matrixTask.id,
@@ -655,25 +707,15 @@ async function run() {
     });
 
     await test("external runner usage model backfills the execution-run runner model", async () => {
-      const usageModelAgent = createProjectAgent({
-        projectId: project.id,
+      const usageModelAgent = createSymphonyAgentFixture({
         name: "Usage Model Agent",
         emoji: "U",
-        role: "Engineer",
-        personality: "Runs selected tasks.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: usageModelAgent.id,
-        provider: "symphony",
         runtimeSlug: "usage-model-fixture",
         displayName: "Usage Model Fixture Runner",
         runtimeKind: "cli",
-        scope: "agent",
-        command: fakeSymphony,
-        status: "online",
         workspaceRoot: path.join(company.workspace.root, "agents", "usage-model-fixture"),
         metadata: {
           commandPath: fakeSymphony,
@@ -683,18 +725,12 @@ async function run() {
           },
         },
       });
-      const usageModelTask = createTask({
-        projectId: project.id,
+      const usageModelTask = createSymphonyTaskFixture({
         title: "Run usage model fixture",
         description: "Exercise runner-reported concrete model backfill.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: usageModelAgent.id,
         labels: ["symphony", "usage-model"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.FAKE_SYMPHONY_USAGE_MODEL = "gpt-5.5";
       try {
@@ -731,26 +767,16 @@ async function run() {
     });
 
     await test("route-selected Anthropic runtime ignores legacy top-level model metadata", async () => {
-      const legacyModelAgent = createProjectAgent({
-        projectId: project.id,
+      const legacyModelAgent = createSymphonyAgentFixture({
         name: "Legacy Model Ignore Agent",
         emoji: "L",
-        role: "Engineer",
-        personality: "Runs selected tasks.",
-        status: "idle",
-        skills: [],
-      }).agent;
+      });
 
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      upsertSymphonyRuntimeFixture({
         agentId: legacyModelAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-route-legacy-model-guard",
         displayName: "Fixture External Runner Legacy Model Guard",
         runtimeKind: "cli",
-        scope: "agent",
-        command: fakeSymphony,
-        status: "online",
         workspaceRoot: path.join(company.workspace.root, "agents", "route-legacy-model-guard"),
         metadata: {
           commandPath: fakeSymphony,
@@ -761,18 +787,12 @@ async function run() {
           model: "openai-codex/gpt-5.5",
         },
       });
-      const legacyModelTask = createTask({
-        projectId: project.id,
+      const legacyModelTask = createSymphonyTaskFixture({
         title: "Route-selected runtime ignores legacy model fixture",
         description: "Exercise route runtime precedence over legacy model metadata fields.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: legacyModelAgent.id,
         labels: ["symphony", "legacy-model"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       try {
         setActiveHiveDefaultRoute({ runtimeId: "claude-code", runtimeLabel: "Claude Code" });
@@ -832,22 +852,14 @@ async function run() {
           company.id,
         );
 
-        const overrideTask = createTask({
-          projectId: project.id,
+        const overrideTask = createSymphonyTaskFixture({
           title: "Run external runner task override fixture",
           description: "Exercise task-level Matrix runner provider overrides.",
-          priority: "P2",
-          type: "feature",
-          status: "in-progress",
-          assignee: agent.id,
-          labels: ["symphony"],
-          createdBy: "test",
-          executionEngine: "symphony",
           executionRuntimeProvider: "gemini",
           executionRuntimeLabel: "Gemini CLI",
           executionModelRouting: "google",
           executionModelRoutingLabel: "Google Direct",
-        }).task;
+        });
 
         await executeQueuedSymphonyHeartbeat({
           taskId: overrideTask.id,
@@ -886,26 +898,18 @@ async function run() {
 
     await test("Matrix runtime provider overrides a legacy bundled Codex runner command", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "claude-code", runtimeLabel: "Claude Code" });
-      const matrixOverrideAgent = createProjectAgent({
-        projectId: project.id,
+      const matrixOverrideAgent = createSymphonyAgentFixture({
         name: "Matrix Provider Override Agent",
         emoji: "M",
-        role: "Engineer",
         personality: "Runs provider-neutral external runner tasks.",
-        status: "idle",
-        skills: [],
-      }).agent;
+      });
       const legacyBundledCodexRunner = path.join(process.cwd(), "scripts", "hiverunner-symphony-runner.mjs");
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      upsertSymphonyRuntimeFixture({
         agentId: matrixOverrideAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-legacy-codex-runner",
         displayName: "Fixture Legacy Bundled Codex Runner",
         runtimeKind: "external",
-        scope: "agent",
         command: legacyBundledCodexRunner,
-        status: "online",
         metadata: {
           commandPath: legacyBundledCodexRunner,
           commandArgs: ["--legacy-codex-arg"],
@@ -930,18 +934,12 @@ async function run() {
         }),
         company.id,
       );
-      const matrixOverrideTask = createTask({
-        projectId: project.id,
+      const matrixOverrideTask = createSymphonyTaskFixture({
         title: "Run matrix provider command override fixture",
         description: "Exercise provider-neutral command selection over a legacy Codex runner command.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: matrixOverrideAgent.id,
         labels: ["symphony", "matrix"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_CLAUDE_DRY_RUN = "1";
       try {
@@ -973,27 +971,15 @@ async function run() {
 
     await test("default bundled runner accepts the external runner payload when no runtime command is registered", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
-      const defaultRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const defaultRunnerAgent = createSymphonyAgentFixture({
         name: "Default External Runner Agent",
         emoji: "D",
-        role: "Engineer",
-        personality: "Runs selected tasks.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      const defaultRunnerTask = createTask({
-        projectId: project.id,
+      });
+      const defaultRunnerTask = createSymphonyTaskFixture({
         title: "Run default external runner fixture",
         description: "Exercise the bundled HiveRunner external runner.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: defaultRunnerAgent.id,
-        labels: ["symphony"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_SYMPHONY_DRY_RUN = "1";
       try {
@@ -1019,25 +1005,17 @@ async function run() {
 
     await test("blank command selects the Claude wrapper when runtime metadata requests Anthropic", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "claude-code", runtimeLabel: "Claude Code" });
-      const claudeRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const claudeRunnerAgent = createSymphonyAgentFixture({
         name: "Claude External Runner Agent",
         emoji: "C",
-        role: "Engineer",
         personality: "Runs selected tasks through Claude Code.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: claudeRunnerAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-claude-runner",
         displayName: "Fixture External Runner / Claude Code",
         runtimeKind: "external",
-        scope: "agent",
         command: null,
-        status: "online",
         metadata: {
           runnerContract: "hiverunner.symphony.execution.v1",
           runnerConfig: {
@@ -1049,18 +1027,12 @@ async function run() {
           },
         },
       });
-      const claudeRunnerTask = createTask({
-        projectId: project.id,
+      const claudeRunnerTask = createSymphonyTaskFixture({
         title: "Run Claude external runner fixture",
         description: "Exercise the metadata-selected Claude external runner.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: claudeRunnerAgent.id,
         labels: ["symphony", "claude"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_CLAUDE_DRY_RUN = "1";
       try {
@@ -1091,25 +1063,17 @@ async function run() {
 
     await test("blank command selects the Gemini wrapper when runtime metadata requests Gemini", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "gemini-cli", runtimeLabel: "Gemini CLI" });
-      const geminiRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const geminiRunnerAgent = createSymphonyAgentFixture({
         name: "Gemini External Runner Agent",
         emoji: "G",
-        role: "Engineer",
         personality: "Runs selected tasks through Gemini CLI.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: geminiRunnerAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-gemini-runner",
         displayName: "Fixture External Runner / Gemini",
         runtimeKind: "external",
-        scope: "agent",
         command: null,
-        status: "online",
         metadata: {
           runnerContract: "hiverunner.symphony.execution.v1",
           runnerConfig: {
@@ -1121,18 +1085,12 @@ async function run() {
           },
         },
       });
-      const geminiRunnerTask = createTask({
-        projectId: project.id,
+      const geminiRunnerTask = createSymphonyTaskFixture({
         title: "Run Gemini external runner fixture",
         description: "Exercise the metadata-selected Gemini external runner.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: geminiRunnerAgent.id,
         labels: ["symphony", "gemini"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_GEMINI_DRY_RUN = "1";
       try {
@@ -1163,25 +1121,17 @@ async function run() {
 
     await test("blank command selects the HERMES wrapper when runtime metadata requests HERMES", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "hermes", runtimeLabel: "Hermes" });
-      const hermesRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const hermesRunnerAgent = createSymphonyAgentFixture({
         name: "HERMES External Runner Agent",
         emoji: "H",
-        role: "Engineer",
         personality: "Runs selected tasks through HERMES ACP.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: hermesRunnerAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-hermes-runner",
         displayName: "Fixture External Runner / HERMES ACP",
         runtimeKind: "external",
-        scope: "agent",
         command: null,
-        status: "online",
         metadata: {
           runnerContract: "hiverunner.symphony.execution.v1",
           runnerConfig: {
@@ -1193,18 +1143,12 @@ async function run() {
           },
         },
       });
-      const hermesRunnerTask = createTask({
-        projectId: project.id,
+      const hermesRunnerTask = createSymphonyTaskFixture({
         title: "Run HERMES external runner fixture",
         description: "Exercise the metadata-selected HERMES external runner.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: hermesRunnerAgent.id,
         labels: ["symphony", "hermes"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_HERMES_DRY_RUN = "1";
       try {
@@ -1235,26 +1179,18 @@ async function run() {
 
     await test("blank command selects the OpenClaw wrapper when runtime metadata requests OpenClaw", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "openclaw", runtimeLabel: "OpenClaw" });
-      const openclawRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const openclawRunnerAgent = createSymphonyAgentFixture({
         name: "OpenClaw External Runner Agent",
         emoji: "O",
-        role: "Engineer",
         personality: "Runs selected tasks through the OpenClaw gateway.",
         openclawAgentId: "openclaw-external-runner-agent",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: openclawRunnerAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-openclaw-runner",
         displayName: "Fixture External Runner / OpenClaw Gateway",
         runtimeKind: "external",
-        scope: "agent",
         command: null,
-        status: "online",
         metadata: {
           runnerContract: "hiverunner.symphony.execution.v1",
           runnerConfig: {
@@ -1266,18 +1202,12 @@ async function run() {
           },
         },
       });
-      const openclawRunnerTask = createTask({
-        projectId: project.id,
+      const openclawRunnerTask = createSymphonyTaskFixture({
         title: "Run OpenClaw external runner fixture",
         description: "Exercise the metadata-selected OpenClaw external runner.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: openclawRunnerAgent.id,
         labels: ["symphony", "openclaw"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       process.env.HIVERUNNER_OPENCLAW_DRY_RUN = "1";
       try {
@@ -1319,42 +1249,27 @@ async function run() {
         status: "active",
         sourceWorkspaceRoot,
       }).project;
-      const sourceAgent = createProjectAgent({
+      const sourceAgent = createSymphonyAgentFixture({
         projectId: sourceProject.id,
         name: "Source Workspace Agent",
         emoji: "W",
-        role: "Engineer",
-        personality: "Runs selected tasks.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: sourceAgent.id,
-        provider: "symphony",
         runtimeSlug: "fixture-symphony-source",
         displayName: "Fixture External Runner Source",
         runtimeKind: "cli",
-        scope: "agent",
-        command: fakeSymphony,
-        status: "online",
         metadata: {
           commandPath: fakeSymphony,
           commandArgs: ["--source-fixture"],
         },
       });
-      const sourceTask = createTask({
+      const sourceTask = createSymphonyTaskFixture({
         projectId: sourceProject.id,
         title: "Run source workspace fixture",
         description: "Exercise project source workspace routing.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
         assignee: sourceAgent.id,
-        labels: ["symphony"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       await executeQueuedSymphonyHeartbeat({
         taskId: sourceTask.id,
@@ -1388,42 +1303,28 @@ async function run() {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
       async function runDiagnosticFixture(mode: "sleep" | "self-sigterm", title: string) {
-        const diagnosticAgent = createProjectAgent({
-          projectId: project.id,
+        const diagnosticAgent = createSymphonyAgentFixture({
           name: `Runner Diagnostic ${mode}`,
           emoji: "D",
-          role: "Engineer",
           personality: "Exercises runner termination diagnostics.",
-          status: "idle",
-          skills: [],
-        }).agent;
-        upsertCompanyRuntime({
-          companyIdOrSlug: company.id,
+        });
+        upsertSymphonyRuntimeFixture({
           agentId: diagnosticAgent.id,
-          provider: "symphony",
           runtimeSlug: `fixture-runner-diagnostic-${mode}`,
           displayName: "Fixture Runner Diagnostic",
           runtimeKind: "external",
-          scope: "agent",
-          command: fakeSymphony,
-          status: "online",
           metadata: {
             commandPath: fakeSymphony,
             runnerConfig: { provider: "codex" },
           },
         });
-        const diagnosticTask = createTask({
-          projectId: project.id,
+        const diagnosticTask = createSymphonyTaskFixture({
           title,
           description: "Exercise Symphony runner termination provenance.",
-          priority: "P2",
           type: "maintenance",
-          status: "in-progress",
           assignee: diagnosticAgent.id,
           labels: ["symphony", "diagnostics"],
-          createdBy: "test",
-          executionEngine: "symphony",
-        }).task;
+        });
 
         process.env.FAKE_SYMPHONY_MODE = mode;
         const previousTimeout = process.env.SYMPHONY_EXEC_TIMEOUT_MS;
@@ -1496,38 +1397,24 @@ async function run() {
 
     await test("missing external runner command fails the execution run with a useful provider error", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
-      const missingRunnerAgent = createProjectAgent({
-        projectId: project.id,
+      const missingRunnerAgent = createSymphonyAgentFixture({
         name: "Missing External Runner Agent",
         emoji: "M",
-        role: "Engineer",
         personality: "Exercises failure handling.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      upsertCompanyRuntime({
-        companyIdOrSlug: company.id,
+      });
+      upsertSymphonyRuntimeFixture({
         agentId: missingRunnerAgent.id,
-        provider: "symphony",
         runtimeSlug: "missing-symphony",
         displayName: "Missing External Runner",
         command: path.join(tempRoot, "bin", "definitely-missing-symphony"),
         runtimeKind: "external",
-        scope: "agent",
-        status: "online",
       });
-      const missingRunnerTask = createTask({
-        projectId: project.id,
+      const missingRunnerTask = createSymphonyTaskFixture({
         title: "Run missing external runner command fixture",
         description: "Exercise missing command failure handling.",
-        priority: "P2",
         type: "maintenance",
-        status: "in-progress",
         assignee: missingRunnerAgent.id,
-        labels: ["symphony"],
-        createdBy: "test",
-        executionEngine: "symphony",
-      }).task;
+      });
 
       const { result } = await executeQueuedSymphonyHeartbeat({
         taskId: missingRunnerTask.id,
