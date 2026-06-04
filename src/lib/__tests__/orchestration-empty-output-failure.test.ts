@@ -6,9 +6,11 @@
  */
 
 import assert from "node:assert";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
 
 let passed = 0;
 let failed = 0;
@@ -29,15 +31,15 @@ function test(name: string, fn: () => Promise<void> | void) {
 }
 
 function createStubOpenClawCli(): string {
-  const filePath = path.join(
+  const statePath = path.join(
     os.tmpdir(),
-    `mc-openclaw-empty-output-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`
+    `mc-openclaw-empty-output-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`,
   );
 
   const script = `#!/bin/sh
 METHOD="$3"
 PARAMS="$6"
-STATE_FILE="${path.join(os.tmpdir(), `mc-openclaw-empty-output-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`)}"
+STATE_FILE="${statePath}"
 
 extract_key() {
   printf '%s' "$PARAMS" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p'
@@ -72,9 +74,10 @@ echo "unsupported method: $METHOD" >&2
 exit 1
 `;
 
-  writeFileSync(filePath, script, "utf8");
-  chmodSync(filePath, 0o755);
-  return filePath;
+  return createExecutableScriptStub({
+    prefix: "mc-openclaw-empty-output",
+    script,
+  });
 }
 
 console.log("\nOrchestration Empty Output Failure Contract Test\n");
@@ -96,6 +99,9 @@ async function run() {
         createTask,
       } = await import("@/lib/orchestration/service");
       const { enqueueWakeup, executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+      const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import(
+        "@/lib/orchestration/service/execution-hives"
+      );
 
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -130,6 +136,17 @@ async function run() {
       }).task;
 
       const db = getOrchestrationDb();
+      ensureCompanyExecutionHives({ companyIdOrSlug: project.companyId }, db);
+      configureCompanyExecutionHive({
+        companyIdOrSlug: project.companyId,
+        hiveId: "balanced-builder",
+        orchestrationMode: "hiverunner",
+        runtimeProvider: "openclaw",
+        runtimeLabel: "OpenClaw",
+        modelRouting: "runtime-managed",
+        modelRoutingLabel: "Runtime managed",
+      }, db);
+
       const wake = enqueueWakeup(
         {
           agentId: agent.id,

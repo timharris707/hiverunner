@@ -6,9 +6,11 @@
  */
 
 import assert from "node:assert";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
 
 let passed = 0;
 let failed = 0;
@@ -29,10 +31,6 @@ function test(name: string, fn: () => Promise<void> | void) {
 }
 
 function createStubOpenClawCli(): string {
-  const filePath = path.join(
-    os.tmpdir(),
-    `mc-openclaw-passive-report-loop-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`
-  );
   const statePath = path.join(
     os.tmpdir(),
     `mc-openclaw-passive-report-loop-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`
@@ -76,9 +74,10 @@ echo "unsupported method: $METHOD" >&2
 exit 1
 `;
 
-  writeFileSync(filePath, script, "utf8");
-  chmodSync(filePath, 0o755);
-  return filePath;
+  return createExecutableScriptStub({
+    prefix: "mc-openclaw-passive-report-loop",
+    script,
+  });
 }
 
 console.log("\nOrchestration Passive Report Loop Guard Contract Test\n");
@@ -101,6 +100,9 @@ async function run() {
         listTaskComments,
       } = await import("@/lib/orchestration/service");
       const { enqueueWakeup, executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+      const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import(
+        "@/lib/orchestration/service/execution-hives"
+      );
 
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -138,6 +140,17 @@ async function run() {
       assert.strictEqual(beforeComments.length, 0);
 
       const db = getOrchestrationDb();
+      ensureCompanyExecutionHives({ companyIdOrSlug: project.companyId }, db);
+      configureCompanyExecutionHive({
+        companyIdOrSlug: project.companyId,
+        hiveId: "balanced-builder",
+        orchestrationMode: "hiverunner",
+        runtimeProvider: "openclaw",
+        runtimeLabel: "OpenClaw",
+        modelRouting: "runtime-managed",
+        modelRoutingLabel: "Runtime managed",
+      }, db);
+
       const wake = enqueueWakeup(
         {
           agentId: agent.id,
