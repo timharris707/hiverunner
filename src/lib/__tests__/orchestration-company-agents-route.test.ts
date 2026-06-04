@@ -1,7 +1,7 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { GET as listCompanyAgentsRoute } from "@/app/api/orchestration/companies/[slug]/agents/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 
@@ -26,12 +26,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nOrchestration Company Agents Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const stamp = Date.now();
   const company = createCompany({

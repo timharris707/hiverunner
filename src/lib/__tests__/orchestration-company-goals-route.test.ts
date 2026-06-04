@@ -1,10 +1,10 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject } from "@/lib/orchestration/service";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import {
   DELETE as deleteCompanyGoalsRoute,
   GET as getCompanyGoalsRoute,
@@ -33,12 +33,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nOrchestration Company Goals Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const company = createCompany({
     name: `Goals Scope ${Date.now()}`,

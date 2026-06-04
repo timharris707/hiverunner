@@ -42,6 +42,13 @@ function restoreEnv(previousEnv: Record<ManagedEnvKey, string | undefined>): voi
   }
 }
 
+export function resetSqliteDatabaseFiles(dbPath: string | null | undefined): void {
+  if (!dbPath) return;
+  rmSync(dbPath, { force: true });
+  rmSync(`${dbPath}-wal`, { force: true });
+  rmSync(`${dbPath}-shm`, { force: true });
+}
+
 function normalizeWorkspacePart(value: string | null | undefined): string {
   return (value ?? "")
     .replace(/'/g, "")
