@@ -16,24 +16,11 @@ import {
   resolveWorkspacePath,
   resolveWorkspacePathStrict,
 } from "@/lib/files/workspace-resolver";
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  \u2713 ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  \u2717 ${name}`);
-    console.error(`    ${message}`);
-  }
-}
-
-function run() {
+async function run() {
   console.log("\nFile Workspace Registry Tests\n");
 
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-file-workspaces-"));
@@ -143,7 +130,7 @@ function run() {
   ensureCompanyManagedFileWorkspaces(company.id);
   const workspaces = listCompanyFileWorkspaces(company.slug);
 
-  test("lists company, project files, project source, and agent memory workspaces", () => {
+  await test("lists company, project files, project source, and agent memory workspaces", () => {
     const ids = new Set(workspaces.map((workspace) => workspace.id));
     assert.ok(ids.has(companyId), "Expected company workspace");
     assert.ok(ids.has(projectFilesId), "Expected managed project files workspace");
@@ -152,7 +139,7 @@ function run() {
     assert.ok(ids.has(companyAgentMemoryId), "Expected company-level agent memory workspace");
   });
 
-  test("scaffolds managed company and project workspaces without copying source files", () => {
+  await test("scaffolds managed company and project workspaces without copying source files", () => {
     const projectFiles = workspaces.find((workspace) => workspace.id === projectFilesId);
     assert.ok(projectFiles?.exists, "Expected project files workspace to exist");
     assert.ok(projectFiles?.path.startsWith(company.workspace.root), "Expected managed project files under company root");
@@ -163,21 +150,21 @@ function run() {
     );
   });
 
-  test("resolves project source roots from explicit scoped workspace ids", () => {
+  await test("resolves project source roots from explicit scoped workspace ids", () => {
     assert.strictEqual(resolveScopedFileWorkspaceBase(projectSourceId), sourceRoot);
     assert.strictEqual(resolveWorkspaceBase(projectSourceId), sourceRoot);
     assert.strictEqual(resolveWorkspacePath(projectSourceId, "src/index.ts")?.fullPath, path.join(sourceRoot, "src", "index.ts"));
   });
 
-  test("keeps arbitrary external absolute paths blocked", () => {
+  await test("keeps arbitrary external absolute paths blocked", () => {
     assert.strictEqual(resolveWorkspaceBase(path.join(tempRoot, "not-registered")), null);
   });
 
-  test("blocks path traversal outside linked source roots", () => {
+  await test("blocks path traversal outside linked source roots", () => {
     assert.strictEqual(resolveWorkspacePath(projectSourceId, "../outside.txt"), null);
   });
 
-  test("strict resolver blocks symlink escapes from workspace reads", () => {
+  await test("strict resolver blocks symlink escapes from workspace reads", () => {
     const linkPath = path.join(sourceRoot, "src", "outside-link.txt");
     fs.symlinkSync(path.join(outsideRoot, "secret.txt"), linkPath);
 
@@ -186,7 +173,7 @@ function run() {
     assert.strictEqual(resolveWorkspacePathStrict(projectSourceId, "src/outside-link.txt"), null);
   });
 
-  test("strict resolver blocks writes through symlinked directories", () => {
+  await test("strict resolver blocks writes through symlinked directories", () => {
     const linkDirPath = path.join(company.workspace.root, "linked-outside");
     fs.symlinkSync(outsideRoot, linkDirPath, "dir");
 
@@ -194,20 +181,19 @@ function run() {
     assert.strictEqual(resolveWorkspacePathStrict(companyId, "linked-outside/created.txt", { forWrite: true }), null);
   });
 
-  test("strict resolver blocks writes to linked project source workspaces", () => {
+  await test("strict resolver blocks writes to linked project source workspaces", () => {
     assert.strictEqual(resolveWorkspacePathStrict(projectSourceId, "src/new.ts", { forWrite: true }), null);
     assert.strictEqual(resolveWorkspacePathStrict(projectFilesId, "notes/new.md", { forWrite: true })?.base, resolveWorkspaceBase(projectFilesId));
   });
 
-  test("resolves agent memory as a scoped workspace", () => {
+  await test("resolves agent memory as a scoped workspace", () => {
     assert.strictEqual(resolveWorkspaceBase(agentMemoryId), agentWorkspaceRoot);
     assert.strictEqual(resolveWorkspacePath(agentMemoryId, "IDENTITY.md")?.fullPath, path.join(agentWorkspaceRoot, "IDENTITY.md"));
     assert.strictEqual(resolveWorkspaceBase(companyAgentMemoryId), companyAgentWorkspaceRoot);
     assert.strictEqual(resolveWorkspacePath(companyAgentMemoryId, "IDENTITY.md")?.fullPath, path.join(companyAgentWorkspaceRoot, "IDENTITY.md"));
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run();

@@ -8,32 +8,19 @@ import {
   describeRunAssetSummary,
   loadLeadLagDashboardData,
 } from "@/lib/leadlag-dashboard";
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  ✓ ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 function writeJson(target: string, value: unknown) {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, JSON.stringify(value, null, 2));
 }
 
-function run() {
+async function run() {
   console.log("\nLead/Lag Dashboard Tests\n");
 
-  test("classifies null-pinned zero-event runs as availability-limited", () => {
+  await test("classifies null-pinned zero-event runs as availability-limited", () => {
     const label = classifyLeadLagRun({
       run_dir: "leadlag_run_20260415T060406Z",
       pinned_canonical_market_id: null,
@@ -45,7 +32,7 @@ function run() {
     assert.strictEqual(label, "Availability-limited: no supported exact match sampled");
   });
 
-  test("describes pinned zero-event runs with pinned asset context", () => {
+  await test("describes pinned zero-event runs with pinned asset context", () => {
     const summary = describeRunAssetSummary({
       pinned_canonical_market_id: "crypto-direction-btc-15m-1776265200",
       assets: {},
@@ -54,7 +41,7 @@ function run() {
     assert.strictEqual(summary, "Pinned BTC window; no qualifying attribution yet");
   });
 
-  test("describes unsupported runs honestly when no exact-match asset was pinned", () => {
+  await test("describes unsupported runs honestly when no exact-match asset was pinned", () => {
     const summary = describeRunAssetSummary({
       pinned_canonical_market_id: null,
       assets: {},
@@ -63,7 +50,7 @@ function run() {
     assert.strictEqual(summary, "No supported exact-match asset in this run");
   });
 
-  test("classifies multi-window zero-event runs honestly", () => {
+  await test("classifies multi-window zero-event runs honestly", () => {
     const label = classifyLeadLagRun({
       primary_canonical_market_id: "crypto-direction-btc-15m-1776266100",
       coverage: {
@@ -77,7 +64,7 @@ function run() {
     assert.strictEqual(label, "Captured 3 supported windows; no qualifying attribution event");
   });
 
-  test("loads dashboard summary and threshold progress from Hermes artifacts", () => {
+  await test("loads dashboard summary and threshold progress from Hermes artifacts", () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-leadlag-dashboard-"));
 
     writeJson(path.join(tmpRoot, "latest_leadlag_post_restore_status.json"), {
@@ -216,7 +203,7 @@ function run() {
     assert.strictEqual(dashboard.evidenceBreadthLabel, "Cross-asset/window evidence present");
   });
 
-  test("returns unavailable state when artifacts are missing", () => {
+  await test("returns unavailable state when artifacts are missing", () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "mc-leadlag-dashboard-empty-"));
     const dashboard = loadLeadLagDashboardData(tmpRoot);
 
@@ -225,8 +212,7 @@ function run() {
     assert.strictEqual(dashboard.recentRuns.length, 0);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run();
