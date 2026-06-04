@@ -1,27 +1,15 @@
 import assert from "node:assert";
 
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { assessProtectedRuntimeRisksForText } from "@/lib/orchestration/service/runtime-governance";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner();
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  PASS ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  FAIL ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+async function run() {
+  console.log("\nRuntime Governance Risk Assessment Tests\n");
 
-console.log("\nRuntime Governance Risk Assessment Tests\n");
-
-test("read-only live trading research does not require protected runtime approval", () => {
-  const risks = assessProtectedRuntimeRisksForText(`
+  await test("read-only live trading research does not require protected runtime approval", () => {
+    const risks = assessProtectedRuntimeRisksForText(`
     WEA-290
     Quant performance autopsy for Weather Edge relaunch
     Review Trading Floor data and live trading history for realized performance.
@@ -33,30 +21,35 @@ test("read-only live trading research does not require protected runtime approva
     Weather Edge
   `);
 
-  assert.deepStrictEqual(risks, []);
-});
+    assert.deepStrictEqual(risks, []);
+  });
 
-test("production or live environment changes still require approval", () => {
-  const risks = assessProtectedRuntimeRisksForText(`
+  await test("production or live environment changes still require approval", () => {
+    const risks = assessProtectedRuntimeRisksForText(`
     Deploy the fixed pricing worker to live production and restart the runtime.
   `);
 
-  assert.ok(risks.some((risk) => risk.code === "production_target"));
-});
+    assert.ok(risks.some((risk) => risk.code === "production_target"));
+  });
 
-test("database migration commands still require approval", () => {
-  const risks = assessProtectedRuntimeRisksForText("Run prisma migrate deploy for Weather Edge.");
+  await test("database migration commands still require approval", () => {
+    const risks = assessProtectedRuntimeRisksForText("Run prisma migrate deploy for Weather Edge.");
 
-  assert.ok(risks.some((risk) => risk.code === "database_change"));
-});
+    assert.ok(risks.some((risk) => risk.code === "database_change"));
+  });
 
-test("read-only production review does not require protected runtime approval", () => {
-  const risks = assessProtectedRuntimeRisksForText(`
+  await test("read-only production review does not require protected runtime approval", () => {
+    const risks = assessProtectedRuntimeRisksForText(`
     Review production trading logs and summarize performance by city. Do not change data or deploy anything.
   `);
 
-  assert.deepStrictEqual(risks, []);
-});
+    assert.deepStrictEqual(risks, []);
+  });
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed === 0 ? 0 : 1);
+  finish();
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

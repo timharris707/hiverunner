@@ -3,21 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 async function run() {
   console.log("\nHiveRunner Symphony Tracker Adapter Tests\n");
@@ -147,7 +135,7 @@ async function run() {
       actorUserId: "symphony:test",
     });
 
-    test("normalizes upstream-style state names into HiveRunner statuses", () => {
+    await test("normalizes upstream-style state names into HiveRunner statuses", () => {
       assert.strictEqual(normalizeSymphonyTrackerState("Todo"), "to-do");
       assert.strictEqual(normalizeSymphonyTrackerState("In Progress"), "in_progress");
       assert.strictEqual(normalizeSymphonyTrackerState("Human Review"), "review");
@@ -155,7 +143,7 @@ async function run() {
       assert.strictEqual(normalizeSymphonyTrackerState("unknown"), null);
     });
 
-    test("fetchCandidateIssues returns only Symphony-selected active HiveRunner tasks", () => {
+    await test("fetchCandidateIssues returns only Symphony-selected active HiveRunner tasks", () => {
       const issues = tracker.fetchCandidateIssues();
       assert.deepStrictEqual(issues.map((issue) => issue.identifier), [candidate.key]);
       const issue = issues[0]!;
@@ -173,7 +161,7 @@ async function run() {
       assert.ok(issue.url?.includes(`/tasks/${encodeURIComponent(candidate.key!)}`));
     });
 
-    test("fetchCandidateIssues excludes tasks already assigned to another worker", () => {
+    await test("fetchCandidateIssues excludes tasks already assigned to another worker", () => {
       const issues = tracker.fetchCandidateIssues();
       assert.ok(!issues.some((issue) => issue.identifier === otherWorkerTask.key));
 
@@ -185,7 +173,7 @@ async function run() {
       assert.ok(allWorkersTracker.fetchCandidateIssues().some((issue) => issue.identifier === otherWorkerTask.key));
     });
 
-    test("fetchIssuesByStates supports Symphony/Linear-style state aliases", () => {
+    await test("fetchIssuesByStates supports Symphony/Linear-style state aliases", () => {
       const issues = tracker.fetchIssuesByStates(["Todo", "Done"]);
       assert.deepStrictEqual(
         issues.map((issue) => issue.identifier).sort(),
@@ -193,7 +181,7 @@ async function run() {
       );
     });
 
-    test("fetchIssueStatesByIds returns refreshed issue state by id or key", () => {
+    await test("fetchIssueStatesByIds returns refreshed issue state by id or key", () => {
       const issues = tracker.fetchIssueStatesByIds([candidate.id, doneTask.key!, otherWorkerTask.key!]);
       assert.deepStrictEqual(
         issues.map((issue) => issue.identifier).sort(),
@@ -205,7 +193,7 @@ async function run() {
       );
     });
 
-    test("createComment and updateIssueState write through to HiveRunner", () => {
+    await test("createComment and updateIssueState write through to HiveRunner", () => {
       const comment = tracker.createComment(candidate.key!, "Symphony tracker comment.");
       assert.strictEqual(comment.taskId, candidate.id);
       const comments = listTaskComments(candidate.id).comments;
@@ -221,8 +209,7 @@ async function run() {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run().catch((error) => {
