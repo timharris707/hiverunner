@@ -56,6 +56,24 @@ Latest checkpoint after PR #60:
 
 Net movement from the PR #55 checkpoint: 9 fewer clone groups, 16 fewer clone families, 1,352 fewer duplicated lines, and 8 fewer files with clones. Dead-code counts did not move in this batch because the work was deliberately test-fixture cleanup.
 
+Latest checkpoint after PR #65:
+
+- Scan commit: `0e968dc1c` (`Reuse auth env test helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 459 total
+  - unused files: 47
+  - unused exports: 288
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 147 clone groups, 126 clone families, 29,161 duplicated lines, 9.8% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,730
+
+Net movement from the PR #60 checkpoint: 13 fewer clone groups, 10 fewer clone families, 679 fewer duplicated lines, and a 0.2 percentage-point reduction in reported duplication. Dead-code counts did not move in this batch because the work remained test-fixture focused.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -85,6 +103,10 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #58: reuse build route test helpers
 - #59: reuse auth route test helpers
 - #60: reuse orchestration DB reset test helpers
+- #62: clean up orchestration setup test helpers
+- #63: clean up execution cancel test fixtures
+- #64: share build task test fixtures
+- #65: reuse auth env test helpers
 
 Related but not cleanup:
 
@@ -106,13 +128,13 @@ Related but not cleanup:
 These are good near-term hygiene targets because they are mostly test-only or small helper extractions. Pick by expected gain and risk, not by raw Fallow ordering.
 
 1. Remaining repeated setup shells and route-test fixtures
-   - Source signal: the largest remaining duplication family spans repeated test setup/import/env blocks across 39 files, plus smaller setup families in OpenClaw/heartbeat/voice-style orchestration tests.
+   - Source signal: the largest remaining duplication families still include repeated test setup/import/env blocks across many files, plus smaller OpenClaw/heartbeat/voice-style orchestration test setup clusters.
    - Expected shape: continue reusing existing helpers, especially `createTestRunner`, `resetSqliteDatabaseFiles`, auth env, middleware, voice session, and orchestration fixtures. Prefer small clusters with shared setup semantics; avoid one global harness.
    - Validation: touched test files plus `npm run fallow:changed`.
    - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
 2. Single-file or tiny-family test fixture extractions
-   - Source signal: remaining clone families include `orchestration-execution-cancel.test.ts`, `orchestration-execution-route-dispatch.test.ts`, `orchestration-bundle5-reliability.test.ts`, and build-route fixture bodies.
+   - Source signal: remaining clone families include `orchestration-execution-route-dispatch.test.ts`, `orchestration-bundle5-reliability.test.ts`, execution adapter fixture bodies, and small route-test bodies.
    - Expected shape: local helper functions inside the test file or a narrow existing test helper, not a broad framework abstraction.
    - Validation: touched route tests plus `npm run fallow:changed`.
    - Estimate: two to four small PRs.
@@ -187,6 +209,26 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Completed by #60 with `createTestRunner`, `resetSqliteDatabaseFiles`, and an opt-in stack-preview option to preserve existing bundle-test diagnostics.
   - Validation: nine touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
 
+- Orchestration setup helper duplication
+  - Source signal: repeated runners, DB resets, env snapshots, and local setup bodies in dev-execution, agent scoping/profile/runtime update, and approval routing tests.
+  - Completed by #62 with existing test helpers plus small local helpers where setup semantics matched.
+  - Validation: five touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Execution cancel single-file fixture duplication
+  - Source signal: repeated subprocess-backed provider cancellation setup in `orchestration-execution-cancel.test.ts`.
+  - Completed by #63 with local fixture helpers while leaving the heartbeat cancellation contract separate.
+  - Validation: focused execution-cancel test, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Build task fixture duplication
+  - Source signal: repeated make/upsert/delete/get task fixture helpers in build route, factory status, and build-state terminal transition tests.
+  - Completed by #64 with a narrow `build-task-fixtures` test helper. The helper also creates the local fixture project directory so the tests pass in clean checkouts.
+  - Validation: three touched tests from a clean local project-dir state, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Auth/env test helper duplication
+  - Source signal: repeated runners and env setup/restore shells in auth, local-single-user, cost opt-in, and local exposure hardening tests.
+  - Completed by #65 with `createTestRunner` and env snapshot helpers.
+  - Validation: five touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -222,4 +264,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, execution-cancel single-file repetition, and small repeated build-route fixture bodies. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, OpenClaw/heartbeat setup clusters, and single-file fixture bodies. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
