@@ -43,6 +43,9 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #43: share auth env test helpers
 - #44: share memory and skills route helpers
 - #46: share CSRF owner session assertion
+- #48: share Symphony adapter test helpers
+- #49: share memory/review learning fixtures
+- #50: share create-task fixture helpers
 
 Related but not cleanup:
 
@@ -61,31 +64,25 @@ Related but not cleanup:
 
 ## Next Safe Queue
 
-These are good near-term hygiene targets because they are mostly test-only or small helper extractions.
+These are good near-term hygiene targets because they are mostly test-only or small helper extractions. Pick by expected gain and risk, not by raw Fallow ordering.
 
-1. Memory/skill/review test fixture cluster
-   - Source signal: clone families 91-95 across company memory route, company skills route, memory extractor, review routing, review decision, and skill candidate tests.
-   - Expected shape: one small shared fixture/assertion helper, only if direct reads confirm identical semantics.
+1. Remaining repeated test runner/import/setup shells
+   - Source signal: large inherited clone families still visible in `fallow:changed`, especially repeated imports, pass/fail counters, test runners, and cleanup tails across test files.
+   - Expected shape: only extract when a small domain cluster already shares identical semantics. Prefer existing helpers such as SQLite reset, auth env, middleware, voice session, or orchestration fixtures over creating one global harness.
    - Validation: touched test files plus `npm run fallow:changed`.
-   - Estimate: one or two small PRs.
+   - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
-2. Create-task dependency/subtask test cluster
-   - Source signal: clone families 96-100 around `orchestration-create-task-depends-on.test.ts` and neighboring task update/reconcile tests.
-   - Expected shape: extract repeated setup/assertion helpers without changing task behavior.
-   - Validation: touched tests plus relevant task update/reconcile tests.
-   - Estimate: one or two PRs.
-
-3. Single-file adapter test repetition
-   - Source signal: clone family 141 in `orchestration-symphony-execution-adapter.test.ts`.
-   - Expected shape: table/helper extraction inside the test file or a tiny local helper.
-   - Validation: Symphony adapter tests and `npm run fallow:changed`.
-   - Estimate: one PR.
-
-4. Dead export micro-prunes
+2. Dead export micro-prunes
    - Source signal: remaining unused exports in isolated utilities such as `src/lib/cron-parser.ts`, `src/lib/agent-status.ts`, `src/lib/agent-skills.ts`, and small UI helper modules.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime or framework entry points.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
+
+3. Small route-test fixture duplication
+   - Source signal: route tests still have repeated owner/session/company setup patterns outside the clusters already completed.
+   - Expected shape: narrow helper reuse within a route-test family, not a route-framework abstraction.
+   - Validation: touched route tests plus `npm run fallow:changed`.
+   - Estimate: one to two PRs.
 
 ## Completed Queue Items
 
@@ -93,6 +90,22 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Source signal: clone family 50 in `src/lib/__tests__/csrf-protection.test.ts`.
   - Completed by #46 with a local owner-session assertion helper.
   - Validation: `npm run test:csrf`, `git diff --check`, `npm run fallow:changed`.
+
+- Symphony adapter single-file repetition
+  - Source signal: clone family 141 in `src/lib/__tests__/orchestration-symphony-execution-adapter.test.ts`.
+  - Completed by #48 with local setup/execute helpers.
+  - Validation: Symphony adapter test, `git diff --check`, `npm run fallow:changed`.
+
+- Memory/skill/review test fixture cluster
+  - Source signal: clone families 91-95 across company memory route, company skills route, memory extractor, review routing, review decision, and skill candidate tests.
+  - Completed by #49 with shared orchestration learning fixtures.
+  - Validation: touched test files, `git diff --check`, `npm run fallow:changed`.
+
+- Create-task dependency/subtask test cluster
+  - Source signal: clone families 96-100 around `orchestration-create-task-depends-on.test.ts` and neighboring task update/reconcile tests.
+  - Completed by #50 with shared create-task fixture helpers.
+  - Validation: touched test files, `git diff --check`, `npm run fallow:changed`.
+  - Caveat: `orchestration-update-task-status-rejection.test.ts` still has two pre-existing failures reproduced on clean `origin/main`; do not treat that as introduced by #50.
 
 ## Defer Or Plan Separately
 
@@ -129,4 +142,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, the recommended target is one memory/skill/review test fixture cluster. Avoid runner scripts until the remaining test-helper clusters are cleaner.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test runner/setup duplication first, then isolated dead-export micro-prunes. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
