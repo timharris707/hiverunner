@@ -10,21 +10,9 @@
 
 import assert from "node:assert";
 import { DELETE, GET, PATCH, POST, PUT } from "@/app/api/auth/signup/route";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-async function test(name: string, fn: () => Promise<void> | void) {
-  try {
-    await fn();
-    passed++;
-    console.log(`  ✓ ${name}`);
-  } catch (error: unknown) {
-    failed++;
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function expectDisabled(res: Response, method: string) {
   assert.strictEqual(res.status, 403, `${method} expected 403, got ${res.status}`);
@@ -74,6 +62,5 @@ async function expectDisabled(res: Response, method: string) {
     );
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 })();

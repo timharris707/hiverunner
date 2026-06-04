@@ -5,25 +5,14 @@
 
 import assert from "node:assert/strict";
 import { buildNarrativeItems } from "@/lib/task-narrative";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed++;
-    console.log(`  \u2713 ${name}`);
-  } catch (error: unknown) {
-    failed++;
-    console.error(`  \u2717 ${name}`);
-    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
-
+void (async () => {
 console.log("\nNarrative Review Event Tests\n");
 
-test("keeps Gater review-in-progress item visible for review tasks", () => {
+await test("keeps Gater review-in-progress item visible for review tasks", () => {
   const result = buildNarrativeItems([
     {
       id: "TASK-REVIEWING",
@@ -41,7 +30,7 @@ test("keeps Gater review-in-progress item visible for review tasks", () => {
   assert.match(reviewItem!.text, /reviewing "Make review step visible"/);
 });
 
-test("preserves review approval event even after task is done", () => {
+await test("preserves review approval event even after task is done", () => {
   const result = buildNarrativeItems([
     {
       id: "TASK-APPROVED",
@@ -62,7 +51,7 @@ test("preserves review approval event even after task is done", () => {
   assert.ok(result.items.some((item) => item.type === "task_done" && /shipped/.test(item.text)));
 });
 
-test("emits rejection narrative with reviewer notes", () => {
+await test("emits rejection narrative with reviewer notes", () => {
   const result = buildNarrativeItems([
     {
       id: "TASK-REJECTED",
@@ -85,5 +74,8 @@ test("emits rejection narrative with reviewer notes", () => {
   assert.match(rejection!.text, /Missing the Gater verdict/);
 });
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-if (failed > 0) process.exit(1);
+finish();
+})().catch((error) => {
+  console.error("Unhandled test runner error:", error);
+  process.exit(1);
+});
