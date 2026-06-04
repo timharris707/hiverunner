@@ -74,6 +74,24 @@ Latest checkpoint after PR #65:
 
 Net movement from the PR #60 checkpoint: 13 fewer clone groups, 10 fewer clone families, 679 fewer duplicated lines, and a 0.2 percentage-point reduction in reported duplication. Dead-code counts did not move in this batch because the work remained test-fixture focused.
 
+Latest checkpoint after PR #70:
+
+- Scan commit: `a1662e5d0` (`Remove unused middleware test env helper`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 458 total
+  - unused files: 47
+  - unused exports: 287
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 146 clone groups, 125 clone families, 29,114 duplicated lines, 9.8% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,730
+
+Net movement from the PR #65 checkpoint: 1 fewer clone group, 1 fewer clone family, 47 fewer duplicated lines, and 1 fewer dead-code finding. This batch intentionally stayed low-risk, but the return was smaller than earlier fixture-helper batches; future work should keep using expected-gain/risk triage instead of treating every Fallow warning as equally valuable.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -107,6 +125,10 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #63: clean up execution cancel test fixtures
 - #64: share build task test fixtures
 - #65: reuse auth env test helpers
+- #67: dedupe Symphony adapter test fixtures
+- #68: clean up create task dependency test fixtures
+- #69: refactor CSRF test case fixtures
+- #70: remove unused middleware test env helper
 
 Related but not cleanup:
 
@@ -229,6 +251,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Completed by #65 with `createTestRunner` and env snapshot helpers.
   - Validation: five touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
 
+- Remaining single-file test fixture cleanup and one dead-export micro-prune
+  - Source signal: remaining clone families in `orchestration-symphony-execution-adapter.test.ts`, `orchestration-create-task-depends-on.test.ts`, and `csrf-protection.test.ts`, plus an isolated unused `setMiddlewareNodeEnv` helper export.
+  - Completed by #67, #68, #69, and #70 using explicit worktrees and one worker per branch.
+  - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: this moved the metrics only slightly. Keep future batches focused on slices with clear repetition and low behavioral risk; do not spend hours polishing tiny clone groups with little navigation or maintenance payoff.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -264,4 +292,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, OpenClaw/heartbeat setup clusters, and single-file fixture bodies. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially route-test fixtures, OpenClaw/heartbeat setup clusters, and single-file fixture bodies with obvious repeated setup. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. If a candidate appears to save only a handful of lines or mostly duplicate import blocks, skip it for now. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
