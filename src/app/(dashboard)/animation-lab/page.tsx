@@ -37,9 +37,7 @@ import {
   Sparkles,
   Target,
   Terminal,
-  TrendingUp,
   UserPlus,
-  Users,
   Workflow,
   Wrench,
 } from "lucide-react";

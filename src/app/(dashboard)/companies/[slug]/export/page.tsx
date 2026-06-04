@@ -6,7 +6,7 @@ import { useParams } from "next/navigation";
 import { ArrowLeft, Check, Download, Package } from "lucide-react";
 import { listCompanies } from "@/lib/orchestration/client";
 import type { OrchestrationCompany } from "@/lib/orchestration/types";
-import { P, color, type as T, space, radius } from "@/lib/ui/tokens";
+import { P, color, type as T, space } from "@/lib/ui/tokens";
 import { PageHeader, InfoNote } from "@/lib/ui/primitives";
 
 /* ─── Category definitions ─── */
