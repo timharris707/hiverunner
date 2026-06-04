@@ -2,11 +2,11 @@ export const AVATAR_ICON_PREFIX = "icon:";
 
 const PLACEHOLDER_SYMBOLS = new Set(["", "pixel", "🤖"]);
 
-export function toAvatarIconToken(iconKey: string): string {
+function toAvatarIconToken(iconKey: string): string {
   return `${AVATAR_ICON_PREFIX}${iconKey}`;
 }
 
-export function isAvatarIconToken(symbol: string | null | undefined): boolean {
+function isAvatarIconToken(symbol: string | null | undefined): boolean {
   return Boolean(symbol?.trim().startsWith(AVATAR_ICON_PREFIX));
 }
 
@@ -27,7 +27,7 @@ export function agentDisplayLabel(
   return displaySymbol ? `${displaySymbol} ${name}` : name;
 }
 
-export function defaultAgentIconKey(role: string | null | undefined): string {
+function defaultAgentIconKey(role: string | null | undefined): string {
   const normalized = role?.toLowerCase() ?? "";
 
   if (/\b(ceo|chief|founder|president|lead|director|head)\b/.test(normalized)) return "crown";

@@ -3,8 +3,8 @@ import { join } from "path";
 
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 
-export const ACTIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
-export const BUILDING_THRESHOLD_MS = 10 * 60 * 1000;
+const ACTIVE_THRESHOLD_MS = 2 * 60 * 60 * 1000;
+const BUILDING_THRESHOLD_MS = 10 * 60 * 1000;
 
 const OPENCLAW_DIR = resolveOpenClawDir();
 const SESSIONS_FILE = join(OPENCLAW_DIR, "agents", "main", "sessions", "sessions.json");
@@ -18,7 +18,7 @@ const LABEL_TO_AGENT: Array<{ keywords: string[]; agentId: string }> = [
   { keywords: ["counsel", "legal", "compliance", "contract", "regulatory", "privacy", "terms"], agentId: "counsel" },
 ];
 
-export type AgentStatus = "online" | "active" | "building" | "pending" | "offline";
+type AgentStatus = "online" | "active" | "building" | "pending" | "offline";
 
 export interface AgentStatusEntry {
   id: string;
@@ -39,7 +39,7 @@ function matchLabelToAgent(label: string): string | null {
   return null;
 }
 
-export function readSessionsFile(): Record<string, Record<string, unknown>> | null {
+function readSessionsFile(): Record<string, Record<string, unknown>> | null {
   try {
     if (!existsSync(SESSIONS_FILE)) return null;
     return JSON.parse(readFileSync(SESSIONS_FILE, "utf-8"));
@@ -48,7 +48,7 @@ export function readSessionsFile(): Record<string, Record<string, unknown>> | nu
   }
 }
 
-export function getGatewayConfig(): { port: number; token: string } | null {
+function getGatewayConfig(): { port: number; token: string } | null {
   try {
     const configPath = join(OPENCLAW_DIR, "openclaw.json");
     const config = JSON.parse(readFileSync(configPath, "utf-8"));
