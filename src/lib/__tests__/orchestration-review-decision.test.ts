@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { randomUUID } from "node:crypto";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
@@ -9,7 +9,11 @@ const isolation = createIsolatedOrchestrationWorkspace({
   prefix: "mc-review-decision-",
 });
 
-import { createCompany } from "@/lib/orchestration/company-service";
+import {
+  createCompanyProjectAgentFixture,
+  resetLearningTestDatabase,
+} from "@/lib/__tests__/helpers/orchestration-learning-fixtures";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompanyMemoryRecord, listCompanyMemoryRecords } from "@/lib/orchestration/company-memory";
 import {
   assignCompanySkillToAgent,
@@ -20,7 +24,7 @@ import {
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { routeCompanyReviewCandidates } from "@/lib/orchestration/review-routing";
 import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision";
-import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
+import { createProjectAgent, createTask } from "@/lib/orchestration/service";
 import { executeMcAction, parseActionsFromText } from "@/lib/orchestration/engine/engine";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -30,60 +34,22 @@ import {
 } from "@/lib/orchestration/skill-effectiveness";
 import { resolveCompanyAgentWorkspacePath } from "@/lib/workspaces/company-paths";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Review Decision Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetLearningTestDatabase();
 
   isolation.syncDatabase(getOrchestrationDb());
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Review Decision Company ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `Review Decision Project ${stamp}`,
-    description: "fixture project",
-    color: "#22d3ee",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-
-  const bruce = createProjectAgent({
-    projectId: project.id,
-    name: "Bruce (Lead)",
+  const { agent: bruce, company, project } = createCompanyProjectAgentFixture({
+    companyName: (stamp) => `Review Decision Company ${stamp}`,
+    projectName: (stamp) => `Review Decision Project ${stamp}`,
+    agentName: "Bruce (Lead)",
     emoji: "icon:crown",
     role: "CEO / Product Lead",
     personality: "Lead fixture.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const ralph = createProjectAgent({
     projectId: project.id,
     name: "Ralph (Repo Steward)",
@@ -371,8 +337,7 @@ async function run() {
     assert.strictEqual(activeMemory?.reviewedByAgentName, castor.name);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {

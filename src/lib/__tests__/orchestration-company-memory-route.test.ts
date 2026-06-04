@@ -5,65 +5,29 @@ import {
   PATCH as patchCompanyMemoryRoute,
   POST as createCompanyMemoryRoute,
 } from "@/app/api/orchestration/companies/[slug]/memory/route";
-import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
-import { createCompany } from "@/lib/orchestration/company-service";
-import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
+import {
+  assertJsonErrorCode,
+  createCompanyProjectAgentFixture,
+  jsonRequest,
+  resetLearningTestDatabase,
+} from "@/lib/__tests__/helpers/orchestration-learning-fixtures";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
+import { createTask } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function jsonRequest(url: string, body: Record<string, unknown>): Request {
-  return new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Company Memory Route Tests\n");
 
-  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
+  resetLearningTestDatabase();
 
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Memory Registry Company ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `Memory Registry Project ${stamp}`,
-    description: "fixture project",
-    color: "#22d3ee",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
-    name: `Memory Registry Agent ${stamp}`,
+  const { agent, company, project } = createCompanyProjectAgentFixture({
+    companyName: (stamp) => `Memory Registry Company ${stamp}`,
+    projectName: (stamp) => `Memory Registry Project ${stamp}`,
+    agentName: (stamp) => `Memory Registry Agent ${stamp}`,
     emoji: "icon:bot",
     role: "Researcher",
-    personality: "Precise test fixture agent.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const task = createTask({
     projectId: project.id,
     title: "Capture durable memory",
@@ -148,9 +112,7 @@ async function run() {
       { params: Promise.resolve({ slug: company.slug }) },
     );
 
-    assert.strictEqual(res.status, 400);
-    const payload = await res.json() as { error?: { code?: string } };
-    assert.strictEqual(payload.error?.code, "memory_review_required");
+    await assertJsonErrorCode(res, 400, "memory_review_required");
   });
 
   await test("PATCH approves and activates memory", async () => {
@@ -204,8 +166,7 @@ async function run() {
     assert.strictEqual(payload.memories[0].taskKey, "MEM-1");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
