@@ -4,27 +4,12 @@ import {
   GET as getCompanyRoutinesRoute,
   POST as postCompanyRoutinesRoute,
 } from "@/app/api/orchestration/companies/[slug]/routines/route";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Company Routines Route Tests\n");
@@ -108,8 +93,7 @@ async function run() {
     assert.strictEqual(routine.agentName, agent.name);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
