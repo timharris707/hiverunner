@@ -1,4 +1,4 @@
-export const PROJECT_COLOR_PALETTE = [
+const PROJECT_COLOR_PALETTE = [
   "#0ea5e9",
   "#14b8a6",
   "#f97316",
@@ -15,7 +15,7 @@ export const PROJECT_COLOR_PALETTE = [
 
 const HEX_COLOR_RE = /^#[0-9a-fA-F]{6}$/;
 
-export function isProjectHexColor(value: string | null | undefined): value is string {
+function isProjectHexColor(value: string | null | undefined): value is string {
   return typeof value === "string" && HEX_COLOR_RE.test(value.trim());
 }
 
