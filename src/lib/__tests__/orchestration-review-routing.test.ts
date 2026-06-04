@@ -1,7 +1,9 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const isolation = createIsolatedOrchestrationWorkspace({
   prefix: "mc-review-routing-",
@@ -43,12 +45,7 @@ function jsonRequest(url: string, body: Record<string, unknown>): Request {
 async function run() {
   console.log("\nOrchestration Review Routing Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   isolation.syncDatabase(getOrchestrationDb());
   const stamp = Date.now();

@@ -1,9 +1,10 @@
 import assert from "node:assert";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createCompanyMemoryRecord } from "@/lib/orchestration/company-memory";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -38,12 +39,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nOrchestration Wiki Markdown Write-back Service Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "mc-wiki-writeback-service-"));
   process.env.MC_WORKSPACE_ROOT = workspaceRoot;
 
