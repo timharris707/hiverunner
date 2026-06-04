@@ -40,15 +40,6 @@ export function createMiddlewareRequest(url: string, headers?: HeadersInit): Nex
   return new NextRequest(url, headers === undefined ? undefined : { headers });
 }
 
-export function setMiddlewareNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 export async function rejectSupabaseSessionLookup(): Promise<never> {
   throw new Error("Supabase session lookup failed");
 }
