@@ -12,10 +12,10 @@ import {
   readTasks,
   writeBuildLog,
 } from "../build-queue";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { getDb } from "../tasks-db";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 type LegacyTaskFixture = {
   id: string;
@@ -34,24 +34,6 @@ type BuildLogEntry = {
   error?: string | null;
   [key: string]: unknown;
 };
-
-function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed++;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed++;
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${errorMessage(error)}`);
-    });
-}
 
 function makeTask(overrides: Record<string, unknown> = {}): LegacyTaskFixture {
   const id = `test-build-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -462,8 +444,7 @@ async function run() {
     deleteTaskFixtures(fixtureTaskIds);
   }
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {

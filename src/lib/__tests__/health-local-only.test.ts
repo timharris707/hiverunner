@@ -2,24 +2,10 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import { rmSync } from "node:fs";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 async function withBlockedFetch<T>(fn: () => Promise<T>): Promise<{ result: T; calls: string[] }> {
   const originalFetch = globalThis.fetch;
@@ -42,9 +28,7 @@ async function run() {
 
   const tempRoot = path.join(os.tmpdir(), `hiverunner-health-local-${Date.now()}`);
   const dbPath = process.env.ORCHESTRATION_DB_PATH || path.join(tempRoot, "orchestration.db");
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
   process.env.ORCHESTRATION_DB_PATH = dbPath;
   process.env.MC_DATA_DIR = tempRoot;
   process.env.NODE_ENV = "development";
@@ -107,13 +91,9 @@ async function run() {
 
   closeOrchestrationDb();
   rmSync(tempRoot, { recursive: true, force: true });
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
