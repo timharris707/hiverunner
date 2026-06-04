@@ -102,6 +102,9 @@ async function run() {
         listTaskComments,
       } = await import("@/lib/orchestration/service");
       const { enqueueWakeup, executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
+      const { configureCompanyExecutionHive, ensureCompanyExecutionHives } = await import(
+        "@/lib/orchestration/service/execution-hives"
+      );
 
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -136,6 +139,17 @@ async function run() {
       }).task;
 
       const db = getOrchestrationDb();
+      ensureCompanyExecutionHives({ companyIdOrSlug: project.companyId }, db);
+      configureCompanyExecutionHive({
+        companyIdOrSlug: project.companyId,
+        hiveId: "balanced-builder",
+        orchestrationMode: "hiverunner",
+        runtimeProvider: "openclaw",
+        runtimeLabel: "OpenClaw",
+        modelRouting: "runtime-managed",
+        modelRoutingLabel: "Runtime managed",
+      }, db);
+
       const wake = enqueueWakeup(
         {
           agentId: agent.id,
