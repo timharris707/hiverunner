@@ -6,10 +6,11 @@
  */
 
 import assert from "node:assert";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
+import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
@@ -31,10 +32,6 @@ function test(name: string, fn: () => Promise<void> | void) {
 }
 
 function createRunningOutputOpenClawCli(): string {
-  const filePath = path.join(
-    os.tmpdir(),
-    `mc-openclaw-running-output-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`,
-  );
   const statePath = path.join(
     os.tmpdir(),
     `mc-openclaw-running-output-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`,
@@ -73,9 +70,10 @@ echo "unsupported method: $METHOD" >&2
 exit 1
 `;
 
-  writeFileSync(filePath, script, "utf8");
-  chmodSync(filePath, 0o755);
-  return filePath;
+  return createExecutableScriptStub({
+    prefix: "mc-openclaw-running-output",
+    script,
+  });
 }
 
 console.log("\nOpenClaw Running Output Wait Contract Test\n");

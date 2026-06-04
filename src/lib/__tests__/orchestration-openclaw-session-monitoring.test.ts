@@ -6,11 +6,10 @@
  */
 
 import assert from "node:assert";
-import { chmodSync, rmSync, writeFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
+import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
+import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
 import {
   createProject,
   createProjectAgent,
@@ -47,11 +46,6 @@ function test(name: string, fn: () => Promise<void> | void) {
 }
 
 function createStubOpenClawCli(): string {
-  const filePath = path.join(
-    os.tmpdir(),
-    `mc-openclaw-monitor-stub-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.sh`
-  );
-
   const script = `#!/bin/sh
 METHOD="$3"
 if [ "$METHOD" = "sessions.create" ]; then
@@ -83,9 +77,10 @@ echo "unsupported method: $METHOD" >&2
 exit 1
 `;
 
-  writeFileSync(filePath, script, "utf8");
-  chmodSync(filePath, 0o755);
-  return filePath;
+  return createExecutableScriptStub({
+    prefix: "mc-openclaw-monitor-stub",
+    script,
+  });
 }
 
 function createFixture() {
