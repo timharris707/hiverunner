@@ -3,21 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-async function test(name: string, fn: () => Promise<void> | void) {
-  try {
-    await fn();
-    passed += 1;
-    console.log(`  [pass] ${name}`);
-  } catch (error) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  [fail] ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 async function run() {
   console.log("\nSettings Missing Runtime Config Test\n");
@@ -57,8 +45,7 @@ async function run() {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
