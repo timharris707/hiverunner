@@ -13,8 +13,8 @@
  */
 
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -39,7 +39,7 @@ console.log("\nOrchestration update_task Assignee Contract Test\n");
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
 
     const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -310,7 +310,7 @@ async function run() {
       });
     });
   } finally {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
   const total = passed + failed;
