@@ -7,31 +7,16 @@
  */
 
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { withEdgeRouteMapFallback } from "@/lib/orchestration/edge-route-maps";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 import { closeOrchestrationDb, getOrchestrationDb } from "@/lib/orchestration/db";
 import { getRootRedirectCompanyCode } from "@/proxy";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 function mapsForCodes(codes: string[]): EdgeRouteMaps {
   const companyCodeToSlug = Object.fromEntries(
@@ -58,9 +43,7 @@ async function run() {
     throw new Error("ORCHESTRATION_DB_PATH is required for this test");
   }
 
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
 
   try {
     const db = getOrchestrationDb();
@@ -139,9 +122,7 @@ async function run() {
     closeOrchestrationDb();
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
