@@ -10,6 +10,8 @@ import { chmodSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+
 let passed = 0;
 let failed = 0;
 
@@ -86,7 +88,7 @@ async function run() {
   const stubCli = createRunningOutputOpenClawCli();
 
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
     process.env.ORCHESTRATION_OPENCLAW_SESSION_POLL_INTERVAL_MS = "10";
     process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS = "80";
@@ -178,7 +180,7 @@ async function run() {
     if (originalTimeoutMs === undefined) delete process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS;
     else process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS = originalTimeoutMs;
     rmSync(stubCli, { force: true });
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
   const total = passed + failed;

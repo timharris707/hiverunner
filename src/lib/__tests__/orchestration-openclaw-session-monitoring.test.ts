@@ -22,7 +22,10 @@ import { pollTaskExecutionStatus } from "@/lib/orchestration/execution";
 import { setTaskExecutionMode } from "@/lib/orchestration/bridge/store";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -156,9 +159,7 @@ async function run() {
   const stubCli = createStubOpenClawCli();
 
   try {
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
 
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
     const db = getOrchestrationDb();
@@ -218,9 +219,7 @@ async function run() {
     process.env.MC_STUB_HISTORY_STATE = originalState;
     rmSync(stubCli, { force: true });
     workspaceIsolation.dispose();
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
   }
 
   const total = passed + failed;

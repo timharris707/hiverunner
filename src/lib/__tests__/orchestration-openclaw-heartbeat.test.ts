@@ -6,7 +6,6 @@
  */
 
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import {
   createProject,
@@ -17,7 +16,10 @@ import {
 } from "@/lib/orchestration/service";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -81,11 +83,7 @@ async function run() {
     prefix: "mc-openclaw-heartbeat-",
   });
   try {
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-      rmSync(`${dbPath}-wal`, { force: true });
-      rmSync(`${dbPath}-shm`, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
     workspaceIsolation.syncDatabase(getOrchestrationDb());
 
     await test("Heartbeat updates agent lastHeartbeat, status, current task, and runtime", () => {
@@ -170,11 +168,7 @@ async function run() {
       );
     });
   } finally {
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-      rmSync(`${dbPath}-wal`, { force: true });
-      rmSync(`${dbPath}-shm`, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
     workspaceIsolation.dispose();
   }
 
