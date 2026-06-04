@@ -4,21 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function writeFakeGemini(file: string) {
   writeFileSync(
@@ -105,7 +93,7 @@ process.on("SIGTERM", () => server.close(() => process.exit(0)));
   throw new Error("Fake Gemini API did not start");
 }
 
-function run() {
+async function run() {
   console.log("\nHiveRunner Gemini External Runner Tests\n");
 
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "hiverunner-gemini-runner-test-"));
@@ -153,7 +141,7 @@ function run() {
       prompt: "Implement the Gemini runner wrapper.",
     };
 
-    test("Gemini runner consumes the HiveRunner external runner contract", () => {
+    await test("Gemini runner consumes the HiveRunner external runner contract", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -192,7 +180,7 @@ function run() {
       assert.ok(prompt.includes("Implement the Gemini runner wrapper."));
     });
 
-    test("Gemini runner dry-run validates payload without launching Gemini CLI", () => {
+    await test("Gemini runner dry-run validates payload without launching Gemini CLI", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -213,7 +201,7 @@ function run() {
       assert.ok(String(output.resultText).includes("dry run accepted"));
     });
 
-    test("Gemini runner ignores legacy task model-routing when a resolved runner model is present", () => {
+    await test("Gemini runner ignores legacy task model-routing when a resolved runner model is present", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify({
@@ -240,7 +228,7 @@ function run() {
       assert.strictEqual(output.runnerModel, "gemini-3-pro-preview");
     });
 
-    test("Gemini 3.5 Flash benchmark cells run through direct API after no-generation preflight", () => {
+    await test("Gemini 3.5 Flash benchmark cells run through direct API after no-generation preflight", () => {
       rmSync(argsFile, { force: true });
       rmSync(promptFile, { force: true });
       rmSync(invocationsFile, { force: true });
@@ -309,7 +297,7 @@ function run() {
       assert.ok(requests.some((request) => request.method === "POST" && request.url.startsWith("/v1beta/models/gemini-3.5-flash:generateContent")));
     });
 
-    test("Gemini benchmark preflight blocks model-not-found before launching benchmark cells", () => {
+    await test("Gemini benchmark preflight blocks model-not-found before launching benchmark cells", () => {
       rmSync(invocationsFile, { force: true });
       const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
@@ -353,7 +341,7 @@ function run() {
       assert.throws(() => readFileSync(invocationsFile, "utf8"), /ENOENT/, "blocked preflight must not launch a benchmark cell");
     });
 
-    test("Gemini benchmark preflight rejects stale packet_run_id rows before runtime access", () => {
+    await test("Gemini benchmark preflight rejects stale packet_run_id rows before runtime access", () => {
       rmSync(invocationsFile, { force: true });
       const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
@@ -394,8 +382,7 @@ function run() {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run();

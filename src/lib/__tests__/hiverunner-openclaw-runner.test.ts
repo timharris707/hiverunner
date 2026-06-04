@@ -4,21 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function writeFakeOpenClaw(file: string) {
   writeFileSync(
@@ -92,7 +80,7 @@ process.exit(1);
   chmodSync(file, 0o755);
 }
 
-function run() {
+async function run() {
   console.log("\nHiveRunner OpenClaw External Runner Tests\n");
 
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "hiverunner-openclaw-runner-test-"));
@@ -135,7 +123,7 @@ function run() {
       prompt: "Implement the OpenClaw runner wrapper.",
     };
 
-    test("OpenClaw runner consumes the HiveRunner external runner contract", () => {
+    await test("OpenClaw runner consumes the HiveRunner external runner contract", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -181,7 +169,7 @@ function run() {
       assert.ok(Array.isArray(output.transcriptEvents));
     });
 
-    test("OpenClaw runner fails instead of completing when final output never arrives", () => {
+    await test("OpenClaw runner fails instead of completing when final output never arrives", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -207,7 +195,7 @@ function run() {
       assert.strictEqual(usage.invocationMode, "gateway.sessions.create_send_poll_get");
     });
 
-    test("OpenClaw runner fails when the session monitor observes a failed terminal state", () => {
+    await test("OpenClaw runner fails when the session monitor observes a failed terminal state", () => {
       writeFileSync(callsFile, "[]", "utf8");
       const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
         cwd: process.cwd(),
@@ -233,7 +221,7 @@ function run() {
       assert.deepStrictEqual(calls.map((call) => call.method), ["sessions.create", "sessions.send", "sessions.get"]);
     });
 
-    test("OpenClaw runner dry-run validates payload without launching gateway", () => {
+    await test("OpenClaw runner dry-run validates payload without launching gateway", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -257,8 +245,7 @@ function run() {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run();

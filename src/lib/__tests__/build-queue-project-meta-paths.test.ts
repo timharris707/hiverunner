@@ -1,22 +1,9 @@
 import assert from "node:assert";
 
 import { __testHooks } from "@/lib/build-queue";
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  \u2713 ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  \u2717 ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
   const previous: Record<string, string | undefined> = {};
@@ -42,10 +29,10 @@ function withEnv(vars: Record<string, string | undefined>, fn: () => void) {
   }
 }
 
-function run() {
+async function run() {
   console.log("\nBuild Queue Project Meta Path Tests\n");
 
-  test("hiverunner tasks resolve under MC_APP_ROOT even when WORKSPACE_ROOT points elsewhere", () => {
+  await test("hiverunner tasks resolve under MC_APP_ROOT even when WORKSPACE_ROOT points elsewhere", () => {
     withEnv(
       {
         MC_APP_ROOT: "/Users/timharris/.hiverunner/app",
@@ -58,7 +45,7 @@ function run() {
     );
   });
 
-  test("hiverunner-orchestration tasks also resolve under MC_APP_ROOT", () => {
+  await test("hiverunner-orchestration tasks also resolve under MC_APP_ROOT", () => {
     withEnv(
       {
         MC_APP_ROOT: "/Users/timharris/.hiverunner/app",
@@ -71,7 +58,7 @@ function run() {
     );
   });
 
-  test("non HiveRunner projects still use workspace-root search behavior", () => {
+  await test("non HiveRunner projects still use workspace-root search behavior", () => {
     withEnv(
       {
         MC_APP_ROOT: "/Users/timharris/.hiverunner/app",
@@ -84,8 +71,7 @@ function run() {
     );
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run();

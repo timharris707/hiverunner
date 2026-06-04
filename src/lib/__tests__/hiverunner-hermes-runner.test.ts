@@ -4,21 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function writeFakeHermes(file: string) {
   writeFileSync(
@@ -105,7 +93,7 @@ rl.on("line", (line) => {
   chmodSync(file, 0o755);
 }
 
-function run() {
+async function run() {
   console.log("\nHiveRunner HERMES External Runner Tests\n");
 
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "hiverunner-hermes-runner-test-"));
@@ -146,7 +134,7 @@ function run() {
       prompt: "Implement the HERMES runner wrapper.",
     };
 
-    test("HERMES runner consumes the HiveRunner external runner contract", () => {
+    await test("HERMES runner consumes the HiveRunner external runner contract", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-hermes-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -189,7 +177,7 @@ function run() {
       assert.ok(prompt.includes("Implement the HERMES runner wrapper."));
     });
 
-    test("HERMES runner dry-run accepts default aliases without launching ACP", () => {
+    await test("HERMES runner dry-run accepts default aliases without launching ACP", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-hermes-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify({ ...payload, runnerModel: "hermes/default" }),
@@ -212,8 +200,7 @@ function run() {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run();
