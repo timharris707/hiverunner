@@ -6,13 +6,11 @@ import {
   ArrowLeft,
   Bot,
   Calendar,
-  CheckCircle2,
   Clock,
   FolderOpen,
   Play,
   Repeat,
   Save,
-  XCircle,
 } from "lucide-react";
 import {
   getRoutineDetail,

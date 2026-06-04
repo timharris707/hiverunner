@@ -2,14 +2,9 @@
 
 import { use, useEffect, useState } from "react";
 import {
-  FolderOpen,
-  HardDrive,
   CheckCircle2,
   XCircle,
-  Clock,
-  Bot,
   ExternalLink,
-  AlertTriangle,
 } from "lucide-react";
 import { listProjects } from "@/lib/orchestration/client";
 import type { OrchestrationProject } from "@/lib/orchestration/types";
