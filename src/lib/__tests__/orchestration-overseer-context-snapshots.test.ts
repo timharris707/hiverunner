@@ -3,23 +3,9 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  fail ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function rows(db: { prepare: (sql: string) => { all: (...args: unknown[]) => unknown[] } }, sql: string, ...args: unknown[]) {
   return db.prepare(sql).all(...args);
@@ -263,9 +249,7 @@ async function run() {
 
   closeOrchestrationDb();
   rmSync(tempRoot, { recursive: true, force: true });
-
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {
