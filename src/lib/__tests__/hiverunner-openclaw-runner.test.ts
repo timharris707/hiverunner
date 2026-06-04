@@ -8,6 +8,8 @@ import { createTestRunner } from "./helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type ExtraEnv = Record<string, string | undefined>;
+
 function writeFakeOpenClaw(file: string) {
   writeFileSync(
     file,
@@ -94,6 +96,24 @@ async function run() {
     mkdirSync(companyWorkspace, { recursive: true });
     writeFakeOpenClaw(fakeOpenClaw);
 
+    function runOpenClawRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(inputPayload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_OPENCLAW_COMMAND: fakeOpenClaw,
+          FAKE_OPENCLAW_CWD_FILE: cwdFile,
+          FAKE_OPENCLAW_CALLS_FILE: callsFile,
+          ...extraEnv,
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    }
+
     const payload = {
       schema: "hiverunner.symphony.execution.v1",
       runId: "run-openclaw-fixture",
@@ -124,20 +144,7 @@ async function run() {
     };
 
     await test("OpenClaw runner consumes the HiveRunner external runner contract", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_OPENCLAW_COMMAND: fakeOpenClaw,
-          FAKE_OPENCLAW_CWD_FILE: cwdFile,
-          FAKE_OPENCLAW_CALLS_FILE: callsFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runOpenClawRunner(payload);
       assert.strictEqual(output.sessionId, "openclaw-fixture-session");
       assert.strictEqual(output.sessionKey && String(output.sessionKey).startsWith("external-runner:denise-openclaw:INS-63:"), true);
       assert.strictEqual(output.runnerProvider, "openclaw");
@@ -170,23 +177,11 @@ async function run() {
     });
 
     await test("OpenClaw runner fails instead of completing when final output never arrives", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_OPENCLAW_COMMAND: fakeOpenClaw,
-          HIVERUNNER_OPENCLAW_FINAL_TIMEOUT_MS: "20",
-          HIVERUNNER_OPENCLAW_FINAL_POLL_MS: "1",
-          FAKE_OPENCLAW_NO_FINAL: "1",
-          FAKE_OPENCLAW_CWD_FILE: cwdFile,
-          FAKE_OPENCLAW_CALLS_FILE: callsFile,
-        },
+      const output = runOpenClawRunner(payload, {
+        HIVERUNNER_OPENCLAW_FINAL_TIMEOUT_MS: "20",
+        HIVERUNNER_OPENCLAW_FINAL_POLL_MS: "1",
+        FAKE_OPENCLAW_NO_FINAL: "1",
       });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
       assert.ok(String(output.error).includes("did not produce final assistant output"));
       assert.ok(String(output.resultText).includes("OpenClaw external runner failed"));
       const usage = output.usage as Record<string, unknown>;
@@ -197,21 +192,7 @@ async function run() {
 
     await test("OpenClaw runner fails when the session monitor observes a failed terminal state", () => {
       writeFileSync(callsFile, "[]", "utf8");
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_OPENCLAW_COMMAND: fakeOpenClaw,
-          FAKE_OPENCLAW_FAILED: "1",
-          FAKE_OPENCLAW_CWD_FILE: cwdFile,
-          FAKE_OPENCLAW_CALLS_FILE: callsFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runOpenClawRunner(payload, { FAKE_OPENCLAW_FAILED: "1" });
       assert.ok(String(output.error).includes("OpenClaw session ended with status failed"));
       assert.ok(String(output.resultText).includes("OpenClaw external runner failed"));
       const usage = output.usage as Record<string, unknown>;
@@ -222,21 +203,7 @@ async function run() {
     });
 
     await test("OpenClaw runner dry-run validates payload without launching gateway", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-openclaw-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_OPENCLAW_COMMAND: fakeOpenClaw,
-          HIVERUNNER_OPENCLAW_DRY_RUN: "1",
-          FAKE_OPENCLAW_CWD_FILE: cwdFile,
-          FAKE_OPENCLAW_CALLS_FILE: callsFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runOpenClawRunner(payload, { HIVERUNNER_OPENCLAW_DRY_RUN: "1" });
       assert.strictEqual(output.runnerProvider, "openclaw");
       assert.strictEqual(output.runnerModel, null);
       assert.ok(String(output.resultText).includes("dry run accepted"));
