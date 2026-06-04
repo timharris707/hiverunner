@@ -28,24 +28,9 @@ import { buildSetupMessage, VOICE_ASSISTANT_SYSTEM_PROMPT } from "@/lib/gemini-l
 import { shouldPollLiveRuns } from "@/hooks/useLiveRuns";
 import { readStoredDemoModeFromStorage } from "@/lib/demo-mode";
 import { createHiddenProjectsSnapshotReader, getEmptyHiddenProjectsSnapshot, parseHiddenProjects } from "@/lib/hidden-project-state";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 console.log("\nClient Lint Helper Contract Tests\n");
 
@@ -395,9 +380,7 @@ async function run() {
     assert.equal(getEmptyHiddenProjectsSnapshot(), getEmptyHiddenProjectsSnapshot());
   });
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
