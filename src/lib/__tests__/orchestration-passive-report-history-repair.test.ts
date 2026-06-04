@@ -10,10 +10,17 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
+
+type OrchestrationDb = ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>;
 
 async function createFixture() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
@@ -26,27 +33,25 @@ async function createFixture() {
     status: "active",
   }).company;
 
-  const project = createProject({
+  const project = createFixtureProject(createProject, {
     companyId: company.id,
-    name: `Passive Repair ${Date.now()}`,
+    namePrefix: "Passive Repair",
+    label: "fixture",
     description: "Passive report history repair fixture",
     color: "#ef4444",
     emoji: "🧹",
-    status: "active",
-  }).project;
+  });
 
-  const agent = createProjectAgent({
+  const agent = createFixtureAgent(createProjectAgent, {
     projectId: project.id,
-    name: `Repair Agent ${Math.random().toString(36).slice(2, 6)}`,
+    namePrefix: "Repair Agent",
     emoji: "🛠️",
     role: "Runtime Engineer",
-    personality: "Deterministic",
-    openclawAgentId: `repair-agent-${Math.random().toString(36).slice(2, 8)}`,
-    status: "idle",
+    openclawPrefix: "repair-agent",
     skills: ["orchestration"],
-  }).agent;
+  });
 
-  const task = createTask({
+  const task = createBasicFixtureTask(createTask, {
     projectId: project.id,
     title: "[E2E] Passive report repair fixture",
     description: "Disposable proof task for passive report repair.",
@@ -54,16 +59,115 @@ async function createFixture() {
     type: "infrastructure",
     status: "in-progress",
     assignee: agent.id,
-    labels: ["e2e", "repair"],
     createdBy: "test-suite",
-  }).task;
+  });
 
   const db = getOrchestrationDb();
   return { db, project, agent, task };
 }
 
+function engineCommentRef(taskId: string, suffix = "470f75bfd21486f3"): string {
+  return `engine:comment:${taskId.slice(0, 8)}:${suffix}`;
+}
+
+function insertHeartbeatRun(input: {
+  db: OrchestrationDb;
+  id: string;
+  agentId: string;
+  companyId: string;
+  status: string;
+  resultJson?: Record<string, unknown>;
+  wakeupRequestId?: string;
+  createdAt: string;
+  updatedAt?: string;
+}): void {
+  input.db.prepare(
+    `INSERT INTO heartbeat_runs
+       (id, agent_id, company_id, invocation_source, status, wakeup_request_id, context_snapshot_json, result_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'wakeup_request', ?, ?, '{}', ?, ?, ?)`
+  ).run(
+    input.id,
+    input.agentId,
+    input.companyId,
+    input.status,
+    input.wakeupRequestId ?? null,
+    JSON.stringify(input.resultJson ?? {}),
+    input.createdAt,
+    input.updatedAt ?? input.createdAt,
+  );
+}
+
+function insertNoReplyComment(input: {
+  db: OrchestrationDb;
+  id: string;
+  taskId: string;
+  agentId: string;
+  type: "comment" | "status_update";
+  externalRef?: string;
+  createdAt: string;
+}): void {
+  input.db.prepare(
+    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
+     VALUES (?, ?, ?, 'NO_REPLY', ?, 'openclaw', ?, ?, ?)`
+  ).run(
+    input.id,
+    input.taskId,
+    input.agentId,
+    input.type,
+    input.externalRef ?? engineCommentRef(input.taskId),
+    input.createdAt,
+    input.createdAt,
+  );
+}
+
+function insertTaskCommentEvent(input: {
+  db: OrchestrationDb;
+  id: string;
+  projectId: string;
+  taskId: string;
+  agentId: string;
+  runId: string;
+  createdAt: string;
+}): void {
+  input.db.prepare(
+    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
+  ).run(
+    input.id,
+    input.projectId,
+    input.taskId,
+    input.agentId,
+    JSON.stringify({ source: "engine_heartbeat", runId: input.runId }),
+    input.createdAt,
+  );
+}
+
+function insertPassiveWake(input: {
+  db: OrchestrationDb;
+  id: string;
+  agentId: string;
+  companyId: string;
+  status: string;
+  createdAt: string;
+  finishedAt?: string;
+}): void {
+  input.db.prepare(
+    `INSERT INTO agent_wakeup_requests
+       (id, agent_id, company_id, source, reason, payload_json, status, created_at, updated_at, finished_at)
+     VALUES (?, ?, ?, 'api', 'continuation_passive_report_only', '{}', ?, ?, ?, ?)`
+  ).run(
+    input.id,
+    input.agentId,
+    input.companyId,
+    input.status,
+    input.createdAt,
+    input.createdAt,
+    input.finishedAt ?? null,
+  );
+}
+
 function seedNoise(input: {
-  db: ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>;
+  db: OrchestrationDb;
   companyId: string;
   agentId: string;
   taskId: string;
@@ -83,68 +187,35 @@ function seedNoise(input: {
   const taskEventId = randomUUID();
   const heartbeatEventId = randomUUID();
 
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'failed', '{}', '{}', ?, ?)`
-  ).run(passiveRunId, agentId, companyId, now, now);
-
-  db.prepare(
-    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
-     VALUES (?, ?, ?, 'NO_REPLY', 'status_update', 'openclaw', ?, ?, ?)`
-  ).run(noReplyCommentId, taskId, agentId, `engine:comment:${taskId.slice(0, 8)}:470f75bfd21486f3`, now, now);
-
-  db.prepare(
-    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
-  ).run(taskEventId, projectId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId: passiveRunId }), now);
+  insertHeartbeatRun({ db, id: passiveRunId, agentId, companyId, status: "failed", createdAt: now });
+  insertNoReplyComment({ db, id: noReplyCommentId, taskId, agentId, type: "status_update", createdAt: now });
+  insertTaskCommentEvent({ db, id: taskEventId, projectId, taskId, agentId, runId: passiveRunId, createdAt: now });
 
   db.prepare(
     `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at)
      VALUES (?, ?, ?, 'action_executed', 'Queued continuation wake: continuation_passive_report_only', ?)`
   ).run(heartbeatEventId, passiveRunId, agentId, now);
 
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, payload_json, status, created_at, updated_at, finished_at)
-     VALUES (?, ?, ?, 'api', 'continuation_passive_report_only', '{}', 'failed', ?, ?, ?)`
-  ).run(staleWakeA, agentId, companyId, now, now, now);
-
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, payload_json, status, created_at, updated_at, finished_at)
-     VALUES (?, ?, ?, 'api', 'continuation_passive_report_only', '{}', 'finished', ?, ?, ?)`
-  ).run(staleWakeB, agentId, companyId, now, now, now);
-
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, payload_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, 'api', 'continuation_passive_report_only', '{}', 'queued', ?, ?)`
-  ).run(freshWake, agentId, companyId, now, now);
-
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, wakeup_request_id, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'queued', ?, '{}', '{}', ?, ?)`
-  ).run(freshQueuedRun, agentId, companyId, freshWake, now, now);
-
-  db.prepare(
-    `INSERT INTO agent_wakeup_requests
-       (id, agent_id, company_id, source, reason, payload_json, status, created_at, updated_at)
-     VALUES (?, ?, ?, 'api', 'continuation_passive_report_only', '{}', 'queued', ?, ?)`
-  ).run(staleQueuedWake, agentId, companyId, staleNow, staleNow);
-
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, wakeup_request_id, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'queued', ?, '{}', '{}', ?, ?)`
-  ).run(staleQueuedRun, agentId, companyId, staleQueuedWake, staleNow, staleNow);
+  insertPassiveWake({ db, id: staleWakeA, agentId, companyId, status: "failed", createdAt: now, finishedAt: now });
+  insertPassiveWake({ db, id: staleWakeB, agentId, companyId, status: "finished", createdAt: now, finishedAt: now });
+  insertPassiveWake({ db, id: freshWake, agentId, companyId, status: "queued", createdAt: now });
+  insertHeartbeatRun({ db, id: freshQueuedRun, agentId, companyId, status: "queued", wakeupRequestId: freshWake, createdAt: now });
+  insertPassiveWake({ db, id: staleQueuedWake, agentId, companyId, status: "queued", createdAt: staleNow });
+  insertHeartbeatRun({
+    db,
+    id: staleQueuedRun,
+    agentId,
+    companyId,
+    status: "queued",
+    wakeupRequestId: staleQueuedWake,
+    createdAt: staleNow,
+  });
 
   return { noReplyCommentId, taskEventId, heartbeatEventId, staleWakeA, staleWakeB, freshWake, staleQueuedWake, staleQueuedRun, freshQueuedRun };
 }
 
 function seedLegitimateNoReplyComment(input: {
-  db: ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>;
+  db: OrchestrationDb;
   companyId: string;
   agentId: string;
   taskId: string;
@@ -156,34 +227,23 @@ function seedLegitimateNoReplyComment(input: {
   const commentId = randomUUID();
   const taskEventId = randomUUID();
 
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'succeeded', '{}', ?, ?, ?)`
-  ).run(
-    runId,
+  insertHeartbeatRun({
+    db,
+    id: runId,
     agentId,
     companyId,
-    JSON.stringify({ actionsExecuted: 1, reportsImported: 0, errors: [] }),
-    now,
-    now,
-  );
-
-  db.prepare(
-    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
-     VALUES (?, ?, ?, 'NO_REPLY', 'comment', 'openclaw', ?, ?, ?)`
-  ).run(commentId, taskId, agentId, `engine:comment:${taskId.slice(0, 8)}:470f75bfd21486f3`, now, now);
-
-  db.prepare(
-    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
-  ).run(taskEventId, projectId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId }), now);
+    status: "succeeded",
+    resultJson: { actionsExecuted: 1, reportsImported: 0, errors: [] },
+    createdAt: now,
+  });
+  insertNoReplyComment({ db, id: commentId, taskId, agentId, type: "comment", createdAt: now });
+  insertTaskCommentEvent({ db, id: taskEventId, projectId, taskId, agentId, runId, createdAt: now });
 
   return { runId, commentId, taskEventId };
 }
 
 function seedAmbiguousPassiveAndLegitNoReplyComments(input: {
-  db: ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>;
+  db: OrchestrationDb;
   companyId: string;
   agentId: string;
   taskId: string;
@@ -198,51 +258,37 @@ function seedAmbiguousPassiveAndLegitNoReplyComments(input: {
   const passiveTaskEventId = randomUUID();
   const legitTaskEventId = randomUUID();
 
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'failed', '{}', ?, ?, ?)`
-  ).run(
-    passiveRunId,
+  insertHeartbeatRun({
+    db,
+    id: passiveRunId,
     agentId,
     companyId,
-    JSON.stringify({ actionsExecuted: 0, reportsImported: 1, errors: [] }),
-    now,
-    now,
-  );
-
-  db.prepare(
-    `INSERT INTO heartbeat_runs
-       (id, agent_id, company_id, invocation_source, status, context_snapshot_json, result_json, created_at, updated_at)
-     VALUES (?, ?, ?, 'wakeup_request', 'succeeded', '{}', ?, ?, ?)`
-  ).run(
-    legitRunId,
+    status: "failed",
+    resultJson: { actionsExecuted: 0, reportsImported: 1, errors: [] },
+    createdAt: now,
+  });
+  insertHeartbeatRun({
+    db,
+    id: legitRunId,
     agentId,
     companyId,
-    JSON.stringify({ actionsExecuted: 1, reportsImported: 0, errors: [] }),
-    now,
-    now,
-  );
+    status: "succeeded",
+    resultJson: { actionsExecuted: 1, reportsImported: 0, errors: [] },
+    createdAt: now,
+  });
 
-  db.prepare(
-    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
-     VALUES (?, ?, ?, 'NO_REPLY', 'status_update', 'openclaw', ?, ?, ?)`
-  ).run(passiveCommentId, taskId, agentId, `engine:comment:${taskId.slice(0, 8)}:470f75bfd21486f3`, now, now);
-
-  db.prepare(
-    `INSERT INTO comments (id, task_id, author_agent_id, body, type, source, external_ref, created_at, updated_at)
-     VALUES (?, ?, ?, 'NO_REPLY', 'comment', 'openclaw', ?, ?, ?)`
-  ).run(legitCommentId, taskId, agentId, `engine:comment:${taskId.slice(0, 8)}:470f75bfd21486f3-legit`, now, now);
-
-  db.prepare(
-    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
-  ).run(passiveTaskEventId, projectId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId: passiveRunId }), now);
-
-  db.prepare(
-    `INSERT INTO task_events (id, project_id, task_id, agent_id, event_type, metadata_json, created_at)
-     VALUES (?, ?, ?, ?, 'task.comment_added', ?, ?)`
-  ).run(legitTaskEventId, projectId, taskId, agentId, JSON.stringify({ source: "engine_heartbeat", runId: legitRunId }), now);
+  insertNoReplyComment({ db, id: passiveCommentId, taskId, agentId, type: "status_update", createdAt: now });
+  insertNoReplyComment({
+    db,
+    id: legitCommentId,
+    taskId,
+    agentId,
+    type: "comment",
+    externalRef: engineCommentRef(taskId, "470f75bfd21486f3-legit"),
+    createdAt: now,
+  });
+  insertTaskCommentEvent({ db, id: passiveTaskEventId, projectId, taskId, agentId, runId: passiveRunId, createdAt: now });
+  insertTaskCommentEvent({ db, id: legitTaskEventId, projectId, taskId, agentId, runId: legitRunId, createdAt: now });
 
   return { passiveCommentId, legitCommentId, passiveTaskEventId, legitTaskEventId };
 }
