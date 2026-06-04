@@ -43,3 +43,70 @@ export function numberFrom(value) {
 export function asRecord(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
+
+function stringArrayFrom(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function firstString(values) {
+  for (const value of values) {
+    const text = stringFrom(value);
+    if (text) return text;
+  }
+  return "";
+}
+
+function firstStringOrFallback(values, fallback) {
+  const text = firstString(values);
+  return text || fallback;
+}
+
+function optionalJoinedLine(label, values) {
+  if (values.length === 0) return "";
+  return `${label}: ${values.join(", ")}`;
+}
+
+function trustedRuntimeLine(runtimeCapabilities) {
+  if (!runtimeCapabilities.trustedLocalExecution) return "";
+  return "This task is running in a trusted local HiveRunner runtime. Use local services and verification tools when the task requires them, and report any unavailable capability explicitly.";
+}
+
+function externalRunnerPromptParts(payload) {
+  const task = asRecord(payload.task) ?? {};
+  const project = asRecord(task.project) ?? {};
+  const company = asRecord(task.company) ?? {};
+  const workspace = asRecord(payload.workspace) ?? {};
+  const runtimeCapabilities = asRecord(workspace.runtimeCapabilities) ?? {};
+  return {
+    task,
+    project,
+    company,
+    workspace,
+    runtimeCapabilities,
+    capabilities: stringArrayFrom(runtimeCapabilities.capabilities),
+    additionalWritableDirs: stringArrayFrom(workspace.additionalWritableDirs),
+  };
+}
+
+export function buildExternalRunnerPrompt(payload, introLine) {
+  const parts = externalRunnerPromptParts(payload);
+  const context = [
+    introLine,
+    "",
+    `HiveRunner run ID: ${firstStringOrFallback([payload.runId], "unknown")}`,
+    `Task: ${firstStringOrFallback([parts.task.key, parts.task.id], "unknown")} - ${firstStringOrFallback([parts.task.title], "Untitled task")}`,
+    `Project: ${firstStringOrFallback([parts.project.name, parts.project.slug], "unknown")}`,
+    `Company: ${firstStringOrFallback([parts.company.name, parts.company.slug, parts.company.code], "unknown")}`,
+    `Source workspace for code changes and tests: ${firstStringOrFallback([parts.workspace.sourceWorkspaceRoot, parts.workspace.cwd], "unknown")}`,
+    `Company workspace for HiveRunner artifacts: ${firstStringOrFallback([parts.workspace.companyWorkspaceRoot], "unknown")}`,
+    optionalJoinedLine("Additional writable directories", parts.additionalWritableDirs),
+    optionalJoinedLine("Trusted local runtime capabilities", parts.capabilities),
+    trustedRuntimeLine(parts.runtimeCapabilities),
+    "",
+    "HiveRunner is the source of truth for task state. If you need to update HiveRunner task state, include a fenced mc-action block in your final response.",
+    "Make product code changes in the source workspace. Use the company workspace only for HiveRunner artifacts, notes, or task outputs when requested.",
+  ].join("\n");
+
+  return [context, stringFrom(payload.prompt)].filter(Boolean).join("\n\n");
+}
