@@ -1,11 +1,11 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import {
   GET as listCompanyMemoryRoute,
   PATCH as patchCompanyMemoryRoute,
   POST as createCompanyMemoryRoute,
 } from "@/app/api/orchestration/companies/[slug]/memory/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 
@@ -38,12 +38,7 @@ function jsonRequest(url: string, body: Record<string, unknown>): Request {
 async function run() {
   console.log("\nOrchestration Company Memory Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const stamp = Date.now();
   const company = createCompany({
