@@ -9,6 +9,7 @@ import {
   createMiddlewareTestRunner,
   rejectSupabaseSessionLookup,
 } from "@/lib/__tests__/helpers/orchestration-middleware-test-harness";
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { proxy as middleware } from "@/proxy";
 
 const { finish, test } = createMiddlewareTestRunner({ passLabel: "✓", failLabel: "✗" });
@@ -16,7 +17,7 @@ const { finish, test } = createMiddlewareTestRunner({ passLabel: "✓", failLabe
 async function run() {
   console.log("\nMiddleware Legacy Cookie Bypass Regression Test\n");
 
-  const originalAuthSecret = process.env.AUTH_SECRET;
+  const envSnapshot = snapshotEnv(["AUTH_SECRET"]);
   const legacySecret = "legacy-auth-secret-for-regression";
   process.env.AUTH_SECRET = legacySecret;
 
@@ -31,17 +32,13 @@ async function run() {
       await assertUnauthorizedMiddlewareResponse(response);
     });
   } finally {
-    if (originalAuthSecret === undefined) {
-      delete process.env.AUTH_SECRET;
-    } else {
-      process.env.AUTH_SECRET = originalAuthSecret;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   finish();
 }
 
 run().catch((error) => {
-  console.error("Unhandled test runner error:", error);
+  console.error("Unhandled middleware cookie bypass test runner error:", error);
   process.exit(1);
 });

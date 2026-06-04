@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { GET as authCallback } from "@/app/auth/callback/route";
 import { structuredLog } from "@/lib/observability/logging";
@@ -33,10 +34,12 @@ function captureConsoleWarn(fn: () => Promise<void> | void): Promise<string[]> {
 async function run() {
   console.log("\nHosted Auth Fail-Closed + Logging Test\n");
 
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalAuthSecret = process.env.AUTH_SECRET;
+  const envSnapshot = snapshotEnv([
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "AUTH_SECRET",
+  ]);
 
   try {
     process.env.MC_AUTH_MODE = "supabase";
@@ -110,23 +113,15 @@ async function run() {
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
     });
 
-    await test("structured logging redacts sensitive fields", () => {
-      const originalWarn = console.warn;
-      const messages: string[] = [];
-      console.warn = (message?: unknown) => {
-        messages.push(String(message));
-      };
-
-      try {
+    await test("structured logging redacts sensitive fields", async () => {
+      const messages = await captureConsoleWarn(() => {
         structuredLog("security", "warn", "test.redaction", {
           requestId: "request-1",
           password: "must-redact",
           serviceRoleKey: "must-redact-too",
           reason: "unit test",
         });
-      } finally {
-        console.warn = originalWarn;
-      }
+      });
 
       assert.equal(messages.length, 1);
       assert.match(messages[0], /"password":"\[redacted\]"/);
@@ -135,32 +130,13 @@ async function run() {
       assert.match(messages[0], /"reason":"unit test"/);
     });
   } finally {
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalAuthSecret === undefined) {
-      delete process.env.AUTH_SECRET;
-    } else {
-      process.env.AUTH_SECRET = originalAuthSecret;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   finish();
 }
 
 run().catch((error) => {
-  console.error("Unhandled test runner error:", error);
+  console.error("Unhandled hosted fail-closed logging test runner error:", error);
   process.exit(1);
 });
