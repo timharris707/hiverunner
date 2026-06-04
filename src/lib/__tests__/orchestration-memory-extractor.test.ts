@@ -1,71 +1,29 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { POST as extractMemoryRoute } from "@/app/api/orchestration/companies/[slug]/memory/extract/route";
-import { createCompany } from "@/lib/orchestration/company-service";
+import {
+  createCompanyProjectAgentFixture,
+  jsonRequest,
+  resetLearningTestDatabase,
+} from "@/lib/__tests__/helpers/orchestration-learning-fixtures";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { listCompanyMemoryRecords } from "@/lib/orchestration/company-memory";
-import { createProject, createProjectAgent, createTask, createTaskComment } from "@/lib/orchestration/service";
+import { createTask, createTaskComment } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function jsonRequest(url: string, body: Record<string, unknown>): Request {
-  return new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Memory Extractor Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetLearningTestDatabase();
 
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Memory Extractor Company ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `LoanMeld Memory Project ${stamp}`,
-    description: "fixture project",
-    color: "#22d3ee",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
-    name: `Memory Extractor QA ${stamp}`,
+  const { agent, company, project } = createCompanyProjectAgentFixture({
+    companyName: (stamp) => `Memory Extractor Company ${stamp}`,
+    projectName: (stamp) => `LoanMeld Memory Project ${stamp}`,
+    agentName: (stamp) => `Memory Extractor QA ${stamp}`,
     emoji: "icon:shield",
     role: "QA",
-    personality: "Precise test fixture agent.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const doneTask = createTask({
     projectId: project.id,
     title: "Verify durable repo workflow",
@@ -191,8 +149,7 @@ async function run() {
     assert.strictEqual(payload.skipped[0]?.reason, "not_completed");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {

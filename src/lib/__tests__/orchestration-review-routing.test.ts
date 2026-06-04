@@ -1,78 +1,40 @@
 import assert from "node:assert";
 
-import {
-  createIsolatedOrchestrationWorkspace,
-  resetSqliteDatabaseFiles,
-} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const isolation = createIsolatedOrchestrationWorkspace({
   prefix: "mc-review-routing-",
 });
 
 import { POST as routeReviewsRoute } from "@/app/api/orchestration/companies/[slug]/reviews/route";
-import { createCompany } from "@/lib/orchestration/company-service";
+import {
+  assertJsonErrorCode,
+  createCompanyProjectAgentFixture,
+  jsonRequest,
+  resetLearningTestDatabase,
+} from "@/lib/__tests__/helpers/orchestration-learning-fixtures";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompanyMemoryRecord, listCompanyMemoryRecords } from "@/lib/orchestration/company-memory";
 import { createCompanySkill, listCompanySkills } from "@/lib/orchestration/company-skills";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { createProject, createProjectAgent, createTask, listTasks } from "@/lib/orchestration/service";
+import { createProjectAgent, createTask, listTasks } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function jsonRequest(url: string, body: Record<string, unknown>): Request {
-  return new Request(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Review Routing Tests\n");
 
-  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
+  resetLearningTestDatabase();
 
   isolation.syncDatabase(getOrchestrationDb());
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Review Routing Company ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `LoanMeld Review Routing ${stamp}`,
-    description: "fixture project",
-    color: "#22d3ee",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-
-  const bruce = createProjectAgent({
-    projectId: project.id,
-    name: "Bruce (Lead)",
+  const { agent: bruce, company, project } = createCompanyProjectAgentFixture({
+    companyName: (stamp) => `Review Routing Company ${stamp}`,
+    projectName: (stamp) => `LoanMeld Review Routing ${stamp}`,
+    agentName: "Bruce (Lead)",
     emoji: "icon:crown",
     role: "Lead",
     personality: "Lead fixture.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const ralph = createProjectAgent({
     projectId: project.id,
     name: "Ralph (Repo Steward)",
@@ -218,13 +180,10 @@ async function run() {
       { params: Promise.resolve({ slug: company.slug }) },
     );
 
-    assert.strictEqual(res.status, 400);
-    const payload = await res.json() as { error?: { code?: string } };
-    assert.strictEqual(payload.error?.code, "invalid_target");
+    await assertJsonErrorCode(res, 400, "invalid_target");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
