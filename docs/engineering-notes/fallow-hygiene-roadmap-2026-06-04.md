@@ -42,6 +42,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #42: share middleware bypass test harness
 - #43: share auth env test helpers
 - #44: share memory and skills route helpers
+- #46: share CSRF owner session assertion
 
 Related but not cleanup:
 
@@ -62,35 +63,36 @@ Related but not cleanup:
 
 These are good near-term hygiene targets because they are mostly test-only or small helper extractions.
 
-1. CSRF repeated case bodies
-   - Source signal: clone family 50 in `src/lib/__tests__/csrf-protection.test.ts`.
-   - Expected shape: one helper for repeated request/case assertions inside the same test file.
-   - Validation: `npm run test:csrf`, `git diff --check`, `npm run fallow:changed`.
-   - Estimate: one small PR.
-
-2. Memory/skill/review test fixture cluster
+1. Memory/skill/review test fixture cluster
    - Source signal: clone families 91-95 across company memory route, company skills route, memory extractor, review routing, review decision, and skill candidate tests.
    - Expected shape: one small shared fixture/assertion helper, only if direct reads confirm identical semantics.
    - Validation: touched test files plus `npm run fallow:changed`.
    - Estimate: one or two small PRs.
 
-3. Create-task dependency/subtask test cluster
+2. Create-task dependency/subtask test cluster
    - Source signal: clone families 96-100 around `orchestration-create-task-depends-on.test.ts` and neighboring task update/reconcile tests.
    - Expected shape: extract repeated setup/assertion helpers without changing task behavior.
    - Validation: touched tests plus relevant task update/reconcile tests.
    - Estimate: one or two PRs.
 
-4. Single-file adapter test repetition
+3. Single-file adapter test repetition
    - Source signal: clone family 141 in `orchestration-symphony-execution-adapter.test.ts`.
    - Expected shape: table/helper extraction inside the test file or a tiny local helper.
    - Validation: Symphony adapter tests and `npm run fallow:changed`.
    - Estimate: one PR.
 
-5. Dead export micro-prunes
+4. Dead export micro-prunes
    - Source signal: remaining unused exports in isolated utilities such as `src/lib/cron-parser.ts`, `src/lib/agent-status.ts`, `src/lib/agent-skills.ts`, and small UI helper modules.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime or framework entry points.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
+
+## Completed Queue Items
+
+- CSRF repeated case bodies
+  - Source signal: clone family 50 in `src/lib/__tests__/csrf-protection.test.ts`.
+  - Completed by #46 with a local owner-session assertion helper.
+  - Validation: `npm run test:csrf`, `git diff --check`, `npm run fallow:changed`.
 
 ## Defer Or Plan Separately
 
@@ -127,4 +129,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, the recommended target is the CSRF repeated case-body cleanup plus, if that merges cleanly, one memory/skill/review test fixture cluster. Avoid runner scripts until the remaining test-helper clusters are cleaner.
+For the next run, the recommended target is one memory/skill/review test fixture cluster. Avoid runner scripts until the remaining test-helper clusters are cleaner.
