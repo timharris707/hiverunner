@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 
 import { NextRequest } from "next/server";
 
@@ -11,6 +10,7 @@ import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { createCompany, getCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createTask } from "@/lib/orchestration/service";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { proxy as middleware } from "@/proxy";
 
 let passed = 0;
@@ -72,12 +72,7 @@ function addActiveCompanyMembership(input: { companyId: string; userId: string; 
 async function run() {
   console.log("\nOrchestration Company Owner Authorization Test\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const originalApiKey = process.env.MC_API_KEY;
   const originalNodeEnv = process.env.NODE_ENV;

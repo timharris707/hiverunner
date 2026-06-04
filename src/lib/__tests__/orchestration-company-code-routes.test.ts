@@ -1,11 +1,11 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { NextRequest } from "next/server";
 
 import { GET as getCompanyRoute } from "@/app/api/orchestration/companies/[slug]/route";
 import { GET as getCompanyApprovalsRoute } from "@/app/api/orchestration/companies/[slug]/approvals/route";
 import { createCompany } from "@/lib/orchestration/company-service";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -28,12 +28,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nOrchestration Company Code Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const originalApiKey = process.env.MC_API_KEY;
   process.env.MC_API_KEY = "company-code-route-test-key";

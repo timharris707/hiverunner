@@ -1,10 +1,10 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 import { GET as getCompanyAgentRoute } from "@/app/api/orchestration/companies/[slug]/agents/[agentId]/route";
 import { GET as getAgentProfileRoute } from "@/app/api/orchestration/agents/[id]/profile/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -26,12 +26,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nOrchestration Agent Profile Route Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const companyA = createCompany({
     name: `Agent Profile A ${Date.now()}`,

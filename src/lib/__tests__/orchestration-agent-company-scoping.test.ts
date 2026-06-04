@@ -11,6 +11,7 @@ import {
   getTask,
   listProjectAgents,
 } from "@/lib/orchestration/service";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -32,13 +33,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nOrchestration Agent Company Scoping Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const projectA = createProject({
     companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
