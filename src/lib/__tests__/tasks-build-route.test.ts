@@ -12,6 +12,7 @@ import {
   makeBuildTaskFixture,
   upsertBuildTaskFixture,
 } from "@/lib/__tests__/helpers/build-task-fixtures";
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { readBuildLog, readTasks, writeBuildLog } from "../build-queue";
 import { getDb } from "../tasks-db";
@@ -57,12 +58,35 @@ console.log("\nTasks Build Route Contract Test\n");
 const originalBuildLog = JSON.parse(JSON.stringify(readBuildLog()));
 const originalTasks = readTasks();
 const fixtureTaskIds: string[] = [];
+const BUILD_ROUTE_ENV = [
+  "HIVERUNNER_E2E_BUILD_STUB",
+  "HIVERUNNER_E2E_BUILD_FORCE_SPAWN_FAILURE",
+  "WORKSPACE_ROOT",
+  "PATH",
+] as const;
+
+function upsertTrackedTask(task: BuildTaskFixture) {
+  fixtureTaskIds.push(task.id);
+  upsertTask(task);
+  return task;
+}
+
+function restoreTaskSnapshot() {
+  const db = getDb();
+  db.prepare("DELETE FROM tasks").run();
+  for (const task of originalTasks) {
+    upsertTask(task);
+  }
+}
+
+function restoreBuildRouteFixtures() {
+  writeBuildLog(originalBuildLog);
+  restoreTaskSnapshot();
+  deleteTaskFixtures(fixtureTaskIds);
+}
 
 async function run() {
-  const priorStub = process.env.HIVERUNNER_E2E_BUILD_STUB;
-  const priorForcedFailure = process.env.HIVERUNNER_E2E_BUILD_FORCE_SPAWN_FAILURE;
-  const priorWorkspaceRoot = process.env.WORKSPACE_ROOT;
-  const priorPath = process.env.PATH;
+  const envSnapshot = snapshotEnv(BUILD_ROUTE_ENV);
 
   try {
     await test("POST returns a PID and persists running state after a successful spawn", async () => {
@@ -71,9 +95,7 @@ async function run() {
       delete process.env.WORKSPACE_ROOT;
       writeBuildLog({ builds: [] });
 
-      const task = makeTask();
-      fixtureTaskIds.push(task.id);
-      upsertTask(task);
+      const task = upsertTrackedTask(makeTask());
 
       const response = await POST(makeRequest(task.id));
       const payload = await response.json();
@@ -104,9 +126,7 @@ async function run() {
       process.env.HIVERUNNER_E2E_BUILD_FORCE_SPAWN_FAILURE = "Forced builder spawn failure for route test";
       writeBuildLog({ builds: [] });
 
-      const task = makeTask();
-      fixtureTaskIds.push(task.id);
-      upsertTask(task);
+      const task = upsertTrackedTask(makeTask());
 
       const response = await POST(makeRequest(task.id));
       const payload = await response.json();
@@ -128,37 +148,8 @@ async function run() {
       assert.ok(String(blockedBuild.error || "").includes("Forced builder spawn failure for route test"));
     });
   } finally {
-    if (priorStub === undefined) {
-      delete process.env.HIVERUNNER_E2E_BUILD_STUB;
-    } else {
-      process.env.HIVERUNNER_E2E_BUILD_STUB = priorStub;
-    }
-
-    if (priorForcedFailure === undefined) {
-      delete process.env.HIVERUNNER_E2E_BUILD_FORCE_SPAWN_FAILURE;
-    } else {
-      process.env.HIVERUNNER_E2E_BUILD_FORCE_SPAWN_FAILURE = priorForcedFailure;
-    }
-
-    if (priorWorkspaceRoot === undefined) {
-      delete process.env.WORKSPACE_ROOT;
-    } else {
-      process.env.WORKSPACE_ROOT = priorWorkspaceRoot;
-    }
-
-    if (priorPath === undefined) {
-      delete process.env.PATH;
-    } else {
-      process.env.PATH = priorPath;
-    }
-
-    writeBuildLog(originalBuildLog);
-    const db = getDb();
-    db.prepare("DELETE FROM tasks").run();
-    for (const task of originalTasks) {
-      upsertTask(task);
-    }
-    deleteTaskFixtures(fixtureTaskIds);
+    restoreEnvSnapshot(envSnapshot);
+    restoreBuildRouteFixtures();
   }
 
   finish();
@@ -166,6 +157,6 @@ async function run() {
 
 run().catch((error) => {
   console.error(error);
-  writeBuildLog(originalBuildLog);
+  restoreBuildRouteFixtures();
   process.exit(1);
 });
