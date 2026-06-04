@@ -11,25 +11,11 @@ import {
   getTask,
   listProjectAgents,
 } from "@/lib/orchestration/service";
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function run() {
   console.log("\nOrchestration Agent Company Scoping Tests\n");
@@ -121,7 +107,7 @@ async function run() {
     const tempRoot = mkdtempSync(path.join(os.tmpdir(), "mc-openclaw-scaffold-fail-"));
     const openclawFile = path.join(tempRoot, "openclaw-file");
     writeFileSync(openclawFile, "not-a-directory", "utf8");
-    const previousOpenclawDir = process.env.OPENCLAW_DIR;
+    const envSnapshot = snapshotEnv(["OPENCLAW_DIR"]);
     process.env.OPENCLAW_DIR = openclawFile;
 
     const failingName = `Scaffold Fail ${Date.now()}`;
@@ -147,17 +133,12 @@ async function run() {
         "Expected failed scaffold create to leave no agent record"
       );
     } finally {
-      if (previousOpenclawDir === undefined) {
-        delete process.env.OPENCLAW_DIR;
-      } else {
-        process.env.OPENCLAW_DIR = previousOpenclawDir;
-      }
+      restoreEnvSnapshot(envSnapshot);
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
