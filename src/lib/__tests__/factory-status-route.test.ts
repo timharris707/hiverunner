@@ -7,59 +7,32 @@ import assert from "node:assert";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GET } from "@/app/api/factory/status/route";
+import {
+  deleteBuildTaskFixtures,
+  makeBuildTaskFixture,
+  upsertBuildTaskFixture,
+} from "@/lib/__tests__/helpers/build-task-fixtures";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { __testHooks, readBuildLog, readTasks, writeBuildLog } from "../build-queue";
 import { getDb } from "../tasks-db";
 
 const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
-function upsertTask(task: Record<string, unknown> & {
-  id: string;
-  status: string;
-  project?: string;
-  updated?: string;
-  created?: string;
-}) {
-  const db = getDb();
-  const updated = task.updated || task.created || new Date().toISOString();
-  db.prepare(`
-    INSERT INTO tasks (id, data, status, project, updated)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      data = excluded.data,
-      status = excluded.status,
-      project = excluded.project,
-      updated = excluded.updated
-  `).run(task.id, JSON.stringify({ ...task, updated }), task.status, task.project || null, updated);
-}
-
-function deleteTaskFixtures(ids: string[]) {
-  if (ids.length === 0) return;
-  const db = getDb();
-  const deleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
-  const deleteTransitions = db.prepare("DELETE FROM task_transitions WHERE task_id = ?");
-  for (const id of ids) {
-    deleteTransitions.run(id);
-    deleteTask.run(id);
-  }
-}
-
 function makeTask(status: string, overrides: Record<string, unknown> = {}) {
-  const id = `test-factory-status-${status}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return {
-    id,
+  return makeBuildTaskFixture({
+    idPrefix: `test-factory-status-${status}`,
     title: `Factory status ${status}`,
     description: "Fixture task for factory status contract test",
-    project: "mission-control",
     status,
     priority: "P1",
     type: "feature",
-    acceptance_criteria: ["endpoint status contract is correct"],
-    created: new Date().toISOString(),
-    updated: new Date().toISOString(),
-    ...overrides,
-  };
+    acceptanceCriteria: ["endpoint status contract is correct"],
+    overrides,
+  });
 }
+
+const upsertTask = upsertBuildTaskFixture;
+const deleteTaskFixtures = deleteBuildTaskFixtures;
 
 console.log("\nFactory Status Route Contract Test\n");
 

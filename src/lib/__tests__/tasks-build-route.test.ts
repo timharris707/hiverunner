@@ -5,20 +5,18 @@
 
 import assert from "node:assert";
 import { POST } from "@/app/api/tasks/build/route";
+import {
+  type BuildTaskFixture,
+  deleteBuildTaskFixtures,
+  getBuildTaskFixture,
+  makeBuildTaskFixture,
+  upsertBuildTaskFixture,
+} from "@/lib/__tests__/helpers/build-task-fixtures";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { readBuildLog, readTasks, writeBuildLog } from "../build-queue";
 import { getDb } from "../tasks-db";
 
 const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
-
-type LegacyTaskFixture = {
-  id: string;
-  title: string;
-  project: string;
-  status: string;
-  updated: string;
-  [key: string]: unknown;
-};
 
 type BuildLogEntry = {
   id?: string;
@@ -29,52 +27,22 @@ type BuildLogEntry = {
   [key: string]: unknown;
 };
 
-function makeTask(project = "mission-control", overrides: Record<string, unknown> = {}): LegacyTaskFixture {
-  const id = `test-build-route-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  return {
-    id,
+function makeTask(project = "mission-control", overrides: Record<string, unknown> = {}): BuildTaskFixture {
+  return makeBuildTaskFixture({
+    idPrefix: "test-build-route",
     title: "Verify build trigger route",
     description: "Fixture task for POST /api/tasks/build contract test",
     project,
-    status: "in-progress",
     priority: "P0",
     type: "bug",
-    acceptance_criteria: ["build trigger starts a real process or blocks with an error"],
-    created: new Date().toISOString(),
-    updated: new Date().toISOString(),
-    ...overrides,
-  };
+    acceptanceCriteria: ["build trigger starts a real process or blocks with an error"],
+    overrides,
+  });
 }
 
-function upsertTask(task: LegacyTaskFixture) {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO tasks (id, data, status, project, updated)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      data = excluded.data,
-      status = excluded.status,
-      project = excluded.project,
-      updated = excluded.updated
-  `).run(task.id, JSON.stringify(task), task.status, task.project || null, task.updated);
-}
-
-function deleteTaskFixtures(ids: string[]) {
-  if (ids.length === 0) return;
-  const db = getDb();
-  const deleteTask = db.prepare("DELETE FROM tasks WHERE id = ?");
-  const deleteTransitions = db.prepare("DELETE FROM task_transitions WHERE task_id = ?");
-  for (const id of ids) {
-    deleteTransitions.run(id);
-    deleteTask.run(id);
-  }
-}
-
-function getTask(id: string) {
-  const task = (readTasks() as LegacyTaskFixture[]).find((entry) => entry.id === id);
-  assert.ok(task, `expected task ${id} to exist`);
-  return task;
-}
+const upsertTask = upsertBuildTaskFixture;
+const deleteTaskFixtures = deleteBuildTaskFixtures;
+const getTask = getBuildTaskFixture;
 
 function makeRequest(taskId: string) {
   return {
