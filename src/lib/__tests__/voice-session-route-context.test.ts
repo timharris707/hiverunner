@@ -9,40 +9,13 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import {
+  createVoiceSessionTestRunner,
+  makeVoiceSessionRequest,
+  restoreEnvVar,
+} from "@/lib/__tests__/helpers/voice-session-test-harness";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function makeRequest(body?: unknown) {
-  return new Request("http://localhost/api/voice/session", {
-    method: "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-}
-
-function restoreEnvVar(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-
-  process.env[key] = value;
-}
+const { finish, test } = createVoiceSessionTestRunner();
 
 console.log("\nVoice Session Route Context Contract Test\n");
 
@@ -240,7 +213,7 @@ async function run() {
       .run(archivedAt, archivedAt, archivedAssignee.id);
 
     await test("POST with empty body still returns 200 and generic startup context", async () => {
-      const response = await POST(makeRequest() as never);
+      const response = await POST(makeVoiceSessionRequest() as never);
       const body = await response.json() as {
         provider: string;
         wsUrl: string;
@@ -268,7 +241,7 @@ async function run() {
 
     await test("POST with global agent binding uses agent context instead of broad startup memory", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           companySlug: company.slug,
           agentId: agent.id,
           source: "voice-lab",
@@ -314,7 +287,7 @@ async function run() {
       db.prepare("UPDATE companies SET company_code = ? WHERE id = ?").run("ACME", company.id);
 
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           companySlug: "ACME",
           agentId: agent.id,
           source: "voice-lab",
@@ -341,7 +314,7 @@ async function run() {
 
     await test("POST with task binding returns bound task/project/agent metadata", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           taskKey: task.key,
           agentId: agent.id,
           source: "task-detail",
@@ -389,7 +362,7 @@ async function run() {
 
     await test("task-bound system prompt includes task title, status, assignee, and recent comments", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           taskKey: task.key,
           source: "task-detail",
           mode: "review",
@@ -420,7 +393,7 @@ async function run() {
 
     await test("POST with project binding returns project-scoped context", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           projectId: project.id,
           source: "project-overview",
           mode: "discuss",
@@ -458,7 +431,7 @@ async function run() {
 
     await test("project slug binding rejects a mismatched company scope", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           companySlug: outOfScopeCompany.slug,
           projectSlug: project.slug,
           source: "project-overview",
@@ -474,7 +447,7 @@ async function run() {
 
     await test("unknown task returns 404 with clean error", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           taskKey: "VOICE-404",
           source: "task-detail",
           mode: "review",
@@ -499,7 +472,7 @@ async function run() {
 
     await test("explicit out-of-scope agent binding returns invalid binding error instead of falling back", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           taskKey: task.key,
           agentId: outOfScopeAgent.id,
           source: "task-detail",
@@ -529,7 +502,7 @@ async function run() {
 
     await test("archived task assignee is excluded from bound agent context", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           taskId: archivedTask.id,
           source: "task-detail",
           mode: "review",
@@ -586,9 +559,7 @@ async function run() {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {

@@ -4,6 +4,11 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  createVoiceSessionTestRunner,
+  makeVoiceSessionRequest,
+  restoreEnvVar,
+} from "@/lib/__tests__/helpers/voice-session-test-harness";
+import {
   resetSecretStoreForTests,
   setSecretStoreForTests,
   type SecretStoreAdapter,
@@ -11,40 +16,7 @@ import {
 import { normalizeSafeErrorMessage } from "@/lib/orchestration/avatar-wizard-errors";
 import { getUnsupportedVoiceRuntimeMessage } from "@/lib/voice-runtime-readiness";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function makeRequest(body?: unknown) {
-  return new Request("http://localhost/api/voice/session", {
-    method: "POST",
-    headers: body === undefined ? undefined : { "content-type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-}
-
-function restoreEnvVar(key: string, value: string | undefined) {
-  if (value === undefined) {
-    delete process.env[key];
-    return;
-  }
-
-  process.env[key] = value;
-}
+const { finish, test } = createVoiceSessionTestRunner();
 
 const emptySecretStore: SecretStoreAdapter = {
   id: "local-dev",
@@ -98,7 +70,7 @@ async function run() {
     const { POST } = await import("@/app/api/voice/session/route");
 
     await test("default voice missing key response normalizes to setup copy, never [object Object]", async () => {
-      const response = await POST(makeRequest({ voiceProvider: "gemini-live" }) as never);
+      const response = await POST(makeVoiceSessionRequest({ voiceProvider: "gemini-live" }) as never);
       const body = await response.json() as unknown;
       const message = normalizeSafeErrorMessage(body, "Fallback");
 
@@ -109,7 +81,7 @@ async function run() {
     });
 
     await test("testing runtime missing key response normalizes to setup copy, never [object Object]", async () => {
-      const response = await POST(makeRequest({ voiceProvider: "openai-realtime-2" }) as never);
+      const response = await POST(makeVoiceSessionRequest({ voiceProvider: "openai-realtime-2" }) as never);
       const body = await response.json() as unknown;
       const message = normalizeSafeErrorMessage(body, "Fallback");
 
@@ -121,7 +93,7 @@ async function run() {
 
     await test("missing provider key is reported before bound task lookup failures", async () => {
       const response = await POST(
-        makeRequest({
+        makeVoiceSessionRequest({
           voiceProvider: "gemini-live",
           taskKey: "VOICE-MISSING-KEY-FIRST",
           source: "task-detail",
@@ -138,7 +110,7 @@ async function run() {
     await test("Gemini Live configured key path is disabled without exposing the provider key", async () => {
       setSecretStoreForTests(geminiSecretStore);
       try {
-        const response = await POST(makeRequest({ voiceProvider: "gemini-live" }) as never);
+        const response = await POST(makeVoiceSessionRequest({ voiceProvider: "gemini-live" }) as never);
         const body = await response.json() as unknown;
         const serialized = JSON.stringify(body);
         const message = normalizeSafeErrorMessage(body, "Fallback");
@@ -202,9 +174,7 @@ async function run() {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
