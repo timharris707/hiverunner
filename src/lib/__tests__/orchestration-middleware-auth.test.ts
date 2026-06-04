@@ -5,61 +5,55 @@
 
 import assert from "node:assert";
 import { canAccessOrchestrationApi, isValidOrchestrationApiKey } from "@/proxy";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed++;
-    console.log(`  \u2713 ${name}`);
-  } catch (error: unknown) {
-    failed++;
-    console.error(`  \u2717 ${name}`);
-    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-  }
+async function run() {
+  console.log("\nOrchestration Middleware Auth Contract Test\n");
+
+  await test("accepts valid API key when no session exists", () => {
+    assert.strictEqual(
+      canAccessOrchestrationApi({
+        expectedApiKey: "top-secret",
+        providedApiKey: "top-secret",
+        hasSupabaseUser: false,
+      }),
+      true
+    );
+  });
+
+  await test("accepts valid Supabase session without API key", () => {
+    assert.strictEqual(
+      canAccessOrchestrationApi({
+        expectedApiKey: "top-secret",
+        providedApiKey: null,
+        hasSupabaseUser: true,
+      }),
+      true
+    );
+  });
+
+  await test("rejects request when neither API key nor session is valid", () => {
+    assert.strictEqual(
+      canAccessOrchestrationApi({
+        expectedApiKey: "top-secret",
+        providedApiKey: "wrong-key",
+        hasSupabaseUser: false,
+      }),
+      false
+    );
+  });
+
+  await test("key validation trims whitespace and requires configured expected key", () => {
+    assert.strictEqual(isValidOrchestrationApiKey("  abc123 ", "abc123"), true);
+    assert.strictEqual(isValidOrchestrationApiKey(undefined, "abc123"), false);
+  });
+
+  finish();
 }
 
-console.log("\nOrchestration Middleware Auth Contract Test\n");
-
-test("accepts valid API key when no session exists", () => {
-  assert.strictEqual(
-    canAccessOrchestrationApi({
-      expectedApiKey: "top-secret",
-      providedApiKey: "top-secret",
-      hasSupabaseUser: false,
-    }),
-    true
-  );
+run().catch((error) => {
+  console.error("Unhandled test runner error:", error);
+  process.exit(1);
 });
-
-test("accepts valid Supabase session without API key", () => {
-  assert.strictEqual(
-    canAccessOrchestrationApi({
-      expectedApiKey: "top-secret",
-      providedApiKey: null,
-      hasSupabaseUser: true,
-    }),
-    true
-  );
-});
-
-test("rejects request when neither API key nor session is valid", () => {
-  assert.strictEqual(
-    canAccessOrchestrationApi({
-      expectedApiKey: "top-secret",
-      providedApiKey: "wrong-key",
-      hasSupabaseUser: false,
-    }),
-    false
-  );
-});
-
-test("key validation trims whitespace and requires configured expected key", () => {
-  assert.strictEqual(isValidOrchestrationApiKey("  abc123 ", "abc123"), true);
-  assert.strictEqual(isValidOrchestrationApiKey(undefined, "abc123"), false);
-});
-
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed > 0 ? 1 : 0);
