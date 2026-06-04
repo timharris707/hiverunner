@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { NextRequest } from "next/server";
@@ -11,6 +11,8 @@ import {
   GET as getMemorySyncRoute,
   POST as postMemorySyncRoute,
 } from "@/app/api/orchestration/companies/[slug]/memory/sync/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getMemoryCandidate, listMemoryCandidates, reviewMemoryCandidate } from "@/lib/orchestration/memory-candidates";
@@ -31,35 +33,15 @@ import {
 import { writeBackApprovedCandidate } from "@/lib/orchestration/memory-writeback";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner();
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex");
 }
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
-
 async function run() {
   console.log("\nCompany Memory Vault Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "mc-memory-vault-"));
   process.env.MC_WORKSPACE_ROOT = workspaceRoot;
 
@@ -786,8 +768,7 @@ async function run() {
     assert.strictEqual(records.length, 1);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {

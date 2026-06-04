@@ -1,28 +1,14 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
-import { createCompany } from "@/lib/orchestration/company-service";
+import { createCompanyProjectAgentFixture } from "@/lib/__tests__/helpers/orchestration-learning-fixtures";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { buildMemoryContext } from "@/lib/orchestration/memory-context";
 import { getMemoryGraph, listMemoryIndexRecords } from "@/lib/orchestration/memory-vault";
-import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
+import { createTask } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 function daysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
@@ -31,38 +17,17 @@ function daysAgo(days: number): string {
 async function run() {
   console.log("\nOrchestration Memory Retrieval Quality Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Retrieval Quality Company ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `Retrieval Quality Project ${stamp}`,
-    description: "fixture project",
-    color: "#0ea5e9",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
-    name: `Retrieval Quality Agent ${stamp}`,
+  const { agent, company, project, stamp } = createCompanyProjectAgentFixture({
+    companyName: (value) => `Retrieval Quality Company ${value}`,
+    projectName: (value) => `Retrieval Quality Project ${value}`,
+    projectColor: "#0ea5e9",
+    agentName: (value) => `Retrieval Quality Agent ${value}`,
     emoji: "icon:bot",
     role: "Implementation Engineer",
-    personality: "Precise test fixture agent.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const task = createTask({
     projectId: project.id,
     title: "Retrieve quality memory",
@@ -199,29 +164,18 @@ async function run() {
   });
 
   await test("quality policy refuses stale, unapproved, and low-confidence indexed evidence with explicit reasons", () => {
-    const isolatedCompany = createCompany({
-      name: `Retrieval Refusal Company ${stamp}`,
-      description: "fixture",
-      status: "active",
-    }).company;
-    const isolatedProject = createProject({
-      companyId: isolatedCompany.id,
-      name: `Retrieval Refusal Project ${stamp}`,
-      description: "fixture project",
-      color: "#ef4444",
-      emoji: "icon:folder",
-      status: "active",
-    }).project;
-    const isolatedAgent = createProjectAgent({
-      projectId: isolatedProject.id,
-      name: `Retrieval Refusal Agent ${stamp}`,
+    const {
+      agent: isolatedAgent,
+      company: isolatedCompany,
+      project: isolatedProject,
+    } = createCompanyProjectAgentFixture({
+      companyName: `Retrieval Refusal Company ${stamp}`,
+      projectName: `Retrieval Refusal Project ${stamp}`,
+      projectColor: "#ef4444",
+      agentName: `Retrieval Refusal Agent ${stamp}`,
       emoji: "icon:bot",
       role: "Implementation Engineer",
-      personality: "Precise test fixture agent.",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
 
     function insertRefusal(id: string, title: string, frontmatter: Record<string, unknown>, fileMtime = new Date().toISOString()) {
       db.prepare(`
@@ -268,8 +222,7 @@ async function run() {
     assert.match(context.section, /Refused Stale Evidence/);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
