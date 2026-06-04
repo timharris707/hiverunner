@@ -18,6 +18,7 @@ import {
   GET as getWikiRollbackMetadataRoute,
 } from "@/app/api/orchestration/companies/[slug]/wiki/writeback/[requestId]/rollback/route";
 import { updateWikiWritebackApprovalState } from "@/lib/orchestration/wiki-writeback-requests";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -47,12 +48,7 @@ function jsonRequest(url: string, body: Record<string, unknown>): Request {
 async function run() {
   console.log("\nOrchestration Wiki Governance API Route Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const workspaceRoot = path.join(os.tmpdir(), `mc-wiki-governance-api-${Date.now()}`);
   rmSync(workspaceRoot, { recursive: true, force: true });
