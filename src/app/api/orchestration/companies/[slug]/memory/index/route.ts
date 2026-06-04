@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
+import { handleRouteError } from "@/lib/orchestration/api";
 import { getMemoryIndexStatus, listMemoryIndexRecords } from "@/lib/orchestration/memory-vault";
+import { invalidQueryValueResponse, normalizeQueryParam } from "../../route-helpers";
 
 export const dynamic = "force-dynamic";
 
-function parseStatus(value: string | null): "active" | "archived" | "error" | "all" | undefined {
-  if (!value) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "active" || normalized === "archived" || normalized === "error" || normalized === "all") {
-    return normalized;
-  }
-  return undefined;
-}
+type MemoryIndexStatus = "active" | "archived" | "error" | "all";
+
+const MEMORY_INDEX_STATUSES: readonly MemoryIndexStatus[] = ["active", "archived", "error", "all"];
 
 export async function GET(
   request: NextRequest,
@@ -20,11 +16,9 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const statusParam = request.nextUrl.searchParams.get("status");
-    const status = parseStatus(statusParam);
-    if (statusParam && !status) {
-      return errorResponse(400, "invalid_status", "status must be active, archived, error, or all");
-    }
+    const status = normalizeQueryParam(request.nextUrl.searchParams, "status", MEMORY_INDEX_STATUSES);
+    const statusError = invalidQueryValueResponse(status, "invalid_status", "status must be active, archived, error, or all");
+    if (statusError) return statusError;
 
     const limitRaw = Number(request.nextUrl.searchParams.get("limit") ?? "200");
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 500) : 200;
@@ -34,7 +28,7 @@ export async function GET(
       layer: request.nextUrl.searchParams.get("layer") ?? undefined,
       sourceId: request.nextUrl.searchParams.get("sourceId") ?? undefined,
       tag: request.nextUrl.searchParams.get("tag") ?? undefined,
-      status,
+      status: status.value,
       limit,
     });
 

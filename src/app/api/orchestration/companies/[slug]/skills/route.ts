@@ -7,17 +7,11 @@ import {
   updateCompanySkill,
   type CompanySkillStatus,
 } from "@/lib/orchestration/company-skills";
+import { invalidQueryValueResponse, normalizeQueryParam, readRequiredJsonBody } from "../route-helpers";
 
 export const dynamic = "force-dynamic";
 
-function parseStatus(value: string | null): CompanySkillStatus | "all" | undefined {
-  if (!value) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (normalized === "all" || normalized === "draft" || normalized === "active" || normalized === "archived") {
-    return normalized;
-  }
-  return undefined;
-}
+const COMPANY_SKILL_STATUSES: readonly (CompanySkillStatus | "all")[] = ["all", "draft", "active", "archived"];
 
 export async function GET(
   request: NextRequest,
@@ -25,14 +19,12 @@ export async function GET(
 ) {
   try {
     const { slug } = await params;
-    const statusParam = request.nextUrl.searchParams.get("status");
-    const status = parseStatus(statusParam);
-    if (statusParam && !status) {
-      return errorResponse(400, "invalid_status", "status must be draft, active, archived, or all");
-    }
+    const status = normalizeQueryParam(request.nextUrl.searchParams, "status", COMPANY_SKILL_STATUSES);
+    const statusError = invalidQueryValueResponse(status, "invalid_status", "status must be draft, active, archived, or all");
+    if (statusError) return statusError;
 
     const includeArchived = request.nextUrl.searchParams.get("includeArchived") === "true";
-    return NextResponse.json(listCompanySkills(slug, { includeArchived, status }));
+    return NextResponse.json(listCompanySkills(slug, { includeArchived, status: status.value }));
   } catch (error) {
     return handleRouteError(error, "company.skills:get");
   }
@@ -44,10 +36,9 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
-    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
-    if (!body) {
-      return errorResponse(400, "invalid_body", "Request body must be valid JSON");
-    }
+    const bodyResult = await readRequiredJsonBody(request);
+    if (!bodyResult.ok) return bodyResult.response;
+    const { body } = bodyResult;
 
     const name = typeof body.name === "string" ? body.name : "";
     return NextResponse.json(
@@ -82,10 +73,9 @@ export async function PATCH(
 ) {
   try {
     const { slug } = await params;
-    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
-    if (!body) {
-      return errorResponse(400, "invalid_body", "Request body must be valid JSON");
-    }
+    const bodyResult = await readRequiredJsonBody(request);
+    if (!bodyResult.ok) return bodyResult.response;
+    const { body } = bodyResult;
 
     const skillId = typeof body.id === "string"
       ? body.id

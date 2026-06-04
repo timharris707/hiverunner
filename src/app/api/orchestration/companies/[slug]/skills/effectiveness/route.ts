@@ -5,6 +5,7 @@ import {
   listCompanySkillEffectiveness,
   recordExplicitSkillUse,
 } from "@/lib/orchestration/skill-effectiveness";
+import { readRequiredJsonBody } from "../../route-helpers";
 
 export const dynamic = "force-dynamic";
 
@@ -28,10 +29,9 @@ export async function POST(
 ) {
   try {
     const { slug } = await params;
-    const body = await request.json().catch(() => null) as Record<string, unknown> | null;
-    if (!body) {
-      return errorResponse(400, "invalid_body", "Request body must be valid JSON");
-    }
+    const bodyResult = await readRequiredJsonBody(request);
+    if (!bodyResult.ok) return bodyResult.response;
+    const { body } = bodyResult;
     const skill = typeof body.skill === "string" ? body.skill
       : typeof body.skillId === "string" ? body.skillId
         : typeof body.skillSlug === "string" ? body.skillSlug
