@@ -9,6 +9,7 @@
 import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { updateSession } from "@/lib/supabase/middleware";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 
@@ -33,10 +34,12 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nLocal-Single-User Middleware Contract Test\n");
 
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalOwnerEmail = process.env.MC_LOCAL_OWNER_EMAIL;
+  const envSnapshot = snapshotEnv([
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "MC_LOCAL_OWNER_EMAIL",
+  ]);
 
   try {
     // Local-single-user mode (inferred via missing Supabase env)
@@ -90,26 +93,7 @@ async function run() {
       }
     });
   } finally {
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalOwnerEmail === undefined) {
-      delete process.env.MC_LOCAL_OWNER_EMAIL;
-    } else {
-      process.env.MC_LOCAL_OWNER_EMAIL = originalOwnerEmail;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   const total = passed + failed;

@@ -8,6 +8,7 @@ import { NextRequest } from "next/server";
 
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 
 let passed = 0;
@@ -28,31 +29,24 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 async function run() {
   console.log("\nAuth Legacy Cookie Route Contract Test\n");
 
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalAdminPassword = process.env.ADMIN_PASSWORD;
-  const originalAuthSecret = process.env.AUTH_SECRET;
+  const envSnapshot = snapshotEnv([
+    "NODE_ENV",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "ADMIN_PASSWORD",
+    "AUTH_SECRET",
+  ]);
 
   try {
     process.env.ADMIN_PASSWORD = "legacy-password";
     process.env.AUTH_SECRET = "legacy-secret-must-not-be-cookie";
 
     await test("local-single-user login sets only the local session cookie", async () => {
-      setNodeEnv("production");
+      setTestNodeEnv("production");
       process.env.MC_AUTH_MODE = "local-single-user";
       delete process.env.NEXT_PUBLIC_SUPABASE_URL;
       delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -70,7 +64,7 @@ async function run() {
     });
 
     await test("hosted-mode legacy password login is disabled and sets no cookie", async () => {
-      setNodeEnv("production");
+      setTestNodeEnv("production");
       process.env.MC_AUTH_MODE = "supabase";
       process.env.NEXT_PUBLIC_SUPABASE_URL = "https://example.supabase.co";
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
@@ -100,34 +94,7 @@ async function run() {
       assert.doesNotMatch(setCookie, /legacy-secret-must-not-be-cookie/);
     });
   } finally {
-    if (originalNodeEnv !== undefined) {
-      setNodeEnv(originalNodeEnv);
-    }
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalAdminPassword === undefined) {
-      delete process.env.ADMIN_PASSWORD;
-    } else {
-      process.env.ADMIN_PASSWORD = originalAdminPassword;
-    }
-    if (originalAuthSecret === undefined) {
-      delete process.env.AUTH_SECRET;
-    } else {
-      process.env.AUTH_SECRET = originalAuthSecret;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   const total = passed + failed;

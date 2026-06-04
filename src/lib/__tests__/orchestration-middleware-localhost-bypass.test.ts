@@ -11,8 +11,13 @@ import {
   createMiddlewareRequest,
   createMiddlewareTestRunner,
   rejectSupabaseSessionLookup,
-  setMiddlewareNodeEnv,
 } from "@/lib/__tests__/helpers/orchestration-middleware-test-harness";
+import {
+  restoreEnvSnapshot,
+  restoreEnvVar,
+  setTestNodeEnv,
+  snapshotEnv,
+} from "@/lib/__tests__/helpers/env-test-harness";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { canBypassLocalDevAuth, isLoopbackHost, proxy as middleware } from "@/proxy";
@@ -48,13 +53,15 @@ function clearEdgeRouteMapsForTest() {
 async function run() {
   console.log("\nMiddleware Localhost Auth Contract Test\n");
 
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalStrictLocalAuth = process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
-  const originalBypassFlag = process.env.MC_LOCAL_DEV_AUTH_BYPASS;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalRouteMapFetchTimeout = process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
+  const envSnapshot = snapshotEnv([
+    "NODE_ENV",
+    "MC_REQUIRE_LOCAL_DEV_AUTH",
+    "MC_LOCAL_DEV_AUTH_BYPASS",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS",
+  ]);
 
   // Pin hosted (Supabase) auth mode for tests that exercise the
   // session-fallback path. Otherwise a CI environment without Supabase env
@@ -80,7 +87,7 @@ async function run() {
   });
 
   await test("recognizes exact loopback hosts and defaults to no local-dev auth bypass", () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -95,7 +102,7 @@ async function run() {
   });
 
   await test("ignores removed MC_LOCAL_DEV_AUTH_BYPASS and only honors strict local auth opt-out", () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     process.env.MC_LOCAL_DEV_AUTH_BYPASS = "1";
 
@@ -110,7 +117,7 @@ async function run() {
   });
 
   await test("rejects localhost orchestration requests without real auth by default", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -124,7 +131,7 @@ async function run() {
   });
 
   await test("still requires auth for localhost-looking non-loopback hosts", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -138,7 +145,7 @@ async function run() {
   });
 
   await test("allows localhost orchestration requests with a real Supabase session", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -157,7 +164,7 @@ async function run() {
 
   await test("allows localhost orchestration requests with a valid API key", async () => {
     const originalApiKey = process.env.MC_API_KEY;
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
     process.env.MC_API_KEY = "local-dev-api-key";
@@ -175,16 +182,12 @@ async function run() {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get("x-middleware-next"), "1");
     } finally {
-      if (originalApiKey === undefined) {
-        delete process.env.MC_API_KEY;
-      } else {
-        process.env.MC_API_KEY = originalApiKey;
-      }
+      restoreEnvVar("MC_API_KEY", originalApiKey);
     }
   });
 
   await test("allows local-single-user loopback orchestration API without broad bypass", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     process.env.MC_AUTH_MODE = "local-single-user";
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
@@ -204,7 +207,7 @@ async function run() {
   });
 
   await test("keeps local-single-user non-loopback orchestration API behind auth", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     process.env.MC_AUTH_MODE = "local-single-user";
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
@@ -223,7 +226,7 @@ async function run() {
   });
 
   await test("allows exact loopback healthchecks without broad local-dev bypass", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -240,7 +243,7 @@ async function run() {
   });
 
   await test("serves the public homepage at root instead of redirecting to a workspace", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -259,7 +262,7 @@ async function run() {
   });
 
   await test("accepts local-dev session cookie only on exact loopback hosts", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -289,7 +292,7 @@ async function run() {
   });
 
   await test("falls back quickly for INS navigation when edge route-map self-fetch stalls", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     clearEdgeRouteMapsForTest();
     process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "1";
     const originalFetch = globalThis.fetch;
@@ -320,11 +323,10 @@ async function run() {
       assert.equal(fetchCalled, false);
     } finally {
       globalThis.fetch = originalFetch;
-      if (originalRouteMapFetchTimeout === undefined) {
-        delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
-      } else {
-        process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
-      }
+      restoreEnvVar(
+        "MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS",
+        envSnapshot["MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS"],
+      );
       seedEdgeRouteMapsForTest({
         companyCodeToSlug: {
           HIVE: "hiverunner-workspace",
@@ -343,7 +345,7 @@ async function run() {
   });
 
   await test("bounds unknown company route-map refresh stalls", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     clearEdgeRouteMapsForTest();
     process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "20";
     const originalFetch = globalThis.fetch;
@@ -377,11 +379,10 @@ async function run() {
       assert.ok(durationMs < 500, `expected bounded route-map fallback under 500ms, got ${durationMs}ms`);
     } finally {
       globalThis.fetch = originalFetch;
-      if (originalRouteMapFetchTimeout === undefined) {
-        delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
-      } else {
-        process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
-      }
+      restoreEnvVar(
+        "MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS",
+        envSnapshot["MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS"],
+      );
       seedEdgeRouteMapsForTest({
         companyCodeToSlug: {
           HIVE: "hiverunner-workspace",
@@ -400,7 +401,7 @@ async function run() {
   });
 
   await test("keeps non-loopback healthcheck hosts behind auth", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -414,7 +415,7 @@ async function run() {
   });
 
   await test("rewrites canonical company pages after authenticating a session", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -433,7 +434,7 @@ async function run() {
   });
 
   await test("skips session auth entirely in explicit bypass mode", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     process.env.MC_REQUIRE_LOCAL_DEV_AUTH = "0";
 
     const request = createMiddlewareRequest("http://localhost:3010/INS/dashboard", {
@@ -449,7 +450,7 @@ async function run() {
   });
 
   await test("allows internal company-code rewrites to render without legacy redirect loop", async () => {
-    setMiddlewareNodeEnv("development");
+    setTestNodeEnv("development");
     process.env.MC_REQUIRE_LOCAL_DEV_AUTH = "0";
 
     const request = createMiddlewareRequest("http://localhost:3010/companies/insight/dashboard", {
@@ -466,47 +467,7 @@ async function run() {
     assert.equal(response.headers.get("x-middleware-next"), "1");
   });
 
-  if (originalNodeEnv === undefined) {
-    Reflect.deleteProperty(process.env, "NODE_ENV");
-  } else {
-    setMiddlewareNodeEnv(originalNodeEnv);
-  }
-
-  if (originalStrictLocalAuth === undefined) {
-    delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
-  } else {
-    process.env.MC_REQUIRE_LOCAL_DEV_AUTH = originalStrictLocalAuth;
-  }
-
-  if (originalBypassFlag === undefined) {
-    delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
-  } else {
-    process.env.MC_LOCAL_DEV_AUTH_BYPASS = originalBypassFlag;
-  }
-
-  if (originalAuthMode === undefined) {
-    delete process.env.MC_AUTH_MODE;
-  } else {
-    process.env.MC_AUTH_MODE = originalAuthMode;
-  }
-
-  if (originalSupabaseUrl === undefined) {
-    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-  } else {
-    process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-  }
-
-  if (originalSupabaseKey === undefined) {
-    delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  } else {
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-  }
-
-  if (originalRouteMapFetchTimeout === undefined) {
-    delete process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS;
-  } else {
-    process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
-  }
+  restoreEnvSnapshot(envSnapshot);
 
   finish();
 }

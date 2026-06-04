@@ -6,6 +6,7 @@ import { GET as listCompaniesRoute } from "@/app/api/orchestration/companies/rou
 import { GET as getCompanyRoute } from "@/app/api/orchestration/companies/[slug]/route";
 import { GET as listProjectsRoute } from "@/app/api/orchestration/projects/route";
 import { GET as listTasksRoute } from "@/app/api/orchestration/tasks/route";
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { createCompany, getCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -40,15 +41,6 @@ function apiRequest(url: string, userId: string): NextRequest {
   });
 }
 
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 function addActiveCompanyMembership(input: { companyId: string; userId: string; role?: "owner" | "admin" | "member" | "viewer" }) {
   const db = getOrchestrationDb();
   const now = new Date().toISOString();
@@ -74,15 +66,17 @@ async function run() {
 
   resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
-  const originalApiKey = process.env.MC_API_KEY;
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalAdminEmail = process.env.NEXT_PUBLIC_ADMIN_EMAIL;
-  const originalLocalOwnerEmail = process.env.MC_LOCAL_OWNER_EMAIL;
+  const envSnapshot = snapshotEnv([
+    "MC_API_KEY",
+    "NODE_ENV",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "NEXT_PUBLIC_ADMIN_EMAIL",
+    "MC_LOCAL_OWNER_EMAIL",
+  ]);
   process.env.MC_API_KEY = "owner-auth-test-key";
-  setNodeEnv("production");
+  setTestNodeEnv("production");
 
   try {
     const suffix = Date.now();
@@ -197,7 +191,7 @@ async function run() {
     });
 
     await test("loopback local-dev session resolves to the configured local owner", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       process.env.MC_AUTH_MODE = "supabase";
       process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
@@ -221,7 +215,7 @@ async function run() {
     });
 
     await test("local-single-user loopback API resolves to the configured local owner without a cookie", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       process.env.MC_AUTH_MODE = "local-single-user";
       process.env.MC_LOCAL_OWNER_EMAIL = owned.owner?.email ?? "";
 
@@ -256,7 +250,7 @@ async function run() {
          WHERE id = ?`
       ).run(legacyInsight.id);
 
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       process.env.MC_AUTH_MODE = "local-single-user";
       process.env.MC_LOCAL_OWNER_EMAIL = owned.owner?.email ?? "";
       process.env.NEXT_PUBLIC_ADMIN_EMAIL = legacyInsight.owner.email;
@@ -313,39 +307,7 @@ async function run() {
       assert.equal(response.status, 401);
     });
   } finally {
-    if (originalApiKey === undefined) {
-      delete process.env.MC_API_KEY;
-    } else {
-      process.env.MC_API_KEY = originalApiKey;
-    }
-    if (originalNodeEnv !== undefined) {
-      setNodeEnv(originalNodeEnv);
-    }
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalAdminEmail === undefined) {
-      delete process.env.NEXT_PUBLIC_ADMIN_EMAIL;
-    } else {
-      process.env.NEXT_PUBLIC_ADMIN_EMAIL = originalAdminEmail;
-    }
-    if (originalLocalOwnerEmail === undefined) {
-      delete process.env.MC_LOCAL_OWNER_EMAIL;
-    } else {
-      process.env.MC_LOCAL_OWNER_EMAIL = originalLocalOwnerEmail;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   console.log(`\n${passed} passed, ${failed} failed\n`);

@@ -7,6 +7,7 @@
 import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
 
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { validateCsrfRequest } from "@/lib/auth/csrf";
@@ -30,15 +31,6 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 function localPost(headers: HeadersInit = {}): NextRequest {
   return new NextRequest("http://localhost:3010/api/orchestration/companies", {
     method: "POST",
@@ -52,14 +44,16 @@ function localPost(headers: HeadersInit = {}): NextRequest {
 async function run() {
   console.log("\nCSRF Protection Test\n");
 
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalApiKey = process.env.MC_API_KEY;
-  const originalStrictLocalAuth = process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
+  const envSnapshot = snapshotEnv([
+    "NODE_ENV",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "MC_API_KEY",
+    "MC_REQUIRE_LOCAL_DEV_AUTH",
+  ]);
 
-  setNodeEnv("development");
+  setTestNodeEnv("development");
   process.env.MC_AUTH_MODE = "local-single-user";
   delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -361,34 +355,7 @@ async function run() {
       assert.equal(response.headers.get("x-middleware-next"), "1");
     });
   } finally {
-    if (originalNodeEnv !== undefined) {
-      setNodeEnv(originalNodeEnv);
-    }
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalApiKey === undefined) {
-      delete process.env.MC_API_KEY;
-    } else {
-      process.env.MC_API_KEY = originalApiKey;
-    }
-    if (originalStrictLocalAuth === undefined) {
-      delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
-    } else {
-      process.env.MC_REQUIRE_LOCAL_DEV_AUTH = originalStrictLocalAuth;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   const total = passed + failed;
