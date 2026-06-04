@@ -41,6 +41,16 @@ function localPost(headers: HeadersInit = {}): NextRequest {
   });
 }
 
+async function assertAllowedWithOwnerSession(request: NextRequest) {
+  const response = await middleware(request, async () => ({
+    user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
+    supabaseResponse: NextResponse.next({ request }),
+  }));
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-middleware-next"), "1");
+}
+
 async function run() {
   console.log("\nCSRF Protection Test\n");
 
@@ -105,13 +115,7 @@ async function run() {
         origin: "http://localhost:3010",
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin 127.0.0.1, host localhost)", async () => {
@@ -120,13 +124,7 @@ async function run() {
         origin: "http://127.0.0.1:3010",
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin localhost, host 127.0.0.1)", async () => {
@@ -139,13 +137,7 @@ async function run() {
         },
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin localhost, explicit HOST=0.0.0.0)", async () => {
@@ -161,13 +153,7 @@ async function run() {
         },
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin [::1], host localhost)", async () => {
@@ -176,13 +162,7 @@ async function run() {
         origin: "http://[::1]:3010",
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("still rejects loopback origin on a different port", async () => {
@@ -206,13 +186,7 @@ async function run() {
         "sec-fetch-site": "same-origin",
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts same-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
@@ -221,13 +195,7 @@ async function run() {
         referer: "http://localhost:3010/INS/dashboard",
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts same-origin Referer against Host when nextUrl uses internal bind origin", async () => {
@@ -240,13 +208,7 @@ async function run() {
         },
       });
 
-      const response = await middleware(request, async () => ({
-        user: { id: LOCAL_OWNER_ID, email: "owner@localhost.local" },
-        supabaseResponse: NextResponse.next({ request }),
-      }));
-
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("x-middleware-next"), "1");
+      await assertAllowedWithOwnerSession(request);
     });
 
     await test("rejects cross-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
