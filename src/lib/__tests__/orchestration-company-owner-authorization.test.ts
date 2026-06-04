@@ -7,6 +7,7 @@ import { GET as getCompanyRoute } from "@/app/api/orchestration/companies/[slug]
 import { GET as listProjectsRoute } from "@/app/api/orchestration/projects/route";
 import { GET as listTasksRoute } from "@/app/api/orchestration/tasks/route";
 import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import { createCompany, getCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -14,23 +15,7 @@ import { createProject, createTask } from "@/lib/orchestration/service";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { proxy as middleware } from "@/proxy";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 function apiRequest(url: string, userId: string): NextRequest {
   return new NextRequest(url, {
@@ -310,8 +295,7 @@ async function run() {
     restoreEnvSnapshot(envSnapshot);
   }
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
