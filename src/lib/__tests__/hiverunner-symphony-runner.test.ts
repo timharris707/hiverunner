@@ -4,21 +4,9 @@ import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "./helpers/simple-test-runner";
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  pass ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  fail ${name}`);
-    console.error(`    ${message}`);
-  }
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 type RunnerContractFixture = {
   case: string;
@@ -217,10 +205,10 @@ process.stdout.write(JSON.stringify({ type: "usage", input_tokens: 13, output_to
   chmodSync(file, 0o755);
 }
 
-function run() {
+async function run() {
   console.log("\nHiveRunner External Runner Tests\n");
 
-  test("runner contract fixtures cover and validate expected response classes", () => {
+  await test("runner contract fixtures cover and validate expected response classes", () => {
     const fixtures = readContractFixtures();
     assert.deepStrictEqual(fixtures.map((fixture) => fixture.case), REQUIRED_FIXTURE_CASES);
     for (const fixture of fixtures) {
@@ -256,7 +244,7 @@ function run() {
       prompt: "Implement the fixture task.",
     };
 
-    test("runner converts HiveRunner payload into a Codex exec invocation", () => {
+    await test("runner converts HiveRunner payload into a Codex exec invocation", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -293,7 +281,7 @@ function run() {
       assert.ok(prompt.includes("Implement the fixture task."));
     });
 
-    test("runner reports the Codex configured default when the CLI owns model selection", () => {
+    await test("runner reports the Codex configured default when the CLI owns model selection", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -320,7 +308,7 @@ function run() {
       assert.ok(!args.includes("--model"), `runtime-managed Codex should let the CLI select its configured default, got ${args.join(" ")}`);
     });
 
-    test("runner includes trusted local runtime capabilities in the Codex prompt", () => {
+    await test("runner includes trusted local runtime capabilities in the Codex prompt", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify({
@@ -349,7 +337,7 @@ function run() {
       assert.ok(prompt.includes("trusted local HiveRunner runtime"));
     });
 
-    test("runner strips provider prefixes from Codex model env before invoking the CLI", () => {
+    await test("runner strips provider prefixes from Codex model env before invoking the CLI", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(payload),
@@ -371,7 +359,7 @@ function run() {
       assert.ok(!args.includes("openai-codex/gpt-5.4-mini"));
     });
 
-    test("runner omits Codex model flag for default aliases so the CLI can use its account default", () => {
+    await test("runner omits Codex model flag for default aliases so the CLI can use its account default", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify({
@@ -397,7 +385,7 @@ function run() {
       assert.ok(!args.includes("--model"), `default aliases should omit --model, got ${args.join(" ")}`);
     });
 
-    test("runner uses resolved payload model instead of legacy task model-routing", () => {
+    await test("runner uses resolved payload model instead of legacy task model-routing", () => {
       const result = spawnSync(process.execPath, ["scripts/hiverunner-symphony-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify({
@@ -429,8 +417,10 @@ function run() {
     rmSync(tempRoot, { recursive: true, force: true });
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
