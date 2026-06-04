@@ -25,6 +25,19 @@ Measured from a temporary worktree at `origin/main` after PR #44.
 
 For comparison, the initial 2026-06-03 baseline reported health score 59, 508 dead-code issues, 220 clone groups, and 11.6% duplication. The cleanup stream is moving the numbers, but the remaining full-warning pool is still broad.
 
+Latest checkpoint after PR #55:
+
+- Scan commit: `7b9230764` (`Clean up memory quality test helpers`)
+- Dead-code findings: 459 total
+  - unused files: 47
+  - unused exports: 288
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 169 clone groups, 152 clone families, 31,192 duplicated lines, 10.4% duplication across 418 files
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -46,6 +59,10 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #48: share Symphony adapter test helpers
 - #49: share memory/review learning fixtures
 - #50: share create-task fixture helpers
+- #52: reuse shared adapter test runner
+- #53: prune unused utility exports
+- #54: use shared runner in sync tests
+- #55: clean up memory quality test helpers
 
 Related but not cleanup:
 
@@ -66,23 +83,23 @@ Related but not cleanup:
 
 These are good near-term hygiene targets because they are mostly test-only or small helper extractions. Pick by expected gain and risk, not by raw Fallow ordering.
 
-1. Remaining repeated test runner/import/setup shells
+1. Remaining repeated test runner/setup shells
    - Source signal: large inherited clone families still visible in `fallow:changed`, especially repeated imports, pass/fail counters, test runners, and cleanup tails across test files.
-   - Expected shape: only extract when a small domain cluster already shares identical semantics. Prefer existing helpers such as SQLite reset, auth env, middleware, voice session, or orchestration fixtures over creating one global harness.
+   - Expected shape: continue reusing existing helpers, especially `createTestRunner`, `resetSqliteDatabaseFiles`, auth env, middleware, voice session, and orchestration fixtures. Avoid one global harness.
    - Validation: touched test files plus `npm run fallow:changed`.
    - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
-2. Dead export micro-prunes
-   - Source signal: remaining unused exports in isolated utilities such as `src/lib/cron-parser.ts`, `src/lib/agent-status.ts`, `src/lib/agent-skills.ts`, and small UI helper modules.
-   - Expected shape: direct import searches before removal; avoid dynamic/runtime or framework entry points.
-   - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`.
-   - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
-
-3. Small route-test fixture duplication
+2. Small route-test fixture duplication
    - Source signal: route tests still have repeated owner/session/company setup patterns outside the clusters already completed.
    - Expected shape: narrow helper reuse within a route-test family, not a route-framework abstraction.
    - Validation: touched route tests plus `npm run fallow:changed`.
    - Estimate: one to two PRs.
+
+3. Dead export micro-prunes
+   - Source signal: remaining unused exports in isolated utilities and small helper modules.
+   - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports.
+   - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
+   - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
 
 ## Completed Queue Items
 
@@ -106,6 +123,27 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Completed by #50 with shared create-task fixture helpers.
   - Validation: touched test files, `git diff --check`, `npm run fallow:changed`.
   - Caveat: `orchestration-update-task-status-rejection.test.ts` still has two pre-existing failures reproduced on clean `origin/main`; do not treat that as introduced by #50.
+
+- Adapter test runner duplication
+  - Source signal: repeated pass/fail harnesses in Anthropic, Codex, Gemini, HERMES, execution adapter registry, and runtime registry tests.
+  - Completed by #52 with `createTestRunner`.
+  - Validation: touched adapter/registry tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+
+- Utility dead-export micro-prune
+  - Source signal: unused exports in `src/lib/cron-parser.ts`, `src/lib/agent-status.ts`, and `src/lib/orchestration/avatar-icons.ts`.
+  - Completed by #53 after direct symbol and import-path searches.
+  - Validation: `git diff --check`, `npm run fallow:changed`, `npm run build`, GitHub Local-First CI.
+
+- Sync utility test runner duplication
+  - Source signal: repeated synchronous pass/fail harnesses in runtime, voice, workspace, and company wizard tests.
+  - Completed by #54 with `createTestRunner`.
+  - Validation: nine touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
+  - Deferred: `workspace-root-resolution.test.ts` and `gateway-stream-bridge.test.ts` need separate DB/test-isolation review before harness conversion.
+
+- Memory quality test helper duplication
+  - Source signal: repeated pass/fail runners, DB cleanup, and fixture setup in memory quality/retrieval/vault tests.
+  - Completed by #55 with `createTestRunner`, `resetSqliteDatabaseFiles`, and existing learning fixtures where semantics matched.
+  - Validation: six touched tests, `git diff --check`, `npm run fallow:changed`, GitHub Local-First CI.
 
 ## Defer Or Plan Separately
 
@@ -142,4 +180,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test runner/setup duplication first, then isolated dead-export micro-prunes. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test runner/setup duplication first, especially DB reset/setup shells and route-test fixture reuse. Keep dead-export work to isolated utilities with direct import searches. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
