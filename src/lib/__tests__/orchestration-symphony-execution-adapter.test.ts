@@ -290,6 +290,71 @@ async function run() {
       ).run(JSON.stringify(updated), new Date().toISOString(), row!.id);
     }
 
+    type QueuedSymphonyHeartbeatOptions = {
+      taskId: string;
+      reason: string;
+      expectedStatus?: "succeeded" | "failed";
+      assertQueuedMode?: boolean;
+      assertQueuedStatus?: boolean;
+      assertResultErrorNull?: boolean;
+    };
+
+    type ExecutionRunRecord = {
+      id: string;
+      provider: string;
+      execution_engine: string | null;
+      runner_provider: string | null;
+      runner_model: string | null;
+      status: string;
+      session_id: string | null;
+      error_message: string | null;
+      token_usage_json: string | null;
+    };
+
+    async function executeQueuedSymphonyHeartbeat(options: QueuedSymphonyHeartbeatOptions) {
+      const queued = await triggerTaskExecution({
+        taskId: options.taskId,
+        reason: options.reason,
+      });
+      if (options.assertQueuedMode ?? true) assert.strictEqual(queued.mode, "symphony");
+      if (options.assertQueuedStatus ?? true) assert.strictEqual(queued.status, "queued");
+
+      const runId = queued.runId;
+      assert.ok(runId, "triggerTaskExecution should enqueue a heartbeat run");
+
+      const result = await executeHeartbeatRun(runId, db);
+      const expectedStatus = options.expectedStatus ?? "succeeded";
+      assert.strictEqual(
+        result.status,
+        expectedStatus,
+        expectedStatus === "succeeded" ? result.error ?? "heartbeat should succeed" : undefined,
+      );
+      if (options.assertResultErrorNull) assert.strictEqual(result.error, null);
+
+      return { queued, result, runId };
+    }
+
+    function readFixturePayload(): SymphonyFixturePayload {
+      return JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
+    }
+
+    function readExecutionRun(taskId: string, agentId: string): ExecutionRunRecord {
+      const executionRun = db
+        .prepare(
+          `SELECT id, provider, execution_engine, runner_provider, runner_model, status, session_id, error_message, token_usage_json
+           FROM execution_runs
+           WHERE task_id = ? AND agent_id = ?
+           LIMIT 1`,
+        )
+        .get(taskId, agentId) as ExecutionRunRecord | undefined;
+      assert.ok(executionRun, "execution_run should be created");
+      return executionRun!;
+    }
+
+    function readRunUsage(executionRun: { token_usage_json: string | null }): Record<string, unknown> {
+      return JSON.parse(executionRun.token_usage_json ?? "{}") as Record<string, unknown>;
+    }
+
     setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
     const staleQaAgent = createProjectAgent({
       projectId: project.id,
@@ -388,21 +453,15 @@ async function run() {
     }).task;
 
     await test("task executionEngine=symphony dispatches through the external runner contract", async () => {
-      const queued = await triggerTaskExecution({
+      const { queued, runId } = await executeQueuedSymphonyHeartbeat({
         taskId: task.id,
         reason: "symphony_execution_adapter_test",
+        assertResultErrorNull: true,
       });
 
-      assert.strictEqual(queued.mode, "symphony");
-      assert.strictEqual(queued.status, "queued");
       assert.strictEqual(queued.queued, true);
-      assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+      const payload = readFixturePayload();
 
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-      assert.strictEqual(result.error, null);
-
-      const payload = JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
       assert.strictEqual(realpathSync(readFileSync(cwdFile, "utf8").trim()), realpathSync(payload.workspace.cwd));
       assert.strictEqual(
         realpathSync(payload.workspace.cwd),
@@ -416,7 +475,7 @@ async function run() {
       assert.strictEqual(readFileSync(argsFile, "utf8"), "--fixture");
 
       assert.strictEqual(payload.schema, "hiverunner.symphony.execution.v1");
-      assert.strictEqual(payload.runId, queued.runId);
+      assert.strictEqual(payload.runId, runId);
       assert.strictEqual(payload.executionEngine, "symphony");
       assert.strictEqual(payload.runnerProvider, "codex");
       assert.strictEqual(payload.runnerModel, "gpt-5.4-mini");
@@ -461,32 +520,15 @@ async function run() {
       assert.strictEqual(runnerEnv.approvalPolicy, "never");
       assert.strictEqual(runnerEnv.model, "gpt-5.4-mini");
 
-      const executionRun = db
-        .prepare(
-          `SELECT id, provider, execution_engine, runner_provider, runner_model, status, session_id, token_usage_json
-           FROM execution_runs
-           WHERE task_id = ? AND agent_id = ?
-           LIMIT 1`,
-        )
-        .get(task.id, agent.id) as {
-          id: string;
-          provider: string;
-          execution_engine: string | null;
-          runner_provider: string | null;
-          runner_model: string | null;
-          status: string;
-          session_id: string | null;
-          token_usage_json: string | null;
-        } | undefined;
-      assert.ok(executionRun, "execution_run should be created");
-      assert.strictEqual(executionRun!.provider, "symphony");
-      assert.strictEqual(executionRun!.execution_engine, "symphony");
-      assert.strictEqual(executionRun!.runner_provider, "codex");
-      assert.strictEqual(executionRun!.runner_model, "gpt-5.4-mini");
-      assert.strictEqual(executionRun!.status, "completed");
-      assert.strictEqual(executionRun!.session_id, null);
+      const executionRun = readExecutionRun(task.id, agent.id);
+      assert.strictEqual(executionRun.provider, "symphony");
+      assert.strictEqual(executionRun.execution_engine, "symphony");
+      assert.strictEqual(executionRun.runner_provider, "codex");
+      assert.strictEqual(executionRun.runner_model, "gpt-5.4-mini");
+      assert.strictEqual(executionRun.status, "completed");
+      assert.strictEqual(executionRun.session_id, null);
 
-      const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+      const usage = readRunUsage(executionRun);
       assert.strictEqual(usage.provider, "symphony");
       assert.strictEqual(usage.executionEngine, "symphony");
       assert.strictEqual(usage.runnerProvider, "codex");
@@ -511,12 +553,12 @@ async function run() {
 
       const transcriptCount = db
         .prepare(`SELECT COUNT(*) AS count FROM execution_run_transcript_events WHERE execution_run_id = ? AND provider = 'symphony'`)
-        .get(executionRun!.id) as { count: number };
+        .get(executionRun.id) as { count: number };
       assert.strictEqual(transcriptCount.count, 4);
 
       const polled = await pollTaskExecutionStatus(task.id);
       assert.strictEqual(polled.mode, "symphony");
-      assert.strictEqual(polled.runId, executionRun!.id);
+      assert.strictEqual(polled.runId, executionRun.id);
       assert.strictEqual(polled.status.state, "completed");
       assert.strictEqual(polled.status.raw, "completed");
       assert.strictEqual(polled.status.terminal, true);
@@ -571,19 +613,12 @@ async function run() {
           executionEngine: "symphony",
         }).task;
 
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: matrixTask.id,
           reason: "symphony_execution_matrix_default_test",
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
-
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-
-        const payload = JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
+        const payload = readFixturePayload();
         assert.strictEqual(payload.runnerProvider, "anthropic");
         assert.strictEqual(payload.runnerModel, null);
         assert.strictEqual(payload.modelRouting, "openrouter");
@@ -742,16 +777,14 @@ async function run() {
       try {
         setActiveHiveDefaultRoute({ runtimeId: "claude-code", runtimeLabel: "Claude Code" });
 
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: legacyModelTask.id,
           reason: "symphony_route_legacy_model_guard_test",
+          assertQueuedMode: false,
+          assertQueuedStatus: false,
         });
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-
-        const payload = JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
+        const payload = readFixturePayload();
         assert.strictEqual(payload.runnerProvider, "anthropic");
         assert.strictEqual(payload.runnerModel, null);
         assert.strictEqual(payload.execution.runnerProvider, "anthropic");
@@ -816,18 +849,13 @@ async function run() {
           executionModelRoutingLabel: "Google Direct",
         }).task;
 
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: overrideTask.id,
           reason: "symphony_task_execution_routing_override_test",
+          assertQueuedStatus: false,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
-
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-
-        const payload = JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
+        const payload = readFixturePayload();
         assert.strictEqual(payload.runnerProvider, "anthropic");
         assert.strictEqual(payload.modelRouting, "google");
         assert.strictEqual(payload.modelRoutingLabel, "Google Direct");
@@ -917,38 +945,19 @@ async function run() {
 
       process.env.HIVERUNNER_CLAUDE_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: matrixOverrideTask.id,
           reason: "symphony_matrix_provider_command_override_test",
+          assertQueuedStatus: false,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(matrixOverrideTask.id, matrixOverrideAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.execution_engine, "symphony");
+        assert.strictEqual(executionRun.runner_provider, "anthropic");
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, execution_engine, runner_provider, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(matrixOverrideTask.id, matrixOverrideAgent.id) as {
-            provider: string;
-            execution_engine: string | null;
-            runner_provider: string | null;
-            status: string;
-            token_usage_json: string | null;
-          } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.execution_engine, "symphony");
-        assert.strictEqual(executionRun!.runner_provider, "anthropic");
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.runnerProvider, "anthropic");
         assert.strictEqual(usage.modelRouting, "runtime-managed");
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-claude-runner.mjs"));
@@ -988,32 +997,17 @@ async function run() {
 
       process.env.HIVERUNNER_SYMPHONY_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: defaultRunnerTask.id,
           reason: "symphony_default_runner_test",
+          assertResultErrorNull: true,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(defaultRunnerTask.id, defaultRunnerAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-        assert.strictEqual(result.error, null);
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(defaultRunnerTask.id, defaultRunnerAgent.id) as { provider: string; status: string; token_usage_json: string | null } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.provider, "symphony");
         assert.strictEqual(usage.integrationPath, "hiverunner-symphony-command");
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-symphony-runner.mjs"));
@@ -1070,42 +1064,20 @@ async function run() {
 
       process.env.HIVERUNNER_CLAUDE_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: claudeRunnerTask.id,
           reason: "symphony_claude_runner_test",
+          assertResultErrorNull: true,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(claudeRunnerTask.id, claudeRunnerAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.execution_engine, "symphony");
+        assert.strictEqual(executionRun.runner_provider, "anthropic");
+        assert.strictEqual(executionRun.runner_model, "claude-sonnet-4-6");
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-        assert.strictEqual(result.error, null);
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, execution_engine, runner_provider, runner_model, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(claudeRunnerTask.id, claudeRunnerAgent.id) as {
-            provider: string;
-            execution_engine: string | null;
-            runner_provider: string | null;
-            runner_model: string | null;
-            status: string;
-            token_usage_json: string | null;
-          } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.execution_engine, "symphony");
-        assert.strictEqual(executionRun!.runner_provider, "anthropic");
-        assert.strictEqual(executionRun!.runner_model, "claude-sonnet-4-6");
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.runnerProvider, "anthropic");
         assert.strictEqual(usage.runnerModel, "claude-sonnet-4-6");
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-claude-runner.mjs"));
@@ -1164,42 +1136,20 @@ async function run() {
 
       process.env.HIVERUNNER_GEMINI_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: geminiRunnerTask.id,
           reason: "symphony_gemini_runner_test",
+          assertResultErrorNull: true,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(geminiRunnerTask.id, geminiRunnerAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.execution_engine, "symphony");
+        assert.strictEqual(executionRun.runner_provider, "gemini");
+        assert.strictEqual(executionRun.runner_model, "gemini-3-pro-preview");
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-        assert.strictEqual(result.error, null);
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, execution_engine, runner_provider, runner_model, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(geminiRunnerTask.id, geminiRunnerAgent.id) as {
-            provider: string;
-            execution_engine: string | null;
-            runner_provider: string | null;
-            runner_model: string | null;
-            status: string;
-            token_usage_json: string | null;
-          } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.execution_engine, "symphony");
-        assert.strictEqual(executionRun!.runner_provider, "gemini");
-        assert.strictEqual(executionRun!.runner_model, "gemini-3-pro-preview");
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.runnerProvider, "gemini");
         assert.strictEqual(usage.runnerModel, "gemini-3-pro-preview");
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-gemini-runner.mjs"));
@@ -1258,42 +1208,20 @@ async function run() {
 
       process.env.HIVERUNNER_HERMES_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: hermesRunnerTask.id,
           reason: "symphony_hermes_runner_test",
+          assertResultErrorNull: true,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(hermesRunnerTask.id, hermesRunnerAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.execution_engine, "symphony");
+        assert.strictEqual(executionRun.runner_provider, "hermes");
+        assert.strictEqual(executionRun.runner_model, "anthropic/claude-sonnet-4-6");
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-        assert.strictEqual(result.error, null);
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, execution_engine, runner_provider, runner_model, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(hermesRunnerTask.id, hermesRunnerAgent.id) as {
-            provider: string;
-            execution_engine: string | null;
-            runner_provider: string | null;
-            runner_model: string | null;
-            status: string;
-            token_usage_json: string | null;
-          } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.execution_engine, "symphony");
-        assert.strictEqual(executionRun!.runner_provider, "hermes");
-        assert.strictEqual(executionRun!.runner_model, "anthropic/claude-sonnet-4-6");
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.runnerProvider, "hermes");
         assert.strictEqual(usage.runnerModel, "anthropic/claude-sonnet-4-6");
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-hermes-runner.mjs"));
@@ -1353,42 +1281,20 @@ async function run() {
 
       process.env.HIVERUNNER_OPENCLAW_DRY_RUN = "1";
       try {
-        const queued = await triggerTaskExecution({
+        await executeQueuedSymphonyHeartbeat({
           taskId: openclawRunnerTask.id,
           reason: "symphony_openclaw_runner_test",
+          assertResultErrorNull: true,
         });
 
-        assert.strictEqual(queued.mode, "symphony");
-        assert.strictEqual(queued.status, "queued");
-        assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
+        const executionRun = readExecutionRun(openclawRunnerTask.id, openclawRunnerAgent.id);
+        assert.strictEqual(executionRun.provider, "symphony");
+        assert.strictEqual(executionRun.execution_engine, "symphony");
+        assert.strictEqual(executionRun.runner_provider, "openclaw");
+        assert.strictEqual(executionRun.runner_model, null);
+        assert.strictEqual(executionRun.status, "completed");
 
-        const result = await executeHeartbeatRun(queued.runId!, db);
-        assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-        assert.strictEqual(result.error, null);
-
-        const executionRun = db
-          .prepare(
-            `SELECT provider, execution_engine, runner_provider, runner_model, status, token_usage_json
-             FROM execution_runs
-             WHERE task_id = ? AND agent_id = ?
-             LIMIT 1`,
-          )
-          .get(openclawRunnerTask.id, openclawRunnerAgent.id) as {
-            provider: string;
-            execution_engine: string | null;
-            runner_provider: string | null;
-            runner_model: string | null;
-            status: string;
-            token_usage_json: string | null;
-          } | undefined;
-        assert.ok(executionRun, "execution_run should be created");
-        assert.strictEqual(executionRun!.provider, "symphony");
-        assert.strictEqual(executionRun!.execution_engine, "symphony");
-        assert.strictEqual(executionRun!.runner_provider, "openclaw");
-        assert.strictEqual(executionRun!.runner_model, null);
-        assert.strictEqual(executionRun!.status, "completed");
-
-        const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
+        const usage = readRunUsage(executionRun);
         assert.strictEqual(usage.runnerProvider, "openclaw");
         assert.strictEqual(usage.runnerModel, null);
         assert.ok(String(usage.command).endsWith("scripts/hiverunner-openclaw-runner.mjs"));
@@ -1450,17 +1356,13 @@ async function run() {
         executionEngine: "symphony",
       }).task;
 
-      const queued = await triggerTaskExecution({
+      await executeQueuedSymphonyHeartbeat({
         taskId: sourceTask.id,
         reason: "symphony_source_workspace_test",
+        assertQueuedStatus: false,
       });
-      assert.strictEqual(queued.mode, "symphony");
-      assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
 
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.strictEqual(result.status, "succeeded", result.error ?? "heartbeat should succeed");
-
-      const payload = JSON.parse(readFileSync(stdinFile, "utf8")) as SymphonyFixturePayload;
+      const payload = readFixturePayload();
       assert.strictEqual(realpathSync(readFileSync(cwdFile, "utf8").trim()), realpathSync(sourceWorkspaceRoot));
       assert.strictEqual(realpathSync(payload.workspace.cwd), realpathSync(sourceWorkspaceRoot));
       assert.strictEqual(realpathSync(payload.workspace.sourceWorkspaceRoot ?? ""), realpathSync(sourceWorkspaceRoot));
@@ -1627,16 +1529,11 @@ async function run() {
         executionEngine: "symphony",
       }).task;
 
-      const queued = await triggerTaskExecution({
+      const { result } = await executeQueuedSymphonyHeartbeat({
         taskId: missingRunnerTask.id,
         reason: "symphony_missing_command_test",
+        expectedStatus: "failed",
       });
-      assert.strictEqual(queued.mode, "symphony");
-      assert.strictEqual(queued.status, "queued");
-      assert.ok(queued.runId, "triggerTaskExecution should enqueue a heartbeat run");
-
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.strictEqual(result.status, "failed");
       assert.ok(String(result.error).includes("definitely-missing-symphony"));
 
       const executionRun = db
