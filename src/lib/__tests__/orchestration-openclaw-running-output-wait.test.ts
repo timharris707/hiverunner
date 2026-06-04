@@ -12,24 +12,9 @@ import path from "node:path";
 
 import { createExecutableScriptStub } from "@/lib/__tests__/helpers/executable-script-stub";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 function createRunningOutputOpenClawCli(): string {
   const statePath = path.join(
@@ -37,38 +22,40 @@ function createRunningOutputOpenClawCli(): string {
     `mc-openclaw-running-output-state-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.txt`,
   );
 
-  const script = `#!/bin/sh
-METHOD="$3"
-PARAMS="$6"
-STATE_FILE="${statePath}"
-
-extract_key() {
-  printf '%s' "$PARAMS" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p'
-}
-
-if [ "$METHOD" = "sessions.create" ]; then
-  KEY="$(extract_key)"
-  printf '%s' "$KEY" > "$STATE_FILE"
-  printf '{"ok":true,"key":"%s","sessionId":"session-running-output-123"}\n' "$KEY"
-  exit 0
-fi
-if [ "$METHOD" = "sessions.send" ]; then
-  echo '{"runId":"run-running-output-456","status":"started"}'
-  exit 0
-fi
-if [ "$METHOD" = "sessions.list" ] || [ "$METHOD" = "sessions_list" ]; then
-  KEY="$(cat "$STATE_FILE" 2>/dev/null)"
-  printf '{"sessions":[{"key":"%s","sessionId":"session-running-output-123","status":"running","startedAt":1775790000000}]}' "$KEY"
-  exit 0
-fi
-if [ "$METHOD" = "sessions.get" ] || [ "$METHOD" = "sessions_get" ]; then
-  echo '{"sessionId":"session-running-output-123","status":"running","messages":[{"role":"assistant","content":"I am locating the workspace before writing the artifact."}]}'
-  exit 0
-fi
-
-echo "unsupported method: $METHOD" >&2
-exit 1
-`;
+  const script = [
+    "#!/bin/sh",
+    'METHOD="$3"',
+    'PARAMS="$6"',
+    `STATE_FILE="${statePath}"`,
+    "",
+    "extract_key() {",
+    `  printf '%s' "$PARAMS" | sed -n 's/.*"key":"\\([^"]*\\)".*/\\1/p'`,
+    "}",
+    "",
+    'if [ "$METHOD" = "sessions.create" ]; then',
+    '  KEY="$(extract_key)"',
+    '  printf \'%s\' "$KEY" > "$STATE_FILE"',
+    `  printf '{"ok":true,"key":"%s","sessionId":"session-running-output-123"}\\n' "$KEY"`,
+    "  exit 0",
+    "fi",
+    'if [ "$METHOD" = "sessions.send" ]; then',
+    `  echo '{"runId":"run-running-output-456","status":"started"}'`,
+    "  exit 0",
+    "fi",
+    'if [ "$METHOD" = "sessions.list" ] || [ "$METHOD" = "sessions_list" ]; then',
+    '  KEY="$(cat "$STATE_FILE" 2>/dev/null)"',
+    `  printf '{"sessions":[{"key":"%s","sessionId":"session-running-output-123","status":"running","startedAt":1775790000000}]}' "$KEY"`,
+    "  exit 0",
+    "fi",
+    'if [ "$METHOD" = "sessions.get" ] || [ "$METHOD" = "sessions_get" ]; then',
+    `  echo '{"sessionId":"session-running-output-123","status":"running","messages":[{"role":"assistant","content":"I am locating the workspace before writing the artifact."}]}'`,
+    "  exit 0",
+    "fi",
+    "",
+    'echo "unsupported method: $METHOD" >&2',
+    "exit 1",
+    "",
+  ].join("\n");
 
   return createExecutableScriptStub({
     prefix: "mc-openclaw-running-output",
@@ -195,9 +182,7 @@ async function run() {
     resetSqliteDatabaseFiles(dbPath);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {

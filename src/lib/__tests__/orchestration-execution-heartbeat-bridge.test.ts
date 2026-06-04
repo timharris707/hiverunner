@@ -10,24 +10,10 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function createStubOpenClawCli(): { filePath: string; statePath: string; taskKeyPath: string } {
   const filePath = path.join(
@@ -110,9 +96,7 @@ async function run() {
   const tempOpenClawDir = mkdtempSync(path.join(os.tmpdir(), "mc-openclaw-heartbeat-bridge-openclaw-"));
 
   try {
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
 
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
     process.env.OPENCLAW_DIR = tempOpenClawDir;
@@ -257,16 +241,10 @@ async function run() {
     rmSync(stub.statePath, { force: true });
     rmSync(stub.taskKeyPath, { force: true });
     rmSync(tempOpenClawDir, { recursive: true, force: true });
-    if (dbPath) {
-      rmSync(dbPath, { force: true });
-    }
+    resetSqliteDatabaseFiles(dbPath);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) {
-    process.exitCode = 1;
-  }
+  finish();
 }
 
 run().catch((error) => {
