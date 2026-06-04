@@ -9,6 +9,8 @@ import { POST as configureHiveRoute } from "@/app/api/orchestration/companies/[s
 import { PATCH as updateLaneRoute } from "@/app/api/orchestration/companies/[slug]/hives/[hiveId]/lanes/[laneId]/route";
 import { GET as listAvailableModelsRoute, POST as createAvailableModelRoute } from "@/app/api/orchestration/available-models/route";
 import { DELETE as deleteAvailableModelRoute, PATCH as updateAvailableModelRoute } from "@/app/api/orchestration/available-models/[id]/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -32,22 +34,7 @@ if (!process.env.ORCHESTRATION_DB_PATH) {
   );
 }
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  fail ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function makeGetRequest(url: string) {
   return {
@@ -68,9 +55,7 @@ async function run() {
   console.log("\nExecution Hives Tests\n");
 
   const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
 
   const company = createCompany({
     name: `Execution Hives ${Date.now()}`,
@@ -698,8 +683,7 @@ exit 0
     assert.equal(lane?.verificationStatus, "untested");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run().catch((error) => {

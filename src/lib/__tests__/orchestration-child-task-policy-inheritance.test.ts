@@ -1,14 +1,17 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
 import { POST as createTaskRoute } from "@/app/api/orchestration/tasks/route";
 import { buildCreateTaskModalInput } from "@/components/orchestration/create-task-modal-input";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createTask, getTask } from "@/lib/orchestration/service";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 if (!process.env.ORCHESTRATION_DB_PATH) {
   process.env.ORCHESTRATION_DB_PATH = path.join(
@@ -17,22 +20,7 @@ if (!process.env.ORCHESTRATION_DB_PATH) {
   );
 }
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  fail ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function makeJsonRequest(url: string, body: unknown) {
   return {
@@ -53,9 +41,7 @@ async function run() {
   });
 
   try {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
     workspaceIsolation.syncDatabase(getOrchestrationDb());
 
     const company = createCompany({
@@ -194,11 +180,11 @@ async function run() {
     assert.equal(overridePayload.modelLane, "mini");
   });
 
-    console.log(`\n${passed} passed, ${failed} failed`);
-    if (failed > 0) process.exitCode = 1;
   } finally {
     workspaceIsolation.dispose();
   }
+
+  finish();
 }
 
 run().catch((error) => {

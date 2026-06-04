@@ -18,24 +18,10 @@ import {
   GET as getWikiRollbackMetadataRoute,
 } from "@/app/api/orchestration/companies/[slug]/wiki/writeback/[requestId]/rollback/route";
 import { updateWikiWritebackApprovalState } from "@/lib/orchestration/wiki-writeback-requests";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 function jsonRequest(url: string, body: Record<string, unknown>): Request {
   return new Request(url, {
@@ -246,8 +232,7 @@ async function run() {
     assert.strictEqual(payload.rollback.targetPath, "company/approved-note.md");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
