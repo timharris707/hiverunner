@@ -3,6 +3,7 @@ type TestFunction = () => Promise<void> | void;
 type TestRunnerOptions = {
   passLabel?: string;
   failLabel?: string;
+  errorStackLines?: number;
 };
 
 type FinishOptions = {
@@ -12,6 +13,7 @@ type FinishOptions = {
 export function createTestRunner(options: TestRunnerOptions = {}) {
   const passLabel = options.passLabel ?? "PASS";
   const failLabel = options.failLabel ?? "FAIL";
+  const errorStackLines = options.errorStackLines ?? 0;
   let passed = 0;
   let failed = 0;
 
@@ -27,6 +29,9 @@ export function createTestRunner(options: TestRunnerOptions = {}) {
         const message = error instanceof Error ? error.message : String(error);
         console.error(`  ${failLabel} ${name}`);
         console.error(`    ${message}`);
+        if (errorStackLines > 0 && error instanceof Error && error.stack) {
+          console.error(error.stack.split("\n").slice(1, 1 + errorStackLines).join("\n"));
+        }
       });
   }
 

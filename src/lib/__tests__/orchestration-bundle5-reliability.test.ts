@@ -12,6 +12,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import Database from "better-sqlite3";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 import { compactAgentModelLabel, modelProviderColors, resolveAgentModelDisplay } from "@/lib/orchestration/agent-model-display";
 import { getAgentLiveState } from "@/lib/orchestration/agent-live-state";
@@ -24,24 +26,7 @@ import { createApproval, updateApprovalStatus } from "@/lib/orchestration/servic
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 import { listTasks } from "@/lib/orchestration/service/task";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-      if (error instanceof Error && error.stack) console.error(error.stack.split("\n").slice(1, 4).join("\n"));
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗", errorStackLines: 3 });
 
 function actionBlock(action: Record<string, unknown>): string {
   return ["```mc-action", JSON.stringify(action), "```"].join("\n");
@@ -49,12 +34,7 @@ function actionBlock(action: Record<string, unknown>): string {
 
 async function run() {
   console.log("\nBundle 5 Operational Reliability Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   const suffix = Date.now();
@@ -1350,8 +1330,7 @@ async function run() {
     });
   });
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 void run();

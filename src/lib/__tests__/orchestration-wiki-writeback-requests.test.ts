@@ -1,7 +1,7 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createIsolatedOrchestrationWorkspace, resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 const isolation = createIsolatedOrchestrationWorkspace({
   prefix: "mc-wiki-writeback-requests-",
@@ -19,32 +19,12 @@ import {
   wikiContentHash,
 } from "@/lib/orchestration/wiki-writeback-requests";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Wiki Write-back Request Persistence Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   isolation.syncDatabase(db);
@@ -195,8 +175,7 @@ async function run() {
     assert.strictEqual(written.rollback.previousHash, "previous-file-hash-at-write");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
