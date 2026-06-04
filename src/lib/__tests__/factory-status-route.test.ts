@@ -36,11 +36,39 @@ const deleteTaskFixtures = deleteBuildTaskFixtures;
 
 console.log("\nFactory Status Route Contract Test\n");
 
-const buildLogPath = join(process.cwd(), "data", "build-log.json");
 const lockPath = join(process.cwd(), "data", "locks", "factory.lock");
 const originalBuildLog = JSON.parse(JSON.stringify(readBuildLog()));
 const originalTasks = readTasks();
 const fixtureTaskIds: string[] = [];
+
+function clearFactoryLock() {
+  try {
+    unlinkSync(lockPath);
+  } catch {}
+}
+
+function upsertTrackedTasks(...tasks: ReturnType<typeof makeTask>[]) {
+  for (const task of tasks) {
+    fixtureTaskIds.push(task.id);
+    upsertTask(task);
+  }
+}
+
+function restoreTaskSnapshot() {
+  const db = getDb();
+  db.prepare("DELETE FROM tasks").run();
+  for (const task of originalTasks) {
+    upsertTask(task);
+  }
+}
+
+function restoreFactoryStatusFixtures() {
+  clearFactoryLock();
+  writeBuildLog(originalBuildLog);
+  restoreTaskSnapshot();
+  deleteTaskFixtures(fixtureTaskIds);
+  __testHooks.setLastReconcileAt(0);
+}
 
 async function run() {
   try {
@@ -74,15 +102,11 @@ async function run() {
         ],
       });
 
-      try {
-        unlinkSync(lockPath);
-      } catch {}
+      clearFactoryLock();
 
       const onDeck = makeTask("to-do");
       const backlog = makeTask("backlog");
-      fixtureTaskIds.push(onDeck.id, backlog.id);
-      upsertTask(onDeck);
-      upsertTask(backlog);
+      upsertTrackedTasks(onDeck, backlog);
 
       const lastReconcileAt = Date.now() - 5_000;
       __testHooks.setLastReconcileAt(lastReconcileAt);
@@ -119,17 +143,7 @@ async function run() {
       assert.strictEqual(payload.currentLockHolder, "reconcile:test-suite");
     });
   } finally {
-    try {
-      unlinkSync(lockPath);
-    } catch {}
-    writeFileSync(buildLogPath, JSON.stringify(originalBuildLog, null, 2));
-    const db = getDb();
-    db.prepare("DELETE FROM tasks").run();
-    for (const task of originalTasks) {
-      upsertTask(task);
-    }
-    deleteTaskFixtures(fixtureTaskIds);
-    __testHooks.setLastReconcileAt(0);
+    restoreFactoryStatusFixtures();
   }
 
   finish();
@@ -137,10 +151,6 @@ async function run() {
 
 run().catch((error) => {
   console.error(error);
-  try {
-    unlinkSync(lockPath);
-  } catch {}
-  writeFileSync(buildLogPath, JSON.stringify(originalBuildLog, null, 2));
-  __testHooks.setLastReconcileAt(0);
+  restoreFactoryStatusFixtures();
   process.exit(1);
 });
