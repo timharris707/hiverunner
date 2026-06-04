@@ -164,6 +164,24 @@ Latest checkpoint after PR #94:
 
 Net movement from the PR #88 checkpoint: 3 fewer clone groups, 3 fewer clone families, 399 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. This is useful but smaller than the early fixture-helper batches; future work should pivot toward higher-signal reliability or architecture targets instead of grinding tiny test clones.
 
+Latest checkpoint after PR #102:
+
+- Scan commit: `7f6b05d75` (`test: reuse overseer test runner helper`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 456 total
+  - unused files: 47
+  - unused exports: 285
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 108 clone groups, 92 clone families, 26,605 duplicated lines, 9.0% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,685
+
+Net movement from the PR #94 checkpoint: 1 fewer clone group, 1 fewer clone family, 118 fewer duplicated lines, and 2 fewer dead-code findings. The content-draft helper extraction and project-color export cleanup were still worthwhile because they were simple and directly validated, but the raw Fallow metric movement confirms that the remaining cheap cleanup pool is near diminishing returns.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -221,6 +239,9 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #92: reduce health continuation fixture duplication
 - #93: clean up auth middleware tails
 - #94: dedupe provider runner harness setup
+- #100: extract content draft storage helper
+- #101: prune unused project color helper exports
+- #102: reuse shared runner in overseer tests
 
 Related but not cleanup:
 
@@ -375,6 +396,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: the metric movement was modest. Treat the remaining generic test-clone pool as lower priority unless a cluster has obvious fixture clarity or reliability payoff.
 
+- Content draft helper, export micro-prune, and overseer runner cleanup
+  - Source signal: repeated content-draft JSON load/save helpers, directly-proven unused project color helper exports, and repeated overseer test pass/fail runners.
+  - Completed by #100, #101, and #102 with explicit worktrees and one worker per branch.
+  - Validation: content route build validation, direct `rg` import searches for export changes, focused overseer tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: this was intentionally narrow and safe, but the Fallow metric movement was small. Further work should be selected by expected maintenance/reliability payoff, not by raw warning count.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -410,4 +437,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #98, the surfaced reliability issues from the recent hygiene batches are resolved. The highest expected-gain next step is to return to Fallow with stricter triage: target clusters with clear maintenance value, such as company-agent route single-file duplication, company route fixture repetition, or direct-search-proven dead-export micro-prunes. Skip tiny import-only clones and low-savings runner boilerplate. Runner scripts and provider execution adapter helper extraction remain higher-impact but higher-risk; schedule those only as dedicated PRs with CodeGraph impact checks and the full runner/adapter test matrix.
+After PR #102, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The highest expected-gain next step is no longer another broad sweep of tiny test clones. Either pick one remaining low-risk target with obvious clarity value, such as company-agent route single-file duplication, company route fixture repetition, or a direct-search-proven dead-export micro-prune, or schedule one dedicated higher-impact architecture cleanup. Runner scripts and provider execution adapter helper extraction remain higher-impact but higher-risk; take one at a time with CodeGraph impact checks and the full runner/adapter test matrix.
