@@ -1,28 +1,14 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
 import { GET as listCompanyInboxRoute } from "@/app/api/orchestration/companies/[slug]/inbox/route";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { approveSprintPlanDraft, createCompany, createCompanyGoal, createSprintPlanDrafts } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createProjectAgent, createTask, createTaskComment } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 function makeGetRequest(url: string) {
   return {
@@ -33,12 +19,7 @@ function makeGetRequest(url: string) {
 async function run() {
   console.log("\nOrchestration Inbox Thread Read State Regression Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   await test("thread row remains unread when latest execution event is read but another thread event is unread", async () => {
     const company = createCompany({
@@ -243,11 +224,7 @@ async function run() {
     assert.equal(event.draftMaterialized, true);
   });
 
-  if (failed > 0) {
-    console.error(`\n${failed} failed, ${passed} passed`);
-    process.exit(1);
-  }
-  console.log(`\n${passed} passed`);
+  finish();
 }
 
 void run();

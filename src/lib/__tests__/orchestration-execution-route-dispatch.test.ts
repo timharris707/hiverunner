@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { executeHeartbeatRun } from "@/lib/orchestration/engine/engine";
@@ -20,22 +22,7 @@ if (!process.env.ORCHESTRATION_DB_PATH) {
   );
 }
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  fail ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function writeFakeRunner(dir: string): string {
   const file = path.join(dir, "fake-symphony-runner.cjs");
@@ -105,9 +92,7 @@ async function run() {
   console.log("\nExecution Route Dispatch Tests\n");
 
   const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
 
   const tmp = mkdtempSync(path.join(os.tmpdir(), "mc-route-dispatch-"));
   const auditFile = path.join(tmp, "route-audit.jsonl");
@@ -538,11 +523,7 @@ async function run() {
   const auditLines = readFileSync(auditFile, "utf8").trim().split(/\n+/).filter(Boolean);
   assert.ok(auditLines.length >= 4, "fake runner should have received route payloads");
 
-  if (failed > 0) {
-    console.error(`\n${failed} failed, ${passed} passed`);
-    process.exit(1);
-  }
-  console.log(`\n${passed} passed`);
+  finish();
 }
 
 void run();
