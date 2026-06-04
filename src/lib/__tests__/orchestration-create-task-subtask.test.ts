@@ -20,8 +20,8 @@
  */
 
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -46,7 +46,7 @@ console.log("\nOrchestration create_task Subtask Contract Test\n");
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
 
     const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -374,7 +374,7 @@ async function run() {
       assert.deepEqual(result.errors, [], "expected parent closure deferral should not be counted as an error");
     });
   } finally {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
   const total = passed + failed;
