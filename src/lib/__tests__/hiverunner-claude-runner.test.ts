@@ -8,6 +8,8 @@ import { createTestRunner } from "./helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type ExtraEnv = Record<string, string | undefined>;
+
 function writeFakeClaude(file: string) {
   writeFileSync(
     file,
@@ -38,6 +40,24 @@ async function run() {
     mkdirSync(workspace, { recursive: true });
     writeFakeClaude(fakeClaude);
 
+    function runClaudeRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(inputPayload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_CLAUDE_COMMAND: fakeClaude,
+          FAKE_CLAUDE_ARGS_FILE: argsFile,
+          FAKE_CLAUDE_PROMPT_FILE: promptFile,
+          ...extraEnv,
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    }
+
     const payload = {
       schema: "hiverunner.symphony.execution.v1",
       runId: "run-claude-fixture",
@@ -63,20 +83,7 @@ async function run() {
     };
 
     await test("Claude runner consumes the HiveRunner external runner contract", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_CLAUDE_COMMAND: fakeClaude,
-          FAKE_CLAUDE_ARGS_FILE: argsFile,
-          FAKE_CLAUDE_PROMPT_FILE: promptFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runClaudeRunner(payload);
       assert.strictEqual(output.sessionId, "claude-fixture-session");
       assert.strictEqual(output.runnerProvider, "anthropic");
       assert.strictEqual(output.runnerModel, "claude-sonnet-4-6");
@@ -102,30 +109,15 @@ async function run() {
     });
 
     await test("Claude runner dry-run validates payload without launching Claude Code", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_CLAUDE_COMMAND: fakeClaude,
-          HIVERUNNER_CLAUDE_DRY_RUN: "1",
-          FAKE_CLAUDE_ARGS_FILE: argsFile,
-          FAKE_CLAUDE_PROMPT_FILE: promptFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runClaudeRunner(payload, { HIVERUNNER_CLAUDE_DRY_RUN: "1" });
       assert.strictEqual(output.runnerProvider, "anthropic");
       assert.strictEqual(output.runnerModel, "claude-sonnet-4-6");
       assert.ok(String(output.resultText).includes("dry run accepted"));
     });
 
     await test("Claude runner ignores legacy task model-routing when a resolved runner model is present", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({
+      const output = runClaudeRunner(
+        {
           ...payload,
           runnerModel: "anthropic/claude-sonnet",
           execution: {
@@ -133,19 +125,9 @@ async function run() {
               model: "openai-codex/gpt-5.5",
             },
           },
-        }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_CLAUDE_COMMAND: fakeClaude,
-          HIVERUNNER_CLAUDE_DRY_RUN: "1",
-          FAKE_CLAUDE_ARGS_FILE: argsFile,
-          FAKE_CLAUDE_PROMPT_FILE: promptFile,
         },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+        { HIVERUNNER_CLAUDE_DRY_RUN: "1" },
+      );
       assert.strictEqual(output.runnerModel, "claude-sonnet-4-6");
     });
   } finally {

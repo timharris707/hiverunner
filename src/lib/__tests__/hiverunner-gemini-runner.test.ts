@@ -8,6 +8,8 @@ import { createTestRunner } from "./helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type ExtraEnv = Record<string, string | undefined>;
+
 function writeFakeGemini(file: string) {
   writeFileSync(
     file,
@@ -117,6 +119,24 @@ async function run() {
       "utf8",
     );
 
+    function runGeminiRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(inputPayload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
+          FAKE_GEMINI_ARGS_FILE: argsFile,
+          FAKE_GEMINI_PROMPT_FILE: promptFile,
+          ...extraEnv,
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    }
+
     const payload = {
       schema: "hiverunner.symphony.execution.v1",
       runId: "run-gemini-fixture",
@@ -142,20 +162,7 @@ async function run() {
     };
 
     await test("Gemini runner consumes the HiveRunner external runner contract", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runGeminiRunner(payload);
       assert.strictEqual(output.sessionId, "gemini-run-gemini-fixture");
       assert.strictEqual(output.runnerProvider, "gemini");
       assert.strictEqual(output.runnerModel, "gemini-3-pro-preview");
@@ -181,30 +188,15 @@ async function run() {
     });
 
     await test("Gemini runner dry-run validates payload without launching Gemini CLI", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
-          HIVERUNNER_GEMINI_DRY_RUN: "1",
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runGeminiRunner(payload, { HIVERUNNER_GEMINI_DRY_RUN: "1" });
       assert.strictEqual(output.runnerProvider, "gemini");
       assert.strictEqual(output.runnerModel, "gemini-3-pro-preview");
       assert.ok(String(output.resultText).includes("dry run accepted"));
     });
 
     await test("Gemini runner ignores legacy task model-routing when a resolved runner model is present", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({
+      const output = runGeminiRunner(
+        {
           ...payload,
           runnerModel: "google/gemini-3-pro-preview",
           execution: {
@@ -212,19 +204,9 @@ async function run() {
               model: "openai-codex/gpt-5.5",
             },
           },
-        }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
-          HIVERUNNER_GEMINI_DRY_RUN: "1",
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
         },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+        { HIVERUNNER_GEMINI_DRY_RUN: "1" },
+      );
       assert.strictEqual(output.runnerModel, "gemini-3-pro-preview");
     });
 
@@ -232,9 +214,8 @@ async function run() {
       rmSync(argsFile, { force: true });
       rmSync(promptFile, { force: true });
       rmSync(invocationsFile, { force: true });
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({
+      const output = runGeminiRunner(
+        {
           ...payload,
           runnerModel: "google/gemini-3.5-flash",
           benchmark: {
@@ -247,21 +228,13 @@ async function run() {
               standard: { input: 1.5, output: 9 },
             },
           },
-        }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
+        },
+        {
           HIVERUNNER_GEMINI_API_BASE_URL: fakeApi.baseUrl,
           GEMINI_API_KEY: "fixture-key",
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
           FAKE_GEMINI_INVOCATIONS_FILE: invocationsFile,
         },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      );
       assert.strictEqual(output.runnerProvider, "gemini");
       assert.strictEqual(output.runnerModel, "gemini-3.5-flash");
       const preflight = output.preflight as Record<string, unknown>;
@@ -299,9 +272,8 @@ async function run() {
 
     await test("Gemini benchmark preflight blocks model-not-found before launching benchmark cells", () => {
       rmSync(invocationsFile, { force: true });
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({
+      const output = runGeminiRunner(
+        {
           ...payload,
           runnerModel: "google/gemini-3.5-missing",
           benchmark: {
@@ -309,21 +281,13 @@ async function run() {
             packetRunId: payload.runId,
             preflight: { required: true },
           },
-        }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
+        },
+        {
           HIVERUNNER_GEMINI_API_BASE_URL: fakeApi.baseUrl,
           GEMINI_API_KEY: "fixture-key",
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
           FAKE_GEMINI_INVOCATIONS_FILE: invocationsFile,
         },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      );
       const preflight = output.preflight as Record<string, unknown>;
       assert.strictEqual(output.runnerProvider, "gemini");
       assert.strictEqual(output.runnerModel, "gemini-3.5-missing");
@@ -343,9 +307,8 @@ async function run() {
 
     await test("Gemini benchmark preflight rejects stale packet_run_id rows before runtime access", () => {
       rmSync(invocationsFile, { force: true });
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({
+      const output = runGeminiRunner(
+        {
           ...payload,
           runnerModel: "google/gemini-3.5-flash",
           benchmark: {
@@ -353,20 +316,12 @@ async function run() {
             packet_run_id: "stale-packet-run",
             preflight: { required: true },
           },
-        }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_GEMINI_COMMAND: fakeGemini,
+        },
+        {
           HIVERUNNER_GEMINI_PREFLIGHT_METADATA_FILE: accessibleMetadataFile,
-          FAKE_GEMINI_ARGS_FILE: argsFile,
-          FAKE_GEMINI_PROMPT_FILE: promptFile,
           FAKE_GEMINI_INVOCATIONS_FILE: invocationsFile,
         },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      );
       const preflight = output.preflight as Record<string, unknown>;
       assert.strictEqual(preflight.status, "blocked");
       assert.strictEqual(preflight.terminalErrorClass, "stale_packet_run_id");

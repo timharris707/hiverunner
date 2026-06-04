@@ -8,6 +8,8 @@ import { createTestRunner } from "./helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type ExtraEnv = Record<string, string | undefined>;
+
 function writeFakeHermes(file: string) {
   writeFileSync(
     file,
@@ -110,6 +112,27 @@ async function run() {
     mkdirSync(companyWorkspace, { recursive: true });
     writeFakeHermes(fakeHermes);
 
+    function runHermesRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = spawnSync(process.execPath, ["scripts/hiverunner-hermes-runner.mjs"], {
+        cwd: process.cwd(),
+        input: JSON.stringify(inputPayload),
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          HIVERUNNER_HERMES_COMMAND: fakeHermes,
+          FAKE_HERMES_ARGS_FILE: argsFile,
+          FAKE_HERMES_CWD_FILE: cwdFile,
+          FAKE_HERMES_MODEL_FILE: modelFile,
+          FAKE_HERMES_PROMPT_FILE: promptFile,
+          FAKE_HERMES_SESSION_PARAMS_FILE: sessionParamsFile,
+          ...extraEnv,
+        },
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr);
+      return JSON.parse(result.stdout) as Record<string, unknown>;
+    }
+
     const payload = {
       schema: "hiverunner.symphony.execution.v1",
       runId: "run-hermes-fixture",
@@ -135,23 +158,7 @@ async function run() {
     };
 
     await test("HERMES runner consumes the HiveRunner external runner contract", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-hermes-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify(payload),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_HERMES_COMMAND: fakeHermes,
-          FAKE_HERMES_ARGS_FILE: argsFile,
-          FAKE_HERMES_CWD_FILE: cwdFile,
-          FAKE_HERMES_MODEL_FILE: modelFile,
-          FAKE_HERMES_PROMPT_FILE: promptFile,
-          FAKE_HERMES_SESSION_PARAMS_FILE: sessionParamsFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runHermesRunner(payload);
       assert.strictEqual(output.sessionId, "hermes-fixture-session");
       assert.strictEqual(output.runnerProvider, "hermes");
       assert.strictEqual(output.runnerModel, "anthropic/claude-sonnet-4-6");
@@ -178,20 +185,7 @@ async function run() {
     });
 
     await test("HERMES runner dry-run accepts default aliases without launching ACP", () => {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-hermes-runner.mjs"], {
-        cwd: process.cwd(),
-        input: JSON.stringify({ ...payload, runnerModel: "hermes/default" }),
-        encoding: "utf8",
-        env: {
-          ...process.env,
-          HIVERUNNER_HERMES_COMMAND: fakeHermes,
-          HIVERUNNER_HERMES_DRY_RUN: "1",
-          FAKE_HERMES_ARGS_FILE: argsFile,
-        },
-      });
-
-      assert.strictEqual(result.status, 0, result.stderr);
-      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      const output = runHermesRunner({ ...payload, runnerModel: "hermes/default" }, { HIVERUNNER_HERMES_DRY_RUN: "1" });
       assert.strictEqual(output.runnerProvider, "hermes");
       assert.strictEqual(output.runnerModel, null);
       assert.ok(String(output.resultText).includes("dry run accepted"));
