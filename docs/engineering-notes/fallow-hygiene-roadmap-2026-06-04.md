@@ -218,6 +218,24 @@ Latest checkpoint after PR #106:
 
 Net movement from the PR #104 checkpoint: 3 fewer clone groups, 2 fewer clone families, 225 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Dead-code counts did not move. This confirms that focused runner-script extractions still have real signal, but the remaining runner-script duplication should be handled only when the helper boundary is obvious and the full runner matrix can validate it.
 
+Latest checkpoint after PR #108:
+
+- Scan commit: `6bffa1c50` (`chore: remove unused Habbo office components`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 453 total
+  - unused files: 44
+  - unused exports: 285
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 98 clone groups, 88 clone families, 25,997 duplicated lines, 8.8% duplication
+- Health score: 73, grade B
+- Total measured LOC: 244,660
+
+Net movement from the PR #106 checkpoint: 3 fewer dead-code findings, 2 fewer clone groups, 1 fewer clone family, 102 fewer duplicated lines, and 827 fewer measured LOC. This was a good payoff/risk slice because direct searches proved the Habbo office React components were unreachable and the active `OfficeCanvas` PNG/canvas path stayed untouched.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -280,6 +298,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #102: reuse shared runner in overseer tests
 - #104: share external runner script utilities
 - #106: share external runner prompt builder
+- #108: remove unused Habbo office components
 
 Related but not cleanup:
 
@@ -314,8 +333,8 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Validation: touched route tests plus `npm run fallow:changed`.
    - Estimate: two to four small PRs.
 
-3. Dead export micro-prunes
-   - Source signal: dead-code remains at 456 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+3. Dead file/export micro-prunes
+   - Source signal: dead-code remains at 453 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -452,6 +471,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph query/callers/callees/impact for `buildPrompt`, all five dedicated runner tests, `node --check` on touched scripts, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: the remaining runner-script duplication is more operational, including spawn/result/dry-run handling. Do not extract it opportunistically; use a dedicated PR and the full runner matrix.
 
+- Habbo office dead-file prune
+  - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
+  - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
+  - Validation: direct `rg` searches for every Habbo export, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code and duplication summaries, `npm run build`, `npm run lint`, and GitHub Local-First CI.
+  - Caveat: this is the model for future dead-file cleanup: prune only directly proven unreachable files in a narrow family. Do not bulk-delete the remaining unused UI/component files from Fallow without product intent review.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -473,7 +498,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 47 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 44 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -487,4 +512,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #106, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, but further runner extraction is now closer to operational command semantics. The next best target should be selected by expected gain and risk: prefer a lower-risk single-file cleanup such as `HabboFurniture` duplication or a direct-search-proven dead-export micro-prune before another runner-script extraction. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #108, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo dead-file prune confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: prefer another narrow dead-file/export micro-prune or a small directly verified test-fixture cleanup before another runner-script extraction. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
