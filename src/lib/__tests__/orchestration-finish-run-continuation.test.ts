@@ -6,37 +6,54 @@
  */
 
 import assert from "node:assert";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
+type OrchestrationDb = ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>;
+
+type HeartbeatRunResult = {
+  messagesImported: number;
+  actionsFound: number;
+  actionsExecuted: number;
+  actionsSkippedDedup: number;
+  tasksCreated: unknown[];
+  approvalsCreated: unknown[];
+  reportsImported: number;
+  errors: unknown[];
+};
+
 async function createFixture() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
   const { getOrchestrationDb } = await import("@/lib/orchestration/db");
-  const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+  const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
 
-  const project = createProject({
+  const project = createFixtureProject(createProject, {
     companyId,
-    name: `Finish Run Continuation ${Date.now()}`,
+    namePrefix: "Finish Run Continuation",
+    label: "fixture",
     description: "Continuation gating fixture",
     color: "#0ea5e9",
     emoji: "🧪",
-    status: "active",
-  }).project;
+  });
 
-  const agent = createProjectAgent({
+  const agent = createFixtureAgent(createProjectAgent, {
     projectId: project.id,
-    name: `Continuation Agent ${Math.random().toString(36).slice(2, 6)}`,
+    namePrefix: "Continuation Agent",
     emoji: "🔧",
     role: "Backend Engineer",
-    personality: "Deterministic",
-    openclawAgentId: `continuation-agent-${Math.random().toString(36).slice(2, 8)}`,
-    status: "idle",
+    openclawPrefix: "continuation-agent",
     skills: ["orchestration"],
-  }).agent;
+  });
 
-  const task = createTask({
+  const task = createBasicFixtureTask(createTask, {
     projectId: project.id,
     title: "Continuation gating task",
     description: "Disposable continuation test task.",
@@ -44,22 +61,39 @@ async function createFixture() {
     type: "infrastructure",
     status: "in-progress",
     assignee: agent.id,
-    labels: ["continuation"],
     createdBy: "test-suite",
-  }).task;
+  });
 
   const db = getOrchestrationDb();
   return { db, project, agent, task, companyId };
 }
 
+function continuationResult(overrides: Partial<HeartbeatRunResult>): HeartbeatRunResult {
+  return {
+    messagesImported: 0,
+    actionsFound: 0,
+    actionsExecuted: 0,
+    actionsSkippedDedup: 0,
+    tasksCreated: [],
+    approvalsCreated: [],
+    reportsImported: 0,
+    errors: [],
+    ...overrides,
+  };
+}
+
+function setTaskStatus(db: OrchestrationDb, taskId: string, status: string): void {
+  db.prepare("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?").run(status, new Date().toISOString(), taskId);
+}
+
 function seedHeartbeatRun(
-  db: ReturnType<typeof import("@/lib/orchestration/db")["getOrchestrationDb"]>,
+  db: OrchestrationDb,
   input: {
     runId: string;
     agentId: string;
     companyId: string;
     taskId: string;
-    resultJson: Record<string, unknown>;
+    resultJson: HeartbeatRunResult;
   },
 ): void {
   const now = new Date().toISOString();
@@ -78,6 +112,33 @@ function seedHeartbeatRun(
   );
 }
 
+async function assertNoContinuationForRun(input: {
+  taskStatus: string;
+  runId: string;
+  runStatus: "failed" | "succeeded";
+  resultJson: HeartbeatRunResult;
+  failureMessage?: (decision: unknown) => string;
+}): Promise<void> {
+  const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
+  const { db, companyId, agent, task } = await createFixture();
+
+  setTaskStatus(db, task.id, input.taskStatus);
+  seedHeartbeatRun(db, {
+    runId: input.runId,
+    agentId: agent.id,
+    companyId,
+    taskId: task.id,
+    resultJson: input.resultJson,
+  });
+
+  const decision = decideFinishRunContinuation(task.id, input.runId, input.runStatus, db);
+  assert.deepStrictEqual(
+    decision,
+    { shouldContinue: false },
+    input.failureMessage?.(decision),
+  );
+}
+
 console.log("\nOrchestration Finish Run Continuation Contract Test\n");
 
 async function run() {
@@ -86,29 +147,15 @@ async function run() {
     resetSqliteDatabaseFiles(dbPath);
 
     await test("Failed passive-report runs do not auto-continue on to-do tasks", async () => {
-      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
-      const { db, companyId, agent, task } = await createFixture();
-
-      db.prepare("UPDATE tasks SET status = 'to-do', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
-      seedHeartbeatRun(db, {
+      await assertNoContinuationForRun({
+        taskStatus: "to-do",
         runId: "run-passive-failed",
-        agentId: agent.id,
-        companyId,
-        taskId: task.id,
-        resultJson: {
+        runStatus: "failed",
+        resultJson: continuationResult({
           messagesImported: 1,
-          actionsFound: 0,
-          actionsExecuted: 0,
-          actionsSkippedDedup: 0,
-          tasksCreated: [],
-          approvalsCreated: [],
           reportsImported: 1,
-          errors: [],
-        },
+        }),
       });
-
-      const decision = decideFinishRunContinuation(task.id, "run-passive-failed", "failed", db);
-      assert.deepStrictEqual(decision, { shouldContinue: false });
     });
 
     await test("Successful to-do runs do NOT auto-continue even with actions executed (no self-loop)", async () => {
@@ -119,115 +166,55 @@ async function run() {
       // to-do branch. Auto-continuing here caused agents (e.g. Barometer
       // on WEA-262, 2026-04-17) to re-wake themselves forever by posting
       // narrative comments.
-      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
-      const { db, companyId, agent, task } = await createFixture();
-
-      db.prepare("UPDATE tasks SET status = 'to-do', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
-      seedHeartbeatRun(db, {
+      await assertNoContinuationForRun({
+        taskStatus: "to-do",
         runId: "run-to-do-actions",
-        agentId: agent.id,
-        companyId,
-        taskId: task.id,
-        resultJson: {
+        runStatus: "succeeded",
+        resultJson: continuationResult({
           messagesImported: 1,
           actionsFound: 7,
           actionsExecuted: 7,
-          actionsSkippedDedup: 0,
-          tasksCreated: [],
-          approvalsCreated: [],
           reportsImported: 2,
-          errors: [],
-        },
+        }),
+        failureMessage: (decision) =>
+          `to-do task with narrative-only actions must NOT auto-continue; got: ${JSON.stringify(decision)}`,
       });
-
-      const decision = decideFinishRunContinuation(task.id, "run-to-do-actions", "succeeded", db);
-      assert.deepStrictEqual(
-        decision,
-        { shouldContinue: false },
-        `to-do task with narrative-only actions must NOT auto-continue; got: ${JSON.stringify(decision)}`,
-      );
     });
 
     await test("to-do with zero actions also does not continue (baseline unchanged)", async () => {
-      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
-      const { db, companyId, agent, task } = await createFixture();
-
-      db.prepare("UPDATE tasks SET status = 'to-do', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
-      seedHeartbeatRun(db, {
+      await assertNoContinuationForRun({
+        taskStatus: "to-do",
         runId: "run-to-do-empty",
-        agentId: agent.id,
-        companyId,
-        taskId: task.id,
-        resultJson: {
-          messagesImported: 0,
-          actionsFound: 0,
-          actionsExecuted: 0,
-          actionsSkippedDedup: 0,
-          tasksCreated: [],
-          approvalsCreated: [],
-          reportsImported: 0,
-          errors: [],
-        },
+        runStatus: "succeeded",
+        resultJson: continuationResult({}),
       });
-
-      const decision = decideFinishRunContinuation(task.id, "run-to-do-empty", "succeeded", db);
-      assert.deepStrictEqual(decision, { shouldContinue: false });
     });
 
     await test("in_progress task with actions does not self-continue", async () => {
-      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
-      const { db, companyId, agent, task } = await createFixture();
-
-      db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
-      seedHeartbeatRun(db, {
+      await assertNoContinuationForRun({
+        taskStatus: "in_progress",
         runId: "run-in-progress-with-actions",
-        agentId: agent.id,
-        companyId,
-        taskId: task.id,
-        resultJson: {
+        runStatus: "succeeded",
+        resultJson: continuationResult({
           messagesImported: 1,
           actionsFound: 2,
           actionsExecuted: 2,
-          actionsSkippedDedup: 0,
-          tasksCreated: [],
-          approvalsCreated: [],
-          reportsImported: 0,
-          errors: [],
-        },
+        }),
+        failureMessage: (decision) =>
+          `in_progress tasks with actions must wait for the next external wake instead of self-looping; got: ${JSON.stringify(decision)}`,
       });
-
-      const decision = decideFinishRunContinuation(task.id, "run-in-progress-with-actions", "succeeded", db);
-      assert.deepStrictEqual(
-        decision,
-        { shouldContinue: false },
-        `in_progress tasks with actions must wait for the next external wake instead of self-looping; got: ${JSON.stringify(decision)}`,
-      );
     });
 
     await test("Successful in_progress report-only runs do not continue", async () => {
-      const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
-      const { db, companyId, agent, task } = await createFixture();
-
-      db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?").run(new Date().toISOString(), task.id);
-      seedHeartbeatRun(db, {
+      await assertNoContinuationForRun({
+        taskStatus: "in_progress",
         runId: "run-in-progress-report-only",
-        agentId: agent.id,
-        companyId,
-        taskId: task.id,
-        resultJson: {
+        runStatus: "succeeded",
+        resultJson: continuationResult({
           messagesImported: 1,
-          actionsFound: 0,
-          actionsExecuted: 0,
-          actionsSkippedDedup: 0,
-          tasksCreated: [],
-          approvalsCreated: [],
           reportsImported: 1,
-          errors: [],
-        },
+        }),
       });
-
-      const decision = decideFinishRunContinuation(task.id, "run-in-progress-report-only", "succeeded", db);
-      assert.deepStrictEqual(decision, { shouldContinue: false });
     });
 
     await test("finished task queues next ready assigned task for same idle agent", async () => {
@@ -247,8 +234,7 @@ async function run() {
       db.prepare("DELETE FROM heartbeat_runs WHERE company_id = ?").run(companyId);
       db.prepare("DELETE FROM agent_wakeup_requests WHERE company_id = ?").run(companyId);
       db.prepare("DELETE FROM execution_runs WHERE agent_id = ?").run(agent.id);
-      db.prepare("UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?")
-        .run(new Date().toISOString(), task.id);
+      setTaskStatus(db, task.id, "done");
 
       const pendingDependency = createTask({
         projectId: project.id,
