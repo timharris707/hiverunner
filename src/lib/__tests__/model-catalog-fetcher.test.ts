@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
   refreshAllAvailableModels,
@@ -19,26 +20,9 @@ import {
   updateAvailableModel,
 } from "@/lib/orchestration/service/available-models";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(os.tmpdir(), `mc-model-catalog-fetcher-${Date.now()}.db`);
-}
+process.env.ORCHESTRATION_DB_PATH ||= path.join(os.tmpdir(), `mc-model-catalog-fetcher-${Date.now()}.db`);
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  fail ${name}`);
-      console.error(`    ${error instanceof Error ? error.stack ?? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail", errorStackLines: 20 });
 
 function jsonResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -52,10 +36,7 @@ function jsonResponse(body: unknown, ok = true, status = 200): Response {
 
 async function run() {
   console.log("\nModel Catalog Fetcher Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
   const db = getOrchestrationDb();
 
   await test("OpenAI refresh filters to chat-capable models", async () => {
@@ -153,8 +134,7 @@ async function run() {
     assert.ok(listAvailableModelRefreshStatuses(db).length >= 4);
   });
 
-  if (failed > 0) throw new Error(`${failed} model catalog fetcher test(s) failed`);
-  console.log(`\n${passed} model catalog fetcher tests passed`);
+  finish();
 }
 
 run().catch((error) => {
