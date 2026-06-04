@@ -107,6 +107,72 @@ async function run() {
     );
   }
 
+  function createReviewProjectFixture(input: {
+    companyName: string;
+    companyDescription: string;
+    projectName: string;
+    projectDescription: string;
+    color: string;
+    emoji: string;
+  }) {
+    const reviewCompany = createCompany({
+      name: input.companyName,
+      description: input.companyDescription,
+      status: "active",
+    }).company;
+    const reviewProject = createProject({
+      companyId: reviewCompany.id,
+      name: input.projectName,
+      description: input.projectDescription,
+      color: input.color,
+      emoji: input.emoji,
+      status: "active",
+    }).project;
+    return { reviewCompany, reviewProject };
+  }
+
+  function createProducerFixtureAgent(input: {
+    projectId: string;
+    name: string;
+    emoji?: string;
+    role?: string;
+    personality?: string;
+    model?: string;
+    status?: "idle" | "offline";
+  }) {
+    return createProjectAgent({
+      projectId: input.projectId,
+      name: input.name,
+      emoji: input.emoji ?? "icon:hammer",
+      role: input.role ?? "Implementation Engineer",
+      personality: input.personality ?? "Fixture producer",
+      model: input.model ?? "openai-codex/gpt-5.5",
+      skills: [],
+      status: input.status ?? "idle",
+    }).agent;
+  }
+
+  function createReviewerFixtureAgent(input: {
+    projectId: string;
+    name: string;
+    emoji?: string;
+    role?: string;
+    personality?: string;
+    model?: string;
+    status?: "idle";
+  }) {
+    return createProjectAgent({
+      projectId: input.projectId,
+      name: input.name,
+      emoji: input.emoji ?? "icon:check",
+      role: input.role ?? "QA Specialist",
+      personality: input.personality ?? "Fixture reviewer",
+      model: input.model ?? "claude-sonnet-4-6",
+      skills: [],
+      status: input.status ?? "idle",
+    }).agent;
+  }
+
   await test("approval decisions cascade to linked blocked tasks", () => {
     const task = createTask({
       projectId: project.id,
@@ -444,49 +510,31 @@ async function run() {
   });
 
   await test("done and reviewed task model display carries producer agent instead of reviewer", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 Source Agent ${suffix}`,
-      description: "Source agent fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Source Agent Project ${suffix}`,
-      description: "Source agent project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 Source Agent ${suffix}`,
+      companyDescription: "Source agent fixture",
+      projectName: `Source Agent Project ${suffix}`,
+      projectDescription: "Source agent project",
       color: "#22c55e",
       emoji: "icon:user-check",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewer = createProjectAgent({
+    });
+    const reviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `Reviewer ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
       model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const finalReviewer = createProjectAgent({
+    });
+    const finalReviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `Final Reviewer ${suffix}`,
       emoji: "icon:check-check",
       role: "Principal QA Specialist",
       personality: "Fixture final reviewer",
       model: "anthropic/claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     const task = createTask({
       projectId: reviewProject.id,
       title: `Source agent done task ${suffix}`,
@@ -614,49 +662,29 @@ async function run() {
   });
 
   await test("review watchdog routes to freshly reassigned reviewer using per-assignee idempotency", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 Review Reassign ${suffix}`,
-      description: "Review reassignment fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Review Reassign Project ${suffix}`,
-      description: "Review reassignment project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 Review Reassign ${suffix}`,
+      companyDescription: "Review reassignment fixture",
+      projectName: `Review Reassign Project ${suffix}`,
+      projectDescription: "Review reassignment project",
       color: "#38bdf8",
       emoji: "icon:check",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewerA = createProjectAgent({
+    });
+    const reviewerA = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `Clarity ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
       personality: "Fixture reviewer A",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewerB = createProjectAgent({
+    });
+    const reviewerB = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `Gator ${suffix}`,
       emoji: "icon:shield",
-      role: "QA Specialist",
       personality: "Fixture reviewer B",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     createProjectAgent({
       projectId: reviewProject.id,
       name: `Oracle ${suffix}`,
@@ -721,39 +749,22 @@ async function run() {
   });
 
   await test("review watchdog falls back to current reviewer when no escalation target is runnable", () => {
-    const fallbackCompany = createCompany({
-      name: `Bundle 5 Review Fallback ${suffix}`,
-      description: "Review fallback fixture",
-      status: "active",
-    }).company;
-    const fallbackProject = createProject({
-      companyId: fallbackCompany.id,
-      name: `Review Fallback Project ${suffix}`,
-      description: "Review fallback project",
+    const { reviewCompany: fallbackCompany, reviewProject: fallbackProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 Review Fallback ${suffix}`,
+      companyDescription: "Review fallback fixture",
+      projectName: `Review Fallback Project ${suffix}`,
+      projectDescription: "Review fallback project",
       color: "#f97316",
       emoji: "icon:check",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: fallbackProject.id,
       name: `Fallback Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewer = createProjectAgent({
+    });
+    const reviewer = createReviewerFixtureAgent({
       projectId: fallbackProject.id,
       name: `Fallback Reviewer ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     createProjectAgent({
       projectId: fallbackProject.id,
       name: `Fallback CEO ${suffix}`,
@@ -842,39 +853,23 @@ async function run() {
   }
 
   await test("engine_default_review_handoff enqueues issue_assigned wakeup for new reviewer", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 H Review Handoff ${suffix}`,
-      description: "Engine reassignment wake fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Review Handoff Project ${suffix}`,
-      description: "Review handoff project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 H Review Handoff ${suffix}`,
+      companyDescription: "Engine reassignment wake fixture",
+      projectName: `Review Handoff Project ${suffix}`,
+      projectDescription: "Review handoff project",
       color: "#0ea5e9",
       emoji: "icon:check",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewer = createProjectAgent({
+    });
+    const reviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Gator ${suffix}`,
       emoji: "icon:shield",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     db.prepare("UPDATE agents SET adapter_type = 'codex', review_specialist_categories = '[\"qa\",\"general\"]' WHERE id IN (?, ?)")
       .run(producer.id, reviewer.id);
     db.prepare("DELETE FROM agent_runtimes WHERE agent_id IN (?, ?)").run(producer.id, reviewer.id);
@@ -925,39 +920,22 @@ async function run() {
   });
 
   await test("engine_review_completion_return_to_producer enqueues issue_assigned wakeup for producer", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 H Review Return ${suffix}`,
-      description: "Engine return wake fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Review Return Project ${suffix}`,
-      description: "Review return project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 H Review Return ${suffix}`,
+      companyDescription: "Engine return wake fixture",
+      projectName: `Review Return Project ${suffix}`,
+      projectDescription: "Review return project",
       color: "#f59e0b",
       emoji: "icon:rotate-ccw",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Return Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewer = createProjectAgent({
+    });
+    const reviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Return Reviewer ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id IN (?, ?)").run(producer.id, reviewer.id);
     const task = createTask({
       projectId: reviewProject.id,
@@ -1053,29 +1031,20 @@ async function run() {
   });
 
   await test("engine_review_completion_return_to_producer rotates to capable alternate when producer is offline", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 H Review Return Fallback ${suffix}`,
-      description: "Engine return fallback wake fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Review Return Fallback Project ${suffix}`,
-      description: "Review return fallback project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 H Review Return Fallback ${suffix}`,
+      companyDescription: "Engine return fallback wake fixture",
+      projectName: `Review Return Fallback Project ${suffix}`,
+      projectDescription: "Review return fallback project",
       color: "#f59e0b",
       emoji: "icon:rotate-ccw",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Offline Producer ${suffix}`,
-      emoji: "icon:hammer",
       role: "Backend Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
       status: "offline",
-    }).agent;
+    });
     const alternate = createProjectAgent({
       projectId: reviewProject.id,
       name: `H Fallback Producer ${suffix}`,
@@ -1086,16 +1055,10 @@ async function run() {
       skills: [],
       status: "idle",
     }).agent;
-    const reviewer = createProjectAgent({
+    const reviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `H Fallback Reviewer ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     db.prepare("UPDATE agents SET adapter_type = 'codex', eligible_categories = ? WHERE id IN (?, ?)")
       .run(JSON.stringify(["backend", "implementation"]), producer.id, alternate.id);
     db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id = ?").run(reviewer.id);
@@ -1155,39 +1118,22 @@ async function run() {
   });
 
   await test("end-of-run autoflip does not undo review return to producer", () => {
-    const reviewCompany = createCompany({
-      name: `Bundle 5 Autoflip Review Return ${suffix}`,
-      description: "End-of-run autoflip review return fixture",
-      status: "active",
-    }).company;
-    const reviewProject = createProject({
-      companyId: reviewCompany.id,
-      name: `Autoflip Review Return Project ${suffix}`,
-      description: "Autoflip review return project",
+    const { reviewCompany, reviewProject } = createReviewProjectFixture({
+      companyName: `Bundle 5 Autoflip Review Return ${suffix}`,
+      companyDescription: "End-of-run autoflip review return fixture",
+      projectName: `Autoflip Review Return Project ${suffix}`,
+      projectDescription: "Autoflip review return project",
       color: "#f59e0b",
       emoji: "icon:rotate-ccw",
-      status: "active",
-    }).project;
-    const producer = createProjectAgent({
+    });
+    const producer = createProducerFixtureAgent({
       projectId: reviewProject.id,
       name: `Autoflip Producer ${suffix}`,
-      emoji: "icon:hammer",
-      role: "Implementation Engineer",
-      personality: "Fixture producer",
-      model: "openai-codex/gpt-5.5",
-      skills: [],
-      status: "idle",
-    }).agent;
-    const reviewer = createProjectAgent({
+    });
+    const reviewer = createReviewerFixtureAgent({
       projectId: reviewProject.id,
       name: `Autoflip Reviewer ${suffix}`,
-      emoji: "icon:check",
-      role: "QA Specialist",
-      personality: "Fixture reviewer",
-      model: "claude-sonnet-4-6",
-      skills: [],
-      status: "idle",
-    }).agent;
+    });
     db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id IN (?, ?)").run(producer.id, reviewer.id);
     const task = createTask({
       projectId: reviewProject.id,
