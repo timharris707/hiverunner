@@ -1,7 +1,9 @@
 import assert from "node:assert";
 import os from "node:os";
 import path from "node:path";
-import { rmSync } from "node:fs";
+
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 if (!process.env.ORCHESTRATION_DB_PATH) {
   process.env.ORCHESTRATION_DB_PATH = path.join(
@@ -10,61 +12,30 @@ if (!process.env.ORCHESTRATION_DB_PATH) {
   );
 }
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nOrchestration Memory Retrieval Relevance Weighting Tests\n");
 
   const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(dbPath);
 
+  const { createCompanyProjectAgentFixture } = await import("@/lib/__tests__/helpers/orchestration-learning-fixtures");
   const { createCompany } = await import("@/lib/orchestration/company-service");
   const { getOrchestrationDb } = await import("@/lib/orchestration/db");
   const { buildMemoryContext } = await import("@/lib/orchestration/memory-context");
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
 
   const db = getOrchestrationDb();
-  const stamp = Date.now();
-  const company = createCompany({
-    name: `Relevance Co ${stamp}`,
-    description: "fixture",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: `Relevance Project ${stamp}`,
-    description: "fixture project",
-    color: "#22c55e",
-    emoji: "icon:folder",
-    status: "active",
-  }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
-    name: `Relevance Agent ${stamp}`,
+  const { agent, company, project, stamp } = createCompanyProjectAgentFixture({
+    companyName: (value) => `Relevance Co ${value}`,
+    projectName: (value) => `Relevance Project ${value}`,
+    projectColor: "#22c55e",
+    agentName: (value) => `Relevance Agent ${value}`,
     emoji: "icon:bot",
     role: "Implementation Engineer",
     personality: "Precise.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
   const focusedTask = createTask({
     projectId: project.id,
     title: "Improve memory retrieval relevance weighting",
@@ -519,8 +490,7 @@ async function run() {
     );
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
