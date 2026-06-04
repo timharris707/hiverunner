@@ -4,38 +4,20 @@
  */
 
 import assert from "node:assert/strict";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
+import {
+  assertUnauthorizedMiddlewareResponse,
+  createMiddlewareRequest,
+  createMiddlewareTestRunner,
+  rejectSupabaseSessionLookup,
+  setMiddlewareNodeEnv,
+} from "@/lib/__tests__/helpers/orchestration-middleware-test-harness";
 import { LOCAL_DEV_SESSION_COOKIE } from "@/lib/auth/local-dev-session";
 import type { EdgeRouteMaps } from "@/lib/orchestration/edge-route-maps";
 import { canBypassLocalDevAuth, isLoopbackHost, proxy as middleware } from "@/proxy";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
+const { finish, test } = createMiddlewareTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 function seedEdgeRouteMapsForTest(routeMaps: EdgeRouteMaps) {
   const scoped = globalThis as typeof globalThis & {
@@ -98,7 +80,7 @@ async function run() {
   });
 
   await test("recognizes exact loopback hosts and defaults to no local-dev auth bypass", () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -113,7 +95,7 @@ async function run() {
   });
 
   await test("ignores removed MC_LOCAL_DEV_AUTH_BYPASS and only honors strict local auth opt-out", () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     process.env.MC_LOCAL_DEV_AUTH_BYPASS = "1";
 
@@ -128,50 +110,40 @@ async function run() {
   });
 
   await test("rejects localhost orchestration requests without real auth by default", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
+      host: "localhost:3010",
     });
 
-    const response = await middleware(request, async () => {
-      throw new Error("Supabase session lookup failed");
-    });
+    const response = await middleware(request, rejectSupabaseSessionLookup);
 
-    assert.equal(response.status, 401);
-
-    const body = await response.json() as { error?: { code?: string; message?: string } };
-    assert.equal(body.error?.code, "unauthorized");
+    await assertUnauthorizedMiddlewareResponse(response);
   });
 
   await test("still requires auth for localhost-looking non-loopback hosts", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost.example.com:3010/api/orchestration/companies/acme/tasks", {
-      headers: { host: "localhost.example.com:3010" },
+    const request = createMiddlewareRequest("http://localhost.example.com:3010/api/orchestration/companies/acme/tasks", {
+      host: "localhost.example.com:3010",
     });
 
-    const response = await middleware(request, async () => {
-      throw new Error("Supabase session lookup failed");
-    });
+    const response = await middleware(request, rejectSupabaseSessionLookup);
 
-    assert.equal(response.status, 401);
-
-    const body = await response.json() as { error?: { code?: string; message?: string } };
-    assert.equal(body.error?.code, "unauthorized");
+    await assertUnauthorizedMiddlewareResponse(response);
   });
 
   await test("allows localhost orchestration requests with a real Supabase session", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => ({
@@ -185,17 +157,15 @@ async function run() {
 
   await test("allows localhost orchestration requests with a valid API key", async () => {
     const originalApiKey = process.env.MC_API_KEY;
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
     process.env.MC_API_KEY = "local-dev-api-key";
 
     try {
-      const request = new NextRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
-        headers: {
-          host: "localhost:3010",
-          "x-mc-api-key": "local-dev-api-key",
-        },
+      const request = createMiddlewareRequest("http://localhost:3010/api/orchestration/companies/acme/tasks", {
+        host: "localhost:3010",
+        "x-mc-api-key": "local-dev-api-key",
       });
 
       const response = await middleware(request, async () => {
@@ -214,13 +184,13 @@ async function run() {
   });
 
   await test("allows local-single-user loopback orchestration API without broad bypass", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     process.env.MC_AUTH_MODE = "local-single-user";
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/api/orchestration/companies", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/api/orchestration/companies", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => {
@@ -234,13 +204,13 @@ async function run() {
   });
 
   await test("keeps local-single-user non-loopback orchestration API behind auth", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     process.env.MC_AUTH_MODE = "local-single-user";
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost.example.com:3010/api/orchestration/companies", {
-      headers: { host: "localhost.example.com:3010" },
+    const request = createMiddlewareRequest("http://localhost.example.com:3010/api/orchestration/companies", {
+      host: "localhost.example.com:3010",
     });
 
     const response = await middleware(request, async () => {
@@ -253,12 +223,12 @@ async function run() {
   });
 
   await test("allows exact loopback healthchecks without broad local-dev bypass", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/api/hiverunner/health", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/api/hiverunner/health", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => {
@@ -270,12 +240,12 @@ async function run() {
   });
 
   await test("serves the public homepage at root instead of redirecting to a workspace", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => {
@@ -289,15 +259,13 @@ async function run() {
   });
 
   await test("accepts local-dev session cookie only on exact loopback hosts", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/INS/dashboard", {
-      headers: {
-        host: "localhost:3010",
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-      },
+    const request = createMiddlewareRequest("http://localhost:3010/INS/dashboard", {
+      host: "localhost:3010",
+      cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
     });
 
     const response = await middleware(request, async () => {
@@ -307,11 +275,9 @@ async function run() {
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("x-middleware-rewrite"), "http://localhost:3010/companies/insight/dashboard");
 
-    const nonLoopbackRequest = new NextRequest("http://localhost.example.com:3010/INS/dashboard", {
-      headers: {
-        host: "localhost.example.com:3010",
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-      },
+    const nonLoopbackRequest = createMiddlewareRequest("http://localhost.example.com:3010/INS/dashboard", {
+      host: "localhost.example.com:3010",
+      cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
     });
 
     const nonLoopbackResponse = await middleware(nonLoopbackRequest, async () => {
@@ -323,7 +289,7 @@ async function run() {
   });
 
   await test("falls back quickly for INS navigation when edge route-map self-fetch stalls", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     clearEdgeRouteMapsForTest();
     process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "1";
     const originalFetch = globalThis.fetch;
@@ -340,11 +306,9 @@ async function run() {
     }) as typeof fetch;
 
     try {
-      const request = new NextRequest("http://localhost:3010/INS/tasks", {
-        headers: {
-          host: "localhost:3010",
-          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-        },
+      const request = createMiddlewareRequest("http://localhost:3010/INS/tasks", {
+        host: "localhost:3010",
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
       });
 
       const response = await middleware(request, async () => {
@@ -379,7 +343,7 @@ async function run() {
   });
 
   await test("bounds unknown company route-map refresh stalls", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     clearEdgeRouteMapsForTest();
     process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = "20";
     const originalFetch = globalThis.fetch;
@@ -397,11 +361,9 @@ async function run() {
 
     try {
       const startedAt = Date.now();
-      const request = new NextRequest("http://localhost:3010/ZZZ/dashboard", {
-        headers: {
-          host: "localhost:3010",
-          cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
-        },
+      const request = createMiddlewareRequest("http://localhost:3010/ZZZ/dashboard", {
+        host: "localhost:3010",
+        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
       });
 
       const response = await middleware(request, async () => {
@@ -438,28 +400,26 @@ async function run() {
   });
 
   await test("keeps non-loopback healthcheck hosts behind auth", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost.example.com:3010/api/hiverunner/health", {
-      headers: { host: "localhost.example.com:3010" },
+    const request = createMiddlewareRequest("http://localhost.example.com:3010/api/hiverunner/health", {
+      host: "localhost.example.com:3010",
     });
 
-    const response = await middleware(request, async () => {
-      throw new Error("Supabase session lookup failed");
-    });
+    const response = await middleware(request, rejectSupabaseSessionLookup);
 
     assert.equal(response.status, 401);
   });
 
   await test("rewrites canonical company pages after authenticating a session", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
     delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
-    const request = new NextRequest("http://localhost:3010/INS/dashboard", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/INS/dashboard", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => ({
@@ -473,11 +433,11 @@ async function run() {
   });
 
   await test("skips session auth entirely in explicit bypass mode", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     process.env.MC_REQUIRE_LOCAL_DEV_AUTH = "0";
 
-    const request = new NextRequest("http://localhost:3010/INS/dashboard", {
-      headers: { host: "localhost:3010" },
+    const request = createMiddlewareRequest("http://localhost:3010/INS/dashboard", {
+      host: "localhost:3010",
     });
 
     const response = await middleware(request, async () => {
@@ -489,14 +449,12 @@ async function run() {
   });
 
   await test("allows internal company-code rewrites to render without legacy redirect loop", async () => {
-    setNodeEnv("development");
+    setMiddlewareNodeEnv("development");
     process.env.MC_REQUIRE_LOCAL_DEV_AUTH = "0";
 
-    const request = new NextRequest("http://localhost:3010/companies/insight/dashboard", {
-      headers: {
-        host: "localhost:3010",
-        "x-mc-canonical-rewrite": "1",
-      },
+    const request = createMiddlewareRequest("http://localhost:3010/companies/insight/dashboard", {
+      host: "localhost:3010",
+      "x-mc-canonical-rewrite": "1",
     });
 
     const response = await middleware(request, async () => {
@@ -511,7 +469,7 @@ async function run() {
   if (originalNodeEnv === undefined) {
     Reflect.deleteProperty(process.env, "NODE_ENV");
   } else {
-    setNodeEnv(originalNodeEnv);
+    setMiddlewareNodeEnv(originalNodeEnv);
   }
 
   if (originalStrictLocalAuth === undefined) {
@@ -550,9 +508,7 @@ async function run() {
     process.env.MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS = originalRouteMapFetchTimeout;
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
