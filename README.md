@@ -1,11 +1,11 @@
 # HiveRunner
 
-**Give your agents a goal. Get back a finished sprint.**
+**Turn a goal into an automated AI-agent sprint.**
 
-HiveRunner is the control plane for AI-agent sprints. It turns one goal into a
-sprint plan, splits it into tasks, and assigns your agents — Codex, Claude Code,
-Gemini, and the CLIs you already run — then executes the work on a lane you own
-and keeps every result reviewable.
+HiveRunner is the local-first control plane for running AI-agent teams. It turns
+one goal into a sprint plan, splits it into tasks, and assigns your agents —
+Codex, Claude Code, Gemini, and the CLIs you already run — then executes the work
+on a lane you own and keeps every result reviewable.
 
 > **Automate the sprint. Keep the review.**
 
@@ -30,7 +30,7 @@ After a fresh clone, you can:
   saved voice choices, and role instructions;
 - inspect runtime readiness for Codex, Claude Code, Gemini, Hermes, OpenClaw, or
   external runners;
-- see where tasks, goals, memory, costs, files, reviews, and runtime lanes live;
+- see where goals, sprints, tasks, runs, memory, costs, files, reviews, and runtime lanes live;
 - decide which optional integrations you actually want to configure.
 
 The goal is fast evaluation without fake magic. Missing optional CLIs or API keys
