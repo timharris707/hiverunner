@@ -13,36 +13,17 @@ const TMP_OPENCLAW = path.join(os.tmpdir(), `${TMP_TAG}-openclaw`);
 process.env.MC_WORKSPACE_ROOT = TMP_WORKSPACE;
 process.env.OPENCLAW_DIR = TMP_OPENCLAW;
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { materializeApprovedHireAgent } from "@/lib/orchestration/service/company-agent-provisioning";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { ensureCompanyWorkspaceScaffold } from "@/lib/workspaces/company-paths";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function run() {
   console.log("\nProvisioning OpenClaw Scaffold Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -183,10 +164,7 @@ async function run() {
   rmSync(TMP_WORKSPACE, { recursive: true, force: true });
   rmSync(TMP_OPENCLAW, { recursive: true, force: true });
 
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
-  if (failed > 0) {
-    process.exit(1);
-  }
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {

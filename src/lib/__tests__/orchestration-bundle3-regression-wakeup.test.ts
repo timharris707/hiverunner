@@ -7,8 +7,9 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { buildHeartbeatPrompt, executeHeartbeatRun, type TaskSession } from "@/lib/orchestration/engine/engine";
@@ -16,33 +17,11 @@ import { sweepOpenTasks } from "@/lib/orchestration/engine/sweeper";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-      if (error instanceof Error && error.stack) console.error(error.stack.split("\n").slice(1, 4).join("\n"));
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗", errorStackLines: 3 });
 
 async function run() {
   console.log("\nBundle 3 Regression Wakeup Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const db = getOrchestrationDb();
   const company = createCompany({
@@ -184,11 +163,7 @@ async function run() {
     if (runError) assert.match(runError, /No active execution hive|Runtime|skipped|blocked/i);
   });
 
-  if (failed > 0) {
-    console.error(`\n${failed} failed, ${passed} passed`);
-    process.exit(1);
-  }
-  console.log(`\n${passed} passed`);
+  finish();
 }
 
 run().catch((error) => {
