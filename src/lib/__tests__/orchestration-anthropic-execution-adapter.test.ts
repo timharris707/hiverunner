@@ -7,6 +7,20 @@ import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type AdapterAgentRow = {
+  id: string;
+  name: string;
+  role: string;
+  personality: string;
+  company_id: string;
+  openclaw_agent_id: string | null;
+  adapter_type: string;
+  adapter_config_json: string;
+  runtime_config_json: string;
+  capabilities: string;
+  runtime_workspace_root: string | null;
+};
+
 function writeFakeClaudeCli(binDir: string): string {
   const file = path.join(binDir, "claude");
   writeFileSync(
@@ -62,6 +76,49 @@ async function run() {
   const { anthropicExecutionAdapter } = await import("@/lib/orchestration/execution/adapters");
 
   const db = getOrchestrationDb();
+  const now = () => new Date().toISOString();
+  const selectAgentRow = (agentId: string): AdapterAgentRow => {
+    const agentRow = db.prepare(
+      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
+              adapter_type, adapter_config_json, runtime_config_json,
+              capabilities
+       FROM agents
+       WHERE id = ?`,
+    ).get(agentId) as AdapterAgentRow;
+    agentRow.runtime_workspace_root = null;
+    return agentRow;
+  };
+  const createAdapterInput = (agentRow: AdapterAgentRow, prompt: string, sessionId: string) => ({
+    agent: agentRow,
+    prompt,
+    session: {
+      id: sessionId,
+      agentId: agentRow.id,
+      companyId: agentRow.company_id,
+      adapterType: "anthropic",
+      taskKey: "__heartbeat__",
+      sessionParams: {},
+      sessionDisplayId: null,
+      lastRunId: null,
+      lastError: null,
+      createdAt: now(),
+      updatedAt: now(),
+    },
+    runtimeState: {
+      agentId: agentRow.id,
+      companyId: agentRow.company_id,
+      adapterType: "anthropic",
+      sessionId: null,
+      state: {},
+      lastRunId: null,
+      lastRunStatus: null,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalCostCents: 0,
+      lastError: null,
+    },
+  });
+
   const company = createCompany({
     name: "Anthropic Execution Co",
     description: "Anthropic adapter fixture.",
@@ -76,43 +133,91 @@ async function run() {
     emoji: "A",
     status: "active",
   }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
+  const createClaudeFixtureAgent = ({
+    name,
+    emoji,
+    personality,
+    model,
+    runtimeSlug,
+    displayName,
+    runtimeConfig,
+    profileAdapterType = "anthropic",
+    metadataModel,
+    syncRuntimeState = false,
+  }: {
+    name: string;
+    emoji: string;
+    personality: string;
+    model: string;
+    runtimeSlug: string;
+    displayName: string;
+    runtimeConfig?: Record<string, unknown>;
+    profileAdapterType?: string;
+    metadataModel?: string;
+    syncRuntimeState?: boolean;
+  }) => {
+    const createdAgent = createProjectAgent({
+      projectId: project.id,
+      name,
+      emoji,
+      role: "Engineer",
+      personality,
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    db.prepare(
+      `UPDATE agents
+       SET adapter_type = ?,
+           model = ?,
+           runtime_config_json = COALESCE(?, runtime_config_json),
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      profileAdapterType,
+      model,
+      runtimeConfig ? JSON.stringify(runtimeConfig) : null,
+      now(),
+      createdAgent.id,
+    );
+    if (syncRuntimeState) {
+      db.prepare(
+        `UPDATE agent_runtime_state
+         SET adapter_type = 'anthropic', updated_at = ?
+         WHERE agent_id = ?`,
+      ).run(now(), createdAgent.id);
+    }
+
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      agentId: createdAgent.id,
+      provider: "anthropic",
+      runtimeSlug,
+      displayName,
+      runtimeKind: "cli",
+      scope: "agent",
+      command: fakeClaude,
+      status: "online",
+      workspaceRoot: company.workspace.root,
+      metadata: {
+        commandPath: fakeClaude,
+        ...(metadataModel ? { model: metadataModel } : {}),
+        permissionMode: "bypassPermissions",
+      },
+    });
+
+    return createdAgent;
+  };
+
+  const agent = createClaudeFixtureAgent({
     name: "Claude Runner",
     emoji: "A",
-    role: "Engineer",
     personality: "Runs Claude fixture tests.",
-    status: "idle",
-    skills: [],
-  }).agent;
-
-  db.prepare(
-    `UPDATE agents
-     SET adapter_type = 'anthropic', model = 'anthropic/claude-sonnet-4-6', updated_at = ?
-     WHERE id = ?`,
-  ).run(new Date().toISOString(), agent.id);
-  db.prepare(
-    `UPDATE agent_runtime_state
-     SET adapter_type = 'anthropic', updated_at = ?
-     WHERE agent_id = ?`,
-  ).run(new Date().toISOString(), agent.id);
-
-  upsertCompanyRuntime({
-    companyIdOrSlug: company.id,
-    agentId: agent.id,
-    provider: "anthropic",
+    model: "anthropic/claude-sonnet-4-6",
     runtimeSlug: "fixture-claude",
     displayName: "Fixture Claude",
-    runtimeKind: "cli",
-    scope: "agent",
-    command: fakeClaude,
-    status: "online",
-    workspaceRoot: company.workspace.root,
-    metadata: {
-      commandPath: fakeClaude,
-      model: "anthropic/claude-sonnet-4-6",
-      permissionMode: "bypassPermissions",
-    },
+    metadataModel: "anthropic/claude-sonnet-4-6",
+    syncRuntimeState: true,
   });
 
   const task = createTask({
@@ -259,7 +364,7 @@ async function run() {
       `UPDATE agents
        SET model = 'anthropic/claude-3-7-sonnet', updated_at = ?
        WHERE id = ?`,
-    ).run(new Date().toISOString(), agent.id);
+    ).run(now(), agent.id);
     upsertCompanyRuntime({
       companyIdOrSlug: company.id,
       agentId: agent.id,
@@ -311,101 +416,30 @@ async function run() {
   });
 
   await test("agent runtime configuration passes supported Claude effort and keeps speed telemetry-only", async () => {
-    const configuredAgent = createProjectAgent({
-      projectId: project.id,
+    const configuredAgent = createClaudeFixtureAgent({
       name: "Configured Claude Runner",
       emoji: "A",
-      role: "Engineer",
       personality: "Uses Claude runtime controls from agent configuration.",
-      status: "idle",
-      skills: [],
-    }).agent;
-    db.prepare(
-      `UPDATE agents
-       SET adapter_type = 'anthropic',
-           model = 'anthropic/claude-sonnet-4-6',
-           runtime_config_json = ?,
-           updated_at = ?
-       WHERE id = ?`,
-    ).run(
-      JSON.stringify({
+      model: "anthropic/claude-sonnet-4-6",
+      runtimeSlug: "fixture-claude-configured",
+      displayName: "Fixture Claude Configured",
+      runtimeConfig: {
         model: "anthropic/claude-opus-4-7",
         reasoningEffort: "xhigh",
         speedPreference: "fast_1_5x",
         fastMode: true,
         serviceTier: "fast",
-      }),
-      new Date().toISOString(),
-      configuredAgent.id,
-    );
-
-    upsertCompanyRuntime({
-      companyIdOrSlug: company.id,
-      agentId: configuredAgent.id,
-      provider: "anthropic",
-      runtimeSlug: "fixture-claude-configured",
-      displayName: "Fixture Claude Configured",
-      runtimeKind: "cli",
-      scope: "agent",
-      command: fakeClaude,
-      status: "online",
-      workspaceRoot: company.workspace.root,
-      metadata: {
-        commandPath: fakeClaude,
-        permissionMode: "bypassPermissions",
       },
     });
 
-    const agentRow = db.prepare(
-      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
-              adapter_type, adapter_config_json, runtime_config_json,
-              capabilities
-       FROM agents
-       WHERE id = ?`,
-    ).get(configuredAgent.id) as {
-      id: string;
-      name: string;
-      role: string;
-      personality: string;
-      company_id: string;
-      openclaw_agent_id: string | null;
-      adapter_type: string;
-      adapter_config_json: string;
-      runtime_config_json: string;
-      capabilities: string;
-      runtime_workspace_root: string | null;
-    };
-    agentRow.runtime_workspace_root = null;
+    const agentRow = selectAgentRow(configuredAgent.id);
 
     const directResult = await anthropicExecutionAdapter.execute({
-      agent: agentRow,
-      prompt: "Run the configured Claude runtime controls fixture.",
-      session: {
-        id: "claude-runtime-config-session",
-        agentId: agentRow.id,
-        companyId: agentRow.company_id,
-        adapterType: "anthropic",
-        taskKey: "__heartbeat__",
-        sessionParams: {},
-        sessionDisplayId: null,
-        lastRunId: null,
-        lastError: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      runtimeState: {
-        agentId: agentRow.id,
-        companyId: agentRow.company_id,
-        adapterType: "anthropic",
-        sessionId: null,
-        state: {},
-        lastRunId: null,
-        lastRunStatus: null,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCostCents: 0,
-        lastError: null,
-      },
+      ...createAdapterInput(
+        agentRow,
+        "Run the configured Claude runtime controls fixture.",
+        "claude-runtime-config-session",
+      ),
     });
 
     assert.strictEqual(directResult.error, undefined);
@@ -423,87 +457,20 @@ async function run() {
   });
 
   await test("lane-routed Claude execution ignores non-Claude agent profile model", async () => {
-    const codexProfileAgent = createProjectAgent({
-      projectId: project.id,
+    const codexProfileAgent = createClaudeFixtureAgent({
       name: "Codex Profile Routed Through Claude",
       emoji: "C",
-      role: "Engineer",
       personality: "Has a Codex profile but can be lane-routed through Claude.",
-      status: "idle",
-      skills: [],
-    }).agent;
-    db.prepare(
-      `UPDATE agents
-       SET adapter_type = 'codex', model = 'openai-codex/gpt-5.5', updated_at = ?
-       WHERE id = ?`,
-    ).run(new Date().toISOString(), codexProfileAgent.id);
-    upsertCompanyRuntime({
-      companyIdOrSlug: company.id,
-      agentId: codexProfileAgent.id,
-      provider: "anthropic",
+      model: "openai-codex/gpt-5.5",
       runtimeSlug: "fixture-claude-routed-codex-profile",
       displayName: "Fixture Claude Routed Codex Profile",
-      runtimeKind: "cli",
-      scope: "agent",
-      command: fakeClaude,
-      status: "online",
-      workspaceRoot: company.workspace.root,
-      metadata: {
-        commandPath: fakeClaude,
-        model: "anthropic/claude-sonnet-4-6",
-        permissionMode: "bypassPermissions",
-      },
+      profileAdapterType: "codex",
+      metadataModel: "anthropic/claude-sonnet-4-6",
     });
-    const agentRow = db.prepare(
-      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
-              adapter_type, adapter_config_json, runtime_config_json,
-              capabilities
-       FROM agents
-       WHERE id = ?`,
-    ).get(codexProfileAgent.id) as {
-      id: string;
-      name: string;
-      role: string;
-      personality: string;
-      company_id: string;
-      openclaw_agent_id: string | null;
-      adapter_type: string;
-      adapter_config_json: string;
-      runtime_config_json: string;
-      capabilities: string;
-      runtime_workspace_root: string | null;
-    };
-    agentRow.runtime_workspace_root = null;
+    const agentRow = selectAgentRow(codexProfileAgent.id);
 
     const directResult = await anthropicExecutionAdapter.execute({
-      agent: agentRow,
-      prompt: "Run the routed Claude fixture.",
-      session: {
-        id: "route-claude-session",
-        agentId: agentRow.id,
-        companyId: agentRow.company_id,
-        adapterType: "anthropic",
-        taskKey: "__heartbeat__",
-        sessionParams: {},
-        sessionDisplayId: null,
-        lastRunId: null,
-        lastError: null,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      runtimeState: {
-        agentId: agentRow.id,
-        companyId: agentRow.company_id,
-        adapterType: "anthropic",
-        sessionId: null,
-        state: {},
-        lastRunId: null,
-        lastRunStatus: null,
-        totalInputTokens: 0,
-        totalOutputTokens: 0,
-        totalCostCents: 0,
-        lastError: null,
-      },
+      ...createAdapterInput(agentRow, "Run the routed Claude fixture.", "route-claude-session"),
       executionRouteAttempt: {
         target: {
           runtimeProvider: "anthropic",

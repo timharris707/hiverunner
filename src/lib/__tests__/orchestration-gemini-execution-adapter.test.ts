@@ -7,6 +7,20 @@ import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
+type AdapterAgentRow = {
+  id: string;
+  name: string;
+  role: string;
+  personality: string;
+  company_id: string;
+  openclaw_agent_id: string | null;
+  adapter_type: string;
+  adapter_config_json: string;
+  runtime_config_json: string;
+  capabilities: string;
+  runtime_workspace_root: string | null;
+};
+
 function writeFakeGeminiCli(binDir: string): string {
   const file = path.join(binDir, "gemini");
   writeFileSync(
@@ -59,88 +73,23 @@ async function run() {
   const { geminiExecutionAdapter } = await import("@/lib/orchestration/execution/adapters");
 
   const db = getOrchestrationDb();
-  const company = createCompany({
-    name: "Gemini Execution Co",
-    description: "Gemini adapter fixture.",
-    status: "active",
-  }).company;
-  const project = createProject({
-    companyId: company.id,
-    name: "Gemini Execution Project",
-    description: "fixture",
-    color: "#16a34a",
-    emoji: "G",
-    status: "active",
-  }).project;
-  const agent = createProjectAgent({
-    projectId: project.id,
-    name: "Gemini Runner",
-    emoji: "G",
-    role: "Engineer",
-    personality: "Runs Gemini fixture tests.",
-    status: "idle",
-    skills: [],
-  }).agent;
-
-  db.prepare(
-    `UPDATE agents
-     SET adapter_type = 'gemini',
-         model = 'google/gemini-2.5-pro',
-         runtime_config_json = ?,
-         updated_at = ?
-     WHERE id = ?`,
-  ).run(
-    JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
-      reasoningEffort: "high",
-      speedPreference: "fast_1_5x",
-      fastMode: true,
-      serviceTier: "fast",
-    }),
-    new Date().toISOString(),
-    agent.id,
-  );
-
-  upsertCompanyRuntime({
-    companyIdOrSlug: company.id,
-    agentId: agent.id,
-    provider: "gemini",
-    runtimeSlug: "fixture-gemini",
-    displayName: "Fixture Gemini",
-    runtimeKind: "cli",
-    scope: "agent",
-    command: fakeGemini,
-    status: "online",
-    workspaceRoot: company.workspace.root,
-    metadata: { commandPath: fakeGemini },
-  });
-
-  const agentRow = db.prepare(
-    `SELECT id, name, role, personality, company_id, openclaw_agent_id,
-            adapter_type, adapter_config_json, runtime_config_json,
-            capabilities
-     FROM agents
-     WHERE id = ?`,
-  ).get(agent.id) as {
-    id: string;
-    name: string;
-    role: string;
-    personality: string;
-    company_id: string;
-    openclaw_agent_id: string | null;
-    adapter_type: string;
-    adapter_config_json: string;
-    runtime_config_json: string;
-    capabilities: string;
-    runtime_workspace_root: string | null;
+  const now = () => new Date().toISOString();
+  const selectAgentRow = (agentId: string): AdapterAgentRow => {
+    const agentRow = db.prepare(
+      `SELECT id, name, role, personality, company_id, openclaw_agent_id,
+              adapter_type, adapter_config_json, runtime_config_json,
+              capabilities
+       FROM agents
+       WHERE id = ?`,
+    ).get(agentId) as AdapterAgentRow;
+    agentRow.runtime_workspace_root = null;
+    return agentRow;
   };
-  agentRow.runtime_workspace_root = null;
-
-  const baseInput = {
+  const createAdapterInput = (agentRow: AdapterAgentRow, prompt: string, sessionId: string) => ({
     agent: agentRow,
-    prompt: "Run the Gemini adapter fixture.",
+    prompt,
     session: {
-      id: "gemini-runtime-config-session",
+      id: sessionId,
       agentId: agentRow.id,
       companyId: agentRow.company_id,
       adapterType: "gemini",
@@ -149,8 +98,8 @@ async function run() {
       sessionDisplayId: null,
       lastRunId: null,
       lastError: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: now(),
+      updatedAt: now(),
     },
     runtimeState: {
       agentId: agentRow.id,
@@ -165,7 +114,80 @@ async function run() {
       totalCostCents: 0,
       lastError: null,
     },
+  });
+
+  const company = createCompany({
+    name: "Gemini Execution Co",
+    description: "Gemini adapter fixture.",
+    status: "active",
+  }).company;
+  const project = createProject({
+    companyId: company.id,
+    name: "Gemini Execution Project",
+    description: "fixture",
+    color: "#16a34a",
+    emoji: "G",
+    status: "active",
+  }).project;
+  const createGeminiFixtureAgent = ({
+    name,
+    model,
+    runtimeConfig,
+  }: {
+    name: string;
+    model: string;
+    runtimeConfig: Record<string, unknown>;
+  }) => {
+    const createdAgent = createProjectAgent({
+      projectId: project.id,
+      name,
+      emoji: "G",
+      role: "Engineer",
+      personality: "Runs Gemini fixture tests.",
+      status: "idle",
+      skills: [],
+    }).agent;
+
+    db.prepare(
+      `UPDATE agents
+       SET adapter_type = 'gemini',
+           model = ?,
+           runtime_config_json = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(model, JSON.stringify(runtimeConfig), now(), createdAgent.id);
+
+    upsertCompanyRuntime({
+      companyIdOrSlug: company.id,
+      agentId: createdAgent.id,
+      provider: "gemini",
+      runtimeSlug: "fixture-gemini",
+      displayName: "Fixture Gemini",
+      runtimeKind: "cli",
+      scope: "agent",
+      command: fakeGemini,
+      status: "online",
+      workspaceRoot: company.workspace.root,
+      metadata: { commandPath: fakeGemini },
+    });
+
+    return createdAgent;
   };
+
+  const agent = createGeminiFixtureAgent({
+    name: "Gemini Runner",
+    model: "google/gemini-2.5-pro",
+    runtimeConfig: {
+      model: "google/gemini-2.5-flash-lite",
+      reasoningEffort: "high",
+      speedPreference: "fast_1_5x",
+      fastMode: true,
+      serviceTier: "fast",
+    },
+  });
+
+  const agentRow = selectAgentRow(agent.id);
+  const baseInput = createAdapterInput(agentRow, "Run the Gemini adapter fixture.", "gemini-runtime-config-session");
 
   await test("route-attempt Gemini model wins without inventing unsupported control flags", async () => {
     const result = await geminiExecutionAdapter.execute({
