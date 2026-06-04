@@ -1,9 +1,11 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const DEFAULT_COMPANY = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
@@ -27,12 +29,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nAgent Creation Wiring Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const workspaceIsolation = createIsolatedOrchestrationWorkspace({
     prefix: "mc-agent-creation-wiring-",

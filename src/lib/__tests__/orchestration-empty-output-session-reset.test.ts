@@ -1,12 +1,14 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 
 import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 import { resetAgentRuntimeSessionForSelfHeal } from "@/lib/orchestration/engine/engine";
 import { openclawExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { randomUUID } from "node:crypto";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 const clearOpenClawTaskSessionForSelfHeal =
   openclawExecutionAdapter.clearTaskSessionForSelfHeal;
@@ -33,12 +35,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nEmpty-Output Session Reset Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const workspaceIsolation = createIsolatedOrchestrationWorkspace({
     prefix: "mc-empty-output-session-reset-",
