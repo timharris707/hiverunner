@@ -186,6 +186,31 @@ async function run() {
       return created;
     }
 
+    function taskKey(taskId: string) {
+      return (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(taskId) as { task_key: string }).task_key;
+    }
+
+    function taskDeps(taskId: string) {
+      const row = db
+        .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
+        .get(taskId) as { depends_on_json: string } | undefined;
+      assert.ok(row, "task must be persisted");
+      return JSON.parse(row.depends_on_json) as string[];
+    }
+
+    function taskStatusAndDeps(taskId: string) {
+      const row = db
+        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
+        .get(taskId) as { status: string; depends_on_json: string };
+      return { status: row.status, deps: JSON.parse(row.depends_on_json) as string[] };
+    }
+
+    function assertQueuedDeps(taskId: string, expectedDeps: string[], depsMessage: string, statusMessage: string) {
+      const row = taskStatusAndDeps(taskId);
+      assert.equal(row.status, "to-do", statusMessage);
+      assert.deepEqual(row.deps, expectedDeps, depsMessage);
+    }
+
     await test("dependsOn array on create_task action persists task IDs in depends_on_json", async () => {
       const fixture = makeFixture("persist");
       const { validator, specTask } = fixture;
@@ -201,12 +226,7 @@ async function run() {
         "create_task must return a task id",
       );
 
-      const stored = db
-        .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
-        .get(buildTaskId) as { depends_on_json: string } | undefined;
-      assert.ok(stored, "task must be persisted");
-      const deps = JSON.parse(stored!.depends_on_json) as string[];
-      assert.deepEqual(deps, [specTask.id], "depends_on_json must contain the resolved spec task id");
+      assert.deepEqual(taskDeps(buildTaskId), [specTask.id], "depends_on_json must contain the resolved spec task id");
     });
 
     await test("create_task drops dependsOn entry when it points at the new task parent", async () => {
@@ -275,11 +295,7 @@ async function run() {
         },
       );
 
-      const stored = db
-        .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
-        .get(buildTaskId) as { depends_on_json: string } | undefined;
-      const deps = JSON.parse(stored!.depends_on_json) as string[];
-      assert.deepEqual(deps, [specTask.id], "only the resolvable dep should land in depends_on_json");
+      assert.deepEqual(taskDeps(buildTaskId), [specTask.id], "only the resolvable dep should land in depends_on_json");
 
       const event = db
         .prepare("SELECT metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.created' LIMIT 1")
@@ -321,29 +337,28 @@ async function run() {
         ],
       );
 
-      const buildKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(buildTaskId) as { task_key: string }).task_key;
-      const qaKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(qaTaskId) as { task_key: string }).task_key;
+      const buildKey = taskKey(buildTaskId);
+      const qaKey = taskKey(qaTaskId);
 
-      const qaRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(qaTaskId) as { status: string; depends_on_json: string };
-      const qaDeps = JSON.parse(qaRow.depends_on_json) as string[];
-      assert.deepEqual(qaDeps, [buildTaskId, launchUiTaskId], "QA should wait for prior implementation work");
-      assert.equal(qaRow.status, "to-do", "QA should not auto-start while inferred deps are pending");
+      assertQueuedDeps(
+        qaTaskId,
+        [buildTaskId, launchUiTaskId],
+        "QA should wait for prior implementation work",
+        "QA should not auto-start while inferred deps are pending",
+      );
 
-      const releaseRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(releaseTaskId) as { status: string; depends_on_json: string };
-      const releaseDeps = JSON.parse(releaseRow.depends_on_json) as string[];
-      assert.deepEqual(releaseDeps, [buildTaskId, launchUiTaskId, qaTaskId], "release should wait for implementation and QA");
-      assert.equal(releaseRow.status, "to-do", "release should not auto-start while inferred deps are pending");
+      assertQueuedDeps(
+        releaseTaskId,
+        [buildTaskId, launchUiTaskId, qaTaskId],
+        "release should wait for implementation and QA",
+        "release should not auto-start while inferred deps are pending",
+      );
 
       const event = db
         .prepare("SELECT metadata_json FROM task_events WHERE task_id = ? AND event_type = 'task.created' LIMIT 1")
         .get(releaseTaskId) as { metadata_json: string } | undefined;
       const metadata = JSON.parse(event!.metadata_json) as Record<string, unknown>;
-      const launchUiKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(launchUiTaskId) as { task_key: string }).task_key;
-      assert.deepEqual(metadata.inferredDependsOn, [buildKey, launchUiKey, qaKey]);
+      assert.deepEqual(metadata.inferredDependsOn, [buildKey, taskKey(launchUiTaskId), qaKey]);
     });
 
     await test("explicit QA dependsOn merges with inferred sibling dependencies", async () => {
@@ -364,7 +379,7 @@ async function run() {
           },
         ],
       );
-      const dataKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(dataTaskId) as { task_key: string }).task_key;
+      const dataKey = taskKey(dataTaskId);
 
       const qaTaskId = await createFromSpec(
         { project, builder, specTask },
@@ -376,11 +391,7 @@ async function run() {
         },
       );
 
-      const qaRow = db
-        .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
-        .get(qaTaskId) as { depends_on_json: string };
-      const qaDeps = JSON.parse(qaRow.depends_on_json) as string[];
-      assert.deepEqual(qaDeps, [dataTaskId, frontendTaskId], "QA should keep explicit data dep and infer frontend dep");
+      assert.deepEqual(taskDeps(qaTaskId), [dataTaskId, frontendTaskId], "QA should keep explicit data dep and infer frontend dep");
     });
 
     await test("integration assembly tasks infer prior sibling work and wait for inputs", async () => {
@@ -408,12 +419,9 @@ async function run() {
         ],
       );
 
-      const assemblyRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(assemblyTaskId) as { status: string; depends_on_json: string };
-      const deps = JSON.parse(assemblyRow.depends_on_json) as string[];
+      const assemblyRow = taskStatusAndDeps(assemblyTaskId);
       assert.equal(assemblyRow.status, "to-do", "assembly should wait for sibling inputs instead of auto-starting");
-      assert.deepEqual(new Set(deps), new Set([dataTaskId, uiTaskId]));
+      assert.deepEqual(new Set(assemblyRow.deps), new Set([dataTaskId, uiTaskId]));
     });
 
     await test("documentation tasks infer prior implementation inputs and wait", async () => {
@@ -440,11 +448,12 @@ async function run() {
         ],
       );
 
-      const docsRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(docsTaskId) as { status: string; depends_on_json: string };
-      assert.equal(docsRow.status, "to-do", "documentation should wait for the source implementation inputs");
-      assert.deepEqual(JSON.parse(docsRow.depends_on_json), [dataTaskId, buildTaskId]);
+      assertQueuedDeps(
+        docsTaskId,
+        [dataTaskId, buildTaskId],
+        "documentation dependencies should include the source implementation inputs",
+        "documentation should wait for the source implementation inputs",
+      );
     });
 
     await test("later integration task is added as dependency for sibling QA created earlier", async () => {
@@ -476,11 +485,12 @@ async function run() {
         ],
       );
 
-      const qaRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(qaTaskId) as { status: string; depends_on_json: string };
-      assert.equal(qaRow.status, "to-do", "QA should remain queued while integration is still pending");
-      assert.deepEqual(JSON.parse(qaRow.depends_on_json), [dataTaskId, uiTaskId, integrationTaskId]);
+      assertQueuedDeps(
+        qaTaskId,
+        [dataTaskId, uiTaskId, integrationTaskId],
+        "QA should depend on the later integration task",
+        "QA should remain queued while integration is still pending",
+      );
     });
 
     await test("QA created after integration waits for the integration artifact", async () => {
@@ -517,11 +527,12 @@ async function run() {
         },
       );
 
-      const qaRow = db
-        .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
-        .get(qaTaskId) as { status: string; depends_on_json: string };
-      assert.equal(qaRow.status, "to-do", "QA should wait for integration when integration already exists");
-      assert.deepEqual(JSON.parse(qaRow.depends_on_json), [dataTaskId, uiTaskId, integrationTaskId]);
+      assertQueuedDeps(
+        qaTaskId,
+        [dataTaskId, uiTaskId, integrationTaskId],
+        "QA should depend on existing integration work",
+        "QA should wait for integration when integration already exists",
+      );
     });
 
     await test("CEO parent directive stays open when the same response creates child tasks", async () => {
