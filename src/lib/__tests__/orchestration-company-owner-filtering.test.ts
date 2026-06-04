@@ -4,10 +4,10 @@
  */
 
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
 
 import { createCompany, listCompanies } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -30,12 +30,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 async function run() {
   console.log("\nOrchestration Company Owner Filtering Test\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const timestamp = Date.now();
 
