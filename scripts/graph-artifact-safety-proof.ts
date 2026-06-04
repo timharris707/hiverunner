@@ -2,6 +2,7 @@ import { writeFile } from "node:fs/promises";
 import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -15,12 +16,7 @@ async function main() {
   const outputDir = path.resolve("output", "ins-37");
   mkdirSync(outputDir, { recursive: true });
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
   const workspaceRoot = path.join(outputDir, "workspace");
   rmSync(workspaceRoot, { recursive: true, force: true });
   mkdirSync(workspaceRoot, { recursive: true });

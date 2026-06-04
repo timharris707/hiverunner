@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
@@ -33,12 +34,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nGraph Artifact Safety Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const workspaceRoot = mkdtempSync(path.join(os.tmpdir(), "mc-graph-artifacts-"));
   process.env.MC_WORKSPACE_ROOT = workspaceRoot;
