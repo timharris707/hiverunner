@@ -6,8 +6,8 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { rmSync } from "node:fs";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import {
   createProject,
   createProjectAgent,
@@ -77,8 +77,7 @@ function createRunningTaskFixture() {
 console.log("\nExecution Run Cancellation Tests\n");
 
 async function run() {
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) rmSync(dbPath, { force: true });
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   for (const status of ["done", "blocked", "backlog", "to-do"] as TaskStatus[]) {
     await test(`moving task to ${status} cancels one running execution run and terminates once`, () => {
