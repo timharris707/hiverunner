@@ -36,6 +36,35 @@ async function assertAllowedWithOwnerSession(request: NextRequest) {
   assert.equal(response.headers.get("x-middleware-next"), "1");
 }
 
+async function assertAllowedLocalCookiePost(headers: HeadersInit) {
+  await assertAllowedWithOwnerSession(localPost({
+    cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+    ...headers,
+  }));
+}
+
+async function assertCsrfRejected(
+  request: NextRequest,
+  message: string,
+  expected?: { code?: string; reason?: string },
+) {
+  const response = await middleware(request, async () => {
+    throw new Error(message);
+  });
+
+  assert.equal(response.status, 403);
+
+  if (expected) {
+    const body = await response.json() as { error?: { code?: string; reason?: string } };
+    if (expected.code) {
+      assert.equal(body.error?.code, expected.code);
+    }
+    if (expected.reason) {
+      assert.equal(body.error?.reason, expected.reason);
+    }
+  }
+}
+
 async function run() {
   console.log("\nCSRF Protection Test\n");
 
@@ -69,14 +98,10 @@ async function run() {
         cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("CSRF rejection must happen before auth/session handling");
+      await assertCsrfRejected(request, "CSRF rejection must happen before auth/session handling", {
+        code: "csrf_rejected",
+        reason: "missing-same-origin-signal",
       });
-
-      assert.equal(response.status, 403);
-      const body = await response.json() as { error?: { code?: string; reason?: string } };
-      assert.equal(body.error?.code, "csrf_rejected");
-      assert.equal(body.error?.reason, "missing-same-origin-signal");
     });
 
     await test("rejects cross-origin browser-cookie mutation", async () => {
@@ -85,31 +110,21 @@ async function run() {
         origin: "http://attacker.example",
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("CSRF rejection must happen before auth/session handling");
+      await assertCsrfRejected(request, "CSRF rejection must happen before auth/session handling", {
+        reason: "cross-origin",
       });
-
-      assert.equal(response.status, 403);
-      const body = await response.json() as { error?: { reason?: string } };
-      assert.equal(body.error?.reason, "cross-origin");
     });
 
     await test("accepts same-origin browser-cookie mutation", async () => {
-      const request = localPost({
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+      await assertAllowedLocalCookiePost({
         origin: "http://localhost:3010",
       });
-
-      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin 127.0.0.1, host localhost)", async () => {
-      const request = localPost({
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+      await assertAllowedLocalCookiePost({
         origin: "http://127.0.0.1:3010",
       });
-
-      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts loopback-equivalent origin (Origin localhost, host 127.0.0.1)", async () => {
@@ -142,12 +157,9 @@ async function run() {
     });
 
     await test("accepts loopback-equivalent origin (Origin [::1], host localhost)", async () => {
-      const request = localPost({
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+      await assertAllowedLocalCookiePost({
         origin: "http://[::1]:3010",
       });
-
-      await assertAllowedWithOwnerSession(request);
     });
 
     await test("still rejects loopback origin on a different port", async () => {
@@ -156,31 +168,21 @@ async function run() {
         origin: "http://127.0.0.1:3011",
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("Different-port loopback must still be cross-origin");
+      await assertCsrfRejected(request, "Different-port loopback must still be cross-origin", {
+        reason: "cross-origin",
       });
-
-      assert.equal(response.status, 403);
-      const body = await response.json() as { error?: { reason?: string } };
-      assert.equal(body.error?.reason, "cross-origin");
     });
 
     await test("accepts Sec-Fetch-Site same-origin when Origin is absent", async () => {
-      const request = localPost({
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+      await assertAllowedLocalCookiePost({
         "sec-fetch-site": "same-origin",
       });
-
-      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts same-origin Referer when Origin and Sec-Fetch-Site are absent", async () => {
-      const request = localPost({
-        cookie: `${LOCAL_DEV_SESSION_COOKIE}=1`,
+      await assertAllowedLocalCookiePost({
         referer: "http://localhost:3010/INS/dashboard",
       });
-
-      await assertAllowedWithOwnerSession(request);
     });
 
     await test("accepts same-origin Referer against Host when nextUrl uses internal bind origin", async () => {
@@ -202,13 +204,9 @@ async function run() {
         referer: "http://attacker.example/post-form",
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("Cross-origin Referer must still be rejected");
+      await assertCsrfRejected(request, "Cross-origin Referer must still be rejected", {
+        reason: "cross-origin",
       });
-
-      assert.equal(response.status, 403);
-      const body = await response.json() as { error?: { reason?: string } };
-      assert.equal(body.error?.reason, "cross-origin");
     });
 
     await test("preserves valid API-key automation without browser origin headers", async () => {
@@ -229,11 +227,7 @@ async function run() {
         "x-mc-api-key": "wrong-key",
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("Invalid API-key request must fail CSRF before auth fallback");
-      });
-
-      assert.equal(response.status, 403);
+      await assertCsrfRejected(request, "Invalid API-key request must fail CSRF before auth fallback");
     });
 
     await test("preserves self-authenticating bearer-token route without browser origin headers", async () => {
@@ -278,11 +272,7 @@ async function run() {
         },
       });
 
-      const response = await middleware(request, async () => {
-        throw new Error("Unauthenticated engine tick must fail CSRF");
-      });
-
-      assert.equal(response.status, 403);
+      await assertCsrfRejected(request, "Unauthenticated engine tick must fail CSRF");
     });
 
     await test("uses the default session loader when Next passes a middleware event", async () => {
