@@ -11,6 +11,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -22,22 +23,137 @@ import {
   listTaskComments,
 } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "OK", failLabel: "FAIL" });
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  OK ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
+type SubprocessProvider = "codex" | "anthropic" | "gemini" | "hermes";
+
+type SubprocessCancellationFixture = {
+  db: ReturnType<typeof getOrchestrationDb>;
+  task: ReturnType<typeof createTask>["task"];
+  runId: string;
+};
+
+type ExecutionRunCancellationRow = {
+  status: string;
+  failure_class: string | null;
+  process_pid: number | null;
+};
+
+const subprocessProviderFixtures: Record<
+  SubprocessProvider,
+  { label: string; emoji: string; fixtureLabel?: string; companyDescription?: string }
+> = {
+  codex: {
+    label: "Codex",
+    emoji: "C",
+    fixtureLabel: "Contract",
+    companyDescription: "Provider-neutral cancellation fixture",
+  },
+  anthropic: { label: "Anthropic", emoji: "A" },
+  gemini: { label: "Gemini", emoji: "G" },
+  hermes: { label: "Hermes", emoji: "H" },
+};
+
+async function withRunningSubprocessCancellationFixture(
+  provider: SubprocessProvider,
+  fn: (fixture: SubprocessCancellationFixture) => Promise<void> | void,
+) {
+  const { companyDescription, emoji, fixtureLabel, label } = subprocessProviderFixtures[provider];
+  const fixtureName = fixtureLabel ?? label;
+  const db = getOrchestrationDb();
+  const company = createCompany({
+    name: `Cancel ${fixtureName} ${Date.now()}`,
+    description: companyDescription ?? "fixture",
+    status: "active",
+  }).company;
+  const project = createProject({
+    companyId: company.id,
+    name: `Cancel ${fixtureName} Project`,
+    description: "fixture",
+    color: "#0ea5e9",
+    emoji,
+    status: "active",
+  }).project;
+  configureCompanyExecutionHive(
+    {
+      companyIdOrSlug: company.id,
+      hiveId: "balanced-builder",
+      orchestrationMode: "hiverunner",
+      runtimeProvider: provider,
+      runtimeLabel: label,
+      modelRouting: "runtime-managed",
+      modelRoutingLabel: "Runtime managed",
+    },
+    db,
+  );
+  const agent = createProjectAgent({
+    projectId: project.id,
+    name: `Cancel ${fixtureName} Agent`,
+    emoji,
+    role: "Engineer",
+    personality: "Cancels subprocesses.",
+    status: "idle",
+    skills: [],
+  }).agent;
+  db.prepare("UPDATE agents SET adapter_type = ? WHERE id = ?").run(provider, agent.id);
+  const task = createTask({
+    projectId: project.id,
+    title: `Cancel ${label} run`,
+    description: "Cancel a subprocess-backed run",
+    priority: "P1",
+    type: "infrastructure",
+    status: "in-progress",
+    assignee: agent.id,
+    labels: ["orchestration"],
+    createdBy: "test-suite",
+  }).task;
+
+  const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
+    stdio: "ignore",
+  });
+  const pid = child.pid;
+  assert.ok(pid, "fixture child process should have a PID");
+  const runId = randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(
+    `INSERT INTO execution_runs
+      (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, process_pid)
+     VALUES (?, ?, ?, ?, 'running', ?, ?, ?, ?)`,
+  ).run(runId, task.id, agent.id, provider, now, now, now, pid);
+
+  try {
+    await fn({ db, task, runId });
+  } finally {
+    if (executionRunStillHasProcess(db, runId)) {
+      killChildProcess(child);
+    }
+  }
+}
+
+function assertExecutionRunCancelled(db: ReturnType<typeof getOrchestrationDb>, runId: string) {
+  const row = db
+    .prepare("SELECT status, failure_class, process_pid FROM execution_runs WHERE id = ?")
+    .get(runId) as ExecutionRunCancellationRow | undefined;
+  assert.ok(row, "expected execution run row");
+  assert.strictEqual(row.status, "cancelled");
+  assert.strictEqual(row.failure_class, "cancelled");
+  assert.strictEqual(row.process_pid, null);
+}
+
+function executionRunStillHasProcess(db: ReturnType<typeof getOrchestrationDb>, runId: string) {
+  const row = db
+    .prepare("SELECT process_pid FROM execution_runs WHERE id = ?")
+    .get(runId) as { process_pid: number | null } | undefined;
+  return row?.process_pid !== null;
+}
+
+function killChildProcess(child: ChildProcess) {
+  if (!child.pid) return;
+  try {
+    process.kill(child.pid, "SIGKILL");
+  } catch {
+    // Already terminated by the adapter.
+  }
 }
 
 async function run() {
@@ -49,64 +165,8 @@ async function run() {
 
     await test("cancelTaskExecution cancels subprocess-backed Codex runs through the adapter", async () => {
       const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
-      const db = getOrchestrationDb();
-      const company = createCompany({
-        name: `Cancel Contract ${Date.now()}`,
-        description: "Provider-neutral cancellation fixture",
-        status: "active",
-      }).company;
-      const project = createProject({
-        companyId: company.id,
-        name: "Cancel Contract Project",
-        description: "fixture",
-        color: "#0ea5e9",
-        emoji: "C",
-        status: "active",
-      }).project;
-      configureCompanyExecutionHive({
-        companyIdOrSlug: company.id,
-        hiveId: "balanced-builder",
-        orchestrationMode: "hiverunner",
-        runtimeProvider: "codex",
-        runtimeLabel: "Codex",
-        modelRouting: "runtime-managed",
-        modelRoutingLabel: "Runtime managed",
-      }, db);
-      const agent = createProjectAgent({
-        projectId: project.id,
-        name: "Cancel Contract Agent",
-        emoji: "C",
-        role: "Engineer",
-        personality: "Cancels subprocesses.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      db.prepare("UPDATE agents SET adapter_type = 'codex' WHERE id = ?").run(agent.id);
-      const task = createTask({
-        projectId: project.id,
-        title: "Cancel Codex run",
-        description: "Cancel a subprocess-backed run",
-        priority: "P1",
-        type: "infrastructure",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["orchestration"],
-        createdBy: "test-suite",
-      }).task;
 
-      let child: ChildProcess | null = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-        stdio: "ignore",
-      });
-      assert.ok(child.pid, "fixture child process should have a PID");
-      const runId = randomUUID();
-      const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO execution_runs
-          (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, process_pid)
-         VALUES (?, ?, ?, 'codex', 'running', ?, ?, ?, ?)`,
-      ).run(runId, task.id, agent.id, now, now, now, child.pid);
-
-      try {
+      await withRunningSubprocessCancellationFixture("codex", async ({ db, task, runId }) => {
         const cancelled = await cancelTaskExecution({
           taskId: task.id,
           actorUserId: "test-suite",
@@ -121,204 +181,35 @@ async function run() {
         assert.strictEqual(cancelled.transition.to, "to-do");
         assert.strictEqual(getTask(task.id).task.status, "to-do");
 
-        const row = db
-          .prepare("SELECT status, failure_class, process_pid FROM execution_runs WHERE id = ?")
-          .get(runId) as { status: string; failure_class: string | null; process_pid: number | null };
-        assert.strictEqual(row.status, "cancelled");
-        assert.strictEqual(row.failure_class, "cancelled");
-        assert.strictEqual(row.process_pid, null);
+        assertExecutionRunCancelled(db, runId);
 
         const comments = listTaskComments(task.id).comments;
         assert.ok(
           comments.some((comment) => /Codex cancellation requested by HiveRunner/.test(comment.text)),
           "expected provider-neutral cancellation comment",
         );
-
-        child = null;
-      } finally {
-        if (child?.pid) {
-          try {
-            process.kill(child.pid, "SIGKILL");
-          } catch {
-            // Already terminated by the adapter.
-          }
-        }
-      }
-    });
-
-    await test("cancelTaskExecution cancels subprocess-backed Anthropic runs through the adapter", async () => {
-      const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
-      const db = getOrchestrationDb();
-      const company = createCompany({
-        name: `Cancel Anthropic ${Date.now()}`,
-        description: "fixture",
-        status: "active",
-      }).company;
-      const project = createProject({
-        companyId: company.id,
-        name: "Cancel Anthropic Project",
-        description: "fixture",
-        color: "#0ea5e9",
-        emoji: "A",
-        status: "active",
-      }).project;
-      configureCompanyExecutionHive({
-        companyIdOrSlug: company.id,
-        hiveId: "balanced-builder",
-        orchestrationMode: "hiverunner",
-        runtimeProvider: "anthropic",
-        runtimeLabel: "Anthropic",
-        modelRouting: "runtime-managed",
-        modelRoutingLabel: "Runtime managed",
-      }, db);
-      const agent = createProjectAgent({
-        projectId: project.id,
-        name: "Cancel Anthropic Agent",
-        emoji: "A",
-        role: "Engineer",
-        personality: "Cancels subprocesses.",
-        status: "idle",
-        skills: [],
-      }).agent;
-      db.prepare("UPDATE agents SET adapter_type = 'anthropic' WHERE id = ?").run(agent.id);
-      const task = createTask({
-        projectId: project.id,
-        title: "Cancel Anthropic run",
-        description: "Cancel a subprocess-backed run",
-        priority: "P1",
-        type: "infrastructure",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["orchestration"],
-        createdBy: "test-suite",
-      }).task;
-
-      let child: ChildProcess | null = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], {
-        stdio: "ignore",
       });
-      assert.ok(child.pid, "fixture child process should have a PID");
-      const runId = randomUUID();
-      const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO execution_runs
-          (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, process_pid)
-         VALUES (?, ?, ?, 'anthropic', 'running', ?, ?, ?, ?)`,
-      ).run(runId, task.id, agent.id, now, now, now, child.pid);
+    });
 
-      try {
-        const cancelled = await cancelTaskExecution({
-          taskId: task.id,
-          actorUserId: "test-suite",
-          note: "Operator canceled subprocess run",
+    for (const provider of ["anthropic", "gemini", "hermes"] as const) {
+      const { label } = subprocessProviderFixtures[provider];
+
+      await test(`cancelTaskExecution cancels subprocess-backed ${label} runs through the adapter`, async () => {
+        const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
+
+        await withRunningSubprocessCancellationFixture(provider, async ({ db, task, runId }) => {
+          const cancelled = await cancelTaskExecution({
+            taskId: task.id,
+            actorUserId: "test-suite",
+            note: "Operator canceled subprocess run",
+          });
+
+          assert.strictEqual(cancelled.mode, provider);
+          assert.strictEqual(cancelled.cancelled.acknowledged, true);
+          assertExecutionRunCancelled(db, runId);
         });
-
-        assert.strictEqual(cancelled.mode, "anthropic");
-        assert.strictEqual(cancelled.cancelled.acknowledged, true);
-        const row = db
-          .prepare("SELECT status, failure_class, process_pid FROM execution_runs WHERE id = ?")
-          .get(runId) as { status: string; failure_class: string | null; process_pid: number | null };
-        assert.strictEqual(row.status, "cancelled");
-        assert.strictEqual(row.failure_class, "cancelled");
-        assert.strictEqual(row.process_pid, null);
-        child = null;
-      } finally {
-        if (child?.pid) {
-          try { process.kill(child.pid, "SIGKILL"); } catch {}
-        }
-      }
-    });
-
-    await test("cancelTaskExecution cancels subprocess-backed Gemini runs through the adapter", async () => {
-      const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
-      const db = getOrchestrationDb();
-      const company = createCompany({ name: `Cancel Gemini ${Date.now()}`, description: "fixture", status: "active" }).company;
-      const project = createProject({ companyId: company.id, name: "Cancel Gemini Project", description: "fixture", color: "#0ea5e9", emoji: "G", status: "active" }).project;
-      configureCompanyExecutionHive({
-        companyIdOrSlug: company.id,
-        hiveId: "balanced-builder",
-        orchestrationMode: "hiverunner",
-        runtimeProvider: "gemini",
-        runtimeLabel: "Gemini",
-        modelRouting: "runtime-managed",
-        modelRoutingLabel: "Runtime managed",
-      }, db);
-      const agent = createProjectAgent({ projectId: project.id, name: "Cancel Gemini Agent", emoji: "G", role: "Engineer", personality: "Cancels subprocesses.", status: "idle", skills: [] }).agent;
-      db.prepare("UPDATE agents SET adapter_type = 'gemini' WHERE id = ?").run(agent.id);
-      const task = createTask({ projectId: project.id, title: "Cancel Gemini run", description: "Cancel a subprocess-backed run", priority: "P1", type: "infrastructure", status: "in-progress", assignee: agent.id, labels: ["orchestration"], createdBy: "test-suite" }).task;
-
-      let child: ChildProcess | null = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-      assert.ok(child.pid, "fixture child process should have a PID");
-      const runId = randomUUID();
-      const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO execution_runs
-          (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, process_pid)
-         VALUES (?, ?, ?, 'gemini', 'running', ?, ?, ?, ?)`,
-      ).run(runId, task.id, agent.id, now, now, now, child.pid);
-
-      try {
-        const cancelled = await cancelTaskExecution({ taskId: task.id, actorUserId: "test-suite", note: "Operator canceled subprocess run" });
-        assert.strictEqual(cancelled.mode, "gemini");
-        assert.strictEqual(cancelled.cancelled.acknowledged, true);
-        const row = db
-          .prepare("SELECT status, failure_class, process_pid FROM execution_runs WHERE id = ?")
-          .get(runId) as { status: string; failure_class: string | null; process_pid: number | null };
-        assert.strictEqual(row.status, "cancelled");
-        assert.strictEqual(row.failure_class, "cancelled");
-        assert.strictEqual(row.process_pid, null);
-        child = null;
-      } finally {
-        if (child?.pid) {
-          try { process.kill(child.pid, "SIGKILL"); } catch {}
-        }
-      }
-    });
-
-    await test("cancelTaskExecution cancels subprocess-backed Hermes runs through the adapter", async () => {
-      const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
-      const db = getOrchestrationDb();
-      const company = createCompany({ name: `Cancel Hermes ${Date.now()}`, description: "fixture", status: "active" }).company;
-      const project = createProject({ companyId: company.id, name: "Cancel Hermes Project", description: "fixture", color: "#0ea5e9", emoji: "H", status: "active" }).project;
-      configureCompanyExecutionHive({
-        companyIdOrSlug: company.id,
-        hiveId: "balanced-builder",
-        orchestrationMode: "hiverunner",
-        runtimeProvider: "hermes",
-        runtimeLabel: "Hermes",
-        modelRouting: "runtime-managed",
-        modelRoutingLabel: "Runtime managed",
-      }, db);
-      const agent = createProjectAgent({ projectId: project.id, name: "Cancel Hermes Agent", emoji: "H", role: "Engineer", personality: "Cancels subprocesses.", status: "idle", skills: [] }).agent;
-      db.prepare("UPDATE agents SET adapter_type = 'hermes' WHERE id = ?").run(agent.id);
-      const task = createTask({ projectId: project.id, title: "Cancel Hermes run", description: "Cancel a subprocess-backed run", priority: "P1", type: "infrastructure", status: "in-progress", assignee: agent.id, labels: ["orchestration"], createdBy: "test-suite" }).task;
-
-      let child: ChildProcess | null = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });
-      assert.ok(child.pid, "fixture child process should have a PID");
-      const runId = randomUUID();
-      const now = new Date().toISOString();
-      db.prepare(
-        `INSERT INTO execution_runs
-          (id, task_id, agent_id, provider, status, started_at, created_at, updated_at, process_pid)
-         VALUES (?, ?, ?, 'hermes', 'running', ?, ?, ?, ?)`,
-      ).run(runId, task.id, agent.id, now, now, now, child.pid);
-
-      try {
-        const cancelled = await cancelTaskExecution({ taskId: task.id, actorUserId: "test-suite", note: "Operator canceled subprocess run" });
-        assert.strictEqual(cancelled.mode, "hermes");
-        assert.strictEqual(cancelled.cancelled.acknowledged, true);
-        const row = db
-          .prepare("SELECT status, failure_class, process_pid FROM execution_runs WHERE id = ?")
-          .get(runId) as { status: string; failure_class: string | null; process_pid: number | null };
-        assert.strictEqual(row.status, "cancelled");
-        assert.strictEqual(row.failure_class, "cancelled");
-        assert.strictEqual(row.process_pid, null);
-        child = null;
-      } finally {
-        if (child?.pid) {
-          try { process.kill(child.pid, "SIGKILL"); } catch {}
-        }
-      }
-    });
+      });
+    }
 
     await test("cancelTaskExecution terminalizes linked heartbeat run and wake request", async () => {
       const { cancelTaskExecution } = await import("@/lib/orchestration/execution");
@@ -403,14 +294,10 @@ async function run() {
     }
   }
 
-  if (failed > 0) {
-    process.exitCode = 1;
-  }
-  console.log(`\n${passed} passed, ${failed} failed`);
+  finish();
 }
 
 run().catch((error) => {
-  failed += 1;
   console.error(error);
-  process.exitCode = 1;
+  process.exit(1);
 });
