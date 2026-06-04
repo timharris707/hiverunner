@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
 
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 import { proxy as middleware } from "@/proxy";
 
@@ -36,29 +37,22 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 async function run() {
   console.log("\nOrchestration Local-Single-User Guard Test\n");
 
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalApiKey = process.env.MC_API_KEY;
-  const originalStrictLocalAuth = process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
-  const originalBypassFlag = process.env.MC_LOCAL_DEV_AUTH_BYPASS;
+  const envSnapshot = snapshotEnv([
+    "NODE_ENV",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "MC_API_KEY",
+    "MC_REQUIRE_LOCAL_DEV_AUTH",
+    "MC_LOCAL_DEV_AUTH_BYPASS",
+  ]);
 
   // Always run the orchestration path under production-style strictness so the
   // loopback bypass does not pre-empt the orchestration auth check.
-  setNodeEnv("production");
+  setTestNodeEnv("production");
   delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
   delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
 
@@ -158,39 +152,7 @@ async function run() {
       assert.equal(response.status, 401);
     });
   } finally {
-    if (originalNodeEnv !== undefined) {
-      setNodeEnv(originalNodeEnv);
-    }
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalApiKey === undefined) {
-      delete process.env.MC_API_KEY;
-    } else {
-      process.env.MC_API_KEY = originalApiKey;
-    }
-    if (originalStrictLocalAuth === undefined) {
-      delete process.env.MC_REQUIRE_LOCAL_DEV_AUTH;
-    } else {
-      process.env.MC_REQUIRE_LOCAL_DEV_AUTH = originalStrictLocalAuth;
-    }
-    if (originalBypassFlag === undefined) {
-      delete process.env.MC_LOCAL_DEV_AUTH_BYPASS;
-    } else {
-      process.env.MC_LOCAL_DEV_AUTH_BYPASS = originalBypassFlag;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   const total = passed + failed;

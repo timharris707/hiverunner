@@ -19,6 +19,12 @@ import {
   type SupabaseAdminAuditContext,
   type createServerSupabaseClient,
 } from "@/lib/supabase/server";
+import {
+  restoreEnvSnapshot,
+  restoreEnvVar,
+  setTestNodeEnv,
+  snapshotEnv,
+} from "@/lib/__tests__/helpers/env-test-harness";
 
 type ServerSupabaseClient = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -40,33 +46,22 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
-function setNodeEnv(value: string) {
-  Object.defineProperty(process.env, "NODE_ENV", {
-    value,
-    configurable: true,
-    enumerable: true,
-    writable: true,
-  });
-}
-
 function setAuthMode(value: string | undefined) {
-  if (value === undefined) {
-    delete process.env.MC_AUTH_MODE;
-  } else {
-    process.env.MC_AUTH_MODE = value;
-  }
+  restoreEnvVar("MC_AUTH_MODE", value);
 }
 
 async function run() {
   console.log("\nAuth Local Dev Session Route Contract Test\n");
 
-  const originalNodeEnv = process.env.NODE_ENV;
-  const originalEmail = process.env.MC_LOCAL_DEV_EMAIL;
-  const originalPassword = process.env.MC_LOCAL_DEV_PASSWORD;
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const originalSupabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  const originalServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const envSnapshot = snapshotEnv([
+    "NODE_ENV",
+    "MC_LOCAL_DEV_EMAIL",
+    "MC_LOCAL_DEV_PASSWORD",
+    "MC_AUTH_MODE",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ]);
 
   // Force Supabase mode for tests that exercise the Supabase code path.
   setAuthMode("supabase");
@@ -83,7 +78,7 @@ async function run() {
     });
 
     await test("Supabase mode: allows only development loopback requests", () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       assert.equal(
         isLocalDevSessionRequestAllowed(new NextRequest("http://localhost:3010/api/auth/local-dev/session")),
         true,
@@ -97,7 +92,7 @@ async function run() {
         false,
       );
 
-      setNodeEnv("production");
+      setTestNodeEnv("production");
       assert.equal(
         isLocalDevSessionRequestAllowed(new NextRequest("http://localhost:3010/api/auth/local-dev/session")),
         false,
@@ -105,7 +100,7 @@ async function run() {
     });
 
     await test("Supabase mode: returns 404 outside development loopback", async () => {
-      setNodeEnv("production");
+      setTestNodeEnv("production");
       const request = new NextRequest("http://localhost:3010/api/auth/local-dev/session", {
         method: "POST",
         body: JSON.stringify({ email: "tim@localhost.test", password: "secret" }),
@@ -121,7 +116,7 @@ async function run() {
     });
 
     await test("Supabase mode: requires local dev credentials before sign-in", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       delete process.env.MC_LOCAL_DEV_EMAIL;
       delete process.env.MC_LOCAL_DEV_PASSWORD;
 
@@ -138,7 +133,7 @@ async function run() {
     });
 
     await test("Supabase mode: auto-provisions a loopback-only local dev user when requested", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       delete process.env.MC_LOCAL_DEV_EMAIL;
       delete process.env.MC_LOCAL_DEV_PASSWORD;
 
@@ -203,7 +198,7 @@ async function run() {
     });
 
     await test("Supabase mode: creates a session with provided local dev credentials", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       const request = new NextRequest("http://localhost:3010/api/auth/local-dev/session", {
         method: "POST",
         body: JSON.stringify({ email: "tim@localhost.test", password: "local-password" }),
@@ -239,7 +234,7 @@ async function run() {
     });
 
     await test("Supabase mode: creates a session on a strict side port from env credentials", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       process.env.MC_LOCAL_DEV_EMAIL = "side-port@localhost.test";
       process.env.MC_LOCAL_DEV_PASSWORD = "side-port-password";
 
@@ -318,7 +313,7 @@ async function run() {
     delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
     await test("local-single-user: allowed on loopback even when NODE_ENV is production", () => {
-      setNodeEnv("production");
+      setTestNodeEnv("production");
       assert.equal(
         isLocalDevSessionRequestAllowed(new NextRequest("http://localhost:3010/api/auth/local-dev/session")),
         true,
@@ -334,7 +329,7 @@ async function run() {
     });
 
     await test("local-single-user: short-circuits without invoking Supabase factory", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       const request = new NextRequest("http://localhost:3010/api/auth/local-dev/session", {
         method: "POST",
         body: JSON.stringify({}),
@@ -365,7 +360,7 @@ async function run() {
     });
 
     await test("local-single-user: respects MC_LOCAL_OWNER_EMAIL override", async () => {
-      setNodeEnv("development");
+      setTestNodeEnv("development");
       const original = process.env.MC_LOCAL_OWNER_EMAIL;
       process.env.MC_LOCAL_OWNER_EMAIL = "tim@custom-host";
       try {
@@ -384,48 +379,11 @@ async function run() {
         const body = await response.json() as { user?: { email?: string } };
         assert.equal(body.user?.email, "tim@custom-host");
       } finally {
-        if (original === undefined) {
-          delete process.env.MC_LOCAL_OWNER_EMAIL;
-        } else {
-          process.env.MC_LOCAL_OWNER_EMAIL = original;
-        }
+        restoreEnvVar("MC_LOCAL_OWNER_EMAIL", original);
       }
     });
   } finally {
-    if (originalNodeEnv === undefined) {
-      Reflect.deleteProperty(process.env, "NODE_ENV");
-    } else {
-      setNodeEnv(originalNodeEnv);
-    }
-
-    if (originalEmail === undefined) {
-      delete process.env.MC_LOCAL_DEV_EMAIL;
-    } else {
-      process.env.MC_LOCAL_DEV_EMAIL = originalEmail;
-    }
-
-    if (originalPassword === undefined) {
-      delete process.env.MC_LOCAL_DEV_PASSWORD;
-    } else {
-      process.env.MC_LOCAL_DEV_PASSWORD = originalPassword;
-    }
-
-    setAuthMode(originalAuthMode);
-    if (originalSupabaseUrl === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_URL = originalSupabaseUrl;
-    }
-    if (originalSupabaseKey === undefined) {
-      delete process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-    } else {
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = originalSupabaseKey;
-    }
-    if (originalServiceRoleKey === undefined) {
-      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    } else {
-      process.env.SUPABASE_SERVICE_ROLE_KEY = originalServiceRoleKey;
-    }
+    restoreEnvSnapshot(envSnapshot);
   }
 
   const total = passed + failed;
