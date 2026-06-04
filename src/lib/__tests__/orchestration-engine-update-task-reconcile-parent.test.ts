@@ -19,6 +19,12 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -65,75 +71,64 @@ async function run() {
       ) => { statusApplied: boolean; statusRejectedReason?: string };
     }).executeUpdateTask;
 
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb() as unknown as {
       prepare: (q: string) => { get: (...a: unknown[]) => unknown; run: (...a: unknown[]) => unknown };
     };
 
     function makeTree(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `G7 ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "G7",
+        label,
         description: "G7 fixture",
         color: "#06b6d4",
         emoji: "🌳",
-        status: "active",
-      }).project;
-      const reviewer = createProjectAgent({
+      });
+      const reviewer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Reviewer-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Reviewer",
+        openclawPrefix: "reviewer",
         emoji: "🛡️",
         role: "Reviewer",
-        personality: "Deterministic",
-        openclawAgentId: `reviewer-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["review"],
-      }).agent;
-      const builder = createProjectAgent({
+      });
+      const builder = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Builder-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Builder",
+        openclawPrefix: "builder",
         emoji: "🔧",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `builder-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
-      const parent = createTask({
+      });
+      const parent = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Parent ${label}`,
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "in-progress",
         assignee: reviewer.id,
-        labels: [],
         createdBy: "g7-test",
-      }).task;
-      const childA = createTask({
+      });
+      const childA = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Child A ${label}`,
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "review",
         assignee: builder.id,
         parentTaskId: parent.id,
-        labels: [],
         createdBy: "g7-test",
-      }).task;
-      const childB = createTask({
+      });
+      const childB = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Child B ${label}`,
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "review",
         assignee: builder.id,
         parentTaskId: parent.id,
-        labels: [],
         createdBy: "g7-test",
-      }).task;
+      });
       return { project, reviewer, builder, parent, childA, childB };
     }
 
@@ -237,67 +232,56 @@ async function run() {
     });
 
     await test("parent stays active when one child is review but downstream siblings are still queued", () => {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `G7 queued sibling ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "G7 queued sibling",
+        label: "queued",
         description: "G7 fixture",
         color: "#06b6d4",
         emoji: "🌳",
-        status: "active",
-      }).project;
-      const reviewer = createProjectAgent({
+      });
+      const reviewer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Reviewer-queued-${Math.random().toString(36).slice(2, 4)}`,
+        label: "queued",
+        namePrefix: "Reviewer",
+        openclawPrefix: "reviewer",
         emoji: "🛡️",
         role: "Reviewer",
-        personality: "Deterministic",
-        openclawAgentId: `reviewer-queued-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["review"],
-      }).agent;
-      const builder = createProjectAgent({
+      });
+      const builder = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Builder-queued-${Math.random().toString(36).slice(2, 4)}`,
+        label: "queued",
+        namePrefix: "Builder",
+        openclawPrefix: "builder",
         emoji: "🔧",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `builder-queued-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
-      const parent = createTask({
+      });
+      const parent = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: "Parent queued sibling",
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "in-progress",
         assignee: reviewer.id,
-        labels: [],
         createdBy: "g7-test",
-      }).task;
-      const reviewedChild = createTask({
+      });
+      const reviewedChild = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: "Reviewed child",
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "review",
         assignee: builder.id,
         parentTaskId: parent.id,
-        labels: [],
         createdBy: "g7-test",
-      }).task;
-      createTask({
+      });
+      createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: "Queued downstream child",
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "to-do",
         assignee: builder.id,
         parentTaskId: parent.id,
-        labels: [],
         createdBy: "g7-test",
       });
 

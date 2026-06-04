@@ -22,6 +22,12 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -75,63 +81,58 @@ async function run() {
       getLatestReviewSubmissionAuthor: (taskId: string, db: unknown) => string | null;
     }).getLatestReviewSubmissionAuthor;
 
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb();
 
     function makeFixture(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `SelfApproval ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "SelfApproval",
+        label,
         description: "Self-approval guardrail fixture",
         color: "#22d3ee",
         emoji: "🔐",
-        status: "active",
-      }).project;
+      });
 
-      const producer = createProjectAgent({
+      const producer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Producer-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Producer",
+        openclawPrefix: "producer",
         emoji: "💻",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `producer-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
+      });
 
-      const reviewer = createProjectAgent({
+      const reviewer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Reviewer-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Reviewer",
+        openclawPrefix: "reviewer",
         emoji: "🛡️",
         role: "Reviewer",
-        personality: "Deterministic",
-        openclawAgentId: `reviewer-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["review"],
-      }).agent;
+      });
 
-      const releaseSteward = createProjectAgent({
+      const releaseSteward = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `ReleaseSteward-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "ReleaseSteward",
+        openclawPrefix: "release",
         emoji: "🚢",
         role: "Release Steward",
-        personality: "Deterministic",
-        openclawAgentId: `release-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["release"],
-      }).agent;
+      });
 
-      const task = createTask({
+      const task = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Self-approval fixture ${label}`,
         description: "Self-approval guardrail fixture",
-        priority: "P2",
         type: "feature",
         status: "in-progress",
         assignee: producer.id,
-        labels: [],
         createdBy: "g1-test",
-      }).task;
+      });
 
       // Producer drives the task to review with a "Ready for review" comment,
       // mirroring the WEA-284 flow. moveTask records the status_changed event;
@@ -326,35 +327,30 @@ async function run() {
     await test("to-do → done (no review cycle) is unaffected by the guardrail", () => {
       // CLAUDE.md product decision: direct to-do → done transitions are
       // legal. The guardrail must only fire on review → done.
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `SelfApproval direct-close ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "SelfApproval",
+        label: "direct-close",
         description: "Direct to-do → done",
         color: "#a78bfa",
         emoji: "✅",
-        status: "active",
-      }).project;
-      const agent = createProjectAgent({
+      });
+      const agent = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Solo-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "Solo",
+        openclawPrefix: "solo",
         emoji: "🧰",
         role: "Solo",
-        personality: "Deterministic",
-        openclawAgentId: `solo-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
-      const task = createTask({
+      });
+      const task = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: "Direct close fixture",
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "to-do",
         assignee: agent.id,
-        labels: [],
         createdBy: "g1-test",
-      }).task;
+      });
 
       const result = executeUpdateTask(
         { action: "update_task", taskKey: task.key as string, status: "done", comment: "Done." },
