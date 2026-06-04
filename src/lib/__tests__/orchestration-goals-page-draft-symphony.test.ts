@@ -1,39 +1,17 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-goals-page-draft-symphony-${Date.now()}.db`,
-  );
-}
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
+process.env.ORCHESTRATION_DB_PATH ||= path.join(os.tmpdir(), `mc-goals-page-draft-symphony-${Date.now()}.db`);
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner();
 
 async function run() {
   console.log("\nGoals Page Sprint Draft Symphony Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const {
     createCompany,
@@ -162,8 +140,7 @@ async function run() {
     );
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {

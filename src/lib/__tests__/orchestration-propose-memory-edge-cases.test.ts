@@ -1,40 +1,20 @@
 import assert from "node:assert";
 import os from "node:os";
 import path from "node:path";
-import { rmSync } from "node:fs";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-propose-memory-edge-cases-test-${Date.now()}.db`,
-  );
-}
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
+import { PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
+import { resolveHiveRunnerWorkspaceRoot } from "@/lib/workspaces/root";
 
-let passed = 0;
-let failed = 0;
+process.env.ORCHESTRATION_DB_PATH ||= path.join(os.tmpdir(), `mc-propose-memory-edge-cases-test-${Date.now()}.db`);
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  fail ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 async function run() {
   console.log("\npropose_memory edge-case hardening tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  rmSync(dbPath, { force: true });
-  rmSync(`${dbPath}-wal`, { force: true });
-  rmSync(`${dbPath}-shm`, { force: true });
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
   const { createCompany } = await import("@/lib/orchestration/company-service");
@@ -204,9 +184,9 @@ async function run() {
     assert.strictEqual(result.kind, "proposed_memory");
   });
 
-  // ─── Edge case 4: Unknown category defaults to Tim ────────────────────────
+  // ─── Edge case 4: Unknown category defaults to the local owner ────────────
 
-  await test("edge case 4: unknown category routes to Tim and does not reject", async () => {
+  await test("edge case 4: unknown category routes to the local owner and does not reject", async () => {
     const result = await executeMcAction(
       { action: "propose_memory", body: "Unknown category memory " + Date.now(), category: "zorkblatz" },
       baseInput,
@@ -215,8 +195,8 @@ async function run() {
     assert.strictEqual(result.kind, "proposed_memory");
     assert.strictEqual(
       (result as { kind: "proposed_memory"; routedTo: string | null }).routedTo,
-      "Tim",
-      "unknown category should route to Tim",
+      PUBLIC_HUMAN_LABEL,
+      `unknown category should route to ${PUBLIC_HUMAN_LABEL}`,
     );
   });
 
@@ -273,13 +253,13 @@ async function run() {
 
   await test("edge case 5: target_source_file in allowed workspaces dir is accepted", async () => {
     const previousMcWorkspaceRoot = process.env.MC_WORKSPACE_ROOT;
-    const allowedPath = path.join(
-      os.homedir(),
-      ".mission-control/workspace/companies/insight/agents/scout/notes.md",
-    );
 
     try {
       delete process.env.MC_WORKSPACE_ROOT;
+      const allowedPath = path.join(
+        resolveHiveRunnerWorkspaceRoot(),
+        "companies/insight/agents/scout/notes.md",
+      );
       const result = await executeMcAction(
         {
           action: "propose_memory",
@@ -340,8 +320,7 @@ async function run() {
 
   // ─── Summary ──────────────────────────────────────────────────────────────
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 run().catch((err) => {
