@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import { asRecord, numberFrom, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -103,35 +103,10 @@ function collectTranscriptEvents(records, finalMessage) {
 }
 
 function buildPrompt(payload) {
-  const task = asRecord(payload.task) ?? {};
-  const project = asRecord(task.project) ?? {};
-  const company = asRecord(task.company) ?? {};
-  const workspace = asRecord(payload.workspace) ?? {};
-  const runtimeCapabilities = asRecord(workspace.runtimeCapabilities) ?? {};
-  const capabilities = Array.isArray(runtimeCapabilities.capabilities)
-    ? runtimeCapabilities.capabilities.map((item) => String(item).trim()).filter(Boolean)
-    : [];
-  const additionalWritableDirs = Array.isArray(workspace.additionalWritableDirs)
-    ? workspace.additionalWritableDirs.map((item) => String(item).trim()).filter(Boolean)
-    : [];
-  const context = [
+  return buildExternalRunnerPrompt(
+    payload,
     "You are running as a Claude Code implementation of the HiveRunner external runner contract.",
-    "",
-    `HiveRunner run ID: ${payload.runId ?? "unknown"}`,
-    `Task: ${task.key ?? task.id ?? "unknown"} - ${task.title ?? "Untitled task"}`,
-    `Project: ${project.name ?? project.slug ?? "unknown"}`,
-    `Company: ${company.name ?? company.slug ?? company.code ?? "unknown"}`,
-    `Source workspace for code changes and tests: ${workspace.sourceWorkspaceRoot ?? workspace.cwd ?? "unknown"}`,
-    `Company workspace for HiveRunner artifacts: ${workspace.companyWorkspaceRoot ?? "unknown"}`,
-    additionalWritableDirs.length > 0 ? `Additional writable directories: ${additionalWritableDirs.join(", ")}` : "",
-    capabilities.length > 0 ? `Trusted local runtime capabilities: ${capabilities.join(", ")}` : "",
-    runtimeCapabilities.trustedLocalExecution ? "This task is running in a trusted local HiveRunner runtime. Use local services and verification tools when the task requires them, and report any unavailable capability explicitly." : "",
-    "",
-    "HiveRunner is the source of truth for task state. If you need to update HiveRunner task state, include a fenced mc-action block in your final response.",
-    "Make product code changes in the source workspace. Use the company workspace only for HiveRunner artifacts, notes, or task outputs when requested.",
-  ].join("\n");
-
-  return [context, stringFrom(payload.prompt)].filter(Boolean).join("\n\n");
+  );
 }
 
 function resolvePayloadModel(payload) {
