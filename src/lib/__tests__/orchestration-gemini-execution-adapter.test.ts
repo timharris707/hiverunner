@@ -3,23 +3,9 @@ import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync 
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  pass ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  fail ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
 function writeFakeGeminiCli(binDir: string): string {
   const file = path.join(binDir, "gemini");
@@ -254,8 +240,7 @@ async function run() {
   closeOrchestrationDb();
   rmSync(tempRoot, { recursive: true, force: true });
 
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {

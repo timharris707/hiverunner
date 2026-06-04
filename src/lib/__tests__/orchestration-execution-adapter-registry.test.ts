@@ -10,6 +10,7 @@
 
 import assert from "node:assert";
 
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   anthropicExecutionAdapter,
   codexExecutionAdapter,
@@ -22,23 +23,7 @@ import {
   type ExecutionInput,
 } from "@/lib/orchestration/execution/adapters";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function stubInput(overrides: Partial<ExecutionInput> = {}): ExecutionInput {
   return {
@@ -186,10 +171,7 @@ async function run() {
     );
   });
 
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
-  if (failed > 0) {
-    process.exit(1);
-  }
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {
