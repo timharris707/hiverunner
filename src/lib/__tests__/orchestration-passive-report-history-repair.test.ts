@@ -10,24 +10,10 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function createFixture() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
@@ -268,7 +254,7 @@ async function run() {
   const backupRoot = mkdtempSync(path.join(os.tmpdir(), "passive-report-history-repair-"));
 
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
 
     await test("Dry-run reports passive noise without mutating data", async () => {
       const { inspectPassiveReportHistory, repairPassiveReportHistory } = await import(
@@ -428,12 +414,10 @@ async function run() {
     });
   } finally {
     rmSync(backupRoot, { force: true, recursive: true });
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {

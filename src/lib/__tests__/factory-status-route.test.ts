@@ -7,25 +7,11 @@ import assert from "node:assert";
 import { unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { GET } from "@/app/api/factory/status/route";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { __testHooks, readBuildLog, readTasks, writeBuildLog } from "../build-queue";
 import { getDb } from "../tasks-db";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed++;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed++;
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function upsertTask(task: Record<string, unknown> & {
   id: string;
@@ -173,8 +159,7 @@ async function run() {
     __testHooks.setLastReconcileAt(0);
   }
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {

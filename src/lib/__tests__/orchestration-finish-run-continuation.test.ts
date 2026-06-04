@@ -6,25 +6,10 @@
  */
 
 import assert from "node:assert";
-import { rmSync } from "node:fs";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function createFixture() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
@@ -98,7 +83,7 @@ console.log("\nOrchestration Finish Run Continuation Contract Test\n");
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
 
     await test("Failed passive-report runs do not auto-continue on to-do tasks", async () => {
       const { decideFinishRunContinuation } = await import("@/lib/orchestration/engine/engine");
@@ -346,12 +331,10 @@ async function run() {
       assert.equal(wakeCount.count, 1);
     });
   } finally {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
