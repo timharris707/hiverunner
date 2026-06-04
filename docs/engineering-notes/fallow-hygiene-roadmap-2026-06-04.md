@@ -110,6 +110,24 @@ Latest checkpoint after PR #76:
 
 Net movement from the PR #70 checkpoint: 12 fewer clone groups, 8 fewer clone families, 1,085 fewer duplicated lines, and a 0.4 percentage-point reduction in reported duplication. Dead-code counts did not move because this batch focused on test-harness and fixture duplication.
 
+Latest checkpoint after PR #82:
+
+- Scan commit: `ad158d22b` (`Reuse orchestration async test helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 458 total
+  - unused files: 47
+  - unused exports: 287
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 123 clone groups, 107 clone families, 27,565 duplicated lines, 9.3% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,730
+
+Net movement from the PR #76 checkpoint: 11 fewer clone groups, 10 fewer clone families, 464 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Dead-code counts stayed flat because this batch stayed test-only and focused on shared runner/setup helpers.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -152,6 +170,11 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #74: tidy route dispatch test fixtures
 - #75: reduce provisioning runtime alias fixture duplication
 - #76: dedupe bundle5 review fixtures
+- #78: reuse orchestration runner helpers in memory tests
+- #79: reuse shared runner harnesses in sync tests
+- #80: refactor adapter fixture test setup
+- #81: reuse simple test runner in route contracts
+- #82: reuse orchestration async test helpers
 
 Related but not cleanup:
 
@@ -172,20 +195,20 @@ Related but not cleanup:
 
 These are good near-term hygiene targets because they are mostly test-only or small helper extractions. Pick by expected gain and risk, not by raw Fallow ordering.
 
-1. Remaining repeated setup shells and route-test fixtures
-   - Source signal: the largest remaining duplication families still include repeated test setup/import/env blocks across many files, plus smaller OpenClaw/heartbeat/voice-style orchestration test setup clusters.
+1. Remaining SQLite reset/setup shells and tiny route/test runners
+   - Source signal: the largest low-risk remaining test-only groups still include manual `ORCHESTRATION_DB_PATH` cleanup blocks, repeated local pass/fail runners, and small route/setup shells across orchestration contract tests.
    - Expected shape: continue reusing existing helpers, especially `createTestRunner`, `resetSqliteDatabaseFiles`, auth env, middleware, voice session, and orchestration fixtures. Prefer small clusters with shared setup semantics; avoid one global harness.
    - Validation: touched test files plus `npm run fallow:changed`.
    - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
 2. Single-file or tiny-family test fixture extractions
-   - Source signal: remaining clone families include `orchestration-execution-route-dispatch.test.ts`, `orchestration-bundle5-reliability.test.ts`, execution adapter fixture bodies, and small route-test bodies.
+   - Source signal: remaining clone families include `orchestration-company-agents-route.test.ts`, `orchestration-create-task-depends-on.test.ts`, execution route/hive tests, and small route-test bodies.
    - Expected shape: local helper functions inside the test file or a narrow existing test helper, not a broad framework abstraction.
    - Validation: touched route tests plus `npm run fallow:changed`.
    - Estimate: two to four small PRs.
 
 3. Dead export micro-prunes
-   - Source signal: dead-code remains at 459 findings; near-term candidates include isolated helper exports such as `setMiddlewareNodeEnv` and utilities that direct import searches prove unused.
+   - Source signal: dead-code remains at 458 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -286,6 +309,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: #73 intentionally left `orchestration-openclaw-session-mc-action-extraction.test.ts` and `orchestration-openclaw-suffixed-session-import.test.ts` untouched after they reproduced a pre-existing isolated-DB failure: no active execution hive configured for the fixture company.
 
+- Follow-on runner/setup helper cleanup
+  - Source signal: repeated pass/fail runners and fixture setup in bootstrap readiness, memory evidence, passive report loop guard, idea route contracts, sync runner/tracker tests, adapter fixture tests, and async orchestration tests.
+  - Completed by #78, #79, #80, #81, and #82 with explicit worktrees and one worker per branch.
+  - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: this batch confirmed the expected-gain/risk pattern: test-only runner cleanup still helps, but the biggest remaining raw Fallow savings are now runner scripts, provider adapters, and OpenClaw-adjacent setup. Treat those as planned work, not incidental hygiene.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -322,3 +351,5 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
 For the next run, prioritize highest-gain, lowest-risk slices: remaining narrow test setup duplication first, especially test files that can still adopt `createTestRunner`, route-test fixture setup, and single-file fixture bodies with obvious repeated setup. Mix in isolated dead-export micro-prunes when direct import searches make them obvious. If a candidate appears to save only a handful of lines or mostly duplicate import blocks, skip it for now. Do not fold the two fragile OpenClaw session tests from #73 into general hygiene until their isolated-DB fixture setup is understood. Avoid runner scripts and runtime adapter helper extraction until the test-helper clusters are cleaner and CodeGraph impact analysis is done.
+
+After PR #82, the next practical batch should target remaining manual SQLite reset/setup blocks and small local runner shells in tests such as graph artifact safety, fire-company-agent, foundation workflow, lookups/query/task-detail, company agents route, execution hives/route dispatch, and adjacent contract tests. Keep the fragile OpenClaw session tests excluded unless their fixture setup is directly addressed. Runner scripts and provider execution adapter helper extraction remain higher-impact but higher-risk; schedule those only as dedicated PRs with CodeGraph impact checks and the full runner/adapter test matrix.
