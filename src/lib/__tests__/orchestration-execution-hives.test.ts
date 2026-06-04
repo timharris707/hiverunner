@@ -9,6 +9,7 @@ import { POST as configureHiveRoute } from "@/app/api/orchestration/companies/[s
 import { PATCH as updateLaneRoute } from "@/app/api/orchestration/companies/[slug]/hives/[hiveId]/lanes/[laneId]/route";
 import { GET as listAvailableModelsRoute, POST as createAvailableModelRoute } from "@/app/api/orchestration/available-models/route";
 import { DELETE as deleteAvailableModelRoute, PATCH as updateAvailableModelRoute } from "@/app/api/orchestration/available-models/[id]/route";
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
@@ -27,12 +28,10 @@ import {
 } from "@/lib/orchestration/service/execution-hives";
 import { routeTargetForModelChoice } from "@/lib/orchestration/route-target-builder";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-execution-hives-${Date.now()}.db`,
-  );
-}
+process.env.ORCHESTRATION_DB_PATH ??= path.join(
+  os.tmpdir(),
+  `mc-execution-hives-${Date.now()}.db`,
+);
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
@@ -54,8 +53,7 @@ function makePostRequest(body: unknown = {}) {
 async function run() {
   console.log("\nExecution Hives Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
-  resetSqliteDatabaseFiles(dbPath);
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const company = createCompany({
     name: `Execution Hives ${Date.now()}`,
@@ -429,8 +427,8 @@ exit 0
     );
     chmodSync(fakeCodex, 0o755);
 
-    const previousPath = process.env.PATH;
-    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const envSnapshot = snapshotEnv(["PATH"]);
+    process.env.PATH = `${binDir}${path.delimiter}${process.env.PATH ?? ""}`;
     try {
       const result = runCompanyExecutionHiveProbe({
         companyIdOrSlug: company.slug,
@@ -443,7 +441,7 @@ exit 0
       assert.equal(result.runtimeSummary.selectedRuntimeLabel, "Codex");
       assert.match(result.probe.note ?? "", /resolved to Codex/);
     } finally {
-      process.env.PATH = previousPath;
+      restoreEnvSnapshot(envSnapshot);
       rmSync(binDir, { recursive: true, force: true });
     }
   });

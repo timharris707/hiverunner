@@ -13,12 +13,10 @@ import {
   resetSqliteDatabaseFiles,
 } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
-if (!process.env.ORCHESTRATION_DB_PATH) {
-  process.env.ORCHESTRATION_DB_PATH = path.join(
-    os.tmpdir(),
-    `mc-child-task-policy-inheritance-${Date.now()}.db`,
-  );
-}
+process.env.ORCHESTRATION_DB_PATH ??= path.join(
+  os.tmpdir(),
+  `mc-child-task-policy-inheritance-${Date.now()}.db`,
+);
 
 const { finish, test } = createTestRunner({ passLabel: "pass", failLabel: "fail" });
 
@@ -35,13 +33,12 @@ function makeJsonRequest(url: string, body: unknown) {
 async function run() {
   console.log("\nChild Task Runtime Policy Inheritance Tests\n");
 
-  const dbPath = process.env.ORCHESTRATION_DB_PATH!;
   const workspaceIsolation = createIsolatedOrchestrationWorkspace({
     prefix: "mc-child-policy-inheritance-",
   });
 
   try {
-    resetSqliteDatabaseFiles(dbPath);
+    resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
     workspaceIsolation.syncDatabase(getOrchestrationDb());
 
     const company = createCompany({
