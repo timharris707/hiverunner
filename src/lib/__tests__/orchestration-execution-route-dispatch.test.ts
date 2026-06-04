@@ -88,6 +88,23 @@ function latestRun(taskId: string) {
     };
 }
 
+type RouteRunRow = ReturnType<typeof latestRun>;
+type RouteAttempt = { status: string; runtimeProvider: string; error?: string | null };
+
+function expectRunRow(runRow: RouteRunRow, expected: Partial<RouteRunRow>) {
+  for (const [key, value] of Object.entries(expected) as Array<[keyof RouteRunRow, RouteRunRow[keyof RouteRunRow]]>) {
+    assert.equal(runRow[key], value, `expected run ${String(key)} to match`);
+  }
+}
+
+function routeAttempts(runRow: RouteRunRow): RouteAttempt[] {
+  return JSON.parse(runRow.route_attempts_json) as RouteAttempt[];
+}
+
+function routeAttemptSummaries(runRow: RouteRunRow): string[] {
+  return routeAttempts(runRow).map((attempt) => `${attempt.runtimeProvider}:${attempt.status}`);
+}
+
 async function run() {
   console.log("\nExecution Route Dispatch Tests\n");
 
@@ -156,6 +173,60 @@ async function run() {
     note: "Route dispatch test",
   }, db);
 
+  function readHiveLanes(): RoutingLane[] {
+    const row = db
+      .prepare("SELECT lanes_json FROM company_execution_hives WHERE company_id = ? AND slug = 'balanced-builder'")
+      .get(company.id) as { lanes_json: string };
+    return JSON.parse(row.lanes_json) as RoutingLane[];
+  }
+
+  function writeHiveLanes(lanes: RoutingLane[]) {
+    db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
+      .run(JSON.stringify(lanes), new Date().toISOString(), company.id);
+  }
+
+  async function withHiveLanes(update: (lanes: RoutingLane[]) => RoutingLane[], body: () => Promise<void>) {
+    const originalLanes = readHiveLanes();
+    writeHiveLanes(update(originalLanes));
+    try {
+      await body();
+    } finally {
+      writeHiveLanes(originalLanes);
+    }
+  }
+
+  async function executeRouteTask(options: {
+    title: string;
+    description: string;
+    reason: string;
+    modelLane?: string;
+    executionEngine?: "symphony";
+  }) {
+    const task = createTask({
+      projectId: project.id,
+      title: options.title,
+      description: options.description,
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      assignee: agent.id,
+      labels: ["route"],
+      modelLane: options.modelLane ?? "deep",
+      ...(options.executionEngine ? { executionEngine: options.executionEngine } : {}),
+      createdBy: "test",
+    }).task;
+
+    const queued = await triggerTaskExecution({ taskId: task.id, reason: options.reason });
+    const result = await executeHeartbeatRun(queued.runId!, db);
+    return { queued, result, runRow: latestRun(task.id) };
+  }
+
+  function expectSymphonyDispatchSucceeded(route: Awaited<ReturnType<typeof executeRouteTask>>) {
+    assert.equal(route.queued.mode, "symphony");
+    assert.ok(route.queued.runId);
+    assert.equal(route.result.status, "succeeded", route.result.error ?? undefined);
+  }
+
   await test("task Symphony engine is preserved in execution run metadata when active hive mode is HiveRunner", async () => {
     db.prepare(
       "UPDATE company_execution_hives SET orchestration_mode = 'hiverunner', updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'",
@@ -163,33 +234,22 @@ async function run() {
 
     try {
       process.env.FAIL_ANTHROPIC = "0";
-      const task = createTask({
-        projectId: project.id,
+      const route = await executeRouteTask({
         title: "Task engine overrides active hive mode",
         description: "Specific task should record Symphony execution metadata.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["route"],
         executionEngine: "symphony",
         modelLane: "deep",
-        createdBy: "test",
-      }).task;
-
-      const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_task_engine_override" });
-      assert.equal(queued.mode, "symphony");
-      assert.ok(queued.runId);
-      const result = await executeHeartbeatRun(queued.runId, db);
-      assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-      const runRow = latestRun(task.id);
-      assert.equal(runRow.provider, "symphony");
-      assert.equal(runRow.execution_engine, "symphony");
-      assert.equal(runRow.runner_provider, "anthropic");
-      assert.equal(runRow.runner_model, null);
-      assert.equal(runRow.model_lane, "deep");
-      assert.equal(runRow.status, "completed");
+        reason: "route_dispatch_task_engine_override",
+      });
+      expectSymphonyDispatchSucceeded(route);
+      expectRunRow(route.runRow, {
+        provider: "symphony",
+        execution_engine: "symphony",
+        runner_provider: "anthropic",
+        runner_model: null,
+        model_lane: "deep",
+        status: "completed",
+      });
     } finally {
       db.prepare(
         "UPDATE company_execution_hives SET orchestration_mode = 'symphony', updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'",
@@ -202,33 +262,22 @@ async function run() {
       .run(new Date().toISOString(), agent.id);
     try {
       process.env.FAIL_ANTHROPIC = "0";
-      const task = createTask({
-        projectId: project.id,
+      const route = await executeRouteTask({
         title: "Agent profile runner target",
         description: "Symphony should orchestrate while the assigned agent profile chooses the runner model.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["route"],
         executionEngine: "symphony",
         modelLane: "deep",
-        createdBy: "test",
-      }).task;
-
-      const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_agent_profile_model" });
-      assert.equal(queued.mode, "symphony");
-      assert.ok(queued.runId);
-      const result = await executeHeartbeatRun(queued.runId, db);
-      assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-      const runRow = latestRun(task.id);
-      assert.equal(runRow.provider, "symphony");
-      assert.equal(runRow.execution_engine, "symphony");
-      assert.equal(runRow.runner_provider, "codex");
-      assert.equal(runRow.runner_model, "gpt-5.5");
-      assert.equal(runRow.model_lane, "deep");
-      assert.equal(runRow.status, "completed");
+        reason: "route_dispatch_agent_profile_model",
+      });
+      expectSymphonyDispatchSucceeded(route);
+      expectRunRow(route.runRow, {
+        provider: "symphony",
+        execution_engine: "symphony",
+        runner_provider: "codex",
+        runner_model: "gpt-5.5",
+        model_lane: "deep",
+        status: "completed",
+      });
     } finally {
       db.prepare("UPDATE agents SET adapter_type = 'manual', model = NULL, updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), agent.id);
@@ -237,287 +286,214 @@ async function run() {
 
   await test("deep lane routes to its non-default primary runtime", async () => {
     process.env.FAIL_ANTHROPIC = "0";
-    const task = createTask({
-      projectId: project.id,
+    const route = await executeRouteTask({
       title: "Deep lane primary route",
       description: "Should use the deep lane primary runtime.",
-      priority: "P2",
-      type: "feature",
-      status: "in-progress",
-      assignee: agent.id,
-      labels: ["route"],
       modelLane: "deep",
-      createdBy: "test",
-    }).task;
-
-    const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_deep_primary" });
-    assert.equal(queued.mode, "symphony");
-    assert.ok(queued.runId);
-    const result = await executeHeartbeatRun(queued.runId, db);
-    assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-    const runRow = latestRun(task.id);
-    assert.equal(runRow.provider, "symphony");
-    assert.equal(runRow.execution_engine, "symphony");
-    assert.equal(runRow.runner_provider, "anthropic");
-    assert.equal(runRow.runner_model, null);
-    assert.equal(runRow.model_lane, "deep");
-    assert.equal(runRow.fallback_used, 0);
-    assert.equal(runRow.status, "completed");
+      reason: "route_dispatch_deep_primary",
+    });
+    expectSymphonyDispatchSucceeded(route);
+    expectRunRow(route.runRow, {
+      provider: "symphony",
+      execution_engine: "symphony",
+      runner_provider: "anthropic",
+      runner_model: null,
+      model_lane: "deep",
+      fallback_used: 0,
+      status: "completed",
+    });
   });
 
   await test("resolved route model overrides legacy task model-routing in execution runs", async () => {
-    const row = db
-      .prepare("SELECT lanes_json FROM company_execution_hives WHERE company_id = ? AND slug = 'balanced-builder'")
-      .get(company.id) as { lanes_json: string };
-    const originalLanes = JSON.parse(row.lanes_json) as RoutingLane[];
-    const updated = originalLanes.map((lane) => lane.id === "deep"
-      ? {
-          ...lane,
-          primary: {
-            ...lane.primary,
-            modelId: "claude-opus-4-7",
-            modelLabel: "Claude Opus 4.7",
-          },
-        }
-      : lane);
-    db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-      .run(JSON.stringify(updated), new Date().toISOString(), company.id);
-
-    try {
-      process.env.FAIL_ANTHROPIC = "0";
-      const task = createTask({
-        projectId: project.id,
-        title: "Deep lane resolved model precedence",
-        description: "Should ignore legacy task model routing.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["route"],
-        modelLane: "deep",
-        createdBy: "test",
-      }).task;
-
-      const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_model_precedence" });
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-      const runRow = latestRun(task.id);
-      assert.equal(runRow.runner_provider, "anthropic");
-      assert.equal(runRow.runner_model, "claude-opus-4-7");
-      assert.equal(runRow.model_lane, "deep");
-      assert.equal(runRow.status, "completed");
-    } finally {
-      db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-        .run(JSON.stringify(originalLanes), new Date().toISOString(), company.id);
-    }
+    await withHiveLanes(
+      (lanes) => lanes.map((lane) => lane.id === "deep"
+        ? {
+            ...lane,
+            primary: {
+              ...lane.primary,
+              modelId: "claude-opus-4-7",
+              modelLabel: "Claude Opus 4.7",
+            },
+          }
+        : lane),
+      async () => {
+        process.env.FAIL_ANTHROPIC = "0";
+        const { result, runRow } = await executeRouteTask({
+          title: "Deep lane resolved model precedence",
+          description: "Should ignore legacy task model routing.",
+          modelLane: "deep",
+          reason: "route_dispatch_model_precedence",
+        });
+        assert.equal(result.status, "succeeded", result.error ?? undefined);
+        expectRunRow(runRow, {
+          runner_provider: "anthropic",
+          runner_model: "claude-opus-4-7",
+          model_lane: "deep",
+          status: "completed",
+        });
+      },
+    );
   });
 
   await test("transient primary failure falls through to the first configured fallback", async () => {
     process.env.FAIL_ANTHROPIC = "1";
-    const task = createTask({
-      projectId: project.id,
+    const { result, runRow } = await executeRouteTask({
       title: "Deep lane fallback route",
       description: "Should fall back from Anthropic to Codex.",
-      priority: "P2",
-      type: "feature",
-      status: "in-progress",
-      assignee: agent.id,
-      labels: ["route"],
       modelLane: "deep",
-      createdBy: "test",
-    }).task;
-
-    const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_fallback" });
-    const result = await executeHeartbeatRun(queued.runId!, db);
+      reason: "route_dispatch_fallback",
+    });
     assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-    const runRow = latestRun(task.id);
-    assert.equal(runRow.runner_provider, "codex");
-    assert.equal(runRow.runner_model, null);
-    assert.equal(runRow.model_lane, "deep");
-    assert.equal(runRow.fallback_used, 1);
-    assert.equal(runRow.fallback_index, 0);
-    assert.equal(runRow.fallback_from_provider, "anthropic");
-    const attempts = JSON.parse(runRow.route_attempts_json) as Array<{ status: string; runtimeProvider: string }>;
-    assert.deepEqual(attempts.map((attempt) => `${attempt.runtimeProvider}:${attempt.status}`), [
+    expectRunRow(runRow, {
+      runner_provider: "codex",
+      runner_model: null,
+      model_lane: "deep",
+      fallback_used: 1,
+      fallback_index: 0,
+      fallback_from_provider: "anthropic",
+    });
+    assert.deepEqual(routeAttemptSummaries(runRow), [
       "anthropic:failed",
       "codex:succeeded",
     ]);
   });
 
   await test("opaque Gemini CLI unknown-exit failure falls through to configured fallback", async () => {
-    const row = db
-      .prepare("SELECT lanes_json FROM company_execution_hives WHERE company_id = ? AND slug = 'balanced-builder'")
-      .get(company.id) as { lanes_json: string };
-    const originalLanes = JSON.parse(row.lanes_json) as RoutingLane[];
-    const updated = originalLanes.map((lane) => lane.id === "deep"
-      ? {
-          ...lane,
-          primary: {
-            mode: "runtime_managed",
-            runtimeId: "gemini-cli",
-            runtimeLabel: "Gemini CLI",
-          },
-          fallbacks: [
-            {
-              mode: "runtime_managed",
-              runtimeId: "codex-cli",
-              runtimeLabel: "Codex",
-            },
-          ],
-        }
-      : lane);
-    db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-      .run(JSON.stringify(updated), new Date().toISOString(), company.id);
-
     try {
-      process.env.FAIL_ANTHROPIC = "0";
-      process.env.FAIL_GEMINI_UNKNOWN_EXIT = "1";
-      const task = createTask({
-        projectId: project.id,
-        title: "Deep lane Gemini opaque fallback route",
-        description: "Should fall back from Gemini unknown-exit wrapper failure to Codex.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["route"],
-        modelLane: "deep",
-        createdBy: "test",
-      }).task;
-
-      const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_gemini_unknown_exit_fallback" });
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-      const runRow = latestRun(task.id);
-      assert.equal(runRow.runner_provider, "codex");
-      assert.equal(runRow.runner_model, null);
-      assert.equal(runRow.model_lane, "deep");
-      assert.equal(runRow.fallback_used, 1);
-      assert.equal(runRow.fallback_index, 0);
-      assert.equal(runRow.fallback_from_provider, "gemini");
-      const attempts = JSON.parse(runRow.route_attempts_json) as Array<{ status: string; runtimeProvider: string; error: string | null }>;
-      assert.deepEqual(attempts.map((attempt) => `${attempt.runtimeProvider}:${attempt.status}`), [
-        "gemini:failed",
-        "codex:succeeded",
-      ]);
-      assert.match(attempts[0]?.error ?? "", /Gemini CLI failed with exit code unknown/);
+      await withHiveLanes(
+        (lanes) => lanes.map((lane) => lane.id === "deep"
+          ? {
+              ...lane,
+              primary: {
+                mode: "runtime_managed",
+                runtimeId: "gemini-cli",
+                runtimeLabel: "Gemini CLI",
+              },
+              fallbacks: [
+                {
+                  mode: "runtime_managed",
+                  runtimeId: "codex-cli",
+                  runtimeLabel: "Codex",
+                },
+              ],
+            }
+          : lane),
+        async () => {
+          process.env.FAIL_ANTHROPIC = "0";
+          process.env.FAIL_GEMINI_UNKNOWN_EXIT = "1";
+          const { result, runRow } = await executeRouteTask({
+            title: "Deep lane Gemini opaque fallback route",
+            description: "Should fall back from Gemini unknown-exit wrapper failure to Codex.",
+            modelLane: "deep",
+            reason: "route_dispatch_gemini_unknown_exit_fallback",
+          });
+          assert.equal(result.status, "succeeded", result.error ?? undefined);
+          expectRunRow(runRow, {
+            runner_provider: "codex",
+            runner_model: null,
+            model_lane: "deep",
+            fallback_used: 1,
+            fallback_index: 0,
+            fallback_from_provider: "gemini",
+          });
+          assert.deepEqual(routeAttemptSummaries(runRow), [
+            "gemini:failed",
+            "codex:succeeded",
+          ]);
+          const attempts = routeAttempts(runRow);
+          assert.match(attempts[0]?.error ?? "", /Gemini CLI failed with exit code unknown/);
+        },
+      );
     } finally {
       process.env.FAIL_GEMINI_UNKNOWN_EXIT = "0";
-      db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-        .run(JSON.stringify(originalLanes), new Date().toISOString(), company.id);
     }
   });
 
   await test("Codex usage-limit failure falls through to configured fallback", async () => {
-    const row = db
-      .prepare("SELECT lanes_json FROM company_execution_hives WHERE company_id = ? AND slug = 'balanced-builder'")
-      .get(company.id) as { lanes_json: string };
-    const originalLanes = JSON.parse(row.lanes_json) as RoutingLane[];
-    const updated = originalLanes.map((lane) => lane.id === "deep"
-      ? {
-          ...lane,
-          primary: {
-            mode: "runtime_managed",
-            runtimeId: "codex-cli",
-            runtimeLabel: "Codex",
-          },
-          fallbacks: [
-            {
-              mode: "runtime_managed",
-              runtimeId: "claude-code",
-              runtimeLabel: "Claude Code",
-            },
-          ],
-        }
-      : lane);
-    db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-      .run(JSON.stringify(updated), new Date().toISOString(), company.id);
-
     try {
-      process.env.FAIL_ANTHROPIC = "0";
-      process.env.FAIL_GEMINI_UNKNOWN_EXIT = "0";
-      process.env.FAIL_CODEX_USAGE_LIMIT = "1";
-      const task = createTask({
-        projectId: project.id,
-        title: "Deep lane Codex usage-limit fallback route",
-        description: "Should fall back from Codex usage-limit failure to Anthropic.",
-        priority: "P2",
-        type: "feature",
-        status: "in-progress",
-        assignee: agent.id,
-        labels: ["route"],
-        modelLane: "deep",
-        createdBy: "test",
-      }).task;
-
-      const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_codex_usage_limit_fallback" });
-      const result = await executeHeartbeatRun(queued.runId!, db);
-      assert.equal(result.status, "succeeded", result.error ?? undefined);
-
-      const runRow = latestRun(task.id);
-      assert.equal(runRow.runner_provider, "anthropic");
-      assert.equal(runRow.runner_model, null);
-      assert.equal(runRow.model_lane, "deep");
-      assert.equal(runRow.fallback_used, 1);
-      assert.equal(runRow.fallback_index, 0);
-      assert.equal(runRow.fallback_from_provider, "codex");
-      const attempts = JSON.parse(runRow.route_attempts_json) as Array<{ status: string; runtimeProvider: string; error: string | null }>;
-      assert.deepEqual(attempts.map((attempt) => `${attempt.runtimeProvider}:${attempt.status}`), [
-        "codex:failed",
-        "anthropic:succeeded",
-      ]);
-      assert.match(attempts[0]?.error ?? "", /usage limit/i);
+      await withHiveLanes(
+        (lanes) => lanes.map((lane) => lane.id === "deep"
+          ? {
+              ...lane,
+              primary: {
+                mode: "runtime_managed",
+                runtimeId: "codex-cli",
+                runtimeLabel: "Codex",
+              },
+              fallbacks: [
+                {
+                  mode: "runtime_managed",
+                  runtimeId: "claude-code",
+                  runtimeLabel: "Claude Code",
+                },
+              ],
+            }
+          : lane),
+        async () => {
+          process.env.FAIL_ANTHROPIC = "0";
+          process.env.FAIL_GEMINI_UNKNOWN_EXIT = "0";
+          process.env.FAIL_CODEX_USAGE_LIMIT = "1";
+          const { result, runRow } = await executeRouteTask({
+            title: "Deep lane Codex usage-limit fallback route",
+            description: "Should fall back from Codex usage-limit failure to Anthropic.",
+            modelLane: "deep",
+            reason: "route_dispatch_codex_usage_limit_fallback",
+          });
+          assert.equal(result.status, "succeeded", result.error ?? undefined);
+          expectRunRow(runRow, {
+            runner_provider: "anthropic",
+            runner_model: null,
+            model_lane: "deep",
+            fallback_used: 1,
+            fallback_index: 0,
+            fallback_from_provider: "codex",
+          });
+          assert.deepEqual(routeAttemptSummaries(runRow), [
+            "codex:failed",
+            "anthropic:succeeded",
+          ]);
+          const attempts = routeAttempts(runRow);
+          assert.match(attempts[0]?.error ?? "", /usage limit/i);
+        },
+      );
     } finally {
       process.env.FAIL_CODEX_USAGE_LIMIT = "0";
-      db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-        .run(JSON.stringify(originalLanes), new Date().toISOString(), company.id);
     }
   });
 
   await test("zero-fallback lane fails cleanly without invoking another runtime", async () => {
-    const row = db
-      .prepare("SELECT lanes_json FROM company_execution_hives WHERE company_id = ? AND slug = 'balanced-builder'")
-      .get(company.id) as { lanes_json: string };
-    const lanes = JSON.parse(row.lanes_json) as RoutingLane[];
-    const updated = lanes.map((lane) => lane.id === "fast"
-      ? {
-          ...lane,
-          primary: { mode: "runtime_managed", runtimeId: "claude-code", runtimeLabel: "Claude Code", modelLabel: "fast no-fallback profile" },
-          fallbacks: [],
-        }
-      : lane);
-    db.prepare("UPDATE company_execution_hives SET lanes_json = ?, updated_at = ? WHERE company_id = ? AND slug = 'balanced-builder'")
-      .run(JSON.stringify(updated), new Date().toISOString(), company.id);
-
-    process.env.FAIL_ANTHROPIC = "1";
-    const task = createTask({
-      projectId: project.id,
-      title: "Fast lane no fallback",
-      description: "Should fail without fallback.",
-      priority: "P2",
-      type: "feature",
-      status: "in-progress",
-      assignee: agent.id,
-      labels: ["route"],
-      modelLane: "fast",
-      createdBy: "test",
-    }).task;
-
-    const queued = await triggerTaskExecution({ taskId: task.id, reason: "route_dispatch_no_fallback" });
-    const result = await executeHeartbeatRun(queued.runId!, db);
-    assert.equal(result.status, "failed");
-
-    const runRow = latestRun(task.id);
-    assert.equal(runRow.runner_provider, "anthropic");
-    assert.equal(runRow.runner_model, "fast no-fallback profile");
-    assert.equal(runRow.model_lane, "fast");
-    assert.equal(runRow.fallback_used, 0);
-    const attempts = JSON.parse(runRow.route_attempts_json) as Array<{ runtimeProvider: string }>;
-    assert.deepEqual(attempts.map((attempt) => attempt.runtimeProvider), ["anthropic"]);
+    await withHiveLanes(
+      (lanes) => lanes.map((lane) => lane.id === "fast"
+        ? {
+            ...lane,
+            primary: {
+              mode: "runtime_managed",
+              runtimeId: "claude-code",
+              runtimeLabel: "Claude Code",
+              modelLabel: "fast no-fallback profile",
+            },
+            fallbacks: [],
+          }
+        : lane),
+      async () => {
+        process.env.FAIL_ANTHROPIC = "1";
+        const { result, runRow } = await executeRouteTask({
+          title: "Fast lane no fallback",
+          description: "Should fail without fallback.",
+          modelLane: "fast",
+          reason: "route_dispatch_no_fallback",
+        });
+        assert.equal(result.status, "failed");
+        expectRunRow(runRow, {
+          runner_provider: "anthropic",
+          runner_model: "fast no-fallback profile",
+          model_lane: "fast",
+          fallback_used: 0,
+        });
+        const attempts = routeAttempts(runRow);
+        assert.deepEqual(attempts.map((attempt) => attempt.runtimeProvider), ["anthropic"]);
+      },
+    );
   });
 
   const auditLines = readFileSync(auditFile, "utf8").trim().split(/\n+/).filter(Boolean);
