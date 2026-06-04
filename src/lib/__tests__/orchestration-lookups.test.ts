@@ -1,6 +1,6 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import {
   createProject,
@@ -29,13 +29,7 @@ function test(name: string, fn: () => Promise<void> | void) {
 
 async function run() {
   console.log("\nOrchestration Lookup Service Tests\n");
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
 
   const project = createProject({
     companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
