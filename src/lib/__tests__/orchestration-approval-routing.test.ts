@@ -1,38 +1,14 @@
 import assert from "node:assert";
-import { rmSync } from "node:fs";
 
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import { createProject, createProjectAgent, createTask } from "@/lib/orchestration/service";
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner();
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  PASS ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`    ${message}`);
-    });
-}
-
-async function run() {
-  console.log("\nOrchestration Approval Routing Tests\n");
-
-  const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
-
+function createApprovalRoutingProject() {
   const stamp = Date.now();
   const company = createCompany({
     name: `Approval Routing Company ${stamp}`,
@@ -48,46 +24,56 @@ async function run() {
     status: "active",
   }).project;
 
-  const oracle = createProjectAgent({
-    projectId: project.id,
+  return { company, project };
+}
+
+function createApprovalAgent(
+  projectId: string,
+  input: { emoji: string; name: string; personality: string; role: string },
+) {
+  return createProjectAgent({
+    projectId,
+    name: input.name,
+    emoji: input.emoji,
+    role: input.role,
+    personality: input.personality,
+    model: "openai-codex/gpt-5.5",
+    skills: [],
+    status: "idle",
+  }).agent;
+}
+
+async function run() {
+  console.log("\nOrchestration Approval Routing Tests\n");
+
+  resetSqliteDatabaseFiles(process.env.ORCHESTRATION_DB_PATH);
+
+  const { company, project } = createApprovalRoutingProject();
+
+  const oracle = createApprovalAgent(project.id, {
     name: "Oracle",
     emoji: "icon:radar",
     role: "Lead / Product Orchestrator",
     personality: "Runtime owner.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
-  const ralph = createProjectAgent({
-    projectId: project.id,
+  });
+  const ralph = createApprovalAgent(project.id, {
     name: "Ralph",
     emoji: "icon:git-branch",
     role: "Repo Steward / Release Engineer",
     personality: "Release owner.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
-  const castor = createProjectAgent({
-    projectId: project.id,
+  });
+  const castor = createApprovalAgent(project.id, {
     name: "Castor",
     emoji: "icon:scale",
     role: "Lending Legal / Compliance Specialist",
     personality: "Compliance owner.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
-  const scout = createProjectAgent({
-    projectId: project.id,
+  });
+  const scout = createApprovalAgent(project.id, {
     name: "Scout",
     emoji: "icon:search",
     role: "Research Specialist",
     personality: "Research owner.",
-    model: "openai-codex/gpt-5.5",
-    skills: [],
-    status: "idle",
-  }).agent;
+  });
 
   const releaseTask = createTask({
     projectId: project.id,
@@ -198,10 +184,7 @@ async function run() {
     assert.match(approval.approvalRouteReason ?? "", /compliance/i);
   });
 
-  if (failed > 0) {
-    throw new Error(`${failed} approval routing test(s) failed`);
-  }
-  console.log(`\n${passed} approval routing test(s) passed`);
+  finish();
 }
 
 run().catch((error) => {

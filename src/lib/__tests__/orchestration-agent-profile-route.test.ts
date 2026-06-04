@@ -5,24 +5,9 @@ import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 import { GET as getCompanyAgentRoute } from "@/app/api/orchestration/companies/[slug]/agents/[agentId]/route";
 import { GET as getAgentProfileRoute } from "@/app/api/orchestration/agents/[id]/profile/route";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function run() {
   console.log("\nOrchestration Agent Profile Route Tests\n");
@@ -223,8 +208,7 @@ async function run() {
     assert.ok(payload.error.details?.fieldErrors?.activityLimit?.length);
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
