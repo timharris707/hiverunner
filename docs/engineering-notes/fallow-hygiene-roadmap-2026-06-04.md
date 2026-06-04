@@ -226,6 +226,7 @@ Related but not cleanup:
 
 - #36 fixed the pre-existing `orchestration-openclaw-running-output-wait.test.ts` reliability issue that surfaced during cleanup validation.
 - #96 fixed the `orchestration-live-status.test.ts` reliability issue that surfaced during cleanup validation by aligning `live-status` with queued/pending, terminal grace-window, and SSE-only liveness semantics.
+- #98 fixed the fresh isolated DB reliability failures in `orchestration-foundation-workflow.test.ts` and `orchestration-query-contracts.test.ts` by refreshing fixture assumptions around the seeded HiveRunner workspace slug, execution hives, and scoped OpenClaw reconciliation side effects.
 
 ## Operating Rules
 
@@ -366,7 +367,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Source signal: repeated manual SQLite cleanup, environment setup, executable-script stubs, and local test runners across proof, live/voice, small route, goal/model, and execution route tests.
   - Completed by #84, #85, #86, #87, and #88 with explicit worktrees and one worker per branch.
   - Validation: focused touched tests, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
-  - Caveat: two pre-existing test contract issues surfaced and were deliberately left out of the hygiene PRs: `orchestration-foundation-workflow.test.ts` / `orchestration-query-contracts.test.ts` under fresh isolated DB paths, and `orchestration-live-status.test.ts` expecting broader live-run semantics than the current `live-status` implementation provided. The live-status issue was resolved separately by #96.
+  - Caveat: two pre-existing test contract issues surfaced and were deliberately left out of the hygiene PRs: `orchestration-foundation-workflow.test.ts` / `orchestration-query-contracts.test.ts` under fresh isolated DB paths, and `orchestration-live-status.test.ts` expecting broader live-run semantics than the current `live-status` implementation provided. The live-status issue was resolved separately by #96; the fresh-DB fixture issues were resolved separately by #98.
 
 - Final narrow test-fixture cleanup batch
   - Source signal: repeated provider runner harnesses, auth middleware env tails, build route setup, workspace file setup, and health/continuation fixture bodies.
@@ -398,10 +399,6 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports 47 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
-- Test reliability issues surfaced during hygiene
-  - `orchestration-foundation-workflow.test.ts` and `orchestration-query-contracts.test.ts` failed when run directly with fresh DB paths during the PR #84 slice. Those failures should be investigated as test setup/fixture reliability, not folded into helper cleanup.
-  - `orchestration-live-status.test.ts` failed identically before and after the PR #86 helper conversion. Resolved by #96 after CodeGraph orientation and direct reads of `live-status`, dashboard, tasks, Dock, live-runs API, and SSE provider surfaces.
-
 ## Size And Cadence
 
 The full Fallow warning pool is not a one-morning cleanup. Cleaning every reported dead-code, duplicate, complexity, and circular-dependency finding safely would likely be a multi-day to multi-week effort because many findings are high-blast-radius architecture work.
@@ -413,4 +410,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #96, the highest expected-gain next steps are no longer generic test-duplication sweeps. Prioritize the remaining surfaced reliability issues first: investigate `orchestration-foundation-workflow.test.ts` and `orchestration-query-contracts.test.ts` under fresh isolated DB paths, then decide whether they need fixture repair or contract updates. Continue Fallow hygiene only for clusters with clear maintenance value, such as company-agent route single-file duplication or direct-search-proven dead-export micro-prunes. Skip tiny import-only clones. Runner scripts and provider execution adapter helper extraction remain higher-impact but higher-risk; schedule those only as dedicated PRs with CodeGraph impact checks and the full runner/adapter test matrix.
+After PR #98, the surfaced reliability issues from the recent hygiene batches are resolved. The highest expected-gain next step is to return to Fallow with stricter triage: target clusters with clear maintenance value, such as company-agent route single-file duplication, company route fixture repetition, or direct-search-proven dead-export micro-prunes. Skip tiny import-only clones and low-savings runner boilerplate. Runner scripts and provider execution adapter helper extraction remain higher-impact but higher-risk; schedule those only as dedicated PRs with CodeGraph impact checks and the full runner/adapter test matrix.
