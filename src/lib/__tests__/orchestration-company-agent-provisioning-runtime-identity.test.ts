@@ -80,6 +80,50 @@ async function run() {
     status: "active",
   }).project;
 
+  type RuntimeAliasHirePayload = {
+    name: string;
+    role: string;
+    runtimeProvider: string;
+    model: string;
+  };
+  type AgentModelRow = { adapter_type: string; model: string | null } | undefined;
+
+  function materializeRuntimeAliasHire(
+    db: ReturnType<typeof getOrchestrationDb>,
+    payload: RuntimeAliasHirePayload,
+  ) {
+    return materializeApprovedHireAgent({
+      approvalCompanyId: company.id,
+      requestedByAgentId: null,
+      payload: {
+        projectId: project.id,
+        ...payload,
+      },
+      db,
+    });
+  }
+
+  function getAgentModelRow(db: ReturnType<typeof getOrchestrationDb>, agentId: string): AgentModelRow {
+    return db
+      .prepare(
+        `SELECT adapter_type, model
+         FROM agents
+         WHERE id = ?`,
+      )
+      .get(agentId) as AgentModelRow;
+  }
+
+  function assertAgentModel(
+    db: ReturnType<typeof getOrchestrationDb>,
+    agentId: string,
+    expectedAdapterType: string,
+    expectedModel: string,
+  ) {
+    const agent = getAgentModelRow(db, agentId);
+    assert.strictEqual(agent?.adapter_type, expectedAdapterType);
+    assert.strictEqual(agent?.model, expectedModel);
+  }
+
   await test("requested OpenClaw hires do not mutate OpenClaw config unless provisioning is explicitly enabled", () => {
     const db = getOrchestrationDb();
 
@@ -348,28 +392,14 @@ async function run() {
   await test("Codex legacy GPT-5 aliases normalize to the current Codex default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Codex Default",
-        role: "Backend Engineer",
-        runtimeProvider: "codex",
-        model: "gpt-5",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Codex Default",
+      role: "Backend Engineer",
+      runtimeProvider: "codex",
+      model: "gpt-5",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "codex");
-    assert.strictEqual(agent?.model, "openai-codex/gpt-5.5");
+    assertAgentModel(db, result.agentId, "codex", "openai-codex/gpt-5.5");
   });
 
   await test("approved runtime change removes stale staged manual runtime", () => {
@@ -485,107 +515,52 @@ async function run() {
   await test("Gemini default aliases normalize to the current Gemini default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Gemini Default",
-        role: "Research Analyst",
-        runtimeProvider: "gemini",
-        model: "google/gemini-default",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Gemini Default",
+      role: "Research Analyst",
+      runtimeProvider: "gemini",
+      model: "google/gemini-default",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "gemini");
-    assert.strictEqual(agent?.model, "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
   });
 
   await test("Gemini Pro aliases normalize to the locally available Gemini default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Gemini Pro Alias",
-        role: "Research Analyst",
-        runtimeProvider: "gemini",
-        model: "google/gemini-pro",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Gemini Pro Alias",
+      role: "Research Analyst",
+      runtimeProvider: "gemini",
+      model: "google/gemini-pro",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "gemini");
-    assert.strictEqual(agent?.model, "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
   });
 
   await test("Gemini provider default aliases normalize to the locally available Gemini default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Gemini Provider Default",
-        role: "Research Analyst",
-        runtimeProvider: "gemini",
-        model: "google/default",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Gemini Provider Default",
+      role: "Research Analyst",
+      runtimeProvider: "gemini",
+      model: "google/default",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "gemini");
-    assert.strictEqual(agent?.model, "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
   });
 
   await test("Anthropic hires normalize human Sonnet aliases to a Claude CLI model", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Claude Frontend",
-        role: "Frontend Engineer",
-        runtimeProvider: "anthropic",
-        model: "claude-sonnet-4.5",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Claude Frontend",
+      role: "Frontend Engineer",
+      runtimeProvider: "anthropic",
+      model: "claude-sonnet-4.5",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
     const runtime = db
       .prepare(
         `SELECT provider, command, metadata_json
@@ -600,8 +575,7 @@ async function run() {
         }
       | undefined;
 
-    assert.strictEqual(agent?.adapter_type, "anthropic");
-    assert.strictEqual(agent?.model, "anthropic/claude-sonnet-4-6");
+    assertAgentModel(db, result.agentId, "anthropic", "anthropic/claude-sonnet-4-6");
     assert.strictEqual(runtime?.provider, "anthropic");
     assert.strictEqual(runtime?.command, "claude");
 
@@ -612,82 +586,40 @@ async function run() {
   await test("Anthropic default aliases normalize to the current Claude default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Claude Default",
-        role: "Frontend Engineer",
-        runtimeProvider: "anthropic",
-        model: "anthropic/claude-default",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Claude Default",
+      role: "Frontend Engineer",
+      runtimeProvider: "anthropic",
+      model: "anthropic/claude-default",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "anthropic");
-    assert.strictEqual(agent?.model, "anthropic/claude-sonnet-4-6");
+    assertAgentModel(db, result.agentId, "anthropic", "anthropic/claude-sonnet-4-6");
   });
 
   await test("Anthropic bare Claude aliases normalize to the current Claude default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Claude Bare Alias",
-        role: "Frontend Engineer",
-        runtimeProvider: "anthropic",
-        model: "anthropic/Claude",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Claude Bare Alias",
+      role: "Frontend Engineer",
+      runtimeProvider: "anthropic",
+      model: "anthropic/Claude",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "anthropic");
-    assert.strictEqual(agent?.model, "anthropic/claude-sonnet-4-6");
+    assertAgentModel(db, result.agentId, "anthropic", "anthropic/claude-sonnet-4-6");
   });
 
   await test("Anthropic legacy 3.7 Sonnet aliases normalize to the current Claude default", () => {
     const db = getOrchestrationDb();
 
-    const result = materializeApprovedHireAgent({
-      approvalCompanyId: company.id,
-      requestedByAgentId: null,
-      payload: {
-        projectId: project.id,
-        name: "Claude Legacy",
-        role: "Frontend Engineer",
-        runtimeProvider: "anthropic",
-        model: "anthropic/claude-3-7-sonnet",
-      },
-      db,
+    const result = materializeRuntimeAliasHire(db, {
+      name: "Claude Legacy",
+      role: "Frontend Engineer",
+      runtimeProvider: "anthropic",
+      model: "anthropic/claude-3-7-sonnet",
     });
 
-    const agent = db
-      .prepare(
-        `SELECT adapter_type, model
-         FROM agents
-         WHERE id = ?`,
-      )
-      .get(result.agentId) as { adapter_type: string; model: string } | undefined;
-    assert.strictEqual(agent?.adapter_type, "anthropic");
-    assert.strictEqual(agent?.model, "anthropic/claude-sonnet-4-6");
+    assertAgentModel(db, result.agentId, "anthropic", "anthropic/claude-sonnet-4-6");
   });
 
   await test("Hermes default model aliases are omitted so local Hermes config can decide", () => {
