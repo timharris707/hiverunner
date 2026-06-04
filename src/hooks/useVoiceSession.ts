@@ -317,7 +317,7 @@ function createVoiceSessionId(): string {
   return `voice-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export function getStoredVoiceProviderOverride(): VoiceSessionProvider | undefined {
+function getStoredVoiceProviderOverride(): VoiceSessionProvider | undefined {
   if (typeof window === "undefined") return undefined;
 
   const queryProvider = new URLSearchParams(window.location.search).get("voiceProvider");
@@ -331,7 +331,7 @@ export function getStoredVoiceProviderOverride(): VoiceSessionProvider | undefin
     : undefined;
 }
 
-export function storeVoiceProviderOverride(provider: VoiceSessionProvider) {
+function storeVoiceProviderOverride(provider: VoiceSessionProvider) {
   if (typeof window === "undefined") return;
   window.localStorage.setItem("hiverunner.voiceProvider", provider);
 }

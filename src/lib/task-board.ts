@@ -64,11 +64,11 @@ function getLatestCommentTimestamp(task: TaskBoardTask): number | null {
   return latest;
 }
 
-export function getTaskPriorityRank(task: TaskBoardTask): number {
+function getTaskPriorityRank(task: TaskBoardTask): number {
   return PRIORITY_ORDER[task.priority || ""] ?? PRIORITY_ORDER.P2;
 }
 
-export function hasActiveTaskWork(task: TaskBoardTask): boolean {
+function hasActiveTaskWork(task: TaskBoardTask): boolean {
   return (
     ACTIVE_BUILD_STATES.has(task.buildState || "") ||
     ACTIVE_REVIEW_STATES.has(task.reviewStatus || "") ||
@@ -76,7 +76,7 @@ export function hasActiveTaskWork(task: TaskBoardTask): boolean {
   );
 }
 
-export function getTaskActivityTimestamp(task: TaskBoardTask): number | null {
+function getTaskActivityTimestamp(task: TaskBoardTask): number | null {
   return (
     getLatestTimestamp([
       task.buildStartedAt,
@@ -91,7 +91,7 @@ export function getTaskActivityTimestamp(task: TaskBoardTask): number | null {
   );
 }
 
-export function hasAgentActivity(task: TaskBoardTask): boolean {
+function hasAgentActivity(task: TaskBoardTask): boolean {
   return (
     hasActiveTaskWork(task) ||
     Boolean(task.activeBuildId) ||
@@ -105,7 +105,7 @@ function compareDescTimestamps(a: number | null, b: number | null): number {
   return (b ?? 0) - (a ?? 0);
 }
 
-export function compareTaskBoardItems(a: TaskBoardTask, b: TaskBoardTask, status: TaskBoardColumnStatus): number {
+function compareTaskBoardItems(a: TaskBoardTask, b: TaskBoardTask, status: TaskBoardColumnStatus): number {
   if (status === "done") {
     return compareDescTimestamps(
       parseTimestamp(a.completedAt) ?? parseTimestamp(a.buildCompletedAt) ?? parseTimestamp(a.reviewCompletedAt) ?? parseTimestamp(a.updated),
