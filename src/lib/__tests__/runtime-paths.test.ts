@@ -1,5 +1,6 @@
 import assert from "node:assert";
 
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   resolveHiveRunnerAppRoot,
   resolveHiveRunnerAppRootSource,
@@ -8,26 +9,12 @@ import {
   resolveHiveRunnerStableDir,
 } from "@/lib/runtime-paths";
 
-let passed = 0;
-let failed = 0;
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  \u2713 ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`  \u2717 ${name}`);
-    console.error(`    ${message}`);
-  }
-}
-
-function run() {
+async function run() {
   console.log("\nRuntime Path Resolution Tests\n");
 
-  test("MC_APP_ROOT wins over cwd for app root resolution", () => {
+  await test("MC_APP_ROOT wins over cwd for app root resolution", () => {
     const env = {
       MC_APP_ROOT: "/tmp/mission-control-app",
     };
@@ -35,7 +22,7 @@ function run() {
     assert.strictEqual(resolveHiveRunnerAppRootSource(env), "MC_APP_ROOT");
   });
 
-  test("data dir defaults under MC_APP_ROOT when MC_DATA_DIR is unset", () => {
+  await test("data dir defaults under MC_APP_ROOT when MC_DATA_DIR is unset", () => {
     const env = {
       MC_APP_ROOT: "/tmp/mission-control-app",
     };
@@ -49,7 +36,7 @@ function run() {
     );
   });
 
-  test("MC_DATA_DIR and MC_LOG_DIR override repo-root defaults", () => {
+  await test("MC_DATA_DIR and MC_LOG_DIR override repo-root defaults", () => {
     const env = {
       MC_APP_ROOT: "/tmp/mission-control-app",
       MC_DATA_DIR: "/var/tmp/mc-data",
@@ -59,8 +46,10 @@ function run() {
     assert.strictEqual(resolveHiveRunnerLogDir(env), "/var/tmp/mc-logs");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
-run();
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});
