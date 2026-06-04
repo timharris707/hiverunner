@@ -22,6 +22,12 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -71,41 +77,38 @@ async function run() {
     }).executeUpdateTask;
 
     // Default seeded company from db.ts (auto-created by the boot migration).
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb();
 
     function makeFixture(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `Rejection ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "Rejection",
+        label,
         description: "Status rejection fixture",
         color: "#ef4444",
         emoji: "🚦",
-        status: "active",
-      }).project;
+      });
 
-      const agent = createProjectAgent({
+      const agent = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Worker-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Worker",
+        openclawPrefix: "worker",
         emoji: "👷",
         role: "Backend Engineer",
-        personality: "Deterministic",
-        openclawAgentId: `worker-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["orchestration"],
-      }).agent;
+      });
 
-      const task = createTask({
+      const task = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Rejection fixture task ${label}`,
         description: "Status rejection fixture",
-        priority: "P2",
         type: "feature",
         status: "to-do",
         assignee: agent.id,
-        labels: [],
         createdBy: "rejection-test",
-      }).task;
+      });
 
       return { project, agent, task };
     }
@@ -182,16 +185,14 @@ async function run() {
 
     await test("review → to-do queues a rework wake for the assigned worker", () => {
       const { project, agent, task } = makeFixture("review-rework-wake");
-      const reviewer = createProjectAgent({
+      const reviewer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Reviewer-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "Reviewer",
+        openclawPrefix: "reviewer",
         emoji: "🧪",
         role: "CEO",
-        personality: "Deterministic",
-        openclawAgentId: `reviewer-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["orchestration"],
-      }).agent;
+      });
       db.prepare("UPDATE tasks SET status = 'review' WHERE id = ?").run(task.id);
 
       const runId = randomUUID();

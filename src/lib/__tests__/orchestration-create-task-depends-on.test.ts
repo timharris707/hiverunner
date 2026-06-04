@@ -22,6 +22,15 @@
 
 import assert from "node:assert";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  type CreateTaskAction,
+  type ExecuteCreateTask,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+  executeFixtureCreateTask,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
@@ -57,16 +66,6 @@ async function run() {
     const engineMod = await import("@/lib/orchestration/engine/engine");
     const sweeperMod = await import("@/lib/orchestration/engine/sweeper");
 
-    type CreateTaskAction = {
-      action: "create_task";
-      title: string;
-      description?: string;
-      assignee?: string;
-      project?: string;
-      parent?: string;
-      dependsOn?: string[];
-      type?: string;
-    };
     type UpdateTaskAction = {
       action: "update_task";
       taskKey: string;
@@ -75,13 +74,7 @@ async function run() {
       comment?: string;
     };
 
-    const executeCreateTask = (engineMod as unknown as {
-      executeCreateTask: (
-        action: CreateTaskAction,
-        input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
-        db: unknown,
-      ) => Promise<string | null>;
-    }).executeCreateTask;
+    const executeCreateTask = (engineMod as unknown as { executeCreateTask: ExecuteCreateTask }).executeCreateTask;
     const executeUpdateTask = (engineMod as unknown as {
       executeUpdateTask: (
         action: UpdateTaskAction,
@@ -109,7 +102,7 @@ async function run() {
       ) => { skippedReasons: Record<string, number>; wakesEnqueued: number; candidatesConsidered: number };
     }).sweepOpenTasks;
 
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb() as unknown as {
       prepare: (q: string) => {
         get: (...a: unknown[]) => unknown;
@@ -126,73 +119,87 @@ async function run() {
     ensureCompanyExecutionHives({ companyIdOrSlug: companyId }, getOrchestrationDb());
 
     function makeFixture(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `DependsOn ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "DependsOn",
+        label,
         description: "dependsOn fixture",
         color: "#10b981",
         emoji: "🔗",
-        status: "active",
-      }).project;
+      });
 
-      const builder = createProjectAgent({
+      const builder = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Builder-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Builder",
+        openclawPrefix: "builder",
         emoji: "🔧",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `builder-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
+      });
 
-      const validator = createProjectAgent({
+      const validator = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Validator-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Validator",
+        openclawPrefix: "validator",
         emoji: "🛡️",
         role: "Validator",
-        personality: "Deterministic",
-        openclawAgentId: `validator-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["validate"],
-      }).agent;
+      });
 
       // The "spec" task — created via the service layer so we control its key.
-      const specTask = createTask({
+      const specTask = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Spec ${label}`,
-        description: "x",
-        priority: "P2",
         type: "research",
         status: "in-progress",
         assignee: builder.id,
-        labels: [],
         createdBy: "g4-test",
-      }).task;
+      });
 
       return { project, builder, validator, specTask };
     }
 
-    await test("dependsOn array on create_task action persists task IDs in depends_on_json", async () => {
-      const { project, builder, validator, specTask } = makeFixture("persist");
+    function createFromSpec(
+      fixture: Pick<ReturnType<typeof makeFixture>, "project" | "builder" | "specTask">,
+      action: CreateTaskAction,
+      assertMessage?: string,
+    ) {
+      return executeFixtureCreateTask(executeCreateTask, db, {
+        action,
+        actor: fixture.builder,
+        companyId: fixture.project.companyId,
+        taskKey: fixture.specTask.id,
+        assertMessage,
+      });
+    }
 
-      const buildTaskId = await executeCreateTask(
+    async function createFromSpecSequence(
+      fixture: Pick<ReturnType<typeof makeFixture>, "project" | "builder" | "specTask">,
+      actions: CreateTaskAction[],
+    ) {
+      const created: string[] = [];
+      for (const action of actions) {
+        created.push(await createFromSpec(fixture, action));
+      }
+      return created;
+    }
+
+    await test("dependsOn array on create_task action persists task IDs in depends_on_json", async () => {
+      const fixture = makeFixture("persist");
+      const { validator, specTask } = fixture;
+
+      const buildTaskId = await createFromSpec(
+        fixture,
         {
           action: "create_task",
           title: `Build report ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+        "create_task must return a task id",
       );
-      assert.ok(buildTaskId, "create_task must return a task id");
 
       const stored = db
         .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
@@ -203,25 +210,19 @@ async function run() {
     });
 
     await test("create_task drops dependsOn entry when it points at the new task parent", async () => {
-      const { project, builder, specTask } = makeFixture("parent-dep-drop");
+      const fixture = makeFixture("parent-dep-drop");
+      const { specTask } = fixture;
 
-      const childTaskId = await executeCreateTask(
+      const childTaskId = await createFromSpec(
+        fixture,
         {
           action: "create_task",
           title: `Child should not depend on parent ${Date.now()}`,
           parent: specTask.key as string,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+        "create_task must return a child task id",
       );
-      assert.ok(childTaskId, "create_task must return a child task id");
 
       const child = db
         .prepare("SELECT parent_task_id, depends_on_json FROM tasks WHERE id = ?")
@@ -241,49 +242,37 @@ async function run() {
     });
 
     await test("create_task rejects assignment to manual-only agents", async () => {
-      const { project, builder, validator, specTask } = makeFixture("manual-assignee");
+      const fixture = makeFixture("manual-assignee");
+      const { validator, specTask } = fixture;
       db.prepare("UPDATE agents SET adapter_type = 'manual', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), validator.id);
 
       await assert.rejects(
-        executeCreateTask(
+        createFromSpec(
+          fixture,
           {
             action: "create_task",
             title: `Manual assignment blocked ${Date.now()}`,
             assignee: validator.name,
             dependsOn: [specTask.key as string],
           },
-          {
-            agentId: builder.id,
-            agentName: builder.name,
-            companyId: project.companyId,
-            taskKey: specTask.id,
-            runId: randomUUID(),
-          },
-          db,
         ),
         /assignee_not_executable_runtime/,
       );
     });
 
     await test("unresolved dep keys are dropped and stamped into task_event metadata", async () => {
-      const { project, builder, validator, specTask } = makeFixture("unresolved");
+      const fixture = makeFixture("unresolved");
+      const { validator, specTask } = fixture;
 
-      const buildTaskId = await executeCreateTask(
+      const buildTaskId = await createFromSpec(
+        fixture,
         {
           action: "create_task",
           title: `Build with bogus dep ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string, "WEA-DOES-NOT-EXIST"],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
 
       const stored = db
@@ -306,73 +295,31 @@ async function run() {
     await test("QA and release tasks infer dependencies on prior CEO-created sibling work", async () => {
       const { project, builder, validator, specTask } = makeFixture("infer-validation");
 
-      const buildTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Implement app slice ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [buildTaskId, launchUiTaskId, qaTaskId, releaseTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Implement app slice ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Implement Launch Control Board UI ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `QA browser smoke for app slice ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Prepare release handoff ${Date.now()}`,
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(buildTaskId);
-
-      const launchUiTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Implement Launch Control Board UI ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(launchUiTaskId);
-
-      const qaTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `QA browser smoke for app slice ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(qaTaskId);
-
-      const releaseTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Prepare release handoff ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(releaseTaskId);
 
       const buildKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(buildTaskId) as { task_key: string }).task_key;
       const qaKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(qaTaskId) as { task_key: string }).task_key;
@@ -402,58 +349,32 @@ async function run() {
     await test("explicit QA dependsOn merges with inferred sibling dependencies", async () => {
       const { project, builder, validator, specTask } = makeFixture("merge-validation");
 
-      const dataTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build static data layer ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [dataTaskId, frontendTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Build static data layer ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Implement frontend ${Date.now()}`,
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(dataTaskId);
       const dataKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(dataTaskId) as { task_key: string }).task_key;
 
-      const frontendTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Implement frontend ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(frontendTaskId);
-
-      const qaTaskId = await executeCreateTask(
+      const qaTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `QA Launch Control Board artifacts ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [dataKey],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(qaTaskId);
 
       const qaRow = db
         .prepare("SELECT depends_on_json FROM tasks WHERE id = ?")
@@ -465,57 +386,27 @@ async function run() {
     await test("integration assembly tasks infer prior sibling work and wait for inputs", async () => {
       const { project, builder, validator, specTask } = makeFixture("integration-infer");
 
-      const dataTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Define mock data shape ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [dataTaskId, uiTaskId, assemblyTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Define mock data shape ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Build operator UI ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Assemble Weather Edge Mini static artifact ${Date.now()}`,
+            description: "Combine the data shape and operator UI into one prototype artifact.",
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(dataTaskId);
-
-      const uiTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build operator UI ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(uiTaskId);
-
-      const assemblyTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Assemble Weather Edge Mini static artifact ${Date.now()}`,
-          description: "Combine the data shape and operator UI into one prototype artifact.",
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(assemblyTaskId);
 
       const assemblyRow = db
         .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
@@ -528,56 +419,26 @@ async function run() {
     await test("documentation tasks infer prior implementation inputs and wait", async () => {
       const { project, builder, validator, specTask } = makeFixture("docs-infer");
 
-      const dataTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Define local runtime data shape ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [dataTaskId, buildTaskId, docsTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Define local runtime data shape ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Build settings panel ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Document runtime assumptions and operator notes ${Date.now()}`,
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(dataTaskId);
-
-      const buildTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build settings panel ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(buildTaskId);
-
-      const docsTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Document runtime assumptions and operator notes ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(docsTaskId);
 
       const docsRow = db
         .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
@@ -589,73 +450,31 @@ async function run() {
     await test("later integration task is added as dependency for sibling QA created earlier", async () => {
       const { project, builder, validator, specTask } = makeFixture("qa-before-integration");
 
-      const dataTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build fixture data ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [dataTaskId, uiTaskId, qaTaskId, integrationTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Build fixture data ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Build fixture UI ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `QA fixture prototype ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Integrate fixture static artifact ${Date.now()}`,
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(dataTaskId);
-
-      const uiTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build fixture UI ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(uiTaskId);
-
-      const qaTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `QA fixture prototype ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(qaTaskId);
-
-      const integrationTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Integrate fixture static artifact ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(integrationTaskId);
 
       const qaRow = db
         .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
@@ -667,74 +486,36 @@ async function run() {
     await test("QA created after integration waits for the integration artifact", async () => {
       const { project, builder, validator, specTask } = makeFixture("qa-after-integration");
 
-      const dataTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Define dashboard data ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
+      const [dataTaskId, uiTaskId, integrationTaskId] = await createFromSpecSequence(
+        { project, builder, specTask },
+        [
+          {
+            action: "create_task",
+            title: `Define dashboard data ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Build dashboard UI ${Date.now()}`,
+            assignee: validator.name,
+          },
+          {
+            action: "create_task",
+            title: `Integrate dashboard static artifact ${Date.now()}`,
+            assignee: validator.name,
+          },
+        ],
       );
-      assert.ok(dataTaskId);
 
-      const uiTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Build dashboard UI ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(uiTaskId);
-
-      const integrationTaskId = await executeCreateTask(
-        {
-          action: "create_task",
-          title: `Integrate dashboard static artifact ${Date.now()}`,
-          assignee: validator.name,
-        },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
-      );
-      assert.ok(integrationTaskId);
-
-      const qaTaskId = await executeCreateTask(
+      const qaTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Verify dashboard prototype ${Date.now()}`,
           type: "release",
           assignee: validator.name,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(qaTaskId);
 
       const qaRow = db
         .prepare("SELECT status, depends_on_json FROM tasks WHERE id = ?")
@@ -789,23 +570,15 @@ async function run() {
     await test("CEO parent directive stays open on later review attempt while child tasks remain open", async () => {
       const { project, builder, validator, specTask } = makeFixture("defer-parent-open-children");
 
-      const childTaskId = await executeCreateTask(
+      const childTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Open child slice ${Date.now()}`,
           assignee: validator.name,
           parent: specTask.key,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(childTaskId);
 
       const result = await importAssistantTextAndExecuteActions({
         assistantTexts: [
@@ -841,40 +614,24 @@ async function run() {
     await test("child run cannot close parent while sibling child tasks remain open", async () => {
       const { project, builder, validator, specTask } = makeFixture("defer-parent-from-child-run");
 
-      const childTaskId = await executeCreateTask(
+      const childTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Open child slice A ${Date.now()}`,
           assignee: validator.name,
           parent: specTask.key,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(childTaskId);
-      const siblingTaskId = await executeCreateTask(
+      await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Open child slice B ${Date.now()}`,
           assignee: validator.name,
           parent: specTask.key,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(siblingTaskId);
 
       const result = await importAssistantTextAndExecuteActions({
         assistantTexts: [
@@ -912,23 +669,15 @@ async function run() {
 
       // Spec task starts in_progress (default for the fixture). Build task is
       // created with spec as dep — so spec.status != 'done', sweep must skip.
-      const buildTaskId = await executeCreateTask(
+      const buildTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Build awaiting spec ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildTaskId);
 
       // Confirm the new task is to-do with assignee + a non-empty dep list.
       const buildRow = db
@@ -950,23 +699,15 @@ async function run() {
     await test("sweeper picks up the task once deps clear", async () => {
       const { project, builder, validator, specTask } = makeFixture("sweep-unblock");
 
-      const buildTaskId = await executeCreateTask(
+      const buildTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Build unblock ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildTaskId);
 
       // Move spec to done — deps now satisfied.
       moveTask({ taskId: specTask.id, status: "review", actorUserId: "g4-test" });
@@ -997,23 +738,15 @@ async function run() {
     await test("engine update_task done immediately wakes newly unblocked dependents", async () => {
       const { project, builder, validator, specTask } = makeFixture("engine-unblock");
 
-      const buildTaskId = await executeCreateTask(
+      const buildTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Build auto-unblock ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildTaskId);
 
       const reviewRunId = randomUUID();
       const reviewResult = executeUpdateTask(
@@ -1062,23 +795,15 @@ async function run() {
       }).agent;
       db.prepare("UPDATE agents SET status = 'offline' WHERE id = ?").run(validator.id);
 
-      const buildTaskId = await executeCreateTask(
+      const buildTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Build backend API auto-unblock ${Date.now()}`,
           assignee: validator.name,
           dependsOn: [specTask.key as string],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildTaskId);
 
       const doneRunId = randomUUID();
       const doneResult = executeUpdateTask(
@@ -1120,26 +845,19 @@ async function run() {
     await test("closing focused QA can create sibling remediation without deferring done", async () => {
       const { project, builder, validator, specTask } = makeFixture("qa-sibling-remediation");
 
-      const qaTaskId = await executeCreateTask(
+      const qaTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `QA remediation source ${Date.now()}`,
           assignee: validator.name,
           parent: specTask.key,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(qaTaskId);
 
       const qaKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(qaTaskId) as { task_key: string }).task_key;
-      const releaseTaskId = await executeCreateTask(
+      const releaseTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `Write release README after QA ${Date.now()}`,
@@ -1148,16 +866,7 @@ async function run() {
           parent: specTask.key,
           dependsOn: [qaKey],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(releaseTaskId);
 
       db.prepare("UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?")
         .run(new Date().toISOString(), qaTaskId);
@@ -1228,23 +937,15 @@ async function run() {
     await test("engine update_task blocked wakes parent assignee for triage", async () => {
       const { project, builder, validator, specTask } = makeFixture("blocked-child-parent-wake");
 
-      const childTaskId = await executeCreateTask(
+      const childTaskId = await createFromSpec(
+        { project, builder, specTask },
         {
           action: "create_task",
           title: `QA blocker ${Date.now()}`,
           assignee: validator.name,
           parent: specTask.key,
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: specTask.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(childTaskId);
 
       db.prepare("DELETE FROM agent_wakeup_requests WHERE company_id = ?").run(project.companyId);
       db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?")

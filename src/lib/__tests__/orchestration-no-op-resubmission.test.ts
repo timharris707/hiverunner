@@ -21,6 +21,12 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -83,7 +89,7 @@ async function run() {
       ) => { taskFound: boolean; kind: string | null };
     }).executeRegisterArtifact;
 
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb() as unknown as {
       prepare: (q: string) => {
         get: (...a: unknown[]) => unknown;
@@ -93,48 +99,43 @@ async function run() {
     };
 
     function makeFixture(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `NoOp ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "NoOp",
+        label,
         description: "no-op detection fixture",
         color: "#f97316",
         emoji: "🔁",
-        status: "active",
-      }).project;
+      });
 
-      const builder = createProjectAgent({
+      const builder = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Builder-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Builder",
+        openclawPrefix: "builder",
         emoji: "🔧",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `builder-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
+      });
 
-      const reviewer = createProjectAgent({
+      const reviewer = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Reviewer-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Reviewer",
+        openclawPrefix: "reviewer",
         emoji: "🛡️",
         role: "Reviewer",
-        personality: "Deterministic",
-        openclawAgentId: `reviewer-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["review"],
-      }).agent;
+      });
 
-      const task = createTask({
+      const task = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Build with artifact ${label}`,
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "in-progress",
         assignee: builder.id,
-        labels: [],
         createdBy: "g2-test",
-      }).task;
+      });
 
       return { project, builder, reviewer, task };
     }

@@ -21,6 +21,15 @@
 import assert from "node:assert";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import {
+  DEFAULT_ORCHESTRATION_COMPANY_ID,
+  type CreateTaskAction,
+  type ExecuteCreateTask,
+  createBasicFixtureTask,
+  createFixtureAgent,
+  createFixtureProject,
+  executeFixtureCreateTask,
+} from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
 let passed = 0;
 let failed = 0;
@@ -52,23 +61,7 @@ async function run() {
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
     const engineMod = await import("@/lib/orchestration/engine/engine");
 
-    type CreateTaskAction = {
-      action: "create_task";
-      title: string;
-      description?: string;
-      assignee?: string;
-      project?: string;
-      parent?: string;
-      type?: string;
-      dependsOn?: string[];
-    };
-    const executeCreateTask = (engineMod as unknown as {
-      executeCreateTask: (
-        action: CreateTaskAction,
-        input: { agentId: string; agentName: string; companyId: string; taskKey: string; runId: string },
-        db: unknown,
-      ) => Promise<string | null>;
-    }).executeCreateTask;
+    const executeCreateTask = (engineMod as unknown as { executeCreateTask: ExecuteCreateTask }).executeCreateTask;
 
     type UpdateTaskAction = {
       action: "update_task";
@@ -85,7 +78,7 @@ async function run() {
       ) => { statusApplied: boolean; statusRejectedReason?: string };
     }).executeUpdateTask;
 
-    const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+    const companyId = DEFAULT_ORCHESTRATION_COMPANY_ID;
     const db = getOrchestrationDb() as unknown as {
       prepare: (q: string) => {
         get: (...a: unknown[]) => unknown;
@@ -95,58 +88,66 @@ async function run() {
     };
 
     function makeChain(label: string) {
-      const project = createProject({
+      const project = createFixtureProject(createProject, {
         companyId,
-        name: `QArearm ${label} ${Date.now()}-${Math.random().toString(36).slice(2, 4)}`,
+        namePrefix: "QArearm",
+        label,
         description: "QA rearm fixture",
         color: "#fb7185",
         emoji: "🛡️",
-        status: "active",
-      }).project;
+      });
 
-      const builder = createProjectAgent({
+      const builder = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Builder-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Builder",
+        openclawPrefix: "builder",
         emoji: "🔧",
         role: "Builder",
-        personality: "Deterministic",
-        openclawAgentId: `builder-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["build"],
-      }).agent;
+      });
 
-      const validator = createProjectAgent({
+      const validator = createFixtureAgent(createProjectAgent, {
         projectId: project.id,
-        name: `Validator-${label}-${Math.random().toString(36).slice(2, 4)}`,
+        label,
+        namePrefix: "Validator",
+        openclawPrefix: "validator",
         emoji: "🛡️",
         role: "Validator",
-        personality: "Deterministic",
-        openclawAgentId: `validator-${label}-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
         skills: ["validate"],
-      }).agent;
+      });
 
       // Parent task (the user-filed direction) at the top of the chain.
-      const parent = createTask({
+      const parent = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Parent direction ${label}`,
-        description: "x",
-        priority: "P2",
         type: "feature",
         status: "in-progress",
         assignee: builder.id,
-        labels: [],
         createdBy: "g3-test",
-      }).task;
+      });
 
       return { project, builder, validator, parent };
+    }
+
+    function createFromParent(
+      fixture: Pick<ReturnType<typeof makeChain>, "project" | "builder" | "parent">,
+      action: CreateTaskAction,
+    ) {
+      return executeFixtureCreateTask(executeCreateTask, db, {
+        action,
+        actor: fixture.builder,
+        companyId: fixture.project.companyId,
+        taskKey: fixture.parent.id,
+      });
     }
 
     await test("rework on build clones the sibling QA task with round-2 title", async () => {
       const { project, builder, validator, parent } = makeChain("clone-once");
 
       // Build subtask via the engine path (so depends_on_json plumbing is live).
-      const buildId = await executeCreateTask(
+      const buildId = await createFromParent(
+        { project, builder, parent },
         {
           action: "create_task",
           title: `Build the report ${Date.now()}`,
@@ -154,21 +155,13 @@ async function run() {
           parent: parent.key as string,
           type: "feature",
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: parent.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildId);
 
       // QA subtask depends on build, type=research (the heuristic match).
       const qaTitleBase = `Validate the report ${Date.now()}`;
       const buildKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(buildId) as { task_key: string }).task_key;
-      const qaId = await executeCreateTask(
+      const qaId = await createFromParent(
+        { project, builder, parent },
         {
           action: "create_task",
           title: qaTitleBase,
@@ -177,16 +170,7 @@ async function run() {
           type: "research",
           dependsOn: [buildKey],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: parent.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(qaId);
 
       // Build runs and submits — review → done (QA closes after validation).
       // We move the build through review → done first so we can move the QA
@@ -252,7 +236,8 @@ async function run() {
     await test("does not clone when no QA sibling is done (only build sibling)", async () => {
       const { project, builder, parent } = makeChain("no-qa-sibling");
 
-      const buildId = await executeCreateTask(
+      const buildId = await createFromParent(
+        { project, builder, parent },
         {
           action: "create_task",
           title: `Build with no QA ${Date.now()}`,
@@ -260,16 +245,7 @@ async function run() {
           parent: parent.key as string,
           type: "feature",
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: parent.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildId);
       const buildKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(buildId) as { task_key: string }).task_key;
 
       moveTask({ taskId: buildId as string, status: "review", actorUserId: "g3-test" });
@@ -297,7 +273,8 @@ async function run() {
     await test("skips re-clone when a live (non-done) QA round already exists", async () => {
       const { project, builder, validator, parent } = makeChain("no-double-clone");
 
-      const buildId = await executeCreateTask(
+      const buildId = await createFromParent(
+        { project, builder, parent },
         {
           action: "create_task",
           title: `Build with stuck QA ${Date.now()}`,
@@ -305,20 +282,12 @@ async function run() {
           parent: parent.key as string,
           type: "feature",
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: parent.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(buildId);
       const buildKey = (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(buildId) as { task_key: string }).task_key;
 
       const qaTitleBase = `Validate stuck ${Date.now()}`;
-      const qaId = await executeCreateTask(
+      const qaId = await createFromParent(
+        { project, builder, parent },
         {
           action: "create_task",
           title: qaTitleBase,
@@ -327,16 +296,7 @@ async function run() {
           type: "research",
           dependsOn: [buildKey],
         },
-        {
-          agentId: builder.id,
-          agentName: builder.name,
-          companyId: project.companyId,
-          taskKey: parent.id,
-          runId: randomUUID(),
-        },
-        db,
       );
-      assert.ok(qaId);
 
       moveTask({ taskId: buildId as string, status: "review", actorUserId: "g3-test" });
       moveTask({ taskId: buildId as string, status: "done", actorUserId: "g3-test", reviewNotes: "ok" });
