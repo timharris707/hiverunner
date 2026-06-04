@@ -12,31 +12,20 @@ import path from "node:path";
 
 import { NextRequest } from "next/server";
 
-let passed = 0;
-let failed = 0;
+import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ failLabel: "[fail]", passLabel: "[pass]" });
 
 async function run() {
   console.log("\nCosts API Legacy Opt-In Contract Test\n");
 
   const tempHome = mkdtempSync(path.join(tmpdir(), "hiverunner-costs-api-home-"));
-  const originalHome = process.env.HOME;
-  const originalOpenClawDir = process.env.OPENCLAW_DIR;
-  const originalLegacyFlag = process.env.MC_ENABLE_LEGACY_OPENCLAW_COSTS;
+  const envSnapshot = snapshotEnv([
+    "HOME",
+    "OPENCLAW_DIR",
+    "MC_ENABLE_LEGACY_OPENCLAW_COSTS",
+  ]);
 
   process.env.HOME = tempHome;
   delete process.env.OPENCLAW_DIR;
@@ -86,27 +75,11 @@ async function run() {
       }
     });
   } finally {
-    if (originalHome === undefined) {
-      delete process.env.HOME;
-    } else {
-      process.env.HOME = originalHome;
-    }
-    if (originalOpenClawDir === undefined) {
-      delete process.env.OPENCLAW_DIR;
-    } else {
-      process.env.OPENCLAW_DIR = originalOpenClawDir;
-    }
-    if (originalLegacyFlag === undefined) {
-      delete process.env.MC_ENABLE_LEGACY_OPENCLAW_COSTS;
-    } else {
-      process.env.MC_ENABLE_LEGACY_OPENCLAW_COSTS = originalLegacyFlag;
-    }
+    restoreEnvSnapshot(envSnapshot);
     rmSync(tempHome, { recursive: true, force: true });
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {

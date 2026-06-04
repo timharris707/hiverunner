@@ -14,39 +14,19 @@ import {
   proxy as middleware,
   shouldBlockLocalSingleUserSensitiveApi,
 } from "@/proxy";
+import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ failLabel: "[fail]", passLabel: "[pass]" });
 
 async function run() {
   console.log("\nLocal Exposure Hardening Contract Test\n");
 
-  const originalAuthMode = process.env.MC_AUTH_MODE;
-  const originalNodeEnv = process.env.NODE_ENV;
+  const envSnapshot = snapshotEnv(["MC_AUTH_MODE", "NODE_ENV"]);
 
   try {
     process.env.MC_AUTH_MODE = "local-single-user";
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: "development",
-      configurable: true,
-      enumerable: true,
-      writable: true,
-    });
+    setTestNodeEnv("development");
 
     await test("server defaults local bind to loopback unless HOST is explicitly set", () => {
       const serverSource = readFileSync(join(process.cwd(), "server.js"), "utf8");
@@ -151,24 +131,10 @@ async function run() {
       assert.match(terminalSource, /\\s-exec\\b/);
     });
   } finally {
-    if (originalAuthMode === undefined) {
-      delete process.env.MC_AUTH_MODE;
-    } else {
-      process.env.MC_AUTH_MODE = originalAuthMode;
-    }
-
-    Object.defineProperty(process.env, "NODE_ENV", {
-      value: originalNodeEnv,
-      configurable: true,
-      enumerable: true,
-      writable: true,
-    });
+    restoreEnvSnapshot(envSnapshot);
   }
 
-  console.log(`\n${passed} passed, ${failed} failed`);
-  if (failed > 0) {
-    process.exit(1);
-  }
+  finish();
 }
 
 run().catch((error: unknown) => {

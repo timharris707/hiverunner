@@ -10,26 +10,11 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 
 import { restoreEnvSnapshot, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { updateSession } from "@/lib/supabase/middleware";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ failLabel: "[fail]", passLabel: "[pass]" });
 
 async function run() {
   console.log("\nLocal-Single-User Middleware Contract Test\n");
@@ -96,9 +81,7 @@ async function run() {
     restoreEnvSnapshot(envSnapshot);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
