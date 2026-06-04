@@ -41,6 +41,23 @@ function seedEdgeRouteMapsForTest(routeMaps: EdgeRouteMaps) {
   };
 }
 
+function seedDefaultEdgeRouteMapsForTest() {
+  seedEdgeRouteMapsForTest({
+    companyCodeToSlug: {
+      HIVE: "hiverunner-workspace",
+      INS: "insight",
+    },
+    companySlugToCode: {
+      "hiverunner-workspace": "HIVE",
+      insight: "INS",
+    },
+    actualCompanyCodes: ["INS"],
+    projectIdToSlugByCompany: {},
+    projectSlugAliasToCanonical: {},
+    generatedAt: new Date().toISOString(),
+  });
+}
+
 function clearEdgeRouteMapsForTest() {
   const scoped = globalThis as typeof globalThis & {
     __mcEdgeRouteMapCache?: unknown;
@@ -71,20 +88,7 @@ async function run() {
   process.env.NEXT_PUBLIC_SUPABASE_URL = "https://test.supabase.co";
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 
-  seedEdgeRouteMapsForTest({
-    companyCodeToSlug: {
-      HIVE: "hiverunner-workspace",
-      INS: "insight",
-    },
-    companySlugToCode: {
-      "hiverunner-workspace": "HIVE",
-      insight: "INS",
-    },
-    actualCompanyCodes: ["INS"],
-    projectIdToSlugByCompany: {},
-    projectSlugAliasToCanonical: {},
-    generatedAt: new Date().toISOString(),
-  });
+  seedDefaultEdgeRouteMapsForTest();
 
   await test("recognizes exact loopback hosts and defaults to no local-dev auth bypass", () => {
     setTestNodeEnv("development");
@@ -327,20 +331,7 @@ async function run() {
         "MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS",
         envSnapshot["MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS"],
       );
-      seedEdgeRouteMapsForTest({
-        companyCodeToSlug: {
-          HIVE: "hiverunner-workspace",
-          INS: "insight",
-        },
-        companySlugToCode: {
-          "hiverunner-workspace": "HIVE",
-          insight: "INS",
-        },
-        actualCompanyCodes: ["INS"],
-        projectIdToSlugByCompany: {},
-        projectSlugAliasToCanonical: {},
-        generatedAt: new Date().toISOString(),
-      });
+      seedDefaultEdgeRouteMapsForTest();
     }
   });
 
@@ -383,20 +374,7 @@ async function run() {
         "MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS",
         envSnapshot["MC_EDGE_ROUTE_MAP_FETCH_TIMEOUT_MS"],
       );
-      seedEdgeRouteMapsForTest({
-        companyCodeToSlug: {
-          HIVE: "hiverunner-workspace",
-          INS: "insight",
-        },
-        companySlugToCode: {
-          "hiverunner-workspace": "HIVE",
-          insight: "INS",
-        },
-        actualCompanyCodes: ["INS"],
-        projectIdToSlugByCompany: {},
-        projectSlugAliasToCanonical: {},
-        generatedAt: new Date().toISOString(),
-      });
+      seedDefaultEdgeRouteMapsForTest();
     }
   });
 

@@ -13,29 +13,18 @@
  */
 
 import assert from "node:assert/strict";
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 import { restoreEnvSnapshot, setTestNodeEnv, snapshotEnv } from "@/lib/__tests__/helpers/env-test-harness";
+import {
+  assertUnauthorizedMiddlewareResponse,
+  createMiddlewareRequest,
+  createMiddlewareTestRunner,
+} from "@/lib/__tests__/helpers/orchestration-middleware-test-harness";
 import { LOCAL_OWNER_ID } from "@/lib/auth/auth-mode";
 import { proxy as middleware } from "@/proxy";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  [pass] ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  [fail] ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createMiddlewareTestRunner({ passLabel: "[pass]", failLabel: "[fail]" });
 
 async function run() {
   console.log("\nOrchestration Local-Single-User Guard Test\n");
@@ -65,8 +54,8 @@ async function run() {
   try {
     await test("rejects orchestration request without API key in local-single-user mode", async () => {
       let sessionLoaderCalled = false;
-      const request = new NextRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
-        headers: { host: "app.example.com" },
+      const request = createMiddlewareRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
+        host: "app.example.com",
       });
 
       const response = await middleware(request, async () => {
@@ -77,9 +66,7 @@ async function run() {
         };
       });
 
-      assert.equal(response.status, 401, "synthetic local owner must not grant orchestration access");
-      const body = await response.json() as { error?: { code?: string } };
-      assert.equal(body.error?.code, "unauthorized");
+      await assertUnauthorizedMiddlewareResponse(response);
       assert.equal(
         sessionLoaderCalled,
         false,
@@ -88,11 +75,9 @@ async function run() {
     });
 
     await test("accepts orchestration request with valid API key in local-single-user mode", async () => {
-      const request = new NextRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
-        headers: {
-          host: "app.example.com",
-          "x-mc-api-key": "local-mode-api-key",
-        },
+      const request = createMiddlewareRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
+        host: "app.example.com",
+        "x-mc-api-key": "local-mode-api-key",
       });
 
       const response = await middleware(request, async () => {
@@ -104,11 +89,9 @@ async function run() {
     });
 
     await test("rejects orchestration request with wrong API key in local-single-user mode", async () => {
-      const request = new NextRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
-        headers: {
-          host: "app.example.com",
-          "x-mc-api-key": "not-the-real-key",
-        },
+      const request = createMiddlewareRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
+        host: "app.example.com",
+        "x-mc-api-key": "not-the-real-key",
       });
 
       const response = await middleware(request, async () => ({
@@ -116,7 +99,7 @@ async function run() {
         supabaseResponse: NextResponse.next({ request }),
       }));
 
-      assert.equal(response.status, 401);
+      await assertUnauthorizedMiddlewareResponse(response);
     });
 
     // Now flip into hosted (supabase) mode and verify the session fallback is
@@ -126,8 +109,8 @@ async function run() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "anon-key";
 
     await test("hosted mode still accepts a real Supabase session as fallback", async () => {
-      const request = new NextRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
-        headers: { host: "app.example.com" },
+      const request = createMiddlewareRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
+        host: "app.example.com",
       });
 
       const response = await middleware(request, async () => ({
@@ -140,8 +123,8 @@ async function run() {
     });
 
     await test("hosted mode still rejects unauthenticated orchestration callers", async () => {
-      const request = new NextRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
-        headers: { host: "app.example.com" },
+      const request = createMiddlewareRequest("http://app.example.com/api/orchestration/companies/insight/tasks", {
+        host: "app.example.com",
       });
 
       const response = await middleware(request, async () => ({
@@ -149,18 +132,16 @@ async function run() {
         supabaseResponse: NextResponse.next({ request }),
       }));
 
-      assert.equal(response.status, 401);
+      await assertUnauthorizedMiddlewareResponse(response);
     });
   } finally {
     restoreEnvSnapshot(envSnapshot);
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  process.exit(failed > 0 ? 1 : 0);
+  finish();
 }
 
 run().catch((error) => {
-  console.error("Unhandled test runner error:", error);
+  console.error("Unhandled local-single-user guard test runner error:", error);
   process.exit(1);
 });
