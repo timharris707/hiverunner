@@ -200,6 +200,24 @@ Latest checkpoint after PR #104:
 
 Net movement from the PR #102 checkpoint: 5 fewer clone groups, 1 fewer clone family, 281 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. This was a better payoff/risk trade than another tiny test-fixture pass because it removed repeated operational runner boilerplate while staying inside one dedicated PR and validating every touched runner wrapper.
 
+Latest checkpoint after PR #106:
+
+- Scan commit: `9c2625aa7` (`refactor: share external runner prompt builder`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 456 total
+  - unused files: 47
+  - unused exports: 285
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 100 clone groups, 89 clone families, 26,099 duplicated lines, 8.8% duplication
+- Health score: 73, grade B
+- Total measured LOC: 245,487
+
+Net movement from the PR #104 checkpoint: 3 fewer clone groups, 2 fewer clone families, 225 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Dead-code counts did not move. This confirms that focused runner-script extractions still have real signal, but the remaining runner-script duplication should be handled only when the helper boundary is obvious and the full runner matrix can validate it.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -261,6 +279,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #101: prune unused project color helper exports
 - #102: reuse shared runner in overseer tests
 - #104: share external runner script utilities
+- #106: share external runner prompt builder
 
 Related but not cleanup:
 
@@ -296,7 +315,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead export micro-prunes
-   - Source signal: dead-code remains at 458 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 456 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -427,13 +446,19 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph query/callers/callees/impact for the shared runner utility surface, all five dedicated runner tests, `node --check` on touched scripts, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: runner scripts are operational. Continue to handle remaining runner-script duplication one focused helper at a time with the full runner test matrix.
 
+- External runner prompt helper extraction
+  - Source signal: repeated prompt-body construction across the Claude, Gemini, HERMES, and OpenClaw external runner scripts.
+  - Completed by #106 with a shared `buildExternalRunnerPrompt` helper while keeping provider-specific intro text local and leaving Symphony's distinct prompt builder unchanged.
+  - Validation: CodeGraph query/callers/callees/impact for `buildPrompt`, all five dedicated runner tests, `node --check` on touched scripts, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: the remaining runner-script duplication is more operational, including spawn/result/dry-run handling. Do not extract it opportunistically; use a dedicated PR and the full runner matrix.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
 
-- Runner script helper extraction
-  - Fallow reports multiple high-savings clone families across the provider runner scripts.
-  - Risk is higher because runner behavior is operational. Do this only as a dedicated runner PR with every runner test and at least one manual command-path review.
+- Remaining runner script helper extraction
+  - Fallow still reports clone families across the provider runner scripts after the utility and prompt helper extractions.
+  - Risk is higher because the remaining duplication is closer to command execution, subprocess handling, dry-run handling, and result serialization. Do this only as a dedicated runner PR with every runner test and at least one manual command-path review.
 
 - Runtime adapter common helpers
   - Fallow reports duplication across Anthropic, Codex, Gemini, Hermes, OpenClaw, and Symphony execution adapters.
@@ -462,4 +487,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #104, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The runner-script utility pass had a better payoff than the immediately preceding tiny test-fixture cleanup, which supports continuing by expected gain/risk rather than raw warning order. The next good target is either one more focused runner-script helper extraction with the same full runner test matrix, or a lower-risk single-file cleanup such as `HabboFurniture` duplication or direct-search-proven dead-export pruning. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #106, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, but further runner extraction is now closer to operational command semantics. The next best target should be selected by expected gain and risk: prefer a lower-risk single-file cleanup such as `HabboFurniture` duplication or a direct-search-proven dead-export micro-prune before another runner-script extraction. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
