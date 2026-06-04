@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { numberFrom, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -11,44 +12,6 @@ const RUNNER_VERSION = "hiverunner-symphony-runner 0.1.0";
 if (process.argv.includes("--version") || process.argv.includes("-v")) {
   console.log(RUNNER_VERSION);
   process.exit(0);
-}
-
-function readStdin() {
-  return new Promise((resolve, reject) => {
-    let body = "";
-    process.stdin.setEncoding("utf8");
-    process.stdin.on("data", (chunk) => {
-      body += chunk;
-    });
-    process.stdin.on("error", reject);
-    process.stdin.on("end", () => resolve(body));
-  });
-}
-
-function splitCommandLine(value) {
-  const parts = [];
-  const pattern = /"((?:[^"\\]|\\.)*)"|'([^']*)'|[^\s]+/g;
-  let match;
-  while ((match = pattern.exec(value)) !== null) {
-    if (match[1] !== undefined) {
-      parts.push(match[1].replace(/\\"/g, "\"").replace(/\\\\/g, "\\"));
-    } else if (match[2] !== undefined) {
-      parts.push(match[2]);
-    } else {
-      parts.push(match[0]);
-    }
-  }
-  return parts;
-}
-
-function numberFromEnv(name, fallback) {
-  const parsed = Number.parseInt(process.env[name] ?? "", 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
-function numberFrom(value) {
-  const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
-  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 function firstNumberFromRecord(record, keys) {
@@ -75,10 +38,6 @@ function mergeUsage(base, next) {
     totalCostUsd: mergeUsageValue(base.totalCostUsd, next.totalCostUsd),
     totalCostCents: mergeUsageValue(base.totalCostCents, next.totalCostCents),
   };
-}
-
-function stringFrom(value) {
-  return typeof value === "string" ? value.trim() : "";
 }
 
 function normalizeCodexCliModel(value) {
