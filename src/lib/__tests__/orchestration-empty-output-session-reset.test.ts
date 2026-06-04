@@ -5,6 +5,7 @@ import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 import { resetAgentRuntimeSessionForSelfHeal } from "@/lib/orchestration/engine/engine";
 import { openclawExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   createIsolatedOrchestrationWorkspace,
   resetSqliteDatabaseFiles,
@@ -15,23 +16,7 @@ const clearOpenClawTaskSessionForSelfHeal =
 
 const DEFAULT_COMPANY = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function run() {
   console.log("\nEmpty-Output Session Reset Tests\n");
@@ -277,10 +262,7 @@ async function run() {
     workspaceIsolation.dispose();
   }
 
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
-  if (failed > 0) {
-    process.exit(1);
-  }
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {

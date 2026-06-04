@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject } from "@/lib/orchestration/service";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 import {
   DELETE as deleteCompanyGoalsRoute,
@@ -12,23 +13,7 @@ import {
   POST as postCompanyGoalsRoute,
 } from "@/app/api/orchestration/companies/[slug]/goals/route";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 async function run() {
   console.log("\nOrchestration Company Goals Route Tests\n");
@@ -239,8 +224,7 @@ async function run() {
     assert.strictEqual(payload.error.code, "validation_error");
   });
 
-  console.log(`\n${passed} passed, ${failed} failed\n`);
-  process.exit(failed === 0 ? 0 : 1);
+  finish();
 }
 
 run().catch((error) => {
