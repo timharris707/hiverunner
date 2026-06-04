@@ -21,6 +21,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
@@ -35,23 +36,7 @@ import {
 } from "@/lib/orchestration/service";
 import { cancelTaskExecution } from "@/lib/orchestration/execution";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  OK  ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  FAIL ${name}`);
-      console.error(`       ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "OK ", failLabel: "FAIL" });
 
 function processAlive(pid: number): boolean {
   try {
@@ -287,18 +272,10 @@ async function run() {
     }
   }
 
-  const gapCount = 0; // No known gaps — Test 6 (failure_class timeout) is now fixed
-  const functionalPassed = passed;
-  const functionalFailed = failed - gapCount;
-
-  console.log(`\n${passed} passed, ${failed} failed (${gapCount} expected gap)`);
-  if (functionalFailed > 0) {
-    process.exitCode = 1;
-  }
+  finish();
 }
 
 run().catch((error) => {
-  failed += 1;
   console.error(error);
   process.exitCode = 1;
 });

@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { createCompany } from "@/lib/orchestration/company-service";
@@ -7,25 +7,13 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { createProject, createProjectAgent, getAgentProfile } from "@/lib/orchestration/service";
 import { PATCH as patchAgentProfile } from "@/app/api/orchestration/agents/[id]/profile/route";
 import { PATCH as patchCompanyAgent } from "@/app/api/orchestration/companies/[slug]/agents/[agentId]/route";
-import { createIsolatedOrchestrationWorkspace } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import {
+  createIsolatedOrchestrationWorkspace,
+  resetSqliteDatabaseFiles,
+} from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  \u2713 ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  \u2717 ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "\u2713", failLabel: "\u2717" });
 
 function patchRequest(body: unknown): Request {
   return new Request("http://localhost/api/orchestration/patch", {
@@ -39,11 +27,7 @@ async function run() {
   console.log("\nAgent Avatar Identity + Voice Persistence Tests\n");
 
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
-  if (dbPath) {
-    rmSync(dbPath, { force: true });
-    rmSync(`${dbPath}-wal`, { force: true });
-    rmSync(`${dbPath}-shm`, { force: true });
-  }
+  resetSqliteDatabaseFiles(dbPath);
 
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
   const workspaceIsolation = createIsolatedOrchestrationWorkspace({
@@ -298,11 +282,8 @@ async function run() {
     assert.match(identity, /- Speed Preference: normal/);
   });
 
-  console.log(`\n  ${passed} passed, ${failed} failed\n`);
   workspaceIsolation.dispose();
-  if (failed > 0) {
-    process.exit(1);
-  }
+  finish({ summaryIndent: "  " });
 }
 
 run().catch((error) => {
