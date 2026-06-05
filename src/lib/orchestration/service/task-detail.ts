@@ -18,6 +18,46 @@ import type {
 } from "@/lib/orchestration/types";
 import { readProjectSourceWorkspaceRoot, resolveTaskExecutionRouting, taskById } from "./shared";
 
+type HeartbeatTaskRunRow = {
+  id: string;
+  status: string;
+  invocation_source: string | null;
+  trigger_detail: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+  created_at: string;
+  error: string | null;
+  wakeup_request_id: string | null;
+  result_json: string | null;
+  usage_json: string | null;
+  payload_json: string | null;
+  reason: string | null;
+  provider: string;
+};
+
+type ExecutionTaskRunRow = {
+  id: string;
+  provider: string;
+  execution_engine: string | null;
+  runner_provider: string | null;
+  runner_model: string | null;
+  model_lane: string | null;
+  fallback_used: number | null;
+  fallback_index: number | null;
+  fallback_from_provider: string | null;
+  route_attempts_json: string | null;
+  status: string;
+  session_id: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  created_at: string;
+  token_usage_json: string | null;
+};
+
+type UserFacingTaskRunRow = HeartbeatTaskRunRow | ExecutionTaskRunRow;
+type TaskRunSummaryEntry = NonNullable<OrchestrationTaskRunSummary["latestRun"]>;
+
 function asJson(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
   try {
@@ -288,6 +328,39 @@ function resolvedExecutionFromUsage(
     command: asString(usage.command) ?? asString(usage.cli),
     configSource: asString(usage.configSource) ?? (asString(usage.runtimeSlug) ? "runtime" : "run telemetry"),
     phase: "run",
+  };
+}
+
+function runUsageJson(run: UserFacingTaskRunRow): Record<string, unknown> {
+  return asJson("token_usage_json" in run ? run.token_usage_json : run.usage_json);
+}
+
+function summarizeTaskRun(run: UserFacingTaskRunRow, fallbackEngine: TaskExecutionEngine | null): TaskRunSummaryEntry {
+  const usage = runUsageJson(run);
+  const workspace = workspaceRunSummary(usage);
+  return {
+    workspaceChangedDuringRunCount: workspace.changedDuringRunCount,
+    workspaceWarningCount: workspace.warningCount,
+    id: run.id,
+    provider: run.provider,
+    executionEngine: "execution_engine" in run
+      ? run.execution_engine ?? stringFrom(usage.executionEngine)
+      : null,
+    runnerProvider: "runner_provider" in run
+      ? run.runner_provider ?? stringFrom(usage.runnerProvider)
+      : null,
+    runnerModel: "runner_model" in run
+      ? run.runner_model ?? stringFrom(usage.runnerModel)
+      : null,
+    fallbackUsed: "fallback_used" in run ? run.fallback_used === 1 : false,
+    fallbackIndex: "fallback_index" in run ? run.fallback_index : null,
+    fallbackFromProvider: "fallback_from_provider" in run ? run.fallback_from_provider : null,
+    routeAttempts: "route_attempts_json" in run ? parseJsonArray(run.route_attempts_json) : [],
+    status: run.status,
+    startedAt: run.started_at ?? run.created_at,
+    finishedAt: "completed_at" in run ? run.completed_at : run.finished_at,
+    error: "error_message" in run ? run.error_message : run.error,
+    resolvedExecution: resolvedExecutionFromUsage(run, fallbackEngine),
   };
 }
 
@@ -717,22 +790,7 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
           )
         ORDER BY COALESCE(hb.started_at, hb.created_at) DESC, hb.created_at DESC`
     )
-    .all(taskRow.project_id, task.id, task.id) as Array<{
-    id: string;
-    status: string;
-    invocation_source: string | null;
-    trigger_detail: string | null;
-    started_at: string | null;
-    finished_at: string | null;
-    created_at: string;
-    error: string | null;
-    wakeup_request_id: string | null;
-    result_json: string | null;
-    usage_json: string | null;
-    payload_json: string | null;
-    reason: string | null;
-    provider: string;
-  }>;
+    .all(taskRow.project_id, task.id, task.id) as HeartbeatTaskRunRow[];
 
   const executionRunRows = db
     .prepare(
@@ -745,25 +803,7 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
         WHERE er.task_id = ?
         ORDER BY COALESCE(er.started_at, er.created_at) DESC, er.created_at DESC`
     )
-    .all(task.id) as Array<{
-    id: string;
-    provider: string;
-    execution_engine: string | null;
-    runner_provider: string | null;
-    runner_model: string | null;
-    model_lane: string | null;
-    fallback_used: number | null;
-    fallback_index: number | null;
-    fallback_from_provider: string | null;
-    route_attempts_json: string | null;
-    status: string;
-    session_id: string | null;
-    started_at: string | null;
-    completed_at: string | null;
-    error_message: string | null;
-    created_at: string;
-    token_usage_json: string | null;
-  }>;
+    .all(task.id) as ExecutionTaskRunRow[];
   const executionRuns = executionRunRows.filter((run) => !isSuppressedNeverStartedCancellation(task.status, run));
 
   const heartbeatRunIds = new Set(heartbeatRuns.map((run) => run.id));
@@ -1040,70 +1080,8 @@ export function getTaskDetail(taskId: string): { task: OrchestrationTask; detail
     structuredActionCount: heartbeatRunEventCount + executionTranscriptCount,
     importedReportCount,
     usageTotals: runUsageTotals(userFacingRuns),
-    latestRun: latestRun
-      ? {
-          ...(() => {
-            const usage = asJson("token_usage_json" in latestRun ? latestRun.token_usage_json : latestRun.usage_json);
-            const workspace = workspaceRunSummary(usage);
-            return {
-              workspaceChangedDuringRunCount: workspace.changedDuringRunCount,
-              workspaceWarningCount: workspace.warningCount,
-            };
-          })(),
-          id: latestRun.id,
-          provider: latestRun.provider,
-          executionEngine: "execution_engine" in latestRun
-            ? latestRun.execution_engine ?? stringFrom(asJson(latestRun.token_usage_json).executionEngine)
-            : null,
-          runnerProvider: "runner_provider" in latestRun
-            ? latestRun.runner_provider ?? stringFrom(asJson(latestRun.token_usage_json).runnerProvider)
-            : null,
-          runnerModel: "runner_model" in latestRun
-            ? latestRun.runner_model ?? stringFrom(asJson(latestRun.token_usage_json).runnerModel)
-            : null,
-          fallbackUsed: "fallback_used" in latestRun ? latestRun.fallback_used === 1 : false,
-          fallbackIndex: "fallback_index" in latestRun ? latestRun.fallback_index : null,
-          fallbackFromProvider: "fallback_from_provider" in latestRun ? latestRun.fallback_from_provider : null,
-          routeAttempts: "route_attempts_json" in latestRun ? parseJsonArray(latestRun.route_attempts_json) : [],
-          status: latestRun.status,
-          startedAt: latestRun.started_at ?? latestRun.created_at,
-          finishedAt: "completed_at" in latestRun ? latestRun.completed_at : latestRun.finished_at,
-          error: "error_message" in latestRun ? latestRun.error_message : latestRun.error,
-          resolvedExecution: resolvedExecutionFromUsage(latestRun, task.executionEngine ?? null),
-        }
-      : undefined,
-    activeRun: activeRun
-      ? {
-          ...(() => {
-            const usage = asJson("token_usage_json" in activeRun ? activeRun.token_usage_json : activeRun.usage_json);
-            const workspace = workspaceRunSummary(usage);
-            return {
-              workspaceChangedDuringRunCount: workspace.changedDuringRunCount,
-              workspaceWarningCount: workspace.warningCount,
-            };
-          })(),
-          id: activeRun.id,
-          provider: activeRun.provider,
-          executionEngine: "execution_engine" in activeRun
-            ? activeRun.execution_engine ?? stringFrom(asJson(activeRun.token_usage_json).executionEngine)
-            : null,
-          runnerProvider: "runner_provider" in activeRun
-            ? activeRun.runner_provider ?? stringFrom(asJson(activeRun.token_usage_json).runnerProvider)
-            : null,
-          runnerModel: "runner_model" in activeRun
-            ? activeRun.runner_model ?? stringFrom(asJson(activeRun.token_usage_json).runnerModel)
-            : null,
-          fallbackUsed: "fallback_used" in activeRun ? activeRun.fallback_used === 1 : false,
-          fallbackIndex: "fallback_index" in activeRun ? activeRun.fallback_index : null,
-          fallbackFromProvider: "fallback_from_provider" in activeRun ? activeRun.fallback_from_provider : null,
-          routeAttempts: "route_attempts_json" in activeRun ? parseJsonArray(activeRun.route_attempts_json) : [],
-          status: activeRun.status,
-          startedAt: activeRun.started_at ?? activeRun.created_at,
-          finishedAt: "completed_at" in activeRun ? activeRun.completed_at : activeRun.finished_at,
-          error: "error_message" in activeRun ? activeRun.error_message : activeRun.error,
-          resolvedExecution: resolvedExecutionFromUsage(activeRun, task.executionEngine ?? null),
-        }
-      : undefined,
+    latestRun: latestRun ? summarizeTaskRun(latestRun, task.executionEngine ?? null) : undefined,
+    activeRun: activeRun ? summarizeTaskRun(activeRun, task.executionEngine ?? null) : undefined,
   };
 
   return {
