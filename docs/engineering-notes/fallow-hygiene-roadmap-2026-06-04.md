@@ -380,6 +380,24 @@ Latest checkpoint after PR #130:
 
 Net movement from the PR #128 checkpoint: 7 fewer dead-code findings, 3 fewer unused files, 3 fewer unused exports, 1 fewer unused type export, 1,059 fewer measured LOC, 4 fewer large functions, and 4 fewer high-complexity functions above threshold. Duplication counts were unchanged. This was a better payoff than single-symbol micro-prunes because the removed cron UI/parser files formed a coherent unreachable island with no live imports.
 
+Latest checkpoint after PR #132:
+
+- Scan commit: `3d7035d2e` (`chore: remove unused hook and skill helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 410 total
+  - unused files: 28
+  - unused exports: 258
+  - unused type exports: 53
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 93 clone groups, 84 clone families, 25,655 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 240,464
+
+Net movement from the PR #130 checkpoint: 3 fewer dead-code findings, 3 fewer unused files, and 235 fewer measured LOC. Duplication and health score were unchanged. This was another coherent dead-file island: direct searches proved the standalone `useAgentStatus`, `useDebounce`, and legacy `agent-skills` scanner files were unreachable, while voice/avatar hook candidates stayed deferred for product-intent review.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -457,6 +475,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #126: dedupe heartbeat prompt fixtures
 - #128: trim realtime and onboarding helper exports
 - #130: remove unused cron UI files
+- #132: remove unused hook and skill helper files
 
 Related but not cleanup:
 
@@ -492,7 +511,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead file/export micro-prunes
-   - Source signal: dead-code remains at 425 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 410 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -683,6 +702,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` symbol/path searches, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run lint`, `npm run build`, and GitHub Local-First CI.
   - Caveat: this is the preferred dead-file shape now: remove coherent unreachable islands, not isolated files that are still imported by other currently-unused files.
 
+- Standalone hook and legacy skill helper dead-file island
+  - Source signal: `useAgentStatus`, `useDebounce`, and `agent-skills` were reported unused; direct searches showed no live imports for those module paths or exported symbols. The similar avatar/Decart hook candidates were left alone because they sit on a product boundary.
+  - Completed by #132 by removing `src/hooks/useAgentStatus.ts`, `src/hooks/useDebounce.ts`, and `src/lib/agent-skills.ts`.
+  - Validation: direct `rg` symbol/path searches, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run lint`, `npm run build`, and GitHub Local-First CI.
+  - Caveat: keep using product-intent review for remaining voice/avatar/UI component islands. Do not bulk-delete every Fallow unused file just because it is unreferenced by static import search.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -704,7 +729,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 34 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 28 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -718,4 +743,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #130, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron-island prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The next best target should be selected by expected gain and risk: use a short Fallow scout to find another directly provable dead-file island or bundle of dead exports, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #132, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The next best target should be selected by expected gain and risk: use a short Fallow scout to find another directly provable dead-file island or bundle of dead exports, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
