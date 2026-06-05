@@ -4,7 +4,7 @@ import { type CSSProperties } from "react";
 import type { LucideIcon } from "lucide-react";
 import { LUCIDE_ICON_MAP } from "./lucide-icons";
 
-export const AVATAR_ICON_PREFIX = "icon:";
+const AVATAR_ICON_PREFIX = "icon:";
 
 export function avatarIconToken(value?: string | null): string | null {
   if (!value) return null;
