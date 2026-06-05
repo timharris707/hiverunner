@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { parseJsonObject, parseJsonStringArray } from "@/lib/orchestration/json-parsing";
 
 export type WikiWritebackApprovalState =
   | "requested"
@@ -63,26 +64,6 @@ function stableWritebackId(companyId: string, idempotencyKey: string): string {
 
 export function wikiContentHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
-}
-
-function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function parseJsonStringArray(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
 }
 
 function normalizeStringArray(values: readonly string[] | undefined): string[] {
