@@ -37,6 +37,55 @@ async function run() {
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
     const { buildHeartbeatPrompt, getOrCreateTaskSession } = await import("@/lib/orchestration/engine/engine");
 
+    type HeartbeatPromptWake = Parameters<typeof buildHeartbeatPrompt>[1];
+    type HeartbeatPromptSession = Parameters<typeof buildHeartbeatPrompt>[2];
+    type OrchestrationDb = ReturnType<typeof getOrchestrationDb>;
+
+    const heartbeatAgentRowSql = `
+      SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
+             adapter_config_json, runtime_config_json, capabilities,
+             NULL AS runtime_workspace_root
+      FROM agents WHERE id = ? LIMIT 1
+    `;
+
+    function buildPromptForAgent({
+      db,
+      agentId,
+      wake,
+      session,
+      executionRunId,
+    }: {
+      db: OrchestrationDb;
+      agentId: string;
+      wake: HeartbeatPromptWake;
+      session: HeartbeatPromptSession;
+      executionRunId?: string;
+    }) {
+      const agentRow = db.prepare(heartbeatAgentRowSql).get(agentId) as never;
+      if (executionRunId === undefined) {
+        return buildHeartbeatPrompt(agentRow, wake, session, db);
+      }
+
+      return buildHeartbeatPrompt(
+        agentRow,
+        wake,
+        session,
+        db,
+        executionRunId,
+      );
+    }
+
+    function assertPromptMatches(
+      prompt: string,
+      expectations: {
+        includes?: RegExp[];
+        excludes?: RegExp[];
+      },
+    ) {
+      for (const pattern of expectations.includes ?? []) assert.match(prompt, pattern);
+      for (const pattern of expectations.excludes ?? []) assert.doesNotMatch(prompt, pattern);
+    }
+
     await test("task-focused wakes center the current task and trim unrelated task detail", async () => {
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -89,26 +138,27 @@ async function run() {
         taskKey: focused.id,
       }, db);
 
-      const prompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`
-        ).get(agent.id) as never,
-        { wakeSource: "issue_assigned", wakeReason: "user_comment_on_assigned_task" },
-        session,
+      const prompt = buildPromptForAgent({
         db,
-      );
+        agentId: agent.id,
+        wake: { wakeSource: "issue_assigned", wakeReason: "user_comment_on_assigned_task" },
+        session,
+      });
 
-      assert.match(prompt, /## Current Task Focus/);
-      assert.match(prompt, /Fix task-session contamination/);
-      assert.match(prompt, /Stay centered on this task/);
-      assert.match(prompt, /other company agents may create or edit sibling project artifacts/);
-      assert.match(prompt, /do not block solely because files appeared or changed/);
-      assert.doesNotMatch(prompt, /## All Open Tasks in Company/);
-      assert.doesNotMatch(prompt, /Description: This unrelated description should not be expanded/);
-      assert.match(prompt, /Unrelated secondary task/);
+      assertPromptMatches(prompt, {
+        includes: [
+          /## Current Task Focus/,
+          /Fix task-session contamination/,
+          /Stay centered on this task/,
+          /other company agents may create or edit sibling project artifacts/,
+          /do not block solely because files appeared or changed/,
+          /Unrelated secondary task/,
+        ],
+        excludes: [
+          /## All Open Tasks in Company/,
+          /Description: This unrelated description should not be expanded/,
+        ],
+      });
     });
 
     await test("prompt includes only active approved runtime skills", async () => {
@@ -185,17 +235,12 @@ async function run() {
         taskKey: task.id,
       }, db);
 
-      const prompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`
-        ).get(agent.id) as never,
-        { wakeSource: "issue_assigned", wakeReason: "skill_prompt_context" },
-        session,
+      const prompt = buildPromptForAgent({
         db,
-      );
+        agentId: agent.id,
+        wake: { wakeSource: "issue_assigned", wakeReason: "skill_prompt_context" },
+        session,
+      });
 
       assert.match(prompt, /## Active Runtime Skills/);
       assert.match(prompt, /Approved Runtime Skill/);
@@ -259,28 +304,27 @@ async function run() {
         taskKey: task.id,
       }, db);
 
-      const prompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`
-        ).get(agent.id) as never,
-        {
+      const prompt = buildPromptForAgent({
+        db,
+        agentId: agent.id,
+        wake: {
           wakeSource: "api",
           wakeReason: "user_comment_on_assigned_task",
           taskId: task.id,
           commentId: followup.id,
         },
         session,
-        db,
-      );
+      });
 
-      assert.match(prompt, /## Latest Human Follow-up/);
-      assert.match(prompt, /Claude Code subscription rather than the API/);
-      assert.match(prompt, /Answer this follow-up directly/);
-      assert.match(prompt, /Do not repeat the full prior task answer/);
-      assert.match(prompt, /## Recent Task Discussion/);
+      assertPromptMatches(prompt, {
+        includes: [
+          /## Latest Human Follow-up/,
+          /Claude Code subscription rather than the API/,
+          /Answer this follow-up directly/,
+          /Do not repeat the full prior task answer/,
+          /## Recent Task Discussion/,
+        ],
+      });
     });
 
     await test("parent-focused wakes call out blocked child tasks as remediation work", async () => {
@@ -355,23 +399,22 @@ async function run() {
         taskKey: parent.id,
       }, db);
 
-      const prompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`,
-        ).get(ceo.id) as never,
-        { wakeSource: "api", wakeReason: "child_task_blocked", taskId: parent.id },
-        session,
+      const prompt = buildPromptForAgent({
         db,
-      );
+        agentId: ceo.id,
+        wake: { wakeSource: "api", wakeReason: "child_task_blocked", taskId: parent.id },
+        session,
+      });
 
-      assert.match(prompt, /## Blocked Child Tasks Need CEO Triage/);
-      assert.match(prompt, /not passive dependency gating/);
-      assert.match(prompt, /create concrete fix tasks/);
-      assert.match(prompt, /Validate launch board artifacts/);
-      assert.match(prompt, /Missing README and file-mode load fails/);
+      assertPromptMatches(prompt, {
+        includes: [
+          /## Blocked Child Tasks Need CEO Triage/,
+          /not passive dependency gating/,
+          /create concrete fix tasks/,
+          /Validate launch board artifacts/,
+          /Missing README and file-mode load fails/,
+        ],
+      });
     });
 
     await test("vault-backed memory injection persists exact run evidence in execution metadata", async () => {
@@ -456,18 +499,13 @@ async function run() {
         taskKey: task.id,
       }, db);
 
-      const prompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`,
-        ).get(agent.id) as never,
-        { wakeSource: "issue_assigned", wakeReason: "memory_evidence" },
-        session,
+      const prompt = buildPromptForAgent({
         db,
+        agentId: agent.id,
+        wake: { wakeSource: "issue_assigned", wakeReason: "memory_evidence" },
+        session,
         executionRunId,
-      );
+      });
 
       assert.match(prompt, /## Injected Company Memory/);
       assert.match(prompt, /Runtime Retrieval Note/);
@@ -564,17 +602,12 @@ async function run() {
         taskKey: graphTask.id,
       }, db);
 
-      const graphPrompt = buildHeartbeatPrompt(
-        db.prepare(
-          `SELECT id, name, role, personality, company_id, openclaw_agent_id, adapter_type,
-                  adapter_config_json, runtime_config_json, capabilities,
-                  NULL AS runtime_workspace_root
-           FROM agents WHERE id = ? LIMIT 1`,
-        ).get(agent.id) as never,
-        { wakeSource: "issue_assigned", wakeReason: "memory_graph_fixture_test" },
-        graphSession,
+      const graphPrompt = buildPromptForAgent({
         db,
-      );
+        agentId: agent.id,
+        wake: { wakeSource: "issue_assigned", wakeReason: "memory_graph_fixture_test" },
+        session: graphSession,
+      });
 
       assert.match(graphPrompt, /INS-36 orphan note prompt fixture/);
       assert.match(graphPrompt, /matches INS-36 graph explorer fixture markers/);
