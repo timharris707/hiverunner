@@ -13,7 +13,7 @@ const STATUS_COLORS: Record<OrchestrationSprint["status"], { color: string; bg: 
   done: { color: "var(--text-secondary)", bg: "color-mix(in srgb, var(--text-secondary) 14%, transparent)" },
 };
 
-export function goalStatusLabel(status: OrchestrationSprint["status"]) {
+function goalStatusLabel(status: OrchestrationSprint["status"]) {
   if (status === "active") return "Active";
   if (status === "blocked") return "Blocked";
   if (status === "paused") return "Paused";
@@ -134,13 +134,13 @@ export function GoalOwnerAvatarChip({
   );
 }
 
-export function cleanGoalDateValue(value?: string | null) {
+function cleanGoalDateValue(value?: string | null) {
   if (!value) return "";
   const trimmed = value.trim();
   return trimmed && trimmed.toLowerCase() !== "null" && trimmed.toLowerCase() !== "undefined" ? trimmed : "";
 }
 
-export function formatGoalShortDate(value?: string | null) {
+function formatGoalShortDate(value?: string | null) {
   const dateValue = cleanGoalDateValue(value);
   if (!dateValue) return "";
   const date = new Date(dateValue);
@@ -148,7 +148,7 @@ export function formatGoalShortDate(value?: string | null) {
   return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
 }
 
-export function formatGoalDateRange(startDate?: string, endDate?: string | null) {
+function formatGoalDateRange(startDate?: string, endDate?: string | null) {
   const start = formatGoalShortDate(startDate);
   const end = formatGoalShortDate(endDate);
   if (start && end) return `${start} - ${end}`;
