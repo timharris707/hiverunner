@@ -6,27 +6,13 @@
 
 import assert from "node:assert/strict";
 
+import { createVoiceSessionTestRunner } from "@/lib/__tests__/helpers/voice-session-test-harness";
+
 import { buildLiveCallScaffold } from "../avatar-session";
 import { normalizeVoiceBindingRequest } from "../voice-binding";
 import { normalizeVoiceSessionBootstrap } from "../voice-session-bootstrap";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createVoiceSessionTestRunner();
 
 console.log("\nVoice Session Task Binding Contract Tests\n");
 
@@ -243,9 +229,7 @@ async function run() {
     });
   });
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {

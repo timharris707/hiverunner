@@ -12,24 +12,9 @@ import {
   listTaskComments,
 } from "@/lib/orchestration/service";
 import { persistTaskBoundVoiceOutcome } from "@/lib/voice-outcome-persistence";
+import { createVoiceSessionTestRunner } from "@/lib/__tests__/helpers/voice-session-test-harness";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createVoiceSessionTestRunner();
 
 console.log("\nVoice Outcome Persistence Tests\n");
 
@@ -191,9 +176,7 @@ async function run() {
     assert.equal(listTaskComments(task.id).comments.length, before);
   });
 
-  console.log(`\nPassed: ${passed}`);
-  console.log(`Failed: ${failed}`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 void run();
