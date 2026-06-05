@@ -10,6 +10,7 @@ import {
   type CompanyMemoryKind,
   type CompanyMemoryRecord,
 } from "@/lib/orchestration/company-memory";
+import { parseJsonObject, parseJsonStringArray } from "@/lib/orchestration/json-parsing";
 import {
   buildEvidenceEnvelope,
   buildMemoryContext,
@@ -493,28 +494,6 @@ type GraphNoteDraft = {
 
 const VAULT_FOLDERS = ["company", "projects", "agents", "sessions", "inbox", "archive", "graph", "maps"] as const;
 
-function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
-function parseJsonArray(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
-}
-
 export function slugifyMemoryPathPart(value: string | null | undefined, fallback = "memory"): string {
   return (value ?? "")
     .normalize("NFKD")
@@ -899,13 +878,13 @@ function rowToIndexRecord(row: IndexedRow): MemoryIndexRecord {
     fileType: row.file_type,
     fileMtime: row.file_mtime,
     frontmatter: parseJsonObject(row.frontmatter_json),
-    tags: parseJsonArray(row.tags_json),
-    linkedIds: parseJsonArray(row.linked_ids_json),
+    tags: parseJsonStringArray(row.tags_json),
+    linkedIds: parseJsonStringArray(row.linked_ids_json),
     subdirectory: row.subdirectory,
     agentAttribution: row.agent_attribution,
     projectLink: row.project_link,
     pinned: row.pinned === 1,
-    hiveRunnerTags: parseJsonArray(row.hiverunner_tags_json),
+    hiveRunnerTags: parseJsonStringArray(row.hiverunner_tags_json),
     status: row.status,
     indexedAt: row.indexed_at,
     indexError: row.index_error,
@@ -1010,7 +989,7 @@ function roleMatches(agentRole: string | null | undefined, roleTags: string[]): 
 function parseTagsValue(raw: unknown): string[] {
   if (!raw) return [];
   if (Array.isArray(raw)) return raw.map(String).filter(Boolean);
-  if (typeof raw === "string") return parseJsonArray(raw).length > 0 ? parseJsonArray(raw) : raw.split(/[,\s]+/).map((tag) => tag.trim()).filter(Boolean);
+  if (typeof raw === "string") return parseJsonStringArray(raw).length > 0 ? parseJsonStringArray(raw) : raw.split(/[,\s]+/).map((tag) => tag.trim()).filter(Boolean);
   return [];
 }
 
@@ -1124,7 +1103,7 @@ function storedEvidenceForRun(input: {
           fileMtime: indexed.file_mtime,
           indexedAt: indexed.indexed_at,
           frontmatter: parseJsonObject(indexed.frontmatter_json),
-          tags: parseJsonArray(indexed.tags_json),
+          tags: parseJsonStringArray(indexed.tags_json),
         },
       });
       continue;
@@ -1285,7 +1264,7 @@ function buildStoredMemoryEvidenceDiagnostics(input: {
       const title = typeof record.title === "string" && record.title.trim() ? record.title : indexed.title;
       const sourcePath = typeof record.sourcePath === "string" ? record.sourcePath : indexed.source_path;
       const layer = typeof record.layer === "string" && record.layer.trim() ? record.layer : indexed.layer;
-      const tags = parseJsonArray(indexed.tags_json);
+      const tags = parseJsonStringArray(indexed.tags_json);
       evidence.push({
         recordId,
         sourcePath,
@@ -1504,7 +1483,7 @@ export function getMemoryInjectionEvidenceForRun(
 
   const indexedEvidence: MemoryInjectionEvidenceItem[] = [];
   for (const row of indexedRows) {
-    const tags = parseJsonArray(row.tags_json);
+    const tags = parseJsonStringArray(row.tags_json);
     const frontmatter = parseJsonObject(row.frontmatter_json);
     const reason = indexedEvidenceReason({ row, frontmatter, tags, run });
     if (!reason) continue;
@@ -2011,7 +1990,7 @@ export function generateGraphNoteMetadata(
       kind: "task",
       title: task.task_key ? `${task.task_key} - ${task.title}` : task.title,
       aliases: graphAliases(task.task_key, task.id, task.title),
-      tags: graphTags("task", [task.status, task.priority, task.type, ...parseJsonArray(task.labels_json)]),
+      tags: graphTags("task", [task.status, task.priority, task.type, ...parseJsonStringArray(task.labels_json)]),
       frontmatter: {
         source_type: "task",
         source_id: task.id,
@@ -2667,7 +2646,7 @@ export function writeCandidateToCompanyVault(input: {
   const filePath = uniqueFilePath(targetDir, title);
   const now = new Date().toISOString();
   const recordId = randomUUID();
-  const tags = input.candidate.tags ? parseJsonArray(input.candidate.tags) : [];
+  const tags = input.candidate.tags ? parseJsonStringArray(input.candidate.tags) : [];
 
   const markdown = serializeMemoryMarkdown({
     frontmatter: {

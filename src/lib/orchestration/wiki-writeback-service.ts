@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { parseJsonObject } from "@/lib/orchestration/json-parsing";
 import {
   getCompanyMemorySettings,
   serializeMemoryMarkdown,
@@ -63,16 +64,6 @@ async function sha256OfFile(filePath: string): Promise<string | null> {
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
     throw error;
-  }
-}
-
-function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
   }
 }
 

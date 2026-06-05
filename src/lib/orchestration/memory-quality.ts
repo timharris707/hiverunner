@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { parseJsonObject, parseJsonStringArray } from "@/lib/orchestration/json-parsing";
 
 export type MemoryQualityTargetType = "source_index" | "memory_record";
 export type MemoryQualityQueueType =
@@ -220,26 +221,6 @@ function assertTargetBelongsToCompany(companyId: string, targetType: MemoryQuali
     ? db.prepare("SELECT 1 FROM memory_source_index WHERE company_id = ? AND record_id = ? LIMIT 1").get(companyId, targetId)
     : db.prepare("SELECT 1 FROM company_memory_records WHERE company_id = ? AND id = ? LIMIT 1").get(companyId, targetId);
   if (!exists) throw new OrchestrationApiError(404, "memory_quality_target_not_found", "Memory quality target not found for company");
-}
-
-function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function parseJsonStringArray(raw: string | null | undefined): string[] {
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
-  } catch {
-    return [];
-  }
 }
 
 function parseUnknownStringArray(value: unknown): string[] {

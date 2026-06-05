@@ -1,6 +1,8 @@
 import type Database from "better-sqlite3";
 import { createHash } from "node:crypto";
 
+import { parseJsonObject } from "@/lib/orchestration/json-parsing";
+
 type MemoryRecordRow = {
   id: string;
   title: string;
@@ -109,16 +111,6 @@ function roleMatches(agentRole: string | null | undefined, roleTags: string[]): 
   if (!agentRole) return false;
   const role = agentRole.toLowerCase();
   return roleTags.some((tag) => role.includes(tag) || tag.includes(role));
-}
-
-function parseJsonObject(raw: string | null | undefined): Record<string, unknown> {
-  if (!raw) return {};
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
 }
 
 function normalizedTitle(title: string): string {
