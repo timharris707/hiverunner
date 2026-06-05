@@ -21,23 +21,9 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 console.log("\nOrchestration In-Progress-Loop Circuit Breaker Contract Test\n");
 
@@ -127,6 +113,29 @@ async function run() {
       db.prepare("DELETE FROM agent_wakeup_requests").run();
       db.prepare("DELETE FROM heartbeat_runs").run();
       db.prepare("UPDATE tasks SET archived_at = ? WHERE archived_at IS NULL").run(new Date().toISOString());
+    }
+
+    function assertHumanWakeReset(input: {
+      taskId: string;
+      runId: string;
+      agentId: string;
+      runWindowStart: string;
+      counterMessage: string;
+    }) {
+      const tripped = checkAndTripCircuitBreaker(
+        {
+          taskId: input.taskId,
+          runId: input.runId,
+          agentId: input.agentId,
+          runWindowStart: input.runWindowStart,
+        },
+        db,
+      );
+
+      assert.equal(tripped, false);
+      assert.equal(readTaskStatus(input.taskId), "review");
+      assert.equal(readCounter(input.taskId), 0, input.counterMessage);
+      assert.equal(countAwaitingHumanComments(input.taskId), 0);
     }
 
     await test("no-op run increments counter from 0 to 1 (not tripped)", () => {
@@ -498,20 +507,13 @@ async function run() {
         createdAt: new Date().toISOString(),
       });
 
-      const tripped = checkAndTripCircuitBreaker(
-        {
-          taskId: task.id,
-          runId,
-          agentId: agent.id,
-          runWindowStart,
-        },
-        db,
-      );
-
-      assert.equal(tripped, false);
-      assert.equal(readTaskStatus(task.id), "review");
-      assert.equal(readCounter(task.id), 0, "human follow-up replies count as progress");
-      assert.equal(countAwaitingHumanComments(task.id), 0);
+      assertHumanWakeReset({
+        taskId: task.id,
+        runId,
+        agentId: agent.id,
+        runWindowStart,
+        counterMessage: "human follow-up replies count as progress",
+      });
     });
 
     await test("human comments reset the no-op counter before the follow-up wake runs", () => {
@@ -577,20 +579,13 @@ async function run() {
         runWindowStart,
       );
 
-      const tripped = checkAndTripCircuitBreaker(
-        {
-          taskId: task.id,
-          runId,
-          agentId: agent.id,
-          runWindowStart,
-        },
-        db,
-      );
-
-      assert.equal(tripped, false);
-      assert.equal(readTaskStatus(task.id), "review");
-      assert.equal(readCounter(task.id), 0, "human-comment wake should not consume a breaker strike");
-      assert.equal(countAwaitingHumanComments(task.id), 0);
+      assertHumanWakeReset({
+        taskId: task.id,
+        runId,
+        agentId: agent.id,
+        runWindowStart,
+        counterMessage: "human-comment wake should not consume a breaker strike",
+      });
     });
 
     await test("task-comment wake with recorded agent comment event resets counter", () => {
@@ -635,20 +630,13 @@ async function run() {
         new Date().toISOString(),
       );
 
-      const tripped = checkAndTripCircuitBreaker(
-        {
-          taskId: task.id,
-          runId,
-          agentId: agent.id,
-          runWindowStart,
-        },
-        db,
-      );
-
-      assert.equal(tripped, false);
-      assert.equal(readTaskStatus(task.id), "review");
-      assert.equal(readCounter(task.id), 0, "run-linked comment events count as progress");
-      assert.equal(countAwaitingHumanComments(task.id), 0);
+      assertHumanWakeReset({
+        taskId: task.id,
+        runId,
+        agentId: agent.id,
+        runWindowStart,
+        counterMessage: "run-linked comment events count as progress",
+      });
     });
 
     await test("breaker is a no-op on already-blocked tasks (idempotent; returns false without modifying)", () => {
@@ -758,11 +746,11 @@ async function run() {
       assert.equal(result.candidatesConsidered, 1);
     });
   } catch (error) {
-    failed += 1;
-    console.error("  Fatal setup error:", error instanceof Error ? error.stack ?? error.message : error);
+    await test("fatal setup error", () => {
+      throw error;
+    });
   } finally {
-    console.log(`\n${passed} passed, ${failed} failed\n`);
-    process.exit(failed === 0 ? 0 : 1);
+    finish();
   }
 }
 
