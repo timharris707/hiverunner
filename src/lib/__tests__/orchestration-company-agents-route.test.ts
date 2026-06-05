@@ -8,6 +8,15 @@ import { createProject, createProjectAgent } from "@/lib/orchestration/service";
 
 const { finish, test } = createTestRunner();
 
+function listCompanyAgents(companySlug: string, query = "") {
+  const suffix = query ? `?${query}` : "";
+  const req = { nextUrl: new URL(`http://localhost/api/orchestration/companies/${companySlug}/agents${suffix}`) };
+
+  return listCompanyAgentsRoute(req as never, {
+    params: Promise.resolve({ slug: companySlug }),
+  });
+}
+
 async function run() {
   console.log("\nOrchestration Company Agents Route Tests\n");
 
@@ -50,10 +59,7 @@ async function run() {
   }).agent;
 
   await test("company-scoped agents route excludes non-production by default", async () => {
-    const req = { nextUrl: new URL(`http://localhost/api/orchestration/companies/${company.slug}/agents`) };
-    const res = await listCompanyAgentsRoute(req as never, {
-      params: Promise.resolve({ slug: company.slug }),
-    });
+    const res = await listCompanyAgents(company.slug);
     assert.strictEqual(res.status, 200);
 
     const payload = (await res.json()) as { agents: Array<{ id: string }> };
@@ -63,14 +69,7 @@ async function run() {
   });
 
   await test("company-scoped agents route supports includeNonProduction=true", async () => {
-    const req = {
-      nextUrl: new URL(
-        `http://localhost/api/orchestration/companies/${company.slug}/agents?includeNonProduction=true`
-      ),
-    };
-    const res = await listCompanyAgentsRoute(req as never, {
-      params: Promise.resolve({ slug: company.slug }),
-    });
+    const res = await listCompanyAgents(company.slug, "includeNonProduction=true");
     assert.strictEqual(res.status, 200);
 
     const payload = (await res.json()) as { agents: Array<{ id: string }> };
@@ -80,14 +79,7 @@ async function run() {
   });
 
   await test("company-scoped agents route rejects invalid includeNonProduction values", async () => {
-    const req = {
-      nextUrl: new URL(
-        `http://localhost/api/orchestration/companies/${company.slug}/agents?includeNonProduction=maybe`
-      ),
-    };
-    const res = await listCompanyAgentsRoute(req as never, {
-      params: Promise.resolve({ slug: company.slug }),
-    });
+    const res = await listCompanyAgents(company.slug, "includeNonProduction=maybe");
     assert.strictEqual(res.status, 400);
   });
 
