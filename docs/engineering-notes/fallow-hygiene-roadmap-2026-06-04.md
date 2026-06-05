@@ -452,6 +452,24 @@ Latest checkpoint after PR #139:
 
 Net movement from the PR #137 checkpoint: 2 fewer dead-code findings, 2 fewer unused files, 266 fewer measured LOC, 1 fewer large function, and 1 fewer high-complexity function above threshold. Duplication and health score were unchanged. This was the last obvious standalone UI dead-file slice: `QuickActionBar` and `ProjectShellNav` had no exact path imports, while the remaining dead-file list is mostly product-intent or high-blast-radius territory.
 
+Latest checkpoint after PR #141:
+
+- Scan commit: `b48d1edec` (`test: dedupe sweeper test helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 392 total
+  - unused files: 11
+  - unused exports: 256
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 92 clone groups, 84 clone families, 25,601 duplicated lines, 8.9% duplication
+- Health score: 74, grade B
+- Total measured LOC: 237,727
+
+Net movement from the PR #139 checkpoint: 1 fewer clone group and 54 fewer duplicated lines. Dead-code, health score, and measured LOC were unchanged. This was intentionally a narrow test-only pass: `orchestration-sweeper.test.ts` now reuses the shared test runner and has a local CEO fixture helper, while remaining sweeper duplication was left alone because further extraction would blur individual scenario setup.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -534,6 +552,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #136: remove unused skill/org/marketing UI files
 - #137: remove unused markdown/file-tree UI files
 - #139: remove unused shell UI components
+- #141: dedupe sweeper test helpers
 
 Related but not cleanup:
 
@@ -784,6 +803,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` path-import and symbol searches, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run lint`, `npm run build`, and GitHub Local-First CI.
   - Caveat: `public/sw.js` also appears in Fallow's unused-file list, but it is registered by `ServiceWorkerRegistration` via `/sw.js`; do not delete it as dead code.
 
+- Sweeper single-file test helper cleanup
+  - Source signal: Fallow still reported repeated runner and fixture setup inside `orchestration-sweeper.test.ts`.
+  - Completed by #141 by reusing `createTestRunner` and adding a local `makeCeo` fixture helper.
+  - Validation: focused sweeper contract test with isolated `ORCHESTRATION_DB_PATH`, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summary, `npm run lint`, and GitHub Local-First CI.
+  - Caveat: `fallow:changed` still reports remaining duplication warnings in the large sweeper test. That is acceptable for now; further extraction should only happen around a clearer repeated scenario helper.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -819,4 +844,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #139, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or pivot back to focused duplicate/test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #141, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
