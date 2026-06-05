@@ -3,13 +3,13 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Search } from "lucide-react";
 
-export type MissionIconOption = {
+type MissionIconOption = {
   value: string;
   label: string;
   keywords: string[];
 };
 
-export const HIVE_RUNNER_ICON_OPTIONS: MissionIconOption[] = [
+const HIVE_RUNNER_ICON_OPTIONS: MissionIconOption[] = [
   { value: "🛰️", label: "Satellite", keywords: ["space", "orbit", "mission", "control"] },
   { value: "🚀", label: "Rocket", keywords: ["launch", "ship", "build", "fast"] },
   { value: "🧠", label: "Brain", keywords: ["ai", "intelligence", "thinking", "model"] },
