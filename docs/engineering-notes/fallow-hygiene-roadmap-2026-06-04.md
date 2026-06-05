@@ -596,6 +596,16 @@ Latest checkpoint after PR #157:
 
 Net movement from the PR #153 checkpoint: 3 fewer clone groups, 3 fewer clone families, and 111 fewer duplicated lines. Dead-code, health score, and measured LOC were unchanged. This was a three-PR explicit-worktree batch: #155 reused a shared sync test runner in route-map/project-rename tests, #156 extracted a local company-agents route request helper, and #157 reused SQLite/wake-queue setup helpers in two wake-queue tests.
 
+Latest checkpoint after PR #159:
+
+- Scan commit: `13224b308` (`test: refresh rename safety isolated DB expectations`)
+- Scope: reliability-only fixture refresh for `src/lib/__tests__/orchestration-rename-safety.test.ts`
+- Full advisory Fallow scan: not re-run; this PR changed only test expectations and should not move the global hygiene metrics
+- Focused validation: `ORCHESTRATION_DB_PATH=/tmp/hiverunner-rename-safety-fixed.db node ./scripts/run-ts-test.mjs src/lib/__tests__/orchestration-rename-safety.test.ts`
+- Result: 26 focused assertions passed, `git diff --check` passed, `npm run fallow:changed` passed, and GitHub Local-First CI passed
+
+Net movement from the PR #157 checkpoint: no expected metric movement. This resolves the stale isolated-DB weather-edge/NEV fixture issue that was intentionally split out from the route-map helper cleanup.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -986,6 +996,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused route-map/project-rename/company-agents/wake-queue tests, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summaries, and GitHub Local-First CI for all three PRs.
   - Caveat: `orchestration-rename-safety.test.ts` was deliberately excluded from #155 after a fresh isolated DB run surfaced pre-existing stale weather-edge/NEV fixture assertions. Treat that as a separate reliability target, not part of routine Fallow cleanup.
 
+- Rename-safety isolated DB fixture refresh
+  - Source signal: while evaluating #155, a fresh isolated `ORCHESTRATION_DB_PATH` run showed `orchestration-rename-safety.test.ts` still expected legacy weather-edge/NEV seeded data that fresh DB-backed route maps no longer synthesize.
+  - Completed by #159 by refreshing the test expectations: the canonical slug no longer redirects to itself, fresh DB-backed maps do not synthesize `weather-edge`, and the static fallback still preserves the legacy `weather-edge` redirect behavior.
+  - Validation: focused rename-safety test with isolated `ORCHESTRATION_DB_PATH`, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
+  - Caveat: this was reliability cleanup surfaced by Fallow-guided work, not a Fallow metric-improvement PR. Do not infer broader routing behavior changes from it.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -1010,10 +1026,6 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports 8 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
-- `orchestration-rename-safety.test.ts` isolated DB fixture refresh
-  - A fresh isolated `ORCHESTRATION_DB_PATH` run currently fails weather-edge/NEV alias assertions in this test.
-  - This surfaced while evaluating #155, but it is reliability/fixture work, not a Fallow hygiene extraction. Keep it separate and verify the intended seed behavior before changing assertions.
-
 ## Size And Cadence
 
 The full Fallow warning pool is not a one-morning cleanup. Cleaning every reported dead-code, duplicate, complexity, and circular-dependency finding safely would likely be a multi-day to multi-week effort because many findings are high-blast-radius architecture work.
@@ -1025,4 +1037,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #157, the surfaced reliability issues from the recent hygiene batches are mostly resolved, but one stale `orchestration-rename-safety.test.ts` isolated-DB fixture issue remains as a separate target. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either fix the isolated rename-safety fixture issue, continue focused single-file/small-cluster test-helper cleanup with clear validation, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #159, the reliability issue surfaced by the recent route-map cleanup is resolved. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
