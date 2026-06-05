@@ -133,6 +133,23 @@ async function run() {
       db.prepare("UPDATE agents SET archived_at = ? WHERE archived_at IS NULL").run(stamp);
     }
 
+    type TaskWake = {
+      agent_id: string;
+      reason: string | null;
+      idempotency_key: string | null;
+    };
+
+    function getSingleTaskWake(taskId: string): TaskWake {
+      const wakes = db
+        .prepare(
+          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
+           WHERE json_extract(payload_json, '$.taskId') = ?`,
+        )
+        .all(taskId) as TaskWake[];
+      assert.equal(wakes.length, 1);
+      return wakes[0] as TaskWake;
+    }
+
     await test("CEO unassigned-task sweep uses a compact triage prompt", () => {
       clearWakes();
       const project = makeProject("compact-unassigned-triage");
@@ -637,16 +654,10 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected 1 wake, got: ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(task.id) as Array<{ agent_id: string; reason: string; idempotency_key: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, ceo.id, "sweep must target CEO for review task");
-      assert.equal(wakes[0].reason, "sweep_review_to_ceo");
-      assert.equal(wakes[0].idempotency_key, `ceo_review:${task.id}:${ceo.id}`);
+      const wake = getSingleTaskWake(task.id);
+      assert.equal(wake.agent_id, ceo.id, "sweep must target CEO for review task");
+      assert.equal(wake.reason, "sweep_review_to_ceo");
+      assert.equal(wake.idempotency_key, `ceo_review:${task.id}:${ceo.id}`);
 
       const assigneeWakes = db
         .prepare(
@@ -946,16 +957,10 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected 1 wake; got ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(task.id) as Array<{ agent_id: string; reason: string; idempotency_key: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, reviewer.id, "sweep must target declared reviewer, not CEO");
-      assert.equal(wakes[0].reason, "sweep_review_to_assignee");
-      assert.equal(wakes[0].idempotency_key, `review_assignee:${task.id}:${reviewer.id}`);
+      const wake = getSingleTaskWake(task.id);
+      assert.equal(wake.agent_id, reviewer.id, "sweep must target declared reviewer, not CEO");
+      assert.equal(wake.reason, "sweep_review_to_assignee");
+      assert.equal(wake.idempotency_key, `review_assignee:${task.id}:${reviewer.id}`);
     });
 
     await test("sweep routes revised review submissions back to the same QA reviewer", () => {
@@ -1005,15 +1010,9 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected QA review wake; got ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(task.id) as Array<{ agent_id: string; reason: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, reviewer.id, "revised submission should return to the declared QA reviewer");
-      assert.equal(wakes[0].reason, "sweep_review_to_assignee");
+      const wake = getSingleTaskWake(task.id);
+      assert.equal(wake.agent_id, reviewer.id, "revised submission should return to the declared QA reviewer");
+      assert.equal(wake.reason, "sweep_review_to_assignee");
     });
 
     await test("sweep falls back to CEO when declared reviewer has already run on the task (reviewer-didn't-close → escalate)", () => {
@@ -1044,15 +1043,9 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected CEO escalation wake; got ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(task.id) as Array<{ agent_id: string; reason: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, ceo.id, "must escalate to CEO once reviewer has run without closing");
-      assert.equal(wakes[0].reason, "sweep_review_to_ceo");
+      const wake = getSingleTaskWake(task.id);
+      assert.equal(wake.agent_id, ceo.id, "must escalate to CEO once reviewer has run without closing");
+      assert.equal(wake.reason, "sweep_review_to_ceo");
     });
 
     await test("sweep escalates stale declared-reviewer review to Oracle before Ralph/CEO with watchdog reason", () => {
@@ -1084,16 +1077,10 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected Oracle escalation wake; got ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(task.id) as Array<{ agent_id: string; reason: string; idempotency_key: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, oracle.id, "must escalate to Oracle once reviewer is stale");
-      assert.equal(wakes[0].reason, "sweep_review_to_ceo");
-      assert.equal(wakes[0].idempotency_key, `ceo_review:${task.id}:${oracle.id}`);
+      const wake = getSingleTaskWake(task.id);
+      assert.equal(wake.agent_id, oracle.id, "must escalate to Oracle once reviewer is stale");
+      assert.equal(wake.reason, "sweep_review_to_ceo");
+      assert.equal(wake.idempotency_key, `ceo_review:${task.id}:${oracle.id}`);
 
       const postTask = db
         .prepare("SELECT assignee_agent_id, blocked_reason FROM tasks WHERE id = ?")
@@ -1300,16 +1287,10 @@ async function run() {
       const result = sweepOpenTasks(db, { cap: 10 });
       assert.equal(result.wakesEnqueued, 1, `expected 1 wake; got ${JSON.stringify(result)}`);
 
-      const wakes = db
-        .prepare(
-          `SELECT agent_id, reason, idempotency_key FROM agent_wakeup_requests
-           WHERE json_extract(payload_json, '$.taskId') = ?`,
-        )
-        .all(taskId) as Array<{ agent_id: string; reason: string; idempotency_key: string }>;
-      assert.equal(wakes.length, 1);
-      assert.equal(wakes[0].agent_id, ceo.id, "sweep must target CEO for unassigned task");
-      assert.equal(wakes[0].reason, "sweep_unassigned_to_ceo");
-      assert.equal(wakes[0].idempotency_key, `ceo_triage:${taskId}`);
+      const wake = getSingleTaskWake(taskId);
+      assert.equal(wake.agent_id, ceo.id, "sweep must target CEO for unassigned task");
+      assert.equal(wake.reason, "sweep_unassigned_to_ceo");
+      assert.equal(wake.idempotency_key, `ceo_triage:${taskId}`);
     });
 
     await test("sweep skips unassigned task with 'no_ceo_for_unassigned' when no CEO exists", () => {
