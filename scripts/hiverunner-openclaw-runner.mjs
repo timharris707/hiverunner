@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { asRecord, buildExternalRunnerPrompt, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import { asRecord, buildExternalRunnerPrompt, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 20 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 4 * 1024 * 1024;
@@ -153,7 +152,7 @@ function buildOpenClawInvocation() {
   };
 }
 
-function gatewayCall({ command, commandPrefixArgs, method, params, cwd }) {
+async function gatewayCall({ command, commandPrefixArgs, method, params, cwd }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_OPENCLAW_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_OPENCLAW_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
   const args = [
@@ -166,70 +165,37 @@ function gatewayCall({ command, commandPrefixArgs, method, params, cwd }) {
     JSON.stringify(params),
   ];
 
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        HIVERUNNER_EXTERNAL_RUNNER: "1",
-        HIVERUNNER_OPENCLAW_RUNNER: "1",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let killedForBuffer = false;
-    let timedOut = false;
-    let spawnError = null;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
-      if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
-        killedForBuffer = true;
-        child.kill("SIGTERM");
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderrBytes += chunk.length;
-      if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
-    });
-    child.on("error", (error) => {
-      spawnError = error.message;
-    });
-    child.on("close", (exitCode, signal) => {
-      clearTimeout(timer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      const error =
-        spawnError ??
-        (timedOut ? `OpenClaw gateway call ${method} timed out after ${timeoutMs}ms` : null) ??
-        (killedForBuffer ? `OpenClaw gateway call ${method} exceeded ${maxBufferBytes} bytes of stdout` : null) ??
-        (exitCode === 0 ? null : `OpenClaw gateway call ${method} exited with code ${exitCode}${signal ? ` (${signal})` : ""}`);
-      let json = null;
-      if (!error) {
-        try {
-          json = JSON.parse(stdout);
-        } catch (parseError) {
-          resolve({
-            ok: false,
-            args,
-            stdout,
-            stderr,
-            error: parseError instanceof Error ? parseError.message : String(parseError),
-          });
-          return;
-        }
-      }
-      resolve({ ok: !error, args, stdout, stderr, error, json });
-    });
+  const result = await runBufferedCommand({
+    command,
+    args,
+    cwd,
+    env: {
+      ...process.env,
+      HIVERUNNER_EXTERNAL_RUNNER: "1",
+      HIVERUNNER_OPENCLAW_RUNNER: "1",
+    },
+    timeoutMs,
+    maxBufferBytes,
+    describeTimeout: () => `OpenClaw gateway call ${method} timed out after ${timeoutMs}ms`,
+    describeBufferLimit: () => `OpenClaw gateway call ${method} exceeded ${maxBufferBytes} bytes of stdout`,
+    describeExit: ({ exitCode, signal }) => `OpenClaw gateway call ${method} exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
   });
+  const { stdout, stderr, error } = result;
+  let json = null;
+  if (!error) {
+    try {
+      json = JSON.parse(stdout);
+    } catch (parseError) {
+      return {
+        ok: false,
+        args,
+        stdout,
+        stderr,
+        error: parseError instanceof Error ? parseError.message : String(parseError),
+      };
+    }
+  }
+  return { ok: !error, args, stdout, stderr, error, json };
 }
 
 async function gatewayCallWithFallback(input) {
