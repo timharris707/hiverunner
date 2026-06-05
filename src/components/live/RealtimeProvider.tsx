@@ -1,6 +1,6 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useEffect, useMemo, useRef, useState } from "react";
 
 import type { HiveRunnerRealtimeSnapshot } from "@/lib/realtime-snapshot";
 
@@ -29,17 +29,6 @@ function readStoredSnapshot() {
   } catch {
     return null;
   }
-}
-
-function relativeAgeLabel(timestampMs: number) {
-  const deltaMs = Date.now() - timestampMs;
-  const seconds = Math.max(0, Math.floor(deltaMs / 1000));
-  if (seconds < 10) return "just now";
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h ago`;
 }
 
 // Dev mode polls much slower to avoid hammering the webpack dev server
@@ -179,10 +168,6 @@ export function HiveRunnerRealtimeProvider({ children }: { children: React.React
   }), [snapshot, connectionStatus, staleSince]);
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>;
-}
-
-export function useHiveRunnerRealtime() {
-  return useContext(RealtimeContext);
 }
 
 /**
