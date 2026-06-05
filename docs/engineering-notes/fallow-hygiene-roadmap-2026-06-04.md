@@ -524,6 +524,24 @@ Latest checkpoint after PR #147:
 
 Net movement from the PR #145 checkpoint: 1 fewer dead-code finding by removing the last unlisted-dependency warning. Duplication, health score, and measured LOC were unchanged. `sharp` is imported directly by the avatar API route, so #147 declares it as a direct dependency instead of relying on Next.js to provide it transitively.
 
+Latest checkpoint after PR #149:
+
+- Scan commit: `b783f8824` (`chore: remove unused task detail drawer`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 391 total
+  - unused files: 10
+  - unused exports: 257
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 90 clone groups, 82 clone families, 25,404 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 236,416
+
+Net movement from the PR #147 checkpoint: 1 fewer unused file, 1 more unused export after Fallow reclassification, 14 fewer duplicated lines, 1,311 fewer measured LOC, 3 fewer large functions, 5 fewer high-complexity functions above threshold, and 4 fewer lint warnings. Overall dead-code total stayed flat at 391 because the removed file reclassified one remaining export finding, but CodeGraph and direct searches confirmed `TaskDetailDrawer` had no callers and no external references.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -610,6 +628,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #143: dedupe wakeup coalesce test helpers
 - #145: dedupe loop breaker test helpers
 - #147: declare sharp as a direct dependency
+- #149: remove unused task detail drawer
 
 Related but not cleanup:
 
@@ -884,6 +903,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: `npm ls sharp`, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run build`, `npm run lint`, and GitHub Local-First CI.
   - Caveat: this changes dependency metadata only; it does not change avatar route behavior.
 
+- CodeGraph-backed task detail drawer dead-file prune
+  - Source signal: Fallow reported `src/components/TaskDetailDrawer.tsx` as unused, and it was the largest remaining unused-file candidate that did not require touching active task routes.
+  - Completed by #149 by removing `TaskDetailDrawer`.
+  - Validation: CodeGraph `query`, `callers`, and `impact` for `TaskDetailDrawer`; direct `rg` symbol search; `git diff --check`; `npm run fallow:changed`; full Fallow dead-code, duplication, and health summaries; `npm run build`; `npm run lint`; and GitHub Local-First CI.
+  - Caveat: this is the right model for remaining large unused UI candidates: use CodeGraph plus direct searches first, then delete only when impact is limited to the file itself. Do not apply this blindly to office, voice/avatar, company creation, service worker, branding, or UI barrel files.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -919,4 +944,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #147, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #149, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI/task-detail-drawer prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
