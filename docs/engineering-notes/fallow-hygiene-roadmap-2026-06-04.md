@@ -642,6 +642,24 @@ Latest checkpoint after PR #163:
 
 Net movement from the PR #161 checkpoint: 3 fewer clone groups, 3 fewer clone families, 90 fewer duplicated lines, a 0.1 percentage-point reduction in reported duplication, 54 fewer measured LOC, and a 1-point health score improvement. Dead-code counts were unchanged. This was a CodeGraph-gated runtime helper extraction: direct reads confirmed identical defensive JSON object parsing in memory/wiki modules and identical string-array parsing in three of them, while validation covered focused memory retrieval, memory quality, memory vault, and wiki writeback tests plus lint/build and GitHub Local-First CI.
 
+Latest checkpoint after PR #165:
+
+- Scan commit: `416ebb51` (`test: reuse voice session test runner`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 390 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 80 clone groups, 73 clone families, 24,969 duplicated lines, 8.7% duplication
+- Health score: 75, grade B
+- Total measured LOC: 235,854
+
+Net movement from the PR #163 checkpoint: 89 fewer duplicated lines. Clone groups, clone families, dead-code counts, health score, and measured LOC were unchanged. This was the final low-risk test-only cleanup in the long run: four voice tests now reuse the existing voice session test runner, while `voice-tool-action-execution.test.ts` stayed out of scope after a fresh isolated DB run exposed a separate active execution hive fixture issue.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -920,6 +938,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph `status`, `query`, `callers`, and `impact` for the parser boundary; direct file reads for every replaced helper; focused memory retrieval, memory quality, memory vault, wiki writeback request, and wiki writeback service tests; `git diff --check`; `npm run fallow:changed`; full Fallow duplication summary; `npm run lint`; `npm run build`; and GitHub Local-First CI.
   - Caveat: this should not become a general JSON cleanup mandate. Other parser helpers have different fallback contracts or live in higher-blast-radius execution/provider paths.
 
+- Voice session test runner cleanup
+  - Source signal: Fallow still reported repeated pass/fail runner bodies across several voice contract tests, while `helpers/voice-session-test-harness.ts` already provided the matching runner.
+  - Completed by #165 by reusing `createVoiceSessionTestRunner` in `voice-outcome-persistence`, `voice-session-task-binding`, `voice-transcript-storage`, and `voice-usage-cost-tracking`.
+  - Validation: focused touched voice tests, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summary, `npm run lint`, and GitHub Local-First CI.
+  - Caveat: `voice-tool-action-execution.test.ts` was deliberately left untouched after its fresh isolated DB run reproduced a separate active-hive fixture issue in the `start_task_work` case.
+
 - Habbo office dead-file prune
   - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
   - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
@@ -1064,6 +1088,10 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports duplication across Anthropic, Codex, Gemini, Hermes, OpenClaw, and Symphony execution adapters.
   - This touches execution semantics and provider boundaries. Treat it as architecture work, not incidental cleanup.
 
+- Voice action execution fresh-DB fixture
+  - A fresh isolated run of `voice-tool-action-execution.test.ts` currently fails the `start_task_work` case with `No active execution hive is configured for this company`.
+  - This should be treated like the earlier OpenClaw/rename-safety fixture findings: a reliability target with direct fixture setup work, not folded into runner dedupe cleanup.
+
 - Circular dependency cleanup
   - Current count remains 9.
   - Most cycles involve build queue/quota scheduling or orchestration engine/runtime modules. These need CodeGraph impact analysis and design notes before edits.
@@ -1087,4 +1115,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #163, the highest-signal remaining runner-script clone and the clearest memory/wiki parser clone have both been handled in dedicated PRs with CodeGraph and focused tests. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #165, the long Fallow hygiene run has reached diminishing returns for low-risk cleanup. The highest-signal remaining runner-script clone, clearest memory/wiki parser clone, and one final voice test-runner slice have been handled in dedicated PRs with focused validation. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk after a fresh CodeGraph review: continue only if a slice has a clear architecture, reliability, or navigation payoff. Provider execution adapter helper extraction, circular dependencies, large page complexity, and execution-hive fixture reliability are higher-impact but higher-risk; handle them as designed work, not incidental Fallow cleanup.
