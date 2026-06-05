@@ -69,43 +69,46 @@ async function run() {
 
     const { POST } = await import("@/app/api/voice/session/route");
 
-    await test("default voice missing key response normalizes to setup copy, never [object Object]", async () => {
-      const response = await POST(makeVoiceSessionRequest({ voiceProvider: "gemini-live" }) as never);
-      const body = await response.json() as unknown;
-      const message = normalizeSafeErrorMessage(body, "Fallback");
-
-      assert.equal(response.status, 503);
-      assert.match(message, /Voice chat is optional/);
-      assert.match(message, /GOOGLE_AI_API_KEY/);
-      assert.doesNotMatch(message, /\[object Object\]/);
-    });
-
-    await test("testing runtime missing key response normalizes to setup copy, never [object Object]", async () => {
-      const response = await POST(makeVoiceSessionRequest({ voiceProvider: "openai-realtime-2" }) as never);
-      const body = await response.json() as unknown;
-      const message = normalizeSafeErrorMessage(body, "Fallback");
-
-      assert.equal(response.status, 503);
-      assert.match(message, /Voice chat is optional/);
-      assert.match(message, /OPENAI_API_KEY/);
-      assert.doesNotMatch(message, /\[object Object\]/);
-    });
-
-    await test("missing provider key is reported before bound task lookup failures", async () => {
-      const response = await POST(
-        makeVoiceSessionRequest({
+    const missingProviderKeyStartupErrorCases = [
+      {
+        name: "default voice missing key response normalizes to setup copy, never [object Object]",
+        body: { voiceProvider: "gemini-live" },
+        expectedMessageMatches: [/Voice chat is optional/, /GOOGLE_AI_API_KEY/],
+        unexpectedMessageMatches: [/\[object Object\]/],
+      },
+      {
+        name: "testing runtime missing key response normalizes to setup copy, never [object Object]",
+        body: { voiceProvider: "openai-realtime-2" },
+        expectedMessageMatches: [/Voice chat is optional/, /OPENAI_API_KEY/],
+        unexpectedMessageMatches: [/\[object Object\]/],
+      },
+      {
+        name: "missing provider key is reported before bound task lookup failures",
+        body: {
           voiceProvider: "gemini-live",
           taskKey: "VOICE-MISSING-KEY-FIRST",
           source: "task-detail",
-        }) as never,
-      );
-      const body = await response.json() as unknown;
-      const message = normalizeSafeErrorMessage(body, "Fallback");
+        },
+        expectedMessageMatches: [/Voice chat is optional/],
+        unexpectedMessageMatches: [/Task not found/],
+      },
+    ] as const;
 
-      assert.equal(response.status, 503);
-      assert.match(message, /Voice chat is optional/);
-      assert.doesNotMatch(message, /Task not found/);
-    });
+    for (const startupErrorCase of missingProviderKeyStartupErrorCases) {
+      await test(startupErrorCase.name, async () => {
+        const response = await POST(makeVoiceSessionRequest(startupErrorCase.body) as never);
+        const body = await response.json() as unknown;
+        const message = normalizeSafeErrorMessage(body, "Fallback");
+
+        assert.equal(response.status, 503);
+        for (const expectedPattern of startupErrorCase.expectedMessageMatches) {
+          assert.match(message, expectedPattern);
+        }
+        for (const unexpectedPattern of startupErrorCase.unexpectedMessageMatches) {
+          assert.doesNotMatch(message, unexpectedPattern);
+        }
+      });
+    }
 
     await test("Gemini Live configured key path is disabled without exposing the provider key", async () => {
       setSecretStoreForTests(geminiSecretStore);
