@@ -9,23 +9,9 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 console.log("\nOrchestration Sweeper Contract Test\n");
 
@@ -61,6 +47,19 @@ async function run() {
         role: "Backend Engineer",
         personality: "Deterministic",
         openclawAgentId: `sweep-${tag}-${Math.random().toString(36).slice(2, 8)}`,
+        status: "idle",
+        skills: ["orchestration"],
+      }).agent;
+    }
+
+    function makeCeo(projectId: string, tag: string) {
+      return createProjectAgent({
+        projectId,
+        name: `Sweep CEO ${tag}-${Math.random().toString(36).slice(2, 4)}`,
+        emoji: "🎯",
+        role: "CEO",
+        personality: "Deterministic",
+        openclawAgentId: `sweep-ceo-${tag}-${Math.random().toString(36).slice(2, 8)}`,
         status: "idle",
         skills: ["orchestration"],
       }).agent;
@@ -150,16 +149,7 @@ async function run() {
     await test("sweep skips parent directive with open children so child review can wake CEO", () => {
       clearWakes();
       const project = makeProject("parent-open-children");
-      const ceo = createProjectAgent({
-        projectId: project.id,
-        name: `Sweep CEO ${Math.random().toString(36).slice(2, 4)}`,
-        emoji: "🎯",
-        role: "CEO",
-        personality: "Deterministic",
-        openclawAgentId: `sweep-ceo-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
-        skills: ["orchestration"],
-      }).agent;
+      const ceo = makeCeo(project.id, "parent-open-children");
       const worker = makeAgent(project.id, "child-review-worker");
       const parent = makeTask(project.id, ceo.id, "in-progress");
       const child = makeTask(project.id, worker.id, "review");
@@ -190,16 +180,7 @@ async function run() {
     await test("sweep wakes parent when every open child depends on that parent", () => {
       clearWakes();
       const project = makeProject("parent-child-deadlock");
-      const ceo = createProjectAgent({
-        projectId: project.id,
-        name: `Sweep CEO ${Math.random().toString(36).slice(2, 4)}`,
-        emoji: "🎯",
-        role: "CEO",
-        personality: "Deterministic",
-        openclawAgentId: `sweep-ceo-deadlock-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
-        skills: ["orchestration"],
-      }).agent;
+      const ceo = makeCeo(project.id, "deadlock");
       const worker = makeAgent(project.id, "child-deadlock-worker");
       const parent = makeTask(project.id, ceo.id, "in-progress");
       const child = makeTask(project.id, worker.id, "to-do");
@@ -225,16 +206,7 @@ async function run() {
     await test("sweep escalates to-do task to CEO when the assignee ran without moving it", () => {
       clearWakes();
       const project = makeProject("to-do-repeat");
-      const ceo = createProjectAgent({
-        projectId: project.id,
-        name: `Sweep CEO ${Math.random().toString(36).slice(2, 4)}`,
-        emoji: "🎯",
-        role: "CEO",
-        personality: "Deterministic",
-        openclawAgentId: `sweep-ceo-to-do-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
-        skills: ["orchestration"],
-      }).agent;
+      const ceo = makeCeo(project.id, "to-do");
       const agent = makeAgent(project.id, "to-do-repeat");
       const task = makeTask(project.id, agent.id, "to-do");
       const sweepNow = new Date();
@@ -272,16 +244,7 @@ async function run() {
     await test("sweep re-wakes CEO-owned to-do task when CEO ran without moving it", () => {
       clearWakes();
       const project = makeProject("to-do-ceo-repeat");
-      const ceo = createProjectAgent({
-        projectId: project.id,
-        name: `Sweep CEO ${Math.random().toString(36).slice(2, 4)}`,
-        emoji: "🎯",
-        role: "CEO",
-        personality: "Deterministic",
-        openclawAgentId: `sweep-ceo-to-do-repeat-${Math.random().toString(36).slice(2, 8)}`,
-        status: "idle",
-        skills: ["orchestration"],
-      }).agent;
+      const ceo = makeCeo(project.id, "to-do-repeat");
       const task = makeTask(project.id, ceo.id, "to-do");
       const sweepNow = new Date();
       const runAt = new Date(sweepNow.getTime() - 31 * 60 * 1000).toISOString();
@@ -830,9 +793,7 @@ async function run() {
     if (dbPath) rmSync(dbPath, { force: true });
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
