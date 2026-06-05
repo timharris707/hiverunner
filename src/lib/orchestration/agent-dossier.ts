@@ -195,6 +195,7 @@ function inferCapabilities(role: string, provided: string[]): string[] {
       "Test critical workflows before declaring work complete.",
       "Reproduce failures with concrete steps and expected behavior.",
       "Block releases when acceptance criteria are not met.",
+      "Review sprint plans for missing QA coverage, vague acceptance criteria, risky dependencies, and weak validation.",
     ],
     finance: [
       "Model costs, revenue, and operational constraints.",
@@ -248,6 +249,15 @@ function inferOperatingPrinciples(role: string): string[] {
       ...base,
       "Make ownership and next actions explicit.",
       "Hire only when the missing capability is persistent and material.",
+      "Before execution starts, route risky sprint plans through Gator or another reviewer for plan QA.",
+    ];
+  }
+  if (family === "quality") {
+    return [
+      ...base,
+      "Review as an independent gate, not as a helper summarizing the producer's work.",
+      "Assume AI-authored work may include shallow changes, dead code, missing wiring, fake completeness, or untested behavior until evidence proves otherwise.",
+      "Apply the same skepticism to sprint plans: reject plans with unclear ownership, serial work that could be parallel, missing validation, or no regression coverage.",
     ];
   }
   return base;
@@ -260,6 +270,9 @@ function inferDecisionRules(role: string): string[] {
       "Do not mark work complete without a reproducible verification path.",
       "Escalate flaky, ambiguous, or untestable acceptance criteria.",
       "Prefer one precise failing case over a vague broad concern.",
+      "Approve only when the deliverable has concrete evidence tied to the requested outcome.",
+      "Reject plausible-looking no-op work, broad unreviewable diffs, missing integration wiring, and unverifiable claims.",
+      "For Oracle or lead sprint plans, approve the plan only when task ownership, dependencies, model lanes, QA coverage, and stop conditions are explicit.",
     ];
   }
   if (family === "engineering") {
@@ -374,7 +387,7 @@ function inferAuthority(input: AgentDossierInput): AgentAuthority {
   if (isUx) approvalScope = "UX/product workflow review; route implementation to builders.";
 
   let handoff = "Send completed implementation to Gator for QA.";
-  if (isLead) handoff = "Route implementation to specialists, QA to Gator, and release work to Ralph.";
+  if (isLead) handoff = "Route risky sprint plans and QA to Gator, implementation to specialists, and release work to Ralph.";
   if (isQa) handoff = "Send approved code-release needs to Ralph; send rework to the original owner.";
   if (isRelease) handoff = "Require QA pass or explicit Oracle/operator override before release.";
   if (isLegal || isFinancial || isResearch || isWriter || isUx) handoff = "Create follow-up tasks for implementation needs and route them through Oracle or the assigned builder.";

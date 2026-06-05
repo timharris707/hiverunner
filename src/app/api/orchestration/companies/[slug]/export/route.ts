@@ -25,6 +25,27 @@ const SUPPORTED_CATEGORIES = [
 
 type Category = (typeof SUPPORTED_CATEGORIES)[number];
 
+const REVIEWER_EXPORT_POSTURE =
+  "Calm in tone, but permanently skeptical in review. Assumes AI-authored work may be plausible-looking, incomplete, or no-op until evidence proves otherwise.";
+const REVIEWER_SIGNAL_PATTERN = /\b(gator|qa|quality|reviewer|review|verification|test)\b/i;
+const REVIEWER_POSTURE_PATTERN =
+  /AI-authored work may be plausible-looking|permanently skeptical in review/i;
+
+function isReviewerExportAgent(row: Record<string, unknown>) {
+  const reviewerSignal = [row.name, row.role]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ");
+  return REVIEWER_SIGNAL_PATTERN.test(reviewerSignal);
+}
+
+function exportedAgentPersonality(row: Record<string, unknown>) {
+  const personality = typeof row.personality === "string" ? row.personality.trim() : "";
+  if (!isReviewerExportAgent(row)) return row.personality;
+  if (REVIEWER_POSTURE_PATTERN.test(personality)) return personality;
+  if (!personality) return REVIEWER_EXPORT_POSTURE;
+  return `${personality} ${REVIEWER_EXPORT_POSTURE}`;
+}
+
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ slug: string }> }
@@ -140,7 +161,7 @@ export async function GET(
         name: r.name,
         emoji: r.emoji,
         role: r.role,
-        personality: r.personality,
+        personality: exportedAgentPersonality(r),
         status: r.status,
         model: r.model,
         adapterType: r.adapter_type,
