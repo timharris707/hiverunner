@@ -1,24 +1,12 @@
 import assert from "node:assert";
 
+import { createSyncTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { tryCanonicalRewrite, tryLegacyRedirect } from "@/proxy";
 import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { createProject } from "@/lib/orchestration/service";
 
-let passed = 0;
-let failed = 0;
-
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  ✓ ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+const { finish, test } = createSyncTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 console.log("\nEdge route maps auto-sync test\n");
 
@@ -93,5 +81,4 @@ test("bare weather-edge company route redirects to NEV dashboard", () => {
   assert.strictEqual(redirected?.pathname, "/NEV/dashboard");
 });
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed > 0 ? 1 : 0);
+finish();

@@ -1,5 +1,6 @@
 import assert from "node:assert";
 
+import { createSyncTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   createCompany,
 } from "@/lib/orchestration/company-service";
@@ -10,26 +11,13 @@ import {
 } from "@/lib/orchestration/service";
 import { buildEdgeRouteMaps } from "@/lib/orchestration/edge-route-map-service";
 
-let passed = 0;
-let failed = 0;
-
 type ProjectSlugError = Error & { code?: string };
 
 function asProjectSlugError(error: unknown): ProjectSlugError {
   return error instanceof Error ? error as ProjectSlugError : new Error(String(error));
 }
 
-function test(name: string, fn: () => void) {
-  try {
-    fn();
-    passed += 1;
-    console.log(`  ✓ ${name}`);
-  } catch (error: unknown) {
-    failed += 1;
-    console.error(`  ✗ ${name}`);
-    console.error(`    ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+const { finish, test } = createSyncTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 const SUFFIX = Date.now().toString(36);
 
@@ -238,5 +226,4 @@ test("cache version bumped on project slug change", () => {
 
 // ---------- Summary ----------
 
-console.log(`\n${passed} passed, ${failed} failed\n`);
-process.exit(failed > 0 ? 1 : 0);
+finish();
