@@ -308,6 +308,24 @@ Latest checkpoint after PR #116:
 
 Net movement from the PR #114 checkpoint: 8 fewer dead-code findings, 8 fewer unused exports, 114 fewer measured LOC, and a 1-point health score improvement. Duplication counts were unchanged. This was another good low-risk slice because the removed public surface was limited to directly searched UI/helper exports with remaining consumers still covered by build and lint.
 
+Latest checkpoint after PR #120:
+
+- Scan commit: `640435d9f` (`chore: prune unused voice display components`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 425 total
+  - unused files: 34
+  - unused exports: 265
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 98 clone groups, 88 clone families, 25,981 duplicated lines, 8.9% duplication
+- Health score: 74, grade B
+- Total measured LOC: 241,773
+
+Net movement from the PR #116 checkpoint: 9 fewer dead-code findings, 4 fewer unused files, 7 fewer unused exports, 799 fewer measured LOC, and 5 fewer high-complexity functions above threshold. Unused type exports rose by 2 after removing component files, so treat the total dead-code movement as the more useful directional signal. Duplication line counts were unchanged, while the percentage moved from 8.8% to 8.9% because the total LOC denominator shrank.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -375,6 +393,9 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #112: remove unused Stardew office components
 - #114: remove unused demo-mode mask exports
 - #116: prune unused UI helper exports
+- #118: trim local-only UI helper exports
+- #119: prune unused agent avatar exports
+- #120: prune unused voice display components
 
 Related but not cleanup:
 
@@ -410,7 +431,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead file/export micro-prunes
-   - Source signal: dead-code remains at 434 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 425 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -577,6 +598,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` searches for every removed/trimmed export, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run build`, `npm run lint`, and GitHub Local-First CI.
   - Caveat: this stayed intentionally inside UI/helper code. Do not apply the same dead-export treatment to provider, runtime, proxy, or orchestration engine exports without CodeGraph impact checks and focused tests.
 
+- Parallel low-risk UI/export pruning batch
+  - Source signal: unused exports in `KeyboardShortcuts`, `ProviderPresentation`, `tasks/types`, and `AgentAvatar`, plus unreachable voice display components.
+  - Completed by #118, #119, and #120 with explicit worktrees and worker-owned scopes.
+  - Validation: direct `rg` symbol/path searches, `git diff --check`, `npm run fallow:changed`, `npm run build`, `npm run lint` for #118, worker build validation for #119/#120, and GitHub Local-First CI.
+  - Caveat: two worker scopes correctly stopped without edits. `CronJobCard`, `InlineTooltip`, and `RichDescription` are referenced by other currently unused component islands, so deleting them alone would break imports. `branding.ts` is live through `OfficeCanvas`, and `src/lib/ui/index.ts` is a documented public barrel. Keep these as product-intent or broader component-island decisions, not casual Fallow deletes.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -598,7 +625,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 38 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 34 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -612,4 +639,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #116, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: do one more isolated export/dead-file micro-prune only if direct searches make it obvious, otherwise pivot to a small directly verified test-fixture cleanup. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #120, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: either run one more explicit-worktree batch for obviously isolated UI/helper exports, or pause dead-code pruning and pivot back to a small directly verified test-fixture cleanup. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
