@@ -134,12 +134,19 @@ async function run() {
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
 
     await test("executeHeartbeatRun imports mc-actions from the adapter's returned suffixed session key", async () => {
-      const { createProject, createProjectAgent, createTask, listTaskComments } = await import("@/lib/orchestration/service");
+      const {
+        createProject,
+        createProjectAgent,
+        createTask,
+        ensureCompanyExecutionHives,
+        listTaskComments,
+      } = await import("@/lib/orchestration/service");
       const { enqueueWakeup, executeHeartbeatRun } = await import("@/lib/orchestration/engine/engine");
       const { getOrchestrationDb } = await import("@/lib/orchestration/db");
 
       const db = getOrchestrationDb();
       const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
+      ensureCompanyExecutionHives({ companyIdOrSlug: companyId }, db);
       const project = createProject({
         companyId,
         name: `Suffixed Session Import ${Date.now()}`,

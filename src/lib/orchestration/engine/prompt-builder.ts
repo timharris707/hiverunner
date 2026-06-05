@@ -12,8 +12,10 @@ import { isExecutableAgentRuntime, nonExecutableRuntimeReason, runtimeProviderLa
 import { mergeExecutionRunMetadata, parseJson } from "@/lib/orchestration/engine/persistence";
 import type { TaskSession } from "@/lib/orchestration/engine/persistence";
 import { resolveTaskKey } from "@/lib/orchestration/engine/heartbeat-manager";
+import { isCeoRole } from "@/lib/orchestration/engine/role-matcher";
 import { resolveOpenClawDir } from "@/lib/workspaces/root";
 import { PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
+export { isCeoRole, isCompanyOrchestrationLeadRole } from "@/lib/orchestration/engine/role-matcher";
 
 type AgentRow = {
   id: string;
@@ -64,16 +66,6 @@ function resolveOnboardingDir(): string {
     if (fs.existsSync(dir)) return dir;
   }
   return candidates[0];
-}
-
-export function isCeoRole(role: string): boolean {
-  return role.trim().split(/\s+/).some((token) => token.toLowerCase() === "ceo");
-}
-
-export function isCompanyOrchestrationLeadRole(role: string): boolean {
-  if (isCeoRole(role)) return true;
-  const normalized = role.trim().toLowerCase().replace(/\s+/g, " ");
-  return normalized.includes("product orchestrator") || normalized.includes("orchestration lead");
 }
 
 export function loadOnboardingAssets(role: string): Record<string, string> {

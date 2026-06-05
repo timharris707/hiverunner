@@ -9,7 +9,7 @@ import { parseJson } from "@/lib/orchestration/engine/persistence";
 import {
   isCeoRole,
   isCompanyOrchestrationLeadRole,
-} from "@/lib/orchestration/engine/prompt-builder";
+} from "@/lib/orchestration/engine/role-matcher";
 import type {
   HeartbeatRun,
   HeartbeatRunStatus,

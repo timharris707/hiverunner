@@ -2,7 +2,8 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { enqueueWakeup, findCompanyCeo } from "@/lib/orchestration/engine/engine";
+import { findCompanyCeo } from "@/lib/orchestration/engine/engine-queries";
+import { enqueueWakeup } from "@/lib/orchestration/engine/wakeup-queue";
 import { nextColumnOrder, reconcileTaskHierarchy, refreshAgentLoad } from "@/lib/orchestration/service/shared";
 
 const OPENCLAW_RECONCILE_ACTOR = "openclaw:execution";
