@@ -34,40 +34,6 @@ export const typeIcon: Record<TaskType, string> = {
   release: "🚢",
 };
 
-const STALE_THRESHOLD_MINUTES: Partial<Record<TaskStatus, number>> = {
-  review: 60,
-  "in-progress": 240,
-  blocked: 120,
-};
-
-export type StaleSeverity = "none" | "warning" | "critical";
-
-export function getStaleSignal(taskStatus: TaskStatus, timestamp: string): {
-  severity: StaleSeverity;
-  ageMinutes: number;
-  thresholdMinutes: number | null;
-} {
-  const thresholdMinutes = STALE_THRESHOLD_MINUTES[taskStatus] ?? null;
-  const updatedMs = new Date(timestamp).getTime();
-  const ageMinutes = Number.isFinite(updatedMs)
-    ? Math.max(0, Math.floor((Date.now() - updatedMs) / 60_000))
-    : 0;
-
-  if (!thresholdMinutes) {
-    return { severity: "none", ageMinutes, thresholdMinutes: null };
-  }
-
-  if (ageMinutes >= thresholdMinutes) {
-    return { severity: "critical", ageMinutes, thresholdMinutes };
-  }
-
-  if (ageMinutes >= Math.floor(thresholdMinutes * 0.75)) {
-    return { severity: "warning", ageMinutes, thresholdMinutes };
-  }
-
-  return { severity: "none", ageMinutes, thresholdMinutes };
-}
-
 export function classifyProjectState(status: string): "active" | "paused" | "archived" {
   if (["archived", "completed"].includes(status)) return "archived";
   if (["inactive", "on-hold", "paused"].includes(status)) return "paused";
@@ -81,8 +47,4 @@ export function formatAge(timestamp: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
-}
-
-export function isStale(taskStatus: TaskStatus, timestamp: string): boolean {
-  return getStaleSignal(taskStatus, timestamp).severity === "critical";
 }
