@@ -578,6 +578,24 @@ Latest checkpoint after PR #153:
 
 Net movement from the PR #151 checkpoint: 1 fewer dead-code finding, 1 fewer unused file, and 158 fewer measured LOC. Duplication and health score were unchanged. CodeGraph and direct searches confirmed `src/lib/ui/hiverunner-tokens.ts` had no callers, no callees, and no path imports; the documented `src/lib/ui/index.ts` barrel stayed intact.
 
+Latest checkpoint after PR #157:
+
+- Scan commit: `d236e2457` (`test: reuse wake queue setup helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 390 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 87 clone groups, 79 clone families, 25,293 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 236,001
+
+Net movement from the PR #153 checkpoint: 3 fewer clone groups, 3 fewer clone families, and 111 fewer duplicated lines. Dead-code, health score, and measured LOC were unchanged. This was a three-PR explicit-worktree batch: #155 reused a shared sync test runner in route-map/project-rename tests, #156 extracted a local company-agents route request helper, and #157 reused SQLite/wake-queue setup helpers in two wake-queue tests.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -667,6 +685,9 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #149: remove unused task detail drawer
 - #151: remove unused pixel character component
 - #153: remove unused HiveRunner token mirror
+- #155: reuse sync runner in route map tests
+- #156: share company agents route request helper
+- #157: reuse wake queue setup helpers
 
 Related but not cleanup:
 
@@ -696,7 +717,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: several small PRs; use subagents with explicit worktrees for disjoint clusters.
 
 2. Single-file or tiny-family test fixture extractions
-   - Source signal: remaining clone families include `orchestration-company-agents-route.test.ts`, `orchestration-create-task-depends-on.test.ts`, execution route/hive tests, and small route-test bodies.
+   - Source signal: remaining clone families include `orchestration-create-task-depends-on.test.ts`, execution route/hive tests, voice route DB setup tails, and small route-test bodies.
    - Expected shape: local helper functions inside the test file or a narrow existing test helper, not a broad framework abstraction.
    - Validation: touched route tests plus `npm run fallow:changed`.
    - Estimate: two to four small PRs.
@@ -959,6 +980,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `hiverunner-tokens`; direct path-import `rg` search; `git diff --check`; `npm run fallow:changed`; full Fallow dead-code, duplication, and health summaries; `npm run build`; `npm run lint`; and GitHub Local-First CI.
   - Caveat: this does not clear the `src/lib/ui/index.ts` barrel for removal. That barrel is documented as a public import surface and should stay unless the design-system docs are updated deliberately.
 
+- Explicit-worktree route/wake test fixture batch
+  - Source signal: Fallow still reported repeated tiny route request bodies, synchronous pass/fail runners, and wake-queue setup/cleanup blocks in low-risk tests.
+  - Completed by #155, #156, and #157 with separate worktrees and disjoint write ownership.
+  - Validation: focused route-map/project-rename/company-agents/wake-queue tests, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summaries, and GitHub Local-First CI for all three PRs.
+  - Caveat: `orchestration-rename-safety.test.ts` was deliberately excluded from #155 after a fresh isolated DB run surfaced pre-existing stale weather-edge/NEV fixture assertions. Treat that as a separate reliability target, not part of routine Fallow cleanup.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -983,6 +1010,10 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports 8 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
+- `orchestration-rename-safety.test.ts` isolated DB fixture refresh
+  - A fresh isolated `ORCHESTRATION_DB_PATH` run currently fails weather-edge/NEV alias assertions in this test.
+  - This surfaced while evaluating #155, but it is reliability/fixture work, not a Fallow hygiene extraction. Keep it separate and verify the intended seed behavior before changing assertions.
+
 ## Size And Cadence
 
 The full Fallow warning pool is not a one-morning cleanup. Cleaning every reported dead-code, duplicate, complexity, and circular-dependency finding safely would likely be a multi-day to multi-week effort because many findings are high-blast-radius architecture work.
@@ -994,4 +1025,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #153, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI/task-detail-drawer/pixel-character/token-mirror prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #157, the surfaced reliability issues from the recent hygiene batches are mostly resolved, but one stale `orchestration-rename-safety.test.ts` isolated-DB fixture issue remains as a separate target. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either fix the isolated rename-safety fixture issue, continue focused single-file/small-cluster test-helper cleanup with clear validation, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
