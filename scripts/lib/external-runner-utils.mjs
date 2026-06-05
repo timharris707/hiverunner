@@ -1,3 +1,5 @@
+import { spawn } from "node:child_process";
+
 export function readStdin() {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -38,6 +40,72 @@ export function numberFromEnv(name, fallback) {
 export function numberFrom(value) {
   const parsed = typeof value === "number" ? value : Number.parseFloat(String(value ?? ""));
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+export function runBufferedCommand({
+  command,
+  args,
+  cwd,
+  env,
+  stdio = ["ignore", "pipe", "pipe"],
+  stdin,
+  timeoutMs,
+  maxBufferBytes,
+  describeTimeout,
+  describeBufferLimit,
+  describeExit,
+}) {
+  const startedAt = Date.now();
+
+  return new Promise((resolve) => {
+    const child = spawn(command, args, { cwd, env, stdio });
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    let timedOut = false;
+    let killedForBuffer = false;
+    let spawnError = null;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
+
+    child.stdout?.on("data", (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
+      if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
+        killedForBuffer = true;
+        child.kill("SIGTERM");
+      }
+    });
+    child.stderr?.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
+    });
+    child.on("error", (error) => {
+      spawnError = error.message;
+    });
+    child.on("close", (exitCode, signal) => {
+      clearTimeout(timer);
+      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
+      const stderr = Buffer.concat(stderrChunks).toString("utf8");
+      const error =
+        spawnError ??
+        (timedOut ? describeTimeout({ timeoutMs }) : null) ??
+        (killedForBuffer ? describeBufferLimit({ maxBufferBytes }) : null) ??
+        (exitCode === 0 ? null : describeExit({ exitCode, signal }));
+      resolve({
+        stdout,
+        stderr,
+        exitCode,
+        signal,
+        error,
+        durationMs: Date.now() - startedAt,
+      });
+    });
+    if (stdin !== undefined) child.stdin?.end(stdin);
+  });
 }
 
 export function asRecord(value) {

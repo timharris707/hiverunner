@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { spawn } from "node:child_process";
-import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStdin, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
+import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStdin, runBufferedCommand, splitCommandLine, stringFrom } from "./lib/external-runner-utils.mjs";
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
@@ -153,64 +152,23 @@ function buildClaudeInvocation(payload) {
 function runClaude({ command, args, cwd, prompt }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_CLAUDE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_CLAUDE_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
-  const startedAt = Date.now();
 
-  return new Promise((resolve) => {
-    const child = spawn(command, args, {
-      cwd,
-      env: {
-        ...process.env,
-        HIVERUNNER_EXTERNAL_RUNNER: "1",
-        HIVERUNNER_CLAUDE_RUNNER: "1",
-      },
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    const stdoutChunks = [];
-    const stderrChunks = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-    let timedOut = false;
-    let killedForBuffer = false;
-    let spawnError = null;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-    }, timeoutMs);
-
-    child.stdout.on("data", (chunk) => {
-      stdoutBytes += chunk.length;
-      if (stdoutBytes <= maxBufferBytes) stdoutChunks.push(chunk);
-      if (stdoutBytes > maxBufferBytes && !killedForBuffer) {
-        killedForBuffer = true;
-        child.kill("SIGTERM");
-      }
-    });
-    child.stderr.on("data", (chunk) => {
-      stderrBytes += chunk.length;
-      if (stderrBytes <= maxBufferBytes) stderrChunks.push(chunk);
-    });
-    child.on("error", (error) => {
-      spawnError = error.message;
-    });
-    child.on("close", (exitCode, signal) => {
-      clearTimeout(timer);
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      const error =
-        spawnError ??
-        (timedOut ? `Claude command timed out after ${timeoutMs}ms` : null) ??
-        (killedForBuffer ? `Claude command exceeded ${maxBufferBytes} bytes of stdout` : null) ??
-        (exitCode === 0 ? null : `Claude command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`);
-      resolve({
-        stdout,
-        stderr,
-        exitCode,
-        signal,
-        error,
-        durationMs: Date.now() - startedAt,
-      });
-    });
-    child.stdin.end(prompt);
+  return runBufferedCommand({
+    command,
+    args,
+    cwd,
+    env: {
+      ...process.env,
+      HIVERUNNER_EXTERNAL_RUNNER: "1",
+      HIVERUNNER_CLAUDE_RUNNER: "1",
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+    stdin: prompt,
+    timeoutMs,
+    maxBufferBytes,
+    describeTimeout: () => `Claude command timed out after ${timeoutMs}ms`,
+    describeBufferLimit: () => `Claude command exceeded ${maxBufferBytes} bytes of stdout`,
+    describeExit: ({ exitCode, signal }) => `Claude command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
   });
 }
 
