@@ -696,6 +696,24 @@ Latest checkpoint after the CodeGraph engine-cycle cleanup:
 
 Net movement from the PR #168 checkpoint: 6 fewer dead-code findings, all from circular-dependency reduction. The import-boundary cleanup removed the remaining orchestration engine cycles by pointing OpenClaw reconciliation and the sweeper at leaf helpers, and by extracting CEO/orchestration-lead role matching into a tiny engine leaf module. Duplication stayed unchanged. A pre-existing OpenClaw suffixed-session test fixture gap was also fixed by seeding the company execution hive in that test.
 
+Latest checkpoint after the company resolver leaf extraction:
+
+- Scan commit: local branch from `2c829312e` (`refactor: untangle orchestration engine cycles`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 381 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 0
+- Duplication: 80 clone groups, 73 clone families, 24,949 duplicated lines, 8.7% duplication
+- Health score: 81, grade B
+- Total measured LOC: 235,855
+
+Net movement from the engine-cycle checkpoint: 2 fewer dead-code findings from clearing the final company-service/provider circular dependencies, 20 fewer duplicated lines, 8 fewer measured LOC, and a 1-point health score improvement. The cleanup extracted `resolveCompanyIdBySlug` to `src/lib/orchestration/company-resolver.ts`, kept the existing `company-service` re-export for compatibility, and moved `company-skills` to the leaf resolver import so provider adapters no longer complete a back-edge into the service barrel.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -998,6 +1016,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph `status`, `query`, `callers`, and `impact` for `findCompanyCeo`, `enqueueWakeup`, and `isCeoRole`; focused role matcher, review-loop, wake queue, OpenClaw execution/session, and sweeper tests; `git diff --check`; `npm run fallow:changed`; full circular-dependency check; `npm run lint`; `npm run build`; and `npm run build:tracked`.
   - Caveat: the remaining 2 cycles are the company-service to provider-adapter boundary through Codex/Symphony and company skills. Treat those as provider architecture work, not incidental cleanup.
 
+- Company resolver circular dependency cleanup
+  - Source signal: after the engine-cycle cleanup, Fallow's final 2 cycles ran through `company-service -> service/task -> execution adapters -> Codex/Symphony -> company-skills -> company-service`.
+  - Completed by extracting `resolveCompanyIdBySlug` to `src/lib/orchestration/company-resolver.ts`, preserving the `company-service` re-export, and importing the leaf resolver from `company-skills`.
+  - Validation: CodeGraph `status`, `query`, `callers`, and `impact` for `resolveCompanyIdBySlug`, `cancelRunningExecutionRunsForTask`, and `getExecutionAdapter`; focused rename-safety, company-skills route, review routing/decision, skill candidate, adapter registry, Codex adapter, and Symphony adapter tests; `git diff --check`; `npm run fallow:changed`; full Fallow dead-code/dupes/health summaries; and circular-dependency check showing no remaining circular rows.
+  - Caveat: this clears Fallow's circular-dependency pool. Further provider/adapter work should be driven by runtime behavior or an explicit design goal, not by circular-dependency cleanup.
+
 - Habbo office dead-file prune
   - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
   - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
@@ -1142,9 +1166,9 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports duplication across Anthropic, Codex, Gemini, Hermes, OpenClaw, and Symphony execution adapters.
   - This touches execution semantics and provider boundaries. Treat it as architecture work, not incidental cleanup.
 
-- Circular dependency cleanup
-  - Current count is 2 after the CodeGraph engine-cycle cleanup removed the remaining orchestration engine cycles.
-  - Remaining cycles involve company-service, task service, execution-run cancellation, execution adapter barrels, Codex/Symphony adapters, and company skills. These need CodeGraph impact analysis and a provider-boundary design note before edits.
+- Provider/adapter architecture work
+  - Current Fallow circular-dependency count is 0 after the company resolver leaf extraction.
+  - Future provider adapter or company-service work should be driven by runtime behavior, ownership boundaries, or a concrete design goal, not by circular-dependency cleanup.
 
 - Large page/component complexity
   - Current health report lists large dashboard/task/detail/configuration pages and central engine services.
@@ -1165,4 +1189,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After the CodeGraph engine-cycle cleanup, the long Fallow hygiene run has reached diminishing returns for low-risk cleanup. The highest-signal remaining runner-script clone, clearest memory/wiki parser clone, one final voice test-runner slice, the voice action active-hive fixture, the smallest build-queue circular-dependency family, and the remaining orchestration engine cycles have been handled in dedicated PRs with focused validation. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk after a fresh CodeGraph review: continue only if a slice has a clear architecture, reliability, or navigation payoff. Provider execution adapter helper extraction, the remaining company-service/provider circular dependencies, and large page complexity are higher-impact but higher-risk; handle them as designed work, not incidental Fallow cleanup.
+After the company resolver leaf extraction, the long Fallow hygiene run has reached diminishing returns for low-risk cleanup. The highest-signal remaining runner-script clone, clearest memory/wiki parser clone, one final voice test-runner slice, the voice action active-hive fixture, the smallest build-queue circular-dependency family, the remaining orchestration engine cycles, and the company-service/provider circular-dependency back-edge have been handled in dedicated PRs with focused validation. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk after a fresh CodeGraph review: continue only if a slice has a clear architecture, reliability, or navigation payoff. Provider execution adapter helper extraction and large page complexity remain higher-impact but higher-risk; handle them as designed work, not incidental Fallow cleanup.

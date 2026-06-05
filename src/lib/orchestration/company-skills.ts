@@ -4,7 +4,7 @@ import path from "path";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { syncAgentCoreFiles } from "@/lib/orchestration/agent-core-files";
-import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-resolver";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 
 export type CompanySkillStatus = "draft" | "active" | "archived";
