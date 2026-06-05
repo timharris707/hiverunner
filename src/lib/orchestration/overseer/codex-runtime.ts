@@ -29,6 +29,7 @@ import type {
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
+const DEFAULT_CLI_PATH_ENTRIES = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"];
 const codexSessionFileCache = new Map<string, string>();
 const codexSessionTelemetryCache = new Map<string, {
   filePath: string;
@@ -57,6 +58,54 @@ function safeRecord(text: string): Record<string, unknown> | null {
 
 function stringFrom(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function buildCodexProcessEnv(command: string, env: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const seen = new Set<string>();
+  const entries: string[] = [];
+  const addEntry = (entry: string | null | undefined) => {
+    const trimmed = entry?.trim();
+    if (!trimmed) return;
+    const expanded = trimmed.replace(/^~(?=$|\/)/, env.HOME?.trim() ?? "~");
+    if (seen.has(expanded)) return;
+    seen.add(expanded);
+    entries.push(expanded);
+  };
+
+  const trimmedCommand = command.trim();
+  if (path.isAbsolute(trimmedCommand)) addEntry(path.dirname(trimmedCommand));
+  for (const entry of (env.PATH ?? "").split(path.delimiter)) addEntry(entry);
+
+  const home = env.HOME?.trim();
+  if (home) {
+    addEntry(path.join(home, ".local", "bin"));
+    addEntry(path.join(home, ".cargo", "bin"));
+    addEntry(path.join(home, "bin"));
+  }
+  for (const entry of DEFAULT_CLI_PATH_ENTRIES) addEntry(entry);
+
+  return {
+    ...env,
+    PATH: entries.join(path.delimiter),
+  };
+}
+
+function resolveCodexCommand(command: string, env: NodeJS.ProcessEnv): string | null {
+  const trimmed = command.trim();
+  if (!trimmed) return null;
+  const candidates = trimmed.includes(path.sep)
+    ? [path.resolve(trimmed)]
+    : (env.PATH ?? "").split(path.delimiter).map((entry) => path.join(entry, trimmed));
+
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // Try the next PATH entry.
+    }
+  }
+  return null;
 }
 
 function numberFrom(value: unknown): number | undefined {
@@ -327,7 +376,20 @@ export function detectCodexStatus(command = "codex"): {
   loginStatus: string;
   error?: string;
 } {
-  const version = spawnSync(command, ["--version"], { encoding: "utf8" });
+  const env = buildCodexProcessEnv(command);
+  const commandPath = resolveCodexCommand(command, env);
+  if (!commandPath) {
+    return {
+      command,
+      installed: false,
+      version: null,
+      authReady: false,
+      authMode: "missing",
+      loginStatus: "Codex CLI not found",
+      error: `Command ${command} was not found on PATH`,
+    };
+  }
+  const version = spawnSync(commandPath, ["--version"], { encoding: "utf8", env });
   if (version.error || version.status !== 0) {
     return {
       command,
@@ -339,7 +401,7 @@ export function detectCodexStatus(command = "codex"): {
       error: version.error?.message || version.stderr?.trim() || "Codex CLI not found",
     };
   }
-  const login = spawnSync(command, ["login", "status"], { encoding: "utf8" });
+  const login = spawnSync(commandPath, ["login", "status"], { encoding: "utf8", env });
   const loginStatus = `${login.stdout ?? ""}${login.stderr ? `\n${login.stderr}` : ""}`.trim();
   const lower = loginStatus.toLowerCase();
   const chatgpt = lower.includes("chatgpt");
@@ -364,7 +426,11 @@ export function detectCodexModelCatalog(command = "codex"): Array<{
   effectiveContextWindowPercent: number | null;
   additionalSpeedTiers: string[];
 }> {
-  const result = spawnSync(command, ["debug", "models"], {
+  const env = buildCodexProcessEnv(command);
+  const commandPath = resolveCodexCommand(command, env);
+  if (!commandPath) return [];
+  const result = spawnSync(commandPath, ["debug", "models"], {
+    env,
     encoding: "utf8",
     timeout: 5000,
     maxBuffer: 8 * 1024 * 1024,
@@ -532,9 +598,11 @@ function runCodexProcess(input: {
   }
 
   return new Promise((resolve) => {
-    const child = spawn(input.command, args, {
+    const env = buildCodexProcessEnv(input.command);
+    const commandPath = resolveCodexCommand(input.command, env) ?? input.command;
+    const child = spawn(commandPath, args, {
       cwd: input.workspaceRoot,
-      env: process.env,
+      env,
       stdio: ["pipe", "pipe", "pipe"],
     });
     setOverseerTurnProcess({ sessionId: input.sessionId, turnId: input.turnId, pid: child.pid ?? null });
