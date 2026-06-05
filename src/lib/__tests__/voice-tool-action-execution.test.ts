@@ -4,6 +4,10 @@ import { rmSync } from "node:fs";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import {
+  configureCompanyExecutionHive,
+  ensureCompanyExecutionHives,
+} from "@/lib/orchestration/service/execution-hives";
+import {
   createProject,
   createProjectAgent,
   createTask,
@@ -55,6 +59,7 @@ async function run() {
     status: "active",
   }).project;
 
+  const db = getOrchestrationDb();
   const agent = createProjectAgent({
     projectId: project.id,
     name: `Scout ${Date.now()}`,
@@ -64,9 +69,20 @@ async function run() {
     status: "idle",
     skills: ["voice", "execution"],
   }).agent;
-  getOrchestrationDb()
-    .prepare("UPDATE agents SET adapter_type = 'anthropic', model = 'anthropic/claude-sonnet-4-6' WHERE id = ?")
+  db.prepare(
+    "UPDATE agents SET adapter_type = 'anthropic', model = 'anthropic/claude-sonnet-4-6' WHERE id = ?",
+  )
     .run(agent.id);
+  ensureCompanyExecutionHives({ companyIdOrSlug: company.id }, db);
+  configureCompanyExecutionHive({
+    companyIdOrSlug: company.id,
+    hiveId: "balanced-builder",
+    orchestrationMode: "symphony",
+    runtimeProvider: "codex",
+    runtimeLabel: "Codex",
+    modelRouting: "hive-managed",
+    modelRoutingLabel: "Hive managed",
+  }, db);
 
   const task = createTask({
     projectId: project.id,
