@@ -67,7 +67,7 @@ export function TierBadge({ tier }: { tier: ObservabilityTier }) {
  * Green dot = available, muted dot + "unavailable" = not available.
  * Identical rendering on configuration and run detail surfaces.
  */
-export function CapabilityRow({ label, available }: { label: string; available: boolean }) {
+function CapabilityRow({ label, available }: { label: string; available: boolean }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 5, padding: "2px 0" }}>
       <div style={{

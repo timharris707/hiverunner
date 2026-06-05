@@ -64,8 +64,6 @@ export const PRI_WEIGHT: Record<TaskPriority, number> = { P0: 0, P1: 1, P2: 2, P
 
 export const BOARD_COLUMNS: TaskStatus[] = ["backlog", "to-do", "in-progress", "review", "done", "blocked"];
 export const UNASSIGNED_PROJECT_FILTER_ID = "__unassigned_project__";
-
-export const TASK_TYPES: TaskType[] = ["feature", "bug", "maintenance", "research", "infrastructure", "directive"];
 export const TYPE_LABEL: Record<TaskType, string> = {
   feature: "Feature",
   bug: "Bug",
@@ -111,7 +109,7 @@ export function assigneeInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-export function getAgentForTask(task: Pick<TaskRow, "assignee" | "status">, agentMap: Map<string, OrchestrationAgent>) {
+function getAgentForTask(task: Pick<TaskRow, "assignee" | "status">, agentMap: Map<string, OrchestrationAgent>) {
   if (!task.assignee) return undefined;
   return agentMap.get(task.assignee.toLowerCase());
 }
