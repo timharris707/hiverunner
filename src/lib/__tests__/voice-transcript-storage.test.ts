@@ -3,23 +3,9 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-let passed = 0;
-let failed = 0;
+import { createVoiceSessionTestRunner } from "@/lib/__tests__/helpers/voice-session-test-harness";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createVoiceSessionTestRunner();
 
 console.log("\nVoice Transcript Storage Tests\n");
 
@@ -184,9 +170,7 @@ async function run() {
     rmSync(tmpRoot, { recursive: true, force: true });
   }
 
-  console.log(`\nPassed: ${passed}`);
-  console.log(`Failed: ${failed}`);
-  if (failed > 0) process.exit(1);
+  finish();
 }
 
 void run();
