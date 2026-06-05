@@ -326,6 +326,24 @@ Latest checkpoint after PR #120:
 
 Net movement from the PR #116 checkpoint: 9 fewer dead-code findings, 4 fewer unused files, 7 fewer unused exports, 799 fewer measured LOC, and 5 fewer high-complexity functions above threshold. Unused type exports rose by 2 after removing component files, so treat the total dead-code movement as the more useful directional signal. Duplication line counts were unchanged, while the percentage moved from 8.8% to 8.9% because the total LOC denominator shrank.
 
+Latest checkpoint after PR #126:
+
+- Scan commit: `2a95b4a81` (`test: dedupe heartbeat prompt fixtures`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 422 total
+  - unused files: 34
+  - unused exports: 263
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 93 clone groups, 84 clone families, 25,655 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 241,773
+
+Net movement from the PR #120 checkpoint: 3 fewer dead-code findings, 2 fewer unused exports, 1 fewer duplicate export, 5 fewer clone groups, 4 fewer clone families, 326 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Health score and measured LOC were unchanged. This batch mixed one safe UI/export micro-prune with four narrow test-fixture cleanups; the parallel explicit-worktree approach improved throughput without broadening individual PR risk.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -396,6 +414,11 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #118: trim local-only UI helper exports
 - #119: prune unused agent avatar exports
 - #120: prune unused voice display components
+- #122: trim icon helper exports
+- #123: dedupe review-loop wake assertions
+- #124: dedupe voice startup missing-key cases
+- #125: dedupe create-task depends action fixtures
+- #126: dedupe heartbeat prompt fixtures
 
 Related but not cleanup:
 
@@ -604,6 +627,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` symbol/path searches, `git diff --check`, `npm run fallow:changed`, `npm run build`, `npm run lint` for #118, worker build validation for #119/#120, and GitHub Local-First CI.
   - Caveat: two worker scopes correctly stopped without edits. `CronJobCard`, `InlineTooltip`, and `RichDescription` are referenced by other currently unused component islands, so deleting them alone would break imports. `branding.ts` is live through `OfficeCanvas`, and `src/lib/ui/index.ts` is a documented public barrel. Keep these as product-intent or broader component-island decisions, not casual Fallow deletes.
 
+- Icon helper export prune and parallel test-fixture cleanup
+  - Source signal: unused component-local icon helper exports plus Fallow clone groups in review-loop wake queries, voice startup missing-key tests, create-task dependency action fixtures, and heartbeat prompt fixture setup.
+  - Completed by #122, #123, #124, #125, and #126 with explicit worktrees and worker-owned scopes.
+  - Validation: direct `rg` symbol/path searches for #122; focused touched tests for #123-#126; `git diff --check`; `npm run fallow:changed`; `npm run build` and `npm run lint` for #122; and GitHub Local-First CI for every PR.
+  - Caveat: remaining test duplication is increasingly inherited setup/tail boilerplate spread across many files. Keep using changed-file gates and focused tests, but do not spend whole work blocks polishing small clone groups unless they improve fixture clarity or remove a repeated source of mistakes.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -639,4 +668,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #120, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: either run one more explicit-worktree batch for obviously isolated UI/helper exports, or pause dead-code pruning and pivot back to a small directly verified test-fixture cleanup. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #126, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: use a short Fallow scout to find another directly provable dead-export/dead-file micro-batch, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
