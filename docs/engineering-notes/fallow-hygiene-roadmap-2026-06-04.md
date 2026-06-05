@@ -624,6 +624,24 @@ Latest checkpoint after PR #161:
 
 Net movement from the PR #157 metric checkpoint: 4 fewer clone groups, 3 fewer clone families, 145 fewer duplicated lines, 93 fewer measured LOC, 4 fewer large functions, and 4 fewer high-complexity functions above threshold. Dead-code and health score were unchanged. This was a dedicated operational runner PR: CodeGraph bounded the shared utility impact to the external runner wrappers, local validation ran all five runner tests plus lint/build/tracked-build, and HERMES plus the TypeScript Symphony adapter stayed local because their process handling differs.
 
+Latest checkpoint after PR #163:
+
+- Scan commit: `a895cbc8e` (`refactor: share memory json parsing helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 390 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 80 clone groups, 73 clone families, 25,058 duplicated lines, 8.7% duplication
+- Health score: 75, grade B
+- Total measured LOC: 235,854
+
+Net movement from the PR #161 checkpoint: 3 fewer clone groups, 3 fewer clone families, 90 fewer duplicated lines, a 0.1 percentage-point reduction in reported duplication, 54 fewer measured LOC, and a 1-point health score improvement. Dead-code counts were unchanged. This was a CodeGraph-gated runtime helper extraction: direct reads confirmed identical defensive JSON object parsing in memory/wiki modules and identical string-array parsing in three of them, while validation covered focused memory retrieval, memory quality, memory vault, and wiki writeback tests plus lint/build and GitHub Local-First CI.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -896,6 +914,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `external-runner-utils`; `node --check` on every touched script; all five external runner tests; `git diff --check`; `npm run fallow:changed`; full Fallow duplication summary; `npm run lint`; `npm run build`; `npm run build:tracked`; and GitHub Local-First CI.
   - Caveat: do not continue into the TypeScript execution adapters or HERMES ACP process loop as incidental cleanup. Those are runtime/provider architecture work and need a separate design/test matrix.
 
+- Memory/wiki JSON parser helper extraction
+  - Source signal: Fallow highlighted repeated defensive JSON object and string-array parser helpers in memory context, memory quality, memory vault, and wiki writeback modules.
+  - Completed by #163 with `src/lib/orchestration/json-parsing.ts`, preserving the existing `{}` / `[]` fallback behavior and keeping the helper outside the service/shared validator boundary.
+  - Validation: CodeGraph `status`, `query`, `callers`, and `impact` for the parser boundary; direct file reads for every replaced helper; focused memory retrieval, memory quality, memory vault, wiki writeback request, and wiki writeback service tests; `git diff --check`; `npm run fallow:changed`; full Fallow duplication summary; `npm run lint`; `npm run build`; and GitHub Local-First CI.
+  - Caveat: this should not become a general JSON cleanup mandate. Other parser helpers have different fallback contracts or live in higher-blast-radius execution/provider paths.
+
 - Habbo office dead-file prune
   - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
   - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
@@ -1063,4 +1087,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #161, the highest-signal remaining runner-script clone was handled in a dedicated PR with the full runner matrix. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #163, the highest-signal remaining runner-script clone and the clearest memory/wiki parser clone have both been handled in dedicated PRs with CodeGraph and focused tests. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
