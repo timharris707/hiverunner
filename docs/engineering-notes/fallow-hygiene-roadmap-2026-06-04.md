@@ -660,6 +660,24 @@ Latest checkpoint after PR #165:
 
 Net movement from the PR #163 checkpoint: 89 fewer duplicated lines. Clone groups, clone families, dead-code counts, health score, and measured LOC were unchanged. This was the final low-risk test-only cleanup in the long run: four voice tests now reuse the existing voice session test runner, while `voice-tool-action-execution.test.ts` stayed out of scope after a fresh isolated DB run exposed a separate active execution hive fixture issue.
 
+Latest checkpoint after PR #168:
+
+- Scan commit: `bc13abd03` (`refactor: split json helper from build queue`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 389 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 8
+- Duplication: 80 clone groups, 73 clone families, 24,969 duplicated lines, 8.7% duplication
+- Health score: 75, grade B
+- Total measured LOC: 235,859
+
+Net movement from the PR #165 checkpoint: 1 fewer dead-code finding and 1 fewer circular dependency, with duplication and health score unchanged. #167 fixed the previously deferred `voice-tool-action-execution.test.ts` fresh-DB active-hive fixture. #168 used CodeGraph to isolate the smallest circular-dependency family and split the generic JSON file helper out of `build-queue`, preserving the legacy `readJSON` re-export while removing the `build-queue` to `quota-scheduler` back-edge.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -944,6 +962,18 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused touched voice tests, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summary, `npm run lint`, and GitHub Local-First CI.
   - Caveat: `voice-tool-action-execution.test.ts` was deliberately left untouched after its fresh isolated DB run reproduced a separate active-hive fixture issue in the `start_task_work` case.
 
+- Voice action execution fresh-DB fixture
+  - Source signal: a fresh isolated run of `voice-tool-action-execution.test.ts` failed the `start_task_work` case with `No active execution hive is configured for this company`.
+  - Completed by #167 by seeding and configuring the company execution hive in the voice action execution test fixture, keeping the runtime wake assertion on the queued Symphony path without requiring provider keys.
+  - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `executeVoiceActionTool`; focused voice action, execution hives, and route resolver tests; `git diff --check`; `npm run fallow:changed`; `npm run lint`; and GitHub Local-First CI.
+  - Caveat: this was reliability cleanup surfaced by Fallow/CodeGraph work, not a production execution behavior change.
+
+- Build queue/quota circular dependency cleanup
+  - Source signal: Fallow reported a small cycle `build-queue.ts -> quota-scheduler.ts -> build-queue.ts`; CodeGraph and direct reads showed `quota-scheduler` only imported `readJSON` from `build-queue`.
+  - Completed by #168 by moving the generic JSON file helper to `src/lib/json-file.ts`, preserving the `build-queue` re-export for legacy route callers, and importing the helper directly from `quota-scheduler`.
+  - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` around `readJSON`, `evaluateTask`, and `queueOrStartBuildDecision`; focused legacy build/factory tests; `git diff --check`; `npm run fallow:changed`; full circular-dependency check; `npm run lint`; `npm run build`; `npm run build:tracked`; and GitHub Local-First CI.
+  - Caveat: do not continue from this into orchestration engine/provider cycles by analogy. The remaining circular dependencies are higher-blast architecture work.
+
 - Habbo office dead-file prune
   - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
   - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
@@ -1088,13 +1118,9 @@ These are real findings, but they should not be folded into the current low-risk
   - Fallow reports duplication across Anthropic, Codex, Gemini, Hermes, OpenClaw, and Symphony execution adapters.
   - This touches execution semantics and provider boundaries. Treat it as architecture work, not incidental cleanup.
 
-- Voice action execution fresh-DB fixture
-  - A fresh isolated run of `voice-tool-action-execution.test.ts` currently fails the `start_task_work` case with `No active execution hive is configured for this company`.
-  - This should be treated like the earlier OpenClaw/rename-safety fixture findings: a reliability target with direct fixture setup work, not folded into runner dedupe cleanup.
-
 - Circular dependency cleanup
-  - Current count remains 9.
-  - Most cycles involve build queue/quota scheduling or orchestration engine/runtime modules. These need CodeGraph impact analysis and design notes before edits.
+  - Current count is 8 after #168 removed the small build-queue/quota scheduler cycle.
+  - Remaining cycles involve company-service/provider adapter boundaries and orchestration engine/runtime modules. These need CodeGraph impact analysis and design notes before edits.
 
 - Large page/component complexity
   - Current health report lists large dashboard/task/detail/configuration pages and central engine services.
@@ -1115,4 +1141,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #165, the long Fallow hygiene run has reached diminishing returns for low-risk cleanup. The highest-signal remaining runner-script clone, clearest memory/wiki parser clone, and one final voice test-runner slice have been handled in dedicated PRs with focused validation. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk after a fresh CodeGraph review: continue only if a slice has a clear architecture, reliability, or navigation payoff. Provider execution adapter helper extraction, circular dependencies, large page complexity, and execution-hive fixture reliability are higher-impact but higher-risk; handle them as designed work, not incidental Fallow cleanup.
+After PR #168, the long Fallow hygiene run has reached diminishing returns for low-risk cleanup. The highest-signal remaining runner-script clone, clearest memory/wiki parser clone, one final voice test-runner slice, the voice action active-hive fixture, and the smallest circular-dependency family have been handled in dedicated PRs with focused validation. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk after a fresh CodeGraph review: continue only if a slice has a clear architecture, reliability, or navigation payoff. Provider execution adapter helper extraction, remaining circular dependencies, and large page complexity are higher-impact but higher-risk; handle them as designed work, not incidental Fallow cleanup.
