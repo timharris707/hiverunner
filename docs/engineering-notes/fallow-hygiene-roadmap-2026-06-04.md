@@ -254,6 +254,24 @@ Latest checkpoint after PR #110:
 
 Net movement from the PR #108 checkpoint: 3 fewer dead-code findings, 16 fewer duplicated lines, 872 fewer measured LOC, and a 1-point health score improvement. This was another narrow dead-file prune with direct-search proof and build/lint validation.
 
+Latest checkpoint after PR #112:
+
+- Scan commit: `13472b238` (`chore: remove unused Stardew office components`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 447 total
+  - unused files: 38
+  - unused exports: 285
+  - unused type exports: 52
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 60
+  - circular dependencies: 9
+- Duplication: 98 clone groups, 88 clone families, 25,981 duplicated lines, 8.8% duplication
+- Health score: 73, grade B
+- Total measured LOC: 242,726
+
+Net movement from the PR #110 checkpoint: 3 fewer dead-code findings and 1,062 fewer measured LOC. Duplication counts were unchanged. The health score moved from 74 back to 73 because Fallow's weighted deductions shifted slightly despite the lower dead-file count; treat that as a reminder to use the metric directionally, not as an exact quality score.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -318,6 +336,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #106: share external runner prompt builder
 - #108: remove unused Habbo office components
 - #110: remove unused Zelda office components
+- #112: remove unused Stardew office components
 
 Related but not cleanup:
 
@@ -353,7 +372,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead file/export micro-prunes
-   - Source signal: dead-code remains at 450 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 447 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -502,6 +521,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` searches for every Zelda export, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code and duplication summaries, `npm run build`, `npm run lint`, and GitHub Local-First CI.
   - Caveat: this stayed intentionally narrower than deleting every office component Fallow reports. Continue only with directly proven, coherent families.
 
+- Stardew office dead-file prune
+  - Source signal: after the Habbo and Zelda prunes, the Stardew office room, character, and furniture React components were the remaining coherent unused office theme family.
+  - Completed by #112 by removing `src/components/office/StardewRoom.tsx`, `src/components/office/StardewCharacter.tsx`, and `src/components/office/StardewFurniture.tsx`.
+  - Validation: direct `rg` searches for every Stardew export, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code and duplication summaries, `npm run build`, `npm run lint`, and GitHub Local-First CI.
+  - Caveat: stop peeling office UI by default after this. `OfficeCanvas` and `PixelCharacter` need product intent review before removal because they are closer to the current PNG/canvas office direction.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -523,7 +548,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 41 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 38 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -537,4 +562,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #110, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo/Zelda dead-file prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: one more coherent dead-file family is reasonable if direct searches are clean, otherwise pivot back to a small directly verified test-fixture cleanup. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #112, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than the immediately preceding tiny test-fixture cleanup, and the Habbo/Zelda/Stardew dead-file prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: pivot back to a small directly verified test-fixture cleanup or an isolated export micro-prune. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
