@@ -434,6 +434,24 @@ Latest checkpoint after PR #137:
 
 Net movement from the PR #134 checkpoint: 7 fewer dead-code findings, 7 fewer unused files, 1,264 fewer measured LOC, 8 fewer large functions, and 6 fewer high-complexity functions above threshold. Duplication line counts were unchanged; the percentage moved from 8.8% to 8.9% because the LOC denominator shrank. This was a two-PR explicit-worktree worker batch: #136 removed standalone skill/org/marketing UI files and #137 removed standalone markdown/file-tree UI files after direct path-import searches and full build/lint/Fallow validation.
 
+Latest checkpoint after PR #139:
+
+- Scan commit: `c19f87967` (`chore: remove unused shell UI components`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 392 total
+  - unused files: 11
+  - unused exports: 256
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 93 clone groups, 84 clone families, 25,655 duplicated lines, 8.9% duplication
+- Health score: 74, grade B
+- Total measured LOC: 237,727
+
+Net movement from the PR #137 checkpoint: 2 fewer dead-code findings, 2 fewer unused files, 266 fewer measured LOC, 1 fewer large function, and 1 fewer high-complexity function above threshold. Duplication and health score were unchanged. This was the last obvious standalone UI dead-file slice: `QuickActionBar` and `ProjectShellNav` had no exact path imports, while the remaining dead-file list is mostly product-intent or high-blast-radius territory.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -515,6 +533,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #134: remove unused legacy dashboard widgets
 - #136: remove unused skill/org/marketing UI files
 - #137: remove unused markdown/file-tree UI files
+- #139: remove unused shell UI components
 
 Related but not cleanup:
 
@@ -550,7 +569,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead file/export micro-prunes
-   - Source signal: dead-code remains at 394 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 392 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -759,6 +778,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: worker-owned direct `rg` path-import and symbol searches, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summaries, `npm run lint`, `npm run build`, and GitHub Local-First CI for both PRs.
   - Caveat: broad substring searches still produce unrelated names such as API `getFileTree`; use exact path-import checks before deleting UI files. Remaining unused files are increasingly product-intent or architecture-boundary decisions.
 
+- Standalone shell UI dead-file prune
+  - Source signal: after the worker batch, `QuickActionBar` and `ProjectShellNav` remained as standalone unused UI components with no exact path imports.
+  - Completed by #139 by removing `src/components/QuickActionBar.tsx` and `src/components/orchestration/ProjectShellNav.tsx`.
+  - Validation: direct `rg` path-import and symbol searches, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run lint`, `npm run build`, and GitHub Local-First CI.
+  - Caveat: `public/sw.js` also appears in Fallow's unused-file list, but it is registered by `ServiceWorkerRegistration` via `/sw.js`; do not delete it as dead code.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -780,7 +805,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 13 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 11 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -794,4 +819,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #137, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The next best target should be selected by expected gain and risk: use a short Fallow scout to find another directly provable dead-file island or bundle of dead exports, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #139, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or pivot back to focused duplicate/test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
