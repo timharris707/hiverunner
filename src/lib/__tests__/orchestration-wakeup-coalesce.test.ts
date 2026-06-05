@@ -17,23 +17,9 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 
-let passed = 0;
-let failed = 0;
+import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 
-function test(name: string, fn: () => Promise<void> | void) {
-  return Promise.resolve()
-    .then(fn)
-    .then(() => {
-      passed += 1;
-      console.log(`  ✓ ${name}`);
-    })
-    .catch((error: unknown) => {
-      failed += 1;
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`  ✗ ${name}`);
-      console.error(`    ${message}`);
-    });
-}
+const { finish, test } = createTestRunner({ passLabel: "✓", failLabel: "✗" });
 
 console.log("\nOrchestration Wakeup Coalesce Contract Test\n");
 
@@ -68,6 +54,32 @@ async function run() {
       return { project, agent };
     }
 
+    function listWakeStatuses(agentId: string) {
+      const db = getOrchestrationDb();
+      return db.prepare(
+        `SELECT id, status FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
+      ).all(agentId) as Array<{ id: string; status: string }>;
+    }
+
+    function listWakeCoalesceRows(agentId: string) {
+      const db = getOrchestrationDb();
+      return db.prepare(
+        `SELECT id, status, coalesced_count FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
+      ).all(agentId) as Array<{ id: string; status: string; coalesced_count: number }>;
+    }
+
+    function assertSupersededWakePair(
+      rows: Array<{ id: string; status: string }>,
+      firstId: string,
+      secondId: string,
+    ) {
+      assert.equal(rows.length, 2);
+      assert.deepEqual(rows, [
+        { id: firstId, status: "failed" },
+        { id: secondId, status: "queued" },
+      ]);
+    }
+
     await test("two enqueues with the same idempotencyKey coalesce onto the first wake", async () => {
       const { project, agent } = await makeAgent();
 
@@ -89,10 +101,7 @@ async function run() {
       assert.equal(second.status, "coalesced", "second enqueue with same key should coalesce");
       assert.equal(second.wakeupRequestId, first.wakeupRequestId, "coalesced call must reuse first wake's id");
 
-      const db = getOrchestrationDb();
-      const rows = db.prepare(
-        `SELECT id, status, coalesced_count FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
-      ).all(agent.id) as Array<{ id: string; status: string; coalesced_count: number }>;
+      const rows = listWakeCoalesceRows(agent.id);
 
       assert.equal(rows.length, 1, "only one wake row should exist");
       assert.equal(rows[0].status, "queued", "the surviving wake stays queued");
@@ -119,19 +128,7 @@ async function run() {
 
       assert.notEqual(second.status, "coalesced", "different keys must not coalesce");
 
-      const db = getOrchestrationDb();
-      const rows = db.prepare(
-        `SELECT id, status FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
-      ).all(agent.id) as Array<{ id: string; status: string }>;
-
-      assert.equal(rows.length, 2);
-      assert.deepEqual(
-        rows,
-        [
-          { id: first.wakeupRequestId, status: "failed" },
-          { id: second.wakeupRequestId, status: "queued" },
-        ],
-      );
+      assertSupersededWakePair(listWakeStatuses(agent.id), first.wakeupRequestId, second.wakeupRequestId);
     });
 
     await test("non-idempotent enqueues still supersede prior queued wakes (legacy behavior preserved)", async () => {
@@ -150,19 +147,7 @@ async function run() {
         reason: "second",
       });
 
-      const db = getOrchestrationDb();
-      const rows = db.prepare(
-        `SELECT id, status FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
-      ).all(agent.id) as Array<{ id: string; status: string }>;
-
-      assert.equal(rows.length, 2);
-      assert.deepEqual(
-        rows,
-        [
-          { id: first.wakeupRequestId, status: "failed" },
-          { id: second.wakeupRequestId, status: "queued" },
-        ],
-      );
+      assertSupersededWakePair(listWakeStatuses(agent.id), first.wakeupRequestId, second.wakeupRequestId);
     });
 
     await test("generic manual wake coalesces onto an existing task-specific wake instead of superseding it", async () => {
@@ -191,10 +176,7 @@ async function run() {
       assert.equal(second.status, "coalesced");
       assert.equal(second.wakeupRequestId, first.wakeupRequestId);
 
-      const db = getOrchestrationDb();
-      const rows = db.prepare(
-        `SELECT id, status, coalesced_count FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
-      ).all(agent.id) as Array<{ id: string; status: string; coalesced_count: number }>;
+      const rows = listWakeCoalesceRows(agent.id);
 
       assert.equal(rows.length, 1);
       assert.deepEqual(rows[0], { id: first.wakeupRequestId, status: "queued", coalesced_count: 1 });
@@ -223,16 +205,7 @@ async function run() {
         idempotencyKey: "sweep:task-specific-2:to-do",
       });
 
-      const db = getOrchestrationDb();
-      const rows = db.prepare(
-        `SELECT id, status FROM agent_wakeup_requests WHERE agent_id = ? ORDER BY created_at ASC`
-      ).all(agent.id) as Array<{ id: string; status: string }>;
-
-      assert.equal(rows.length, 2);
-      assert.deepEqual(rows, [
-        { id: first.wakeupRequestId, status: "failed" },
-        { id: second.wakeupRequestId, status: "queued" },
-      ]);
+      assertSupersededWakePair(listWakeStatuses(agent.id), first.wakeupRequestId, second.wakeupRequestId);
     });
 
     await test("three enqueues with the same key collapse to one wake with coalesced_count=2", async () => {
@@ -276,9 +249,7 @@ async function run() {
     if (dbPath) rmSync(dbPath, { force: true });
   }
 
-  const total = passed + failed;
-  console.log(`\nResult: ${passed}/${total} passed`);
-  if (failed > 0) process.exitCode = 1;
+  finish();
 }
 
 run().catch((error) => {
