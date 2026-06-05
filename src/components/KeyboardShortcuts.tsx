@@ -6,7 +6,7 @@ import { useRouter, usePathname } from "next/navigation";
 const TOP_5_ROUTES = ["/", "/companies/new", "/systems/companies", "/terminal", "/logs"];
 
 // Custom event for opening new task modal when on /tasks page
-export const OPEN_NEW_TASK_EVENT = "hiverunner:open-new-task";
+const OPEN_NEW_TASK_EVENT = "hiverunner:open-new-task";
 
 export function KeyboardShortcuts() {
   const router = useRouter();
