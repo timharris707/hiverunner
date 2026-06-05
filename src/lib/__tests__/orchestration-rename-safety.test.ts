@@ -167,7 +167,7 @@ test("slug change: legacy redirect from OLD slug resolves to company code", () =
   assert.strictEqual(redirected?.pathname, `/${originalCode}/dashboard`);
 });
 
-test("slug change: legacy redirect from NEW slug also works", () => {
+test("slug change: legacy redirect from NEW slug is not needed", () => {
   const maps = buildEdgeRouteMaps();
   const redirected = tryLegacyRedirect(
     `/companies/${newSlug}/dashboard`,
@@ -175,8 +175,7 @@ test("slug change: legacy redirect from NEW slug also works", () => {
     ORIGIN,
     maps,
   );
-  assert.ok(redirected);
-  assert.strictEqual(redirected?.pathname, `/${originalCode}/dashboard`);
+  assert.strictEqual(redirected, null);
 });
 
 // ---------- 3. Multiple renames preserve full alias history ----------
@@ -249,20 +248,18 @@ test("slug change: rejects slug that collides with an existing alias for another
   }
 });
 
-// ---------- 5. Seeded weather-edge alias works via DB ----------
+// ---------- 5. Static weather-edge fallback stays outside fresh DB maps ----------
 
-test("weather-edge alias is present in DB-backed route maps", () => {
+test("fresh DB-backed route maps do not synthesize static weather-edge alias", () => {
   const maps = buildEdgeRouteMaps();
-  assert.strictEqual(maps.companySlugToCode["weather-edge"], "NEV");
+  assert.strictEqual(maps.companySlugToCode["weather-edge"], undefined);
 });
 
-test("weather-edge legacy redirect resolves to NEV dashboard", () => {
-  const maps = buildEdgeRouteMaps();
+test("weather-edge static fallback legacy redirect resolves to NEV dashboard", () => {
   const redirected = tryLegacyRedirect(
     "/companies/weather-edge/dashboard",
     new URLSearchParams(),
     ORIGIN,
-    maps,
   );
   assert.ok(redirected);
   assert.strictEqual(redirected?.pathname, "/NEV/dashboard");
