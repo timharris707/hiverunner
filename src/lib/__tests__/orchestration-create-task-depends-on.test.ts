@@ -186,6 +186,21 @@ async function run() {
       return created;
     }
 
+    type AssignedCreateTaskOptions = Omit<CreateTaskAction, "action" | "assignee" | "title">;
+
+    function assignedCreateTaskAction(
+      assignee: string,
+      titlePrefix: string,
+      options: AssignedCreateTaskOptions = {},
+    ): CreateTaskAction {
+      return {
+        action: "create_task",
+        title: `${titlePrefix} ${Date.now()}`,
+        assignee,
+        ...options,
+      };
+    }
+
     function taskKey(taskId: string) {
       return (db.prepare("SELECT task_key FROM tasks WHERE id = ?").get(taskId) as { task_key: string }).task_key;
     }
@@ -314,26 +329,10 @@ async function run() {
       const [buildTaskId, launchUiTaskId, qaTaskId, releaseTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Implement app slice ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Implement Launch Control Board UI ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `QA browser smoke for app slice ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Prepare release handoff ${Date.now()}`,
-            assignee: validator.name,
-          },
+          assignedCreateTaskAction(validator.name, "Implement app slice"),
+          assignedCreateTaskAction(validator.name, "Implement Launch Control Board UI"),
+          assignedCreateTaskAction(validator.name, "QA browser smoke for app slice"),
+          assignedCreateTaskAction(validator.name, "Prepare release handoff"),
         ],
       );
 
@@ -367,16 +366,8 @@ async function run() {
       const [dataTaskId, frontendTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Build static data layer ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Implement frontend ${Date.now()}`,
-            assignee: validator.name,
-          },
+          assignedCreateTaskAction(validator.name, "Build static data layer"),
+          assignedCreateTaskAction(validator.name, "Implement frontend"),
         ],
       );
       const dataKey = taskKey(dataTaskId);
@@ -400,22 +391,11 @@ async function run() {
       const [dataTaskId, uiTaskId, assemblyTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Define mock data shape ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Build operator UI ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Assemble Weather Edge Mini static artifact ${Date.now()}`,
+          assignedCreateTaskAction(validator.name, "Define mock data shape"),
+          assignedCreateTaskAction(validator.name, "Build operator UI"),
+          assignedCreateTaskAction(validator.name, "Assemble Weather Edge Mini static artifact", {
             description: "Combine the data shape and operator UI into one prototype artifact.",
-            assignee: validator.name,
-          },
+          }),
         ],
       );
 
@@ -430,21 +410,9 @@ async function run() {
       const [dataTaskId, buildTaskId, docsTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Define local runtime data shape ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Build settings panel ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Document runtime assumptions and operator notes ${Date.now()}`,
-            assignee: validator.name,
-          },
+          assignedCreateTaskAction(validator.name, "Define local runtime data shape"),
+          assignedCreateTaskAction(validator.name, "Build settings panel"),
+          assignedCreateTaskAction(validator.name, "Document runtime assumptions and operator notes"),
         ],
       );
 
@@ -462,26 +430,10 @@ async function run() {
       const [dataTaskId, uiTaskId, qaTaskId, integrationTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Build fixture data ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Build fixture UI ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `QA fixture prototype ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Integrate fixture static artifact ${Date.now()}`,
-            assignee: validator.name,
-          },
+          assignedCreateTaskAction(validator.name, "Build fixture data"),
+          assignedCreateTaskAction(validator.name, "Build fixture UI"),
+          assignedCreateTaskAction(validator.name, "QA fixture prototype"),
+          assignedCreateTaskAction(validator.name, "Integrate fixture static artifact"),
         ],
       );
 
@@ -499,21 +451,9 @@ async function run() {
       const [dataTaskId, uiTaskId, integrationTaskId] = await createFromSpecSequence(
         { project, builder, specTask },
         [
-          {
-            action: "create_task",
-            title: `Define dashboard data ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Build dashboard UI ${Date.now()}`,
-            assignee: validator.name,
-          },
-          {
-            action: "create_task",
-            title: `Integrate dashboard static artifact ${Date.now()}`,
-            assignee: validator.name,
-          },
+          assignedCreateTaskAction(validator.name, "Define dashboard data"),
+          assignedCreateTaskAction(validator.name, "Build dashboard UI"),
+          assignedCreateTaskAction(validator.name, "Integrate dashboard static artifact"),
         ],
       );
 
