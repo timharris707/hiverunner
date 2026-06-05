@@ -560,6 +560,24 @@ Latest checkpoint after PR #151:
 
 Net movement from the PR #149 checkpoint: 1 fewer unused file, 1 more unused export after Fallow reclassification, 257 fewer measured LOC, 1 fewer large function, and 1 fewer high-complexity function above threshold. Overall dead-code total stayed flat at 391, but CodeGraph and direct searches confirmed `PixelCharacter` had no callers and no external references.
 
+Latest checkpoint after PR #153:
+
+- Scan commit: `a4059f4b1` (`chore: remove unused HiveRunner token mirror`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 390 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 90 clone groups, 82 clone families, 25,404 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 236,001
+
+Net movement from the PR #151 checkpoint: 1 fewer dead-code finding, 1 fewer unused file, and 158 fewer measured LOC. Duplication and health score were unchanged. CodeGraph and direct searches confirmed `src/lib/ui/hiverunner-tokens.ts` had no callers, no callees, and no path imports; the documented `src/lib/ui/index.ts` barrel stayed intact.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -648,6 +666,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #147: declare sharp as a direct dependency
 - #149: remove unused task detail drawer
 - #151: remove unused pixel character component
+- #153: remove unused HiveRunner token mirror
 
 Related but not cleanup:
 
@@ -683,7 +702,7 @@ These are good near-term hygiene targets because they are mostly test-only or sm
    - Estimate: two to four small PRs.
 
 3. Dead file/export micro-prunes
-   - Source signal: dead-code remains at 391 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
+   - Source signal: dead-code remains at 390 findings; near-term candidates should be isolated helper exports or files that direct import searches prove unused.
    - Expected shape: direct import searches before removal; avoid dynamic/runtime, public client APIs, provider boundaries, framework entry points, and barrel re-exports. Run builds for export/file removals.
    - Validation: `rg` import checks, focused tests when available, `npm run fallow:changed`; run `npm run build` when exports are touched.
    - Estimate: one to three small PRs, depending on dynamic-use uncertainty.
@@ -934,6 +953,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `PixelCharacter`; direct `rg` symbol search; `git diff --check`; `npm run fallow:changed`; full Fallow dead-code, duplication, and health summaries; `npm run build`; `npm run lint`; and GitHub Local-First CI.
   - Caveat: this does not clear the remaining office/branding candidates for blind deletion. `OfficeCanvas` and `src/config/branding.ts` should still get product-intent review before removal.
 
+- CodeGraph-backed HiveRunner token mirror prune
+  - Source signal: Fallow reported `src/lib/ui/hiverunner-tokens.ts` as unused, while direct searches showed no imports and `src/lib/ui/index.ts` did not export it.
+  - Completed by #153 by removing `hiverunner-tokens.ts`.
+  - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `hiverunner-tokens`; direct path-import `rg` search; `git diff --check`; `npm run fallow:changed`; full Fallow dead-code, duplication, and health summaries; `npm run build`; `npm run lint`; and GitHub Local-First CI.
+  - Caveat: this does not clear the `src/lib/ui/index.ts` barrel for removal. That barrel is documented as a public import surface and should stay unless the design-system docs are updated deliberately.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -955,7 +980,7 @@ These are real findings, but they should not be folded into the current low-risk
   - These are product architecture/refactor targets. Do not use Fallow alone to drive changes here.
 
 - Full dead-file removal across UI/components
-  - Fallow reports 9 unused files, many in UI and avatar/office/component areas.
+  - Fallow reports 8 unused files, many in UI and avatar/office/component areas.
   - Some may be planned, dynamic, or story/demo assets. Prune only after direct import searches and product intent review.
 
 ## Size And Cadence
@@ -969,4 +994,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #151, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI/task-detail-drawer/pixel-character prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #153, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI/task-detail-drawer/pixel-character/token-mirror prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
