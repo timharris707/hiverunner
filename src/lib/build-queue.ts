@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "
 import { join } from "path";
 import { randomUUID } from "crypto";
 import os from "os";
+import { readJSON } from "@/lib/json-file";
 import { routeTask } from "@/lib/llm-router";
 import { agentDisplayLabel } from "@/lib/orchestration/avatar-icons";
 import { resolveHiveRunnerAppRoot } from "@/lib/runtime-paths";
@@ -33,6 +34,8 @@ import {
   summarizeAnthropicCliOutput,
 } from "@/lib/orchestration/anthropic-execution-bridge";
 import { dbGetTransitions } from "@/lib/tasks-db";
+
+export { readJSON } from "@/lib/json-file";
 
 const DATA_DIR = join(process.cwd(), "data");
 const PROJECTS_FILE = join(DATA_DIR, "projects.json");
@@ -108,14 +111,6 @@ type BuildExecutorDecision = {
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-export function readJSON<T>(path: string, fallback: T): T {
-  try {
-    return JSON.parse(readFileSync(path, "utf-8"));
-  } catch {
-    return fallback;
-  }
 }
 
 export function readTasks(): any[] {
