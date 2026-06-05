@@ -488,6 +488,24 @@ Latest checkpoint after PR #143:
 
 Net movement from the PR #141 checkpoint: 1 fewer clone group, 1 fewer clone family, 117 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Dead-code, health score, and measured LOC were unchanged. This was another narrow test-only pass: `orchestration-wakeup-coalesce.test.ts` now reuses the shared test runner and local wake-row assertion helpers, while the remaining inherited runner-boilerplate clone was left for a separate small cluster.
 
+Latest checkpoint after PR #145:
+
+- Scan commit: `75f09f4bf` (`test: dedupe loop breaker helpers`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 392 total
+  - unused files: 11
+  - unused exports: 256
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 90 clone groups, 82 clone families, 25,418 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 237,727
+
+Net movement from the PR #143 checkpoint: 1 fewer clone group, 1 fewer clone family, and 66 fewer duplicated lines. Dead-code, health score, duplication percentage, and measured LOC were unchanged. This was a single-file test-only pass: `orchestration-loop-breaker.test.ts` now reuses the shared test runner and has a local human-wake reset assertion helper, while inherited fixture setup clones stayed deferred.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -572,6 +590,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #139: remove unused shell UI components
 - #141: dedupe sweeper test helpers
 - #143: dedupe wakeup coalesce test helpers
+- #145: dedupe loop breaker test helpers
 
 Related but not cleanup:
 
@@ -834,6 +853,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: focused wakeup coalesce contract test with isolated `ORCHESTRATION_DB_PATH`, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summary, `npm run lint`, and GitHub Local-First CI.
   - Caveat: the changed-file audit still reports one inherited repeated runner/setup clone across neighboring orchestration tests. Leave that for a separate narrow cluster rather than broadening single-file cleanup opportunistically.
 
+- Loop-breaker single-file test helper cleanup
+  - Source signal: Fallow still reported repeated human-wake breaker assertion bodies inside `orchestration-loop-breaker.test.ts`.
+  - Completed by #145 by reusing `createTestRunner` and adding a local `assertHumanWakeReset` helper.
+  - Validation: focused loop-breaker contract test with isolated `ORCHESTRATION_DB_PATH`, `git diff --check`, `npm run fallow:changed`, full Fallow duplication summary, `npm run lint`, and GitHub Local-First CI.
+  - Caveat: the changed-file audit still reports inherited fixture setup clones shared with neighboring orchestration tests. Keep those separate unless a small cluster has matching setup semantics.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -869,4 +894,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #143, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #145, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding/cron/hook-helper/widget-island/standalone-UI/shell-UI prunes confirmed that direct-search-proven dead code can still produce useful movement when targets are coherent. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, task detail, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: either run CodeGraph-backed review before touching any task/company/voice/avatar/office candidate, or keep doing focused single-file/small-cluster test-helper cleanup with a clear validation path. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
