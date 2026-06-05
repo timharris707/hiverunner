@@ -1,7 +1,8 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
-import { enqueueWakeup, findCompanyCeo } from "@/lib/orchestration/engine/engine";
+import { findCompanyCeo } from "@/lib/orchestration/engine/engine-queries";
+import { enqueueWakeup } from "@/lib/orchestration/engine/wakeup-queue";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
 import { latestTerminalRunAgentId, reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { spawnPennyTriageMicroTask } from "@/lib/orchestration/triage/penny-triage";
