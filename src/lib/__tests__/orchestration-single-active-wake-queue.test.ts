@@ -6,7 +6,9 @@
  */
 
 import assert from "node:assert/strict";
-import { rmSync } from "node:fs";
+import type Database from "better-sqlite3";
+
+import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-workspace-isolation";
 
 let passed = 0;
 let failed = 0;
@@ -26,12 +28,17 @@ function test(name: string, fn: () => Promise<void> | void) {
     });
 }
 
+function resetWakeQueueTables(db: Database.Database) {
+  db.prepare("DELETE FROM agent_wakeup_requests").run();
+  db.prepare("DELETE FROM heartbeat_runs").run();
+}
+
 console.log("\nOrchestration Single Active Wake Queue Contract Test\n");
 
 async function run() {
   const dbPath = process.env.ORCHESTRATION_DB_PATH;
   try {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
 
     const { createProject, createProjectAgent } = await import("@/lib/orchestration/service");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -88,8 +95,7 @@ async function run() {
 
     await test("queue tick does not claim a queued run for an agent that already has a running heartbeat", async () => {
       const db = getOrchestrationDb();
-      db.prepare("DELETE FROM agent_wakeup_requests").run();
-      db.prepare("DELETE FROM heartbeat_runs").run();
+      resetWakeQueueTables(db);
 
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
@@ -152,7 +158,7 @@ async function run() {
       assert.equal(runB.status, "running");
     });
   } finally {
-    if (dbPath) rmSync(dbPath, { force: true });
+    resetSqliteDatabaseFiles(dbPath);
   }
 
   const total = passed + failed;
