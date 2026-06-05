@@ -20,7 +20,7 @@ import path from "path";
 import { MC_DATA_DIR } from "@/lib/data-dir";
 
 export const ONBOARDING_STATE_VERSION = 1;
-export const ONBOARDING_STATE_FILENAME = "onboarding-state.json";
+const ONBOARDING_STATE_FILENAME = "onboarding-state.json";
 
 export type OnboardingCompletionReason =
   | "created-workspace"
