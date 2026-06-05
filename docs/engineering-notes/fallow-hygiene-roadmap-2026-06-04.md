@@ -606,6 +606,24 @@ Latest checkpoint after PR #159:
 
 Net movement from the PR #157 checkpoint: no expected metric movement. This resolves the stale isolated-DB weather-edge/NEV fixture issue that was intentionally split out from the route-map helper cleanup.
 
+Latest checkpoint after PR #161:
+
+- Scan commit: `79376ebd7` (`refactor: share external runner process buffer helper`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 390 total
+  - unused files: 8
+  - unused exports: 258
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 0
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 83 clone groups, 76 clone families, 25,148 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 235,908
+
+Net movement from the PR #157 metric checkpoint: 4 fewer clone groups, 3 fewer clone families, 145 fewer duplicated lines, 93 fewer measured LOC, 4 fewer large functions, and 4 fewer high-complexity functions above threshold. Dead-code and health score were unchanged. This was a dedicated operational runner PR: CodeGraph bounded the shared utility impact to the external runner wrappers, local validation ran all five runner tests plus lint/build/tracked-build, and HERMES plus the TypeScript Symphony adapter stayed local because their process handling differs.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -698,12 +716,14 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #155: reuse sync runner in route map tests
 - #156: share company agents route request helper
 - #157: reuse wake queue setup helpers
+- #161: share external runner process buffer helper
 
 Related but not cleanup:
 
 - #36 fixed the pre-existing `orchestration-openclaw-running-output-wait.test.ts` reliability issue that surfaced during cleanup validation.
 - #96 fixed the `orchestration-live-status.test.ts` reliability issue that surfaced during cleanup validation by aligning `live-status` with queued/pending, terminal grace-window, and SSE-only liveness semantics.
 - #98 fixed the fresh isolated DB reliability failures in `orchestration-foundation-workflow.test.ts` and `orchestration-query-contracts.test.ts` by refreshing fixture assumptions around the seeded HiveRunner workspace slug, execution hives, and scoped OpenClaw reconciliation side effects.
+- #159 fixed the stale `orchestration-rename-safety.test.ts` isolated-DB fixture expectations surfaced while validating the route-map helper cleanup.
 
 ## Operating Rules
 
@@ -870,6 +890,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: CodeGraph query/callers/callees/impact for `buildPrompt`, all five dedicated runner tests, `node --check` on touched scripts, `git diff --check`, `npm run fallow:changed`, and GitHub Local-First CI.
   - Caveat: the remaining runner-script duplication is more operational, including spawn/result/dry-run handling. Do not extract it opportunistically; use a dedicated PR and the full runner matrix.
 
+- External runner process buffer helper extraction
+  - Source signal: the top remaining Fallow clone families repeated stdout/stderr buffering, timeout handling, spawn errors, buffer caps, and exit message assembly across the Claude, Gemini, OpenClaw, and Symphony external runner scripts.
+  - Completed by #161 with a shared `runBufferedCommand` helper in `scripts/lib/external-runner-utils.mjs`. Provider-specific env, stdin policy, timeout text, buffer-limit text, exit text, and OpenClaw JSON parsing stayed in each runner wrapper.
+  - Validation: CodeGraph `status`, `query`, `callers`, `callees`, and `impact` for `external-runner-utils`; `node --check` on every touched script; all five external runner tests; `git diff --check`; `npm run fallow:changed`; full Fallow duplication summary; `npm run lint`; `npm run build`; `npm run build:tracked`; and GitHub Local-First CI.
+  - Caveat: do not continue into the TypeScript execution adapters or HERMES ACP process loop as incidental cleanup. Those are runtime/provider architecture work and need a separate design/test matrix.
+
 - Habbo office dead-file prune
   - Source signal: `HabboFurniture` duplication looked like a safe single-file candidate, but `fallow:changed` and direct searches showed the Habbo room, character, and furniture React components were unreachable.
   - Completed by #108 by removing `src/components/office/HabboRoom.tsx`, `src/components/office/HabboCharacter.tsx`, and `src/components/office/HabboFurniture.tsx`.
@@ -1007,8 +1033,8 @@ These are good near-term hygiene targets because they are mostly test-only or sm
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
 
 - Remaining runner script helper extraction
-  - Fallow still reports clone families across the provider runner scripts after the utility and prompt helper extractions.
-  - Risk is higher because the remaining duplication is closer to command execution, subprocess handling, dry-run handling, and result serialization. Do this only as a dedicated runner PR with every runner test and at least one manual command-path review.
+  - Fallow still reports some clone families across provider runner scripts and runtime adapters after the utility, prompt, and buffered-process helper extractions.
+  - Risk is higher because the remaining duplication is closer to result serialization, provider-specific dry-run behavior, adapter execution semantics, and HERMES ACP flow. Do this only as a dedicated runner/runtime PR with CodeGraph impact checks, every runner test, relevant adapter tests, and at least one manual command-path review.
 
 - Runtime adapter common helpers
   - Fallow reports duplication across Anthropic, Codex, Gemini, Hermes, OpenClaw, and Symphony execution adapters.
@@ -1037,4 +1063,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #159, the reliability issue surfaced by the recent route-map cleanup is resolved. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #161, the highest-signal remaining runner-script clone was handled in a dedicated PR with the full runner matrix. The low-risk Fallow queue is producing smaller returns, though explicit-worktree batches can still move duplication safely when each PR stays narrow. The remaining unused-file pool is no longer a good blind deletion queue: it includes a runtime-registered service worker, company creation, office canvas/branding, voice/avatar, and UI-barrel files. The next best target should be selected by expected gain and risk: continue focused single-file/small-cluster test-helper cleanup only when it improves fixture clarity, or run CodeGraph-backed review before touching any company/voice/avatar/office candidate. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
