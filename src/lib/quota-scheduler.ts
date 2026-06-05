@@ -9,7 +9,7 @@
  *   5. Budget tracking     — per-window spend caps with automatic throttling
  */
 
-import { readJSON } from "./build-queue";
+import { readJSON } from "@/lib/json-file";
 import { calculateCost, normalizeModelId } from "./pricing";
 import { join } from "path";
 import { writeFileSync, mkdirSync } from "fs";
