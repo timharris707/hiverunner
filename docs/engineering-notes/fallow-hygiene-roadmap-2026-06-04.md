@@ -344,6 +344,24 @@ Latest checkpoint after PR #126:
 
 Net movement from the PR #120 checkpoint: 3 fewer dead-code findings, 2 fewer unused exports, 1 fewer duplicate export, 5 fewer clone groups, 4 fewer clone families, 326 fewer duplicated lines, and a 0.1 percentage-point reduction in reported duplication. Health score and measured LOC were unchanged. This batch mixed one safe UI/export micro-prune with four narrow test-fixture cleanups; the parallel explicit-worktree approach improved throughput without broadening individual PR risk.
 
+Latest checkpoint after PR #128:
+
+- Scan commit: `d813b2554` (`chore: trim realtime and onboarding helper exports`)
+- Full advisory Fallow scan command: `fallow dupes --no-cache --summary`, `fallow dead-code --no-cache --summary`, and `fallow health --no-cache --score --complexity --top 12 --report-only`
+- Dead-code findings: 420 total
+  - unused files: 34
+  - unused exports: 261
+  - unused type exports: 54
+  - unused class members: 2
+  - unlisted dependencies: 1
+  - duplicate exports: 59
+  - circular dependencies: 9
+- Duplication: 93 clone groups, 84 clone families, 25,655 duplicated lines, 8.8% duplication
+- Health score: 74, grade B
+- Total measured LOC: 241,758
+
+Net movement from the PR #126 checkpoint: 2 fewer dead-code findings, 2 fewer unused exports, and 15 fewer measured LOC. Duplication and health score were unchanged. This was a safe direct-search micro-prune, but it also reinforces that individual low-risk dead-export slices now move the global metrics only slightly.
+
 ## Completed Cleanup
 
 Merged Fallow-driven or Fallow-adjacent hygiene PRs:
@@ -419,6 +437,7 @@ Merged Fallow-driven or Fallow-adjacent hygiene PRs:
 - #124: dedupe voice startup missing-key cases
 - #125: dedupe create-task depends action fixtures
 - #126: dedupe heartbeat prompt fixtures
+- #128: trim realtime and onboarding helper exports
 
 Related but not cleanup:
 
@@ -633,6 +652,12 @@ These are good near-term hygiene targets because they are mostly test-only or sm
   - Validation: direct `rg` symbol/path searches for #122; focused touched tests for #123-#126; `git diff --check`; `npm run fallow:changed`; `npm run build` and `npm run lint` for #122; and GitHub Local-First CI for every PR.
   - Caveat: remaining test duplication is increasingly inherited setup/tail boilerplate spread across many files. Keep using changed-file gates and focused tests, but do not spend whole work blocks polishing small clone groups unless they improve fixture clarity or remove a repeated source of mistakes.
 
+- Realtime/onboarding helper export micro-prune
+  - Source signal: unused realtime context hook export, unused local realtime age formatter, and a file-local onboarding state filename constant exported only for its own module.
+  - Completed by #128 with direct `rg` symbol/path searches and a two-file scoped edit.
+  - Validation: onboarding state tests, onboarding complete route test with isolated `MC_DATA_DIR`, `git diff --check`, `npm run fallow:changed`, full Fallow dead-code summary, `npm run lint`, `npm run build`, and GitHub Local-First CI.
+  - Caveat: this is representative of the remaining low-risk dead-export pool: useful housekeeping, but low metric movement. Favor bundles with several directly proven symbols or a clear maintainability benefit.
+
 ## Defer Or Plan Separately
 
 These are real findings, but they should not be folded into the current low-risk hygiene stream.
@@ -668,4 +693,4 @@ The low-risk hygiene queue above is more bounded. A reasonable cadence is:
 - Re-run a full advisory Fallow baseline after every 5-8 hygiene PRs or after any major architecture change.
 - Keep `fallow:changed` as a PR-level audit, not a full blocking gate.
 
-After PR #126, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: use a short Fallow scout to find another directly provable dead-export/dead-file micro-batch, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
+After PR #128, the surfaced reliability issues from the recent hygiene batches are resolved and the low-risk Fallow queue is producing smaller returns. The two runner-script helper passes had better payoff than tiny test-fixture cleanup, and the Habbo/Zelda/Stardew/demo-mode/UI-helper/voice-display/icon-helper/realtime-onboarding prunes confirmed that direct-search-proven dead code can still produce useful movement. The next best target should be selected by expected gain and risk: use a short Fallow scout to find a bundle of directly provable dead exports/files, or take only a coherent test-fixture cluster that reduces repeated setup a future agent would otherwise edit by hand. Do not continue deleting office UI files without product intent review. Provider execution adapter helper extraction remains higher-impact but higher-risk; do it only as a dedicated PR with CodeGraph impact checks and the full adapter test matrix.
