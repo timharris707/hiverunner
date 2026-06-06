@@ -27,6 +27,8 @@ assert_no_root_app_router_shadow "$STABLE_DIR" "hr-stable"
 cd "$STABLE_DIR"
 
 NODE_BIN="$(resolve_hiverunner_node_bin "hr-stable")"
+NODE_BIN_DIR="$(dirname "$NODE_BIN")"
+SERVICE_PATH="$NODE_BIN_DIR:/opt/homebrew/bin:/usr/local/bin:${PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 EXISTING_PID="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ]; then
@@ -76,6 +78,7 @@ echo "$$" > "$PID_FILE"
 echo "[hr-stable] service starting on port $PORT (node: $NODE_BIN, tick: $MC_ENGINE_TICK, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT)"
 
 exec env \
+  PATH="$SERVICE_PATH" \
   NODE_ENV=production \
   PORT="$PORT" \
   HIVERUNNER_MANAGED_START="${HIVERUNNER_MANAGED_START:-0}" \
