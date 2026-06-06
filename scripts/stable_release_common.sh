@@ -75,6 +75,7 @@ release_paths_are_dirty() {
     scripts/rollback_stable.sh \
     scripts/start_stable_service.sh \
     scripts/stop_stable_service.sh \
+    scripts/lib/external-runner-utils.mjs \
     scripts/stable_release_common.sh)"
   if [ -n "$DIRTY_RELEASE_FILES" ]; then
     printf "%s\n" "$DIRTY_RELEASE_FILES" >&2
@@ -450,6 +451,14 @@ deploy_stable_from_dir() {
   cp -R "$SOURCE_DIR/.next" "$STABLE_DIR/.next"
   ln -s "$APP_DIR/node_modules" "$STABLE_DIR/node_modules"
   ln -s "$APP_DIR/data" "$STABLE_DIR/data"
+
+  if [ -f "$SOURCE_DIR/scripts/lib/external-runner-utils.mjs" ]; then
+    mkdir -p "$STABLE_DIR/scripts"
+    mkdir -p "$STABLE_DIR/scripts/lib"
+    cp \
+      "$SOURCE_DIR/scripts/lib/external-runner-utils.mjs" \
+      "$STABLE_DIR/scripts/lib/external-runner-utils.mjs"
+  fi
 
   if [ -f "$SOURCE_DIR/scripts/hiverunner-symphony-runner.mjs" ]; then
     mkdir -p "$STABLE_DIR/scripts"
