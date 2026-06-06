@@ -14,6 +14,31 @@ import { buildRawOverseerTranscriptExport } from "@/lib/orchestration/overseer/e
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+function stringValue(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function codexSessionIdFromEvents(events: ReturnType<typeof listOverseerEvents>["events"]): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const record = events[index].event;
+    const direct = stringValue(record.thread_id)
+      ?? stringValue(record.threadId)
+      ?? stringValue(record.session_id)
+      ?? stringValue(record.sessionId);
+    if (direct) return direct;
+    const thread = recordValue(record.thread);
+    const nested = thread ? stringValue(thread.id) ?? stringValue(thread.thread_id) : null;
+    if (nested) return nested;
+  }
+  return null;
+}
+
 const patchSessionSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
   model: z.string().trim().min(1).max(120).nullable().optional(),
@@ -39,11 +64,13 @@ export async function GET(
   try {
     const { slug, sessionId } = await params;
     const session = assertOverseerSessionCompany({ sessionId, companyIdOrSlug: slug });
+    const events = listOverseerEvents(session.id).events;
+    const codexSessionId = session.codexSessionId ?? codexSessionIdFromEvents(events);
     return NextResponse.json({
       session,
       messages: listOverseerMessages(session.id).messages,
-      events: listOverseerEvents(session.id).events,
-      codexTelemetry: readCodexSessionTelemetry(session.codexSessionId),
+      events,
+      codexTelemetry: readCodexSessionTelemetry(codexSessionId),
       continuityProof: buildRawOverseerTranscriptExport({
         companyIdOrSlug: slug,
         sessionId: session.id,

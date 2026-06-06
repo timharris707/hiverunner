@@ -1206,6 +1206,30 @@ export function setOverseerTurnProcess(input: {
     .run(input.pid, now, input.sessionId);
 }
 
+export function setOverseerTurnCodexSessionId(input: {
+  sessionId: string;
+  turnId: string;
+  codexSessionId: string | null | undefined;
+  db?: Database.Database;
+}): void {
+  const codexSessionId = input.codexSessionId?.trim();
+  if (!codexSessionId) return;
+  const db = input.db ?? getOrchestrationDb();
+  const now = new Date().toISOString();
+  db.prepare(
+    `UPDATE overseer_turns
+     SET codex_session_id = COALESCE(codex_session_id, ?),
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(codexSessionId, now, input.turnId);
+  db.prepare(
+    `UPDATE overseer_sessions
+     SET codex_session_id = COALESCE(codex_session_id, ?),
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(codexSessionId, now, input.sessionId);
+}
+
 export function recordOverseerEvent(input: {
   sessionId: string;
   turnId?: string | null;

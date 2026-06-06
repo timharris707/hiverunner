@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Grip, Maximize2, Minus, X } from "lucide-react";
+import { Grip, Maximize2, Minus, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 
@@ -41,9 +41,9 @@ const DEFAULT_WIDTH = 430;
 const DEFAULT_HEIGHT = 560;
 const MIN_WIDTH = 360;
 const MIN_HEIGHT = 420;
-const MAX_WIDTH = 720;
-const MAX_HEIGHT = 760;
 const MOBILE_TOP_OFFSET = 48;
+const ACTIVE_AGENTS_RESERVED_BOTTOM_VAR = "--hr-active-agents-reserved-bottom";
+const FLOATING_OVERSEER_Z_INDEX = 950;
 
 function storageKey(companyKey: string): string {
   return `${STORAGE_PREFIX}:${companyKey}`;
@@ -60,27 +60,44 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+function activeAgentsReservedBottom(): number {
+  if (typeof window === "undefined") return 0;
+  const raw = window.getComputedStyle(document.documentElement).getPropertyValue(ACTIVE_AGENTS_RESERVED_BOTTOM_VAR);
+  const parsed = Number.parseFloat(raw);
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
+function maxFrameWidth(viewport: { width: number }): number {
+  return Math.max(MIN_WIDTH, viewport.width - DESKTOP_MARGIN * 2);
+}
+
+function maxFrameHeight(viewport: { height: number }): number {
+  return Math.max(MIN_HEIGHT, viewport.height - DESKTOP_MARGIN * 2);
+}
+
 function defaultFrame(): OverseerFloatingFrame {
   const viewport = viewportSize();
-  const width = clamp(DEFAULT_WIDTH, MIN_WIDTH, Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewport.width - DESKTOP_MARGIN * 2)));
-  const height = clamp(DEFAULT_HEIGHT, MIN_HEIGHT, Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, viewport.height - DESKTOP_MARGIN * 2)));
+  const width = clamp(DEFAULT_WIDTH, MIN_WIDTH, maxFrameWidth(viewport));
+  const height = clamp(DEFAULT_HEIGHT, MIN_HEIGHT, maxFrameHeight(viewport));
+  const bottomMargin = 18 + activeAgentsReservedBottom();
 
   return {
     width,
     height,
     x: Math.max(DESKTOP_MARGIN, viewport.width - width - 18),
-    y: Math.max(DESKTOP_MARGIN, viewport.height - height - 18),
+    y: Math.max(DESKTOP_MARGIN, viewport.height - height - bottomMargin),
   };
 }
 
 function clampFrame(frame: OverseerFloatingFrame): OverseerFloatingFrame {
   const viewport = viewportSize();
-  const maxWidth = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, viewport.width - DESKTOP_MARGIN * 2));
-  const maxHeight = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, viewport.height - DESKTOP_MARGIN * 2));
+  const maxWidth = maxFrameWidth(viewport);
+  const maxHeight = maxFrameHeight(viewport);
   const width = clamp(frame.width, MIN_WIDTH, maxWidth);
   const height = clamp(frame.height, MIN_HEIGHT, maxHeight);
+  const bottomMargin = DESKTOP_MARGIN + activeAgentsReservedBottom();
   const maxX = Math.max(DESKTOP_MARGIN, viewport.width - width - DESKTOP_MARGIN);
-  const maxY = Math.max(DESKTOP_MARGIN, viewport.height - height - DESKTOP_MARGIN);
+  const maxY = Math.max(DESKTOP_MARGIN, viewport.height - height - bottomMargin);
 
   return {
     width,
@@ -388,7 +405,7 @@ export function OverseerFloatingShell({
           aria-label="Open Overseer"
           style={launcherButtonStyle}
         >
-          <Bot size={15} strokeWidth={2.1} />
+          <OverseerAiBadge size={20} glyphSize={12} />
           <span>Overseer</span>
         </button>
       </aside>
@@ -405,7 +422,7 @@ export function OverseerFloatingShell({
           aria-label="Restore Overseer"
           style={launcherButtonStyle}
         >
-          <Bot size={15} strokeWidth={2.1} />
+          <OverseerAiBadge size={20} glyphSize={12} />
           <span>Overseer</span>
         </button>
       </aside>
@@ -456,7 +473,7 @@ export function OverseerFloatingShell({
           title="Drag Overseer"
         >
           <Grip size={14} strokeWidth={2} color={color.textMuted} />
-          <Bot size={14} strokeWidth={2.1} />
+          <OverseerAiBadge size={18} glyphSize={10} />
           <span>Overseer</span>
         </button>
         <button type="button" onClick={restoreShell} aria-label="Restore Overseer" title="Restore Overseer" style={iconButtonStyle}>
@@ -543,7 +560,7 @@ function ShellHeader({
       >
         {dragHandle ? <Grip size={14} strokeWidth={2} color={color.textMuted} /> : null}
         <span style={headerIconStyle}>
-          <Bot size={14} strokeWidth={2.1} />
+          <OverseerAiBadge size={22} glyphSize={12} />
         </span>
         <span style={headerTitleStyle}>{title}</span>
       </button>
@@ -568,14 +585,37 @@ function ShellHeader({
 }
 
 function launcherHostStyle(isMobile: boolean): CSSProperties {
+  const baseBottom = isMobile ? 74 : 18;
   return {
     position: "fixed",
     right: isMobile ? 12 : 18,
-    bottom: isMobile ? 74 : 18,
-    zIndex: 48,
+    bottom: `calc(${baseBottom}px + var(${ACTIVE_AGENTS_RESERVED_BOTTOM_VAR}, 0px))`,
+    zIndex: FLOATING_OVERSEER_Z_INDEX,
     color: P.text,
     fontFamily: "var(--font-body)",
   };
+}
+
+function OverseerAiBadge({ size, glyphSize }: { size: number; glyphSize: number }) {
+  return (
+    <span
+      aria-hidden
+      style={{
+        width: size,
+        height: size,
+        flexShrink: 0,
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "50%",
+        background: "linear-gradient(135deg, #22d3ee 0%, #8b5cf6 48%, #f97316 100%)",
+        color: "#fff",
+        boxShadow: "inset 0 0 0 0.5px rgba(255,255,255,0.28), 0 4px 12px rgba(34,211,238,0.2)",
+      }}
+    >
+      <Sparkles size={glyphSize} strokeWidth={2.3} />
+    </span>
+  );
 }
 
 const launcherButtonStyle: CSSProperties = {
@@ -597,12 +637,12 @@ const launcherButtonStyle: CSSProperties = {
 
 const desktopShellStyle: CSSProperties = {
   position: "fixed",
-  zIndex: 48,
+  zIndex: FLOATING_OVERSEER_Z_INDEX,
   display: "grid",
   gridTemplateRows: "42px minmax(0, 1fr)",
   minWidth: MIN_WIDTH,
   minHeight: MIN_HEIGHT,
-  overflow: "hidden",
+  overflow: "visible",
   borderRadius: radius.lg,
   border: `0.5px solid ${color.border}`,
   background: color.surface,
@@ -613,7 +653,7 @@ const desktopShellStyle: CSSProperties = {
 
 const minimizedShellStyle: CSSProperties = {
   position: "fixed",
-  zIndex: 48,
+  zIndex: FLOATING_OVERSEER_Z_INDEX,
   minWidth: 260,
   height: 40,
   display: "grid",
@@ -635,7 +675,7 @@ const mobileSheetStyle: CSSProperties = {
   right: 0,
   top: MOBILE_TOP_OFFSET,
   bottom: 0,
-  zIndex: 60,
+  zIndex: FLOATING_OVERSEER_Z_INDEX,
   display: "grid",
   gridTemplateRows: "44px minmax(0, 1fr)",
   borderTop: `0.5px solid ${color.border}`,
@@ -651,6 +691,8 @@ const headerStyle: CSSProperties = {
   alignItems: "center",
   gap: 8,
   padding: "6px 6px 6px 8px",
+  borderTopLeftRadius: radius.lg,
+  borderTopRightRadius: radius.lg,
   borderBottom: `0.5px solid ${color.border}`,
   background: color.surfaceElevated,
 };
@@ -707,7 +749,7 @@ const iconButtonStyle: CSSProperties = {
 
 const desktopBodyStyle: CSSProperties = {
   minHeight: 0,
-  overflow: "auto",
+  overflow: "visible",
   padding: space.md,
 };
 

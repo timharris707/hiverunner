@@ -1,69 +1,50 @@
 "use client";
 
-import { Sun, Moon, Monitor } from "lucide-react";
-import { useTheme, type ThemePreference } from "./ThemeProvider";
-
-const OPTIONS: { value: ThemePreference; label: string; Icon: typeof Sun }[] = [
-  { value: "light", label: "Light", Icon: Sun },
-  { value: "dark", label: "Dark", Icon: Moon },
-  { value: "auto", label: "Auto", Icon: Monitor },
-];
+import { Sun, Moon } from "lucide-react";
+import { useTheme } from "./ThemeProvider";
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme();
+  const { theme, resolved, setTheme } = useTheme();
+
+  const visibleTheme = theme === "auto" ? resolved : theme;
+  const darkMode = visibleTheme === "dark";
+  const Icon = darkMode ? Moon : Sun;
+  const nextTheme = darkMode ? "light" : "dark";
+  const title = darkMode ? "Dark mode. Switch to light mode." : "Light mode. Switch to dark mode.";
 
   return (
-    <div
-      role="radiogroup"
-      aria-label="Theme"
+    <button
+      type="button"
+      aria-label={title}
+      title={title}
+      onClick={() => setTheme(nextTheme)}
       style={{
+        appearance: "none",
+        WebkitAppearance: "none",
         display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: "32px",
         height: "32px",
-        padding: "2px",
         borderRadius: "8px",
-        backgroundColor: "var(--surface)",
         border: "0.5px solid var(--border)",
+        backgroundColor: "var(--surface)",
+        color: "var(--text-secondary)",
+        cursor: "pointer",
         flexShrink: 0,
+        transition:
+          "background-color var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard)",
+      }}
+      onMouseEnter={(event) => {
+        event.currentTarget.style.backgroundColor = "var(--surface-elevated)";
+        event.currentTarget.style.color = "var(--text-primary)";
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.backgroundColor = "var(--surface)";
+        event.currentTarget.style.color = "var(--text-secondary)";
       }}
     >
-      {OPTIONS.map(({ value, label, Icon }) => {
-        const active = theme === value;
-        return (
-          <button
-            key={value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            aria-label={label}
-            title={label}
-            onClick={() => setTheme(value)}
-            style={{
-              appearance: "none",
-              WebkitAppearance: "none",
-              border: active ? "0.5px solid var(--theme-toggle-active-border)" : "0.5px solid transparent",
-              cursor: "pointer",
-              width: "28px",
-              height: "28px",
-              borderRadius: "6px",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-              backgroundColor: active ? "var(--theme-toggle-active-bg)" : "transparent",
-              color: active ? "var(--text-primary)" : "var(--text-muted)",
-              transition:
-                "background-color var(--duration-base) var(--ease-standard), border-color var(--duration-base) var(--ease-standard), color var(--duration-base) var(--ease-standard)",
-            }}
-            onMouseEnter={(e) => {
-              if (!active) e.currentTarget.style.color = "var(--text-secondary)";
-            }}
-            onMouseLeave={(e) => {
-              if (!active) e.currentTarget.style.color = "var(--text-muted)";
-            }}
-          >
-            <Icon size={14} strokeWidth={2} />
-          </button>
-        );
-      })}
-    </div>
+      <Icon size={15} strokeWidth={2.1} />
+    </button>
   );
 }

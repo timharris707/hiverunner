@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent as ReactClipboardEvent, CSSProperties, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, File, Image as ImageIcon, Loader2, Pencil, Plus, Search, Send, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
+import type { ClipboardEvent as ReactClipboardEvent, CSSProperties, DragEvent as ReactDragEvent, ReactNode } from "react";
+import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, File, Image as ImageIcon, Loader2, Menu, Pencil, Plus, Search, Send, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -123,9 +123,6 @@ const REASONING_OPTIONS = [
 const DEFAULT_MODEL = "gpt-5.5";
 const DEFAULT_REASONING = "xhigh";
 const DEFAULT_OVERSEER_PROVIDER: OverseerRuntimeProvider = "codex";
-const DEFAULT_SESSIONS_COLUMN_WIDTH = 225;
-const MIN_SESSIONS_COLUMN_WIDTH = 160;
-const MAX_SESSIONS_COLUMN_WIDTH = 360;
 const ACTIVITY_MUTED = "color-mix(in srgb, var(--text-muted) 62%, var(--surface) 38%)";
 type ReasoningEffort = typeof REASONING_OPTIONS[number]["value"];
 
@@ -431,10 +428,6 @@ function displaySessionTitle(title: string | null | undefined): string | null {
   return trimmed;
 }
 
-function clampSessionsColumnWidth(value: number): number {
-  return Math.max(MIN_SESSIONS_COLUMN_WIDTH, Math.min(MAX_SESSIONS_COLUMN_WIDTH, Math.round(value)));
-}
-
 function firstEventNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
   for (const key of keys) {
     const value = record[key];
@@ -553,7 +546,6 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [optimisticRunStartedAtMs, setOptimisticRunStartedAtMs] = useState<number | null>(null);
@@ -564,7 +556,6 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [newSessionTitle, setNewSessionTitle] = useState("");
   const [newSessionProvider, setNewSessionProvider] = useState<OverseerRuntimeProvider>(DEFAULT_OVERSEER_PROVIDER);
-  const [sessionsColumnWidth, setSessionsColumnWidth] = useState(DEFAULT_SESSIONS_COLUMN_WIDTH);
   const [copiedRunId, setCopiedRunId] = useState<string | null>(null);
   const [assistantReveal, setAssistantReveal] = useState<AssistantReveal | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -783,43 +774,6 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     const frame = window.requestAnimationFrame(() => scrollChatToBottom(showLiveActivity ? "smooth" : "auto"));
     return () => window.cancelAnimationFrame(frame);
   }, [messages.length, events.length, showLiveActivity, nowMs, assistantReveal?.visibleText.length, scrollChatToBottom]);
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(`hr:overseer:sessions-width:${slug}`);
-      const parsed = stored ? Number(stored) : NaN;
-      if (Number.isFinite(parsed)) setSessionsColumnWidth(clampSessionsColumnWidth(parsed));
-    } catch {
-      // Keep the default width when storage is unavailable.
-    }
-  }, [slug]);
-
-  const beginColumnResize = useCallback((event: ReactMouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = sessionsColumnWidth;
-    let lastWidth = startWidth;
-    const handlePointerMove = (moveEvent: MouseEvent) => {
-      const nextWidth = clampSessionsColumnWidth(startWidth - (moveEvent.clientX - startX));
-      lastWidth = nextWidth;
-      setSessionsColumnWidth(nextWidth);
-    };
-    const handlePointerUp = () => {
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      document.removeEventListener("mousemove", handlePointerMove);
-      document.removeEventListener("mouseup", handlePointerUp);
-      try {
-        window.localStorage.setItem(`hr:overseer:sessions-width:${slug}`, String(lastWidth));
-      } catch {
-        // Width persistence is best effort.
-      }
-    };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    document.addEventListener("mousemove", handlePointerMove);
-    document.addEventListener("mouseup", handlePointerUp);
-  }, [sessionsColumnWidth, slug]);
 
   const createSession = async (title = "Orchestration Chat", provider: OverseerRuntimeProvider = DEFAULT_OVERSEER_PROVIDER): Promise<OverseerSession | null> => {
     setCreating(true);
@@ -1072,7 +1026,6 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     activeTurnEvents,
     assistantReveal,
     attachments,
-    beginColumnResize,
     cancelling,
     chatScrollRef,
     continuityProof,
@@ -1082,7 +1035,6 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     contextLimit,
     contextPercent,
     contextTokens,
-    diagnosticsOpen,
     draggingFiles,
     draft,
     error,
@@ -1111,9 +1063,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     sending,
     sendMessage,
     sessions,
-    sessionsColumnWidth,
     setActiveSessionId: selectActiveSessionId,
-    setDiagnosticsOpen,
     setDraggingFiles,
     setDraft,
     setError,
@@ -1137,13 +1087,13 @@ export function OverseerCockpit({ slug }: { slug: string }) {
   return <OverseerFullPageCockpit controller={controller} />;
 }
 
-type OverseerCompactPanel = "sessions" | "activity" | "diagnostics";
+type OverseerPanel = "compaction" | "sessions" | "activity" | "diagnostics";
 
 type OverseerCompactCockpitContentProps = {
   controller: OverseerCockpitController;
   className?: string;
   style?: CSSProperties;
-  initialPanel?: OverseerCompactPanel | null;
+  initialPanel?: OverseerPanel | null;
 };
 
 export function OverseerCompactCockpit({
@@ -1160,16 +1110,14 @@ function OverseerCompactCockpitContent({
   style,
   initialPanel = null,
 }: OverseerCompactCockpitContentProps) {
-  const [activePanel, setActivePanel] = useState<OverseerCompactPanel | null>(initialPanel);
+  const [activePanel, setActivePanel] = useState<OverseerPanel | null>(initialPanel);
   const {
     activeProvider,
     activeSession,
-    diagnosticsOpen,
     error,
     loading,
     readiness,
     runActive,
-    setDiagnosticsOpen,
   } = controller;
   const title = displaySessionTitle(activeSession?.title) ?? "Overseer";
   const statusLabel = loading
@@ -1178,93 +1126,69 @@ function OverseerCompactCockpitContent({
       ? formatSessionStatus(activeSession.status)
       : "No session";
 
-  const togglePanel = (panel: OverseerCompactPanel) => {
-    const nextPanel = activePanel === panel ? null : panel;
-    setActivePanel(nextPanel);
-    setDiagnosticsOpen(nextPanel === "diagnostics");
-  };
-
   return (
     <div
       className={className}
       style={{
         display: "grid",
-        gridTemplateRows: "auto auto minmax(0, 1fr) auto",
+        gridTemplateRows: "auto minmax(0, 1fr) auto",
         minHeight: 0,
         height: "100%",
         width: "100%",
-        overflow: "hidden",
+        overflow: "visible",
         background: "var(--surface)",
         color: P.text,
         fontSize: 13,
         ...style,
       }}
     >
-      <div
-        style={{
-          display: "grid",
-          gap: 8,
-          padding: "10px 12px 8px",
-          borderBottom: `0.5px solid ${P.cardBorder}`,
-          background: "color-mix(in srgb, var(--surface-elevated) 82%, transparent)",
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            <ProviderRunMark provider={activeProvider} active={runActive} size={15} title={`${providerLabel(activeProvider)} ${runActive ? "running" : "ready"}`} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ color: P.text, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {title}
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 7, color: P.muted, fontSize: 11, minWidth: 0 }}>
-                {activeSession ? <SessionStatusDot status={activeSession.status} selected /> : null}
-                <span style={{ whiteSpace: "nowrap" }}>{statusLabel}</span>
-                <span style={{ color: readinessColor(readiness), whiteSpace: "nowrap" }}>{readinessLabel(readiness)}</span>
+      <div style={{ minHeight: 0, overflow: "visible" }}>
+        <div
+          style={{
+            display: "grid",
+            gap: 8,
+            padding: "10px 12px 8px",
+            borderBottom: `0.5px solid ${P.cardBorder}`,
+            background: "color-mix(in srgb, var(--surface-elevated) 82%, transparent)",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <ProviderRunMark provider={activeProvider} active={runActive} size={15} title={`${providerLabel(activeProvider)} ${runActive ? "running" : "ready"}`} />
+              <div style={{ minWidth: 0 }}>
+                <div style={{ color: P.text, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {title}
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 7, color: P.muted, fontSize: 11, minWidth: 0 }}>
+                  {activeSession ? <SessionStatusDot status={activeSession.status} selected /> : null}
+                  <span style={{ whiteSpace: "nowrap" }}>{statusLabel}</span>
+                  <span style={{ color: readinessColor(readiness), whiteSpace: "nowrap" }}>{readinessLabel(readiness)}</span>
+                </div>
               </div>
             </div>
-          </div>
-          <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
-            <CompactIconButton
-              active={activePanel === "sessions"}
-              title="Sessions"
-              onClick={() => togglePanel("sessions")}
-            >
-              <Bot size={15} />
-            </CompactIconButton>
-            <CompactIconButton
-              active={activePanel === "activity"}
-              title="Activity"
-              onClick={() => togglePanel("activity")}
-            >
-              <Terminal size={15} />
-            </CompactIconButton>
-            <CompactIconButton
-              active={activePanel === "diagnostics" || diagnosticsOpen}
-              title="Diagnostics"
-              onClick={() => togglePanel("diagnostics")}
-            >
-              <Wrench size={15} />
-            </CompactIconButton>
+            <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+              <OverseerPanelLauncher
+                activePanel={activePanel}
+                onSelect={(panel) => setActivePanel((current) => current === panel ? null : panel)}
+              />
+            </div>
           </div>
         </div>
+
+        {error ? (
+          <div style={{ padding: "8px 12px", borderBottom: `0.5px solid ${P.cardBorder}`, background: color.negativeSoft, color: color.negative, fontSize: 12, lineHeight: 1.35 }}>
+            {error}
+          </div>
+        ) : null}
+
+        {activePanel ? (
+          <OverseerPanelSurface
+            controller={controller}
+            panel={activePanel}
+            onClose={() => setActivePanel(null)}
+          />
+        ) : null}
       </div>
-
-      {error ? (
-        <div style={{ padding: "8px 12px", borderBottom: `0.5px solid ${P.cardBorder}`, background: color.negativeSoft, color: color.negative, fontSize: 12, lineHeight: 1.35 }}>
-          {error}
-        </div>
-      ) : null}
-
-      {activePanel ? (
-        <OverseerCompactDrawer
-          controller={controller}
-          panel={activePanel}
-          onClose={() => {
-            setActivePanel(null);
-            setDiagnosticsOpen(false);
-          }}
-        />
-      ) : null}
 
       <OverseerCompactTranscript controller={controller} />
       <OverseerCompactComposer controller={controller} />
@@ -1273,8 +1197,8 @@ function OverseerCompactCockpitContent({
 }
 
 function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitController }) {
+  const [activePanel, setActivePanel] = useState<OverseerPanel | null>(null);
   const {
-    activeCompaction,
     activeFastMode,
     activeModel,
     activeProvider,
@@ -1284,17 +1208,13 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
     activeTurnEvents,
     assistantReveal,
     attachments,
-    beginColumnResize,
     cancelling,
     chatScrollRef,
-    continuityProof,
     copiedRunId,
     copyRunHandoff,
-    creating,
     contextLimit,
     contextPercent,
     contextTokens,
-    diagnosticsOpen,
     draggingFiles,
     draft,
     error,
@@ -1306,36 +1226,19 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
     handlePaste,
     hasAssistantMessage,
     latestCompletedProvider,
-    loadDetail,
-    loading,
     messages,
-    newSessionOpen,
-    newSessionProvider,
-    newSessionTitle,
     nowMs,
     optimisticRunStartedAtMs,
     patchActiveSession,
-    patchCompactionSettings,
     readiness,
     removeAttachment,
-    requestManualCompaction,
     runActive,
     sending,
     sendMessage,
-    sessions,
-    sessionsColumnWidth,
-    setActiveSessionId,
-    setDiagnosticsOpen,
     setDraggingFiles,
     setDraft,
-    setError,
-    setNewSessionOpen,
-    setNewSessionProvider,
-    setNewSessionTitle,
     showLiveActivity,
-    slug,
     stopRun,
-    submitNewSession,
     updatingModel,
     uploadingAttachments,
     visibleQuota,
@@ -1365,8 +1268,7 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
         className="overseer-shell-grid"
         style={{
           display: "grid",
-          gridTemplateColumns: `minmax(0, 1fr) 10px ${sessionsColumnWidth}px`,
-          gap: 8,
+          gap: 12,
           alignItems: "start",
         }}
       >
@@ -1374,21 +1276,18 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
           <Section
             title={displaySessionTitle(activeSession?.title) ?? "Orchestration Chat"}
             trailing={
-              <OverseerDiagnosticsControls
-                open={diagnosticsOpen}
-                onToggle={() => setDiagnosticsOpen((open) => !open)}
-                readiness={readiness}
-                session={activeSession}
-                proof={continuityProof}
+              <OverseerPanelLauncher
+                activePanel={activePanel}
+                onSelect={(panel) => setActivePanel((current) => current === panel ? null : panel)}
               />
             }
           >
-            {diagnosticsOpen ? (
-              <OverseerDiagnosticsPanel
-                slug={slug}
-                session={activeSession}
-                readiness={readiness}
-                proof={continuityProof}
+            {activePanel ? (
+              <OverseerPanelSurface
+                controller={controller}
+                panel={activePanel}
+                onClose={() => setActivePanel(null)}
+                maxHeight={360}
               />
             ) : null}
 
@@ -1555,7 +1454,6 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
                 modelCatalog={readiness?.modelCatalog}
                 reasoning={activeReasoning}
                 fastMode={activeFastMode}
-                compaction={activeCompaction}
                 contextTokens={contextTokens}
                 contextLimit={contextLimit}
                 contextPercent={contextPercent}
@@ -1568,188 +1466,10 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
                 onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
                 onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
                 onProviderChange={(provider) => void patchActiveSession({ provider })}
-                onCompactionChange={(compaction) => void patchCompactionSettings(compaction)}
-                onCompactNow={() => void requestManualCompaction()}
               />
             </div>
           </Section>
         </div>
-
-        <div
-          className="overseer-resize-handle"
-          role="separator"
-          aria-label="Resize sessions column"
-          aria-orientation="vertical"
-          onMouseDown={beginColumnResize}
-          title="Resize sessions column"
-          style={{
-            alignSelf: "stretch",
-            minHeight: 520,
-            cursor: "col-resize",
-            display: "flex",
-            justifyContent: "center",
-            paddingTop: 56,
-          }}
-        />
-
-        <Section
-          title="Sessions"
-          card={false}
-          trailing={
-            <button
-              type="button"
-              onClick={() => setNewSessionOpen((open) => !open)}
-              title="New session"
-              aria-label="New session"
-              style={{
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-                width: 26,
-                height: 26,
-                border: 0,
-                borderRadius: radius.full,
-                background: newSessionOpen ? P.surfaceHover : "transparent",
-                color: P.textSec,
-                cursor: "pointer",
-                padding: 0,
-              }}
-            >
-              <Plus size={16} />
-            </button>
-          }
-        >
-          <div style={{ display: "grid", gap: 6 }}>
-            {newSessionOpen || sessions.length === 0 ? (
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void submitNewSession();
-                }}
-                style={{
-                  display: "grid",
-                  gap: 8,
-                  marginBottom: sessions.length > 0 ? 8 : 0,
-                  padding: 10,
-                  borderRadius: radius.md,
-                  border: `0.5px solid ${P.cardBorder}`,
-                  background: P.card,
-                }}
-              >
-                <input
-                  autoFocus
-                  value={newSessionTitle}
-                  onChange={(event) => setNewSessionTitle(event.target.value)}
-                  placeholder="Session name"
-                  aria-label="Session name"
-                  style={{
-                    width: "100%",
-                    height: 34,
-                    borderRadius: radius.sm,
-                    border: `0.5px solid ${P.cardBorder}`,
-                    background: P.surfaceElevated,
-                    color: P.text,
-                    padding: "0 10px",
-                    fontSize: 13,
-                    outline: "none",
-                  }}
-                />
-                <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 34px", gap: 8 }}>
-                  <select
-                    value={newSessionProvider}
-                    onChange={(event) => setNewSessionProvider(normalizeOverseerProvider(event.target.value))}
-                    aria-label="Session provider"
-                    style={{
-                      width: "100%",
-                      height: 34,
-                      borderRadius: radius.sm,
-                      border: `0.5px solid ${P.cardBorder}`,
-                      background: P.surfaceElevated,
-                      color: P.text,
-                      padding: "0 9px",
-                      fontSize: 13,
-                      outline: "none",
-                    }}
-                  >
-                    {OVERSEER_PROVIDER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="submit"
-                    disabled={creating}
-                    title="Create session"
-                    aria-label="Create session"
-                    style={{
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      width: 34,
-                      height: 34,
-                      borderRadius: radius.sm,
-                      border: 0,
-                      background: P.surfaceHover,
-                      color: P.text,
-                      cursor: creating ? "default" : "pointer",
-                      opacity: creating ? 0.65 : 1,
-                      padding: 0,
-                    }}
-                  >
-                    {creating ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
-                  </button>
-                </div>
-              </form>
-            ) : null}
-
-            {loading ? (
-              <div style={{ color: P.muted, fontSize: 13 }}>Loading...</div>
-            ) : sessions.length === 0 ? (
-              <div style={{ color: P.muted, fontSize: 12 }}>Name the first session and choose its runtime.</div>
-            ) : (
-              sessions.map((session) => {
-                const sessionCompaction = normalizeCompactionSettings(session);
-                return (
-                  <button
-                    key={session.id}
-                    type="button"
-                    onClick={() => {
-                      setActiveSessionId(session.id);
-                      void loadDetail(session.id).catch((detailError) => {
-                        setError(detailError instanceof Error ? detailError.message : "Could not load session.");
-                      });
-                    }}
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "14px minmax(0, 1fr) 14px",
-                      alignItems: "center",
-                      gap: 8,
-                      minHeight: 30,
-                      textAlign: "left",
-                      padding: "5px 7px",
-                      borderRadius: radius.sm,
-                      border: 0,
-                      background: session.id === activeSession?.id ? P.surfaceHover : "transparent",
-                      color: P.text,
-                      cursor: "pointer",
-                    }}
-                  >
-                    <SessionStatusDot status={session.status} selected={session.id === activeSession?.id} />
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 13 }}>
-                      {displaySessionTitle(session.title) ?? "Orchestration Chat"}
-                    </span>
-                    {sessionCompaction.hasMemorySummary ? (
-                      <Asterisk size={12} color={P.accent} aria-label={compactionSummaryLabel(sessionCompaction)} />
-                    ) : (
-                      <span aria-hidden="true" />
-                    )}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </Section>
       </div>
     </div>
   );
@@ -1833,29 +1553,159 @@ function CompactActionButton({
   );
 }
 
-function OverseerCompactDrawer({
+const OVERSEER_PANEL_OPTIONS: Array<{ id: OverseerPanel; label: string; Icon: typeof Asterisk }> = [
+  { id: "compaction", label: "Compaction", Icon: Asterisk },
+  { id: "sessions", label: "Sessions", Icon: Bot },
+  { id: "activity", label: "Activity", Icon: Terminal },
+  { id: "diagnostics", label: "Diagnostics", Icon: Wrench },
+];
+const COMPACTION_MODE_OPTIONS: CompactionMode[] = ["ask", "auto", "manual"];
+
+function overseerPanelTitle(panel: OverseerPanel): string {
+  return OVERSEER_PANEL_OPTIONS.find((option) => option.id === panel)?.label ?? "Panel";
+}
+
+function compactionModeLabel(mode: CompactionMode): string {
+  return mode === "auto" ? "Auto" : mode === "manual" ? "Manual" : "Ask";
+}
+
+function OverseerPanelLauncher({
+  activePanel,
+  onSelect,
+}: {
+  activePanel: OverseerPanel | null;
+  onSelect: (panel: OverseerPanel) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
+      setOpen(false);
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  return (
+    <div ref={menuRef} style={{ position: "relative" }}>
+      <CompactIconButton
+        active={Boolean(activePanel) || open}
+        title={activePanel ? `${overseerPanelTitle(activePanel)} panel` : "Overseer panels"}
+        onClick={() => setOpen((current) => !current)}
+      >
+        <Menu size={15} />
+      </CompactIconButton>
+      {open ? (
+        <div
+          role="menu"
+          aria-label="Overseer panels"
+          style={{
+            position: "absolute",
+            right: 0,
+            top: 34,
+            zIndex: 40,
+            width: 190,
+            padding: 6,
+            borderRadius: radius.lg,
+            border: `0.5px solid ${P.cardBorder}`,
+            background: P.surfaceElevated,
+            boxShadow: "var(--shadow-glass)",
+          }}
+        >
+          {OVERSEER_PANEL_OPTIONS.map(({ id, label, Icon }) => {
+            const selected = activePanel === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                role="menuitemradio"
+                aria-checked={selected}
+                onClick={() => {
+                  onSelect(id);
+                  setOpen(false);
+                }}
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 10,
+                  height: 34,
+                  border: 0,
+                  borderRadius: radius.md,
+                  background: selected ? P.surfaceHover : "transparent",
+                  color: P.text,
+                  cursor: "pointer",
+                  padding: "0 9px",
+                  fontSize: 13,
+                  textAlign: "left",
+                }}
+              >
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                  <Icon size={14} color={selected ? P.accent : P.textSec} />
+                  {label}
+                </span>
+                {selected ? <Check size={14} color={P.text} /> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OverseerPanelSurface({
   controller,
   panel,
   onClose,
+  maxHeight = 260,
 }: {
   controller: OverseerCockpitController;
-  panel: OverseerCompactPanel;
+  panel: OverseerPanel;
   onClose: () => void;
+  maxHeight?: number;
 }) {
-  const title = panel === "sessions" ? "Sessions" : panel === "activity" ? "Activity" : "Diagnostics";
+  const title = overseerPanelTitle(panel);
+  const panelOption = OVERSEER_PANEL_OPTIONS.find((option) => option.id === panel);
+  const PanelIcon = panelOption?.Icon ?? Menu;
+  const scrollable = panel !== "compaction";
   return (
     <div
       style={{
         minHeight: 0,
-        maxHeight: 260,
-        overflowY: "auto",
+        maxHeight: scrollable ? maxHeight : undefined,
+        overflowY: scrollable ? "auto" : "visible",
+        borderTop: `0.5px solid ${P.cardBorder}`,
         borderBottom: `0.5px solid ${P.cardBorder}`,
-        background: "color-mix(in srgb, var(--surface-elevated) 70%, var(--surface) 30%)",
-        padding: "10px 12px",
+        background: "linear-gradient(180deg, color-mix(in srgb, var(--accent-soft) 38%, var(--surface-hover) 62%), color-mix(in srgb, var(--accent-soft) 22%, var(--surface-elevated) 78%))",
+        boxShadow: "inset 2px 0 0 color-mix(in srgb, var(--accent) 58%, transparent), inset 0 1px 0 color-mix(in srgb, var(--text-primary) 7%, transparent), inset 0 -1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent)",
+        padding: panel === "compaction" ? "7px 9px 8px" : "8px 10px 10px",
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-        <div style={{ color: P.textSec, fontSize: 12, fontWeight: 650, textTransform: "uppercase", letterSpacing: 0 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 10,
+          marginBottom: panel === "compaction" ? 5 : 7,
+          minHeight: 24,
+        }}
+      >
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 7, color: P.textSec, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0 }}>
+          <PanelIcon size={13} color={P.accent} />
           {title}
         </div>
         <button
@@ -1881,18 +1731,218 @@ function OverseerCompactDrawer({
         </button>
       </div>
 
-      {panel === "sessions" ? (
-        <OverseerCompactSessionsPanel controller={controller} />
-      ) : panel === "activity" ? (
-        <OverseerCompactActivityPanel controller={controller} />
-      ) : (
-        <OverseerDiagnosticsPanel
-          slug={controller.slug}
-          session={controller.activeSession}
-          readiness={controller.readiness}
-          proof={controller.continuityProof}
+      <div
+        style={{
+          borderRadius: radius.md,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: "color-mix(in srgb, var(--surface-elevated) 72%, var(--accent-soft) 28%)",
+          boxShadow: "0 1px 0 color-mix(in srgb, var(--text-primary) 4%, transparent)",
+          padding: panel === "compaction" ? 6 : 9,
+        }}
+      >
+        {panel === "compaction" ? (
+          <OverseerCompactionPanel controller={controller} />
+        ) : panel === "sessions" ? (
+          <OverseerCompactSessionsPanel controller={controller} />
+        ) : panel === "activity" ? (
+          <OverseerCompactActivityPanel controller={controller} />
+        ) : (
+          <OverseerDiagnosticsPanel
+            slug={controller.slug}
+            session={controller.activeSession}
+            readiness={controller.readiness}
+            proof={controller.continuityProof}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OverseerCompactionPanel({ controller }: { controller: OverseerCockpitController }) {
+  const {
+    activeCompaction,
+    activeSession,
+    patchCompactionSettings,
+    requestManualCompaction,
+    updatingModel,
+  } = controller;
+  const compaction = activeCompaction;
+  const compactionThreshold = compaction.thresholdPercent ?? 80;
+  const compactionBusy = compaction.status === "running" || compaction.status === "requested";
+
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, flexWrap: "wrap" }}>
+        <CompactionModeSegments
+          compaction={compaction}
+          threshold={compactionThreshold}
+          disabled={updatingModel}
+          onChange={(patch) => void patchCompactionSettings(patch)}
         />
-      )}
+        <CompactionThresholdControl
+          compaction={compaction}
+          threshold={compactionThreshold}
+          disabled={updatingModel}
+          onChange={(thresholdPercent) => void patchCompactionSettings({ ...compaction, thresholdPercent })}
+        />
+        <CompactionActionButton
+          disabled={!activeSession || updatingModel || compactionBusy}
+          busy={compactionBusy}
+          onCompact={() => void requestManualCompaction()}
+        />
+      </div>
+      <CompactionStatusText compaction={compaction} />
+    </div>
+  );
+}
+
+function CompactionModeSegments({
+  compaction,
+  threshold,
+  disabled,
+  onChange,
+}: {
+  compaction: SessionCompactionSettings;
+  threshold: number;
+  disabled: boolean;
+  onChange: (patch: Partial<SessionCompactionSettings>) => void;
+}) {
+  return (
+    <div style={{ flex: "1 1 176px", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 3, padding: 3, borderRadius: radius.md, background: "color-mix(in srgb, var(--surface) 82%, transparent)" }}>
+      {COMPACTION_MODE_OPTIONS.map((mode) => (
+        <CompactionModeSegment
+          key={mode}
+          mode={mode}
+          selected={mode === compaction.mode}
+          disabled={disabled}
+          onSelect={() => onChange({ ...compaction, mode, thresholdPercent: mode === "manual" ? null : threshold })}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CompactionModeSegment({
+  mode,
+  selected,
+  disabled,
+  onSelect,
+}: {
+  mode: CompactionMode;
+  selected: boolean;
+  disabled: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      onClick={onSelect}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        height: 28,
+        border: `0.5px solid ${selected ? P.cardBorder : "transparent"}`,
+        borderRadius: radius.sm,
+        background: selected ? P.surfaceHover : "transparent",
+        color: selected ? P.text : P.textSec,
+        padding: "0 8px",
+        fontSize: 12,
+        fontWeight: selected ? 650 : 500,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled && !selected ? 0.55 : 1,
+      }}
+    >
+      {compactionModeLabel(mode)}
+    </button>
+  );
+}
+
+function CompactionThresholdControl({
+  compaction,
+  threshold,
+  disabled,
+  onChange,
+}: {
+  compaction: SessionCompactionSettings;
+  threshold: number;
+  disabled: boolean;
+  onChange: (thresholdPercent: number) => void;
+}) {
+  if (compaction.mode === "manual") {
+    return <div style={{ flex: "2 1 190px", color: P.muted, fontSize: 11 }}>Manual compaction only</div>;
+  }
+  return (
+    <label style={{ flex: "2 1 210px", display: "grid", gridTemplateColumns: "auto minmax(84px, 1fr) auto", alignItems: "center", gap: 7, color: P.textSec, fontSize: 11, minWidth: 0 }}>
+      <span>Threshold</span>
+      <input
+        type="range"
+        min={50}
+        max={95}
+        step={5}
+        value={threshold}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        style={{ width: "100%", accentColor: P.accent }}
+      />
+      <span style={{ color: P.text, fontVariantNumeric: "tabular-nums" }}>{threshold}%</span>
+    </label>
+  );
+}
+
+function CompactionActionButton({
+  disabled,
+  busy,
+  onCompact,
+}: {
+  disabled: boolean;
+  busy: boolean;
+  onCompact: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onCompact}
+      title="Request compaction for this session"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 6,
+        height: 28,
+        border: `0.5px solid ${P.cardBorder}`,
+        borderRadius: radius.sm,
+        background: P.surfaceHover,
+        color: P.text,
+        padding: "0 8px",
+        fontSize: 12,
+        whiteSpace: "nowrap",
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      <Asterisk size={13} color={P.accent} />
+      Compact
+      {busy ? <Loader2 size={12} className="animate-spin" /> : null}
+    </button>
+  );
+}
+
+function CompactionStatusText({ compaction }: { compaction: SessionCompactionSettings }) {
+  const label = compaction.status === "requested"
+    ? "Compaction requested."
+    : compaction.hasMemorySummary
+      ? compactionSummaryLabel(compaction)
+      : "No summary yet.";
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 5, color: P.muted, fontSize: 11, lineHeight: 1.25, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+      <Asterisk size={11} color={P.accent} />
+      {label}
     </div>
   );
 }
@@ -1914,11 +1964,29 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
     setNewSessionTitle,
     submitNewSession,
   } = controller;
+  const sessionCountLabel = loading
+    ? "Loading sessions"
+    : sessions.length === 1
+      ? "1 session"
+      : `${sessions.length} sessions`;
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <div style={{ color: P.muted, fontSize: 12 }}>
-          {sessions.length === 1 ? "1 session" : `${sessions.length} sessions`}
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+          minHeight: 34,
+          borderRadius: radius.md,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: "color-mix(in srgb, var(--surface-elevated) 70%, var(--accent-soft) 30%)",
+          padding: "3px 5px 3px 9px",
+        }}
+      >
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color: P.text, fontSize: 12, fontWeight: 650, lineHeight: 1.2 }}>Session list</div>
+          <div style={{ color: P.muted, fontSize: 11, lineHeight: 1.2 }}>{sessionCountLabel}</div>
         </div>
         <button
           type="button"
@@ -1929,8 +1997,8 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
             display: "inline-flex",
             alignItems: "center",
             justifyContent: "center",
-            width: 28,
-            height: 28,
+            width: 26,
+            height: 26,
             border: `0.5px solid ${newSessionOpen ? P.cardBorder : "transparent"}`,
             borderRadius: radius.sm,
             background: newSessionOpen ? P.surfaceHover : "transparent",
@@ -1943,7 +2011,7 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
         </button>
       </div>
 
-      {newSessionOpen || sessions.length === 0 ? (
+      {!loading && (newSessionOpen || sessions.length === 0) ? (
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -1955,7 +2023,7 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
             padding: 9,
             borderRadius: radius.md,
             border: `0.5px solid ${P.cardBorder}`,
-            background: "color-mix(in srgb, var(--surface) 70%, transparent)",
+            background: "color-mix(in srgb, var(--surface) 78%, transparent)",
           }}
         >
           <input
@@ -2025,11 +2093,11 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
       ) : null}
 
       {loading ? (
-        <div style={{ color: P.muted, fontSize: 12 }}>Loading sessions...</div>
+        <div style={{ color: P.muted, fontSize: 12, padding: "4px 2px" }}>Loading sessions...</div>
       ) : sessions.length === 0 ? (
-        <div style={{ color: P.muted, fontSize: 12 }}>Name a session or start from the composer draft.</div>
+        <div style={{ color: P.muted, fontSize: 12, padding: "4px 2px" }}>Name a session or start from the composer draft.</div>
       ) : (
-        <div style={{ display: "grid", gap: 4 }}>
+        <div style={{ display: "grid", gap: 6, padding: 6, borderRadius: radius.md, border: `0.5px solid ${P.cardBorder}`, background: "color-mix(in srgb, var(--surface) 76%, transparent)" }}>
           {sessions.map((session) => {
             const selected = session.id === activeSession?.id;
             const sessionCompaction = normalizeCompactionSettings(session);
@@ -2048,12 +2116,14 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
                   gridTemplateColumns: "14px minmax(0, 1fr) auto",
                   alignItems: "center",
                   gap: 8,
-                  minHeight: 34,
+                  minHeight: 42,
                   textAlign: "left",
-                  padding: "5px 7px",
-                  borderRadius: radius.sm,
-                  border: 0,
-                  background: selected ? P.surfaceHover : "transparent",
+                  padding: "7px 8px",
+                  borderRadius: radius.md,
+                  border: `0.5px solid ${selected ? "color-mix(in srgb, var(--accent) 55%, var(--border) 45%)" : P.cardBorder}`,
+                  background: selected
+                    ? "color-mix(in srgb, var(--accent-soft) 46%, var(--surface-elevated) 54%)"
+                    : "color-mix(in srgb, var(--surface-elevated) 74%, transparent)",
                   color: P.text,
                   cursor: "pointer",
                 }}
@@ -2095,13 +2165,15 @@ function OverseerCompactActivityPanel({ controller }: { controller: OverseerCock
   if (showLiveActivity) {
     const provider = runtimeProviderFromEvents(activeTurnEvents, activeProvider);
     return (
-      <ActivityFeed
-        provider={provider}
-        events={activeTurnEvents}
-        active
-        nowMs={nowMs}
-        fallbackStartedAtMs={optimisticRunStartedAtMs}
-      />
+      <OverseerActivityPanelCard title="Live run">
+        <ActivityFeed
+          provider={provider}
+          events={activeTurnEvents}
+          active
+          nowMs={nowMs}
+          fallbackStartedAtMs={optimisticRunStartedAtMs}
+        />
+      </OverseerActivityPanelCard>
     );
   }
 
@@ -2112,19 +2184,44 @@ function OverseerCompactActivityPanel({ controller }: { controller: OverseerCock
     if (turnEvents.length === 0) continue;
     const provider = runtimeProviderFromEvents(turnEvents, activeProvider);
     return (
-      <ActivityFeed
-        provider={provider}
-        events={turnEvents}
-        active={false}
-        nowMs={nowMs}
-        finalMessageContent={message.content}
-      />
+      <OverseerActivityPanelCard title="Latest run">
+        <ActivityFeed
+          provider={provider}
+          events={turnEvents}
+          active={false}
+          nowMs={nowMs}
+          finalMessageContent={message.content}
+        />
+      </OverseerActivityPanelCard>
     );
   }
 
   return (
-    <div style={{ color: P.muted, fontSize: 12, lineHeight: 1.4 }}>
-      No tool activity has been recorded for this session.
+    <OverseerActivityPanelCard title="Activity">
+      <div style={{ color: P.muted, fontSize: 12, lineHeight: 1.4 }}>
+        No tool activity has been recorded for this session.
+      </div>
+    </OverseerActivityPanelCard>
+  );
+}
+
+function OverseerActivityPanelCard({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 6, color: P.textSec, fontSize: 11, fontWeight: 650 }}>
+        <Terminal size={12} color={P.accent} />
+        {title}
+      </div>
+      <div
+        style={{
+          borderRadius: radius.md,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: "color-mix(in srgb, var(--surface-elevated) 70%, var(--accent-soft) 30%)",
+          padding: "7px 8px",
+        }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -2262,7 +2359,6 @@ function OverseerCompactStarterDrafts({ onSelectDraft }: { onSelectDraft: (draft
 
 function OverseerCompactComposer({ controller }: { controller: OverseerCockpitController }) {
   const {
-    activeCompaction,
     activeFastMode,
     activeModel,
     activeProvider,
@@ -2281,10 +2377,8 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
     handleFileList,
     handlePaste,
     patchActiveSession,
-    patchCompactionSettings,
     readiness,
     removeAttachment,
-    requestManualCompaction,
     runActive,
     sending,
     sendMessage,
@@ -2370,7 +2464,6 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
           modelCatalog={readiness?.modelCatalog}
           reasoning={activeReasoning}
           fastMode={activeFastMode}
-          compaction={activeCompaction}
           contextTokens={contextTokens}
           contextLimit={contextLimit}
           contextPercent={contextPercent}
@@ -2383,8 +2476,6 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
           onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
           onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
           onProviderChange={(provider) => void patchActiveSession({ provider })}
-          onCompactionChange={(compaction) => void patchCompactionSettings(compaction)}
-          onCompactNow={() => void requestManualCompaction()}
         />
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8 }}>
           <CompactActionButton
@@ -2463,63 +2554,6 @@ function latestProofVersion(proof: ContinuityProof | null): number | null {
   return proof?.latestSnapshotVersion ?? proof?.latestCompaction.snapshotVersion ?? null;
 }
 
-function OverseerDiagnosticsControls({
-  open,
-  onToggle,
-  readiness,
-  session,
-  proof,
-}: {
-  open: boolean;
-  onToggle: () => void;
-  readiness: OverseerReadiness | null;
-  session: OverseerSession | null;
-  proof: ContinuityProof | null;
-}) {
-  const statusColor = readinessColor(readiness);
-  const snapshotVersion = latestProofVersion(proof);
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap", justifyContent: "flex-end" }}>
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        title={open ? "Hide diagnostics" : "Show diagnostics"}
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          minHeight: 26,
-          borderRadius: radius.sm,
-          border: `0.5px solid ${open ? P.cardBorder : "transparent"}`,
-          background: open ? P.surfaceHover : "transparent",
-          color: P.textSec,
-          cursor: "pointer",
-          padding: "3px 7px",
-          fontSize: 12,
-          fontWeight: 600,
-        }}
-      >
-        <ChevronDown
-          size={13}
-          style={{
-            transform: open ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.15s ease",
-          }}
-        />
-        <Wrench size={13} />
-        <span>Diagnostics</span>
-        <span style={{ color: statusColor }}>{readinessLabel(readiness)}</span>
-        {session ? (
-          <span style={{ color: P.muted }}>
-            v{snapshotVersion ?? "none"}
-          </span>
-        ) : null}
-      </button>
-    </span>
-  );
-}
-
 function DiagnosticPill({
   icon,
   label,
@@ -2574,9 +2608,6 @@ function OverseerDiagnosticsPanel({
       style={{
         display: "grid",
         gap: 8,
-        marginBottom: 10,
-        paddingBottom: 10,
-        borderBottom: `0.5px solid ${P.cardBorder}`,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
@@ -2746,7 +2777,6 @@ function ComposerToolbar({
   modelCatalog,
   reasoning,
   fastMode,
-  compaction,
   contextTokens,
   contextLimit,
   contextPercent,
@@ -2759,15 +2789,12 @@ function ComposerToolbar({
   onReasoningChange,
   onFastModeChange,
   onProviderChange,
-  onCompactionChange,
-  onCompactNow,
 }: {
   provider: OverseerRuntimeProvider;
   model: string;
   modelCatalog?: OverseerReadiness["modelCatalog"];
   reasoning: string;
   fastMode: boolean;
-  compaction: SessionCompactionSettings;
   contextTokens: number | null;
   contextLimit: number | null;
   contextPercent: number | null;
@@ -2780,33 +2807,26 @@ function ComposerToolbar({
   onReasoningChange: (reasoning: ReasoningEffort) => void;
   onFastModeChange: (fastMode: boolean) => void;
   onProviderChange: (provider: OverseerRuntimeProvider) => void;
-  onCompactionChange: (compaction: Partial<SessionCompactionSettings>) => void;
-  onCompactNow: () => void;
 }) {
   const [runtimeMenuOpen, setRuntimeMenuOpen] = useState(false);
-  const [compactionMenuOpen, setCompactionMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const compactionMenuRef = useRef<HTMLDivElement | null>(null);
   const selectedModel = modelOption(model, modelCatalog);
   const availableModels = MODEL_OPTIONS.map((option) => modelOption(option.id, modelCatalog));
   const selectedReasoning = reasoningLabel(reasoning);
   const fastModeAvailable = selectedModel.supportsFastMode === true;
   const effectiveFastMode = fastMode && fastModeAvailable;
   const modeSuffix = effectiveFastMode ? " · Fast" : "";
-  const compactionThreshold = compaction.thresholdPercent ?? 80;
 
   useEffect(() => {
-    if (!runtimeMenuOpen && !compactionMenuOpen) return;
+    if (!runtimeMenuOpen) return;
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
-      if (target instanceof Node && (menuRef.current?.contains(target) || compactionMenuRef.current?.contains(target))) return;
+      if (target instanceof Node && menuRef.current?.contains(target)) return;
       setRuntimeMenuOpen(false);
-      setCompactionMenuOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         setRuntimeMenuOpen(false);
-        setCompactionMenuOpen(false);
       }
     };
     document.addEventListener("pointerdown", handlePointerDown);
@@ -2815,7 +2835,7 @@ function ComposerToolbar({
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [runtimeMenuOpen, compactionMenuOpen]);
+  }, [runtimeMenuOpen]);
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
@@ -3066,156 +3086,6 @@ function ComposerToolbar({
             </div>
           ) : null}
         </div>
-        <div
-          ref={compactionMenuRef}
-          style={{ position: "relative" }}
-          onKeyDown={(event) => {
-            if (event.key === "Escape") setCompactionMenuOpen(false);
-          }}
-        >
-          <button
-            type="button"
-            disabled={disabled}
-            aria-haspopup="menu"
-            aria-expanded={compactionMenuOpen}
-            title={`${compactionSummaryLabel(compaction)} · Compaction ${compaction.mode}${compaction.mode === "manual" ? "" : ` at ${compactionThreshold}%`}`}
-            onClick={() => setCompactionMenuOpen((open) => !open)}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 5,
-              height: 30,
-              border: 0,
-              borderRadius: radius.md,
-              background: compaction.hasMemorySummary ? "var(--surface-hover)" : "transparent",
-              color: compaction.hasMemorySummary ? P.text : P.textSec,
-              cursor: "pointer",
-              padding: "0 5px",
-              opacity: disabled ? 0.5 : 1,
-            }}
-          >
-            <Asterisk size={14} color={compaction.hasMemorySummary ? P.accent : P.textSec} />
-            <span style={{ fontSize: 12, whiteSpace: "nowrap" }}>
-              {compaction.mode === "auto" ? "Auto" : compaction.mode === "manual" ? "Manual" : "Ask"}
-            </span>
-            {compaction.status === "requested" || compaction.status === "running" ? <Loader2 size={12} className="animate-spin" /> : null}
-          </button>
-          {compactionMenuOpen ? (
-            <div
-              role="menu"
-              aria-label="Compaction controls"
-              style={{
-                position: "absolute",
-                right: 0,
-                bottom: 38,
-                zIndex: 20,
-                width: 260,
-                padding: 8,
-                borderRadius: radius.lg,
-                border: `0.5px solid ${P.cardBorder}`,
-                background: P.surfaceElevated,
-                boxShadow: "var(--shadow-glass)",
-              }}
-            >
-              <div style={{ padding: "7px 10px 5px", color: P.muted, fontSize: 12 }}>Compaction</div>
-              {(["ask", "auto", "manual"] as CompactionMode[]).map((mode) => {
-                const selected = mode === compaction.mode;
-                return (
-                  <button
-                    key={mode}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    onClick={() => {
-                      onCompactionChange({
-                        ...compaction,
-                        mode,
-                        thresholdPercent: mode === "manual" ? null : compactionThreshold,
-                      });
-                    }}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      height: 34,
-                      border: 0,
-                      borderRadius: radius.md,
-                      background: selected ? P.surfaceHover : "transparent",
-                      color: P.text,
-                      padding: "0 10px",
-                      fontSize: 13,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <span>{mode === "auto" ? "Auto" : mode === "manual" ? "Manual" : "Ask"}</span>
-                    {selected ? <Check size={15} color={P.text} /> : null}
-                  </button>
-                );
-              })}
-              {compaction.mode !== "manual" ? (
-                <>
-                  <div style={{ height: 1, background: P.cardBorder, margin: "8px 10px" }} />
-                  <label style={{ display: "grid", gap: 7, padding: "4px 10px 8px", color: P.textSec, fontSize: 12 }}>
-                    <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <span>Threshold</span>
-                      <span>{compactionThreshold}%</span>
-                    </span>
-                    <input
-                      type="range"
-                      min={50}
-                      max={95}
-                      step={5}
-                      value={compactionThreshold}
-                      onChange={(event) => onCompactionChange({ ...compaction, thresholdPercent: Number(event.target.value) })}
-                      style={{ width: "100%", accentColor: P.accent }}
-                    />
-                  </label>
-                </>
-              ) : null}
-              <div style={{ height: 1, background: P.cardBorder, margin: "8px 10px" }} />
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  onCompactNow();
-                  setCompactionMenuOpen(false);
-                }}
-                disabled={compaction.status === "running" || compaction.status === "requested"}
-                title="Request compaction for this session"
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  height: 34,
-                  border: 0,
-                  borderRadius: radius.md,
-                  background: "transparent",
-                  color: P.text,
-                  padding: "0 10px",
-                  fontSize: 13,
-                  cursor: compaction.status === "running" || compaction.status === "requested" ? "default" : "pointer",
-                  opacity: compaction.status === "running" || compaction.status === "requested" ? 0.55 : 1,
-                }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <Asterisk size={14} color={P.accent} />
-                  Compact now
-                </span>
-                {compaction.status === "requested" || compaction.status === "running" ? <Loader2 size={13} className="animate-spin" /> : null}
-              </button>
-              <div style={{ padding: "6px 10px 3px", color: P.muted, fontSize: 11, lineHeight: 1.35 }}>
-                {compaction.status === "requested"
-                  ? "Compaction requested; runtime integration has not reported completion yet."
-                  : compaction.hasMemorySummary
-                    ? compactionSummaryLabel(compaction)
-                    : "No compacted memory summary reported."}
-              </div>
-            </div>
-          ) : null}
-        </div>
         <ContextRing
           percent={contextPercent}
           contextTokens={contextTokens}
@@ -3229,8 +3099,8 @@ function ComposerToolbar({
 
 function formatCompactNumber(value: number | null | undefined): string {
   if (value === null || value === undefined || !Number.isFinite(value) || value <= 0) return "unknown";
-  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value >= 10_000_000 ? 0 : 1)}M`;
-  if (value >= 1_000) return `${(value / 1_000).toFixed(value >= 100_000 ? 0 : 1)}k`;
+  if (value >= 1_000_000) return `${Math.round(value / 1_000_000)}M`;
+  if (value >= 1_000) return `${Math.round(value / 1_000)}k`;
   return formatNumber(value);
 }
 
@@ -3243,13 +3113,13 @@ function formatQuotaReset(value?: string): string {
 
 type QuotaBucket = NonNullable<OverseerSession["quota"]["buckets"]>[number];
 
-function quotaBucketUsedLabel(bucket: QuotaBucket): string {
+function quotaBucketAvailableLabel(bucket: QuotaBucket): string {
   if (typeof bucket.usedPercent !== "number" || !Number.isFinite(bucket.usedPercent)) return "usage unavailable";
-  return `${Math.round(bucket.usedPercent)}% used (${Math.max(0, Math.round(100 - bucket.usedPercent))}% left)`;
+  return `${Math.max(0, Math.round(100 - bucket.usedPercent))}% left`;
 }
 
 function quotaBucketLine(bucket: QuotaBucket): string {
-  return `${bucket.label}: ${quotaBucketUsedLabel(bucket)} · ${formatQuotaReset(bucket.resetsAt)}`;
+  return `${bucket.label}: ${quotaBucketAvailableLabel(bucket)} · ${formatQuotaReset(bucket.resetsAt)}`;
 }
 
 function isFiveHourQuotaBucket(bucket: QuotaBucket): boolean {
@@ -3276,9 +3146,9 @@ function subscriptionUsageLines(quota: OverseerSession["quota"]): string[] {
     return ordered.map(quotaBucketLine);
   }
   if (quota.reason && !/not been fetched/i.test(quota.reason)) {
-    return [`Subscription usage unavailable: ${quota.reason}`];
+    return ["Codex quota unavailable."];
   }
-  return ["Subscription usage not exposed by Codex exec JSON for this session."];
+  return ["Codex quota not exposed in this session."];
 }
 
 function ContextRing({
@@ -3294,8 +3164,11 @@ function ContextRing({
 }) {
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const clamped = percent === null ? null : Math.max(0, Math.min(100, percent));
+  const contextWindowLabel = contextLimit === null
+    ? "window pending"
+    : `window ${formatCompactNumber(contextLimit)}`;
   const contextLabel = clamped === null
-    ? `Context unavailable · window ${formatCompactNumber(contextLimit)}`
+    ? `Context usage pending · ${contextWindowLabel}`
     : `Context ${formatCompactNumber(contextTokens)} / ${formatCompactNumber(contextLimit)} (${clamped}%)`;
   const quotaLines = subscriptionUsageLines(quota);
   const title = [contextLabel, ...quotaLines].join(". ");
@@ -3340,9 +3213,8 @@ function ContextRing({
             right: 0,
             bottom: 30,
             zIndex: 30,
-            width: "max-content",
-            minWidth: 320,
-            maxWidth: "min(520px, calc(100vw - 48px))",
+            width: "min(280px, calc(100vw - 32px))",
+            maxWidth: "min(280px, calc(100vw - 32px))",
             padding: "8px 10px",
             borderRadius: radius.md,
             background: P.surfaceHover,
@@ -3354,9 +3226,9 @@ function ContextRing({
             pointerEvents: "none",
           }}
         >
-          <span style={{ display: "block", whiteSpace: "nowrap" }}>{contextLabel}</span>
+          <span style={{ display: "block", whiteSpace: "normal" }}>{contextLabel}</span>
           {quotaLines.map((line, index) => (
-            <span key={`${line}-${index}`} style={{ display: "block", color: P.textSec, marginTop: 2, whiteSpace: "nowrap" }}>
+            <span key={`${line}-${index}`} style={{ display: "block", color: P.textSec, marginTop: 2, whiteSpace: "normal" }}>
               {line}
             </span>
           ))}

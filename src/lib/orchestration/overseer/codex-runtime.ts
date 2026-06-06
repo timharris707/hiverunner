@@ -17,6 +17,7 @@ import {
   listOverseerMessages,
   recordOverseerEvent,
   requestOverseerSessionCompaction,
+  setOverseerTurnCodexSessionId,
   setOverseerTurnProcess,
 } from "./service";
 import type {
@@ -573,7 +574,21 @@ function runCodexProcess(input: {
       }
       usage = mergeUsage(usage, usageFromRecord(record));
       quota = quotaFromRecord(record) ?? quota;
-      threadId = threadIdFromRecord(record) ?? threadId;
+      const nextThreadId = threadIdFromRecord(record);
+      if (nextThreadId && nextThreadId !== threadId) {
+        threadId = nextThreadId;
+        try {
+          setOverseerTurnCodexSessionId({
+            sessionId: input.sessionId,
+            turnId: input.turnId,
+            codexSessionId: nextThreadId,
+          });
+        } catch {
+          // Session-id persistence should not interrupt a running Codex turn.
+        }
+      } else {
+        threadId = nextThreadId ?? threadId;
+      }
       const text = textFromRecord(record);
       if (text && shouldAppendAssistantText(type)) {
         assistantText = assistantText ? `${assistantText}\n${text}` : text;

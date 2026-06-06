@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, UsersRound } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -70,6 +70,7 @@ const NON_COMPANY_ROOTS = new Set([
 
 const ACTIVE_RUN_STATUSES = new Set(["running"]);
 const EXCLUDED_TASK_STATUSES = new Set(["backlog", "done", "blocked", "cancelled"]);
+const ACTIVE_AGENTS_RESERVED_BOTTOM_VAR = "--hr-active-agents-reserved-bottom";
 
 function useCompanyParamFromPath(): string {
   const pathname = usePathname();
@@ -181,6 +182,7 @@ export function AgentActivityPanel() {
   const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [isMobile, setIsMobile] = useState(false);
+  const panelRef = useRef<HTMLElement | null>(null);
   const refreshTimerRef = useRef<number | null>(null);
 
   const visibleRuns = useMemo(() => runs.filter(isVisibleRun), [runs]);
@@ -272,6 +274,30 @@ export function AgentActivityPanel() {
     };
   }, []);
 
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (!companyParam || visibleRuns.length === 0) {
+      root.style.removeProperty(ACTIVE_AGENTS_RESERVED_BOTTOM_VAR);
+      return undefined;
+    }
+
+    const updateReservedSpace = () => {
+      const height = panelRef.current?.getBoundingClientRect().height ?? 0;
+      root.style.setProperty(ACTIVE_AGENTS_RESERVED_BOTTOM_VAR, `${Math.ceil(height + 10)}px`);
+    };
+
+    updateReservedSpace();
+    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateReservedSpace) : null;
+    if (panelRef.current && observer) observer.observe(panelRef.current);
+    window.addEventListener("resize", updateReservedSpace);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateReservedSpace);
+      root.style.removeProperty(ACTIVE_AGENTS_RESERVED_BOTTOM_VAR);
+    };
+  }, [companyParam, panelExpanded, visibleRuns.length]);
+
   if (!companyParam || visibleRuns.length === 0) {
     return null;
   }
@@ -280,6 +306,7 @@ export function AgentActivityPanel() {
 
   return (
     <aside
+      ref={panelRef}
       aria-label="Active agents"
       style={{
         position: "fixed",

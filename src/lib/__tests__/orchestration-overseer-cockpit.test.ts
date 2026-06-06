@@ -163,10 +163,12 @@ async function run() {
     createOverseerTurn,
     getOverseerReadiness,
     getOverseerSession,
+    getOverseerTurn,
     listOverseerContextSnapshots,
     listOverseerEvents,
     listOverseerMessages,
     recordOverseerEvent,
+    setOverseerTurnCodexSessionId,
     updateOverseerSession,
     updateOverseerSettings,
   } = await import("@/lib/orchestration/overseer/service");
@@ -269,6 +271,32 @@ async function run() {
     assert.strictEqual(updated.reasoningEffort, "xhigh");
     assert.strictEqual(updated.scope.fastMode, true);
     assert.strictEqual(updated.scope.overseerProvider, "codex");
+  });
+
+  await test("running Codex thread id is stored before turn completion", () => {
+    const liveSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Live Telemetry Fixture",
+    }).session;
+    const user = appendOverseerMessage({
+      sessionId: liveSession.id,
+      role: "user",
+      content: "Start live telemetry.",
+    });
+    const turn = createOverseerTurn({
+      sessionId: liveSession.id,
+      userMessageId: user.id,
+      prompt: "Start live telemetry.",
+    });
+    setOverseerTurnCodexSessionId({
+      sessionId: liveSession.id,
+      turnId: turn.id,
+      codexSessionId: "thread-live-fixture-123",
+    });
+
+    assert.strictEqual(getOverseerSession(liveSession.id).codexSessionId, "thread-live-fixture-123");
+    assert.strictEqual(getOverseerTurn(turn.id).codexSessionId, "thread-live-fixture-123");
   });
 
   await test("session update stores defensive compaction controls in scope", () => {
@@ -559,6 +587,61 @@ async function run() {
     assert.strictEqual(telemetry.quota.buckets?.[0]?.usedPercent, 37);
     assert.strictEqual(telemetry.quota.buckets?.[0]?.resetsAt, "2026-05-30T23:50:29.000Z");
     assert.strictEqual(telemetry.quota.buckets?.[1]?.label, "Weekly limit");
+  });
+
+  await test("session route can derive live Codex telemetry from thread-started events", async () => {
+    const liveSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Route Telemetry Fixture",
+    }).session;
+    const user = appendOverseerMessage({
+      sessionId: liveSession.id,
+      role: "user",
+      content: "Start route telemetry.",
+    });
+    const turn = createOverseerTurn({
+      sessionId: liveSession.id,
+      userMessageId: user.id,
+      prompt: "Start route telemetry.",
+    });
+    recordOverseerEvent({
+      sessionId: liveSession.id,
+      turnId: turn.id,
+      eventType: "thread.started",
+      event: { type: "thread.started", thread_id: "thread-route-fallback-123" },
+    });
+    const codexSessionDir = path.join(homeDir, ".codex", "sessions", "2026", "05", "31");
+    mkdirSync(codexSessionDir, { recursive: true });
+    writeFileSync(
+      path.join(codexSessionDir, "rollout-2026-05-31T12-00-00-thread-route-fallback-123.jsonl"),
+      `${JSON.stringify({
+        timestamp: "2026-05-31T21:30:05.350Z",
+        type: "event_msg",
+        payload: {
+          type: "token_count",
+          info: {
+            last_token_usage: {
+              input_tokens: 12000,
+              total_tokens: 14000,
+            },
+            model_context_window: 258400,
+          },
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    assert.strictEqual(getOverseerSession(liveSession.id).codexSessionId, null);
+    const detailRes = await getSessionRoute({} as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: liveSession.id }),
+    });
+    assert.strictEqual(detailRes.status, 200);
+    const detailPayload = await detailRes.json() as {
+      codexTelemetry?: { context?: { usedTokens?: number | null; limitTokens?: number | null } } | null;
+    };
+    assert.strictEqual(detailPayload.codexTelemetry?.context?.usedTokens, 12000);
+    assert.strictEqual(detailPayload.codexTelemetry?.context?.limitTokens, 258400);
   });
 
   await test("follow-up message resumes the stored Codex session", async () => {
