@@ -8,6 +8,8 @@ import { KeyboardShortcuts } from "@/components/KeyboardShortcuts";
 import { HiveRunnerRealtimeProvider, RealtimeStatusBanner } from "@/components/live/RealtimeProvider";
 import { LiveStreamProvider } from "@/components/live/LiveStreamProvider";
 import { NotificationProvider } from "@/components/notifications/NotificationToast";
+import { OverseerCompactCockpit } from "@/components/overseer/OverseerCockpit";
+import { OverseerFloatingShell } from "@/components/overseer/OverseerFloatingShell";
 import { DemoModeProvider } from "@/lib/demo-mode";
 import { DOCK_WIDTH, DOCK_COLLAPSED_WIDTH } from "@/components/HiveRunnerShell/Dock";
 import { useDockCollapsed } from "@/lib/dock-state";
@@ -76,6 +78,14 @@ export default function DashboardLayout({
           <Dock />
           <TopBar />
           <AgentActivityPanel />
+          <OverseerFloatingShell>
+            {({ route }) => (
+              <OverseerCompactCockpit
+                key={route.storageCompanyKey}
+                slug={route.storageCompanyKey}
+              />
+            )}
+          </OverseerFloatingShell>
 
           <main
             style={{

@@ -1,8 +1,8 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ClipboardEvent as ReactClipboardEvent, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, File, Image as ImageIcon, Loader2, Pencil, Plus, Search, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
+import type { ClipboardEvent as ReactClipboardEvent, CSSProperties, DragEvent as ReactDragEvent, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, File, Image as ImageIcon, Loader2, Pencil, Plus, Search, Send, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -312,6 +312,11 @@ function providerAccent(provider: OverseerRuntimeProvider): string {
   return "#10a37f";
 }
 
+function formatSessionStatus(status: SessionStatus): string {
+  if (status === "approval_required") return "Approval required";
+  return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
 function normalizeCompactionMode(value: unknown): CompactionMode {
   return value === "auto" || value === "manual" || value === "ask" ? value : "ask";
 }
@@ -503,11 +508,42 @@ function attachmentsFromMetadata(metadata: Record<string, unknown>): ComposerAtt
   });
 }
 
+function activeSessionStorageKey(companyKey: string): string {
+  return `hr:overseer:active-session:v1:${companyKey.toLowerCase()}`;
+}
+
+function readStoredActiveSessionId(companyKeys: string[]): string | null {
+  if (typeof window === "undefined") return null;
+  for (const key of companyKeys) {
+    try {
+      const stored = window.localStorage.getItem(activeSessionStorageKey(key));
+      if (stored) return stored;
+    } catch {
+      // Active session persistence is best effort.
+    }
+  }
+  return null;
+}
+
+function persistActiveSessionId(companyKey: string, sessionId: string | null): void {
+  if (typeof window === "undefined") return;
+  try {
+    const key = activeSessionStorageKey(companyKey);
+    if (sessionId) {
+      window.localStorage.setItem(key, sessionId);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Active session persistence is best effort.
+  }
+}
+
 function useOverseerCockpitController({ slug }: { slug: string }) {
-  const [, setCompany] = useState<OrchestrationCompany | null>(null);
+  const [company, setCompany] = useState<OrchestrationCompany | null>(null);
   const [readiness, setReadiness] = useState<OverseerReadiness | null>(null);
   const [sessions, setSessions] = useState<OverseerSession[]>([]);
-  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
   const [messages, setMessages] = useState<OverseerMessage[]>([]);
   const [events, setEvents] = useState<OverseerEvent[]>([]);
   const [codexTelemetry, setCodexTelemetry] = useState<CodexSessionTelemetry | null>(null);
@@ -539,6 +575,11 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     () => sessions.find((session) => session.id === activeSessionId) ?? sessions[0] ?? null,
     [activeSessionId, sessions],
   );
+  const companyStorageKey = (company?.slug || slug).toLowerCase();
+  const selectActiveSessionId = useCallback((sessionId: string | null) => {
+    setActiveSessionIdState(sessionId);
+    persistActiveSessionId(companyStorageKey, sessionId);
+  }, [companyStorageKey]);
   const eventsByTurn = useMemo(() => {
     const grouped = new Map<string, OverseerEvent[]>();
     for (const event of events) {
@@ -686,12 +727,19 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
         ]);
         if (cancelled) return;
         const normalized = slug.toLowerCase();
-        setCompany(companies.find((entry) => entry.slug.toLowerCase() === normalized || entry.code.toLowerCase() === normalized) ?? null);
+        const resolvedCompany = companies.find((entry) => entry.slug.toLowerCase() === normalized || entry.code.toLowerCase() === normalized) ?? null;
+        setCompany(resolvedCompany);
         setReadiness(readinessResp as OverseerReadiness | null);
-        const first = loadedSessions[0];
-        if (first) {
-          setActiveSessionId(first.id);
-          await loadDetail(first.id);
+        const storageCandidates = Array.from(new Set([
+          resolvedCompany?.slug.toLowerCase(),
+          slug.toLowerCase(),
+        ].filter((entry): entry is string => Boolean(entry))));
+        const storedSessionId = readStoredActiveSessionId(storageCandidates);
+        const selectedSession = loadedSessions.find((session) => session.id === storedSessionId) ?? loadedSessions[0];
+        if (selectedSession) {
+          setActiveSessionIdState(selectedSession.id);
+          persistActiveSessionId(storageCandidates[0] ?? slug.toLowerCase(), selectedSession.id);
+          await loadDetail(selectedSession.id);
         }
       } catch (loadError) {
         if (!cancelled) setError(loadError instanceof Error ? loadError.message : "Could not load Overseer.");
@@ -785,7 +833,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
       if (!response.ok) throw new Error("Could not create Overseer session.");
       const body = await response.json() as { session: OverseerSession; messages: OverseerMessage[] };
       setSessions((current) => [body.session, ...current]);
-      setActiveSessionId(body.session.id);
+      selectActiveSessionId(body.session.id);
       setMessages(body.messages);
       setEvents([]);
       setCodexTelemetry(null);
@@ -977,7 +1025,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
       const existingAssistantIds = new Set(messages.filter((message) => message.role === "assistant").map((message) => message.id));
       const assistantToReveal = latestNewAssistantMessage(next.messages, existingAssistantIds);
       setSessions((current) => [next.session, ...current.filter((entry) => entry.id !== next.session.id)]);
-      setActiveSessionId(next.session.id);
+      selectActiveSessionId(next.session.id);
       setMessages(next.messages);
       revealAssistantMessage(assistantToReveal);
       await loadDetail(next.session.id).catch(() => {
@@ -1064,7 +1112,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     sendMessage,
     sessions,
     sessionsColumnWidth,
-    setActiveSessionId,
+    setActiveSessionId: selectActiveSessionId,
     setDiagnosticsOpen,
     setDraggingFiles,
     setDraft,
@@ -1087,6 +1135,141 @@ type OverseerCockpitController = ReturnType<typeof useOverseerCockpitController>
 export function OverseerCockpit({ slug }: { slug: string }) {
   const controller = useOverseerCockpitController({ slug });
   return <OverseerFullPageCockpit controller={controller} />;
+}
+
+type OverseerCompactPanel = "sessions" | "activity" | "diagnostics";
+
+type OverseerCompactCockpitContentProps = {
+  controller: OverseerCockpitController;
+  className?: string;
+  style?: CSSProperties;
+  initialPanel?: OverseerCompactPanel | null;
+};
+
+export function OverseerCompactCockpit({
+  slug,
+  ...props
+}: { slug: string } & Omit<OverseerCompactCockpitContentProps, "controller">) {
+  const controller = useOverseerCockpitController({ slug });
+  return <OverseerCompactCockpitContent controller={controller} {...props} />;
+}
+
+function OverseerCompactCockpitContent({
+  controller,
+  className,
+  style,
+  initialPanel = null,
+}: OverseerCompactCockpitContentProps) {
+  const [activePanel, setActivePanel] = useState<OverseerCompactPanel | null>(initialPanel);
+  const {
+    activeProvider,
+    activeSession,
+    diagnosticsOpen,
+    error,
+    loading,
+    readiness,
+    runActive,
+    setDiagnosticsOpen,
+  } = controller;
+  const title = displaySessionTitle(activeSession?.title) ?? "Overseer";
+  const statusLabel = loading
+    ? "Loading"
+    : activeSession
+      ? formatSessionStatus(activeSession.status)
+      : "No session";
+
+  const togglePanel = (panel: OverseerCompactPanel) => {
+    const nextPanel = activePanel === panel ? null : panel;
+    setActivePanel(nextPanel);
+    setDiagnosticsOpen(nextPanel === "diagnostics");
+  };
+
+  return (
+    <div
+      className={className}
+      style={{
+        display: "grid",
+        gridTemplateRows: "auto auto minmax(0, 1fr) auto",
+        minHeight: 0,
+        height: "100%",
+        width: "100%",
+        overflow: "hidden",
+        background: "var(--surface)",
+        color: P.text,
+        fontSize: 13,
+        ...style,
+      }}
+    >
+      <div
+        style={{
+          display: "grid",
+          gap: 8,
+          padding: "10px 12px 8px",
+          borderBottom: `0.5px solid ${P.cardBorder}`,
+          background: "color-mix(in srgb, var(--surface-elevated) 82%, transparent)",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+            <ProviderRunMark provider={activeProvider} active={runActive} size={15} title={`${providerLabel(activeProvider)} ${runActive ? "running" : "ready"}`} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ color: P.text, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {title}
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, color: P.muted, fontSize: 11, minWidth: 0 }}>
+                {activeSession ? <SessionStatusDot status={activeSession.status} selected /> : null}
+                <span style={{ whiteSpace: "nowrap" }}>{statusLabel}</span>
+                <span style={{ color: readinessColor(readiness), whiteSpace: "nowrap" }}>{readinessLabel(readiness)}</span>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: "inline-flex", alignItems: "center", gap: 4, flex: "0 0 auto" }}>
+            <CompactIconButton
+              active={activePanel === "sessions"}
+              title="Sessions"
+              onClick={() => togglePanel("sessions")}
+            >
+              <Bot size={15} />
+            </CompactIconButton>
+            <CompactIconButton
+              active={activePanel === "activity"}
+              title="Activity"
+              onClick={() => togglePanel("activity")}
+            >
+              <Terminal size={15} />
+            </CompactIconButton>
+            <CompactIconButton
+              active={activePanel === "diagnostics" || diagnosticsOpen}
+              title="Diagnostics"
+              onClick={() => togglePanel("diagnostics")}
+            >
+              <Wrench size={15} />
+            </CompactIconButton>
+          </div>
+        </div>
+      </div>
+
+      {error ? (
+        <div style={{ padding: "8px 12px", borderBottom: `0.5px solid ${P.cardBorder}`, background: color.negativeSoft, color: color.negative, fontSize: 12, lineHeight: 1.35 }}>
+          {error}
+        </div>
+      ) : null}
+
+      {activePanel ? (
+        <OverseerCompactDrawer
+          controller={controller}
+          panel={activePanel}
+          onClose={() => {
+            setActivePanel(null);
+            setDiagnosticsOpen(false);
+          }}
+        />
+      ) : null}
+
+      <OverseerCompactTranscript controller={controller} />
+      <OverseerCompactComposer controller={controller} />
+    </div>
+  );
 }
 
 function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitController }) {
@@ -1567,6 +1750,660 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
             )}
           </div>
         </Section>
+      </div>
+    </div>
+  );
+}
+
+function CompactIconButton({
+  active,
+  title,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  title: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      aria-pressed={active}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 28,
+        height: 28,
+        border: `0.5px solid ${active ? P.cardBorder : "transparent"}`,
+        borderRadius: radius.sm,
+        background: active ? P.surfaceHover : "transparent",
+        color: active ? P.text : P.textSec,
+        cursor: "pointer",
+        padding: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function CompactActionButton({
+  title,
+  disabled,
+  onClick,
+  children,
+  tone = "neutral",
+}: {
+  title: string;
+  disabled?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+  tone?: "neutral" | "accent" | "danger";
+}) {
+  const activeColor = tone === "danger" ? color.negative : tone === "accent" ? P.accent : P.textSec;
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: 30,
+        height: 30,
+        border: `0.5px solid ${disabled ? "transparent" : P.cardBorder}`,
+        borderRadius: radius.sm,
+        background: disabled ? "transparent" : P.surfaceHover,
+        color: disabled ? P.muted : activeColor,
+        cursor: disabled ? "default" : "pointer",
+        opacity: disabled ? 0.52 : 1,
+        padding: 0,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function OverseerCompactDrawer({
+  controller,
+  panel,
+  onClose,
+}: {
+  controller: OverseerCockpitController;
+  panel: OverseerCompactPanel;
+  onClose: () => void;
+}) {
+  const title = panel === "sessions" ? "Sessions" : panel === "activity" ? "Activity" : "Diagnostics";
+  return (
+    <div
+      style={{
+        minHeight: 0,
+        maxHeight: 260,
+        overflowY: "auto",
+        borderBottom: `0.5px solid ${P.cardBorder}`,
+        background: "color-mix(in srgb, var(--surface-elevated) 70%, var(--surface) 30%)",
+        padding: "10px 12px",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div style={{ color: P.textSec, fontSize: 12, fontWeight: 650, textTransform: "uppercase", letterSpacing: 0 }}>
+          {title}
+        </div>
+        <button
+          type="button"
+          title="Close panel"
+          aria-label="Close panel"
+          onClick={onClose}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 24,
+            height: 24,
+            border: 0,
+            borderRadius: radius.sm,
+            background: "transparent",
+            color: P.muted,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      {panel === "sessions" ? (
+        <OverseerCompactSessionsPanel controller={controller} />
+      ) : panel === "activity" ? (
+        <OverseerCompactActivityPanel controller={controller} />
+      ) : (
+        <OverseerDiagnosticsPanel
+          slug={controller.slug}
+          session={controller.activeSession}
+          readiness={controller.readiness}
+          proof={controller.continuityProof}
+        />
+      )}
+    </div>
+  );
+}
+
+function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCockpitController }) {
+  const {
+    activeSession,
+    creating,
+    loadDetail,
+    loading,
+    newSessionOpen,
+    newSessionProvider,
+    newSessionTitle,
+    sessions,
+    setActiveSessionId,
+    setError,
+    setNewSessionOpen,
+    setNewSessionProvider,
+    setNewSessionTitle,
+    submitNewSession,
+  } = controller;
+  return (
+    <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <div style={{ color: P.muted, fontSize: 12 }}>
+          {sessions.length === 1 ? "1 session" : `${sessions.length} sessions`}
+        </div>
+        <button
+          type="button"
+          title="New session"
+          aria-label="New session"
+          onClick={() => setNewSessionOpen(!newSessionOpen)}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            width: 28,
+            height: 28,
+            border: `0.5px solid ${newSessionOpen ? P.cardBorder : "transparent"}`,
+            borderRadius: radius.sm,
+            background: newSessionOpen ? P.surfaceHover : "transparent",
+            color: P.textSec,
+            cursor: "pointer",
+            padding: 0,
+          }}
+        >
+          <Plus size={16} />
+        </button>
+      </div>
+
+      {newSessionOpen || sessions.length === 0 ? (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitNewSession();
+          }}
+          style={{
+            display: "grid",
+            gap: 8,
+            padding: 9,
+            borderRadius: radius.md,
+            border: `0.5px solid ${P.cardBorder}`,
+            background: "color-mix(in srgb, var(--surface) 70%, transparent)",
+          }}
+        >
+          <input
+            value={newSessionTitle}
+            onChange={(event) => setNewSessionTitle(event.target.value)}
+            placeholder="Session name"
+            aria-label="Session name"
+            style={{
+              width: "100%",
+              height: 32,
+              borderRadius: radius.sm,
+              border: `0.5px solid ${P.cardBorder}`,
+              background: P.surfaceElevated,
+              color: P.text,
+              padding: "0 9px",
+              fontSize: 12,
+              outline: "none",
+            }}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 32px", gap: 8 }}>
+            <select
+              value={newSessionProvider}
+              onChange={(event) => setNewSessionProvider(normalizeOverseerProvider(event.target.value))}
+              aria-label="Session provider"
+              style={{
+                width: "100%",
+                height: 32,
+                borderRadius: radius.sm,
+                border: `0.5px solid ${P.cardBorder}`,
+                background: P.surfaceElevated,
+                color: P.text,
+                padding: "0 9px",
+                fontSize: 12,
+                outline: "none",
+              }}
+            >
+              {OVERSEER_PROVIDER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="submit"
+              disabled={creating}
+              title="Create session"
+              aria-label="Create session"
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 32,
+                height: 32,
+                borderRadius: radius.sm,
+                border: 0,
+                background: P.surfaceHover,
+                color: P.text,
+                cursor: creating ? "default" : "pointer",
+                opacity: creating ? 0.65 : 1,
+                padding: 0,
+              }}
+            >
+              {creating ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+            </button>
+          </div>
+        </form>
+      ) : null}
+
+      {loading ? (
+        <div style={{ color: P.muted, fontSize: 12 }}>Loading sessions...</div>
+      ) : sessions.length === 0 ? (
+        <div style={{ color: P.muted, fontSize: 12 }}>Name a session or start from the composer draft.</div>
+      ) : (
+        <div style={{ display: "grid", gap: 4 }}>
+          {sessions.map((session) => {
+            const selected = session.id === activeSession?.id;
+            const sessionCompaction = normalizeCompactionSettings(session);
+            return (
+              <button
+                key={session.id}
+                type="button"
+                onClick={() => {
+                  setActiveSessionId(session.id);
+                  void loadDetail(session.id).catch((detailError) => {
+                    setError(detailError instanceof Error ? detailError.message : "Could not load session.");
+                  });
+                }}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "14px minmax(0, 1fr) auto",
+                  alignItems: "center",
+                  gap: 8,
+                  minHeight: 34,
+                  textAlign: "left",
+                  padding: "5px 7px",
+                  borderRadius: radius.sm,
+                  border: 0,
+                  background: selected ? P.surfaceHover : "transparent",
+                  color: P.text,
+                  cursor: "pointer",
+                }}
+              >
+                <SessionStatusDot status={session.status} selected={selected} />
+                <span style={{ minWidth: 0 }}>
+                  <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: selected ? 650 : 500 }}>
+                    {displaySessionTitle(session.title) ?? "Orchestration Chat"}
+                  </span>
+                  <span style={{ display: "block", marginTop: 1, color: P.muted, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {formatSessionStatus(session.status)} · {session.messageCount ?? 0} messages
+                  </span>
+                </span>
+                {sessionCompaction.hasMemorySummary ? (
+                  <Asterisk size={12} color={P.accent} aria-label={compactionSummaryLabel(sessionCompaction)} />
+                ) : (
+                  <span aria-hidden="true" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverseerCompactActivityPanel({ controller }: { controller: OverseerCockpitController }) {
+  const {
+    activeProvider,
+    activeTurnEvents,
+    eventsByTurn,
+    messages,
+    nowMs,
+    optimisticRunStartedAtMs,
+    showLiveActivity,
+  } = controller;
+
+  if (showLiveActivity) {
+    const provider = runtimeProviderFromEvents(activeTurnEvents, activeProvider);
+    return (
+      <ActivityFeed
+        provider={provider}
+        events={activeTurnEvents}
+        active
+        nowMs={nowMs}
+        fallbackStartedAtMs={optimisticRunStartedAtMs}
+      />
+    );
+  }
+
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role !== "assistant" || !message.turnId) continue;
+    const turnEvents = eventsByTurn.get(message.turnId) ?? [];
+    if (turnEvents.length === 0) continue;
+    const provider = runtimeProviderFromEvents(turnEvents, activeProvider);
+    return (
+      <ActivityFeed
+        provider={provider}
+        events={turnEvents}
+        active={false}
+        nowMs={nowMs}
+        finalMessageContent={message.content}
+      />
+    );
+  }
+
+  return (
+    <div style={{ color: P.muted, fontSize: 12, lineHeight: 1.4 }}>
+      No tool activity has been recorded for this session.
+    </div>
+  );
+}
+
+function OverseerCompactTranscript({ controller }: { controller: OverseerCockpitController }) {
+  const {
+    activeProvider,
+    activeTurnEvents,
+    assistantReveal,
+    chatScrollRef,
+    copiedRunId,
+    copyRunHandoff,
+    eventsByTurn,
+    handleChatScroll,
+    hasAssistantMessage,
+    latestCompletedProvider,
+    loading,
+    messages,
+    nowMs,
+    optimisticRunStartedAtMs,
+    setDraft,
+    showLiveActivity,
+  } = controller;
+
+  return (
+    <div
+      ref={chatScrollRef}
+      className="overseer-chat-scroll"
+      onScroll={handleChatScroll}
+      style={{
+        display: "grid",
+        alignContent: "start",
+        gap: 7,
+        minHeight: 0,
+        overflowY: "auto",
+        padding: "12px 12px 8px",
+      }}
+    >
+      {messages.length === 0 ? (
+        loading ? (
+          <div style={{ display: "grid", placeItems: "center", minHeight: 170, color: P.muted, fontSize: 12 }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <Loader2 size={14} className="animate-spin" />
+              Loading Overseer...
+            </span>
+          </div>
+        ) : (
+          <OverseerCompactStarterDrafts onSelectDraft={setDraft} />
+        )
+      ) : (
+        messages.map((message, index) => {
+          const turnEvents = message.turnId ? eventsByTurn.get(message.turnId) ?? [] : [];
+          const turnProvider = runtimeProviderFromEvents(turnEvents, activeProvider);
+          const previousUserMessage = message.role === "assistant" ? findUserMessageForAssistant(messages, index) : null;
+          return (
+            <Fragment key={message.id}>
+              {message.role === "assistant" && turnEvents.length > 0 ? (
+                <ActivityFeed provider={turnProvider} events={turnEvents} active={false} nowMs={nowMs} finalMessageContent={message.content} />
+              ) : null}
+              {message.role === "assistant" ? (
+                <div className="overseer-message-run">
+                  <MessageBubble
+                    message={message}
+                    displayContent={assistantReveal?.messageId === message.id ? assistantReveal.visibleText : undefined}
+                    revealing={assistantReveal?.messageId === message.id && assistantReveal.visibleText.length < assistantReveal.fullText.length}
+                  />
+                  <CopyRunButton
+                    copied={copiedRunId === message.id}
+                    onCopy={() => void copyRunHandoff(message, previousUserMessage, turnEvents, turnProvider)}
+                  />
+                </div>
+              ) : (
+                <MessageBubble message={message} />
+              )}
+            </Fragment>
+          );
+        })
+      )}
+      {showLiveActivity ? (
+        <ActivityFeed
+          provider={runtimeProviderFromEvents(activeTurnEvents, activeProvider)}
+          events={activeTurnEvents}
+          active
+          nowMs={nowMs}
+          fallbackStartedAtMs={optimisticRunStartedAtMs}
+        />
+      ) : null}
+      {!showLiveActivity && hasAssistantMessage ? (
+        <div style={{ justifySelf: "start", marginTop: 2, marginBottom: 2 }}>
+          <ProviderRunMark provider={latestCompletedProvider} size={20} title={`${providerLabel(latestCompletedProvider)} ready`} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function OverseerCompactStarterDrafts({ onSelectDraft }: { onSelectDraft: (draft: string) => void }) {
+  const starters = [
+    "Summarize active HiveRunner work and call out stale or blocked runs.",
+    "Find the next safest intervention for this company without starting execution.",
+    "Draft a handoff for the current orchestration state.",
+  ];
+  return (
+    <div style={{ display: "grid", placeItems: "center", minHeight: 190, color: P.textSec }}>
+      <div style={{ display: "grid", gap: 9, width: "min(100%, 360px)" }}>
+        <div style={{ color: P.text, fontWeight: 650, fontSize: 13 }}>Start an Overseer draft</div>
+        <div style={{ display: "grid", gap: 6 }}>
+          {starters.map((starter) => (
+            <button
+              key={starter}
+              type="button"
+              onClick={() => onSelectDraft(starter)}
+              style={{
+                width: "100%",
+                minHeight: 34,
+                border: `0.5px solid ${P.cardBorder}`,
+                borderRadius: radius.md,
+                background: "color-mix(in srgb, var(--surface-elevated) 70%, transparent)",
+                color: P.textSec,
+                cursor: "pointer",
+                padding: "7px 9px",
+                textAlign: "left",
+                fontSize: 12,
+                lineHeight: 1.35,
+              }}
+            >
+              {starter}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function OverseerCompactComposer({ controller }: { controller: OverseerCockpitController }) {
+  const {
+    activeCompaction,
+    activeFastMode,
+    activeModel,
+    activeProvider,
+    activeProviderLocked,
+    activeReasoning,
+    activeSession,
+    attachments,
+    cancelling,
+    contextLimit,
+    contextPercent,
+    contextTokens,
+    draggingFiles,
+    draft,
+    fileInputRef,
+    handleDrop,
+    handleFileList,
+    handlePaste,
+    patchActiveSession,
+    patchCompactionSettings,
+    readiness,
+    removeAttachment,
+    requestManualCompaction,
+    runActive,
+    sending,
+    sendMessage,
+    setDraggingFiles,
+    setDraft,
+    stopRun,
+    updatingModel,
+    uploadingAttachments,
+    visibleQuota,
+  } = controller;
+  const sendDisabled = (!draft.trim() && attachments.length === 0) || sending || uploadingAttachments || cancelling;
+  const stopDisabled = !activeSession || !runActive || cancelling;
+
+  return (
+    <div
+      onDragEnter={(event) => {
+        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) setDraggingFiles(true);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+        if (event.dataTransfer.types.includes("Files")) setDraggingFiles(true);
+      }}
+      onDragLeave={() => setDraggingFiles(false)}
+      onDrop={handleDrop}
+      style={{
+        borderTop: `0.5px solid ${draggingFiles ? color.accent : P.cardBorder}`,
+        background: draggingFiles ? color.accentSoft : "color-mix(in srgb, var(--surface-elevated) 84%, transparent)",
+        padding: "9px 10px 10px",
+      }}
+    >
+      {attachments.length > 0 ? (
+        <AttachmentTray attachments={attachments} onRemove={removeAttachment} />
+      ) : null}
+      {draggingFiles ? (
+        <div style={{ marginBottom: 8, color: color.accent, fontSize: 12, fontWeight: 600 }}>
+          Drop files for the Overseer
+        </div>
+      ) : null}
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onPaste={handlePaste}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter") return;
+          if (event.shiftKey) return;
+          event.preventDefault();
+          void sendMessage();
+        }}
+        placeholder="Ask the Overseer"
+        rows={2}
+        style={{
+          width: "100%",
+          height: 58,
+          minHeight: 58,
+          maxHeight: 120,
+          resize: "none",
+          borderRadius: radius.md,
+          border: `0.5px solid ${P.cardBorder}`,
+          background: P.surfaceElevated,
+          color: P.text,
+          padding: "9px 10px",
+          fontSize: 13,
+          lineHeight: 1.42,
+          outline: "none",
+          overflowY: "auto",
+        }}
+      />
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        onChange={(event) => {
+          if (event.currentTarget.files) handleFileList(event.currentTarget.files);
+          event.currentTarget.value = "";
+        }}
+        style={{ display: "none" }}
+      />
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <ComposerToolbar
+          provider={activeProvider}
+          model={activeModel}
+          modelCatalog={readiness?.modelCatalog}
+          reasoning={activeReasoning}
+          fastMode={activeFastMode}
+          compaction={activeCompaction}
+          contextTokens={contextTokens}
+          contextLimit={contextLimit}
+          contextPercent={contextPercent}
+          quota={visibleQuota}
+          disabled={sending || updatingModel}
+          providerLocked={activeProviderLocked}
+          uploading={uploadingAttachments}
+          onAttach={() => fileInputRef.current?.click()}
+          onModelChange={(model) => void patchActiveSession({ model })}
+          onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
+          onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
+          onProviderChange={(provider) => void patchActiveSession({ provider })}
+          onCompactionChange={(compaction) => void patchCompactionSettings(compaction)}
+          onCompactNow={() => void requestManualCompaction()}
+        />
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+          <CompactActionButton
+            title={runActive ? "Stop run" : "No active run"}
+            disabled={stopDisabled}
+            tone={runActive ? "danger" : "neutral"}
+            onClick={() => void stopRun()}
+          >
+            {cancelling ? <Loader2 size={14} className="animate-spin" /> : <Square size={13} strokeWidth={2.1} />}
+          </CompactActionButton>
+          <CompactActionButton
+            title="Send"
+            disabled={sendDisabled}
+            tone="accent"
+            onClick={() => void sendMessage()}
+          >
+            {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          </CompactActionButton>
+        </div>
       </div>
     </div>
   );
