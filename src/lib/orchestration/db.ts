@@ -3575,6 +3575,190 @@ const MIGRATIONS: Migration[] = [
       );
     `,
   },
+  {
+    version: 117,
+    name: "improvement_trigger_controls_and_suppression",
+    sql: `
+      CREATE TABLE IF NOT EXISTS improvement_company_controls (
+        company_id         TEXT PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+        automation_paused  INTEGER NOT NULL DEFAULT 0 CHECK (automation_paused IN (0, 1)),
+        paused_reason      TEXT,
+        paused_at          TEXT,
+        updated_at         TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE TABLE IF NOT EXISTS improvement_trigger_controls (
+        company_id      TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        trigger_key     TEXT NOT NULL,
+        enabled         INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+        threshold_json  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(threshold_json)),
+        updated_at      TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        PRIMARY KEY (company_id, trigger_key)
+      );
+
+      CREATE TABLE IF NOT EXISTS improvement_suppressions (
+        id                         TEXT PRIMARY KEY,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        trigger_key                TEXT,
+        scope_type                 TEXT NOT NULL CHECK (scope_type IN ('company','project','template','task_type','agent','runner','recommendation')),
+        scope_key                  TEXT NOT NULL,
+        reason                     TEXT NOT NULL CHECK (reason IN ('not_now','wrong_diagnosis','too_risky','already_fixed','not_worth_it','duplicate','operator_suppressed')),
+        notes                      TEXT,
+        active                     INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+        source_recommendation_id   TEXT,
+        expires_at                 TEXT,
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                 TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_suppressions_scope
+        ON improvement_suppressions(company_id, scope_type, scope_key, active, expires_at);
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_suppressions_trigger
+        ON improvement_suppressions(company_id, trigger_key, active, expires_at)
+        WHERE trigger_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS improvement_recommendations (
+        id                                TEXT PRIMARY KEY,
+        company_id                        TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        trigger_key                       TEXT NOT NULL,
+        scope_type                        TEXT NOT NULL CHECK (scope_type IN ('company','project','template','task_type','agent','runner','recommendation')),
+        scope_key                         TEXT NOT NULL,
+        title                             TEXT NOT NULL,
+        rationale                         TEXT NOT NULL DEFAULT '',
+        proposed_change                   TEXT NOT NULL DEFAULT '',
+        severity                          TEXT NOT NULL DEFAULT 'medium' CHECK (severity IN ('low','medium','high','critical')),
+        confidence                        TEXT NOT NULL DEFAULT 'medium' CHECK (confidence IN ('low','medium','high')),
+        status                            TEXT NOT NULL DEFAULT 'suggested'
+                                          CHECK (status IN ('suggested','needs-more-evidence','accepted-for-approval','dismissed','superseded','applied')),
+        evidence_json                     TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence_json)),
+        original_recommendation_json      TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(original_recommendation_json)),
+        current_recommendation_json       TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(current_recommendation_json)),
+        dismissal_reason                  TEXT CHECK (dismissal_reason IS NULL OR dismissal_reason IN ('not_now','wrong_diagnosis','too_risky','already_fixed','not_worth_it')),
+        dismissal_notes                   TEXT,
+        dismissed_at                      TEXT,
+        suppression_id                    TEXT REFERENCES improvement_suppressions(id) ON DELETE SET NULL,
+        superseded_by_recommendation_id   TEXT REFERENCES improvement_recommendations(id) ON DELETE SET NULL,
+        approval_id                       TEXT REFERENCES approvals(id) ON DELETE SET NULL,
+        idempotency_key                   TEXT,
+        created_by_agent_id               TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id                TEXT,
+        created_at                        TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                        TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_company_status
+        ON improvement_recommendations(company_id, status, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_trigger
+        ON improvement_recommendations(company_id, trigger_key, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_scope
+        ON improvement_recommendations(company_id, scope_type, scope_key, created_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_improvement_recommendations_company_idempotency
+        ON improvement_recommendations(company_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS improvement_trigger_firings (
+        id                  TEXT PRIMARY KEY,
+        company_id          TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        trigger_key         TEXT NOT NULL,
+        scope_type          TEXT NOT NULL CHECK (scope_type IN ('company','project','template','task_type','agent','runner','recommendation')),
+        scope_key           TEXT NOT NULL,
+        status              TEXT NOT NULL CHECK (status IN ('created_recommendation','suppressed','skipped','needs_more_evidence')),
+        decision_reason     TEXT NOT NULL DEFAULT '',
+        evidence_json       TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence_json)),
+        recommendation_id   TEXT REFERENCES improvement_recommendations(id) ON DELETE SET NULL,
+        suppression_id      TEXT REFERENCES improvement_suppressions(id) ON DELETE SET NULL,
+        fired_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        created_at          TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_trigger_firings_company_fired
+        ON improvement_trigger_firings(company_id, fired_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_trigger_firings_trigger
+        ON improvement_trigger_firings(company_id, trigger_key, fired_at DESC);
+    `,
+  },
+  {
+    version: 118,
+    name: "improvement_recommendation_lifecycle_persistence",
+    sql: `
+      CREATE TABLE IF NOT EXISTS improvement_write_controls (
+        company_id            TEXT PRIMARY KEY REFERENCES companies(id) ON DELETE CASCADE,
+        writes_enabled        INTEGER NOT NULL DEFAULT 1 CHECK (writes_enabled IN (0,1)),
+        disabled_reason       TEXT,
+        disabled_at           TEXT,
+        updated_by_agent_id   TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        updated_by_user_id    TEXT,
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE TABLE IF NOT EXISTS improvement_evidence_sets (
+        id                         TEXT PRIMARY KEY,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        trigger_firing_id          TEXT REFERENCES improvement_trigger_firings(id) ON DELETE SET NULL,
+        summary                    TEXT NOT NULL DEFAULT '',
+        evidence_strength          TEXT NOT NULL DEFAULT 'pattern'
+                                   CHECK (evidence_strength IN ('single','pattern','manual','unknown')),
+        evidence_items_json        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence_items_json)),
+        redaction_policy           TEXT NOT NULL DEFAULT 'hiverunner.improvement_evidence_redaction.v1',
+        redaction_summary_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(redaction_summary_json)),
+        metadata_json              TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json)),
+        created_by_agent_id        TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id         TEXT,
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_evidence_sets_company_created
+        ON improvement_evidence_sets(company_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_evidence_sets_trigger
+        ON improvement_evidence_sets(trigger_firing_id, created_at DESC)
+        WHERE trigger_firing_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS improvement_recommendation_approval_links (
+        id                         TEXT PRIMARY KEY,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        recommendation_id          TEXT NOT NULL REFERENCES improvement_recommendations(id) ON DELETE CASCADE,
+        approval_id                TEXT REFERENCES approvals(id) ON DELETE SET NULL,
+        status                     TEXT NOT NULL DEFAULT 'draft'
+                                   CHECK (status IN ('draft','submitted','approved','rejected','cancelled','applied')),
+        approval_package_json      TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(approval_package_json)),
+        rollback_notes             TEXT NOT NULL DEFAULT '',
+        created_by_agent_id        TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id         TEXT,
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                 TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(recommendation_id, approval_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_approval_links_approval
+        ON improvement_recommendation_approval_links(approval_id, status)
+        WHERE approval_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_improvement_approval_links_recommendation
+        ON improvement_recommendation_approval_links(recommendation_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS improvement_persistence_migration_notes (
+        migration_version     INTEGER PRIMARY KEY,
+        rollback_notes        TEXT NOT NULL,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      INSERT INTO improvement_persistence_migration_notes
+        (migration_version, rollback_notes)
+      VALUES
+        (
+          118,
+          'Rollback without dropping evidence: set improvement_write_controls.writes_enabled = 0 per company to stop new recommendation, trigger firing, and evidence set creation while preserving existing trigger firings, evidence sets, suppressions, recommendation history, and approval links.'
+        )
+      ON CONFLICT(migration_version) DO UPDATE SET
+        rollback_notes = excluded.rollback_notes;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
@@ -3971,9 +4155,29 @@ function templatePersistenceMigrationIsCurrent(db: Database.Database): boolean {
   );
 }
 
+function improvementRecommendationLifecycleMigrationIsCurrent(db: Database.Database): boolean {
+  return (
+    hasTable(db, "improvement_write_controls") &&
+    hasTable(db, "improvement_evidence_sets") &&
+    hasTable(db, "improvement_recommendation_approval_links") &&
+    hasColumn(db, "improvement_recommendations", "evidence_set_id") &&
+    hasColumn(db, "improvement_recommendations", "operator_text") &&
+    hasColumn(db, "improvement_recommendations", "affected_surfaces_json") &&
+    hasColumn(db, "improvement_recommendations", "rollback_notes") &&
+    hasColumn(db, "improvement_trigger_firings", "trigger_class") &&
+    hasColumn(db, "improvement_suppressions", "evidence_fingerprint")
+  );
+}
+
 function templatePersistenceMigrationSql(): string {
   const migration = MIGRATIONS.find((candidate) => candidate.version === 116);
   if (!migration) throw new Error("Template persistence migration is not registered");
+  return migration.sql;
+}
+
+function improvementRecommendationLifecycleMigrationSql(): string {
+  const migration = MIGRATIONS.find((candidate) => candidate.version === 118);
+  if (!migration) throw new Error("Improvement recommendation lifecycle migration is not registered");
   return migration.sql;
 }
 
@@ -4098,6 +4302,62 @@ function applyTemplatePersistenceMigration(db: Database.Database): void {
     }),
     "Rollback requires a forward correction migration: keep immutable template_versions, remove or archive generated work through owning workflows, and clear nullable source_template_version_id/template_intake_answer_id links only after preserving audit evidence.",
   );
+}
+
+function applyImprovementRecommendationLifecycleMigration(db: Database.Database): void {
+  db.exec(improvementRecommendationLifecycleMigrationSql());
+
+  ensureColumn(db, "improvement_recommendations", "project_id", "TEXT REFERENCES projects(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_recommendations", "trigger_class", "TEXT NOT NULL DEFAULT 'built_in'");
+  ensureColumn(db, "improvement_recommendations", "source_trigger_firing_id", "TEXT REFERENCES improvement_trigger_firings(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_recommendations", "evidence_set_id", "TEXT REFERENCES improvement_evidence_sets(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_recommendations", "original_generated_text", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "improvement_recommendations", "operator_text", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "improvement_recommendations", "proposed_change_summary", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "improvement_recommendations", "proposed_change_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(proposed_change_json))");
+  ensureColumn(db, "improvement_recommendations", "affected_surfaces_json", "TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(affected_surfaces_json))");
+  ensureColumn(db, "improvement_recommendations", "rollback_notes", "TEXT NOT NULL DEFAULT ''");
+  ensureColumn(db, "improvement_recommendations", "accepted_at", "TEXT");
+  ensureColumn(db, "improvement_recommendations", "superseded_at", "TEXT");
+  ensureColumn(db, "improvement_recommendations", "applied_at", "TEXT");
+  ensureColumn(db, "improvement_recommendations", "archived_at", "TEXT");
+
+  ensureColumn(db, "improvement_trigger_firings", "trigger_class", "TEXT NOT NULL DEFAULT 'built_in'");
+  ensureColumn(db, "improvement_trigger_firings", "source_task_id", "TEXT REFERENCES tasks(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_trigger_firings", "source_run_id", "TEXT REFERENCES execution_runs(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_trigger_firings", "source_eval_case_id", "TEXT REFERENCES eval_cases(id) ON DELETE SET NULL");
+  ensureColumn(db, "improvement_trigger_firings", "thresholds_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(thresholds_json))");
+  ensureColumn(db, "improvement_trigger_firings", "metadata_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json))");
+
+  ensureColumn(db, "improvement_suppressions", "trigger_class", "TEXT");
+  ensureColumn(db, "improvement_suppressions", "evidence_fingerprint", "TEXT");
+  ensureColumn(db, "improvement_suppressions", "metadata_json", "TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(metadata_json))");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_project_status
+      ON improvement_recommendations(project_id, status, updated_at DESC)
+      WHERE project_id IS NOT NULL AND archived_at IS NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_source_trigger
+      ON improvement_recommendations(source_trigger_firing_id)
+      WHERE source_trigger_firing_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_evidence
+      ON improvement_recommendations(evidence_set_id)
+      WHERE evidence_set_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_improvement_recommendations_approval
+      ON improvement_recommendations(approval_id)
+      WHERE approval_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_improvement_trigger_firings_source_run
+      ON improvement_trigger_firings(source_run_id, created_at DESC)
+      WHERE source_run_id IS NOT NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_improvement_suppressions_fingerprint
+      ON improvement_suppressions(company_id, evidence_fingerprint, active)
+      WHERE evidence_fingerprint IS NOT NULL;
+  `);
 }
 
 function memoryCurationLifecycleIsCurrent(db: Database.Database): boolean {
@@ -4307,6 +4567,9 @@ function repairCompatibleAppliedMigrationIfNeeded(
     return 1;
   } else if (migration.version === 116 && !templatePersistenceMigrationIsCurrent(db)) {
     applyTemplatePersistenceMigration(db);
+    return 1;
+  } else if (migration.version === 118 && !improvementRecommendationLifecycleMigrationIsCurrent(db)) {
+    applyImprovementRecommendationLifecycleMigration(db);
     return 1;
   }
   return 0;
@@ -5298,6 +5561,14 @@ export function runOrchestrationMigrations(db = getOrchestrationDb()): {
     } else if (migration.version === 116) {
       const apply = db.transaction(() => {
         applyTemplatePersistenceMigration(db);
+        db.prepare(
+          "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)"
+        ).run(migration.version, migration.name, checksum);
+      });
+      apply();
+    } else if (migration.version === 118) {
+      const apply = db.transaction(() => {
+        applyImprovementRecommendationLifecycleMigration(db);
         db.prepare(
           "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)"
         ).run(migration.version, migration.name, checksum);
