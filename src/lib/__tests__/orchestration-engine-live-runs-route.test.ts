@@ -123,6 +123,8 @@ async function run() {
   const queuedSameTaskWakeupId = "live-route-queued-same-task-wakeup";
   const commentWakeRunId = "live-route-comment-wake-run";
   const commentWakeupId = "live-route-comment-wakeup";
+  const staleApprovalRunId = "live-route-stale-approval-run";
+  const staleApprovalWakeupId = "live-route-stale-approval-wakeup";
 
   db.prepare(
     `INSERT INTO execution_runs
@@ -358,12 +360,60 @@ async function run() {
     iso(base, 43_000),
   );
 
+  db.prepare(
+    `INSERT INTO agent_wakeup_requests
+       (id, agent_id, company_id, source, reason, trigger_detail, payload_json,
+        status, run_id, requested_at, claimed_at, created_at, updated_at)
+     VALUES (?, ?, ?, 'api', 'approval_requested', NULL, ?,
+        'claimed', ?, ?, ?, ?, ?)`,
+  ).run(
+    staleApprovalWakeupId,
+    agent.id,
+    company.id,
+    JSON.stringify({
+      approvalId: "live-route-stale-approval",
+      approvalType: "protected_runtime_command",
+      staleApprovalSweep: true,
+    }),
+    staleApprovalRunId,
+    iso(base, 44_000),
+    iso(base, 44_000),
+    iso(base, 44_000),
+    iso(base, 44_000),
+  );
+  db.prepare(
+    `INSERT INTO heartbeat_runs
+       (id, agent_id, company_id, invocation_source, trigger_detail, status,
+        started_at, wakeup_request_id, result_json, context_snapshot_json, created_at, updated_at)
+     VALUES (?, ?, ?, 'wakeup_request', NULL, 'running', ?, ?, '{}', ?, ?, ?)`,
+  ).run(
+    staleApprovalRunId,
+    agent.id,
+    company.id,
+    iso(base, 44_000),
+    staleApprovalWakeupId,
+    JSON.stringify({
+      wakeSource: "api",
+      wakeReason: "approval_requested",
+      approvalId: "live-route-stale-approval",
+      approvalType: "protected_runtime_command",
+      staleApprovalSweep: true,
+    }),
+    iso(base, 44_000),
+    iso(base, 44_000),
+  );
+
   await test("does not use prior comments as latest output for active runs", async () => {
     const body = await fetchLiveRuns(company.slug, getLiveRunsRoute);
     const lensRun = runById(body, lensRunId);
 
     assert.equal(lensRun.latestOutput, null);
     assert.equal(lensRun.transcript.some((entry) => entry.message.includes("Stale prior comment")), false);
+  });
+
+  await test("does not count stale no-task approval reminders as live runs", async () => {
+    const body = await fetchLiveRuns(company.slug, getLiveRunsRoute);
+    assert.equal(body.runs.some((run) => run.runId === staleApprovalRunId), false);
   });
 
   await test("keeps same-task package output scoped to its heartbeat run", async () => {

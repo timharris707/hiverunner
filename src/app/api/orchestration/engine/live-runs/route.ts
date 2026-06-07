@@ -150,6 +150,14 @@ function taskIsActiveForLiveRun(
   return Boolean(taskState && !taskState.archived_at && !INACTIVE_TASK_STATUSES.has(taskState.status));
 }
 
+function shouldSuppressNoTaskStaleApprovalRun(input: {
+  taskId: string | null;
+  contextSnapshot: Record<string, unknown>;
+}): boolean {
+  if (input.taskId) return false;
+  return input.contextSnapshot.wakeReason === "approval_requested" && input.contextSnapshot.staleApprovalSweep === true;
+}
+
 function loadExecutionTranscript(
   db: ReturnType<typeof getOrchestrationDb>,
   executionRunId: string | null,
@@ -386,6 +394,7 @@ function buildLiveRunResponseRow(input: {
   });
   const taskId = cleanString(contextSnapshot.taskId) ?? cleanString(executionRun?.task_id);
   if (taskId && !taskIsActiveForLiveRun(db, taskId)) return null;
+  if (shouldSuppressNoTaskStaleApprovalRun({ taskId, contextSnapshot })) return null;
 
   const status = effectiveHeartbeatStatus(run.status, executionRun?.status);
   const isTerminal = TERMINAL_HEARTBEAT_STATUSES.has(status);
