@@ -20,8 +20,9 @@ import {
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import { TaskVoiceModal } from "@/components/voice/TaskVoiceModal";
 import { STATUS_META } from "@/components/orchestration/task-display";
+import { formatOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
 import { TASK_MODEL_LANES } from "@/lib/orchestration/task-model-routing";
-import type { OrchestrationAgent, OrchestrationProject, TaskModelLane } from "@/lib/orchestration/types";
+import type { OrchestrationAgent, OrchestrationProject, TaskExecutionEngine, TaskModelLane } from "@/lib/orchestration/types";
 import type { VoiceBindingRequest } from "@/lib/voice-binding";
 import { color, P, radius, type as tokenType } from "@/lib/ui/tokens";
 import { getTaskAgentOfRecord, shouldShowAgentOfRecord, taskAgentDisplayLabel } from "./task-display-agent";
@@ -50,10 +51,12 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
   );
 }
 
+function isTaskExecutionEngine(engine?: string | null): engine is TaskExecutionEngine {
+  return engine === "hiverunner" || engine === "symphony" || engine === "manual";
+}
+
 function formatExecutionEngineLabel(engine?: string | null): string {
-  if (engine === "manual") return "Manual";
-  if (engine === "symphony") return "Symphony";
-  return "HiveRunner";
+  return formatOrchestrationModeLabel(isTaskExecutionEngine(engine) ? engine : "hiverunner");
 }
 
 function formatExecutionEngineSource(source?: string | null): string | null {

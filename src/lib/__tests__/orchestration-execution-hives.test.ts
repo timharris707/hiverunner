@@ -14,6 +14,7 @@ import { resetSqliteDatabaseFiles } from "@/lib/__tests__/helpers/orchestration-
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import { createCompany } from "@/lib/orchestration/company-service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { formatOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
 import {
   upsertCompanyRuntime,
 } from "@/lib/orchestration/runtime-registry";
@@ -61,6 +62,12 @@ async function run() {
     status: "active",
   }).company;
   const db = getOrchestrationDb();
+
+  await test("orchestration mode labels name Symphony directly", () => {
+    assert.equal(formatOrchestrationModeLabel("hiverunner"), "HiveRunner Native");
+    assert.equal(formatOrchestrationModeLabel("symphony"), "Symphony");
+    assert.equal(formatOrchestrationModeLabel("manual"), "Manual / Operator Controlled");
+  });
 
   await test("seeds company execution hives and keeps one active", () => {
     const result = ensureCompanyExecutionHives({ companyIdOrSlug: company.slug }, db);

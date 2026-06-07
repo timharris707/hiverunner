@@ -30,7 +30,7 @@ export function runtimeProviderLabel(value: string | null | undefined): string {
     case "gemini":
       return "Gemini";
     case "symphony":
-      return "External runner";
+      return "Symphony";
     case "manual":
       return "Manual";
     default:

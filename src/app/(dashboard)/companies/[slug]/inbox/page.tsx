@@ -42,6 +42,7 @@ import type { VoiceBindingRequest } from "@/lib/voice-binding";
 import { buildApprovalDetailPath, buildCanonicalCompanyPath, buildCanonicalGoalPath } from "@/lib/orchestration/route-paths";
 import { isOperationalStatusComment } from "@/lib/orchestration/comment-visibility";
 import { flattenSprintGroupedItems, groupBySprint, type GroupableItem } from "@/lib/orchestration/groupBySprint";
+import { formatOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
 import { isLegacyHumanActor, PUBLIC_HUMAN_LABEL } from "@/lib/public-identity";
 import type {
   OrchestrationCompany,
@@ -52,6 +53,7 @@ import type {
   OrchestrationTaskDetail,
   OrchestrationTaskTimelineItem,
   OrchestrationResolvedExecutionContext,
+  TaskExecutionEngine,
   TaskPriority,
   TaskStatus,
 } from "@/lib/orchestration/types";
@@ -183,10 +185,12 @@ function formatRunProvider(provider?: string): string {
   }
 }
 
+function isTaskExecutionEngine(engine?: string | null): engine is TaskExecutionEngine {
+  return engine === "hiverunner" || engine === "symphony" || engine === "manual";
+}
+
 function formatExecutionModeLabel(engine?: string | null): string {
-  if (engine === "symphony") return "Symphony";
-  if (engine === "manual") return "Manual / Operator Controlled";
-  return "HiveRunner Native";
+  return formatOrchestrationModeLabel(isTaskExecutionEngine(engine) ? engine : "hiverunner");
 }
 
 function formatRunnerProviderLabel(provider?: string | null): string | null {
@@ -208,7 +212,7 @@ function formatRunnerProviderLabel(provider?: string | null): string | null {
     case "manual":
       return "Manual";
     case "symphony":
-      return "External runner";
+      return "Symphony";
     default:
       return provider;
   }

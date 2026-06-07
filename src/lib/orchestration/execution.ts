@@ -429,7 +429,7 @@ function providerDisplayName(provider: ExecutionProvider): string {
   if (provider === "gemini") return "Gemini";
   if (provider === "hermes") return "HERMES";
   if (provider === "openclaw") return "OpenClaw";
-  if (provider === "symphony") return "External runner";
+  if (provider === "symphony") return "Symphony";
   return provider;
 }
 

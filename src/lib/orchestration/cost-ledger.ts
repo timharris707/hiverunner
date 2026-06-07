@@ -310,7 +310,7 @@ function providerDisplayName(provider: string): string {
   if (provider === "openai") return "OpenAI API";
   if (provider === "anthropic") return "Anthropic / Claude Code";
   if (provider === "gemini") return "Google Gemini";
-  if (provider === "symphony") return "External runner";
+  if (provider === "symphony") return "Symphony";
   if (provider === "openclaw") return "OpenClaw";
   if (provider === "hermes") return "HERMES";
   if (provider === "multica") return "Multica";

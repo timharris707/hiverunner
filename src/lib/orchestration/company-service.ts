@@ -959,7 +959,7 @@ function inboxEventMessage(
       provider === "codex" ? "Codex" :
       provider === "anthropic" ? "Claude Code" :
       provider === "gemini" ? "Gemini" :
-      provider === "symphony" ? "External runner" :
+      provider === "symphony" ? "Symphony" :
       provider === "multica" ? "Multica" :
       provider === "openclaw" ? "OpenClaw" :
       provider;

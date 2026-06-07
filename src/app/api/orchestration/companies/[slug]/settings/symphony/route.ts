@@ -85,7 +85,7 @@ function currentView(companyIdOrSlug: string, restartQueued = false) {
     companyIdOrSlug,
     lane: resolveHiveRunnerLane(),
     available: supported(),
-    reason: supported() ? undefined : "External runner local controls are only available on the dev lane at port 3010.",
+    reason: supported() ? undefined : "Symphony local controls are only available on the dev lane at port 3010.",
     tracker: {
       enabled: Boolean(trackerHealth.ok && (trackerHealth.result as { enabled?: boolean } | undefined)?.enabled),
       authRequired: Boolean(process.env.HIVERUNNER_SYMPHONY_TRACKER_TOKEN?.trim()),
@@ -157,7 +157,7 @@ export async function PATCH(
     const company = resolveCompanyIdBySlug(slug, undefined, { includeArchived: false });
     if (!company) return errorResponse(404, "company_not_found", "Company not found");
     if (!supported()) {
-      return errorResponse(404, "not_found", "External runner local controls are unavailable on this lane.");
+      return errorResponse(404, "not_found", "Symphony local controls are unavailable on this lane.");
     }
 
     const parsed = updateSymphonySettingsSchema.parse(await req.json());
@@ -189,7 +189,7 @@ export async function PATCH(
     return NextResponse.json(currentView(company.id, parsed.restartDevLane));
   } catch (error) {
     if (error instanceof ZodError) {
-      return errorResponse(400, "validation_error", "Invalid external runner settings payload", error.flatten());
+      return errorResponse(400, "validation_error", "Invalid Symphony settings payload", error.flatten());
     }
     return handleRouteError(error, "company-symphony-settings:patch");
   }

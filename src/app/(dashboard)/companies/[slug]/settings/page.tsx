@@ -15,9 +15,9 @@ import { PageHeader, Section, PropRow, ActionButton, InfoNote, Badge } from "@/l
 // Use stable company ID for protection checks, not mutable slug.
 const PROTECTED_COMPANY_IDS = new Set(["6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f"]);
 const EXECUTION_ENGINE_OPTIONS: Array<{ value: TaskExecutionEngine; label: string }> = [
-  { value: "hiverunner", label: "HiveRunner Native" },
-  { value: "symphony", label: "Symphony" },
-  { value: "manual", label: "Manual / Operator Controlled" },
+  { value: "hiverunner", label: formatOrchestrationModeLabel("hiverunner") },
+  { value: "symphony", label: formatOrchestrationModeLabel("symphony") },
+  { value: "manual", label: formatOrchestrationModeLabel("manual") },
 ];
 
 /* ── Types for execution / heartbeat APIs ── */
@@ -445,7 +445,7 @@ export default function CompanySettingsPage() {
         | { error?: { message?: string } }
         | null;
       if (!response.ok) {
-        throw new Error(body && "error" in body ? body.error?.message ?? "Could not update external runner settings." : "Could not update external runner settings.");
+        throw new Error(body && "error" in body ? body.error?.message ?? "Could not update Symphony settings." : "Could not update Symphony settings.");
       }
       const next = body as SymphonySettingsView;
       setSymphonySettings(next);
@@ -456,7 +456,7 @@ export default function CompanySettingsPage() {
         }, 6500);
       }
     } catch (settingsError) {
-      setError(settingsError instanceof Error ? settingsError.message : "Could not update external runner settings.");
+      setError(settingsError instanceof Error ? settingsError.message : "Could not update Symphony settings.");
     } finally {
       setSymphonyBusy(false);
     }
@@ -717,10 +717,10 @@ export default function CompanySettingsPage() {
             )}
           </Section>
 
-          {/* ── EXTERNAL RUNNER INTEGRATION ── */}
+          {/* ── SYMPHONY INTEGRATION ── */}
           {symphonySettings ? (
             <Section
-              title="External Runner Integration"
+              title="Symphony Integration"
               trailing={
                 <Badge
                   label={
@@ -737,7 +737,7 @@ export default function CompanySettingsPage() {
               {symphonySettings.available ? (
                 <>
                   <InfoNote>
-                    Local 3010 controls for the Symphony-compatible external runner bridge. The bundled default implementation is the Codex wrapper, while Claude Code, Gemini, HERMES, and OpenClaw each use the same payload contract through their own wrappers.
+                    Local 3010 controls for the Symphony-compatible runner bridge. The bundled default implementation is the Codex wrapper, while Claude Code, Gemini, HERMES, and OpenClaw each use the same payload contract through their own wrappers.
                   </InfoNote>
                   <div style={{ height: 12 }} />
                   <PropRow label="Running now">
@@ -753,7 +753,7 @@ export default function CompanySettingsPage() {
                   <PropRow label="Runner command">
                     <span style={{ fontSize: 13, color: P.textSec }}>
                       {symphonySettings.nextRestart.execCommandConfigured
-                        ? "Custom external runner command"
+                        ? "Custom Symphony command"
                         : symphonySettings.nextRestart.codexCommandConfigured
                         ? "Custom Codex command"
                         : "Bundled Codex runner"}
@@ -775,7 +775,7 @@ export default function CompanySettingsPage() {
                         trackerTokenRequired: true,
                         dryRun: true,
                         restartDevLane: true,
-                        successMessage: "Safe external runner mode is being applied. 3010 will restart and this page will reload.",
+                        successMessage: "Safe Symphony mode is being applied. 3010 will restart and this page will reload.",
                       })}
                       disabled={symphonyBusy}
                     />
@@ -786,7 +786,7 @@ export default function CompanySettingsPage() {
                         trackerTokenRequired: true,
                         dryRun: false,
                         restartDevLane: true,
-                        successMessage: "Real external runner mode is being applied. 3010 will restart and this page will reload.",
+                        successMessage: "Real Symphony mode is being applied. 3010 will restart and this page will reload.",
                       })}
                       disabled={symphonyBusy}
                     />
@@ -797,7 +797,7 @@ export default function CompanySettingsPage() {
                         trackerEnabled: false,
                         trackerTokenRequired: false,
                         restartDevLane: true,
-                        successMessage: "External runner tracker is being disabled. 3010 will restart and this page will reload.",
+                        successMessage: "Symphony tracker is being disabled. 3010 will restart and this page will reload.",
                       })}
                       disabled={symphonyBusy}
                     />
@@ -805,7 +805,7 @@ export default function CompanySettingsPage() {
                 </>
               ) : (
                 <InfoNote tone="warning">
-                  {symphonySettings.reason ?? "External runner controls are unavailable on this lane."}
+                  {symphonySettings.reason ?? "Symphony controls are unavailable on this lane."}
                 </InfoNote>
               )}
             </Section>

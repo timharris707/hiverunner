@@ -8,6 +8,7 @@ import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
 import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
 import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
 import { buildCanonicalGoalPath, buildCanonicalImprovePath, buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { formatOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
@@ -206,9 +207,10 @@ function relativeAge(iso: string): string {
 }
 
 function formatExecutionEngineLabel(engine?: string | null): string {
-  if (engine === "symphony") return "Symphony";
-  if (engine === "manual") return "Manual / Operator Controlled";
-  return "HiveRunner Native";
+  if (engine === "symphony" || engine === "manual" || engine === "hiverunner") {
+    return formatOrchestrationModeLabel(engine);
+  }
+  return formatOrchestrationModeLabel("hiverunner");
 }
 
 function formatExecutionEngineShortLabel(engine?: string | null): string {
@@ -232,7 +234,7 @@ function formatProviderLabel(provider?: string | null): string | null {
     case "manual":
       return "Manual";
     case "symphony":
-      return "External runner";
+      return "Symphony";
     default:
       return provider;
   }
@@ -262,7 +264,7 @@ function formatRunProvider(
   if (engine === "symphony") {
     const runnerLabel = formatProviderLabel(runnerProvider) ?? (provider === "symphony" ? null : formatProviderLabel(provider));
     const modelLabel = runnerModel ? ` · ${runnerModel}` : "";
-    return runnerLabel ? `External runner / ${runnerLabel}${modelLabel}` : `External runner${modelLabel}`;
+    return runnerLabel ? `Symphony / ${runnerLabel}${modelLabel}` : `Symphony${modelLabel}`;
   }
   return formatProviderLabel(provider) ?? provider;
 }

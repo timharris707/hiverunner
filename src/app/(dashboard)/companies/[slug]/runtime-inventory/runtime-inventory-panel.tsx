@@ -39,7 +39,7 @@ import { color, font, radius, space, type as T } from "@/lib/ui/tokens";
 
 const PROVIDER_OPTIONS = [
   { value: "codex", label: "Codex", command: "codex" },
-  { value: "symphony", label: "External runner", command: "" },
+  { value: "symphony", label: "Symphony", command: "" },
   { value: "anthropic", label: "Anthropic / Claude Code", command: "claude" },
   { value: "hermes", label: "HERMES", command: "hermes" },
   { value: "openclaw", label: "OpenClaw", command: "openclaw" },

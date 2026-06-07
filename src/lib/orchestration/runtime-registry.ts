@@ -189,7 +189,7 @@ const LOCAL_RUNTIME_PROBES = [
   { provider: "anthropic", displayName: "Claude Code", command: "claude", versionArgs: ["--version"] },
   { provider: "gemini", displayName: "Gemini", command: "gemini", versionArgs: ["--version"] },
   { provider: "hermes", displayName: "HERMES", command: "hermes", versionArgs: ["--version"] },
-  { provider: "symphony", displayName: "External runner", command: "symphony", versionArgs: ["--version"] },
+  { provider: "symphony", displayName: "Symphony", command: "symphony", versionArgs: ["--version"] },
   { provider: "openclaw", displayName: "OpenClaw", command: "openclaw", versionArgs: ["--version"] },
   { provider: "multica", displayName: "Multica", command: "multica", versionArgs: ["--version"] },
 ] as const;
@@ -327,7 +327,7 @@ const RUNTIME_DEPENDENCY_CATALOG: Array<{
   {
     id: "symphony-runner",
     provider: "symphony",
-    label: "External runner",
+    label: "Symphony",
     kind: "external-runner",
     optionality: "optional_runtime",
     command: "symphony",
@@ -1098,7 +1098,7 @@ function authReadiness(
   }
 
   if (provider === "symphony") {
-    return { ready: true, detail: "External runner auth is managed by the configured runner" };
+    return { ready: true, detail: "Symphony auth is managed by the configured runner" };
   }
 
   return { ready: null, detail: null };

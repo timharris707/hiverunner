@@ -33,6 +33,7 @@ import { buildRunTraceExperimentLaunchModel } from "@/lib/orchestration/experime
 import type { RunTraceRedactedExport, RunTraceViewModel } from "@/lib/orchestration/run-trace";
 import type { OrchestrationExperimentReportEvidence } from "@/lib/orchestration/types";
 import { CapabilityGrid, TierBadge } from "@/components/orchestration/ProviderPresentation";
+import { formatOrchestrationModeLabel as formatSharedOrchestrationModeLabel } from "@/lib/orchestration/execution-hives";
 import { P as tokens } from "@/lib/ui/tokens";
 
 const A = {
@@ -2242,9 +2243,10 @@ function DisclosureRow({ label, open, onToggle, children, style }: {
 }
 
 function formatOrchestrationModeLabel(engine?: string | null): string {
-  if (engine === "symphony") return "Symphony";
-  if (engine === "manual") return "Manual / Operator Controlled";
-  return "HiveRunner Native";
+  if (engine === "symphony" || engine === "manual" || engine === "hiverunner") {
+    return formatSharedOrchestrationModeLabel(engine);
+  }
+  return formatSharedOrchestrationModeLabel("hiverunner");
 }
 
 function formatConfigSourceLabel(source?: string | null): string | null {
@@ -2279,7 +2281,7 @@ function formatRuntimeProviderLabel(provider?: string | null): string | null {
     case "openai":
       return "OpenAI";
     case "symphony":
-      return "External runner";
+      return "Symphony";
     default:
       return provider;
   }

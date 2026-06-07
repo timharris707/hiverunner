@@ -885,15 +885,15 @@ async function run() {
     assert.strictEqual(result.transition.changed, true);
     assert.strictEqual(result.transition.to, "blocked");
     assert.strictEqual(result.task.status, "blocked");
-    assert.match(result.task.blockedReason ?? "", /External runner execution failed: Intentional fixture failure/);
+    assert.match(result.task.blockedReason ?? "", /Symphony execution failed: Intentional fixture failure/);
 
     const comments = getTask(task.id).task.comments ?? [];
     assert.ok(
-      comments.some((comment) => comment.text.includes("External runner execution failed.") && comment.text.includes("Intentional fixture failure")),
+      comments.some((comment) => comment.text.includes("Symphony execution failed.") && comment.text.includes("Intentional fixture failure")),
       "Expected failed Symphony execution to leave a useful task comment",
     );
     assert.ok(
-      comments.some((comment) => comment.type === "comment" && comment.text.includes("External runner execution failed.")),
+      comments.some((comment) => comment.type === "comment" && comment.text.includes("Symphony execution failed.")),
       "Expected failed Symphony execution comment to be operator-facing",
     );
   });

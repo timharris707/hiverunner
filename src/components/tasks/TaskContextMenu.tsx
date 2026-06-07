@@ -15,7 +15,7 @@ const PRIORITIES: TaskPriority[] = ["P0", "P1", "P2", "P3"];
 const EXECUTION_ENGINES: Array<{ value: TaskExecutionEngine | null; label: string }> = [
   { value: null, label: "Inherit engine" },
   { value: "hiverunner", label: "HiveRunner runnable" },
-  { value: "symphony", label: "External runner" },
+  { value: "symphony", label: "Symphony" },
   { value: "manual", label: "Manual only" },
 ];
 

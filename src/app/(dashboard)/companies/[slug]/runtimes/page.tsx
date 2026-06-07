@@ -546,9 +546,9 @@ function SelectedHiveSummary({
               outline: "none",
             }}
           >
-            <option value="hiverunner">HiveRunner Native</option>
-            <option value="symphony">Symphony</option>
-            <option value="manual">Manual</option>
+            <option value="hiverunner">{formatOrchestrationModeLabel("hiverunner")}</option>
+            <option value="symphony">{formatOrchestrationModeLabel("symphony")}</option>
+            <option value="manual">{formatOrchestrationModeLabel("manual")}</option>
           </select>
         </label>
         <Badge label={`Autonomy: ${policy}`} tone="default" />

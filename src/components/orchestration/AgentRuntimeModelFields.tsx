@@ -97,7 +97,7 @@ function runtimeLabel(provider: string): string {
     case "hermes":
       return "HERMES";
     case "symphony":
-      return "External runner";
+      return "Symphony";
     case "multica":
       return "Multica";
     case "manual":
