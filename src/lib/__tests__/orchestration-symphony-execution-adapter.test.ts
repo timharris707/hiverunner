@@ -261,8 +261,21 @@ async function run() {
     const { cancelTaskExecution, pollTaskExecutionStatus, triggerTaskExecution } = await import("@/lib/orchestration/execution");
     const { upsertCompanyRuntime } = await import("@/lib/orchestration/runtime-registry");
     const { ensureCompanyExecutionHives } = await import("@/lib/orchestration/service/execution-hives");
+    const { __testHooks: symphonyAdapterTestHooks } = await import("@/lib/orchestration/execution/adapters/symphony");
 
     const db = getOrchestrationDb();
+
+    await test("bundled runner launch uses resolved Node binary", () => {
+      const bundledRunner = path.join(tempRoot, "hiverunner-symphony-runner.mjs");
+      const launch = symphonyAdapterTestHooks.resolveBundledRunnerLaunch(bundledRunner, ["--fixture"]);
+      assert.strictEqual(launch.command, process.execPath);
+      assert.deepStrictEqual(launch.args, [bundledRunner, "--fixture"]);
+
+      const external = symphonyAdapterTestHooks.resolveBundledRunnerLaunch(fakeSymphony, ["--fixture"]);
+      assert.strictEqual(external.command, fakeSymphony);
+      assert.deepStrictEqual(external.args, ["--fixture"]);
+    });
+
     const company = createCompany({
       name: "External Runner Execution Co",
       description: "External runner adapter fixture.",
@@ -1611,7 +1624,7 @@ async function run() {
       assert.strictEqual(signalUsage.terminationReason, "external_signal");
     });
 
-    await test("missing external runner command fails the execution run with a useful provider error", async () => {
+    await test("missing external runner command is blocked by deterministic preflight", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
       const missingRunnerAgent = createSymphonyAgentFixture({
         name: "Missing External Runner Agent",
@@ -1637,7 +1650,7 @@ async function run() {
         reason: "symphony_missing_command_test",
         expectedStatus: "failed",
       });
-      assert.ok(String(result.error).includes("definitely-missing-symphony"));
+      assert.match(String(result.error), /configured runner command path was not found/);
 
       const executionRun = db
         .prepare(
@@ -1647,15 +1660,28 @@ async function run() {
            LIMIT 1`,
         )
         .get(missingRunnerTask.id, missingRunnerAgent.id) as { provider: string; status: string; error_message: string | null; token_usage_json: string | null } | undefined;
-      assert.ok(executionRun, "execution_run should be created");
+      assert.ok(executionRun, "triggerTaskExecution precreates the execution_run before heartbeat admission");
       assert.strictEqual(executionRun!.provider, "symphony");
       assert.strictEqual(executionRun!.status, "failed");
-      assert.ok(String(executionRun!.error_message).includes("definitely-missing-symphony"));
+      assert.match(String(executionRun!.error_message), /configured runner command path was not found/);
+      const executionRunCount = db
+        .prepare("SELECT COUNT(*) AS count FROM execution_runs WHERE task_id = ? AND agent_id = ?")
+        .get(missingRunnerTask.id, missingRunnerAgent.id) as { count: number };
+      assert.strictEqual(executionRunCount.count, 1, "preflight should not insert a duplicate execution_run");
 
-      const usage = JSON.parse(executionRun!.token_usage_json ?? "{}") as Record<string, unknown>;
-      assert.strictEqual(usage.provider, "symphony");
-      assert.strictEqual(usage.exitCode, -2);
-      assert.ok(String(usage.command).includes("definitely-missing-symphony"));
+      const preflight = db
+        .prepare(
+          `SELECT classification, failure_code, summary_json
+           FROM runtime_preflight_results
+           WHERE task_id = ?
+           LIMIT 1`,
+        )
+        .get(missingRunnerTask.id) as { classification: string; failure_code: string; summary_json: string } | undefined;
+      assert.ok(preflight, "preflight circuit should be persisted");
+      assert.strictEqual(preflight!.classification, "deterministic_preflight");
+      assert.strictEqual(preflight!.failure_code, "missing_runner_script");
+      assert.match(preflight!.summary_json, /definitely-missing-symphony/);
+      assert.ok(!preflight!.summary_json.includes(tempRoot), "preflight summary should not store raw paths");
     });
 
     closeOrchestrationDb();

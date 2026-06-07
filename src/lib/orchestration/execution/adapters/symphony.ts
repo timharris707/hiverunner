@@ -81,6 +81,8 @@ type TaskPayloadRow = HiveRunnerSymphonyIssueRow;
 type SymphonyExecConfig = {
   command: string;
   args: string[];
+  launchCommand: string;
+  launchArgs: string[];
   env: Record<string, string>;
   runnerProvider: string;
   runnerModel: string | null;
@@ -134,6 +136,13 @@ type MergeRunnerMetadataOptions = {
 };
 
 const DEFAULT_SYMPHONY_MAX_BUFFER = 10 * 1024 * 1024;
+const BUNDLED_RUNNER_SCRIPT_NAMES = new Set([
+  "hiverunner-symphony-runner.mjs",
+  "hiverunner-claude-runner.mjs",
+  "hiverunner-gemini-runner.mjs",
+  "hiverunner-hermes-runner.mjs",
+  "hiverunner-openclaw-runner.mjs",
+]);
 
 function getDb(): Database.Database {
   // Lazy require keeps adapter registry imports from opening a live DB.
@@ -732,11 +741,29 @@ function defaultRunnerCommandForProvider(runnerProvider: string): string | null 
   return fs.existsSync(command) ? command : null;
 }
 
+function isBundledRunnerScriptCommand(value: string | null | undefined): boolean {
+  const text = stringFrom(value);
+  if (!text) return false;
+  const command = splitCommandLine(text)[0] ?? text;
+  return BUNDLED_RUNNER_SCRIPT_NAMES.has(path.basename(command));
+}
+
 function isBundledCodexRunnerCommand(value: string | null | undefined): boolean {
   const text = stringFrom(value);
   if (!text) return false;
   const command = splitCommandLine(text)[0] ?? text;
   return path.basename(command) === "hiverunner-symphony-runner.mjs";
+}
+
+function resolveBundledRunnerLaunch(command: string, args: string[]): { command: string; args: string[] } {
+  if (!isBundledRunnerScriptCommand(command)) {
+    return { command, args };
+  }
+  const scriptPath = path.isAbsolute(command) ? command : path.resolve(process.cwd(), command);
+  return {
+    command: process.execPath,
+    args: [scriptPath, ...args],
+  };
 }
 
 function resolveSymphonyRuntime(db: Database.Database, input: ExecutionInput): SymphonyRuntimeRow | null {
@@ -833,13 +860,17 @@ function resolveCommandConfig(
   const commandArgs = commandParts.slice(1);
   const metadataArgs = shouldUseProviderDefault ? [] : stringArrayFrom(metadata.commandArgs ?? metadata.args);
   const envArgs = stringArrayFrom(process.env.SYMPHONY_EXEC_ARGS);
+  const args = [...commandArgs, ...metadataArgs, ...envArgs];
+  const launch = resolveBundledRunnerLaunch(command, args);
   const workspace = resolveWorkspaceRoot(db, input);
   const routeModel = routeAttempt?.target.model;
   const runnerModel = routeModel ?? resolveRunnerModel(metadata, runnerProvider, !Boolean(routeAttempt));
 
   return {
     command,
-    args: [...commandArgs, ...metadataArgs, ...envArgs],
+    args,
+    launchCommand: launch.command,
+    launchArgs: launch.args,
     env: resolveRunnerEnv(metadata, runnerProvider, runnerModel),
     runnerProvider,
     runnerModel,
@@ -1006,7 +1037,7 @@ function runCommand(
   const stdinPayload = `${JSON.stringify(payload, null, 2)}\n`;
 
   return new Promise((resolve) => {
-    const child = spawn(config.command, config.args, {
+    const child = spawn(config.launchCommand, config.launchArgs, {
       cwd: config.cwd,
       env: {
         ...process.env,
@@ -1134,6 +1165,8 @@ function runCommand(
           heartbeatRunId: options.heartbeatRunId ?? null,
           command: config.command,
           args: config.args,
+          launchCommand: config.launchCommand,
+          launchArgs: config.launchArgs,
           cwd: config.cwd,
           runnerProvider: config.runnerProvider,
           runnerModel: config.runnerModel,
@@ -1436,4 +1469,8 @@ export const symphonyExecutionAdapter: ExecutionAdapter = {
   execute,
   clearTaskSessionForSelfHeal,
   cancel,
+};
+
+export const __testHooks = {
+  resolveBundledRunnerLaunch,
 };

@@ -22,6 +22,7 @@ import { recordRuntimeSkillAvailabilityForRun } from "@/lib/orchestration/skill-
 import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
 import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readiness";
+import { admitHeartbeatRuntimePreflight } from "@/lib/orchestration/runtime-preflight";
 import type { TaskExecutionEngine } from "@/lib/orchestration/types";
 import { enqueueWakeup as enqueueWakeupDirect } from "@/lib/orchestration/engine/wakeup-queue";
 import {
@@ -92,6 +93,10 @@ export type AgentRow = {
 };
 
 type HeartbeatRunStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
+type RuntimePreflightTerminalResult = Exclude<
+  ReturnType<typeof admitHeartbeatRuntimePreflight>,
+  { status: "allowed" }
+>;
 
 type StaleRecoveryTaskRow = {
   id: string;
@@ -181,6 +186,49 @@ function getActionResultsTerminalFailure(...args: Parameters<HeartbeatManagerDep
 function isInsufficientProgress(...args: Parameters<HeartbeatManagerDependencies["isInsufficientProgress"]>): boolean { return deps().isInsufficientProgress(...args); }
 function adapterActionTexts(...args: Parameters<HeartbeatManagerDependencies["adapterActionTexts"]>): string[] { return deps().adapterActionTexts(...args); }
 function persistAdapterFailureDiagnostic(...args: Parameters<HeartbeatManagerDependencies["persistAdapterFailureDiagnostic"]>): void { return deps().persistAdapterFailureDiagnostic(...args); }
+
+function finishRuntimePreflightFailure(input: {
+  preflight: RuntimePreflightTerminalResult;
+  runId: string;
+  run: HeartbeatRunRow;
+  agent: AgentRow;
+  adapterType: string;
+  startTime: number;
+  db: Database.Database;
+  executionRunId?: string | null;
+}): ExecuteHeartbeatResult {
+  const idleAt = new Date().toISOString();
+  input.db.prepare(
+    `UPDATE agents
+     SET last_heartbeat = ?,
+         status = CASE WHEN status IN ('paused', 'offline') THEN status ELSE 'idle' END,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(idleAt, idleAt, input.agent.id);
+  getOrCreateRuntimeState(input.agent.id, input.agent.company_id, input.db, input.adapterType);
+  updateRuntimeState(input.agent.id, {
+    lastRunId: input.runId,
+    lastRunStatus: "failed",
+    lastError: input.preflight.message,
+  }, input.db);
+  emitRunEvent(
+    input.runId,
+    input.agent.id,
+    input.preflight.status === "blocked" ? "runtime_preflight_blocked" : "runtime_preflight_failed",
+    `${input.preflight.message} Circuit ${input.preflight.circuitId}.`,
+    input.db,
+  );
+  return finishRun(
+    input.runId,
+    input.run,
+    "failed",
+    input.preflight.message,
+    input.startTime,
+    input.db,
+    undefined,
+    input.executionRunId,
+  );
+}
 
 function emitRunEvent(
   runId: string,
@@ -819,6 +867,30 @@ export async function executeHeartbeatRun(
       ? contextSnapshot.runnerProvider.trim()
       : executionRunProvider);
   if (taskKey !== "__heartbeat__" && executionRunProvider) {
+    const preflight = admitHeartbeatRuntimePreflight(db, {
+      agentId: agent.id,
+      companyId: agent.company_id,
+      taskId: taskKey,
+      heartbeatRunId: runId,
+      executionRunId: precreatedExecutionRunId,
+      laneKey: executionRoute?.laneId ?? taskModelRouting.lane,
+      provider: executionRunProvider,
+      runnerProvider: primaryRouteAttempt?.target.runtimeProvider ?? contextRunnerProvider,
+      runnerModel: primaryRouteAttempt?.target.model ?? null,
+    });
+    if (preflight.status !== "allowed") {
+      return finishRuntimePreflightFailure({
+        preflight,
+        runId,
+        run,
+        agent,
+        adapterType,
+        startTime,
+        db,
+        executionRunId: precreatedExecutionRunId,
+      });
+    }
+
     const existingExecRun = db
       .prepare(
         `SELECT id FROM execution_runs

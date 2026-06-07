@@ -4135,6 +4135,54 @@ const MIGRATIONS: Migration[] = [
         rollback_notes = excluded.rollback_notes;
     `,
   },
+  {
+    version: 120,
+    name: "runtime_preflight_results",
+    sql: `
+      CREATE TABLE IF NOT EXISTS runtime_preflight_results (
+        id                    TEXT PRIMARY KEY,
+        lane_key              TEXT,
+        provider              TEXT,
+        runner_provider       TEXT,
+        runner_model          TEXT,
+        runtime_fingerprint   TEXT NOT NULL,
+        classification        TEXT NOT NULL,
+        failure_code          TEXT NOT NULL,
+        summary_json          TEXT NOT NULL DEFAULT '{}',
+        task_id               TEXT,
+        heartbeat_run_id      TEXT,
+        execution_run_id      TEXT,
+        opened_at             TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        cleared_at            TEXT,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_preflight_task_opened
+        ON runtime_preflight_results(task_id, opened_at DESC)
+        WHERE task_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_preflight_heartbeat_run
+        ON runtime_preflight_results(heartbeat_run_id)
+        WHERE heartbeat_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_preflight_execution_run
+        ON runtime_preflight_results(execution_run_id)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_preflight_open_deterministic_circuit
+        ON runtime_preflight_results(
+          COALESCE(lane_key, ''),
+          COALESCE(provider, ''),
+          COALESCE(runner_provider, ''),
+          COALESCE(runner_model, ''),
+          runtime_fingerprint,
+          failure_code
+        )
+        WHERE classification = 'deterministic_preflight'
+          AND cleared_at IS NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
