@@ -37,6 +37,10 @@ export const color = {
 
   /** Brand accent (amber) — interactive highlights, active indicators */
   accent: "var(--accent)",
+  /** Foreground color for filled accent buttons and CTAs */
+  accentForeground: "var(--accent-foreground)",
+  /** Hover color for filled accent buttons and CTAs */
+  accentHover: "var(--accent-hover)",
   /** Accent background — subtle highlight behind accent elements */
   accentSoft: "var(--accent-soft)",
 

@@ -283,7 +283,7 @@ export function ActionButton({
     primary: {
       background: color.accent,
       border: "none",
-      color: "#000",
+      color: color.accentForeground,
       fontWeight: 600,
     },
     secondary: {

@@ -332,10 +332,10 @@ function buttonStyle(tone: "default" | "primary" | "danger" = "default"): CSSPro
       color: color.text,
     },
     primary: {
-      border: "0.5px solid transparent",
+      border: "none",
       background: color.accent,
-      color: "#050505",
-      fontWeight: 700,
+      color: color.accentForeground,
+      fontWeight: 600,
     },
     danger: {
       border: `0.5px solid ${color.negative}`,
@@ -348,13 +348,15 @@ function buttonStyle(tone: "default" | "primary" | "danger" = "default"): CSSPro
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
-    minHeight: 32,
+    gap: space.sm,
+    minHeight: 30,
     borderRadius: radius.md,
-    padding: "6px 10px",
+    padding: "5px 12px",
     fontSize: T.bodySmall.size,
+    fontWeight: 500,
     cursor: "pointer",
     whiteSpace: "nowrap",
+    transition: "border-color 0.15s, opacity 0.15s",
     ...styles[tone],
   };
 }
