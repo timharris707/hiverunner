@@ -33,6 +33,8 @@ const LABEL_MAP: Record<string, string> = {
   factory: "Factory Floor",
   pipeline: "Pipeline",
   activity: "Activity",
+  evals: "Evals",
+  improve: "Improve",
   analytics: "Analytics",
   about: "About",
   approvals: "Approvals",
@@ -76,6 +78,7 @@ const SECTION_FOR_PAGE: Record<string, string> = {
   // Company
   team: "Company", org: "Company", "manage-projects": "Company", overseer: "Company", skills: "Company", hives: "Company", runtimes: "Company", "runtime-inventory": "Company",
   costs: "Company", activity: "Company", files: "Company", settings: "Company",
+  memory: "Company", evals: "Company", improve: "Company",
   // Systems
   terminal: "Systems", sessions: "Systems", logs: "Systems",
   // Preserved standalone tools kept outside the core HiveRunner surface.
