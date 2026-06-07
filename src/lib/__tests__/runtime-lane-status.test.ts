@@ -24,6 +24,23 @@ async function run() {
     assert.match(status.executionDisabledReason ?? "", /Port 3010/);
   });
 
+  await test("exec-dev port 3020 is an active dev executor when engine tick is on", () => {
+    const status = getRuntimeLaneStatus({
+      NODE_ENV: "development",
+      PORT: "3020",
+      MC_ENGINE_TICK: "on",
+      MC_DATA_DIR: "/tmp/hiverunner/data-exec-dev",
+      MC_WORKSPACE_ROOT: "/Users/test/.hiverunner/exec-dev/workspaces",
+    } as NodeJS.ProcessEnv);
+
+    assert.equal(status.mode, "exec-dev");
+    assert.equal(status.role, "executor");
+    assert.equal(status.engineTick, "active");
+    assert.equal(status.engineTickActive, true);
+    assert.equal(status.observerOnly, false);
+    assert.equal(status.executionDisabledReason, null);
+  });
+
   await test("stable non-3010 lane defaults to executor", () => {
     const status = getRuntimeLaneStatus({
       NODE_ENV: "production",

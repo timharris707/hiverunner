@@ -16,6 +16,15 @@ export type MCLiveEventKind =
   | "run_end"
   | "run_error"
   | "run_progress"        // engine milestone: agent is processing (no text emitted yet)
+  // Runtime / CLI transparency
+  | "command_start"
+  | "command_exit"
+  | "stdout_chunk"
+  | "stderr_chunk"
+  | "process_spawned"
+  | "process_exit"
+  | "runtime_progress"
+  | "provider_stream_event"
   // Assistant output
   | "assistant_text_delta"
   | "assistant_text_final"
@@ -126,6 +135,49 @@ export interface HeartbeatPayload {
   connectedSince: number;
 }
 
+export interface CommandStartPayload {
+  command: string;
+  cwd?: string;
+  argv?: string[];
+  shell?: string;
+}
+
+export interface CommandExitPayload {
+  command?: string;
+  exitCode?: number | null;
+  signal?: string | null;
+  durationMs?: number;
+}
+
+export interface StreamChunkPayload {
+  chunk: string;
+  byteLength?: number;
+}
+
+export interface ProcessSpawnedPayload {
+  pid?: number;
+  command?: string;
+  cwd?: string;
+}
+
+export interface ProcessExitPayload {
+  pid?: number;
+  exitCode?: number | null;
+  signal?: string | null;
+  durationMs?: number;
+}
+
+export interface RuntimeProgressPayload {
+  phase?: string;
+  message?: string;
+  progress?: number;
+}
+
+export interface ProviderStreamEventPayload {
+  providerEventType?: string;
+  event?: unknown;
+}
+
 /* ── Payload Union ── */
 
 export type MCLiveEventPayload =
@@ -144,7 +196,14 @@ export type MCLiveEventPayload =
   | RunEndPayload
   | RunErrorPayload
   | ErrorPayload
-  | HeartbeatPayload;
+  | HeartbeatPayload
+  | CommandStartPayload
+  | CommandExitPayload
+  | StreamChunkPayload
+  | ProcessSpawnedPayload
+  | ProcessExitPayload
+  | RuntimeProgressPayload
+  | ProviderStreamEventPayload;
 
 /* ── Core Event ── */
 
@@ -191,6 +250,14 @@ export const CANONICAL_TO_WIRE_KIND: Record<MCLiveEventKind, string> = {
   run_end: "lifecycle_end",
   run_error: "lifecycle_error",
   run_progress: "lifecycle_start",     // degrade: show as lifecycle
+  command_start: "command_start",
+  command_exit: "command_exit",
+  stdout_chunk: "stdout_chunk",
+  stderr_chunk: "stderr_chunk",
+  process_spawned: "process_spawned",
+  process_exit: "process_exit",
+  runtime_progress: "runtime_progress",
+  provider_stream_event: "provider_stream_event",
   assistant_text_delta: "assistant_delta",
   assistant_text_final: "assistant_final",
   thinking_delta: "assistant_delta",     // degrade: render as text
@@ -215,7 +282,9 @@ export function toLegacyWireEvent(event: MCLiveEvent): Record<string, unknown> {
     type: CANONICAL_TO_WIRE_KIND[event.kind],
     agentId: event.agentId,
     runId: event.runId,
+    canonicalKind: event.kind,
     detail: event.summary,
+    provider: event.provider,
     seq: event.seq,
     ts: event.ts,
   };
@@ -226,6 +295,20 @@ export function toLegacyWireEvent(event: MCLiveEvent): Record<string, unknown> {
   if ("accumulatedText" in p) wire.text = p.accumulatedText;
   if ("text" in p && !("accumulatedText" in p)) wire.text = p.text;
   if ("toolName" in p) wire.toolName = p.toolName;
+  if ("command" in p) wire.command = p.command;
+  if ("cwd" in p) wire.cwd = p.cwd;
+  if ("argv" in p) wire.argv = p.argv;
+  if ("shell" in p) wire.shell = p.shell;
+  if ("exitCode" in p) wire.exitCode = p.exitCode;
+  if ("signal" in p) wire.signal = p.signal;
+  if ("durationMs" in p) wire.durationMs = p.durationMs;
+  if ("chunk" in p) wire.chunk = p.chunk;
+  if ("byteLength" in p) wire.byteLength = p.byteLength;
+  if ("pid" in p) wire.pid = p.pid;
+  if ("phase" in p) wire.phase = p.phase;
+  if ("message" in p) wire.message = p.message;
+  if ("progress" in p) wire.progress = p.progress;
+  if ("providerEventType" in p) wire.providerEventType = p.providerEventType;
 
   return wire;
 }

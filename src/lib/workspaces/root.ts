@@ -1,7 +1,7 @@
 import os from "os";
 import path from "path";
 
-export type HiveRunnerLane = "dev" | "stable";
+export type HiveRunnerLane = "dev" | "exec-dev" | "stable";
 
 function resolveConfiguredAbsolute(value?: string | null): string | null {
   const trimmed = value?.trim();
@@ -28,6 +28,9 @@ export function resolveHiveRunnerLane(
 ): HiveRunnerLane {
   const configuredWorkspaceRoot = resolveConfiguredAbsolute(env.MC_WORKSPACE_ROOT);
   if (configuredWorkspaceRoot) {
+    if (configuredWorkspaceRoot.includes(`${path.sep}.hiverunner${path.sep}exec-dev${path.sep}`)) {
+      return "exec-dev";
+    }
     if (configuredWorkspaceRoot.includes(`${path.sep}.hiverunner${path.sep}dev${path.sep}`)) {
       return "dev";
     }
@@ -39,6 +42,9 @@ export function resolveHiveRunnerLane(
   const configuredDataDir = resolveConfiguredAbsolute(env.MC_DATA_DIR);
   if (configuredDataDir) {
     const baseName = path.basename(configuredDataDir);
+    if (baseName === "data-exec-dev") {
+      return "exec-dev";
+    }
     if (baseName === "data-dev") {
       return "dev";
     }

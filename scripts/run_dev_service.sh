@@ -8,24 +8,43 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 . "$SCRIPT_DIR/lib/next-app-router-guard.sh"
 
 APP_DIR="$(resolve_mc_app_root "$0")"
-LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
-PID_FILE="$LOG_DIR/hiverunner-dev.pid"
-PORT="${PORT:-3010}"
+MC_SERVICE_ID="${MC_SERVICE_ID:-dev}"
+SERVICE_LABEL="hr-$MC_SERVICE_ID"
+SERVICE_FILE_PREFIX="hiverunner-$MC_SERVICE_ID"
+case "$MC_SERVICE_ID" in
+  exec-dev)
+    DEFAULT_PORT=3020
+    DEFAULT_LOG_DIR="$APP_DIR/data-exec-dev/logs"
+    DEFAULT_DATA_LEAF="data-exec-dev"
+    DEFAULT_WORKSPACE_ROOT="${HOME:-}/.hiverunner/exec-dev/workspaces"
+    DEFAULT_ENGINE_TICK=on
+    ;;
+  *)
+    DEFAULT_PORT=3010
+    DEFAULT_LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
+    DEFAULT_DATA_LEAF="data-dev"
+    DEFAULT_WORKSPACE_ROOT="${HOME:-}/.hiverunner/dev/workspaces"
+    DEFAULT_ENGINE_TICK=off
+    ;;
+esac
+LOG_DIR="${MC_LOG_DIR:-$DEFAULT_LOG_DIR}"
+PID_FILE="$LOG_DIR/$SERVICE_FILE_PREFIX.pid"
+PORT="${PORT:-$DEFAULT_PORT}"
 
 mkdir -p "$LOG_DIR"
 cd "$APP_DIR"
 
-assert_no_root_app_router_shadow "$APP_DIR" "hr-dev"
+assert_no_root_app_router_shadow "$APP_DIR" "$SERVICE_LABEL"
 
-NODE_BIN="$(resolve_hiverunner_node_bin "hr-dev")"
+NODE_BIN="$(resolve_hiverunner_node_bin "$SERVICE_LABEL")"
 
 EXISTING_PID="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true)"
 if [ -n "$EXISTING_PID" ] && [ "$EXISTING_PID" != "$$" ]; then
-  echo "[hr-dev] ERROR: port $PORT already in use by PID $EXISTING_PID"
+  echo "[$SERVICE_LABEL] ERROR: port $PORT already in use by PID $EXISTING_PID"
   exit 1
 fi
 
-if [ -f "$APP_DIR/.next/dev/lock" ] && [ -z "$EXISTING_PID" ]; then
+if [ "$PORT" = "3010" ] && [ -f "$APP_DIR/.next/dev/lock" ] && [ -z "$EXISTING_PID" ]; then
   rm -f "$APP_DIR/.next/dev/lock"
 fi
 
@@ -37,12 +56,12 @@ if [ "$PORT" = "3010" ]; then
   # gated controls, but it must not make this process an execution owner.
   MC_ENGINE_TICK="off"
 elif [ -z "${MC_ENGINE_TICK+x}" ]; then
-  MC_ENGINE_TICK="off"
+  MC_ENGINE_TICK="$DEFAULT_ENGINE_TICK"
 fi
 HEARTBEAT_ENABLED="${HEARTBEAT_ENABLED:-}"
 HEARTBEAT_INTERVAL_SECONDS="${HEARTBEAT_INTERVAL_SECONDS:-}"
-MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "data-dev")"
-MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "${HOME:-}/.hiverunner/dev/workspaces")"
+MC_DATA_DIR="$(resolve_mc_data_dir "$APP_DIR" "$DEFAULT_DATA_LEAF")"
+MC_WORKSPACE_ROOT="$(resolve_mc_workspace_root "$DEFAULT_WORKSPACE_ROOT")"
 
 dotenv_value() {
   KEY="$1"
@@ -105,17 +124,20 @@ else
 fi
 if [ "$PORT" = "3010" ]; then
   LANE_ROLE="observer"
+elif [ "$MC_SERVICE_ID" = "exec-dev" ]; then
+  LANE_ROLE="executor"
 else
   LANE_ROLE="dev-custom"
 fi
 if [ "$PORT" = "3010" ] && [ -n "$REQUESTED_MC_ENGINE_TICK" ] && [ "$REQUESTED_MC_ENGINE_TICK" != "off" ]; then
-  echo "[hr-dev] ignoring MC_ENGINE_TICK=$REQUESTED_MC_ENGINE_TICK on port 3010; forcing observer-only"
+  echo "[$SERVICE_LABEL] ignoring MC_ENGINE_TICK=$REQUESTED_MC_ENGINE_TICK on port 3010; forcing observer-only"
 fi
-echo "[hr-dev] service starting on port $PORT (role: $LANE_ROLE, node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT, symphony-tracker: $HIVERUNNER_SYMPHONY_TRACKER_ENABLED, symphony-tracker-auth: $TRACKER_AUTH, symphony-dry-run: $HIVERUNNER_SYMPHONY_DRY_RUN, symphony-runner: $RUNNER_COMMAND)"
+echo "[$SERVICE_LABEL] service starting on port $PORT (role: $LANE_ROLE, node: $NODE_BIN, tick: $MC_ENGINE_TICK, dev-test-mode: $MC_DEV_EXECUTION_TEST_MODE, data: $MC_DATA_DIR, workspaces: $MC_WORKSPACE_ROOT, symphony-tracker: $HIVERUNNER_SYMPHONY_TRACKER_ENABLED, symphony-tracker-auth: $TRACKER_AUTH, symphony-dry-run: $HIVERUNNER_SYMPHONY_DRY_RUN, symphony-runner: $RUNNER_COMMAND)"
 
 exec env \
   NODE_ENV=development \
   PORT="$PORT" \
+  MC_SERVICE_ID="$MC_SERVICE_ID" \
   HIVERUNNER_MANAGED_START="${HIVERUNNER_MANAGED_START:-0}" \
   MC_APP_ROOT="$APP_DIR" \
   MC_LOG_DIR="$LOG_DIR" \

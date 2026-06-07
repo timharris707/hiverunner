@@ -3,7 +3,7 @@ set -eu
 
 # ─── Unified lane management CLI ───
 # Usage: scripts/lane.sh <lane> <action>
-#   lane:   dev | stable
+#   lane:   dev | exec-dev | stable
 #   action: start | stop | restart | status | logs | rollback
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
@@ -14,14 +14,15 @@ APP_DIR="$(resolve_mc_app_root "$0")"
 LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
 
 usage() {
-  echo "Usage: $0 <dev|stable> <start|stop|restart|status|logs|rollback>"
-  echo "       $0 <dev|stable> logs watchdog"
+  echo "Usage: $0 <dev|exec-dev|stable> <start|stop|restart|status|logs|rollback>"
+  echo "       $0 <dev|exec-dev|stable> logs watchdog"
   echo "       $0 promote   (build + deploy to stable lane)"
   echo "       $0 rollback  (restore stable to previous promoted checkpoint)"
   echo "       $0 doctor    (diagnose both lanes, PIDs, health)"
   echo ""
   echo "Examples:"
-  echo "  $0 dev start       Start dev server on port 3010"
+  echo "  $0 dev start       Start observer dev server on port 3010"
+  echo "  $0 exec-dev start  Start execution dev server on port 3020"
   echo "  $0 stable restart  Restart stable server on port 3001"
   echo "  $0 stable status   Check if stable lane is running"
   echo "  $0 stable logs     Tail stable lane logs"
@@ -57,11 +58,29 @@ fi
 case "$LANE" in
   dev)
     PORT=3010
+    MC_SERVICE_ID=dev
     PID_FILE="$LOG_DIR/hiverunner-dev.pid"
     LOG_FILE="$LOG_DIR/hiverunner-dev.log"
     FAILURE_FILE="$LOG_DIR/hiverunner-dev.health-failures"
     WATCHDOG_OUT_LOG="$LOG_DIR/hr-dev-watchdog.out.log"
     WATCHDOG_ERR_LOG="$LOG_DIR/hr-dev-watchdog.err.log"
+    START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
+    STOP_SCRIPT="$APP_DIR/scripts/stop_dev_service.sh"
+    ;;
+  exec-dev)
+    PORT="${PORT:-3020}"
+    MC_SERVICE_ID=exec-dev
+    MC_DATA_DIR="${MC_DATA_DIR:-$APP_DIR/data-exec-dev}"
+    MC_WORKSPACE_ROOT="${MC_WORKSPACE_ROOT:-${HOME:-}/.hiverunner/exec-dev/workspaces}"
+    MC_LOG_DIR="${MC_LOG_DIR:-$APP_DIR/data-exec-dev/logs}"
+    MC_ENGINE_TICK="${MC_ENGINE_TICK:-on}"
+    MC_DEV_EXECUTION_TEST_MODE="${MC_DEV_EXECUTION_TEST_MODE:-0}"
+    LOG_DIR="$MC_LOG_DIR"
+    PID_FILE="$LOG_DIR/hiverunner-exec-dev.pid"
+    LOG_FILE="$LOG_DIR/hiverunner-exec-dev.log"
+    FAILURE_FILE="$LOG_DIR/hiverunner-exec-dev.health-failures"
+    WATCHDOG_OUT_LOG="$LOG_DIR/hr-exec-dev-watchdog.out.log"
+    WATCHDOG_ERR_LOG="$LOG_DIR/hr-exec-dev-watchdog.err.log"
     START_SCRIPT="$APP_DIR/scripts/start_dev_service.sh"
     STOP_SCRIPT="$APP_DIR/scripts/stop_dev_service.sh"
     ;;
@@ -76,24 +95,33 @@ case "$LANE" in
     STOP_SCRIPT="$APP_DIR/scripts/stop_stable_service.sh"
     ;;
   *)
-    echo "Unknown lane: $LANE (must be dev or stable)"
+    echo "Unknown lane: $LANE (must be dev, exec-dev, or stable)"
     exit 1
     ;;
 esac
 
+export PORT
+if [ -n "${MC_SERVICE_ID:-}" ]; then
+  export MC_SERVICE_ID
+fi
+if [ "$LANE" = "exec-dev" ]; then
+  export MC_DATA_DIR MC_WORKSPACE_ROOT MC_LOG_DIR MC_ENGINE_TICK MC_DEV_EXECUTION_TEST_MODE
+fi
+
 case "$ACTION" in
   start)
-    PORT="$PORT" exec "$START_SCRIPT"
+    exec "$START_SCRIPT"
     ;;
   stop)
-    PORT="$PORT" exec "$STOP_SCRIPT"
+    exec "$STOP_SCRIPT"
     ;;
   restart)
-    PORT="$PORT" "$STOP_SCRIPT" 2>/dev/null || true
+    "$STOP_SCRIPT" 2>/dev/null || true
     sleep 1
-    PORT="$PORT" exec "$START_SCRIPT"
+    exec "$START_SCRIPT"
     ;;
   status)
+    mkdir -p "$LOG_DIR" 2>/dev/null || true
     PID=""
     if [ -f "$PID_FILE" ]; then
       FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
@@ -110,7 +138,7 @@ case "$ACTION" in
       echo "[$LANE] running (PID $PID, port $PORT)"
       if curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/hiverunner/health" >/dev/null 2>&1; then
         echo "[$LANE] health: OK"
-      elif [ "$LANE" = "dev" ] &&
+      elif { [ "$LANE" = "dev" ] || [ "$LANE" = "exec-dev" ]; } &&
            curl -sf --max-time 15 "http://127.0.0.1:$PORT/api/orchestration/companies" >/dev/null 2>&1; then
         echo "[$LANE] health: OK (legacy companies fallback)"
       else

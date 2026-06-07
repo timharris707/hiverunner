@@ -6,11 +6,24 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 . "$SCRIPT_DIR/lib/runtime-paths.sh"
 
 APP_DIR="$(resolve_mc_app_root "$0")"
-LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
-PID_FILE="$LOG_DIR/hiverunner-dev.pid"
-FAILURE_FILE="$LOG_DIR/hiverunner-dev.health-failures"
-LOG_FILE="$LOG_DIR/hiverunner-dev.log"
-PORT="${PORT:-3010}"
+MC_SERVICE_ID="${MC_SERVICE_ID:-dev}"
+SERVICE_LABEL="hr-$MC_SERVICE_ID"
+SERVICE_FILE_PREFIX="hiverunner-$MC_SERVICE_ID"
+case "$MC_SERVICE_ID" in
+  exec-dev)
+    DEFAULT_PORT=3020
+    DEFAULT_LOG_DIR="$APP_DIR/data-exec-dev/logs"
+    ;;
+  *)
+    DEFAULT_PORT=3010
+    DEFAULT_LOG_DIR="$(resolve_mc_log_dir "$APP_DIR")"
+    ;;
+esac
+LOG_DIR="${MC_LOG_DIR:-$DEFAULT_LOG_DIR}"
+PID_FILE="$LOG_DIR/$SERVICE_FILE_PREFIX.pid"
+FAILURE_FILE="$LOG_DIR/$SERVICE_FILE_PREFIX.health-failures"
+LOG_FILE="$LOG_DIR/$SERVICE_FILE_PREFIX.log"
+PORT="${PORT:-$DEFAULT_PORT}"
 URL="http://127.0.0.1:${PORT}"
 
 mkdir -p "$LOG_DIR"
@@ -41,7 +54,7 @@ reconcile_pid() {
     FILE_PID="$(cat "$PID_FILE" 2>/dev/null || true)"
     if [ -n "$FILE_PID" ] && kill -0 "$FILE_PID" 2>/dev/null; then
       if [ -n "$ACTUAL_PID" ] && [ "$FILE_PID" != "$ACTUAL_PID" ]; then
-        echo "[hr-dev] PID mismatch: file=$FILE_PID, port=$ACTUAL_PID — adopting port listener"
+        echo "[$SERVICE_LABEL] PID mismatch: file=$FILE_PID, port=$ACTUAL_PID — adopting port listener"
         echo "$ACTUAL_PID" > "$PID_FILE"
       fi
       return
@@ -50,7 +63,7 @@ reconcile_pid() {
   fi
 
   if [ -n "$ACTUAL_PID" ]; then
-    echo "[hr-dev] adopting untracked listener PID $ACTUAL_PID"
+    echo "[$SERVICE_LABEL] adopting untracked listener PID $ACTUAL_PID"
     echo "$ACTUAL_PID" > "$PID_FILE"
   fi
 }
@@ -62,7 +75,7 @@ is_healthy() {
     if [ -n "$RSS_KB" ]; then
       RSS_MB=$((RSS_KB / 1024))
       if [ "$RSS_MB" -gt "$MAX_RSS_MB" ]; then
-        echo "[hr-dev] unhealthy memory: PID $ACTUAL_PID RSS ${RSS_MB}MB exceeds ${MAX_RSS_MB}MB"
+        echo "[$SERVICE_LABEL] unhealthy memory: PID $ACTUAL_PID RSS ${RSS_MB}MB exceeds ${MAX_RSS_MB}MB"
         return 1
       fi
     fi
@@ -74,14 +87,14 @@ is_healthy() {
 
 mark_next_dev_cache_cleared() {
   REASON="$1"
-  echo "[hr-dev] cleared Next.js dev cache marker: $(date '+%Y-%m-%d %H:%M:%S') ($REASON)" >> "$LOG_FILE" 2>/dev/null || true
+  echo "[$SERVICE_LABEL] cleared Next.js dev cache marker: $(date '+%Y-%m-%d %H:%M:%S') ($REASON)" >> "$LOG_FILE" 2>/dev/null || true
 }
 
 reconcile_pid
 
 if is_healthy; then
   rm -f "$FAILURE_FILE"
-  echo "[hr-dev] healthy"
+  echo "[$SERVICE_LABEL] healthy"
   exit 0
 fi
 
@@ -98,26 +111,26 @@ if [ -n "$ACTUAL_PID" ]; then
   echo "$FAILURE_COUNT" > "$FAILURE_FILE"
 
   if [ "$FAILURE_COUNT" -lt "$MAX_CONSECUTIVE_FAILURES" ]; then
-    echo "[hr-dev] healthcheck failed for listener PID $ACTUAL_PID (${FAILURE_COUNT}/${MAX_CONSECUTIVE_FAILURES}); deferring restart"
+    echo "[$SERVICE_LABEL] healthcheck failed for listener PID $ACTUAL_PID (${FAILURE_COUNT}/${MAX_CONSECUTIVE_FAILURES}); deferring restart"
     exit 0
   fi
 fi
 
 if in_boot_grace; then
-  echo "[hr-dev] still booting (within ${BOOT_GRACE_SECS}s grace) — skipping restart"
+  echo "[$SERVICE_LABEL] still booting (within ${BOOT_GRACE_SECS}s grace) — skipping restart"
   exit 0
 fi
 
-echo "[hr-dev] unhealthy; restarting script-managed dev lane"
+echo "[$SERVICE_LABEL] unhealthy; restarting script-managed dev lane"
 rm -f "$FAILURE_FILE"
 
-if [ -d "$APP_DIR/.next/dev" ]; then
-  echo "[hr-dev] clearing .next/dev cache before restart"
+if [ "$PORT" = "3010" ] && [ -d "$APP_DIR/.next/dev" ]; then
+  echo "[$SERVICE_LABEL] clearing .next/dev cache before restart"
   rm -rf "$APP_DIR/.next/dev"
   mark_next_dev_cache_cleared "healthcheck restart"
 fi
 
-PORT="$PORT" "$APP_DIR/scripts/stop_dev_service.sh" >/dev/null 2>&1 || true
+MC_SERVICE_ID="$MC_SERVICE_ID" MC_LOG_DIR="$LOG_DIR" PORT="$PORT" "$APP_DIR/scripts/stop_dev_service.sh" >/dev/null 2>&1 || true
 
 # launchd/KeepAlive or another supervisor may restart the lane immediately
 # after stop_dev_service.sh exits. Do not race it by starting a second
@@ -127,7 +140,7 @@ i=0
 while [ "$i" -lt 15 ]; do
   ACTUAL_PID="$(listener_pid)"
   if [ -n "$ACTUAL_PID" ]; then
-    echo "[hr-dev] listener PID $ACTUAL_PID appeared after stop; adopting and deferring duplicate start"
+    echo "[$SERVICE_LABEL] listener PID $ACTUAL_PID appeared after stop; adopting and deferring duplicate start"
     echo "$ACTUAL_PID" > "$PID_FILE"
     exit 0
   fi
@@ -135,4 +148,4 @@ while [ "$i" -lt 15 ]; do
   i=$((i + 1))
 done
 
-PORT="$PORT" "$APP_DIR/scripts/start_dev_service.sh"
+MC_SERVICE_ID="$MC_SERVICE_ID" MC_LOG_DIR="$LOG_DIR" PORT="$PORT" "$APP_DIR/scripts/start_dev_service.sh"

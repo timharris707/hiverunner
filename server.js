@@ -504,7 +504,10 @@ app.prepare().then(() => {
     ? "MC_DATA_DIR"
     : `default via ${mcAppRootSource}`;
   const mcLane = process.env.MC_WORKSPACE_ROOT
-    ? process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.hiverunner${path.sep}dev${path.sep}`)
+    ? process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.hiverunner${path.sep}exec-dev${path.sep}`)
+      || process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.mission-control${path.sep}exec-dev${path.sep}`)
+      ? "exec-dev"
+      : process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.hiverunner${path.sep}dev${path.sep}`)
       || process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.mission-control${path.sep}dev${path.sep}`)
       ? "dev"
       : process.env.MC_WORKSPACE_ROOT.includes(`${path.sep}.hiverunner${path.sep}stable${path.sep}`)
@@ -526,7 +529,7 @@ app.prepare().then(() => {
     console.log(`> Workspace root: ${mcWorkspaceRoot} (${mcWorkspaceRootSource}, lane=${mcLane})`);
     console.log(`> Heap limit: ${heapMB}MB`);
     console.log(`> Bundler: ${useWebpack ? "webpack" : "turbopack"}`);
-    console.log(`> Runtime role: ${baseEngineTickEnabled ? "executor" : "observer"}${engineTickForcedObserver ? " (port 3010 forced)" : ""}`);
+    console.log(`> Runtime role: ${engineTickEnabled ? "executor" : "observer"}${engineTickForcedObserver ? " (port 3010 forced)" : ""}`);
     console.log(`> Engine tick: ${engineTickEnabled ? "ACTIVE (every 10s)" : "DISABLED (observer-only)"} (MC_ENGINE_TICK=${engineTickSetting})`);
     if (engineTickForcedObserver && requestedEngineTickSetting !== "off") {
       console.log(`> Engine tick override: port 3010 forces observer-only (requested MC_ENGINE_TICK=${requestedEngineTickSetting})`);

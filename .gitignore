@@ -98,3 +98,4 @@ next-env.d.ts
 
 # Dev lane isolated data directory (databases only)
 /data-dev/
+/data-exec-dev/

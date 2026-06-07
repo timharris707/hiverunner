@@ -52,6 +52,19 @@ function run() {
     );
   });
 
+  test("defaults exec-dev lane from data-exec-dev", () => {
+    const env = testEnv({
+      HOME: "/Users/test",
+      MC_DATA_DIR: "/tmp/hiverunner/data-exec-dev",
+      MC_WORKSPACE_ROOT: "/Users/test/.hiverunner/exec-dev/workspaces",
+    });
+    assert.strictEqual(resolveHiveRunnerLane(env), "exec-dev");
+    assert.strictEqual(
+      resolveHiveRunnerWorkspaceRoot(env),
+      "/Users/test/.hiverunner/exec-dev/workspaces",
+    );
+  });
+
   test("defaults stable lane from production context", () => {
     const env = testEnv({
       HOME: "/Users/test",

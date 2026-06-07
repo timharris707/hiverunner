@@ -1,7 +1,11 @@
 import { NextRequest } from "next/server";
 
-import { subscribe, initAdapterRegistry, getRegistryStatus } from "@/lib/orchestration/adapters/registry";
+import { subscribe as subscribeAdapterEvents, initAdapterRegistry, getRegistryStatus } from "@/lib/orchestration/adapters/registry";
 import { toLegacyWireEvent } from "@/lib/orchestration/live-events";
+import {
+  getLiveRuntimeEventsStatus,
+  subscribeLiveRuntimeEvents,
+} from "@/lib/orchestration/live-runtime-events";
 import { getRuntimeLaneStatus } from "@/lib/orchestration/runtime-lane-status";
 import type { MCLiveEvent } from "@/lib/orchestration/live-events";
 
@@ -30,6 +34,7 @@ export async function GET(req: NextRequest) {
   if (companySlug === "__status__") {
     return new Response(JSON.stringify({
       ...getRegistryStatus(),
+      runtimeEvents: getLiveRuntimeEventsStatus(),
       runtime: getRuntimeLaneStatus(),
     }, null, 2), {
       headers: { "Content-Type": "application/json" },
@@ -58,7 +63,19 @@ export async function GET(req: NextRequest) {
   }
 
   let disposed = false;
-  let unsubscribe: (() => void) | null = null;
+  const unsubscribers: Array<() => void> = [];
+  let keepalive: ReturnType<typeof setInterval> | null = null;
+
+  const cleanup = () => {
+    disposed = true;
+    if (keepalive) {
+      clearInterval(keepalive);
+      keepalive = null;
+    }
+    for (const unsubscribe of unsubscribers.splice(0)) {
+      unsubscribe();
+    }
+  };
 
   const encoder = new TextEncoder();
 
@@ -69,12 +86,11 @@ export async function GET(req: NextRequest) {
         encoder.encode(`data: ${JSON.stringify({ type: "connected", company: companySlug, ts: Date.now() })}\n\n`)
       );
 
-      // Subscribe to canonical events from all registered adapters
-      unsubscribe = subscribe((event: MCLiveEvent) => {
+      const writeCanonicalEvent = (event: MCLiveEvent) => {
         if (disposed) return;
 
         // Filter: only events for the requested company
-        if (companyId && event.companyId !== companyId) return;
+        if (!companyId || event.companyId !== companyId) return;
 
         try {
           // Map canonical MCLiveEvent → backward-compatible wire format
@@ -82,29 +98,35 @@ export async function GET(req: NextRequest) {
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(payload)}\n\n`));
         } catch {
           // Controller closed — clean up
-          disposed = true;
-          unsubscribe?.();
+          cleanup();
         }
-      });
+      };
+
+      // Subscribe to canonical events from all registered adapters.
+      unsubscribers.push(subscribeAdapterEvents(writeCanonicalEvent));
+
+      // Subscribe to in-process runtime transparency events and replay recent
+      // per-run buffered events for this company.
+      unsubscribers.push(subscribeLiveRuntimeEvents(writeCanonicalEvent, {
+        companyId,
+        replay: true,
+      }));
 
       // Keepalive every 15 seconds
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         if (disposed) {
-          clearInterval(keepalive);
+          cleanup();
           return;
         }
         try {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         } catch {
-          clearInterval(keepalive);
-          disposed = true;
-          unsubscribe?.();
+          cleanup();
         }
       }, 15000);
     },
     cancel() {
-      disposed = true;
-      unsubscribe?.();
+      cleanup();
     },
   });
 

@@ -1,7 +1,7 @@
 import { resolveHiveRunnerLane } from "@/lib/workspaces/root";
 
 export type RuntimeLaneStatus = {
-  mode: "dev" | "stable";
+  mode: "dev" | "exec-dev" | "stable";
   port: string;
   role: "executor" | "observer";
   engineTick: "active" | "disabled";

@@ -21,6 +21,8 @@
     "orchestration:cleanup": "node ./scripts/run-tsx.mjs scripts/cleanup-test-artifacts.ts",
     "orchestration:cleanup:apply": "node ./scripts/run-tsx.mjs scripts/cleanup-test-artifacts.ts --apply",
     "symphony:tracker": "node ./scripts/run-tsx.mjs scripts/hiverunner-symphony-tracker.ts",
+    "runtime:benchmark": "node ./scripts/run-tsx.mjs scripts/runtime-benchmark.ts",
+    "runtime:prepare-exec-dev": "node ./scripts/run-tsx.mjs scripts/prepare-exec-dev-benchmark.ts",
     "qa:stress:software": "NODE_ENV=development PORT=3010 MC_DEV_EXECUTION_TEST_MODE=1 MC_SWEEP_INTERVAL_MS=1000 MC_TICK_MAX_CONCURRENT=6 MC_DATA_DIR=$PWD/data-dev MC_WORKSPACE_ROOT=$HOME/.hiverunner/dev/workspaces node ./scripts/run-tsx.mjs scripts/qa/hiverunner-software-stress.ts",
     "workspace:migration:inventory": "node ./scripts/run-tsx.mjs scripts/workspace-migration.ts inventory",
     "workspace:migration:dry-run": "node ./scripts/run-tsx.mjs scripts/workspace-migration.ts dry-run",
