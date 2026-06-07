@@ -555,6 +555,8 @@ function appendTail(current: string, chunk: Buffer, maxChars = 4000): string {
 
 const OUTER_PROGRESS_DIAGNOSTIC_PREFIX = "External runner still active after";
 const CODEX_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-symphony-runner] Codex still active after";
+const CLAUDE_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-claude-runner] Claude still active after";
+const GEMINI_CHILD_PROGRESS_DIAGNOSTIC_PREFIX = "[hiverunner-gemini-runner] Gemini still active after";
 
 type CodexChildProgressDiagnostic = {
   silentForMs: number;
@@ -587,12 +589,22 @@ function isProgressDiagnosticLine(line: string): boolean {
   return Boolean(text) && text.startsWith(OUTER_PROGRESS_DIAGNOSTIC_PREFIX);
 }
 
+function isWrapperChildProgressDiagnosticLine(line: string): boolean {
+  const text = line.trim();
+  return [
+    CLAUDE_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
+    GEMINI_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
+  ].some((prefix) => text.startsWith(prefix));
+}
+
 function isProgressDiagnosticPrefix(value: string): boolean {
   const text = value.trimStart();
   if (!text) return false;
   return [
     OUTER_PROGRESS_DIAGNOSTIC_PREFIX,
     CODEX_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
+    CLAUDE_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
+    GEMINI_CHILD_PROGRESS_DIAGNOSTIC_PREFIX,
   ].some((prefix) => prefix.startsWith(text) || text.startsWith(prefix));
 }
 
@@ -603,6 +615,7 @@ function createMeaningfulOutputDetector(): (chunk: Buffer) => boolean {
     const text = line.trim();
     if (!text) return false;
     if (isProgressDiagnosticLine(text)) return false;
+    if (isWrapperChildProgressDiagnosticLine(text)) return true;
 
     const codexChildProgress = parseCodexChildProgressDiagnostic(text);
     if (codexChildProgress) {

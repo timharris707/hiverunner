@@ -176,6 +176,16 @@ if (process.env.FAKE_SYMPHONY_MODE === "codex-child-progress-sleep") {
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-codex-child-progress-session", resultText: "too late" })), 60_000);
   return;
 }
+if (process.env.FAKE_SYMPHONY_MODE === "claude-wrapper-progress-sleep") {
+  setInterval(() => {
+    process.stderr.write(
+      "[hiverunner-claude-runner] Claude still active after 60.0s; " +
+      "60.0s since last stdout/stderr (0 stdout bytes, 0 stderr bytes).\\n"
+    );
+  }, 50);
+  setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-claude-wrapper-progress-session", resultText: "too late" })), 60_000);
+  return;
+}
 if (process.env.FAKE_SYMPHONY_MODE === "sleep") {
   process.stderr.write("fixture runner sleeping past adapter timeout\\n");
   setTimeout(() => process.stdout.write(JSON.stringify({ sessionId: "late-session", resultText: "too late" })), 60_000);
@@ -1413,7 +1423,10 @@ async function run() {
     await test("adapter timeout diagnostics are distinct from externally signalled runner exits", async () => {
       setActiveHiveDefaultRoute({ runtimeId: "codex", runtimeLabel: "Codex" });
 
-      async function runDiagnosticFixture(mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "codex-child-progress-sleep" | "self-sigterm", title: string) {
+      async function runDiagnosticFixture(
+        mode: "sleep" | "silent-sleep" | "progress-only-sleep" | "codex-child-progress-sleep" | "claude-wrapper-progress-sleep" | "self-sigterm",
+        title: string,
+      ) {
         const diagnosticAgent = createSymphonyAgentFixture({
           name: `Runner Diagnostic ${mode}`,
           emoji: "D",
@@ -1562,6 +1575,23 @@ async function run() {
       assert.strictEqual(codexChildProgressUsage.silentTimedOut, false);
       assert.strictEqual(codexChildProgressUsage.timedOut, true);
       assert.strictEqual(codexChildProgressUsage.terminationReason, "adapter_timeout");
+
+      const claudeWrapperProgressRun = await runDiagnosticFixture("claude-wrapper-progress-sleep", "Run Claude wrapper progress diagnostic fixture");
+      assert.strictEqual(claudeWrapperProgressRun.status, "failed");
+      assert.strictEqual(claudeWrapperProgressRun.process_pid, null);
+      assert.strictEqual(claudeWrapperProgressRun.failure_class, "adapter_timeout");
+      assert.match(claudeWrapperProgressRun.error_message ?? "", /timed out/i);
+      const claudeWrapperProgressMetadata = JSON.parse(claudeWrapperProgressRun.metadata_json ?? "{}") as Record<string, unknown>;
+      const claudeWrapperProgressRunner = claudeWrapperProgressMetadata.externalRunner as Record<string, unknown>;
+      assert.ok(Number(claudeWrapperProgressRunner.pid) > 0, "Claude wrapper progress metadata should retain the child pid");
+      assert.strictEqual(claudeWrapperProgressRunner.silentTimedOut, false);
+      assert.strictEqual(claudeWrapperProgressRunner.timedOut, true);
+      assert.strictEqual(claudeWrapperProgressRunner.terminationReason, "adapter_timeout");
+      assert.match(String(claudeWrapperProgressRunner.stderrTail), /\[hiverunner-claude-runner\] Claude still active after 60\.0s/);
+      const claudeWrapperProgressUsage = JSON.parse(claudeWrapperProgressRun.token_usage_json ?? "{}") as Record<string, unknown>;
+      assert.strictEqual(claudeWrapperProgressUsage.silentTimedOut, false);
+      assert.strictEqual(claudeWrapperProgressUsage.timedOut, true);
+      assert.strictEqual(claudeWrapperProgressUsage.terminationReason, "adapter_timeout");
 
       const signalRun = await runDiagnosticFixture("self-sigterm", "Run external signal diagnostic fixture");
       assert.strictEqual(signalRun.status, "failed");

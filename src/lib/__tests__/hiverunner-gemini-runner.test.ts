@@ -23,6 +23,10 @@ fs.writeFileSync(process.env.FAKE_GEMINI_PROMPT_FILE, prompt, "utf8");
 if (process.env.FAKE_GEMINI_INVOCATIONS_FILE) {
   fs.appendFileSync(process.env.FAKE_GEMINI_INVOCATIONS_FILE, JSON.stringify({ args, prompt }) + "\\n", "utf8");
 }
+const delayMs = Number.parseInt(process.env.FAKE_GEMINI_DELAY_MS || "0", 10);
+if (Number.isFinite(delayMs) && delayMs > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
 process.stdout.write("Fixture Gemini completed the external runner task.\\n");
 `,
     "utf8",
@@ -119,8 +123,8 @@ async function run() {
       "utf8",
     );
 
-    function runGeminiRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
+    function runGeminiRunnerResult(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      return spawnSync(process.execPath, ["scripts/hiverunner-gemini-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(inputPayload),
         encoding: "utf8",
@@ -132,6 +136,10 @@ async function run() {
           ...extraEnv,
         },
       });
+    }
+
+    function runGeminiRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = runGeminiRunnerResult(inputPayload, extraEnv);
 
       assert.strictEqual(result.status, 0, result.stderr);
       return JSON.parse(result.stdout) as Record<string, unknown>;
@@ -208,6 +216,20 @@ async function run() {
         { HIVERUNNER_GEMINI_DRY_RUN: "1" },
       );
       assert.strictEqual(output.runnerModel, "gemini-3-pro-preview");
+    });
+
+    await test("Gemini runner emits stderr progress without polluting final JSON stdout", () => {
+      const output = runGeminiRunnerResult(payload, {
+        FAKE_GEMINI_DELAY_MS: "90",
+        HIVERUNNER_GEMINI_PROGRESS_INTERVAL_MS: "10",
+      });
+
+      assert.strictEqual(output.status, 0, output.stderr);
+      assert.match(output.stderr, /\[hiverunner-gemini-runner\] Gemini still active after /);
+      assert.match(output.stderr, /since last stdout\/stderr/);
+      const parsed = JSON.parse(output.stdout) as Record<string, unknown>;
+      assert.strictEqual(parsed.runnerProvider, "gemini");
+      assert.strictEqual(parsed.resultText, "Fixture Gemini completed the external runner task.");
     });
 
     await test("Gemini 3.5 Flash benchmark cells run through direct API after no-generation preflight", () => {

@@ -19,6 +19,10 @@ const args = process.argv.slice(2);
 const prompt = fs.readFileSync(0, "utf8");
 fs.writeFileSync(process.env.FAKE_CLAUDE_ARGS_FILE, args.join("\\n"), "utf8");
 fs.writeFileSync(process.env.FAKE_CLAUDE_PROMPT_FILE, prompt, "utf8");
+const delayMs = Number.parseInt(process.env.FAKE_CLAUDE_DELAY_MS || "0", 10);
+if (Number.isFinite(delayMs) && delayMs > 0) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+}
 process.stdout.write(JSON.stringify({ type: "system", session_id: "claude-fixture-session" }) + "\\n");
 process.stdout.write(JSON.stringify({ type: "assistant", role: "assistant", message: { content: [{ type: "text", text: "Fixture Claude completed the external runner task." }] } }) + "\\n");
 process.stdout.write(JSON.stringify({ type: "result", result: "Fixture Claude completed the external runner task.", usage: { input_tokens: 21, output_tokens: 13, total_tokens: 34 } }) + "\\n");
@@ -40,8 +44,8 @@ async function run() {
     mkdirSync(workspace, { recursive: true });
     writeFakeClaude(fakeClaude);
 
-    function runClaudeRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
-      const result = spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
+    function runClaudeRunnerResult(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      return spawnSync(process.execPath, ["scripts/hiverunner-claude-runner.mjs"], {
         cwd: process.cwd(),
         input: JSON.stringify(inputPayload),
         encoding: "utf8",
@@ -53,6 +57,10 @@ async function run() {
           ...extraEnv,
         },
       });
+    }
+
+    function runClaudeRunner(inputPayload: unknown, extraEnv: ExtraEnv = {}) {
+      const result = runClaudeRunnerResult(inputPayload, extraEnv);
 
       assert.strictEqual(result.status, 0, result.stderr);
       return JSON.parse(result.stdout) as Record<string, unknown>;
@@ -129,6 +137,20 @@ async function run() {
         { HIVERUNNER_CLAUDE_DRY_RUN: "1" },
       );
       assert.strictEqual(output.runnerModel, "claude-sonnet-4-6");
+    });
+
+    await test("Claude runner emits stderr progress without polluting final JSON stdout", () => {
+      const result = runClaudeRunnerResult(payload, {
+        FAKE_CLAUDE_DELAY_MS: "90",
+        HIVERUNNER_CLAUDE_PROGRESS_INTERVAL_MS: "10",
+      });
+
+      assert.strictEqual(result.status, 0, result.stderr);
+      assert.match(result.stderr, /\[hiverunner-claude-runner\] Claude still active after /);
+      assert.match(result.stderr, /since last stdout\/stderr/);
+      const output = JSON.parse(result.stdout) as Record<string, unknown>;
+      assert.strictEqual(output.runnerProvider, "anthropic");
+      assert.strictEqual(output.resultText, "Fixture Claude completed the external runner task.");
     });
   } finally {
     rmSync(tempRoot, { recursive: true, force: true });

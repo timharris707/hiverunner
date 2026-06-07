@@ -3,6 +3,7 @@ import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStd
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
+const DEFAULT_PROGRESS_INTERVAL_MS = 60 * 1000;
 const DEFAULT_CLAUDE_MODEL = "claude-sonnet-4-6";
 const RUNNER_VERSION = "hiverunner-claude-runner 0.1.0";
 
@@ -36,6 +37,11 @@ function parseJsonLine(line) {
   } catch {
     return null;
   }
+}
+
+function formatDuration(durationMs) {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 function extractText(value) {
@@ -152,6 +158,7 @@ function buildClaudeInvocation(payload) {
 function runClaude({ command, args, cwd, prompt }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_CLAUDE_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_CLAUDE_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
+  const progressIntervalMs = numberFromEnv("HIVERUNNER_CLAUDE_PROGRESS_INTERVAL_MS", DEFAULT_PROGRESS_INTERVAL_MS);
 
   return runBufferedCommand({
     command,
@@ -166,9 +173,17 @@ function runClaude({ command, args, cwd, prompt }) {
     stdin: prompt,
     timeoutMs,
     maxBufferBytes,
+    progressIntervalMs,
     describeTimeout: () => `Claude command timed out after ${timeoutMs}ms`,
     describeBufferLimit: () => `Claude command exceeded ${maxBufferBytes} bytes of stdout`,
     describeExit: ({ exitCode, signal }) => `Claude command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
+    onProgress: ({ durationMs, silentForMs, stdoutBytes, stderrBytes }) => {
+      process.stderr.write(
+        `[hiverunner-claude-runner] Claude still active after ${formatDuration(durationMs)}; ` +
+        `${formatDuration(silentForMs)} since last stdout/stderr ` +
+        `(${stdoutBytes} stdout bytes, ${stderrBytes} stderr bytes).\n`,
+      );
+    },
   });
 }
 

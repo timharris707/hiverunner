@@ -4,6 +4,7 @@ import { asRecord, buildExternalRunnerPrompt, numberFrom, numberFromEnv, readStd
 
 const DEFAULT_TIMEOUT_MS = 60 * 60 * 1000;
 const DEFAULT_MAX_BUFFER_BYTES = 20 * 1024 * 1024;
+const DEFAULT_PROGRESS_INTERVAL_MS = 60 * 1000;
 const DEFAULT_PREFLIGHT_TIMEOUT_MS = 15 * 1000;
 const PREFLIGHT_SCHEMA = "hiverunner.benchmark.model-preflight.v1";
 const DIRECT_GENERATION_SCHEMA = "hiverunner.benchmark.google-direct-generation.v1";
@@ -40,6 +41,11 @@ function parseJsonLine(line) {
   } catch {
     return null;
   }
+}
+
+function formatDuration(durationMs) {
+  if (durationMs < 1000) return `${durationMs}ms`;
+  return `${(durationMs / 1000).toFixed(1)}s`;
 }
 
 function extractText(value) {
@@ -630,6 +636,7 @@ function buildGeminiInvocation(payload, prompt) {
 function runGemini({ command, args, cwd }) {
   const timeoutMs = numberFromEnv("HIVERUNNER_GEMINI_TIMEOUT_MS", DEFAULT_TIMEOUT_MS);
   const maxBufferBytes = numberFromEnv("HIVERUNNER_GEMINI_MAX_BUFFER", DEFAULT_MAX_BUFFER_BYTES);
+  const progressIntervalMs = numberFromEnv("HIVERUNNER_GEMINI_PROGRESS_INTERVAL_MS", DEFAULT_PROGRESS_INTERVAL_MS);
 
   return runBufferedCommand({
     command,
@@ -642,9 +649,17 @@ function runGemini({ command, args, cwd }) {
     },
     timeoutMs,
     maxBufferBytes,
+    progressIntervalMs,
     describeTimeout: () => `Gemini command timed out after ${timeoutMs}ms`,
     describeBufferLimit: () => `Gemini command exceeded ${maxBufferBytes} bytes of stdout`,
     describeExit: ({ exitCode, signal }) => `Gemini command exited with code ${exitCode}${signal ? ` (${signal})` : ""}`,
+    onProgress: ({ durationMs, silentForMs, stdoutBytes, stderrBytes }) => {
+      process.stderr.write(
+        `[hiverunner-gemini-runner] Gemini still active after ${formatDuration(durationMs)}; ` +
+        `${formatDuration(silentForMs)} since last stdout/stderr ` +
+        `(${stdoutBytes} stdout bytes, ${stderrBytes} stderr bytes).\n`,
+      );
+    },
   });
 }
 
