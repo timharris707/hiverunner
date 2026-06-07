@@ -1,9 +1,10 @@
 import { execFile } from "child_process";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { promises as fs } from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 import { promisify } from "util";
+import type Database from "better-sqlite3";
 
 import { isPathContained } from "@/lib/workspaces/delete-safety";
 
@@ -53,9 +54,19 @@ type BrowserProofCommandResult = {
 
 export type CaptureBrowserProofOptions = CaptureBrowserProofAction & {
   runId: string;
+  executionRunId?: string | null;
   cwd?: string;
   artifactRoot?: string;
+  audit?: BrowserProofAuditContext;
   runner?: (input: BrowserProofCommandInput) => Promise<BrowserProofCommandResult>;
+};
+
+export type BrowserProofAuditContext = {
+  db?: Database.Database;
+  companyId?: string | null;
+  agentId?: string | null;
+  taskId?: string | null;
+  taskKey?: string | null;
 };
 
 export type BrowserProofArtifact = {
@@ -231,12 +242,10 @@ async function runPlaywrightProofCommand(input: BrowserProofCommandInput): Promi
       encoding: "utf8",
       timeout: input.timeoutMs,
       maxBuffer: 20 * 1024 * 1024,
-      env: {
-        ...process.env,
-        BASE_URL: input.baseUrl,
-        HIVERUNNER_BROWSER_PROOF_ARTIFACT_DIR: input.artifactDir,
-        PLAYWRIGHT_HTML_REPORT: path.join(input.artifactDir, "html-report"),
-      },
+      env: buildBrowserProofChildEnv({
+        baseUrl: input.baseUrl,
+        artifactDir: input.artifactDir,
+      }),
     });
     return { exitCode: 0, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
   } catch (error) {
@@ -290,6 +299,103 @@ function tail(value: string, max = 4000): string {
 
 function commandSummary(input: BrowserProofCommandInput): string {
   return `BASE_URL=${input.baseUrl} playwright test ${input.specs.join(" ")} --project=${input.project}`;
+}
+
+function hasTable(db: Database.Database, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  return row?.name === tableName;
+}
+
+export function buildBrowserProofChildEnv(input: {
+  baseUrl: string;
+  artifactDir: string;
+}): NodeJS.ProcessEnv {
+  const allowedKeys = [
+    "CI",
+    "DISPLAY",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "LOGNAME",
+    "NODE_ENV",
+    "PATH",
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "TMPDIR",
+    "USER",
+    "XDG_CACHE_HOME",
+  ];
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of allowedKeys) {
+    const value = process.env[key];
+    if (value !== undefined) env[key] = value;
+  }
+  env.BASE_URL = input.baseUrl;
+  env.HIVERUNNER_BROWSER_PROOF_ARTIFACT_DIR = input.artifactDir;
+  env.PLAYWRIGHT_HTML_REPORT = path.join(input.artifactDir, "html-report");
+  return env;
+}
+
+function recordBrowserProofAudit(input: {
+  audit?: BrowserProofAuditContext;
+  runId: string;
+  executionRunId?: string | null;
+  taskKey: string;
+  baseUrl: string;
+  command: string;
+  project: string;
+  specs: string[];
+  urls?: BrowserProofUrlTarget[];
+  artifactDir: string;
+  manifestPath: string;
+  manifestSha256: string;
+  artifacts: BrowserProofArtifact[];
+  exitCode: number;
+  durationMs: number;
+}): void {
+  const db = input.audit?.db;
+  if (!db) return;
+  try {
+    if (!hasTable(db, "runtime_browser_proof_audit")) return;
+    const screenshots = input.artifacts.filter((artifact) => artifact.kind === "image").length;
+    const videos = input.artifacts.filter((artifact) => artifact.kind === "video").length;
+    db.prepare(
+      `INSERT INTO runtime_browser_proof_audit
+         (id, company_id, agent_id, task_id, task_key, heartbeat_run_id, execution_run_id,
+          status, exit_code, duration_ms, base_url, project, command, artifact_dir,
+          manifest_path, manifest_sha256, artifact_count, screenshot_count, video_count,
+          specs_json, urls_json, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run(
+      randomUUID(),
+      input.audit?.companyId ?? null,
+      input.audit?.agentId ?? null,
+      input.audit?.taskId ?? null,
+      input.audit?.taskKey ?? input.taskKey,
+      input.runId,
+      input.executionRunId ?? null,
+      input.exitCode === 0 ? "succeeded" : "failed",
+      input.exitCode,
+      Math.max(0, Math.round(input.durationMs)),
+      input.baseUrl,
+      input.project,
+      input.command,
+      input.artifactDir,
+      input.manifestPath,
+      input.manifestSha256,
+      input.artifacts.length,
+      screenshots,
+      videos,
+      JSON.stringify(input.specs),
+      JSON.stringify(input.urls ?? []),
+      new Date().toISOString(),
+    );
+  } catch (err) {
+    if (process.env.NODE_ENV !== "test") {
+      console.warn("[browser-proof] failed to record proof audit row", err);
+    }
+  }
 }
 
 function buildComment(input: {
@@ -353,6 +459,7 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
   const commandInput = { cwd, artifactDir, baseUrl, specs, project, timeoutMs };
   const command = commandSummary(commandInput);
   const runner = input.runner ?? runPlaywrightProofCommand;
+  const startedAt = Date.now();
   let commandResult: BrowserProofCommandResult;
   try {
     commandResult = await runner(commandInput);
@@ -383,6 +490,23 @@ export async function captureBrowserProof(input: CaptureBrowserProofOptions): Pr
   await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
   const manifestSha256 = await sha256File(manifestPath);
   const stderrTail = tail(commandResult.stderr);
+  recordBrowserProofAudit({
+    audit: input.audit,
+    runId: input.runId,
+    executionRunId: input.executionRunId ?? null,
+    taskKey: input.taskKey,
+    baseUrl,
+    command,
+    project,
+    specs,
+    urls: input.urls,
+    artifactDir,
+    manifestPath,
+    manifestSha256,
+    artifacts,
+    exitCode: commandResult.exitCode,
+    durationMs: Date.now() - startedAt,
+  });
 
   return {
     ok: commandResult.exitCode === 0,

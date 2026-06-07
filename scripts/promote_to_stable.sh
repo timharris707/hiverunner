@@ -75,6 +75,33 @@ fi
 
 require_expected_git_state "$ALLOW_DIRTY"
 
+if [ "${HIVERUNNER_RUNTIME_PROMOTION_GATE:-0}" = "1" ]; then
+  RUNTIME_PROMOTION_DB="${HIVERUNNER_RUNTIME_PROMOTION_DB:-${ORCHESTRATION_DB_PATH:-$APP_DIR/data/orchestration.db}}"
+  RUNTIME_PROMOTION_BASELINE_DB="${HIVERUNNER_RUNTIME_PROMOTION_BASELINE_DB:-}"
+  RUNTIME_PROMOTION_BASELINE_SUMMARY="${HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARY:-}"
+  RUNTIME_PROMOTION_GOAL="${HIVERUNNER_RUNTIME_PROMOTION_GOAL:-INS-G006}"
+  RUNTIME_PROMOTION_OUT="${HIVERUNNER_RUNTIME_PROMOTION_OUT:-$APP_DIR/output/runtime-promotion-gate.md}"
+
+  echo "[promote] Runtime promotion gate enabled."
+  if [ -n "$RUNTIME_PROMOTION_BASELINE_SUMMARY" ]; then
+    node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts \
+      --db "$RUNTIME_PROMOTION_DB" \
+      --baseline-summary "$RUNTIME_PROMOTION_BASELINE_SUMMARY" \
+      --goal "$RUNTIME_PROMOTION_GOAL" \
+      --out "$RUNTIME_PROMOTION_OUT"
+  elif [ -n "$RUNTIME_PROMOTION_BASELINE_DB" ]; then
+    node ./scripts/run-tsx.mjs scripts/runtime-promotion-gate.ts \
+      --db "$RUNTIME_PROMOTION_DB" \
+      --baseline-db "$RUNTIME_PROMOTION_BASELINE_DB" \
+      --goal "$RUNTIME_PROMOTION_GOAL" \
+      --out "$RUNTIME_PROMOTION_OUT"
+  else
+    echo "[promote] ERROR: HIVERUNNER_RUNTIME_PROMOTION_GATE=1 requires HIVERUNNER_RUNTIME_PROMOTION_BASELINE_DB or HIVERUNNER_RUNTIME_PROMOTION_BASELINE_SUMMARY." >&2
+    exit 1
+  fi
+  echo "[promote] Runtime promotion gate passed: $RUNTIME_PROMOTION_OUT"
+fi
+
 RELEASE_COMMIT="$(current_git_commit)"
 RELEASE_BRANCH="$(current_git_branch)"
 RELEASE_SHORT_COMMIT="$(current_git_short_commit)"

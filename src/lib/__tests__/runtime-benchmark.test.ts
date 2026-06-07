@@ -8,6 +8,9 @@ import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   buildRuntimeBenchmarkSummary,
   classifyRunFailure,
+  evaluateRuntimeBenchmarkPromotionGate,
+  formatRuntimeBenchmarkMarkdown,
+  type RuntimeBenchmarkSummary,
   usageTotalsFromJson,
 } from "@/lib/orchestration/runtime-benchmark";
 
@@ -47,6 +50,18 @@ function createFixtureDb(): Database.Database {
       usage_json TEXT NOT NULL DEFAULT '{}',
       created_at TEXT
     );
+    CREATE TABLE runtime_action_ledger (
+      id TEXT PRIMARY KEY,
+      task_id TEXT,
+      execution_run_id TEXT,
+      status TEXT NOT NULL
+    );
+    CREATE TABLE runtime_browser_proof_audit (
+      id TEXT PRIMARY KEY,
+      task_id TEXT,
+      status TEXT NOT NULL,
+      duration_ms INTEGER
+    );
   `);
 
   db.prepare("INSERT INTO sprints (id, parent_id, goal_key) VALUES ('goal', NULL, 'INS-G006')").run();
@@ -66,7 +81,88 @@ function createFixtureDb(): Database.Database {
     INSERT INTO overseer_turns (id, company_id, usage_json, created_at)
     VALUES ('turn-1', 'company-1', '{"inputTokens":50,"cacheReadInputTokens":40,"outputTokens":5,"totalTokens":55}', '2026-01-01T00:00:06.000Z')
   `).run();
+  db.prepare(`
+    INSERT INTO runtime_action_ledger (id, task_id, execution_run_id, status)
+    VALUES
+      ('action-1', 'task-1', 'run-2', 'executed'),
+      ('action-2', 'task-2', 'run-4', 'parse_failed')
+  `).run();
+  db.prepare(`
+    INSERT INTO runtime_browser_proof_audit (id, task_id, status, duration_ms)
+    VALUES
+      ('proof-1', 'task-1', 'succeeded', 9000),
+      ('proof-2', 'task-2', 'failed', 45000)
+  `).run();
   return db;
+}
+
+function promotionSummary(overrides: Partial<RuntimeBenchmarkSummary> = {}): RuntimeBenchmarkSummary {
+  return {
+    scope: {
+      goalKey: "INS-G006",
+      goalSprintId: "goal",
+      sprintIds: ["goal"],
+      taskIds: Array.from({ length: 10 }, (_, index) => `task-${index + 1}`),
+      companyIds: ["company-1"],
+      runStartedAt: "2026-01-01T00:00:00.000Z",
+      runEndedAt: "2026-01-01T00:10:00.000Z",
+      overseerScope: "company_all_turns",
+    },
+    taskCount: 10,
+    executionRunCount: 10,
+    completedRunCount: 10,
+    nonCompletedRunCount: 0,
+    tasksWithBreakdowns: 0,
+    tasksWithMultipleRuns: 0,
+    averageRunsPerTask: 1,
+    recordedDurationMs: 600_000,
+    executionUsage: {
+      inputTokens: 10_000,
+      cacheReadInputTokens: 5_000,
+      freshInputTokens: 5_000,
+      outputTokens: 2_000,
+      totalTokens: 12_000,
+      estimatedCostUsd: null,
+    },
+    overseerTurnCount: 0,
+    overseerUsage: {
+      inputTokens: 0,
+      cacheReadInputTokens: 0,
+      freshInputTokens: 0,
+      outputTokens: 0,
+      totalTokens: 0,
+      estimatedCostUsd: null,
+    },
+    combinedUsage: {
+      inputTokens: 10_000,
+      cacheReadInputTokens: 5_000,
+      freshInputTokens: 5_000,
+      outputTokens: 2_000,
+      totalTokens: 12_000,
+      estimatedCostUsd: null,
+    },
+    failureBuckets: {
+      deterministicPreflight: 0,
+      intentionalCancellation: 0,
+      runtimeQuality: 0,
+    },
+    repeatedFailures: [],
+    actionLedger: {
+      total: 10,
+      terminal: 10,
+      nonTerminalParsed: 0,
+      parseFailed: 0,
+      pendingApproval: 0,
+    },
+    browserProof: {
+      total: 1,
+      succeeded: 1,
+      failed: 0,
+      succeededUnder30s: 1,
+      maxDurationMs: 10_000,
+    },
+    ...overrides,
+  };
 }
 
 async function run() {
@@ -113,9 +209,57 @@ async function run() {
       assert.equal(summary.overseerTurnCount, 1);
       assert.equal(summary.overseerUsage.freshInputTokens, 10);
       assert.equal(summary.combinedUsage.freshInputTokens, 30);
+      assert.equal(summary.actionLedger.total, 2);
+      assert.equal(summary.actionLedger.nonTerminalParsed, 0);
+      assert.equal(summary.actionLedger.parseFailed, 1);
+      assert.equal(summary.browserProof.total, 2);
+      assert.equal(summary.browserProof.succeededUnder30s, 1);
     } finally {
       db.close();
     }
+  });
+
+  await test("promotion gate passes only with baseline, proof, terminal actions, and improved fresh input", () => {
+    const current = promotionSummary();
+    const baseline = promotionSummary({
+      averageRunsPerTask: 2,
+      executionRunCount: 20,
+      combinedUsage: {
+        inputTokens: 100_000,
+        cacheReadInputTokens: 0,
+        freshInputTokens: 100_000,
+        outputTokens: 10_000,
+        totalTokens: 110_000,
+        estimatedCostUsd: null,
+      },
+    });
+    assert.equal(evaluateRuntimeBenchmarkPromotionGate(current, baseline).ok, true);
+    assert.equal(
+      evaluateRuntimeBenchmarkPromotionGate(promotionSummary({
+        actionLedger: {
+          total: 10,
+          terminal: 9,
+          nonTerminalParsed: 1,
+          parseFailed: 0,
+          pendingApproval: 0,
+        },
+      }), baseline).ok,
+      false,
+    );
+    assert.equal(evaluateRuntimeBenchmarkPromotionGate(current, null).ok, false);
+  });
+
+  await test("benchmark markdown tolerates legacy summaries without action or proof metrics", () => {
+    const legacySummary = promotionSummary() as RuntimeBenchmarkSummary & {
+      actionLedger?: unknown;
+      browserProof?: unknown;
+    };
+    delete legacySummary.actionLedger;
+    delete legacySummary.browserProof;
+
+    const markdown = formatRuntimeBenchmarkMarkdown(legacySummary as RuntimeBenchmarkSummary);
+    assert.match(markdown, /Total action rows: 0/);
+    assert.match(markdown, /Total proof runs: 0/);
   });
 
   finish();

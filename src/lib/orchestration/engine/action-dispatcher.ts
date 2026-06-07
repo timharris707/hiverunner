@@ -511,9 +511,18 @@ export async function executeMcAction(
           : { kind: "failed", reason: "task_not_found" };
       }
       case "capture_browser_proof": {
+        const proofTask = getTaskRefForActionKey(db, action.taskKey);
         const proof = await captureBrowserProof({
           ...action,
           runId: input.runId,
+          executionRunId: input.executionRunId ?? null,
+          audit: {
+            db,
+            companyId: input.companyId,
+            agentId: input.agentId,
+            taskId: proofTask?.id ?? null,
+            taskKey: proofTask?.task_key ?? action.taskKey,
+          },
         });
         const result = executeRegisterArtifact(
           {

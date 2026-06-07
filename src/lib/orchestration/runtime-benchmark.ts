@@ -32,6 +32,22 @@ export type RuntimeRepeatedFailure = {
   count: number;
 };
 
+export type RuntimeActionLedgerMetrics = {
+  total: number;
+  terminal: number;
+  nonTerminalParsed: number;
+  parseFailed: number;
+  pendingApproval: number;
+};
+
+export type RuntimeBrowserProofMetrics = {
+  total: number;
+  succeeded: number;
+  failed: number;
+  succeededUnder30s: number;
+  maxDurationMs: number;
+};
+
 export type RuntimeBenchmarkSummary = {
   scope: RuntimeBenchmarkScope;
   taskCount: number;
@@ -48,6 +64,37 @@ export type RuntimeBenchmarkSummary = {
   combinedUsage: RuntimeUsageTotals;
   failureBuckets: RuntimeFailureBuckets;
   repeatedFailures: RuntimeRepeatedFailure[];
+  actionLedger: RuntimeActionLedgerMetrics;
+  browserProof: RuntimeBrowserProofMetrics;
+};
+
+export type RuntimePromotionGateCheck = {
+  name: string;
+  ok: boolean;
+  value: string | number;
+  threshold: string | number;
+  detail?: string;
+};
+
+export type RuntimePromotionGateResult = {
+  ok: boolean;
+  checks: RuntimePromotionGateCheck[];
+};
+
+const EMPTY_ACTION_LEDGER_METRICS: RuntimeActionLedgerMetrics = {
+  total: 0,
+  terminal: 0,
+  nonTerminalParsed: 0,
+  parseFailed: 0,
+  pendingApproval: 0,
+};
+
+const EMPTY_BROWSER_PROOF_METRICS: RuntimeBrowserProofMetrics = {
+  total: 0,
+  succeeded: 0,
+  failed: 0,
+  succeededUnder30s: 0,
+  maxDurationMs: 0,
 };
 
 type SprintRow = {
@@ -79,11 +126,16 @@ type OverseerTurnRow = {
   usage_json: string | null;
 };
 
-type JsonRecord = Record<string, unknown>;
+type RuntimeActionLedgerRow = {
+  status: string;
+};
 
-function asString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
-}
+type RuntimeBrowserProofAuditRow = {
+  status: string;
+  duration_ms: number | null;
+};
+
+type JsonRecord = Record<string, unknown>;
 
 function safeJson(value: string | null | undefined): JsonRecord {
   if (!value) return {};
@@ -160,6 +212,13 @@ function unique(values: Array<string | null | undefined>): string[] {
 
 function placeholders(count: number): string {
   return Array.from({ length: count }, () => "?").join(",");
+}
+
+function hasTable(db: Database.Database, tableName: string): boolean {
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+    .get(tableName) as { name: string } | undefined;
+  return row?.name === tableName;
 }
 
 function dateMax(values: Array<string | null>): string | null {
@@ -258,6 +317,7 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
   const runRows = taskIds.length > 0
     ? db.prepare(`SELECT * FROM execution_runs WHERE task_id IN (${placeholders(taskIds.length)})`).all(...taskIds) as RunRow[]
     : [];
+  const runIds = runRows.map((run) => run.id);
 
   const runStartedAt = dateMin(runRows.map((run) => run.started_at ?? run.created_at));
   const runEndedAt = dateMax(runRows.map((run) => run.completed_at ?? run.updated_at ?? run.created_at));
@@ -306,6 +366,22 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
 
   const executionUsage = usageTotalsFromJson(runRows.map((run) => ({ token_usage_json: run.token_usage_json })));
   const overseerUsage = usageTotalsFromJson(overseerTurns.map((turn) => ({ usage_json: turn.usage_json })));
+  const actionLedgerRows = taskIds.length > 0 && hasTable(db, "runtime_action_ledger")
+    ? db
+      .prepare(`SELECT status FROM runtime_action_ledger WHERE task_id IN (${placeholders(taskIds.length)})`)
+      .all(...taskIds) as RuntimeActionLedgerRow[]
+    : [];
+  const browserProofRows = taskIds.length > 0 && hasTable(db, "runtime_browser_proof_audit")
+    ? db
+      .prepare(`SELECT status, duration_ms FROM runtime_browser_proof_audit WHERE task_id IN (${placeholders(taskIds.length)})`)
+      .all(...taskIds) as RuntimeBrowserProofAuditRow[]
+    : [];
+  const executionLinkedActionRows = runIds.length > 0 && hasTable(db, "runtime_action_ledger")
+    ? db
+      .prepare(`SELECT status FROM runtime_action_ledger WHERE execution_run_id IN (${placeholders(runIds.length)}) AND task_id IS NULL`)
+      .all(...runIds) as RuntimeActionLedgerRow[]
+    : [];
+  actionLedgerRows.push(...executionLinkedActionRows);
 
   return {
     scope: {
@@ -344,10 +420,118 @@ export function buildRuntimeBenchmarkSummary(db: Database.Database, goalKey: str
     repeatedFailures: Array.from(repeatedFailureMap.values())
       .filter((entry) => entry.count > 1)
       .sort((a, b) => b.count - a.count || String(a.taskKey).localeCompare(String(b.taskKey))),
+    actionLedger: {
+      total: actionLedgerRows.length,
+      terminal: actionLedgerRows.filter((row) => row.status !== "parsed").length,
+      nonTerminalParsed: actionLedgerRows.filter((row) => row.status === "parsed").length,
+      parseFailed: actionLedgerRows.filter((row) => row.status === "parse_failed").length,
+      pendingApproval: actionLedgerRows.filter((row) => row.status === "pending_approval").length,
+    },
+    browserProof: {
+      total: browserProofRows.length,
+      succeeded: browserProofRows.filter((row) => row.status === "succeeded").length,
+      failed: browserProofRows.filter((row) => row.status === "failed").length,
+      succeededUnder30s: browserProofRows.filter((row) => row.status === "succeeded" && (row.duration_ms ?? Number.POSITIVE_INFINITY) <= 30_000).length,
+      maxDurationMs: browserProofRows.reduce((max, row) => Math.max(max, row.duration_ms ?? 0), 0),
+    },
+  };
+}
+
+function freshInputPerCompletedTask(summary: RuntimeBenchmarkSummary): number {
+  return summary.completedRunCount > 0 ? summary.combinedUsage.freshInputTokens / summary.completedRunCount : Number.POSITIVE_INFINITY;
+}
+
+function repeatedDeterministicEnvFailureCount(summary: RuntimeBenchmarkSummary): number {
+  return summary.repeatedFailures.filter((failure) => {
+    const signature = failure.failureSignature.toLowerCase();
+    return signature.includes("env: node: no such file")
+      || signature.includes("module_not_found")
+      || signature.includes("no such file or directory");
+  }).length;
+}
+
+export function evaluateRuntimeBenchmarkPromotionGate(
+  summary: RuntimeBenchmarkSummary,
+  baseline?: RuntimeBenchmarkSummary | null,
+): RuntimePromotionGateResult {
+  const runtimeQualityRate = summary.executionRunCount > 0
+    ? summary.failureBuckets.runtimeQuality / summary.executionRunCount
+    : 0;
+  const checks: RuntimePromotionGateCheck[] = [
+    {
+      name: "total runs below 15",
+      ok: summary.executionRunCount < 15,
+      value: summary.executionRunCount,
+      threshold: "< 15",
+    },
+    {
+      name: "average runs per task below 1.5",
+      ok: summary.averageRunsPerTask < 1.5,
+      value: Number(summary.averageRunsPerTask.toFixed(2)),
+      threshold: "< 1.5",
+    },
+    {
+      name: "runtime-quality failures below 5%",
+      ok: runtimeQualityRate < 0.05,
+      value: `${(runtimeQualityRate * 100).toFixed(1)}%`,
+      threshold: "< 5.0%",
+    },
+    {
+      name: "no repeated deterministic env failures",
+      ok: repeatedDeterministicEnvFailureCount(summary) === 0,
+      value: repeatedDeterministicEnvFailureCount(summary),
+      threshold: "0",
+    },
+    {
+      name: "no non-terminal parsed actions",
+      ok: summary.actionLedger.nonTerminalParsed === 0,
+      value: summary.actionLedger.nonTerminalParsed,
+      threshold: "0",
+    },
+    {
+      name: "browser proof succeeded under 30s",
+      ok: summary.browserProof.succeededUnder30s > 0,
+      value: summary.browserProof.succeededUnder30s,
+      threshold: ">= 1",
+      detail: `${summary.browserProof.succeeded}/${summary.browserProof.total} proof runs succeeded`,
+    },
+  ];
+
+  if (baseline) {
+    const currentFresh = freshInputPerCompletedTask(summary);
+    const baselineFresh = freshInputPerCompletedTask(baseline);
+    checks.push({
+      name: "fresh input per completed task reduced by at least 50%",
+      ok: Number.isFinite(currentFresh) && Number.isFinite(baselineFresh) && currentFresh <= baselineFresh * 0.5,
+      value: Math.round(currentFresh),
+      threshold: `<= ${Math.round(baselineFresh * 0.5)}`,
+      detail: `baseline ${Math.round(baselineFresh)} fresh tokens/completed task`,
+    });
+    checks.push({
+      name: "average runs per task does not regress",
+      ok: summary.averageRunsPerTask <= baseline.averageRunsPerTask,
+      value: Number(summary.averageRunsPerTask.toFixed(2)),
+      threshold: `<= ${baseline.averageRunsPerTask.toFixed(2)}`,
+    });
+  } else {
+    checks.push({
+      name: "controlled baseline provided",
+      ok: false,
+      value: "missing",
+      threshold: "required",
+      detail: "Promotion requires a controlled old-on-fixture baseline summary.",
+    });
+  }
+
+  return {
+    ok: checks.every((check) => check.ok),
+    checks,
   };
 }
 
 export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary): string {
+  const actionLedger = summary.actionLedger ?? EMPTY_ACTION_LEDGER_METRICS;
+  const browserProof = summary.browserProof ?? EMPTY_BROWSER_PROOF_METRICS;
   const pct = (value: number, denominator: number) => denominator > 0 ? `${((value / denominator) * 100).toFixed(1)}%` : "0.0%";
   const hours = (ms: number) => (ms / 3_600_000).toFixed(2);
   const tokens = (value: number) => Math.round(value).toLocaleString("en-US");
@@ -386,6 +570,22 @@ export function formatRuntimeBenchmarkMarkdown(summary: RuntimeBenchmarkSummary)
     `| execution_runs | ${tokens(summary.executionUsage.inputTokens)} | ${tokens(summary.executionUsage.cacheReadInputTokens)} | ${tokens(summary.executionUsage.freshInputTokens)} | ${tokens(summary.executionUsage.outputTokens)} | ${tokens(summary.executionUsage.totalTokens)} |`,
     `| overseer_turns (${summary.overseerTurnCount}) | ${tokens(summary.overseerUsage.inputTokens)} | ${tokens(summary.overseerUsage.cacheReadInputTokens)} | ${tokens(summary.overseerUsage.freshInputTokens)} | ${tokens(summary.overseerUsage.outputTokens)} | ${tokens(summary.overseerUsage.totalTokens)} |`,
     `| combined | ${tokens(summary.combinedUsage.inputTokens)} | ${tokens(summary.combinedUsage.cacheReadInputTokens)} | ${tokens(summary.combinedUsage.freshInputTokens)} | ${tokens(summary.combinedUsage.outputTokens)} | ${tokens(summary.combinedUsage.totalTokens)} |`,
+    "",
+    "## Action Ledger",
+    "",
+    `- Total action rows: ${actionLedger.total}`,
+    `- Terminal action rows: ${actionLedger.terminal}`,
+    `- Non-terminal parsed actions: ${actionLedger.nonTerminalParsed}`,
+    `- Parse failed actions: ${actionLedger.parseFailed}`,
+    `- Pending approvals: ${actionLedger.pendingApproval}`,
+    "",
+    "## Browser Proof",
+    "",
+    `- Total proof runs: ${browserProof.total}`,
+    `- Succeeded: ${browserProof.succeeded}`,
+    `- Failed: ${browserProof.failed}`,
+    `- Succeeded under 30s: ${browserProof.succeededUnder30s}`,
+    `- Max duration: ${browserProof.maxDurationMs}ms`,
     "",
     "## Repeated Failures",
     "",

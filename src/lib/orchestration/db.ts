@@ -4389,6 +4389,48 @@ const MIGRATIONS: Migration[] = [
         WHERE company_id IS NOT NULL;
     `,
   },
+  {
+    version: 124,
+    name: "runtime_browser_proof_audit",
+    sql: `
+      CREATE TABLE IF NOT EXISTS runtime_browser_proof_audit (
+        id                    TEXT PRIMARY KEY,
+        company_id            TEXT REFERENCES companies(id) ON DELETE SET NULL,
+        agent_id              TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        task_id               TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        task_key              TEXT,
+        heartbeat_run_id      TEXT REFERENCES heartbeat_runs(id) ON DELETE SET NULL,
+        execution_run_id      TEXT REFERENCES execution_runs(id) ON DELETE CASCADE,
+        status                TEXT NOT NULL CHECK (status IN ('succeeded','failed')),
+        exit_code             INTEGER NOT NULL,
+        duration_ms           INTEGER NOT NULL DEFAULT 0 CHECK (duration_ms >= 0),
+        base_url              TEXT NOT NULL,
+        project               TEXT NOT NULL,
+        command               TEXT NOT NULL,
+        artifact_dir          TEXT NOT NULL,
+        manifest_path         TEXT NOT NULL,
+        manifest_sha256       TEXT NOT NULL,
+        artifact_count        INTEGER NOT NULL DEFAULT 0 CHECK (artifact_count >= 0),
+        screenshot_count      INTEGER NOT NULL DEFAULT 0 CHECK (screenshot_count >= 0),
+        video_count           INTEGER NOT NULL DEFAULT 0 CHECK (video_count >= 0),
+        specs_json            TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(specs_json)),
+        urls_json             TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(urls_json)),
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_browser_proof_audit_task
+        ON runtime_browser_proof_audit(task_id, created_at DESC)
+        WHERE task_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_browser_proof_audit_execution
+        ON runtime_browser_proof_audit(execution_run_id, created_at DESC)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_browser_proof_audit_company
+        ON runtime_browser_proof_audit(company_id, created_at DESC)
+        WHERE company_id IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

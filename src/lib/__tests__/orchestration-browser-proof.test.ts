@@ -3,8 +3,9 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 
-import { captureBrowserProof } from "@/lib/orchestration/browser-proof";
+import { buildBrowserProofChildEnv, captureBrowserProof } from "@/lib/orchestration/browser-proof";
 import { parseActionsFromText } from "@/lib/orchestration/engine/action-dispatcher";
 
 let passed = 0;
@@ -30,13 +31,70 @@ console.log("\nOrchestration Browser Proof Tests\n");
 async function run() {
   const tempRoot = mkdtempSync(path.join(os.tmpdir(), "hiverunner-browser-proof-"));
   try {
+    await test("browser proof child env keeps provider secrets out", () => {
+      const originalOpenAi = process.env.OPENAI_API_KEY;
+      const originalAnthropic = process.env.ANTHROPIC_API_KEY;
+      process.env.OPENAI_API_KEY = "secret-openai";
+      process.env.ANTHROPIC_API_KEY = "secret-anthropic";
+      try {
+        const env = buildBrowserProofChildEnv({
+          baseUrl: "http://localhost:3010",
+          artifactDir: path.join(tempRoot, "proof"),
+        });
+        assert.equal(env.BASE_URL, "http://localhost:3010");
+        assert.equal(env.OPENAI_API_KEY, undefined);
+        assert.equal(env.ANTHROPIC_API_KEY, undefined);
+        assert.equal(env.HIVERUNNER_BROWSER_PROOF_ARTIFACT_DIR, path.join(tempRoot, "proof"));
+      } finally {
+        if (originalOpenAi === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = originalOpenAi;
+        if (originalAnthropic === undefined) delete process.env.ANTHROPIC_API_KEY;
+        else process.env.ANTHROPIC_API_KEY = originalAnthropic;
+      }
+    });
+
     await test("captureBrowserProof writes a manifest, hashes artifacts, and builds an operator comment", async () => {
+      const db = new Database(path.join(tempRoot, "browser-proof-audit.db"));
+      db.exec(`
+        CREATE TABLE runtime_browser_proof_audit (
+          id TEXT PRIMARY KEY,
+          company_id TEXT,
+          agent_id TEXT,
+          task_id TEXT,
+          task_key TEXT,
+          heartbeat_run_id TEXT,
+          execution_run_id TEXT,
+          status TEXT NOT NULL,
+          exit_code INTEGER NOT NULL,
+          duration_ms INTEGER NOT NULL,
+          base_url TEXT NOT NULL,
+          project TEXT NOT NULL,
+          command TEXT NOT NULL,
+          artifact_dir TEXT NOT NULL,
+          manifest_path TEXT NOT NULL,
+          manifest_sha256 TEXT NOT NULL,
+          artifact_count INTEGER NOT NULL,
+          screenshot_count INTEGER NOT NULL,
+          video_count INTEGER NOT NULL,
+          specs_json TEXT NOT NULL,
+          urls_json TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `);
       const result = await captureBrowserProof({
         taskKey: "INS-999",
         runId: "run-proof",
+        executionRunId: "execution-proof",
         baseUrl: "http://localhost:3010",
         urls: [{ path: "/INS/improve", label: "Improve queue" }],
         artifactRoot: tempRoot,
+        audit: {
+          db,
+          companyId: "company-proof",
+          agentId: "agent-proof",
+          taskId: "task-proof",
+          taskKey: "INS-999",
+        },
         runner: async ({ artifactDir, specs }) => {
           assert.equal(specs.length, 1);
           assert.ok(existsSync(specs[0]!), "generated URL proof spec should exist");
@@ -61,6 +119,27 @@ async function run() {
       assert.equal(manifest.schema, "hiverunner.browser_proof_manifest.v1");
       assert.equal(manifest.taskKey, "INS-999");
       assert.equal(manifest.ok, true);
+      const audit = db
+        .prepare("SELECT status, task_id, task_key, heartbeat_run_id, execution_run_id, screenshot_count, video_count FROM runtime_browser_proof_audit")
+        .get() as
+        | {
+            status: string;
+            task_id: string | null;
+            task_key: string | null;
+            heartbeat_run_id: string | null;
+            execution_run_id: string | null;
+            screenshot_count: number;
+            video_count: number;
+          }
+        | undefined;
+      assert.equal(audit?.status, "succeeded");
+      assert.equal(audit?.task_id, "task-proof");
+      assert.equal(audit?.task_key, "INS-999");
+      assert.equal(audit?.heartbeat_run_id, "run-proof");
+      assert.equal(audit?.execution_run_id, "execution-proof");
+      assert.equal(audit?.screenshot_count, 1);
+      assert.equal(audit?.video_count, 1);
+      db.close();
     });
 
     await test("capture_browser_proof mc-action parses as a first-class action", () => {
