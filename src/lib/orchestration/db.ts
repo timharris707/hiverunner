@@ -4183,6 +4183,82 @@ const MIGRATIONS: Migration[] = [
           AND cleared_at IS NULL;
     `,
   },
+  {
+    version: 121,
+    name: "execution_runs_attempt_retry_cancellation_metadata",
+    sql: `
+      ALTER TABLE execution_runs
+        ADD COLUMN attempt_number INTEGER
+          CHECK (attempt_number IS NULL OR attempt_number >= 1);
+
+      ALTER TABLE execution_runs
+        ADD COLUMN resume_of_execution_run_id TEXT REFERENCES execution_runs(id) ON DELETE SET NULL;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN retry_policy TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN retry_allowed INTEGER
+          CHECK (retry_allowed IS NULL OR retry_allowed IN (0,1));
+
+      ALTER TABLE execution_runs
+        ADD COLUMN retry_decision_reason TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN preflight_result_id TEXT REFERENCES runtime_preflight_results(id) ON DELETE SET NULL;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN terminalized_by TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN failure_reason TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN cancellation_actor TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN cancellation_reason TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN cancellation_result_json TEXT;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN process_group_id INTEGER;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN child_exit_code INTEGER;
+
+      ALTER TABLE execution_runs
+        ADD COLUMN child_signal TEXT;
+
+      CREATE INDEX IF NOT EXISTS idx_execution_runs_attempt_lineage
+        ON execution_runs(task_id, agent_id, provider, attempt_number)
+        WHERE attempt_number IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_execution_runs_resume_of
+        ON execution_runs(resume_of_execution_run_id)
+        WHERE resume_of_execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_execution_runs_terminalized_by
+        ON execution_runs(terminalized_by, updated_at DESC)
+        WHERE terminalized_by IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS execution_run_attempt_events (
+        id                    TEXT PRIMARY KEY,
+        execution_run_id      TEXT NOT NULL REFERENCES execution_runs(id) ON DELETE CASCADE,
+        attempt_number        INTEGER CHECK (attempt_number IS NULL OR attempt_number >= 1),
+        event_type            TEXT NOT NULL,
+        metadata_json         TEXT NOT NULL DEFAULT '{}',
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_execution_run_attempt_events_run
+        ON execution_run_attempt_events(execution_run_id, created_at ASC);
+
+      CREATE INDEX IF NOT EXISTS idx_execution_run_attempt_events_type
+        ON execution_run_attempt_events(event_type, created_at DESC);
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;
@@ -4544,6 +4620,137 @@ function hasTable(db: Database.Database, tableName: string): boolean {
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
     .get(tableName) as { name: string } | undefined;
   return row?.name === tableName;
+}
+
+export type ExecutionRunAttemptLineageInput = {
+  taskId?: string | null;
+  agentId?: string | null;
+  provider?: string | null;
+  idempotencyKey?: string | null;
+  resumeOfExecutionRunId?: string | null;
+};
+
+type ExecutionRunAttemptLineageRow = {
+  attempt_number: number | null;
+  task_id: string | null;
+  agent_id: string | null;
+  provider: string | null;
+  idempotency_key: string | null;
+  retry_policy: string | null;
+};
+
+function normalizeAttemptLineageText(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function retryPolicyIdempotencyKey(policyJson: string | null | undefined): string | null {
+  if (!policyJson) return null;
+  try {
+    const parsed = JSON.parse(policyJson) as { idempotencyKey?: unknown };
+    return typeof parsed.idempotencyKey === "string" && parsed.idempotencyKey.trim()
+      ? parsed.idempotencyKey.trim()
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function nullableLineageClause(column: string, value: string | null, params: unknown[]): string {
+  if (value === null) {
+    return `${column} IS NULL`;
+  }
+  params.push(value);
+  return `${column} = ?`;
+}
+
+function maxExecutionRunAttemptNumber(db: Database.Database, input: ExecutionRunAttemptLineageInput): number {
+  const params: unknown[] = [];
+  const taskId = normalizeAttemptLineageText(input.taskId);
+  const agentId = normalizeAttemptLineageText(input.agentId);
+  const provider = normalizeAttemptLineageText(input.provider);
+  const idempotencyKey = normalizeAttemptLineageText(input.idempotencyKey);
+  const clauses = [
+    nullableLineageClause("task_id", taskId, params),
+    nullableLineageClause("agent_id", agentId, params),
+    nullableLineageClause("provider", provider, params),
+  ];
+
+  if (idempotencyKey) {
+    clauses.push(
+      `(idempotency_key = ? OR (json_valid(retry_policy) AND json_extract(retry_policy, '$.idempotencyKey') = ?))`,
+    );
+    params.push(idempotencyKey, idempotencyKey);
+  } else {
+    clauses.push("idempotency_key IS NULL");
+  }
+
+  const row = db
+    .prepare(
+      `SELECT MAX(attempt_number) AS attempt_number
+       FROM execution_runs
+       WHERE ${clauses.join(" AND ")}`,
+    )
+    .get(...params) as { attempt_number: number | null } | undefined;
+  return typeof row?.attempt_number === "number" ? row.attempt_number : 0;
+}
+
+export function nextExecutionRunAttemptNumber(
+  db: Database.Database,
+  input: ExecutionRunAttemptLineageInput,
+): number {
+  const resumeOfExecutionRunId = normalizeAttemptLineageText(input.resumeOfExecutionRunId);
+  if (resumeOfExecutionRunId) {
+    const prior = db
+      .prepare(
+        `SELECT attempt_number, task_id, agent_id, provider, idempotency_key, retry_policy
+         FROM execution_runs
+         WHERE id = ?
+         LIMIT 1`,
+      )
+      .get(resumeOfExecutionRunId) as ExecutionRunAttemptLineageRow | undefined;
+    if (prior?.attempt_number && prior.attempt_number >= 1) {
+      return prior.attempt_number + 1;
+    }
+    if (prior) {
+      return maxExecutionRunAttemptNumber(db, {
+        taskId: prior.task_id ?? input.taskId ?? null,
+        agentId: prior.agent_id ?? input.agentId ?? null,
+        provider: prior.provider ?? input.provider ?? null,
+        idempotencyKey:
+          input.idempotencyKey ??
+          prior.idempotency_key ??
+          retryPolicyIdempotencyKey(prior.retry_policy),
+      }) + 1;
+    }
+  }
+
+  return maxExecutionRunAttemptNumber(db, input) + 1;
+}
+
+export function recordExecutionRunAttemptEvent(
+  db: Database.Database,
+  input: {
+    executionRunId: string;
+    attemptNumber?: number | null;
+    eventType: string;
+    metadata?: Record<string, unknown>;
+    createdAt?: string;
+  },
+): void {
+  if (!hasTable(db, "execution_run_attempt_events")) return;
+  db.prepare(
+    `INSERT INTO execution_run_attempt_events
+       (id, execution_run_id, attempt_number, event_type, metadata_json, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(
+    randomUUID(),
+    input.executionRunId,
+    input.attemptNumber ?? null,
+    input.eventType,
+    JSON.stringify(input.metadata ?? {}),
+    input.createdAt ?? new Date().toISOString(),
+  );
 }
 
 function builtInStarterSprintTemplateVersionsAreCurrent(db: Database.Database): boolean {

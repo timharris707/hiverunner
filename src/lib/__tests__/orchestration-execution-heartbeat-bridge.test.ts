@@ -187,7 +187,8 @@ async function run() {
 
       const executionRun = db
         .prepare(
-          `SELECT provider, status, session_id, completed_at, error_message
+          `SELECT provider, status, session_id, completed_at, error_message,
+                  attempt_number, retry_allowed, retry_decision_reason, terminalized_by
            FROM execution_runs
            WHERE task_id = ?
            ORDER BY created_at DESC
@@ -200,6 +201,10 @@ async function run() {
             session_id: string | null;
             completed_at: string | null;
             error_message: string | null;
+            attempt_number: number | null;
+            retry_allowed: number | null;
+            retry_decision_reason: string | null;
+            terminalized_by: string | null;
           }
         | undefined;
 
@@ -208,6 +213,15 @@ async function run() {
       assert.strictEqual(executionRun?.status, "completed");
       assert.ok(executionRun?.completed_at, "expected execution_run completion timestamp");
       assert.strictEqual(executionRun?.error_message, null);
+      assert.strictEqual(executionRun?.attempt_number, 1);
+      assert.strictEqual(executionRun?.retry_allowed, 0);
+      assert.strictEqual(executionRun?.retry_decision_reason, "completed");
+      assert.strictEqual(executionRun?.terminalized_by, "adapter");
+
+      const attemptEvents = db
+        .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = (SELECT id FROM execution_runs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1) ORDER BY created_at ASC")
+        .all(task.id) as Array<{ event_type: string }>;
+      assert.deepStrictEqual(attemptEvents.map((event) => event.event_type), ["created", "completed"]);
 
       const updatedTask = getTask(task.id).task;
       assert.strictEqual(updatedTask.executionMode, "openclaw");

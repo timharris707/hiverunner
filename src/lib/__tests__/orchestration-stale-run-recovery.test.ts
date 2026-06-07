@@ -235,11 +235,35 @@ async function run() {
       assert.match(heartbeatRow?.error ?? "", /Timed out/);
 
       const execRow = db.prepare(
-        `SELECT status, error_message, completed_at FROM execution_runs WHERE id = ? LIMIT 1`
-      ).get(executionRunId) as { status: string; error_message: string | null; completed_at: string | null } | undefined;
+        `SELECT status, error_message, completed_at, terminalized_by, retry_allowed,
+                retry_decision_reason, cancellation_actor
+         FROM execution_runs WHERE id = ? LIMIT 1`
+      ).get(executionRunId) as
+        | {
+            status: string;
+            error_message: string | null;
+            completed_at: string | null;
+            terminalized_by: string | null;
+            retry_allowed: number | null;
+            retry_decision_reason: string | null;
+            cancellation_actor: string | null;
+          }
+        | undefined;
       assert.strictEqual(execRow?.status, "failed");
       assert.match(execRow?.error_message ?? "", /Timed out/);
       assert.ok(execRow?.completed_at);
+      assert.strictEqual(execRow?.terminalized_by, "watchdog");
+      assert.strictEqual(execRow?.retry_allowed, 1);
+      assert.strictEqual(execRow?.retry_decision_reason, "stale_run_recovery_evaluated");
+      assert.strictEqual(execRow?.cancellation_actor, "watchdog");
+
+      const eventRow = db.prepare(
+        `SELECT event_type FROM execution_run_attempt_events
+         WHERE execution_run_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`
+      ).get(executionRunId) as { event_type: string } | undefined;
+      assert.strictEqual(eventRow?.event_type, "watchdog_timeout");
 
       const taskRow = db.prepare(
         `SELECT execution_session_id FROM tasks WHERE id = ? LIMIT 1`
@@ -334,14 +358,29 @@ async function run() {
       assert.strictEqual(oldWake?.idempotency_key, null);
 
       const oldExecution = db.prepare(
-        `SELECT status, failure_class, idempotency_key
+        `SELECT status, failure_class, idempotency_key, terminalized_by, retry_allowed,
+                retry_decision_reason, cancellation_actor
          FROM execution_runs
          WHERE id = ?
          LIMIT 1`
-      ).get(executionRunId) as { status: string; failure_class: string | null; idempotency_key: string | null } | undefined;
+      ).get(executionRunId) as
+        | {
+            status: string;
+            failure_class: string | null;
+            idempotency_key: string | null;
+            terminalized_by: string | null;
+            retry_allowed: number | null;
+            retry_decision_reason: string | null;
+            cancellation_actor: string | null;
+          }
+        | undefined;
       assert.strictEqual(oldExecution?.status, "failed");
       assert.strictEqual(oldExecution?.failure_class, "timeout");
       assert.strictEqual(oldExecution?.idempotency_key, null);
+      assert.strictEqual(oldExecution?.terminalized_by, "watchdog");
+      assert.strictEqual(oldExecution?.retry_allowed, 1);
+      assert.strictEqual(oldExecution?.retry_decision_reason, "stale_run_recovery_evaluated");
+      assert.strictEqual(oldExecution?.cancellation_actor, "watchdog");
 
       const replacement = db.prepare(
         `SELECT awr.id, awr.status, awr.reason, awr.idempotency_key, awr.run_id, awr.payload_json,

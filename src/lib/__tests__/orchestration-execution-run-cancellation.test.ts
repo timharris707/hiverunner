@@ -93,12 +93,42 @@ async function run() {
       });
 
       const row = getOrchestrationDb()
-        .prepare("SELECT status, error_message, completed_at, process_pid FROM execution_runs WHERE id = ?")
-        .get(runId) as { status: string; error_message: string; completed_at: string | null; process_pid: number | null };
+        .prepare(
+          `SELECT status, error_message, completed_at, process_pid, terminalized_by,
+                  retry_allowed, retry_decision_reason, cancellation_actor,
+                  cancellation_reason, cancellation_result_json, idempotency_key
+           FROM execution_runs
+           WHERE id = ?`
+        )
+        .get(runId) as {
+          status: string;
+          error_message: string;
+          completed_at: string | null;
+          process_pid: number | null;
+          terminalized_by: string | null;
+          retry_allowed: number | null;
+          retry_decision_reason: string | null;
+          cancellation_actor: string | null;
+          cancellation_reason: string | null;
+          cancellation_result_json: string | null;
+          idempotency_key: string | null;
+        };
       assert.equal(row.status, "cancelled");
       assert.match(row.error_message, new RegExp(`task transitioned to ${status}`));
       assert.ok(row.completed_at);
       assert.equal(row.process_pid, null);
+      assert.equal(row.terminalized_by, "task_status_transition");
+      assert.equal(row.retry_allowed, 0);
+      assert.equal(row.retry_decision_reason, "task_status_transition");
+      assert.equal(row.cancellation_actor, "task_status_transition");
+      assert.match(row.cancellation_reason ?? "", new RegExp(`task transitioned to ${status}`));
+      assert.equal(row.idempotency_key, null);
+      assert.match(row.cancellation_result_json ?? "", /task_status_transition/);
+
+      const eventRow = getOrchestrationDb()
+        .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = ? ORDER BY created_at DESC LIMIT 1")
+        .get(runId) as { event_type: string } | undefined;
+      assert.equal(eventRow?.event_type, "cancelled");
       assert.deepEqual(terminated, [runId]);
     });
   }

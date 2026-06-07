@@ -2,7 +2,11 @@ import { randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
-import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  getOrchestrationDb,
+  nextExecutionRunAttemptNumber,
+  recordExecutionRunAttemptEvent,
+} from "@/lib/orchestration/db";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import type { ExecutionLiveEventInput } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
@@ -220,6 +224,24 @@ function finishRuntimePreflightFailure(input: {
     `${input.preflight.message} Circuit ${input.preflight.circuitId}.`,
     input.db,
   );
+  if (input.executionRunId) {
+    input.db.prepare(
+      `UPDATE execution_runs
+       SET preflight_result_id = COALESCE(preflight_result_id, ?),
+           terminalized_by = COALESCE(terminalized_by, 'preflight'),
+           failure_reason = COALESCE(failure_reason, ?),
+           retry_allowed = 0,
+           retry_decision_reason = ?,
+           updated_at = ?
+       WHERE id = ?`,
+    ).run(
+      input.preflight.circuitId,
+      input.preflight.message,
+      input.preflight.failureCode,
+      idleAt,
+      input.executionRunId,
+    );
+  }
   return finishRun(
     input.runId,
     input.run,
@@ -229,6 +251,13 @@ function finishRuntimePreflightFailure(input: {
     input.db,
     undefined,
     input.executionRunId,
+    {
+      terminalizedBy: "preflight",
+      failureReason: input.preflight.message,
+      retryAllowed: false,
+      retryDecisionReason: input.preflight.failureCode,
+      preflightResultId: input.preflight.circuitId,
+    },
   );
 }
 
@@ -323,6 +352,67 @@ function staleTaskWakeReason(input: {
   }
 
   return null;
+}
+
+function firstString(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const candidate = firstString(item);
+      if (candidate) return candidate;
+    }
+  }
+  return null;
+}
+
+function recordFromUnknown(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function resumeOfExecutionRunIdFromContext(contextSnapshot: Record<string, unknown>): string | null {
+  const explicit =
+    stringFromRecord(contextSnapshot.resumeOfExecutionRunId) ??
+    stringFromRecord(contextSnapshot.continuedFromExecutionRunId);
+  if (explicit) return explicit;
+
+  const staleRecovery = recordFromUnknown(contextSnapshot.staleRecovery);
+  return firstString(staleRecovery?.previousExecutionRunIds);
+}
+
+function integerFromRecord(value: unknown): number | null {
+  const numeric = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+  return Number.isInteger(numeric) ? numeric : null;
+}
+
+function processGroupIdFromUsage(usage: Record<string, unknown>): number | null {
+  return integerFromRecord(usage.processGroupId ?? usage.process_group_id ?? usage.pgid);
+}
+
+function childExitCodeFromUsage(usage: Record<string, unknown>): number | null {
+  return integerFromRecord(usage.childExitCode ?? usage.child_exit_code ?? usage.exitCode);
+}
+
+function childSignalFromUsage(usage: Record<string, unknown>): string | null {
+  return stringFromRecord(usage.childSignal ?? usage.child_signal ?? usage.signal);
+}
+
+function retryPolicyJson(input: {
+  source: string;
+  idempotencyKey?: string | null;
+  retryAllowed?: boolean;
+  reason?: string | null;
+  resumeOfExecutionRunId?: string | null;
+}): string {
+  return JSON.stringify({
+    schema: "hiverunner.execution_run.retry_policy.v1",
+    source: input.source,
+    idempotencyKey: input.idempotencyKey ?? null,
+    retryAllowed: input.retryAllowed ?? null,
+    reason: input.reason ?? null,
+    resumeOfExecutionRunId: input.resumeOfExecutionRunId ?? null,
+  });
 }
 
 export function approvalPromptLabel(type: string, payload: Record<string, unknown>, id: string): string {
@@ -677,7 +767,7 @@ export async function executeHeartbeatRun(
   const precreatedExecutionRun = precreatedExecutionRunId
     ? db
         .prepare(
-          `SELECT provider, execution_engine, runner_provider, runner_model
+          `SELECT provider, execution_engine, runner_provider, runner_model, idempotency_key, attempt_number
            FROM execution_runs
            WHERE id = ?
            LIMIT 1`,
@@ -688,6 +778,8 @@ export async function executeHeartbeatRun(
               execution_engine: TaskExecutionEngine | null;
               runner_provider: string | null;
               runner_model: string | null;
+              idempotency_key: string | null;
+              attempt_number: number | null;
             }
           | undefined
     : undefined;
@@ -723,6 +815,12 @@ export async function executeHeartbeatRun(
       db,
       undefined,
       precreatedExecutionRunId,
+      {
+        terminalizedBy: "watchdog",
+        failureReason: staleWakeReason,
+        retryAllowed: false,
+        retryDecisionReason: "stale_wake_skipped",
+      },
     );
   }
 
@@ -869,6 +967,14 @@ export async function executeHeartbeatRun(
       ? contextSnapshot.runnerProvider.trim()
       : executionRunProvider);
   if (taskKey !== "__heartbeat__" && executionRunProvider) {
+    const resumeOfExecutionRunId = resumeOfExecutionRunIdFromContext(contextSnapshot);
+    const baseRetryPolicy = retryPolicyJson({
+      source: precreatedExecutionRunId ? "trigger_task_execution" : "heartbeat_execution_bridge",
+      idempotencyKey: precreatedExecutionRun?.idempotency_key ?? null,
+      retryAllowed: true,
+      reason: "initial_attempt",
+      resumeOfExecutionRunId,
+    });
     const preflight = admitHeartbeatRuntimePreflight(db, {
       agentId: agent.id,
       companyId: agent.company_id,
@@ -881,6 +987,19 @@ export async function executeHeartbeatRun(
       runnerModel: primaryRouteAttempt?.target.model ?? null,
     });
     if (preflight.status !== "allowed") {
+      if (precreatedExecutionRunId) {
+        recordExecutionRunAttemptEvent(db, {
+          executionRunId: precreatedExecutionRunId,
+          eventType: "preflight_blocked",
+          metadata: {
+            heartbeatRunId: runId,
+            provider: executionRunProvider,
+            failureCode: preflight.failureCode,
+            circuitId: preflight.circuitId,
+            message: preflight.message,
+          },
+        });
+      }
       return finishRuntimePreflightFailure({
         preflight,
         runId,
@@ -895,19 +1014,34 @@ export async function executeHeartbeatRun(
 
     const existingExecRun = db
       .prepare(
-        `SELECT id FROM execution_runs
+        `SELECT id, attempt_number, idempotency_key, resume_of_execution_run_id
+         FROM execution_runs
          WHERE task_id = ? AND provider = ? AND status IN ('pending', 'running')
          ORDER BY created_at DESC LIMIT 1`
       )
-      .get(taskKey, executionRunProvider) as { id: string } | undefined;
+      .get(taskKey, executionRunProvider) as
+        | {
+            id: string;
+            attempt_number: number | null;
+            idempotency_key: string | null;
+            resume_of_execution_run_id: string | null;
+          }
+        | undefined;
 
     if (!existingExecRun) {
       executionRunId = randomUUID();
       const execNow = new Date().toISOString();
+      const attemptNumber = nextExecutionRunAttemptNumber(db, {
+        taskId: taskKey,
+        agentId: agent.id,
+        provider: executionRunProvider,
+        idempotencyKey: precreatedExecutionRun?.idempotency_key ?? null,
+        resumeOfExecutionRunId,
+      });
       db.prepare(
         `INSERT INTO execution_runs
-           (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model, model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json, status, started_at, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?)`
+           (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model, model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json, status, started_at, created_at, updated_at, attempt_number, resume_of_execution_run_id, retry_policy, retry_allowed, retry_decision_reason)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'running', ?, ?, ?, ?, ?, ?, 1, ?)`
       ).run(
         executionRunId,
         taskKey,
@@ -924,7 +1058,25 @@ export async function executeHeartbeatRun(
         execNow,
         execNow,
         execNow,
+        attemptNumber,
+        resumeOfExecutionRunId,
+        baseRetryPolicy,
+        "initial_attempt",
       );
+      recordExecutionRunAttemptEvent(db, {
+        executionRunId,
+        attemptNumber,
+        eventType: "created",
+        metadata: {
+          heartbeatRunId: runId,
+          provider: executionRunProvider,
+          executionEngine: contextExecutionEngine,
+          runnerProvider: primaryRouteAttempt?.target.runtimeProvider ?? contextRunnerProvider,
+          runnerModel: primaryRouteAttempt?.target.model ?? null,
+          resumeOfExecutionRunId,
+        },
+        createdAt: execNow,
+      });
       recordCompanyAuditEvent({
         companyId: agent.company_id,
         agentId: agent.id,
@@ -941,6 +1093,24 @@ export async function executeHeartbeatRun(
     } else {
       executionRunId = existingExecRun.id;
       const execNow = new Date().toISOString();
+      const existingAttemptNumber =
+        typeof existingExecRun.attempt_number === "number" && existingExecRun.attempt_number >= 1
+          ? existingExecRun.attempt_number
+          : nextExecutionRunAttemptNumber(db, {
+              taskId: taskKey,
+              agentId: agent.id,
+              provider: executionRunProvider,
+              idempotencyKey: existingExecRun.idempotency_key ?? precreatedExecutionRun?.idempotency_key ?? null,
+              resumeOfExecutionRunId,
+            });
+      const existingResumeOfExecutionRunId = existingExecRun.resume_of_execution_run_id ?? resumeOfExecutionRunId;
+      const existingRetryPolicy = retryPolicyJson({
+        source: precreatedExecutionRunId ? "trigger_task_execution" : "heartbeat_execution_bridge",
+        idempotencyKey: existingExecRun.idempotency_key ?? precreatedExecutionRun?.idempotency_key ?? null,
+        retryAllowed: true,
+        reason: "heartbeat_claimed",
+        resumeOfExecutionRunId: existingResumeOfExecutionRunId,
+      });
       db.prepare(
         `UPDATE execution_runs
          SET status = 'running',
@@ -949,18 +1119,38 @@ export async function executeHeartbeatRun(
              runner_provider = COALESCE(runner_provider, ?),
              runner_model = COALESCE(runner_model, ?),
              model_lane = COALESCE(model_lane, ?),
+             attempt_number = COALESCE(attempt_number, ?),
+             resume_of_execution_run_id = COALESCE(resume_of_execution_run_id, ?),
+             retry_policy = COALESCE(retry_policy, ?),
+             retry_allowed = COALESCE(retry_allowed, 1),
+             retry_decision_reason = COALESCE(retry_decision_reason, ?),
              updated_at = ?
          WHERE id = ?
-           AND status = 'pending'`,
+           AND status IN ('pending', 'running')`,
       ).run(
         execNow,
         contextExecutionEngine,
         primaryRouteAttempt?.target.runtimeProvider ?? contextRunnerProvider,
         primaryRouteAttempt?.target.model ?? null,
         executionRoute?.laneId ?? taskModelRouting.lane,
+        existingAttemptNumber,
+        existingResumeOfExecutionRunId,
+        existingRetryPolicy,
+        "heartbeat_claimed",
         execNow,
         executionRunId,
       );
+      recordExecutionRunAttemptEvent(db, {
+        executionRunId,
+        attemptNumber: existingAttemptNumber,
+        eventType: "claimed",
+        metadata: {
+          heartbeatRunId: runId,
+          provider: executionRunProvider,
+          executionEngine: contextExecutionEngine,
+        },
+        createdAt: execNow,
+      });
     }
     if (executionRunId) {
       linkTemplateGeneratedExecutionRun({
@@ -1187,6 +1377,9 @@ export async function executeHeartbeatRun(
              execution_engine = ?,
              runner_provider = ?,
              runner_model = COALESCE(?, runner_model),
+             process_group_id = COALESCE(?, process_group_id),
+             child_exit_code = COALESCE(?, child_exit_code),
+             child_signal = COALESCE(?, child_signal),
              updated_at = ?
          WHERE id = ?`,
       ).run(
@@ -1201,6 +1394,9 @@ export async function executeHeartbeatRun(
         contextExecutionEngine,
         resultRunnerProvider,
         resultRunnerModel,
+        processGroupIdFromUsage(usageForStorage),
+        childExitCodeFromUsage(usageForStorage),
+        childSignalFromUsage(usageForStorage),
         new Date().toISOString(),
         executionRunId,
       );
@@ -1480,7 +1676,13 @@ export async function executeHeartbeatRun(
     startTime,
     db,
     result.sessionId,
-    executionRunId
+    executionRunId,
+    {
+      terminalizedBy: "adapter",
+      failureReason: finalStatus === "failed" ? finalError : null,
+      retryAllowed: false,
+      retryDecisionReason: finalStatus === "failed" ? "adapter_terminal_result" : "completed",
+    },
   );
 }
 
@@ -1671,15 +1873,33 @@ export function recoverStaleRuns(db: Database.Database): number {
              duration_ms = ?,
              error_message = ?,
              failure_class = COALESCE(failure_class, 'timeout'),
+             terminalized_by = COALESCE(terminalized_by, 'watchdog'),
+             failure_reason = COALESCE(failure_reason, ?),
+             retry_allowed = 1,
+             retry_decision_reason = 'stale_run_recovery_evaluated',
+             cancellation_actor = COALESCE(cancellation_actor, 'watchdog'),
+             cancellation_reason = COALESCE(cancellation_reason, ?),
              process_pid = NULL,
              idempotency_key = NULL,
              updated_at = ?
 	         WHERE task_id = ?
 	           AND agent_id = ?
 	           AND status IN ('pending', 'running')`
-      ).run(now, durationMs, timeoutMessage, now, taskId, run.agent_id);
+      ).run(now, durationMs, timeoutMessage, timeoutMessage, timeoutMessage, now, taskId, run.agent_id);
 
       for (const { id } of staleExecRuns) {
+        recordExecutionRunAttemptEvent(db, {
+          executionRunId: id,
+          eventType: "watchdog_timeout",
+          metadata: {
+            heartbeatRunId: run.id,
+            taskId,
+            agentId: run.agent_id,
+            durationMs,
+            retryDecisionReason: "stale_run_recovery_evaluated",
+          },
+          createdAt: now,
+        });
         cleanupRunArtifacts(id).catch(() => {});
       }
 
@@ -1754,6 +1974,13 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
        SET status = 'cancelled',
            completed_at = ?,
            error_message = ?,
+           failure_class = COALESCE(failure_class, 'cancelled'),
+           terminalized_by = COALESCE(terminalized_by, 'watchdog'),
+           failure_reason = COALESCE(failure_reason, ?),
+           retry_allowed = 0,
+           retry_decision_reason = 'terminal_task_before_start',
+           process_pid = NULL,
+           idempotency_key = NULL,
            updated_at = ?
        WHERE status = 'pending'
          AND task_id IN (
@@ -1763,7 +1990,7 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
               OR archived_at IS NOT NULL
          )`,
     )
-    .run(now, terminalTaskMessage, now);
+    .run(now, terminalTaskMessage, terminalTaskMessage, now);
 
   const result = db
     .prepare(
@@ -1771,14 +1998,32 @@ export function recoverStalePendingExecutionRuns(db: Database.Database): number 
        SET status = 'cancelled',
            completed_at = ?,
            error_message = ?,
+           failure_class = COALESCE(failure_class, 'timeout'),
+           terminalized_by = COALESCE(terminalized_by, 'watchdog'),
+           failure_reason = COALESCE(failure_reason, ?),
+           retry_allowed = 0,
+           retry_decision_reason = 'pending_start_timeout',
+           process_pid = NULL,
+           idempotency_key = NULL,
            updated_at = ?
        WHERE status = 'pending'
          AND created_at < ?`
     )
-    .run(now, timeoutMessage, now, cutoff);
+    .run(now, timeoutMessage, timeoutMessage, now, cutoff);
 
   return terminalResult.changes + result.changes;
 }
+
+type FinishRunExecutionOptions = {
+  terminalizedBy?: string;
+  failureReason?: string | null;
+  retryAllowed?: boolean;
+  retryDecisionReason?: string | null;
+  preflightResultId?: string | null;
+  cancellationActor?: string | null;
+  cancellationReason?: string | null;
+  cancellationResult?: Record<string, unknown> | null;
+};
 
 export function finishRun(
   runId: string,
@@ -1788,7 +2033,8 @@ export function finishRun(
   startTime: number,
   db: Database.Database,
   sessionId?: string,
-  executionRunId?: string | null
+  executionRunId?: string | null,
+  executionOptions: FinishRunExecutionOptions = {},
 ): ExecuteHeartbeatResult {
   const now = new Date().toISOString();
   const durationMs = Date.now() - startTime;
@@ -1815,13 +2061,65 @@ export function finishRun(
     const failureClass = execStatus === "failed" && error
       ? (/timed?\s*out/i.test(error) ? "timeout" : null)
       : null;
+    const retryAllowed = executionOptions.retryAllowed === undefined
+      ? (execStatus === "failed" ? 0 : 0)
+      : executionOptions.retryAllowed ? 1 : 0;
+    const terminalizedBy = executionOptions.terminalizedBy ?? (execStatus === "completed" ? "adapter" : "engine");
+    const failureReason = execStatus === "failed" ? (executionOptions.failureReason ?? error) : null;
+    const retryDecisionReason =
+      executionOptions.retryDecisionReason ??
+      (execStatus === "failed" ? "terminal_failure_requires_new_admission" : "terminal_success");
     try {
-      db.prepare(
+      const terminalUpdate = db.prepare(
         `UPDATE execution_runs
          SET status = ?, completed_at = ?, duration_ms = ?,
-             error_message = ?, failure_class = COALESCE(failure_class, ?), updated_at = ?
+             error_message = ?,
+             failure_class = COALESCE(failure_class, ?),
+             terminalized_by = COALESCE(terminalized_by, ?),
+             failure_reason = COALESCE(failure_reason, ?),
+             retry_allowed = ?,
+             retry_decision_reason = ?,
+             preflight_result_id = COALESCE(preflight_result_id, ?),
+             cancellation_actor = COALESCE(cancellation_actor, ?),
+             cancellation_reason = COALESCE(cancellation_reason, ?),
+             cancellation_result_json = COALESCE(cancellation_result_json, ?),
+             process_pid = NULL,
+             idempotency_key = CASE WHEN ? THEN NULL ELSE idempotency_key END,
+             updated_at = ?
          WHERE id = ? AND status IN ('pending', 'running')`
-      ).run(execStatus, now, durationMs, error, failureClass, now, executionRunId);
+      ).run(
+        execStatus,
+        now,
+        durationMs,
+        error,
+        failureClass,
+        terminalizedBy,
+        failureReason,
+        retryAllowed,
+        retryDecisionReason,
+        executionOptions.preflightResultId ?? null,
+        executionOptions.cancellationActor ?? null,
+        executionOptions.cancellationReason ?? null,
+        executionOptions.cancellationResult ? JSON.stringify(executionOptions.cancellationResult) : null,
+        execStatus !== "completed" ? 1 : 0,
+        now,
+        executionRunId,
+      );
+      if (terminalUpdate.changes > 0) {
+        recordExecutionRunAttemptEvent(db, {
+          executionRunId,
+          eventType: execStatus,
+          metadata: {
+            heartbeatRunId: runId,
+            terminalizedBy,
+            failureReason,
+            retryAllowed: retryAllowed === 1,
+            retryDecisionReason,
+            durationMs,
+          },
+          createdAt: now,
+        });
+      }
       const executionRunRow = db
         .prepare(
           `SELECT task_id

@@ -7,7 +7,11 @@ import path from "path";
 import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
-import { getOrchestrationDb } from "@/lib/orchestration/db";
+import {
+  getOrchestrationDb,
+  nextExecutionRunAttemptNumber,
+  recordExecutionRunAttemptEvent,
+} from "@/lib/orchestration/db";
 import { reconcileTerminalOpenClawTaskState } from "@/lib/orchestration/openclaw-reconciliation";
 import { getTaskBridgeRecord, listTaskExternalCommentRefs, setTaskExecutionMode } from "@/lib/orchestration/bridge/store";
 import type { BridgeRuntimeProvider, BridgeTaskRecord } from "@/lib/orchestration/bridge/types";
@@ -185,6 +189,20 @@ type ExecutionRunRow = {
   updated_at: string;
   process_pid: number | null;
   failure_class: string | null;
+  attempt_number: number | null;
+  resume_of_execution_run_id: string | null;
+  retry_policy: string | null;
+  retry_allowed: number | null;
+  retry_decision_reason: string | null;
+  preflight_result_id: string | null;
+  terminalized_by: string | null;
+  failure_reason: string | null;
+  cancellation_actor: string | null;
+  cancellation_reason: string | null;
+  cancellation_result_json: string | null;
+  process_group_id: number | null;
+  child_exit_code: number | null;
+  child_signal: string | null;
 };
 
 type ExecutionRunRecord = {
@@ -212,6 +230,20 @@ type ExecutionRunRecord = {
   updatedAt: string;
   processPid?: number | null;
   failureClass?: string | null;
+  attemptNumber?: number | null;
+  resumeOfExecutionRunId?: string | null;
+  retryPolicy?: Record<string, unknown> | null;
+  retryAllowed?: boolean | null;
+  retryDecisionReason?: string | null;
+  preflightResultId?: string | null;
+  terminalizedBy?: string | null;
+  failureReason?: string | null;
+  cancellationActor?: string | null;
+  cancellationReason?: string | null;
+  cancellationResult?: Record<string, unknown> | null;
+  processGroupId?: number | null;
+  childExitCode?: number | null;
+  childSignal?: string | null;
 };
 
 function executionProviderForTask(task: BridgeTaskRecord, db = getOrchestrationDb()): BridgeRuntimeProvider {
@@ -265,6 +297,23 @@ function parseJsonRecord(value: string | null | undefined): Record<string, unkno
   }
 }
 
+function executionRetryPolicyJson(input: {
+  source: string;
+  idempotencyKey?: string | null;
+  retryAllowed?: boolean | null;
+  reason?: string | null;
+  resumeOfExecutionRunId?: string | null;
+}): string {
+  return JSON.stringify({
+    schema: "hiverunner.execution_run.retry_policy.v1",
+    source: input.source,
+    idempotencyKey: input.idempotencyKey ?? null,
+    retryAllowed: input.retryAllowed ?? null,
+    reason: input.reason ?? null,
+    resumeOfExecutionRunId: input.resumeOfExecutionRunId ?? null,
+  });
+}
+
 function parseJsonArrayRecords(value: string | null | undefined): unknown[] {
   if (!value) return [];
   try {
@@ -301,6 +350,20 @@ function mapExecutionRunRow(row: ExecutionRunRow): ExecutionRunRecord {
     updatedAt: row.updated_at,
     processPid: row.process_pid ?? null,
     failureClass: row.failure_class ?? null,
+    attemptNumber: row.attempt_number ?? null,
+    resumeOfExecutionRunId: row.resume_of_execution_run_id ?? null,
+    retryPolicy: row.retry_policy ? parseJsonRecord(row.retry_policy) : null,
+    retryAllowed: row.retry_allowed === null ? null : row.retry_allowed === 1,
+    retryDecisionReason: row.retry_decision_reason ?? null,
+    preflightResultId: row.preflight_result_id ?? null,
+    terminalizedBy: row.terminalized_by ?? null,
+    failureReason: row.failure_reason ?? null,
+    cancellationActor: row.cancellation_actor ?? null,
+    cancellationReason: row.cancellation_reason ?? null,
+    cancellationResult: row.cancellation_result_json ? parseJsonRecord(row.cancellation_result_json) : null,
+    processGroupId: row.process_group_id ?? null,
+    childExitCode: row.child_exit_code ?? null,
+    childSignal: row.child_signal ?? null,
   };
 }
 
@@ -479,17 +542,40 @@ function createExecutionRun(
     tokenUsage?: Record<string, unknown>;
     durationMs?: number;
     idempotencyKey?: string;
+    attemptNumber?: number;
+    resumeOfExecutionRunId?: string | null;
+    retryPolicy?: string;
+    retryAllowed?: boolean | null;
+    retryDecisionReason?: string | null;
   },
   db = getOrchestrationDb()
 ): ExecutionRunRecord {
   const now = new Date().toISOString();
   const id = randomUUID();
   const status = input.status ?? "pending";
+  const attemptNumber =
+    input.attemptNumber ??
+    nextExecutionRunAttemptNumber(db, {
+      taskId: input.taskId ?? null,
+      agentId: input.agentId ?? null,
+      provider: input.provider,
+      idempotencyKey: input.idempotencyKey ?? null,
+      resumeOfExecutionRunId: input.resumeOfExecutionRunId ?? null,
+    });
+  const retryPolicy =
+    input.retryPolicy ??
+    executionRetryPolicyJson({
+      source: "trigger_task_execution",
+      idempotencyKey: input.idempotencyKey ?? null,
+      retryAllowed: input.retryAllowed ?? true,
+      reason: input.retryDecisionReason ?? "initial_attempt",
+      resumeOfExecutionRunId: input.resumeOfExecutionRunId ?? null,
+    });
   db.prepare(
     `INSERT INTO execution_runs
-      (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model, model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json, session_id, status, started_at, completed_at, error_message, token_usage_json, duration_ms, idempotency_key, created_at, updated_at)
+      (id, task_id, agent_id, provider, execution_engine, runner_provider, runner_model, model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json, session_id, status, started_at, completed_at, error_message, token_usage_json, duration_ms, idempotency_key, created_at, updated_at, attempt_number, resume_of_execution_run_id, retry_policy, retry_allowed, retry_decision_reason)
      VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     input.taskId ?? null,
@@ -512,8 +598,27 @@ function createExecutionRun(
     typeof input.durationMs === "number" ? Math.trunc(input.durationMs) : null,
     input.idempotencyKey ?? null,
     now,
-    now
+    now,
+    attemptNumber,
+    input.resumeOfExecutionRunId ?? null,
+    retryPolicy,
+    input.retryAllowed === null ? null : input.retryAllowed === false ? 0 : 1,
+    input.retryDecisionReason ?? "initial_attempt"
   );
+  recordExecutionRunAttemptEvent(db, {
+    executionRunId: id,
+    attemptNumber,
+    eventType: "created",
+    metadata: {
+      source: "trigger_task_execution",
+      provider: input.provider,
+      taskId: input.taskId ?? null,
+      agentId: input.agentId ?? null,
+      idempotencyKey: input.idempotencyKey ?? null,
+      resumeOfExecutionRunId: input.resumeOfExecutionRunId ?? null,
+    },
+    createdAt: now,
+  });
 
   return getExecutionRunById(id, db);
 }
@@ -552,7 +657,10 @@ function getExecutionRunById(runId: string, db = getOrchestrationDb()): Executio
          model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json,
          session_id, status, started_at, completed_at, error_message,
          token_usage_json, duration_ms, idempotency_key, created_at, updated_at,
-         process_pid, failure_class
+         process_pid, failure_class, attempt_number, resume_of_execution_run_id,
+         retry_policy, retry_allowed, retry_decision_reason, preflight_result_id,
+         terminalized_by, failure_reason, cancellation_actor, cancellation_reason,
+         cancellation_result_json, process_group_id, child_exit_code, child_signal
        FROM execution_runs
        WHERE id = ?
        LIMIT 1`
@@ -577,7 +685,10 @@ function getExecutionRunByIdempotencyKey(
          model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json,
          session_id, status, started_at, completed_at, error_message,
          token_usage_json, duration_ms, idempotency_key, created_at, updated_at,
-         process_pid, failure_class
+         process_pid, failure_class, attempt_number, resume_of_execution_run_id,
+         retry_policy, retry_allowed, retry_decision_reason, preflight_result_id,
+         terminalized_by, failure_reason, cancellation_actor, cancellation_reason,
+         cancellation_result_json, process_group_id, child_exit_code, child_signal
        FROM execution_runs
        WHERE idempotency_key = ?
        LIMIT 1`
@@ -614,7 +725,10 @@ function getLatestExecutionRunForTask(
          model_lane, fallback_used, fallback_index, fallback_from_provider, route_attempts_json,
          session_id, status, started_at, completed_at, error_message,
          token_usage_json, duration_ms, idempotency_key, created_at, updated_at,
-         process_pid, failure_class
+         process_pid, failure_class, attempt_number, resume_of_execution_run_id,
+         retry_policy, retry_allowed, retry_decision_reason, preflight_result_id,
+         terminalized_by, failure_reason, cancellation_actor, cancellation_reason,
+         cancellation_result_json, process_group_id, child_exit_code, child_signal
        FROM execution_runs
        WHERE ${clauses.join(" AND ")}
        ORDER BY created_at DESC
@@ -644,6 +758,13 @@ function updateExecutionRun(
     routeAttempts?: unknown[];
     failureClass?: string | null;
     clearProcessPid?: boolean;
+    terminalizedBy?: string | null;
+    failureReason?: string | null;
+    retryAllowed?: boolean | null;
+    retryDecisionReason?: string | null;
+    cancellationActor?: string | null;
+    cancellationReason?: string | null;
+    cancellationResult?: Record<string, unknown> | null;
   },
   db = getOrchestrationDb()
 ): ExecutionRunRecord {
@@ -665,7 +786,15 @@ function updateExecutionRun(
          fallback_from_provider = COALESCE(?, fallback_from_provider),
          route_attempts_json = COALESCE(?, route_attempts_json),
          failure_class = COALESCE(?, failure_class),
+         terminalized_by = COALESCE(?, terminalized_by),
+         failure_reason = COALESCE(?, failure_reason),
+         retry_allowed = COALESCE(?, retry_allowed),
+         retry_decision_reason = COALESCE(?, retry_decision_reason),
+         cancellation_actor = COALESCE(?, cancellation_actor),
+         cancellation_reason = COALESCE(?, cancellation_reason),
+         cancellation_result_json = COALESCE(?, cancellation_result_json),
          process_pid = CASE WHEN ? THEN NULL ELSE process_pid END,
+         idempotency_key = CASE WHEN ? THEN NULL ELSE idempotency_key END,
          updated_at = ?
      WHERE id = ?`
   ).run(
@@ -684,7 +813,15 @@ function updateExecutionRun(
     patch.fallbackFromProvider === undefined ? null : patch.fallbackFromProvider,
     patch.routeAttempts === undefined ? null : JSON.stringify(patch.routeAttempts),
     patch.failureClass === undefined ? null : patch.failureClass,
+    patch.terminalizedBy === undefined ? null : patch.terminalizedBy,
+    patch.failureReason === undefined ? null : patch.failureReason,
+    patch.retryAllowed === undefined || patch.retryAllowed === null ? null : patch.retryAllowed ? 1 : 0,
+    patch.retryDecisionReason === undefined ? null : patch.retryDecisionReason,
+    patch.cancellationActor === undefined ? null : patch.cancellationActor,
+    patch.cancellationReason === undefined ? null : patch.cancellationReason,
+    patch.cancellationResult === undefined || patch.cancellationResult === null ? null : JSON.stringify(patch.cancellationResult),
     patch.clearProcessPid ? 1 : 0,
+    patch.status === "failed" || patch.status === "cancelled" || patch.clearProcessPid ? 1 : 0,
     now,
     runId
   );
@@ -2286,9 +2423,26 @@ export async function triggerTaskExecution(
             completedAt,
             errorMessage: "Execution wake coalesced into an already active run.",
             failureClass: "coalesced",
+            terminalizedBy: "coalescer",
+            failureReason: "Execution wake coalesced into an already active run.",
+            retryAllowed: false,
+            retryDecisionReason: "idempotency_coalesced",
+            clearProcessPid: true,
           },
           db,
         );
+        recordExecutionRunAttemptEvent(db, {
+          executionRunId: run.id,
+          attemptNumber: run.attemptNumber,
+          eventType: "coalesced",
+          metadata: {
+            taskId: task.id,
+            coalescedHeartbeatRunId: wake.heartbeatRunId ?? null,
+            coalescedExecutionRunId,
+            activeCoalescedRunId: activeCoalescedRun?.id ?? null,
+          },
+          createdAt: completedAt,
+        });
         db.prepare("UPDATE execution_runs SET idempotency_key = NULL, updated_at = ? WHERE id = ?")
           .run(completedAt, run.id);
       }
@@ -2465,6 +2619,13 @@ export async function cancelTaskExecution(input: {
         status: "cancelled",
         completedAt,
         failureClass: "cancelled",
+        terminalizedBy: "operator",
+        failureReason: input.note?.trim() || "Execution cancellation requested by operator.",
+        retryAllowed: false,
+        retryDecisionReason: "manual_cancellation",
+        cancellationActor: actorUserId,
+        cancellationReason: input.note?.trim() || `Manual cancellation requested; target status ${targetStatus}.`,
+        cancellationResult: cancellation,
         clearProcessPid: true,
         durationMs: run.startedAt
           ? Math.max(0, Date.parse(completedAt) - Date.parse(run.startedAt))
@@ -2472,6 +2633,17 @@ export async function cancelTaskExecution(input: {
       },
       db
     );
+    recordExecutionRunAttemptEvent(db, {
+      executionRunId: run.id,
+      attemptNumber: run.attemptNumber,
+      eventType: "cancelled",
+      metadata: {
+        actorUserId,
+        targetStatus,
+        cancellation,
+      },
+      createdAt: completedAt,
+    });
     db.prepare("UPDATE execution_runs SET idempotency_key = NULL, updated_at = ? WHERE id = ?")
       .run(completedAt, run.id);
     cancelLinkedHeartbeatRun(run, completedAt, db);
