@@ -1326,53 +1326,97 @@ export async function waitForSessionCompletion(
   }
 }
 
-export function parseActionsFromText(text: string): { actions: McAction[]; plainText: string; parseErrors: string[] } {
+export type ParsedMcActionBlock = {
+  blockIndex: number;
+  rawBlock: string;
+  rawJson: string;
+  action?: McAction;
+  actionType?: string | null;
+  parseError?: string;
+};
+
+export function parseActionBlocksFromText(text: string): {
+  actions: McAction[];
+  blocks: ParsedMcActionBlock[];
+  plainText: string;
+  parseErrors: string[];
+} {
   const actions: McAction[] = [];
+  const blocks: ParsedMcActionBlock[] = [];
   const parseErrors: string[] = [];
   // Match ```mc-action ... ``` blocks (tolerant of extra whitespace and optional language tag)
   const pattern = /```mc-action[^\n]*\n([\s\S]*?)```/g;
   let plainText = text;
   let match: RegExpExecArray | null;
+  let blockIndex = 0;
 
   while ((match = pattern.exec(text)) !== null) {
     const jsonStr = match[1].trim();
+    const rawBlock = match[0];
+    const block: ParsedMcActionBlock = {
+      blockIndex,
+      rawBlock,
+      rawJson: jsonStr,
+    };
+    blockIndex += 1;
+
     if (!jsonStr) {
-      parseErrors.push("Empty mc-action block");
-      plainText = plainText.replace(match[0], "");
+      block.parseError = "Empty mc-action block";
+      parseErrors.push(block.parseError);
+      blocks.push(block);
+      plainText = plainText.replace(rawBlock, "");
       continue;
     }
     try {
       const parsed = JSON.parse(jsonStr);
       if (!parsed || typeof parsed !== "object") {
-        parseErrors.push(`mc-action block is not an object: ${jsonStr.slice(0, 80)}`);
-        plainText = plainText.replace(match[0], "");
+        block.parseError = `mc-action block is not an object: ${jsonStr.slice(0, 80)}`;
+        parseErrors.push(block.parseError);
+        blocks.push(block);
+        plainText = plainText.replace(rawBlock, "");
         continue;
       }
+      block.actionType = typeof parsed.action === "string" ? parsed.action : null;
       if (!parsed.action || typeof parsed.action !== "string") {
-        parseErrors.push(`mc-action block missing 'action' field: ${jsonStr.slice(0, 80)}`);
-        plainText = plainText.replace(match[0], "");
+        block.parseError = `mc-action block missing 'action' field: ${jsonStr.slice(0, 80)}`;
+        parseErrors.push(block.parseError);
+        blocks.push(block);
+        plainText = plainText.replace(rawBlock, "");
         continue;
       }
       if (!VALID_ACTION_TYPES.has(parsed.action)) {
-        parseErrors.push(`Unknown action type '${parsed.action}'`);
-        plainText = plainText.replace(match[0], "");
+        block.parseError = `Unknown action type '${parsed.action}'`;
+        parseErrors.push(block.parseError);
+        blocks.push(block);
+        plainText = plainText.replace(rawBlock, "");
         continue;
       }
       // Validate required fields per action type
       const validationError = validateActionFields(parsed);
       if (validationError) {
-        parseErrors.push(validationError);
-        plainText = plainText.replace(match[0], "");
+        block.parseError = validationError;
+        parseErrors.push(block.parseError);
+        blocks.push(block);
+        plainText = plainText.replace(rawBlock, "");
         continue;
       }
-      actions.push(parsed as McAction);
+      block.action = parsed as McAction;
+      actions.push(block.action);
+      blocks.push(block);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      parseErrors.push(`Invalid JSON in mc-action block: ${msg}`);
+      block.parseError = `Invalid JSON in mc-action block: ${msg}`;
+      parseErrors.push(block.parseError);
+      blocks.push(block);
     }
-    plainText = plainText.replace(match[0], "");
+    plainText = plainText.replace(rawBlock, "");
   }
 
+  return { actions, blocks, plainText, parseErrors };
+}
+
+export function parseActionsFromText(text: string): { actions: McAction[]; plainText: string; parseErrors: string[] } {
+  const { actions, plainText, parseErrors } = parseActionBlocksFromText(text);
   return { actions, plainText, parseErrors };
 }
 

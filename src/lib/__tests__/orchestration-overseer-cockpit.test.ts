@@ -737,12 +737,81 @@ async function run() {
     assert.strictEqual(approvals.length, 1);
     assert.strictEqual(approvals[0]?.payload.actionType, "create_task");
 
+    const actionLedger = db
+      .prepare(
+        `SELECT source, status, action_type, approval_id, overseer_session_id
+         FROM runtime_action_ledger
+         WHERE overseer_session_id = ? AND action_type = 'create_task'
+         LIMIT 1`,
+      )
+      .get(session.id) as
+      | {
+          source: string;
+          status: string;
+          action_type: string | null;
+          approval_id: string | null;
+          overseer_session_id: string | null;
+        }
+      | undefined;
+    assert.strictEqual(actionLedger?.source, "overseer");
+    assert.strictEqual(actionLedger?.status, "pending_approval");
+    assert.strictEqual(actionLedger?.approval_id, approvals[0]?.id);
+    assert.strictEqual(actionLedger?.overseer_session_id, session.id);
+
     const args = readFileSync(argsLog, "utf8");
     assert.match(args, /exec --json/);
     assert.match(args, /--sandbox read-only/);
     assert.match(args, /service_tier="fast"/);
     const cwd = readFileSync(cwdLog, "utf8").trim().split(/\n/)[0];
     assert.strictEqual(realpathSync(cwd), realpathSync(stored.workspaceRoot));
+  });
+
+  await test("Overseer action ledger records parse_failed and observed safe actions", () => {
+    const user = appendOverseerMessage({
+      sessionId: session.id,
+      role: "user",
+      content: "Observe safe actions and malformed blocks.",
+    });
+    const turn = createOverseerTurn({
+      sessionId: session.id,
+      userMessageId: user.id,
+      prompt: user.content,
+    });
+    const assistantText = [
+      "```mc-action",
+      "{\"action\":\"report\"}",
+      "```",
+      "```mc-action",
+      JSON.stringify({ action: "report", summary: "Safe report action observed." }),
+      "```",
+    ].join("\n");
+
+    const approvalResult = createApprovalsForOverseerActions({
+      session,
+      turnId: turn.id,
+      messageId: user.id,
+      assistantText,
+    });
+    assert.deepStrictEqual(approvalResult.approvalIds, []);
+    assert.strictEqual(approvalResult.safeActions, 1);
+    assert.strictEqual(approvalResult.parseErrors.length, 1);
+
+    const rows = db
+      .prepare(
+        `SELECT status, action_type, parse_error
+         FROM runtime_action_ledger
+         WHERE overseer_turn_id = ?
+         ORDER BY block_index ASC`,
+      )
+      .all(turn.id) as Array<{ status: string; action_type: string | null; parse_error: string | null }>;
+    assert.deepStrictEqual(
+      rows.map((row) => row.status),
+      ["parse_failed", "observed"],
+    );
+    assert.strictEqual(rows[0]?.action_type, "report");
+    assert.ok(rows[0]?.parse_error?.includes("summary"));
+    assert.strictEqual(rows[1]?.action_type, "report");
+    assert.strictEqual(rows[1]?.parse_error, null);
   });
 
   await test("session telemetry reads saved Codex token-count and rate-limit status", () => {

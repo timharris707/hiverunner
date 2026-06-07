@@ -20,6 +20,7 @@ export type BridgeRuntimeProvider =
 
 export interface BridgeTaskRecord {
   id: string;
+  taskKey?: string;
   title: string;
   description: string;
   priority: LocalTaskPriorityDb;

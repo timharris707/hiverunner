@@ -23,12 +23,14 @@ import {
   focusedTaskClosureDeferralReason,
   getActionTarget,
   importCommentOnTask,
-  parseActionsFromText,
+  parseActionBlocksFromText,
   shouldDeferDependentAutoStartForAction,
   type ExecuteMcActionInput,
   type McAction,
   type McActionExecutionOutcome,
+  type ParsedMcActionBlock,
 } from "@/lib/orchestration/engine/action-dispatcher";
+import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 
 const NO_REPLY_SENTINEL = "NO_REPLY";
 
@@ -46,6 +48,26 @@ type AssistantTextImportInput = {
   telemetry?: Record<string, unknown>;
 };
 
+type ParsedActionExecutionBlock = {
+  action: McAction;
+  block: ParsedMcActionBlock;
+  messageIndex: number;
+};
+
+function resolveActionLedgerTaskIdentity(
+  db: Database.Database,
+  taskRef: string,
+): { taskId: string | null; taskKey: string | null } {
+  if (!taskRef || taskRef === "__heartbeat__") {
+    return { taskId: null, taskKey: taskRef || null };
+  }
+  const row = db
+    .prepare("SELECT id, task_key FROM tasks WHERE id = ? OR task_key = ? LIMIT 1")
+    .get(taskRef, taskRef) as { id: string; task_key: string | null } | undefined;
+  if (!row) return { taskId: null, taskKey: taskRef };
+  return { taskId: row.id, taskKey: row.task_key ?? row.id };
+}
+
 function emptyActionResults(): ActionResults {
   return {
     messagesImported: 0,
@@ -58,6 +80,44 @@ function emptyActionResults(): ActionResults {
     reportsImported: 0,
     errors: [],
   };
+}
+
+function recordHeartbeatActionLedger(input: {
+  db: Database.Database;
+  companyId: string;
+  agentId: string;
+  taskKey: string;
+  runId: string;
+  executionRunId?: string | null;
+  entry: ParsedActionExecutionBlock;
+  status: "parsed" | "parse_failed" | "pending_approval" | "executed" | "deferred" | "failed" | "skipped_duplicate";
+  statusReason?: string | null;
+  parseError?: string | null;
+  approvalId?: string | null;
+  outcome?: Record<string, unknown> | null;
+  durationMs?: number | null;
+}): void {
+  const taskIdentity = resolveActionLedgerTaskIdentity(input.db, input.taskKey);
+  recordRuntimeActionLedgerEntry(input.db, {
+    source: "heartbeat_import",
+    status: input.status,
+    companyId: input.companyId,
+    agentId: input.agentId,
+    taskId: taskIdentity.taskId,
+    taskKey: taskIdentity.taskKey,
+    heartbeatRunId: input.runId,
+    executionRunId: input.executionRunId ?? null,
+    approvalId: input.approvalId ?? null,
+    messageIndex: input.entry.messageIndex,
+    blockIndex: input.entry.block.blockIndex,
+    action: input.entry.action,
+    actionType: input.entry.block.actionType,
+    rawBlock: input.entry.block.rawBlock,
+    statusReason: input.statusReason ?? null,
+    parseError: input.parseError ?? null,
+    outcome: input.outcome ?? null,
+    durationMs: input.durationMs ?? null,
+  });
 }
 
 function adapterAssistantTexts(usage: Record<string, unknown> | null | undefined): string[] {
@@ -272,6 +332,7 @@ function storeMatchedMemoryUseEvaluation(input: {
 
 async function executeParsedMcActions(input: {
   actions: McAction[];
+  actionBlocks?: ParsedActionExecutionBlock[];
   results: ActionResults;
   agentId: string;
   agentName: string;
@@ -288,11 +349,36 @@ async function executeParsedMcActions(input: {
   const perActionDetail: Array<{ action: string; target: string; status: string; durationMs: number }> = [];
   let hireOnlyDelegationContinuationQueued = false;
   const deferredDependentStarts: Array<{ taskId: string; taskKey: string }> = [];
+  const actionEntries = input.actionBlocks?.length
+    ? input.actionBlocks
+    : input.actions.map((action, index) => ({
+      action,
+      messageIndex: 0,
+      block: {
+        blockIndex: index,
+        rawBlock: "",
+        rawJson: "",
+        action,
+        actionType: action.action,
+      },
+    }));
 
-  for (const action of input.actions) {
+  for (const entry of actionEntries) {
+    const action = entry.action;
     const fingerprint = actionFingerprint(action);
     if (executedFingerprints.has(fingerprint)) {
       input.results.errors.push(`Duplicate action skipped: ${action.action} (${fingerprint.slice(0, 50)})`);
+      recordHeartbeatActionLedger({
+        db: input.db,
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskKey: input.taskKey,
+        runId: input.runId,
+        executionRunId: input.executionRunId,
+        entry,
+        status: "skipped_duplicate",
+        statusReason: "duplicate_action_fingerprint_in_message_batch",
+      });
       continue;
     }
     executedFingerprints.add(fingerprint);
@@ -321,6 +407,18 @@ async function executeParsedMcActions(input: {
           const message = closureDeferralMessage(closureDeferralReason);
           input.results.actionsDeferred++;
           perActionDetail.push({ action: action.action, target: actionTarget, status: "deferred", durationMs: Date.now() - actionStart });
+          recordHeartbeatActionLedger({
+            db: input.db,
+            companyId: input.companyId,
+            agentId: input.agentId,
+            taskKey: input.taskKey,
+            runId: input.runId,
+            executionRunId: input.executionRunId,
+            entry,
+            status: "deferred",
+            statusReason: closureDeferralReason,
+            durationMs: Date.now() - actionStart,
+          });
           emitRunEvent(
             input.runId,
             input.agentId,
@@ -346,6 +444,19 @@ async function executeParsedMcActions(input: {
       if (outcome.kind === "failed") {
         input.results.errors.push(`${action.action}: ${outcome.reason}`);
         perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
+        recordHeartbeatActionLedger({
+          db: input.db,
+          companyId: input.companyId,
+          agentId: input.agentId,
+          taskKey: input.taskKey,
+          runId: input.runId,
+          executionRunId: input.executionRunId,
+          entry,
+          status: "failed",
+          statusReason: outcome.reason,
+          outcome: outcome as unknown as Record<string, unknown>,
+          durationMs: Date.now() - actionStart,
+        });
         emitRunEvent(input.runId, input.agentId, "action_error", `${action.action}: ${outcome.reason}`, input.db);
         continue;
       }
@@ -353,6 +464,19 @@ async function executeParsedMcActions(input: {
       if (outcome.kind === "skipped_duplicate") {
         input.results.actionsSkippedDedup++;
         perActionDetail.push({ action: action.action, target: actionTarget, status: "skipped", durationMs: Date.now() - actionStart });
+        recordHeartbeatActionLedger({
+          db: input.db,
+          companyId: input.companyId,
+          agentId: input.agentId,
+          taskKey: input.taskKey,
+          runId: input.runId,
+          executionRunId: input.executionRunId,
+          entry,
+          status: "skipped_duplicate",
+          statusReason: "executor_reported_duplicate",
+          outcome: outcome as unknown as Record<string, unknown>,
+          durationMs: Date.now() - actionStart,
+        });
         emitRunEvent(input.runId, input.agentId, "action_skipped", `Skipped duplicate ${action.action}`, input.db);
         continue;
       }
@@ -376,11 +500,37 @@ async function executeParsedMcActions(input: {
 
       input.results.actionsExecuted++;
       perActionDetail.push({ action: action.action, target: actionTarget, status: "executed", durationMs: Date.now() - actionStart });
+      recordHeartbeatActionLedger({
+        db: input.db,
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskKey: input.taskKey,
+        runId: input.runId,
+        executionRunId: input.executionRunId,
+        entry,
+        status: outcome.kind === "created_approval" ? "pending_approval" : "executed",
+        statusReason: outcome.kind,
+        approvalId: outcome.kind === "created_approval" ? outcome.approvalId : null,
+        outcome: outcome as unknown as Record<string, unknown>,
+        durationMs: Date.now() - actionStart,
+      });
       emitRunEvent(input.runId, input.agentId, "action_executed", actionExecutionSummary(action, outcome), input.db);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       input.results.errors.push(`Action ${action.action} failed: ${msg}`);
       perActionDetail.push({ action: action.action, target: actionTarget, status: "error", durationMs: Date.now() - actionStart });
+      recordHeartbeatActionLedger({
+        db: input.db,
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskKey: input.taskKey,
+        runId: input.runId,
+        executionRunId: input.executionRunId,
+        entry,
+        status: "failed",
+        statusReason: msg,
+        durationMs: Date.now() - actionStart,
+      });
       emitRunEvent(input.runId, input.agentId, "action_error", `${action.action} failed: ${msg.slice(0, 100)}`, input.db);
     }
   }
@@ -551,22 +701,62 @@ export async function importAssistantTextsAndExecuteActions(
   results.messagesImported = assistantTexts.length;
 
   const allActions: McAction[] = [];
+  const allActionBlocks: ParsedActionExecutionBlock[] = [];
   const allPlainText: string[] = [];
   const allParseErrors: string[] = [];
   let noReplySentinelsSkipped = 0;
   const isUnassignedTriage = isUnassignedTriageWake(input.wakeReason);
 
-  for (const text of assistantTexts) {
-    const { actions, plainText, parseErrors } = parseActionsFromText(text);
-    for (const action of actions) {
+  for (const [messageIndex, text] of assistantTexts.entries()) {
+    const { blocks, plainText, parseErrors } = parseActionBlocksFromText(text);
+    const taskIdentity = resolveActionLedgerTaskIdentity(input.db, input.taskKey);
+    for (const block of blocks) {
+      recordRuntimeActionLedgerEntry(input.db, {
+        source: "heartbeat_import",
+        status: block.action ? "parsed" : "parse_failed",
+        companyId: input.companyId,
+        agentId: input.agentId,
+        taskId: taskIdentity.taskId,
+        taskKey: taskIdentity.taskKey,
+        heartbeatRunId: input.runId,
+        executionRunId: input.executionRunId ?? null,
+        messageIndex,
+        blockIndex: block.blockIndex,
+        action: block.action ?? null,
+        actionType: block.actionType ?? null,
+        rawBlock: block.rawBlock,
+        parseError: block.parseError ?? null,
+        statusReason: block.action ? null : "parser_rejected_action_block",
+      });
+    }
+    for (const block of blocks) {
+      const action = block.action;
+      if (!action) continue;
       if (isUnassignedTriage) {
         const violation = validateSweepUnassignedActionScope(action, input.taskKey, input.db);
         if (violation) {
           results.errors.push(violation);
+          recordRuntimeActionLedgerEntry(input.db, {
+            source: "heartbeat_import",
+            status: "failed",
+            companyId: input.companyId,
+            agentId: input.agentId,
+            taskId: taskIdentity.taskId,
+            taskKey: taskIdentity.taskKey,
+            heartbeatRunId: input.runId,
+            executionRunId: input.executionRunId ?? null,
+            messageIndex,
+            blockIndex: block.blockIndex,
+            action,
+            actionType: block.actionType ?? action.action,
+            rawBlock: block.rawBlock,
+            statusReason: violation,
+          });
           continue;
         }
       }
       allActions.push(action);
+      allActionBlocks.push({ action, block, messageIndex });
     }
     const trimmedPlainText = plainText.trim();
     if (trimmedPlainText) {
@@ -629,7 +819,7 @@ export async function importAssistantTextsAndExecuteActions(
     }
   }
 
-  await executeParsedMcActions({ actions: allActions, results, ...input });
+  await executeParsedMcActions({ actions: allActions, actionBlocks: allActionBlocks, results, ...input });
   storeMatchedMemoryUseEvaluation({
     executionRunId: input.executionRunId,
     outputs: outputDocumentsForMatchedMemoryUse({ plainTexts: allPlainText, actions: allActions }),

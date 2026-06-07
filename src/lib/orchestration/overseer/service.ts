@@ -7,7 +7,8 @@ import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
-import { parseActionsFromText, type McAction } from "@/lib/orchestration/engine/action-dispatcher";
+import { parseActionBlocksFromText, type McAction, type ParsedMcActionBlock } from "@/lib/orchestration/engine/action-dispatcher";
+import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 import { recordRuntimeUsageLedgerEntry } from "@/lib/orchestration/runtime-usage-ledger";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import {
@@ -2000,6 +2001,37 @@ function fingerprintForAction(input: {
     .slice(0, 32);
 }
 
+function recordOverseerActionLedger(input: {
+  db: Database.Database;
+  session: OverseerSession;
+  turnId: string;
+  messageId: string;
+  block: ParsedMcActionBlock;
+  status: "parsed" | "parse_failed" | "observed" | "pending_approval" | "executed" | "failed";
+  statusReason?: string | null;
+  parseError?: string | null;
+  approvalId?: string | null;
+  outcome?: Record<string, unknown> | null;
+}): void {
+  recordRuntimeActionLedgerEntry(input.db, {
+    source: "overseer",
+    status: input.status,
+    companyId: input.session.companyId,
+    overseerSessionId: input.session.id,
+    overseerTurnId: input.turnId,
+    overseerMessageId: input.messageId,
+    approvalId: input.approvalId ?? null,
+    messageIndex: 0,
+    blockIndex: input.block.blockIndex,
+    action: input.block.action ?? null,
+    actionType: input.block.actionType ?? null,
+    rawBlock: input.block.rawBlock,
+    statusReason: input.statusReason ?? null,
+    parseError: input.parseError ?? null,
+    outcome: input.outcome ?? null,
+  });
+}
+
 function summaryHash(summary: string): string {
   return createHash("sha256").update(summary).digest("hex").slice(0, 32);
 }
@@ -2012,10 +2044,24 @@ export function createApprovalsForOverseerActions(input: {
   db?: Database.Database;
 }): { approvalIds: string[]; safeActions: number; parseErrors: string[] } {
   const db = input.db ?? getOrchestrationDb();
-  const parsed = parseActionsFromText(input.assistantText);
+  const parsed = parseActionBlocksFromText(input.assistantText);
+  for (const block of parsed.blocks) {
+    recordOverseerActionLedger({
+      db,
+      session: input.session,
+      turnId: input.turnId,
+      messageId: input.messageId,
+      block,
+      status: block.action ? "parsed" : "parse_failed",
+      statusReason: block.action ? null : "parser_rejected_action_block",
+      parseError: block.parseError ?? null,
+    });
+  }
   const approvalIds: string[] = [];
   let safeActions = 0;
-  for (const action of parsed.actions) {
+  for (const block of parsed.blocks) {
+    const action = block.action;
+    if (!action) continue;
     if (!isWriteAction(action)) {
       safeActions += 1;
       recordOverseerEvent({
@@ -2024,6 +2070,15 @@ export function createApprovalsForOverseerActions(input: {
         eventType: "mc_action.observed",
         event: { actionType: action.action, action, safe: true },
         db,
+      });
+      recordOverseerActionLedger({
+        db,
+        session: input.session,
+        turnId: input.turnId,
+        messageId: input.messageId,
+        block,
+        status: "observed",
+        statusReason: "safe_action_observed",
       });
       continue;
     }
@@ -2052,6 +2107,17 @@ export function createApprovalsForOverseerActions(input: {
       db,
     }).approval;
     approvalIds.push(approval.id);
+    recordOverseerActionLedger({
+      db,
+      session: input.session,
+      turnId: input.turnId,
+      messageId: input.messageId,
+      block,
+      status: "pending_approval",
+      statusReason: "state_changing_action_requires_approval",
+      approvalId: approval.id,
+      outcome: { approvalId: approval.id },
+    });
     recordOverseerEvent({
       sessionId: input.session.id,
       turnId: input.turnId,

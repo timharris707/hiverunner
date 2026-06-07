@@ -12,6 +12,7 @@ import type {
 
 type BridgeTaskRow = {
   id: string;
+  task_key: string | null;
   title: string;
   description: string;
   priority: BridgeTaskRecord["priority"];
@@ -57,6 +58,7 @@ function getTaskBridgeRow(db: Database.Database, taskId: string): BridgeTaskRow 
     .prepare(
       `SELECT
          t.id,
+         t.task_key,
          t.title,
          t.description,
          t.priority,
@@ -115,6 +117,7 @@ function mapBridgeTaskRow(row: BridgeTaskRow): BridgeTaskRecord {
 
   return {
     id: row.id,
+    taskKey: row.task_key ?? undefined,
     title: row.title,
     description: row.description,
     priority: row.priority,

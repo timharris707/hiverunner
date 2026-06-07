@@ -20,10 +20,12 @@ import { resolveExecutionRoute } from "@/lib/orchestration/execution-route-resol
 import {
   enqueueWakeup,
   executeMcAction,
-  parseActionsFromText,
+  parseActionBlocksFromText,
   type McActionExecutionOutcome,
+  type ParsedMcActionBlock,
 } from "@/lib/orchestration/engine/engine";
 import { emitHarnessWarningComment } from "@/lib/orchestration/engine/harness-warning";
+import { recordRuntimeActionLedgerEntry } from "@/lib/orchestration/runtime-action-ledger";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import { buildTaskGoalContextSection } from "@/lib/orchestration/goal-context";
@@ -1861,20 +1863,35 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
     errors: [] as string[],
   };
 
-  for (const event of parsed.events) {
+  for (const [messageIndex, event] of parsed.events.entries()) {
     if (existingRefs.has(event.id)) {
       skippedDuplicates += 1;
       continue;
     }
 
-    const { actions, plainText, parseErrors } = parseActionsFromText(event.body);
+    const { blocks, actions, plainText, parseErrors } = parseActionBlocksFromText(event.body);
+    for (const block of blocks) {
+      recordLegacyPollActionLedger({
+        db,
+        task,
+        run,
+        block,
+        messageIndex,
+        status: block.action ? "parsed" : "parse_failed",
+        statusReason: block.action ? null : "parser_rejected_action_block",
+        parseError: block.parseError ?? null,
+      });
+    }
     if (parseErrors.length > 0) {
       actionStats.errors.push(...parseErrors);
     }
     actionStats.found += actions.length;
 
     if (actions.length > 0 && task.assigneeAgentId) {
-      for (const action of actions) {
+      for (const block of blocks) {
+        const action = block.action;
+        if (!action) continue;
+        const actionStart = Date.now();
         const outcome = await executeMcAction(
           action,
           {
@@ -1887,12 +1904,36 @@ export async function pollTaskExecutionStatus(taskId: string): Promise<PollTaskE
           db,
         );
         applyActionOutcome(actionStats, action.action, outcome);
+        recordLegacyPollActionLedger({
+          db,
+          task,
+          run,
+          block,
+          messageIndex,
+          status: runtimeActionLedgerStatusForOutcome(outcome),
+          statusReason: outcome.kind === "failed" ? outcome.reason : outcome.kind,
+          approvalId: outcome.kind === "created_approval" ? outcome.approvalId : null,
+          outcome: outcome as unknown as Record<string, unknown>,
+          durationMs: Date.now() - actionStart,
+        });
       }
     } else if (actions.length > 0 && !task.assigneeAgentId) {
       actionStats.failed += actions.length;
       actionStats.errors.push(
         `Skipped ${actions.length} mc-action block(s): task has no assignee_agent_id to attribute execution to`,
       );
+      for (const block of blocks) {
+        if (!block.action) continue;
+        recordLegacyPollActionLedger({
+          db,
+          task,
+          run,
+          block,
+          messageIndex,
+          status: "failed",
+          statusReason: "task_missing_assignee_agent_id",
+        });
+      }
     }
 
     const trimmedPlain = plainText.trim();
@@ -2066,6 +2107,47 @@ function applyActionOutcome(
       stats.errors.push(`${actionType}: ${outcome.reason}`);
       break;
   }
+}
+
+function runtimeActionLedgerStatusForOutcome(outcome: McActionExecutionOutcome): "pending_approval" | "executed" | "failed" | "skipped_duplicate" {
+  if (outcome.kind === "created_approval") return "pending_approval";
+  if (outcome.kind === "failed") return "failed";
+  if (outcome.kind === "skipped_duplicate") return "skipped_duplicate";
+  return "executed";
+}
+
+function recordLegacyPollActionLedger(input: {
+  db: Database.Database;
+  task: BridgeTaskRecord;
+  run: ExecutionRunRecord;
+  block: ParsedMcActionBlock;
+  messageIndex: number;
+  status: "parsed" | "parse_failed" | "pending_approval" | "executed" | "failed" | "skipped_duplicate";
+  statusReason?: string | null;
+  parseError?: string | null;
+  approvalId?: string | null;
+  outcome?: Record<string, unknown> | null;
+  durationMs?: number | null;
+}): void {
+  recordRuntimeActionLedgerEntry(input.db, {
+    source: "legacy_execution_poll",
+    status: input.status,
+    companyId: input.task.companyId,
+    agentId: input.task.assigneeAgentId ?? null,
+    taskId: input.task.id,
+    taskKey: input.task.taskKey ?? input.task.id,
+    executionRunId: input.run.id,
+    approvalId: input.approvalId ?? null,
+    messageIndex: input.messageIndex,
+    blockIndex: input.block.blockIndex,
+    action: input.block.action ?? null,
+    actionType: input.block.actionType ?? null,
+    rawBlock: input.block.rawBlock,
+    statusReason: input.statusReason ?? null,
+    parseError: input.parseError ?? null,
+    outcome: input.outcome ?? null,
+    durationMs: input.durationMs ?? null,
+  });
 }
 
 export async function triggerTaskNudge(

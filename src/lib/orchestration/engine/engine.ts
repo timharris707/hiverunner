@@ -120,9 +120,10 @@ export {
   executeUseSkill,
   emitRunEvent,
   getLatestReviewSubmissionAuthor,
+  parseActionBlocksFromText,
   parseActionsFromText,
 } from "@/lib/orchestration/engine/action-dispatcher";
-export type { ExecuteMcActionInput, McAction, McActionExecutionOutcome } from "@/lib/orchestration/engine/action-dispatcher";
+export type { ExecuteMcActionInput, McAction, McActionExecutionOutcome, ParsedMcActionBlock } from "@/lib/orchestration/engine/action-dispatcher";
 import { buildHeartbeatPrompt } from "@/lib/orchestration/engine/prompt-builder";
 export {
   buildHeartbeatPrompt,

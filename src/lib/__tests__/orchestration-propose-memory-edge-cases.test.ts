@@ -19,7 +19,7 @@ async function run() {
   const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
   const { createCompany } = await import("@/lib/orchestration/company-service");
   const { getOrchestrationDb } = await import("@/lib/orchestration/db");
-  const { executeMcAction, parseActionsFromText } = await import("@/lib/orchestration/engine/engine");
+  const { executeMcAction, parseActionBlocksFromText, parseActionsFromText } = await import("@/lib/orchestration/engine/engine");
 
   const db = getOrchestrationDb();
 
@@ -78,6 +78,16 @@ async function run() {
       parseErrors[0].includes("body"),
       `expected error to name the 'body' field, got: ${parseErrors[0]}`,
     );
+  });
+
+  await test("edge case 1a detail: parser preserves rejected action block metadata", () => {
+    const parsed = parseActionBlocksFromText('```mc-action\n{"action":"propose_memory"}\n```');
+    assert.strictEqual(parsed.actions.length, 0);
+    assert.strictEqual(parsed.blocks.length, 1);
+    assert.strictEqual(parsed.blocks[0]?.blockIndex, 0);
+    assert.strictEqual(parsed.blocks[0]?.actionType, "propose_memory");
+    assert.ok(parsed.blocks[0]?.rawBlock.includes("mc-action"));
+    assert.ok(parsed.blocks[0]?.parseError?.includes("body"));
   });
 
   await test("edge case 1b: whitespace-only body is caught at parse time with field name in error", () => {

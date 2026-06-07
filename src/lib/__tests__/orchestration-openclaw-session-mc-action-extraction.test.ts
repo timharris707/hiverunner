@@ -30,6 +30,7 @@ import {
 } from "@/lib/orchestration/service";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { pollTaskExecutionStatus } from "@/lib/orchestration/execution";
+import { configureCompanyExecutionHive, ensureCompanyExecutionHives } from "@/lib/orchestration/service/execution-hives";
 
 let passed = 0;
 let failed = 0;
@@ -100,8 +101,9 @@ exit 1
 }
 
 function createFixture() {
+  const companyId = "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f";
   const project = createProject({
-    companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
+    companyId,
     name: `MC Action Extraction Project ${Date.now()}`,
     description: "Fixture for mc-action extraction regression",
     color: "#f97316",
@@ -144,6 +146,17 @@ function createFixture() {
   getOrchestrationDb()
     .prepare("UPDATE tasks SET execution_mode = 'openclaw' WHERE id = ?")
     .run(task.id);
+  const db = getOrchestrationDb();
+  ensureCompanyExecutionHives({ companyIdOrSlug: companyId }, db);
+  configureCompanyExecutionHive({
+    companyIdOrSlug: companyId,
+    hiveId: "balanced-builder",
+    orchestrationMode: "hiverunner",
+    runtimeProvider: "openclaw",
+    runtimeLabel: "OpenClaw",
+    modelRouting: "runtime-managed",
+    modelRoutingLabel: "Runtime managed",
+  }, db);
 
   return { project, agent, task };
 }
@@ -205,6 +218,31 @@ async function run() {
         `expected all 4 actions executed, got ${result.actions.executed} (errors: ${result.actions.errors.join("; ")})`
       );
       assert.strictEqual(result.actions.tasksCreated.length, 3, "expected 3 subtasks created");
+
+      const actionLedgerRows = db
+        .prepare(
+          `SELECT source, status, action_type, task_id, task_key, execution_run_id
+           FROM runtime_action_ledger
+           WHERE execution_run_id = ?
+           ORDER BY block_index ASC`,
+        )
+        .all(execRunId) as Array<{
+          source: string;
+          status: string;
+          action_type: string | null;
+          task_id: string | null;
+          task_key: string | null;
+          execution_run_id: string | null;
+        }>;
+      assert.strictEqual(actionLedgerRows.length, 4, "expected one terminal ledger row per mc-action block");
+      assert.ok(actionLedgerRows.every((row) => row.source === "legacy_execution_poll"));
+      assert.ok(actionLedgerRows.every((row) => row.status === "executed"));
+      assert.deepStrictEqual(
+        actionLedgerRows.map((row) => row.action_type),
+        ["create_task", "create_task", "create_task", "update_task"],
+      );
+      assert.ok(actionLedgerRows.every((row) => row.task_id === fixture.task.id));
+      assert.ok(actionLedgerRows.every((row) => row.task_key === fixture.task.key));
 
       // 2. The assistant's raw text (with mc-action fences) is NOT stored
       //    as a comment on the parent task.

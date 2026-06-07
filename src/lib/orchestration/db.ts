@@ -4334,6 +4334,61 @@ const MIGRATIONS: Migration[] = [
         WHERE company_id IS NOT NULL;
     `,
   },
+  {
+    version: 123,
+    name: "runtime_action_ledger",
+    sql: `
+      CREATE TABLE IF NOT EXISTS runtime_action_ledger (
+        id                    TEXT PRIMARY KEY,
+        idempotency_key       TEXT NOT NULL UNIQUE,
+        company_id            TEXT REFERENCES companies(id) ON DELETE SET NULL,
+        agent_id              TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        task_id               TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        task_key              TEXT,
+        heartbeat_run_id      TEXT REFERENCES heartbeat_runs(id) ON DELETE SET NULL,
+        execution_run_id      TEXT REFERENCES execution_runs(id) ON DELETE CASCADE,
+        overseer_session_id   TEXT REFERENCES overseer_sessions(id) ON DELETE CASCADE,
+        overseer_turn_id      TEXT REFERENCES overseer_turns(id) ON DELETE SET NULL,
+        overseer_message_id   TEXT REFERENCES overseer_session_messages(id) ON DELETE SET NULL,
+        approval_id           TEXT REFERENCES approvals(id) ON DELETE SET NULL,
+        source                TEXT NOT NULL CHECK (source IN ('heartbeat_import','legacy_execution_poll','overseer','manual')),
+        message_index         INTEGER,
+        block_index           INTEGER NOT NULL DEFAULT 0 CHECK (block_index >= 0),
+        action_type           TEXT,
+        action_target         TEXT,
+        action_fingerprint    TEXT NOT NULL,
+        status                TEXT NOT NULL CHECK (status IN ('parsed','parse_failed','observed','pending_approval','executed','deferred','failed','skipped_duplicate')),
+        status_reason         TEXT,
+        parse_error           TEXT,
+        action_json           TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(action_json)),
+        raw_block             TEXT,
+        outcome_json          TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(outcome_json)),
+        duration_ms           INTEGER CHECK (duration_ms IS NULL OR duration_ms >= 0),
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_heartbeat
+        ON runtime_action_ledger(heartbeat_run_id, created_at ASC)
+        WHERE heartbeat_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_execution
+        ON runtime_action_ledger(execution_run_id, created_at ASC)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_overseer
+        ON runtime_action_ledger(overseer_session_id, overseer_turn_id, created_at ASC)
+        WHERE overseer_session_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_approval
+        ON runtime_action_ledger(approval_id, created_at DESC)
+        WHERE approval_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_action_ledger_company_status
+        ON runtime_action_ledger(company_id, status, created_at DESC)
+        WHERE company_id IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

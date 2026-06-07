@@ -187,7 +187,7 @@ async function run() {
 
       const executionRun = db
         .prepare(
-          `SELECT provider, status, session_id, completed_at, error_message,
+          `SELECT id, provider, status, session_id, completed_at, error_message,
                   attempt_number, retry_allowed, retry_decision_reason, terminalized_by
            FROM execution_runs
            WHERE task_id = ?
@@ -196,6 +196,7 @@ async function run() {
         )
         .get(task.id) as
         | {
+            id: string;
             provider: string;
             status: string;
             session_id: string | null;
@@ -217,6 +218,36 @@ async function run() {
       assert.strictEqual(executionRun?.retry_allowed, 0);
       assert.strictEqual(executionRun?.retry_decision_reason, "completed");
       assert.strictEqual(executionRun?.terminalized_by, "adapter");
+
+      const actionLedgerRows = db
+        .prepare(
+          `SELECT source, status, action_type, action_target, task_id, task_key, execution_run_id, heartbeat_run_id, parse_error
+           FROM runtime_action_ledger
+           WHERE task_id = ?
+           ORDER BY created_at ASC`,
+        )
+        .all(task.id) as Array<{
+          source: string;
+          status: string;
+          action_type: string | null;
+          action_target: string | null;
+          task_id: string | null;
+          task_key: string | null;
+          execution_run_id: string | null;
+          heartbeat_run_id: string | null;
+          parse_error: string | null;
+        }>;
+      assert.ok(actionLedgerRows.length >= 1, "expected heartbeat action ledger row");
+      const addCommentLedger = actionLedgerRows.find((row) => row.action_type === "add_comment");
+      assert.ok(addCommentLedger, "expected add_comment action ledger row");
+      assert.strictEqual(addCommentLedger?.source, "heartbeat_import");
+      assert.strictEqual(addCommentLedger?.status, "executed");
+      assert.strictEqual(addCommentLedger?.action_target, task.key ?? task.id);
+      assert.strictEqual(addCommentLedger?.task_id, task.id);
+      assert.strictEqual(addCommentLedger?.task_key, task.key ?? task.id);
+      assert.strictEqual(addCommentLedger?.execution_run_id, executionRun?.id);
+      assert.strictEqual(addCommentLedger?.heartbeat_run_id, wake.heartbeatRunId);
+      assert.strictEqual(addCommentLedger?.parse_error, null);
 
       const attemptEvents = db
         .prepare("SELECT event_type FROM execution_run_attempt_events WHERE execution_run_id = (SELECT id FROM execution_runs WHERE task_id = ? ORDER BY created_at DESC LIMIT 1) ORDER BY created_at ASC")
