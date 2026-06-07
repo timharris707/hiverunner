@@ -70,6 +70,7 @@ async function run() {
   const originalCli = process.env.ORCHESTRATION_OPENCLAW_CLI;
   const originalPollMs = process.env.ORCHESTRATION_OPENCLAW_SESSION_POLL_INTERVAL_MS;
   const originalTimeoutMs = process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS;
+  const originalProgressMs = process.env.ORCHESTRATION_OPENCLAW_SESSION_PROGRESS_EVENT_INTERVAL_MS;
   const stubCli = createRunningOutputOpenClawCli();
 
   try {
@@ -77,6 +78,7 @@ async function run() {
     process.env.ORCHESTRATION_OPENCLAW_CLI = stubCli;
     process.env.ORCHESTRATION_OPENCLAW_SESSION_POLL_INTERVAL_MS = "10";
     process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS = "80";
+    process.env.ORCHESTRATION_OPENCLAW_SESSION_PROGRESS_EVENT_INTERVAL_MS = "1";
 
     await test("running assistant progress is not imported as a terminal passive report", async () => {
       const { getOrchestrationDb } = await import("@/lib/orchestration/db");
@@ -170,6 +172,20 @@ async function run() {
       assert.deepStrictEqual(resultJson.errors, [result.error]);
       assert.strictEqual(usageJson.sessionCompletionTimedOut, true);
       assert.strictEqual(usageJson.sessionOutputStatus, "running");
+
+      const waitingEvents = db
+        .prepare(
+          `SELECT detail
+           FROM heartbeat_run_events
+           WHERE run_id = ?
+             AND event_type = 'waiting'
+           ORDER BY created_at ASC`,
+        )
+        .all(wake.heartbeatRunId) as Array<{ detail: string }>;
+      assert.ok(
+        waitingEvents.some((event) => /OpenClaw session still active/i.test(event.detail)),
+        "running session polling should emit durable progress events for liveness",
+      );
     });
   } finally {
     if (originalCli === undefined) delete process.env.ORCHESTRATION_OPENCLAW_CLI;
@@ -178,6 +194,8 @@ async function run() {
     else process.env.ORCHESTRATION_OPENCLAW_SESSION_POLL_INTERVAL_MS = originalPollMs;
     if (originalTimeoutMs === undefined) delete process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS;
     else process.env.ORCHESTRATION_OPENCLAW_SESSION_COMPLETION_TIMEOUT_MS = originalTimeoutMs;
+    if (originalProgressMs === undefined) delete process.env.ORCHESTRATION_OPENCLAW_SESSION_PROGRESS_EVENT_INTERVAL_MS;
+    else process.env.ORCHESTRATION_OPENCLAW_SESSION_PROGRESS_EVENT_INTERVAL_MS = originalProgressMs;
     rmSync(stubCli, { force: true });
     resetSqliteDatabaseFiles(dbPath);
   }

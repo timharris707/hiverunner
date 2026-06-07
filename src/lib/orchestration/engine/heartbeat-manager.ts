@@ -169,12 +169,34 @@ function emitRunEvent(
   db: Database.Database,
 ): void {
   try {
+    const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), runId, agentId, eventType, detail, new Date().toISOString());
+    ).run(randomUUID(), runId, agentId, eventType, detail, now);
+    db.prepare(
+      `UPDATE heartbeat_runs
+       SET updated_at = ?
+       WHERE id = ?
+         AND status IN ('queued', 'running')`
+    ).run(now, runId);
   } catch {
     // Non-fatal - event emission should never break the run.
   }
+}
+
+function isCommentWakeAllowedAfterTaskStart(input: {
+  expectedStatus: string;
+  currentStatus: string;
+  wakeReason: string | null;
+  currentAssigneeId: string | null;
+  agentId: string;
+}): boolean {
+  return (
+    input.expectedStatus === "to-do" &&
+    input.currentStatus === "in_progress" &&
+    input.wakeReason === "user_comment_on_assigned_task" &&
+    (!input.currentAssigneeId || input.currentAssigneeId === input.agentId)
+  );
 }
 
 function staleTaskWakeReason(input: {
@@ -199,6 +221,17 @@ function staleTaskWakeReason(input: {
 
   if (!current || current.archived_at) {
     return `Skipped stale wake: task ${taskId} is no longer active.`;
+  }
+
+  const wakeReason = stringFromRecord(input.contextSnapshot.wakeReason);
+  if (isCommentWakeAllowedAfterTaskStart({
+    expectedStatus,
+    currentStatus: current.status,
+    wakeReason,
+    currentAssigneeId: current.assignee_agent_id,
+    agentId: input.agentId,
+  })) {
+    return null;
   }
 
   if (current.status !== expectedStatus) {
@@ -676,6 +709,13 @@ export async function executeHeartbeatRun(
       : executionRunProvider;
     const executionAdapter = getExecutionAdapter(attemptAdapterType);
     const attemptStartedAt = new Date().toISOString();
+    emitRunEvent(
+      runId,
+      agent.id,
+      "waiting",
+      `Dispatching ${attemptProvider ?? attemptAdapterType} execution${executionRunId ? ` for execution run ${executionRunId}` : ""}.`,
+      db,
+    );
     try {
       result = await executionAdapter.execute({
         agent,

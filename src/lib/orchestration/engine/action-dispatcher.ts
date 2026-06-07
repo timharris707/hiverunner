@@ -91,6 +91,11 @@ function sessionCompletionTimeoutMs(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 540_000;
 }
 
+function sessionProgressEventIntervalMs(): number {
+  const configured = Number(process.env.ORCHESTRATION_OPENCLAW_SESSION_PROGRESS_EVENT_INTERVAL_MS);
+  return Number.isFinite(configured) && configured >= 0 ? configured : 30_000;
+}
+
 function isTerminalSessionStatus(status: string | undefined): boolean {
   return status === "done" || status === "completed" || status === "failed" || status === "error" || status === "cancelled";
 }
@@ -920,9 +925,16 @@ export function emitRunEvent(
   db: Database.Database,
 ): void {
   try {
+    const now = new Date().toISOString();
     db.prepare(
       `INSERT INTO heartbeat_run_events (id, run_id, agent_id, event_type, detail, created_at) VALUES (?, ?, ?, ?, ?, ?)`
-    ).run(randomUUID(), runId, agentId, eventType, detail, new Date().toISOString());
+    ).run(randomUUID(), runId, agentId, eventType, detail, now);
+    db.prepare(
+      `UPDATE heartbeat_runs
+       SET updated_at = ?
+       WHERE id = ?
+         AND status IN ('queued', 'running')`
+    ).run(now, runId);
   } catch {
     // Non-fatal — event emission should never break the run
   }
@@ -1077,7 +1089,19 @@ async function getSessionListEntry(
 export async function waitForSessionCompletion(
   _command: string,
   sessionKey: string,
-  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>
+  execFileAsync: (cmd: string, args: string[], opts: { maxBuffer: number; env: NodeJS.ProcessEnv | undefined }) => Promise<{ stdout: string }>,
+  options: {
+    onProgress?: (progress: {
+      attempt: number;
+      elapsedMs: number;
+      status?: string;
+      listStatus?: string;
+      messageCount: number;
+      hasAssistantOutput: boolean;
+      active: boolean;
+    }) => void;
+    progressIntervalMs?: number;
+  } = {},
 ): Promise<unknown> {
   // Poll sessions.get until session is terminal or idle with new output.
   // Terminal statuses: done, completed, failed, error, cancelled
@@ -1085,11 +1109,37 @@ export async function waitForSessionCompletion(
   //   (agent finished a quick turn without the status reaching "done")
   const timeoutMs = sessionCompletionTimeoutMs();
   const pollMs = sessionPollIntervalMs();
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  const progressIntervalMs = options.progressIntervalMs ?? sessionProgressEventIntervalMs();
+  let lastProgressAt = 0;
   let sawRunning = false;
   let lastAssistantFingerprint = "";
   let stableAssistantPolls = 0;
   let attempt = 0;
+
+  const maybeEmitProgress = (progress: {
+    attempt: number;
+    status?: string;
+    listStatus?: string;
+    messageCount: number;
+    hasAssistantOutput: boolean;
+    active: boolean;
+  }) => {
+    if (!options.onProgress) return;
+    if (!progress.active && !progress.hasAssistantOutput) return;
+    const now = Date.now();
+    if (lastProgressAt > 0 && now - lastProgressAt < progressIntervalMs) return;
+    lastProgressAt = now;
+    try {
+      options.onProgress({
+        ...progress,
+        elapsedMs: now - startedAt,
+      });
+    } catch {
+      // Progress telemetry is best-effort and must not affect execution.
+    }
+  };
 
   while (Date.now() < deadline) {
     try {
@@ -1126,6 +1176,15 @@ export async function waitForSessionCompletion(
       if (hasActiveStatus) {
         sawRunning = true;
       }
+
+      maybeEmitProgress({
+        attempt,
+        status,
+        listStatus,
+        messageCount: messages.length,
+        hasAssistantOutput,
+        active: hasActiveStatus,
+      });
 
       if (assistantFingerprint && assistantFingerprint === lastAssistantFingerprint) {
         stableAssistantPolls += 1;

@@ -28,11 +28,11 @@ async function run() {
   try {
     if (dbPath) rmSync(dbPath, { force: true });
 
-    const { createProject, createProjectAgent } = await import("@/lib/orchestration/service");
+    const { createProject, createProjectAgent, createTask } = await import("@/lib/orchestration/service");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
-    const { enqueueWakeup } = await import("@/lib/orchestration/engine/engine");
+    const { enqueueWakeup, executeHeartbeatRun, __testHooks } = await import("@/lib/orchestration/engine/engine");
 
-    async function makeAgent() {
+    async function makeAgent(options: { openclaw?: boolean } = {}) {
       const project = createProject({
         companyId: "6f0c7f7d-8ea8-4f7d-a2e6-7f5375dfef6f",
         name: `Coalesce ${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -47,7 +47,9 @@ async function run() {
         emoji: "🔧",
         role: "Backend Engineer",
         personality: "Deterministic",
-        openclawAgentId: `coalesce-agent-${Math.random().toString(36).slice(2, 8)}`,
+        openclawAgentId: options.openclaw === false
+          ? undefined
+          : `coalesce-agent-${Math.random().toString(36).slice(2, 8)}`,
         status: "idle",
         skills: ["orchestration"],
       }).agent;
@@ -106,6 +108,214 @@ async function run() {
       assert.equal(rows.length, 1, "only one wake row should exist");
       assert.equal(rows[0].status, "queued", "the surviving wake stays queued");
       assert.equal(rows[0].coalesced_count, 1, "coalesced_count should bump from 0 to 1");
+    });
+
+    await test("comment wake and in-progress transition wake for the same claimed task coalesce", async () => {
+      const { project, agent } = await makeAgent();
+      const db = getOrchestrationDb();
+      db.prepare("DELETE FROM heartbeat_runs").run();
+      db.prepare("DELETE FROM agent_wakeup_requests").run();
+      const taskId = `task-comment-transition-${Math.random().toString(36).slice(2, 8)}`;
+
+      const commentWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "api",
+        reason: "user_comment_on_assigned_task",
+        triggerDetail: "task_comment:comment-1",
+        payload: {
+          taskId,
+          taskStatus: "to-do",
+          commentId: "comment-1",
+        },
+        idempotencyKey: `task-comment-wake:comment-1:${taskId}`,
+      });
+
+      const claimed = __testHooks.claimNextQueuedRun(db);
+      assert.equal(claimed?.id, commentWake.heartbeatRunId, "fixture should claim the comment wake");
+
+      const transitionWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "issue_assigned",
+        reason: "task_moved_to_in_progress",
+        payload: {
+          taskId,
+          taskStatus: "in_progress",
+          executionRunId: "execution-run-from-transition",
+        },
+        idempotencyKey: `mc-task-transition:${taskId}:to-do->in_progress:updated-at`,
+      });
+
+      assert.equal(transitionWake.status, "coalesced");
+      assert.equal(transitionWake.wakeupRequestId, commentWake.wakeupRequestId);
+      assert.equal(transitionWake.heartbeatRunId, commentWake.heartbeatRunId);
+
+      const rows = db.prepare(
+        `SELECT awr.id, awr.status AS wake_status, awr.coalesced_count, hr.id AS run_id, hr.status AS run_status,
+                hr.context_snapshot_json
+         FROM agent_wakeup_requests awr
+         INNER JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE awr.agent_id = ?
+         ORDER BY awr.created_at ASC`,
+      ).all(agent.id) as Array<{
+        id: string;
+        wake_status: string;
+        coalesced_count: number;
+        run_id: string;
+        run_status: string;
+        context_snapshot_json: string;
+      }>;
+
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0].id, commentWake.wakeupRequestId);
+      assert.equal(rows[0].wake_status, "claimed");
+      assert.equal(rows[0].coalesced_count, 1);
+      assert.equal(rows[0].run_id, commentWake.heartbeatRunId);
+      assert.equal(rows[0].run_status, "running");
+      const snapshot = JSON.parse(rows[0].context_snapshot_json) as Record<string, unknown>;
+      assert.equal(snapshot.taskStatus, "in_progress");
+      assert.equal(snapshot.executionRunId, "execution-run-from-transition");
+    });
+
+    await test("queued same-task coalesce refreshes the surviving heartbeat context", async () => {
+      const { project, agent } = await makeAgent();
+      const db = getOrchestrationDb();
+      db.prepare("DELETE FROM heartbeat_runs").run();
+      db.prepare("DELETE FROM agent_wakeup_requests").run();
+      const taskId = `task-comment-transition-queued-${Math.random().toString(36).slice(2, 8)}`;
+
+      const commentWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "api",
+        reason: "user_comment_on_assigned_task",
+        payload: {
+          taskId,
+          taskStatus: "to-do",
+          commentId: "comment-before-transition",
+        },
+        idempotencyKey: `task-comment-wake:comment-before-transition:${taskId}`,
+      });
+      const transitionWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "issue_assigned",
+        reason: "task_moved_to_in_progress",
+        payload: {
+          taskId,
+          taskStatus: "in_progress",
+          executionRunId: "execution-run-before-claim",
+        },
+        idempotencyKey: `mc-task-transition:${taskId}:to-do->in_progress:queued`,
+      });
+
+      assert.equal(transitionWake.status, "coalesced");
+      assert.equal(transitionWake.wakeupRequestId, commentWake.wakeupRequestId);
+
+      const row = db.prepare(
+        `SELECT awr.coalesced_count, awr.payload_json, hr.context_snapshot_json
+         FROM agent_wakeup_requests awr
+         INNER JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE awr.id = ?
+         LIMIT 1`,
+      ).get(commentWake.wakeupRequestId) as {
+        coalesced_count: number;
+        payload_json: string;
+        context_snapshot_json: string;
+      };
+      const payload = JSON.parse(row.payload_json) as Record<string, unknown>;
+      const snapshot = JSON.parse(row.context_snapshot_json) as Record<string, unknown>;
+
+      assert.equal(row.coalesced_count, 1);
+      assert.equal(payload.taskStatus, "in_progress");
+      assert.equal(snapshot.taskStatus, "in_progress");
+      assert.equal(snapshot.executionRunId, "execution-run-before-claim");
+    });
+
+    await test("comment wake that transitions to in-progress is not cancelled as stale", async () => {
+      const { project, agent } = await makeAgent({ openclaw: false });
+      const db = getOrchestrationDb();
+      db.prepare("DELETE FROM heartbeat_runs").run();
+      db.prepare("DELETE FROM agent_wakeup_requests").run();
+      const task = createTask({
+        projectId: project.id,
+        title: "Comment transition fixture",
+        description: "The user comments, then starts the task before the wake executes.",
+        priority: "P2",
+        type: "feature",
+        status: "to-do",
+        assignee: agent.id,
+        labels: [],
+        createdBy: "coalesce-test",
+      }).task;
+      const wake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "api",
+        reason: "user_comment_on_assigned_task",
+        payload: {
+          taskId: task.id,
+          taskStatus: "to-do",
+          commentId: "comment-before-start",
+        },
+        idempotencyKey: `task-comment-wake:comment-before-start:${task.id}`,
+      });
+
+      db.prepare("UPDATE tasks SET status = 'in_progress', updated_at = ? WHERE id = ?")
+        .run(new Date().toISOString(), task.id);
+
+      let resultError = "";
+      try {
+        const result = await executeHeartbeatRun(wake.heartbeatRunId, db);
+        resultError = result.error ?? "";
+      } catch (error) {
+        resultError = error instanceof Error ? error.message : String(error);
+      }
+
+      assert.doesNotMatch(resultError, /Skipped stale wake/);
+    });
+
+    await test("generic manual wake does not coalesce onto an already running task wake", async () => {
+      const { project, agent } = await makeAgent();
+      const db = getOrchestrationDb();
+      db.prepare("DELETE FROM heartbeat_runs").run();
+      db.prepare("DELETE FROM agent_wakeup_requests").run();
+
+      const taskWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "api",
+        reason: "sweep_open_task",
+        contextSnapshot: {
+          wakeSource: "api",
+          wakeReason: "sweep_open_task",
+          taskId: "task-running-specific",
+          taskStatus: "to-do",
+        },
+        idempotencyKey: "sweep:task-running-specific:to-do",
+      });
+
+      const claimed = __testHooks.claimNextQueuedRun(db);
+      assert.equal(claimed?.id, taskWake.heartbeatRunId, "fixture should claim the task wake");
+
+      const manualWake = enqueueWakeup({
+        agentId: agent.id,
+        companyId: project.companyId,
+        source: "explicit",
+        reason: "ui_manual_wake",
+      });
+
+      assert.equal(manualWake.status, "queued");
+      assert.notEqual(manualWake.wakeupRequestId, taskWake.wakeupRequestId);
+
+      const rows = db.prepare(
+        `SELECT status
+         FROM agent_wakeup_requests
+         WHERE agent_id = ?
+         ORDER BY created_at ASC`,
+      ).all(agent.id) as Array<{ status: string }>;
+      assert.deepEqual(rows.map((row) => row.status), ["claimed", "queued"]);
     });
 
     await test("two enqueues with DIFFERENT idempotencyKeys supersede (newer wins, older fails)", async () => {

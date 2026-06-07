@@ -56,6 +56,29 @@ export type WakeTarget = {
   taskKey: string | null;
 };
 
+type EnqueueWakeupInput = {
+  agentId: string;
+  companyId: string;
+  source: WakeupSource;
+  reason?: string;
+  triggerDetail?: string;
+  payload?: Record<string, unknown>;
+  idempotencyKey?: string;
+  invocationSource?: InvocationSource;
+  contextSnapshot?: Record<string, unknown>;
+};
+
+type CoalesceableWake = {
+  id: string;
+  run_id: string | null;
+  wake_status: string;
+  run_status: string | null;
+};
+
+function isWakeAlreadyExecuting(wake: Pick<CoalesceableWake, "wake_status" | "run_status">): boolean {
+  return wake.wake_status === "claimed" || wake.run_status === "running";
+}
+
 export function wakeTargetFromRecord(record: Record<string, unknown> | null | undefined): WakeTarget {
   const taskId = typeof record?.taskId === "string" && record.taskId.trim()
     ? record.taskId.trim()
@@ -86,30 +109,90 @@ export function sameWakeTarget(a: WakeTarget, b: WakeTarget): boolean {
   );
 }
 
-function findQueuedWakeForScopeCoalesce(
+function findActiveWakeForScopeCoalesce(
   agentId: string,
   incomingTarget: WakeTarget,
   db: Database.Database,
-): { id: string; run_id: string | null } | null {
-  const queued = db.prepare(
-    `SELECT awr.id, awr.run_id, hr.context_snapshot_json
+): CoalesceableWake | null {
+  const active = db.prepare(
+    `SELECT awr.id, awr.run_id, awr.status AS wake_status, hr.status AS run_status, hr.context_snapshot_json
      FROM agent_wakeup_requests awr
      LEFT JOIN heartbeat_runs hr ON hr.id = awr.run_id
-     WHERE awr.agent_id = ? AND awr.status = 'queued'
-     ORDER BY awr.created_at ASC`
-  ).all(agentId) as Array<{ id: string; run_id: string | null; context_snapshot_json: string | null }>;
+     WHERE awr.agent_id = ?
+       AND (
+         awr.status IN ('queued', 'claimed')
+         OR hr.status IN ('queued', 'running')
+       )
+     ORDER BY
+       CASE
+         WHEN awr.status = 'claimed' OR hr.status = 'running' THEN 0
+         ELSE 1
+       END,
+       awr.created_at ASC`
+  ).all(agentId) as Array<CoalesceableWake & { context_snapshot_json: string | null }>;
 
-  for (const wake of queued) {
+  for (const wake of active) {
     const existingTarget = wakeTargetFromJson(wake.context_snapshot_json);
     if (isTaskWakeTarget(incomingTarget) && sameWakeTarget(incomingTarget, existingTarget)) {
-      return { id: wake.id, run_id: wake.run_id };
+      return wake;
     }
-    if (!isTaskWakeTarget(incomingTarget) && isTaskWakeTarget(existingTarget)) {
-      return { id: wake.id, run_id: wake.run_id };
+    if (
+      !isTaskWakeTarget(incomingTarget) &&
+      isTaskWakeTarget(existingTarget) &&
+      !isWakeAlreadyExecuting(wake)
+    ) {
+      return wake;
     }
   }
 
   return null;
+}
+
+function markWakeCoalesced(
+  existing: CoalesceableWake,
+  input: EnqueueWakeupInput,
+  snapshot: Record<string, unknown>,
+  incomingTarget: WakeTarget,
+  now: string,
+  db: Database.Database,
+): EnqueueWakeupResult {
+  const shouldRefreshQueuedContext =
+    isTaskWakeTarget(incomingTarget) &&
+    (existing.wake_status === "queued" || existing.run_status === "queued");
+  const shouldRefreshActiveContext =
+    isTaskWakeTarget(incomingTarget) &&
+    isWakeAlreadyExecuting(existing);
+  const shouldRefreshContext = shouldRefreshQueuedContext || shouldRefreshActiveContext;
+
+  db.prepare(
+    `UPDATE agent_wakeup_requests
+     SET coalesced_count = coalesced_count + 1,
+         payload_json = CASE WHEN ? THEN ? ELSE payload_json END,
+         updated_at = ?
+     WHERE id = ?`
+  ).run(
+    shouldRefreshContext ? 1 : 0,
+    JSON.stringify(input.payload ?? {}),
+    now,
+    existing.id,
+  );
+
+  if (shouldRefreshContext && existing.run_id) {
+    db.prepare(
+      `UPDATE heartbeat_runs
+       SET context_snapshot_json = ?,
+           trigger_detail = COALESCE(?, trigger_detail),
+           updated_at = ?
+       WHERE id = ?
+         AND status IN ('queued', 'running')`
+    ).run(JSON.stringify(snapshot), input.triggerDetail ?? null, now, existing.run_id);
+  }
+
+  return {
+    wakeupRequestId: existing.id,
+    heartbeatRunId: existing.run_id ?? "",
+    status: "coalesced",
+  };
 }
 
 export function shouldSupersedeQueuedWake(existingTarget: WakeTarget, incomingTarget: WakeTarget): boolean {
@@ -174,17 +257,7 @@ export function mapSourceToInvocation(source: WakeupSource): InvocationSource {
 }
 
 export function enqueueWakeup(
-  input: {
-    agentId: string;
-    companyId: string;
-    source: WakeupSource;
-    reason?: string;
-    triggerDetail?: string;
-    payload?: Record<string, unknown>;
-    idempotencyKey?: string;
-    invocationSource?: InvocationSource;
-    contextSnapshot?: Record<string, unknown>;
-  },
+  input: EnqueueWakeupInput,
   db = getOrchestrationDb()
 ): EnqueueWakeupResult {
   const now = new Date().toISOString();
@@ -195,50 +268,42 @@ export function enqueueWakeup(
   };
   const incomingTarget = wakeTargetFromRecord(snapshot);
 
-  // Check for existing queued wakeup we can coalesce BEFORE pruning.
+  // Check for existing active wakeup we can coalesce BEFORE pruning.
   // Previously pruneSupersededQueuedWakeups ran first and flipped every queued
   // wake for this agent to 'failed/superseded_by_newer_wake' — which meant the
-  // idempotency SELECT below (WHERE status = 'queued') could never find a
-  // match. Coalesce was dead code, and two paths enqueuing the same logical
-  // event (e.g. finish-run-continuation vs reconcile-continuation for the same
-  // task-in-review) would always produce superseded losses instead of a single
-  // coalesced wake. Do the coalesce lookup first; only prune when we're about
-  // to actually insert a new row.
+  // idempotency SELECT below could never find a match. Active means queued or
+  // already claimed/running: a same-task comment wake followed by a transition
+  // wake must not create a second heartbeat just because the first wake has
+  // started executing.
   if (input.idempotencyKey) {
     const existing = db
       .prepare(
-        `SELECT id, run_id FROM agent_wakeup_requests
-         WHERE idempotency_key = ? AND status = 'queued'
+        `SELECT awr.id, awr.run_id, awr.status AS wake_status, hr.status AS run_status
+         FROM agent_wakeup_requests awr
+         LEFT JOIN heartbeat_runs hr ON hr.id = awr.run_id
+         WHERE awr.idempotency_key = ?
+           AND (
+             awr.status IN ('queued', 'claimed')
+             OR hr.status IN ('queued', 'running')
+           )
+         ORDER BY
+           CASE
+             WHEN awr.status = 'claimed' OR hr.status = 'running' THEN 0
+             ELSE 1
+           END,
+           awr.created_at ASC
          LIMIT 1`
       )
-      .get(input.idempotencyKey) as { id: string; run_id: string | null } | undefined;
+      .get(input.idempotencyKey) as CoalesceableWake | undefined;
 
     if (existing) {
-      db.prepare(
-        `UPDATE agent_wakeup_requests
-         SET coalesced_count = coalesced_count + 1, updated_at = ?
-         WHERE id = ?`
-      ).run(now, existing.id);
-      return {
-        wakeupRequestId: existing.id,
-        heartbeatRunId: existing.run_id ?? "",
-        status: "coalesced",
-      };
+      return markWakeCoalesced(existing, input, snapshot, incomingTarget, now, db);
     }
   }
 
-  const scopedExisting = findQueuedWakeForScopeCoalesce(input.agentId, incomingTarget, db);
+  const scopedExisting = findActiveWakeForScopeCoalesce(input.agentId, incomingTarget, db);
   if (scopedExisting) {
-    db.prepare(
-      `UPDATE agent_wakeup_requests
-       SET coalesced_count = coalesced_count + 1, updated_at = ?
-       WHERE id = ?`
-    ).run(now, scopedExisting.id);
-    return {
-      wakeupRequestId: scopedExisting.id,
-      heartbeatRunId: scopedExisting.run_id ?? "",
-      status: "coalesced",
-    };
+    return markWakeCoalesced(scopedExisting, input, snapshot, incomingTarget, now, db);
   }
 
   pruneSupersededQueuedWakeups(input.agentId, now, db, incomingTarget);
@@ -246,8 +311,8 @@ export function enqueueWakeup(
   // The UNIQUE index on idempotency_key covers ALL rows with a non-null key
   // (not just queued), so a terminal row from a prior identical wake will
   // block a fresh insert. Free the key on any terminal row with the same
-  // value before inserting — we already confirmed no *queued* row exists,
-  // so nothing live is coalesceable.
+  // value before inserting — we already confirmed no active row exists, so
+  // nothing live is coalesceable.
   if (input.idempotencyKey) {
     db.prepare(
       `UPDATE agent_wakeup_requests
@@ -295,24 +360,37 @@ export function enqueueWakeup(
     if (sqliteCode === "SQLITE_CONSTRAINT_UNIQUE" && input.idempotencyKey) {
       const any = db
         .prepare(
-          `SELECT id, status, run_id FROM agent_wakeup_requests
-           WHERE idempotency_key = ?
-           ORDER BY created_at DESC
+          `SELECT awr.id, awr.status, awr.run_id, hr.status AS run_status
+           FROM agent_wakeup_requests awr
+           LEFT JOIN heartbeat_runs hr ON hr.id = awr.run_id
+           WHERE awr.idempotency_key = ?
+           ORDER BY awr.created_at DESC
            LIMIT 1`,
         )
-        .get(input.idempotencyKey) as { id: string; status: string; run_id: string | null } | undefined;
+        .get(input.idempotencyKey) as { id: string; status: string; run_id: string | null; run_status: string | null } | undefined;
 
-      if (any && any.status === "queued") {
-        db.prepare(
-          `UPDATE agent_wakeup_requests
-           SET coalesced_count = coalesced_count + 1, updated_at = ?
-           WHERE id = ?`,
-        ).run(now, any.id);
-        return {
-          wakeupRequestId: any.id,
-          heartbeatRunId: any.run_id ?? "",
-          status: "coalesced",
-        };
+      if (
+        any &&
+        (
+          any.status === "queued" ||
+          any.status === "claimed" ||
+          any.run_status === "queued" ||
+          any.run_status === "running"
+        )
+      ) {
+        return markWakeCoalesced(
+          {
+            id: any.id,
+            run_id: any.run_id,
+            wake_status: any.status,
+            run_status: any.run_status,
+          },
+          input,
+          snapshot,
+          incomingTarget,
+          now,
+          db,
+        );
       }
 
       if (any) {

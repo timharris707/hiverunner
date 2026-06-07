@@ -809,7 +809,31 @@ async function importSessionOutputAndExecuteActions(input: {
   // Wait for session to reach terminal state (poll sessions.get)
   const thinkingStart = Date.now();
   emitRunEvent(input.runId, input.agentId, "waiting", "Waiting for agent to complete thinking", input.db);
-  const sessionData = await waitForSessionCompletion(OPENCLAW_BIN, input.sessionKey, execFileAsync);
+  const sessionData = await waitForSessionCompletion(OPENCLAW_BIN, input.sessionKey, execFileAsync, {
+    onProgress: (progress) => {
+      const now = new Date().toISOString();
+      const status = progress.listStatus ?? progress.status ?? (progress.hasAssistantOutput ? "assistant output observed" : "active");
+      emitRunEvent(
+        input.runId,
+        input.agentId,
+        "waiting",
+        `OpenClaw session still active (${status}; ${progress.messageCount} message${progress.messageCount === 1 ? "" : "s"}; ${Math.round(progress.elapsedMs / 1000)}s elapsed)`,
+        input.db,
+      );
+      if (input.executionRunId) {
+        try {
+          input.db.prepare(
+            `UPDATE execution_runs
+             SET updated_at = ?
+             WHERE id = ?
+               AND status IN ('pending', 'running')`,
+          ).run(now, input.executionRunId);
+        } catch {
+          // Liveness telemetry is best-effort.
+        }
+      }
+    },
+  });
   const thinkingDurationMs = Date.now() - thinkingStart;
   if (input.telemetry) {
     input.telemetry.thinkingDurationMs = thinkingDurationMs;
