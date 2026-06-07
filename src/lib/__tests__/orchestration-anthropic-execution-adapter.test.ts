@@ -424,8 +424,8 @@ async function run() {
       runtimeSlug: "fixture-claude-configured",
       displayName: "Fixture Claude Configured",
       runtimeConfig: {
-        model: "anthropic/claude-opus-4-7",
-        reasoningEffort: "xhigh",
+        model: "anthropic/claude-opus-4-8",
+        reasoningEffort: "max",
         speedPreference: "fast_1_5x",
         fastMode: true,
         serviceTier: "fast",
@@ -443,14 +443,14 @@ async function run() {
     });
 
     assert.strictEqual(directResult.error, undefined);
-    assert.strictEqual(directResult.runnerModel, "claude-opus-4-7");
+    assert.strictEqual(directResult.runnerModel, "claude-opus-4-8");
     const args = readFileSync(argsFile, "utf8");
-    assert.ok(args.includes("--model claude-opus-4-7"), `runtime config model should pass through: ${args}`);
-    assert.ok(args.includes("--effort xhigh"), `supported Claude effort should pass through: ${args}`);
+    assert.ok(args.includes("--model claude-opus-4-8"), `runtime config model should pass through: ${args}`);
+    assert.ok(args.includes("--effort max"), `supported Claude effort should pass through: ${args}`);
     assert.ok(!args.includes("service_tier"), `Claude speed/service controls should stay telemetry-only: ${args}`);
     assert.ok(!args.includes("--speed"), `Claude speed controls should stay telemetry-only: ${args}`);
     const usage = directResult.usage ?? {};
-    assert.strictEqual(usage.reasoningEffort, "xhigh");
+    assert.strictEqual(usage.reasoningEffort, "max");
     assert.strictEqual(usage.speedPreference, "fast_1_5x");
     assert.strictEqual(usage.fastMode, true);
     assert.strictEqual(usage.serviceTier, "fast");

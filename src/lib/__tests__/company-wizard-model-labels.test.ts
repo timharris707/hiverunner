@@ -18,17 +18,18 @@ async function run() {
   console.log("\nCompany Wizard Model Label Tests\n");
 
   await test("CEO model labels are neutral while routing values stay intact", () => {
-    assert.equal(COMPANY_WIZARD_MODEL_FALLBACK.length, 11);
+    assert.equal(COMPANY_WIZARD_MODEL_FALLBACK.length, 12);
 
     const expectedValues = [
       "openai-codex/gpt-5.5",
       "openai-codex/gpt-5.4",
       "openai-codex/gpt-5.3-codex",
       "anthropic/claude-sonnet-4-6",
-      "anthropic/claude-opus-4-6",
+      "anthropic/claude-opus-4-8",
       "anthropic/claude-haiku-4-5",
       "google/gemini-3-pro-preview",
       "google/gemini-3.1-pro-preview",
+      "google/gemini-3.5-flash",
       "google/gemini-3-flash-preview",
       "google/gemini-2.5-pro",
       "google/gemini-2.5-flash",

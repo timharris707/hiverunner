@@ -24,7 +24,7 @@ function normalizeClaudeModel(value) {
     return DEFAULT_CLAUDE_MODEL;
   }
   if (model === "opus" || model === "claude-opus") {
-    return "claude-opus-4-7";
+    return "claude-opus-4-8";
   }
   return model;
 }

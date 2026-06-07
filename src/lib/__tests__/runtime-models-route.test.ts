@@ -55,9 +55,10 @@ async function run() {
   const fallbackResponse = await GET(new NextRequest("http://localhost/api/orchestration/runtime-models?provider=anthropic"));
   assert.equal(fallbackResponse.status, 200);
   const fallbackPayload = await json(fallbackResponse);
-  assert.ok(fallbackPayload.models?.some((model) => model.id === "anthropic/claude-sonnet-4-8" && model.default === true));
+  assert.ok(!fallbackPayload.models?.some((model) => model.id === "anthropic/claude-sonnet-4-8"));
+  assert.ok(!fallbackPayload.models?.some((model) => model.id === "anthropic/claude-haiku-4-8"));
+  assert.ok(fallbackPayload.models?.some((model) => model.id === "anthropic/claude-opus-4-8"));
   assert.ok(fallbackPayload.models?.some((model) => model.id === "anthropic/claude-sonnet-4-6"));
-  assert.ok(fallbackPayload.models?.some((model) => model.id === "anthropic/claude-opus-4-7"));
 
   const commandPath = path.join(os.tmpdir(), `mc-openclaw-models-${Date.now()}.sh`);
   writeFileSync(

@@ -171,8 +171,8 @@ A custom runner is any executable command that:
    recorded.
 
 The adapter accepts JSON fields such as `resultText`, `assistantSummary`, `sessionId`, token counts,
-and `transcriptEvents`. If stdout is plain text without `mc-action` blocks, HiveRunner records it as a
-passive report.
+provider/model metadata, `usage`, and `transcriptEvents`. If stdout is plain text without
+`mc-action` blocks, HiveRunner records it as a passive report.
 
 Minimal custom runner shape:
 
@@ -200,6 +200,168 @@ process.stdout.write(JSON.stringify({
     "```",
   ].join("\n"),
 }) + "\n");
+```
+
+## Runner Trace Capability
+
+Rich trace capture is optional. A custom runner remains valid when it returns plain text, or when it
+returns the minimal JSON shape above with only `sessionId` and `resultText`. Extra trace fields give
+Run Trace v1 better chronology, usage, artifact, failure, and memory evidence, but their absence is
+reported as missing evidence rather than a contract failure.
+
+Recommended optional JSON fields:
+
+| Field | Shape | Trace use |
+| --- | --- | --- |
+| `assistantSummary` | string | Compact result summary when different from `resultText`. |
+| `status` | string | Terminal runner status such as `completed`, `failed`, or `cancelled` when known. |
+| `error` | string | Safe failure message. Do not include secrets, raw env, or full stderr dumps. |
+| `runnerProvider` | string | Provider label such as `codex`, `anthropic`, `gemini`, `hermes`, `openclaw`, or a custom provider id. |
+| `runnerModel` | string or null | Actual model used by the runner when known. |
+| `durationMs` | number | Runner wall-clock duration in milliseconds. |
+| `inputTokens`, `outputTokens`, `totalTokens` | numbers | Token totals when the provider reports them. |
+| `cacheReadInputTokens`, `cacheCreationInputTokens` | numbers | Cache token details when available. |
+| `totalCostUsd`, `totalCostCents` | numbers | Cost estimate or provider-reported cost when available. |
+| `usage` | object | Provider-specific usage metadata. Prefer also setting the common top-level token fields. |
+| `transcriptEvents` | array | Ordered transcript or timeline events. |
+| `rawProviderEvents` | array | Optional redacted raw provider event samples for diagnostics. Keep bounded. |
+| `traceCapabilities` | array | Capability names the runner expects to provide, such as `transcriptEvents`, `usage`, `artifacts`, `failureClass`, or `memoryReceipts`. |
+| `failureClass` | string | Optional coarse failure category, such as `provider_error`, `timeout`, `cancelled`, `missing_tool`, or `contract_error`. |
+| `cancellationReason` | string | Safe explanation when `status` is `cancelled`. |
+| `memoryReceipts` | array | Optional memory evidence references. Prefer the `memory_receipt` `mc-action` for durable reporting. |
+
+The initial bundled runners already emit a subset of these fields. Custom runners can add them
+incrementally; they do not need to implement the full table.
+
+### Transcript Events
+
+`transcriptEvents` entries should be small operator-facing records:
+
+```json
+{
+  "role": "assistant",
+  "kind": "tool_call_start",
+  "title": "Shell",
+  "body": "rg --files src/lib/orchestration",
+  "timestamp": "2026-06-06T22:40:00.000Z",
+  "metadata": { "tool": "shell" }
+}
+```
+
+Required fields for portable events are `kind`, `title`, and `body`. `role`, `timestamp`, and
+`metadata` are optional. Use stable `kind` values when possible:
+
+- `message`
+- `provider_event`
+- `assistant_text_delta`
+- `assistant_text_final`
+- `thinking_summary`
+- `tool_call_start`
+- `tool_result`
+- `usage_update`
+- `artifact`
+- `memory`
+- `provider_error`
+- `run_start`
+- `run_end`
+
+Provider-specific event names are accepted, but the Run Trace UI may normalize them into the common
+taxonomy.
+
+### Capture Quality And Missing Data
+
+Capture quality describes evidence capture, not the quality of the agent's work. HiveRunner derives
+it from runner capabilities and captured evidence:
+
+- `complete`: expected trace data was captured for the runner's declared or known capabilities.
+- `partial`: useful evidence exists, but expected categories are missing.
+- `minimal`: only basic result/status evidence is available.
+- `failed`: trace capture itself failed or is unusable.
+
+Missing trace data should be labeled explicitly:
+
+- `not_captured`: HiveRunner did not store this data.
+- `not_available`: the runner or provider does not expose this data.
+- `capture_failed`: HiveRunner attempted capture and failed.
+
+Examples: missing cost data should show as cost not captured; a runner with no transcript should show
+no transcript recorded; a manual or minimal run should show minimal capture instead of an error.
+
+### Reporting Guidance
+
+Usage and cost:
+
+- Put common totals in top-level token/cost fields when available.
+- Include provider-specific details in `usage` if they help audit the run.
+- Omit unknown values instead of sending zero unless the provider explicitly reported zero.
+
+Artifacts and evidence:
+
+- Report durable artifacts with a `register_artifact` `mc-action` in `resultText`.
+- Include `uri`, `kind`, and `sha256` when the artifact is a local file.
+- Use `record_validation_evidence` or `record_success_evidence` only for goal-contract validation
+  evidence, not for every transient file.
+
+Failures and cancellations:
+
+- Set a safe `error` string for failures.
+- Set `status: "cancelled"` and `cancellationReason` for operator or runtime cancellations.
+- Add a `provider_error` transcript event when the failure context is useful and safe to show.
+
+Memory:
+
+- Use a `memory_receipt` `mc-action` when injected memory affected the work.
+- Reference memory record IDs and evidence envelope IDs instead of copying full memory bodies.
+- If no memory was injected or used, omit memory fields; Run Trace will label the memory evidence as
+  missing or not available.
+
+Raw provider data:
+
+- Redact secrets before emitting `rawProviderEvents`.
+- Keep raw event arrays bounded; the transcript should carry the operator-facing chronology.
+
+### Rich Custom Runner Output Example
+
+This example is intentionally richer than the required contract. A minimal custom runner can still
+return only `sessionId` and `resultText`.
+
+```json
+{
+  "sessionId": "custom-fixture-run-123",
+  "status": "completed",
+  "resultText": "Generated the fixture report.\n\n```mc-action\n{\"action\":\"register_artifact\",\"taskKey\":\"INS-ART\",\"uri\":\"file:///tmp/hiverunner-fixture-workspace/report.html\",\"kind\":\"html\",\"sha256\":\"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\"}\n```\n```mc-action\n{\"action\":\"memory_receipt\",\"taskKey\":\"INS-ART\",\"used\":[{\"recordId\":\"memory-1\",\"evidenceEnvelopeId\":\"envelope-1\",\"reason\":\"Provided runner contract context.\"}],\"ignored\":[],\"irrelevant\":[]}\n```",
+  "assistantSummary": "Generated the fixture report.",
+  "runnerProvider": "custom-runner",
+  "runnerModel": "local-model-v1",
+  "durationMs": 1842,
+  "inputTokens": 42,
+  "outputTokens": 21,
+  "totalTokens": 63,
+  "usage": {
+    "runnerProvider": "custom-runner",
+    "runnerModel": "local-model-v1"
+  },
+  "traceCapabilities": ["transcriptEvents", "usage", "artifacts", "memoryReceipts"],
+  "transcriptEvents": [
+    {
+      "role": "assistant",
+      "kind": "tool_call_start",
+      "title": "Shell",
+      "body": "Generate report.html"
+    },
+    {
+      "kind": "tool_result",
+      "title": "Shell",
+      "body": "report.html written and hashed"
+    },
+    {
+      "role": "assistant",
+      "kind": "assistant_text_final",
+      "title": "External runner result",
+      "body": "Generated the fixture report."
+    }
+  ]
+}
 ```
 
 ## Upstream Symphony Compatibility

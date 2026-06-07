@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Zap, Clock, ExternalLink, AlertCircle, ChevronRight, Terminal, FileText, Activity } from "lucide-react";
 import { formatAge } from "@/components/orchestration/ui";
 import { useAgentProfile, A } from "../agent-context";
-import { buildCanonicalRunDetailPath } from "@/lib/orchestration/route-paths";
+import { buildRunTracePath, buildTaskRunTracePath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationAgentExecutionRun } from "@/lib/orchestration/types";
 
 /* ── formatting helpers ── */
@@ -104,15 +104,16 @@ interface RunDetailData {
 /* ── main page ── */
 
 export default function AgentRunsPage() {
-  const { profile, agentId } = useAgentProfile();
+  const { profile, slug, companyCode: profileCompanyCode } = useAgentProfile();
   const { executionHistory } = profile;
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailState, setDetailState] = useState<{ runId: string; data: RunDetailData | null } | null>(null);
 
   const companyCode = useMemo(() => {
     const segments = window.location.pathname.split("/").filter(Boolean);
-    return segments[0] ?? "";
-  }, []);
+    const root = segments[0] ?? "";
+    return root && root !== "companies" ? root : profileCompanyCode;
+  }, [profileCompanyCode]);
 
   const selectedRun = useMemo(
     () => executionHistory.find((r) => r.id === selectedId) ?? (executionHistory.length > 0 ? executionHistory[0] : null),
@@ -170,7 +171,7 @@ export default function AgentRunsPage() {
             detail={detailData}
             loading={detailLoading}
             companyCode={companyCode}
-            agentId={agentId}
+            companySlug={slug}
           />
         )}
       </div>
@@ -218,19 +219,22 @@ function RunListItem({ run, isActive, onClick }: { run: OrchestrationAgentExecut
 
 /* ── Right detail panel ── */
 
-function RunDetailPanel({ run, detail, loading, companyCode, agentId }: {
+function RunDetailPanel({ run, detail, loading, companyCode, companySlug }: {
   run: OrchestrationAgentExecutionRun;
   detail: RunDetailData | null;
   loading: boolean;
   companyCode: string;
-  agentId: string;
+  companySlug: string;
 }) {
-  const detailHref = buildCanonicalRunDetailPath(companyCode, agentId, run.id);
   const metrics = detail?.metrics as Record<string, unknown> | undefined;
   const provExec = detail?.providerExecution as Record<string, unknown> | undefined;
   const invocation = detail?.invocation as Record<string, unknown> | undefined;
   const runData = detail?.run as Record<string, unknown> | undefined;
   const context = detail?.context as { wakeSource?: string; wakeReason?: string; direction?: string; taskKey?: string | null } | undefined;
+  const taskKey = detail?.task?.key ?? context?.taskKey ?? run.taskKey ?? null;
+  const detailHref = taskKey
+    ? buildTaskRunTracePath({ companyCode, companySlug, taskKey, runId: run.id })
+    : buildRunTracePath({ companyCode, companySlug, runId: run.id });
 
   return (
     <div>

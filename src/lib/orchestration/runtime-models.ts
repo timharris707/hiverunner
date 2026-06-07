@@ -3,7 +3,11 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import type { AvailableModel, AvailableModelProvider } from "@/lib/orchestration/available-models";
+import {
+  SEEDED_AVAILABLE_MODELS,
+  type AvailableModel,
+  type AvailableModelProvider,
+} from "@/lib/orchestration/available-models";
 import { listAvailableModels } from "@/lib/orchestration/service/available-models";
 
 export type RuntimeModel = {
@@ -59,41 +63,6 @@ function cached(key: string, discover: () => RuntimeModelsResult): RuntimeModels
   return result;
 }
 
-function claudeModels(): RuntimeModel[] {
-  return [
-    { id: "anthropic/claude-sonnet-4-8", label: "Claude Sonnet 4.8", provider: "anthropic", default: true },
-    { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8", provider: "anthropic" },
-    { id: "anthropic/claude-haiku-4-8", label: "Claude Haiku 4.8", provider: "anthropic" },
-    { id: "anthropic/claude-sonnet-4-6", label: "Claude Sonnet 4.6", provider: "anthropic" },
-    { id: "anthropic/claude-opus-4-7", label: "Claude Opus 4.7", provider: "anthropic" },
-    { id: "anthropic/claude-haiku-4-5-20251001", label: "Claude Haiku 4.5", provider: "anthropic" },
-    { id: "anthropic/claude-opus-4-6", label: "Claude Opus 4.6", provider: "anthropic" },
-    { id: "anthropic/claude-sonnet-4-5", label: "Claude Sonnet 4.5", provider: "anthropic" },
-  ];
-}
-
-function codexModels(): RuntimeModel[] {
-  return [
-    { id: "openai-codex/gpt-5.5", label: "GPT-5.5", provider: "openai-codex", default: true },
-    { id: "openai-codex/gpt-5.4", label: "GPT-5.4", provider: "openai-codex" },
-    { id: "openai-codex/gpt-5.4-mini", label: "GPT-5.4 mini", provider: "openai-codex" },
-    { id: "openai-codex/gpt-5.3-codex", label: "GPT-5.3 Codex", provider: "openai-codex" },
-    { id: "openai-codex/gpt-5.3-codex-spark", label: "Codex Spark", provider: "openai-codex" },
-    { id: "openai-codex/gpt-5.2", label: "GPT-5.2", provider: "openai-codex" },
-  ];
-}
-
-function geminiModels(): RuntimeModel[] {
-  return [
-    { id: "google/gemini-3-pro-preview", label: "Gemini 3 Pro Preview", provider: "google", default: true },
-    { id: "google/gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview", provider: "google" },
-    { id: "google/gemini-3-flash-preview", label: "Gemini 3 Flash Preview", provider: "google" },
-    { id: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro", provider: "google" },
-    { id: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash", provider: "google" },
-    { id: "google/gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite", provider: "google" },
-  ];
-}
-
 function runtimeCatalogProvider(provider: string): AvailableModelProvider | null {
   switch (provider) {
     case "anthropic":
@@ -139,18 +108,44 @@ function stripRuntimeModelPrefix(id: string, provider: AvailableModelProvider): 
   }
 }
 
-function runtimeModelIdForCatalogModel(model: AvailableModel): string {
-  const id = stripRuntimeModelPrefix(model.id, model.runtimeProvider);
-  switch (model.runtimeProvider) {
+function runtimeModelIdForProvider(id: string, provider: AvailableModelProvider): string {
+  const strippedId = stripRuntimeModelPrefix(id, provider);
+  switch (provider) {
     case "anthropic":
-      return id ? `anthropic/${id}` : model.id;
+      return strippedId ? `anthropic/${strippedId}` : id;
     case "openai":
-      return id ? `openai-codex/${id}` : model.id;
+      return strippedId ? `openai-codex/${strippedId}` : id;
     case "google":
-      return id ? `google/${id}` : model.id;
+      return strippedId ? `google/${strippedId}` : id;
     default:
-      return model.id;
+      return id;
   }
+}
+
+function runtimeModelIdForCatalogModel(model: AvailableModel): string {
+  return runtimeModelIdForProvider(model.id, model.runtimeProvider);
+}
+
+const DEFAULT_SEEDED_MODEL_BY_PROVIDER: Partial<Record<AvailableModelProvider, string>> = {
+  anthropic: "claude-sonnet-4-6",
+  openai: "gpt-5.5",
+  google: "gemini-3-pro-preview",
+};
+
+function seededRuntimeModels(provider: AvailableModelProvider): RuntimeModel[] {
+  const defaultCanonical = canonicalRuntimeModelId(DEFAULT_SEEDED_MODEL_BY_PROVIDER[provider] ?? "");
+  return SEEDED_AVAILABLE_MODELS
+    .filter((model) => model.runtimeProvider === provider && model.isActive)
+    .map((model): RuntimeModel => {
+      const id = runtimeModelIdForProvider(model.id, model.runtimeProvider);
+      const option: RuntimeModel = {
+        id,
+        label: model.displayName,
+        provider: runtimeModelProvider(model.runtimeProvider),
+      };
+      if (defaultCanonical && canonicalRuntimeModelId(id) === defaultCanonical) option.default = true;
+      return option;
+    });
 }
 
 function canonicalRuntimeModelId(id: string): string {
@@ -367,22 +362,22 @@ export function discoverRuntimeModels(input: {
 
   switch (provider) {
     case "anthropic":
-      return { models: catalogRuntimeModels(provider, claudeModels()), supported: true };
+      return { models: catalogRuntimeModels(provider, seededRuntimeModels("anthropic")), supported: true };
     case "codex":
-      return { models: catalogRuntimeModels(provider, codexModels()), supported: true };
+      return { models: catalogRuntimeModels(provider, seededRuntimeModels("openai")), supported: true };
     case "gemini":
-      return { models: catalogRuntimeModels(provider, geminiModels()), supported: true };
+      return { models: catalogRuntimeModels(provider, seededRuntimeModels("google")), supported: true };
   }
 
   return cached(cacheKey, () => {
     switch (provider) {
       case "hermes":
-        return { models: withFallback(acpModels(command, input.env), [...claudeModels(), ...codexModels(), ...geminiModels()]), supported: true };
+        return { models: withFallback(acpModels(command, input.env), [...seededRuntimeModels("anthropic"), ...seededRuntimeModels("openai"), ...seededRuntimeModels("google")]), supported: true };
       case "symphony":
         return { models: [], supported: true };
       case "openclaw":
       case "multica":
-        return { models: withFallback(openClawModels(command), [...codexModels(), ...claudeModels(), ...geminiModels()]), supported: true };
+        return { models: withFallback(openClawModels(command), [...seededRuntimeModels("openai"), ...seededRuntimeModels("anthropic"), ...seededRuntimeModels("google")]), supported: true };
       default:
         return { models: [], supported: true };
     }

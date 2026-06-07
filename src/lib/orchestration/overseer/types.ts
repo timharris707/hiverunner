@@ -6,6 +6,22 @@ export type OverseerSessionStatus =
   | "cancelled"
   | "approval_required";
 
+export type OverseerWatchStatus = "watching" | "stopped" | "completed" | "failed";
+
+export type OverseerWatchState = {
+  enabled: boolean;
+  status: OverseerWatchStatus;
+  startedAt: string | null;
+  lastCheckAt: string | null;
+  stoppedAt: string | null;
+  intervalMs: number;
+  checkCount: number;
+  digest: string | null;
+  lastSummary: string | null;
+  lastMessageAt: string | null;
+  error: string | null;
+};
+
 export type OverseerTurnStatus =
   | "running"
   | "completed"

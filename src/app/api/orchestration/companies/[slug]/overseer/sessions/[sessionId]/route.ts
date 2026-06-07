@@ -42,7 +42,7 @@ function codexSessionIdFromEvents(events: ReturnType<typeof listOverseerEvents>[
 const patchSessionSchema = z.object({
   title: z.string().trim().min(1).max(180).optional(),
   model: z.string().trim().min(1).max(120).nullable().optional(),
-  reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]).nullable().optional(),
+  reasoningEffort: z.enum(["minimal", "low", "medium", "high", "xhigh", "max"]).nullable().optional(),
   fastMode: z.boolean().nullable().optional(),
   provider: z.enum(["anthropic", "codex", "gemini"]).nullable().optional(),
   compaction: z.object({

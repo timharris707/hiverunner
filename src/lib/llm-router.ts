@@ -87,7 +87,7 @@ const PROJECT_COMPLEXITY: Record<string, number> = {
 };
 
 const TIER_MODEL_MAP: Record<RoutingTier, string> = {
-  opus: "anthropic/claude-opus-4-6",
+  opus: "anthropic/claude-opus-4-8",
   sonnet: "anthropic/claude-sonnet-4-6",
   haiku: "anthropic/claude-haiku-3-5",
   "gpt-5.4": "openai/gpt-5.4",

@@ -479,6 +479,304 @@ The product rule is:
 
 > Evals preserve reviewed evidence; experiments create new comparison evidence.
 
+## Implementation Sequencing
+
+Implementation should proceed from the smallest useful evidence surface to the
+more autonomous improvement loops. Each slice should create durable value on its
+own and leave the next slice easier to build.
+
+The implementation-plan draft for the first slice lives in
+`docs/run-intelligence-slice-1-plan.md`.
+
+Every slice should use the same planning protocol:
+
+1. Draft an implementation plan before creating tasks.
+2. Review the plan with the operator and, when delegated, Overseer.
+3. Identify data, API, route, UI, runner-contract, and test changes.
+4. Create implementation tasks only after the plan is approved.
+5. Execute implementation in a dev lane such as `3010`, not in stable `3001`.
+6. Promote to stable only after focused verification and operator approval.
+
+For high-blast-radius slices, the implementation lead should run the existing
+impact checks before editing. This includes CodeGraph/Fallow where applicable,
+direct file reads, import and route searches, and focused tests selected from
+the actual touched surfaces.
+
+The product rule is:
+
+> Sequence by evidence maturity: inspect first, save reviewed evidence second,
+> recommend changes third, automate comparison last.
+
+> Stable `3001` supervises the work; implementation runs elsewhere.
+
+### Slice 0: Implementation Readiness
+
+Slice 0 is the preflight before Run Intelligence work begins. It does not create
+product features; it makes the work lane safe.
+
+Required outcomes:
+
+- stable `3001` is promoted to the latest approved build
+- implementation uses `3010` or another isolated dev lane
+- tasks explicitly forbid editing `.stable`
+- the current worktree is clean or intentionally checkpointed
+- the implementation lead knows which project, goal, and board will track the
+  work
+- the first implementation-plan draft exists before task generation
+
+Exit criteria:
+
+- the operator can use `3001` to monitor the Run Intelligence work
+- the dev lane can run the app independently
+- the board tasks identify the implementation lane and verification commands
+
+### Slice 1: Run Trace v1
+
+Run Trace v1 is the foundation slice. It should ship before evals, templates,
+Improve, MCP, or experiments.
+
+Recommended task groups:
+
+1. Discovery and contract review
+   - inspect existing run events endpoint, execution run tables, Activity UI,
+     agent run detail UI, task detail surfaces, and usage/cost sources
+   - decide whether small schema/API additions are needed for capture quality,
+     evidence gaps, annotations, or export metadata
+2. Shared trace assembly
+   - compose the Run Trace view model from existing run evidence
+   - normalize timeline events into the v1 event taxonomy
+   - derive capture-quality and evidence-gap labels
+3. Canonical route and UI
+   - add `/:companyCode/tasks/:taskKey/runs/:runId`
+   - add `/:companyCode/runs/:runId` fallback where needed
+   - build shared `RunTraceView`
+   - add run switching when a task has multiple runs
+4. Entry points and consolidation
+   - add Open Trace actions from task Activity execution history
+   - link agent run pages to the shared trace surface
+   - reduce fragmented inline run detail UI after the canonical trace exists
+5. Evidence controls
+   - add deterministic redacted summary/export basics
+   - add copy trace summary and copy run ID
+   - add lightweight trace annotations
+6. Verification and docs
+   - cover completed, failed, cancelled, running, and minimal/manual runs
+   - cover redaction, missing-data labels, and route behavior
+   - update runner contract docs for optional trace fields
+
+Exit criteria:
+
+- every execution run reachable from a task can open a trace
+- traces show chronology, result, usage/cost when available, artifacts,
+  review state, memory evidence, capture quality, and evidence gaps
+- exports are redacted by default
+- old run-inspection fragments either link to or reuse the trace surface
+- the implementation lead can show one accepted run, one returned or failed run,
+  and one minimal/manual run in the trace UI
+
+### Slice 2: Review-Backed Evals v1
+
+Evals should start only after Run Trace v1 exists because eval cases should
+reference trace links, capture quality, redaction, annotations, and evidence
+gaps.
+
+Recommended task groups:
+
+1. Eval case data model
+   - store immutable reviewed snapshots
+   - include source task, source run, trace link, review outcome, reviewer
+     rationale, runner/provider/model/agent, template context, capture quality,
+     annotations, and redacted snapshot JSON
+2. Save as eval case
+   - add action from reviewed Run Trace
+   - require outcome-specific rationale
+   - support accepted, returned, rejected, and blocked cases
+3. Evals library
+   - add Company navigation item `Evals`
+   - list company-wide eval cases
+   - add filters for project, task type, template, agent, runner, model, review
+     outcome, tag, and date
+4. Activity and evidence links
+   - record compact Task Activity events when a run is saved as an eval case
+   - link eval cases back to source task, trace, sprint, goal, reviewer, and
+     artifacts
+5. Early suggestions
+   - suggest saving useful accepted or returned runs
+   - keep operator confirmation required
+
+Exit criteria:
+
+- an operator can save a reviewed trace as an eval case
+- saved cases are immutable, redacted, and linked back to source evidence
+- Evals can filter cases without implying premature scorecards
+- no eval case can be created without review rationale
+
+### Slice 3: Starter Sprint Templates, Team, Active Crew, And Bench
+
+Templates and crew routing should follow early eval capture so new work produces
+useful traces and can feed evals from the beginning.
+
+Recommended task groups:
+
+1. Team page and roster states
+   - add Company navigation item `Team`
+   - show Active, Bench, Paused, and Archived roster filters
+   - keep contextual work views focused on Active Crew
+2. Template catalog foundation
+   - model built-in immutable templates and company-local draft/published/
+     archived template versions
+   - preserve template version and intake answers on created work
+3. Work-creation entry points
+   - first-run onboarding chooses a template before agents
+   - Goals, Projects, and project/goal detail flows can create work from
+     templates
+4. Build Something template
+   - offer constrained build types
+   - ask two to three questions
+   - create a draft goal, sprint, tasks, validation checklist, review criteria,
+     and Active Crew recommendation
+5. Draft plan review
+   - generate a draft before board tasks are created
+   - make Review with Overseer prominent and context-loaded
+   - support Delegated Signoff for a reviewed unchanged draft
+6. Crew recommendation and governance
+   - recommend required, useful, and useful-later agents
+   - map to Active Crew or Bench where possible
+   - route new hires through existing `autoApproveNewHires` governance
+   - create full durable agent packages only through approved or auto-approved
+     provisioning paths
+
+Exit criteria:
+
+- first-run onboarding can launch from a Starter Sprint Template instead of
+  starter agents
+- work creation can generate a reviewed draft plan before creating board tasks
+- Active Crew is contextual and Bench does not clutter task navigation
+- Team owns the full roster
+- Overseer can review and, when explicitly delegated, approve a specific
+  unchanged draft plan
+
+### Slice 4: Improve v1 And Improvement Review
+
+Improve should ship after eval cases exist. The first version should recommend
+low-risk changes and route durable mutations through governance.
+
+Recommended task groups:
+
+1. Recommendation model
+   - store status, trigger class, severity, confidence, evidence set, affected
+     surfaces, rationale, proposed change, original generated text, editable
+     operator version, and rollback or correction notes
+2. Improve queue
+   - add Company navigation item `Improve`
+   - list suggested, needs-more-evidence, accepted-for-approval, dismissed,
+     superseded, and applied recommendations
+   - support grouping, editing, dismissal categories, and suppression
+3. Built-in trigger controls
+   - show named trigger classes and recent trigger firings
+   - allow company pause and simple trigger enable/disable controls
+   - keep custom trigger builders deferred
+4. Approval package bridge
+   - convert accepted recommendations into draft approval packages
+   - include evidence, preview/diff when applicable, risk, and rollback notes
+   - link Approvals/Inbox records back to Improve
+5. Low-risk recommendation types
+   - missing skill
+   - missing tool or runtime setup
+   - suggested new agent role
+   - bench or exclude agent for a template/task type
+   - template capability-slot change
+   - reviewer notes for eval cases or templates
+
+Exit criteria:
+
+- Improve can explain why each recommendation exists
+- recommendations do not apply durable changes by default
+- accepted recommendations flow through existing approvals
+- critical recommendations become visible without bypassing governance
+- dismissed recommendations suppress repeats until new evidence appears
+
+### Slice 5: HiveRunner MCP Server
+
+MCP should follow traces and evals. The first version should expose HiveRunner as
+an agent-work control plane; it should not make HiveRunner consume arbitrary MCP
+tools yet.
+
+Recommended task groups:
+
+1. Read resources
+   - list goals, sprints, tasks, task details, traces, eval cases, Active Crew,
+     Bench, and improvement recommendations
+2. Governed tools
+   - save reviewed run as eval case
+   - attach evidence
+   - create improvement recommendation
+   - request approval
+3. Governance integration
+   - enforce existing approval and permission rules for state-changing tools
+   - redact trace and eval payloads by default
+4. Runner reporting
+   - allow runners to report MCP tool usage into Run Trace events later
+
+Exit criteria:
+
+- external agents can inspect HiveRunner work state and reviewed evidence
+- state-changing MCP calls obey the same governance as the UI
+- MCP exports use the same redaction and evidence-gap semantics as Run Trace
+
+### Slice 6: Improvement Experiments
+
+Improvement Experiments should wait until Run Trace, eval cases, and Improve are
+real. They should generate comparison evidence, not silently replace production
+work.
+
+Recommended task groups:
+
+1. Experiment source
+   - launch from a Run Trace or Eval Case, with Eval Case preferred
+2. Objective and mode selection
+   - ask what the operator wants to improve
+   - choose snapshot, branch, or live workspace mode
+   - recommend snapshot or branch by default
+3. Variant planning
+   - propose one to three variants
+   - require operator approval of variants, cost, time, and iteration limits
+4. Execution and evidence
+   - run attempts with fresh isolated context
+   - capture a trace and comparison record per attempt
+   - use external verification where possible
+5. Report and recommendation handoff
+   - save a comparison report as evidence
+   - create an Improvement recommendation only when accepted or when configured
+     trigger thresholds are met
+
+Exit criteria:
+
+- experiments have explicit objectives, workspace modes, and limits
+- every attempt leaves trace/eval evidence
+- reports are saved as evidence attachments
+- recommendations remain governed and optional
+
+### Sequencing Backlog
+
+Defer these items until the core Run Intelligence loop is working:
+
+- Workspace Path Simplification and removal of the internal `companies`
+  filesystem segment
+- named eval datasets and dataset versioning
+- full scorecards and scorer engines
+- eval-case reruns outside Improvement Experiments
+- custom improvement trigger builders
+- automatic durable mutation
+- consuming arbitrary MCP tools inside HiveRunner runners
+- Mastra runner integration
+- hosted observability or general agent-app framework features
+
+The product rule is:
+
+> Defer infrastructure cleanup and broad integrations until the inspect-review-
+> evaluate-improve loop is useful.
+
 ## Second Slice: Review-Backed Evals
 
 Review-Backed Evals should follow Run Trace.

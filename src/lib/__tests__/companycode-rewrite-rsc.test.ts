@@ -52,6 +52,20 @@ assert.equal(
 );
 assert.equal(rewrite?.searchParams.get("view"), "board");
 
+const taskRunTraceRewrite = tryCanonicalRewrite("/INS/tasks/INS-209/runs/run-123", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);
+assert.equal(
+  taskRunTraceRewrite?.pathname,
+  "/companies/insight/tasks/INS-209/runs/run-123",
+  "/INS/tasks/{taskKey}/runs/{runId} should resolve to the task-contextual Run Trace implementation route",
+);
+
+const runTraceRewrite = tryCanonicalRewrite("/INS/runs/run-123", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);
+assert.equal(
+  runTraceRewrite?.pathname,
+  "/companies/insight/runs/run-123",
+  "/INS/runs/{runId} should resolve to the run-global Run Trace implementation route",
+);
+
 // 4. A bare `/HIVE` is handled separately (a redirect to /HIVE/dashboard happens
 //    in proxy itself), and canonical rewrite returns the dashboard target.
 const bareRewrite = tryCanonicalRewrite("/HIVE", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);

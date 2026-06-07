@@ -32,6 +32,13 @@ fs.writeFileSync(process.env.FAKE_GEMINI_CWD_FILE, process.cwd(), "utf8");
 fs.writeFileSync(process.env.FAKE_GEMINI_ARGS_FILE, JSON.stringify(args), "utf8");
 const promptIndex = args.indexOf("--prompt");
 fs.writeFileSync(process.env.FAKE_GEMINI_PROMPT_FILE, promptIndex >= 0 ? args[promptIndex + 1] || "" : "", "utf8");
+if (process.env.FAKE_GEMINI_SETTINGS_FILE) {
+  const settingsPath = process.env.GEMINI_CLI_SYSTEM_SETTINGS_PATH || "";
+  fs.writeFileSync(process.env.FAKE_GEMINI_SETTINGS_FILE, JSON.stringify({
+    path: settingsPath,
+    content: settingsPath && fs.existsSync(settingsPath) ? fs.readFileSync(settingsPath, "utf8") : "",
+  }), "utf8");
+}
 process.stdout.write("Fixture Gemini adapter completed.\\n");
 `,
     "utf8",
@@ -51,6 +58,7 @@ async function run() {
   const cwdFile = path.join(tempRoot, "cwd.txt");
   const argsFile = path.join(tempRoot, "args.json");
   const promptFile = path.join(tempRoot, "prompt.txt");
+  const settingsFile = path.join(tempRoot, "settings.json");
 
   mkdirSync(binDir, { recursive: true });
   mkdirSync(workspaceRoot, { recursive: true });
@@ -63,6 +71,7 @@ async function run() {
   process.env.FAKE_GEMINI_CWD_FILE = cwdFile;
   process.env.FAKE_GEMINI_ARGS_FILE = argsFile;
   process.env.FAKE_GEMINI_PROMPT_FILE = promptFile;
+  process.env.FAKE_GEMINI_SETTINGS_FILE = settingsFile;
   process.env.MC_GEMINI_EXEC_TIMEOUT_MS = "15000";
   (process.env as Record<string, string | undefined>).NODE_ENV = "development";
 
@@ -189,7 +198,7 @@ async function run() {
   const agentRow = selectAgentRow(agent.id);
   const baseInput = createAdapterInput(agentRow, "Run the Gemini adapter fixture.", "gemini-runtime-config-session");
 
-  await test("route-attempt Gemini model wins without inventing unsupported control flags", async () => {
+  await test("route-attempt Gemini model wins and applies thinking through CLI model config", async () => {
     const result = await geminiExecutionAdapter.execute({
       ...baseInput,
       executionRouteAttempt: {
@@ -218,10 +227,19 @@ async function run() {
     const args = JSON.parse(readFileSync(argsFile, "utf8")) as string[];
     assert.deepStrictEqual(args.slice(0, 6), ["--prompt", "Run the Gemini adapter fixture.", "--output-format", "text", "--approval-mode", "yolo"]);
     assert.ok(args.includes("--model"));
-    assert.strictEqual(args[args.indexOf("--model") + 1], "gemini-3-flash-preview");
-    assert.ok(!args.includes("--effort"), `Gemini reasoning is telemetry-only: ${args.join(" ")}`);
+    const cliModelArg = args[args.indexOf("--model") + 1];
+    assert.ok(cliModelArg.startsWith("hiverunner-"), `Gemini CLI should receive the per-run model alias: ${cliModelArg}`);
+    assert.ok(!args.includes("--effort"), `Gemini thinking is configured through model config, not --effort: ${args.join(" ")}`);
     assert.ok(!args.includes("--speed"), `Gemini speed is telemetry-only: ${args.join(" ")}`);
     assert.ok(!args.some((arg) => arg.includes("service_tier")), `Gemini service tier is telemetry-only: ${args.join(" ")}`);
+    const settingsRecord = JSON.parse(readFileSync(settingsFile, "utf8")) as { path: string; content: string };
+    assert.ok(settingsRecord.path.includes("hiverunner-gemini-cli-"), settingsRecord.path);
+    const settings = JSON.parse(settingsRecord.content) as {
+      modelConfigs?: { customAliases?: Record<string, { modelConfig?: { model?: string; generateContentConfig?: { thinkingConfig?: { thinkingLevel?: string } } } }> };
+    };
+    const aliasConfig = settings.modelConfigs?.customAliases?.[cliModelArg]?.modelConfig;
+    assert.strictEqual(aliasConfig?.model, "gemini-3-flash-preview");
+    assert.strictEqual(aliasConfig?.generateContentConfig?.thinkingConfig?.thinkingLevel, "HIGH");
     const usage = result.usage ?? {};
     assert.strictEqual(usage.reasoningEffort, "high");
     assert.strictEqual(usage.speedPreference, "fast_1_5x");

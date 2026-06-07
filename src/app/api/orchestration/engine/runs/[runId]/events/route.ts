@@ -8,6 +8,7 @@ import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresent
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
 import { listSkillEffectivenessForRun } from "@/lib/orchestration/skill-effectiveness";
 import { getMemoryInjectionEvidenceForRun } from "@/lib/orchestration/memory-vault";
+import { buildRedactedRunTraceExport, buildRunTraceViewModel, type RunTraceEvidenceInput } from "@/lib/orchestration/run-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,14 @@ type TranscriptTimelineEvent = {
   authorName?: string | null;
 };
 
+function withRunTraceViewModel<T extends RunTraceEvidenceInput>(response: T) {
+  return {
+    ...response,
+    trace: buildRunTraceViewModel(response),
+    traceExport: buildRedactedRunTraceExport(response),
+  };
+}
+
 function normalizeWorkspaceRunVisibility(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
@@ -252,7 +261,7 @@ function buildHeartbeatRunResponse(
   // Provider tier for heartbeat runs
   const tier = ObservabilityTier.ActionDetection;
 
-  return NextResponse.json({
+  return NextResponse.json(withRunTraceViewModel({
     run: {
       id: run.id,
       agentId: run.agentId,
@@ -318,7 +327,7 @@ function buildHeartbeatRunResponse(
       runTable: "heartbeat_runs",
     },
     provider: providerForWire("openclaw-heartbeat", tier),
-  });
+  }));
 }
 
 /* ── Execution Run Response ── */
@@ -519,7 +528,7 @@ function buildExecutionRunResponse(
   );
   const resolvedExecution = buildExecutionRunResolvedExecution(row, usage);
 
-  return NextResponse.json({
+  return NextResponse.json(withRunTraceViewModel({
     run: {
       id: row.id,
       agentId: row.agent_id ?? "",
@@ -626,7 +635,7 @@ function buildExecutionRunResponse(
       runTable: "execution_runs",
     },
     provider: resolveProviderInfo(row.provider, effectiveTier),
-  });
+  }));
 }
 
 function usageRuntimePolicyValue(usage: Record<string, unknown>, key: "sandbox" | "approvalPolicy"): string | null {

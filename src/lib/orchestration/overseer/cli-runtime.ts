@@ -16,6 +16,11 @@ import type {
   OverseerRuntimeProvider,
   OverseerUsageSnapshot,
 } from "./types";
+import {
+  cleanupGeminiCliModelConfig,
+  createGeminiCliModelConfig,
+  type GeminiCliModelConfig,
+} from "@/lib/orchestration/gemini-cli-model-config";
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const MAX_BUFFER_BYTES = 10 * 1024 * 1024;
@@ -160,11 +165,12 @@ function buildPrompt(input: {
   ].join("\n");
 }
 
-function buildEnv(command: string): NodeJS.ProcessEnv {
+function buildEnv(command: string, modelConfig: GeminiCliModelConfig | null = null): NodeJS.ProcessEnv {
   const pathEntries = [process.env.PATH ?? "", "/opt/homebrew/bin", "/usr/local/bin"];
   if (path.isAbsolute(command)) pathEntries.unshift(path.dirname(command));
   return {
     ...process.env,
+    ...(modelConfig ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: modelConfig.settingsPath } : {}),
     PATH: pathEntries.filter(Boolean).join(":"),
   };
 }
@@ -221,6 +227,7 @@ function providerEventPrefix(provider: OverseerRuntimeProvider): string {
 
 function mapReasoningEffort(provider: OverseerRuntimeProvider, value: string | null | undefined): string | null {
   if (provider !== "anthropic") return null;
+  if (value === "max") return "max";
   if (value === "xhigh") return "xhigh";
   if (value === "high" || value === "medium" || value === "low") return value;
   return null;
@@ -230,10 +237,14 @@ function providerModelArg(provider: OverseerRuntimeProvider, model: string | nul
   const normalized = model?.trim().toLowerCase() ?? "";
   if (!normalized) return null;
   if (provider === "anthropic") {
-    return /claude|sonnet|opus|haiku/.test(normalized) ? normalized : null;
+    return /claude|sonnet|opus|haiku/.test(normalized)
+      ? normalized.replace(/^anthropic\//, "")
+      : null;
   }
   if (provider === "gemini") {
-    return /gemini/.test(normalized) ? normalized : null;
+    return /gemini/.test(normalized)
+      ? normalized.replace(/^google\//, "").replace(/^models\//, "")
+      : null;
   }
   return normalized;
 }
@@ -266,6 +277,10 @@ function runProviderProcess(input: {
   const toolNames = new Map<string, string>();
 
   const modelArg = providerModelArg(input.provider, input.model);
+  const modelConfig = input.provider === "gemini" && modelArg
+    ? createGeminiCliModelConfig(modelArg, input.reasoningEffort)
+    : null;
+  const effectiveModelArg = modelConfig?.alias ?? modelArg;
   const args = input.provider === "anthropic"
     ? [
         "--print",
@@ -276,7 +291,7 @@ function runProviderProcess(input: {
         "--permission-mode",
         "plan",
         ...(input.runtimeSessionId ? ["--resume", input.runtimeSessionId] : ["--session-id", input.sessionId]),
-        ...(modelArg ? ["--model", modelArg] : []),
+        ...(effectiveModelArg ? ["--model", effectiveModelArg] : []),
         ...(mapReasoningEffort(input.provider, input.reasoningEffort) ? ["--effort", mapReasoningEffort(input.provider, input.reasoningEffort)!] : []),
       ]
     : [
@@ -287,13 +302,13 @@ function runProviderProcess(input: {
         "--approval-mode",
         "plan",
         ...(input.runtimeSessionId ? ["--resume", input.runtimeSessionId] : []),
-        ...(modelArg ? ["--model", modelArg] : []),
+        ...(effectiveModelArg ? ["--model", effectiveModelArg] : []),
       ];
 
   return new Promise((resolve) => {
     const child = spawn(input.command, args, {
       cwd: input.workspaceRoot,
-      env: buildEnv(input.command),
+      env: buildEnv(input.command, modelConfig),
       stdio: ["pipe", "pipe", "pipe"],
     });
     setOverseerTurnProcess({ sessionId: input.sessionId, turnId: input.turnId, pid: child.pid ?? null });
@@ -413,6 +428,7 @@ function runProviderProcess(input: {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      cleanupGeminiCliModelConfig(modelConfig);
       setOverseerTurnProcess({ sessionId: input.sessionId, turnId: input.turnId, pid: null });
       if (buffer.trim()) ingestLine(buffer);
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");

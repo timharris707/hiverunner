@@ -19,6 +19,12 @@ import {
   resolveCompanyWorkspaceRoot,
 } from "@/lib/workspaces/company-paths";
 import { readProjectSourceWorkspaceRoot } from "@/lib/orchestration/service/shared";
+import {
+  cleanupGeminiCliModelConfig,
+  createGeminiCliModelConfig,
+  type GeminiCliModelConfig,
+} from "@/lib/orchestration/gemini-cli-model-config";
+import { supportsGeminiThinkingLevel } from "@/lib/orchestration/provider-runtime-controls";
 import { cleanupRunArtifacts } from "../cleanup";
 
 import type {
@@ -170,7 +176,7 @@ function normalizeGeminiModel(value: string): string {
     model === "gemini-pro" ||
     model === "pro"
   ) return DEFAULT_GEMINI_MODEL;
-  if (model === "flash") return "gemini-3-flash-preview";
+  if (model === "flash") return "gemini-3.5-flash";
   if (model === "flash-lite") return "gemini-2.5-flash-lite";
   if (/^auto-gemini-2\.5$/i.test(model)) return DEFAULT_GEMINI_MODEL;
   if (/^auto-gemini-3$/i.test(model)) return DEFAULT_GEMINI_MODEL;
@@ -198,8 +204,8 @@ function normalizeReasoningEffort(value: unknown): string | null {
   if (!normalized) return null;
   if (normalized === "balanced" || normalized === "standard") return "medium";
   if (normalized === "deep") return "high";
-  if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
-  if (["minimal", "low", "medium", "high", "xhigh"].includes(normalized)) return normalized;
+  if (["extra", "extra-high", "extra_high", "xhigh", "max"].includes(normalized)) return "high";
+  if (["minimal", "low", "medium", "high"].includes(normalized)) return normalized;
   return null;
 }
 
@@ -410,13 +416,14 @@ function resolveRuntimeControls(
   };
 }
 
-function buildEnv(command: string): NodeJS.ProcessEnv {
+function buildEnv(command: string, modelConfig: GeminiCliModelConfig | null): NodeJS.ProcessEnv {
   const pathEntries = ["/opt/homebrew/bin", "/usr/local/bin", process.env.PATH ?? ""];
   if (path.isAbsolute(command)) {
     pathEntries.unshift(path.dirname(command));
   }
   return {
     ...process.env,
+    ...(modelConfig ? { GEMINI_CLI_SYSTEM_SETTINGS_PATH: modelConfig.settingsPath } : {}),
     PATH: pathEntries.filter(Boolean).join(":"),
   };
 }
@@ -426,6 +433,7 @@ function runGemini(
   prompt: string,
   cwd: string,
   model: string,
+  reasoningEffort: string | null,
   includeDirectories: string[],
   opts?: {
     onPidReady?: (pid: number | undefined) => void;
@@ -436,12 +444,14 @@ function runGemini(
   const started = Date.now();
   const timeout = numberFromEnv("MC_GEMINI_EXEC_TIMEOUT_MS", DEFAULT_GEMINI_TIMEOUT_MS);
   const maxBuffer = numberFromEnv("MC_GEMINI_EXEC_MAX_BUFFER", DEFAULT_GEMINI_MAX_BUFFER);
+  const modelConfig = createGeminiCliModelConfig(model, reasoningEffort);
+  const modelArg = modelConfig?.alias ?? model;
   const args = ["--prompt", prompt, "--output-format", "text", "--approval-mode", "yolo"];
   for (const includeDirectory of includeDirectories) {
     args.push("--include-directories", includeDirectory);
   }
-  if (model) {
-    args.push("--model", model);
+  if (modelArg) {
+    args.push("--model", modelArg);
   }
 
   return new Promise((resolve) => {
@@ -453,13 +463,14 @@ function runGemini(
       args,
       {
         cwd,
-        env: buildEnv(command),
+        env: buildEnv(command, modelConfig),
         maxBuffer,
       },
       (error, stdout, stderr) => {
         if (settled) return;
         settled = true;
         opts?.onExit?.();
+        cleanupGeminiCliModelConfig(modelConfig);
         if (timer) clearTimeout(timer);
         if (killFallback) clearTimeout(killFallback);
         const err = error as (Error & { code?: number | string; signal?: string }) | null;
@@ -483,6 +494,7 @@ function runGemini(
         if (!child.killed) {
           child.kill("SIGKILL");
         }
+        cleanupGeminiCliModelConfig(modelConfig);
         if (opts?.runId) cleanupRunArtifacts(opts.runId).catch(() => {});
       }, TIMEOUT_SIGKILL_GRACE_MS);
     }, timeout);
@@ -574,7 +586,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
   const workspaceRoot = workspace.cwd;
   const startedAt = new Date().toISOString();
   const { executionRunId } = input;
-  const result = await runGemini(command, input.prompt, workspaceRoot, model, workspace.includeDirectories, executionRunId ? {
+  const result = await runGemini(command, input.prompt, workspaceRoot, model, controls.reasoningEffort, workspace.includeDirectories, executionRunId ? {
     onPidReady: (pid) => {
       if (!pid) return;
       try { db.prepare("UPDATE execution_runs SET process_pid = ? WHERE id = ?").run(pid, executionRunId); } catch {}
@@ -602,7 +614,7 @@ async function execute(input: ExecutionInput): Promise<ExecutionResult> {
     fastMode: controls.fastMode,
     serviceTier: controls.serviceTier,
     unsupportedRuntimeControls: {
-      reasoningEffort: controls.reasoningEffort,
+      ...(controls.reasoningEffort && !supportsGeminiThinkingLevel(model) ? { reasoningEffort: controls.reasoningEffort } : {}),
       speedPreference: controls.speedPreference,
       fastMode: controls.fastMode,
       serviceTier: controls.serviceTier,
@@ -762,5 +774,5 @@ export const geminiExecutionAdapter: ExecutionAdapter = {
   adapterType: "gemini",
   execute,
   clearTaskSessionForSelfHeal,
-  cancel: (_runId, pid, _sessionId) => cancelByPid(pid),
+  cancel: (_runId, pid) => cancelByPid(pid),
 };

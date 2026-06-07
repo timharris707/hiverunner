@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 
 import {
   AgentRuntimeModelFields,
+  type AgentRuntimeProfileSelection,
   type AgentRuntimeSelection,
 } from "@/components/orchestration/AgentRuntimeModelFields";
 import {
@@ -18,6 +19,7 @@ import {
 } from "@/components/orchestration/AgentIdentityFields";
 import CompanyTeamPage from "@/app/(dashboard)/companies/[slug]/team/page";
 import { buildCanonicalTeamPath } from "@/lib/orchestration/route-paths";
+import { buildProviderRuntimeConfigPatch } from "@/lib/orchestration/provider-runtime-controls";
 
 const inputStyle: React.CSSProperties = {
   width: "100%",
@@ -50,6 +52,10 @@ export default function CreateCompanyAgentPage() {
   const [role, setRole] = useState("");
   const [model, setModel] = useState("");
   const [runtime, setRuntime] = useState<AgentRuntimeSelection | null>(null);
+  const [runtimeProfile, setRuntimeProfile] = useState<AgentRuntimeProfileSelection>({
+    reasoningEffort: null,
+    speedMode: null,
+  });
   const [reportsTo, setReportsTo] = useState("");
   const [identity, setIdentity] = useState<AgentIdentityDraft>({});
   const [saving, setSaving] = useState(false);
@@ -102,6 +108,9 @@ export default function CreateCompanyAgentPage() {
     setSaving(true);
     setError(null);
     try {
+      const runtimeConfig = runtime
+        ? buildProviderRuntimeConfigPatch(runtime.provider, runtimeProfile)
+        : {};
       const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/agents/hire`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -115,6 +124,7 @@ export default function CreateCompanyAgentPage() {
           runtimeCommand: runtime?.command,
           runtimeCommandPath: runtime?.commandPath,
           runtimeSource: runtime?.source,
+          ...(Object.keys(runtimeConfig).length > 0 ? { runtimeConfig } : {}),
           reportsTo: reportsTo.trim() || undefined,
           ...identity,
         }),
@@ -166,6 +176,8 @@ export default function CreateCompanyAgentPage() {
               onModelChange={setModel}
               runtime={runtime}
               onRuntimeChange={setRuntime}
+              runtimeProfile={runtimeProfile}
+              onRuntimeProfileChange={setRuntimeProfile}
             />
 
             <div>

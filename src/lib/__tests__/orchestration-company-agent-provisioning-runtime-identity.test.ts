@@ -522,7 +522,7 @@ async function run() {
       model: "google/gemini-default",
     });
 
-    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-3-pro-preview");
   });
 
   await test("Gemini Pro aliases normalize to the locally available Gemini default", () => {
@@ -535,7 +535,7 @@ async function run() {
       model: "google/gemini-pro",
     });
 
-    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-3-pro-preview");
   });
 
   await test("Gemini provider default aliases normalize to the locally available Gemini default", () => {
@@ -548,7 +548,7 @@ async function run() {
       model: "google/default",
     });
 
-    assertAgentModel(db, result.agentId, "gemini", "google/gemini-2.5-pro");
+    assertAgentModel(db, result.agentId, "gemini", "google/gemini-3-pro-preview");
   });
 
   await test("Anthropic hires normalize human Sonnet aliases to a Claude CLI model", () => {

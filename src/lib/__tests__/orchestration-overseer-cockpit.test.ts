@@ -153,7 +153,7 @@ async function run() {
 
   const { createCompany } = await import("@/lib/orchestration/company-service");
   const { closeOrchestrationDb, getOrchestrationDb } = await import("@/lib/orchestration/db");
-  const { createProject } = await import("@/lib/orchestration/service");
+  const { createProject, createTask } = await import("@/lib/orchestration/service");
   const { listApprovals } = await import("@/lib/orchestration/service/approval");
   const {
     appendOverseerMessage,
@@ -164,11 +164,15 @@ async function run() {
     getOverseerReadiness,
     getOverseerSession,
     getOverseerTurn,
+    getOverseerWatchState,
     listOverseerContextSnapshots,
     listOverseerEvents,
     listOverseerMessages,
     recordOverseerEvent,
+    runOverseerWatchCheck,
     setOverseerTurnCodexSessionId,
+    startOverseerWatch,
+    stopOverseerWatch,
     updateOverseerSession,
     updateOverseerSettings,
   } = await import("@/lib/orchestration/overseer/service");
@@ -184,6 +188,7 @@ async function run() {
   const { POST: postAttachmentRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/attachments/route");
   const { GET: getExportRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/export/route");
   const { GET: getSessionRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/route");
+  const { POST: postWatchRoute } = await import("@/app/api/orchestration/companies/[slug]/overseer/sessions/[sessionId]/watch/route");
   const { POST: postApprovalRoute } = await import("@/app/api/orchestration/approvals/[id]/route");
 
   const db = getOrchestrationDb();
@@ -271,6 +276,122 @@ async function run() {
     assert.strictEqual(updated.reasoningEffort, "xhigh");
     assert.strictEqual(updated.scope.fastMode, true);
     assert.strictEqual(updated.scope.overseerProvider, "codex");
+  });
+
+  await test("watch mode stores resident state in session scope and appends updates", () => {
+    const watchTask = createTask({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Watch the active lane",
+      description: "Watch fixture task.",
+      priority: "P2",
+      type: "feature",
+      status: "in-progress",
+      labels: [],
+      createdBy: "operator",
+    }).task;
+    const now = new Date().toISOString();
+    db.prepare(
+      `INSERT INTO execution_runs
+        (id, task_id, provider, status, started_at, created_at, updated_at)
+       VALUES (?, ?, 'codex', 'running', ?, ?, ?)`,
+    ).run("watch-run-fixture-1", watchTask.id, now, now, now);
+
+    const watchSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Scope Watch Fixture",
+    }).session;
+    const started = startOverseerWatch({ sessionId: watchSession.id, intervalMs: 30_000 }).session;
+    assert.strictEqual(started.status, "idle");
+    assert.strictEqual(started.processPid, null);
+    const startedWatch = getOverseerWatchState(started);
+    assert.strictEqual(startedWatch?.status, "watching");
+    assert.strictEqual(startedWatch.enabled, true);
+    assert.strictEqual(startedWatch.intervalMs, 30_000);
+    assert.strictEqual(startedWatch.checkCount, 1);
+    assert.ok(startedWatch.digest);
+    assert.ok(started.lastTurnAt);
+
+    const startMessages = listOverseerMessages(watchSession.id).messages;
+    assert.ok(startMessages.some((message) => (
+      message.role === "assistant"
+      && message.metadata.kind === "overseer_watch_update"
+      && message.content.includes("Watching started")
+      && message.content.includes("active 1")
+      && message.content.includes("running 1")
+    )));
+    const startEvents = listOverseerEvents(watchSession.id).events;
+    assert.ok(startEvents.some((event) => event.eventType === "overseer.watch.started"));
+    assert.ok(startEvents.some((event) => event.eventType === "overseer.watch.check"));
+
+    const unchangedMessageCount = startMessages.length;
+    const unchangedCheck = runOverseerWatchCheck({ sessionId: watchSession.id });
+    assert.strictEqual(unchangedCheck.changed, false);
+    assert.strictEqual(listOverseerMessages(watchSession.id).messages.length, unchangedMessageCount);
+
+    db.prepare("UPDATE tasks SET status = 'review', updated_at = ? WHERE id = ?").run(new Date().toISOString(), watchTask.id);
+    const changedCheck = runOverseerWatchCheck({ sessionId: watchSession.id });
+    assert.strictEqual(changedCheck.changed, true);
+    const changedMessages = listOverseerMessages(watchSession.id).messages;
+    assert.ok(changedMessages.some((message) => (
+      message.metadata.kind === "overseer_watch_update"
+      && message.content.includes("review 1")
+    )));
+
+    const stopped = stopOverseerWatch({ sessionId: watchSession.id }).session;
+    assert.strictEqual(stopped.status, "idle");
+    assert.strictEqual(stopped.processPid, null);
+    const stoppedWatch = getOverseerWatchState(stopped);
+    assert.strictEqual(stoppedWatch?.status, "stopped");
+    assert.strictEqual(stoppedWatch.enabled, false);
+    assert.ok(stoppedWatch.stoppedAt);
+    assert.ok(listOverseerEvents(watchSession.id).events.some((event) => event.eventType === "overseer.watch.stopped"));
+  });
+
+  await test("watch route starts and stops scope-based watching without changing DB status", async () => {
+    const routeSession = createOverseerSession({
+      companyIdOrSlug: company.id,
+      projectId: project.id,
+      title: "Route Watch Fixture",
+    }).session;
+    const startRes = await postWatchRoute({
+      async json() {
+        return { action: "start", intervalMs: 30_000 };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: routeSession.id }),
+    });
+    assert.strictEqual(startRes.status, 200);
+    const startPayload = await startRes.json() as {
+      session: { status: string; scope?: { watch?: { status?: string; enabled?: boolean; checkCount?: number } } };
+      messages: Array<{ role: string; metadata: Record<string, unknown> }>;
+      events: Array<{ eventType: string }>;
+    };
+    assert.strictEqual(startPayload.session.status, "idle");
+    assert.strictEqual(startPayload.session.scope?.watch?.status, "watching");
+    assert.strictEqual(startPayload.session.scope?.watch?.enabled, true);
+    assert.strictEqual(startPayload.session.scope?.watch?.checkCount, 1);
+    assert.ok(startPayload.messages.some((message) => message.metadata.kind === "overseer_watch_update"));
+    assert.ok(startPayload.events.some((event) => event.eventType === "overseer.watch.started"));
+
+    const stopRes = await postWatchRoute({
+      async json() {
+        return { action: "stop" };
+      },
+    } as never, {
+      params: Promise.resolve({ slug: company.slug, sessionId: routeSession.id }),
+    });
+    assert.strictEqual(stopRes.status, 200);
+    const stopPayload = await stopRes.json() as {
+      session: { status: string; scope?: { watch?: { status?: string; enabled?: boolean; stoppedAt?: string | null } } };
+      events: Array<{ eventType: string }>;
+    };
+    assert.strictEqual(stopPayload.session.status, "idle");
+    assert.strictEqual(stopPayload.session.scope?.watch?.status, "stopped");
+    assert.strictEqual(stopPayload.session.scope?.watch?.enabled, false);
+    assert.ok(stopPayload.session.scope?.watch?.stoppedAt);
+    assert.ok(stopPayload.events.some((event) => event.eventType === "overseer.watch.stopped"));
   });
 
   await test("running Codex thread id is stored before turn completion", () => {

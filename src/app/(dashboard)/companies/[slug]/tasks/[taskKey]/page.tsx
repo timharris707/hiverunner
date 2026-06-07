@@ -2209,6 +2209,7 @@ export default function TaskDetailPage() {
                     histories={runHistories}
                     loading={runHistoryLoading}
                     companySlug={slug}
+                    taskKey={task.key ?? taskKey}
                     taskKeyPrefix={taskKeyPrefix}
                     executionEngine={task.executionEngine}
                   />
@@ -3148,12 +3149,14 @@ function ExecutionHistoryPanel({
   histories,
   loading,
   companySlug,
+  taskKey,
   taskKeyPrefix,
   executionEngine,
 }: {
   histories: RunHistory[];
   loading: boolean;
   companySlug: string;
+  taskKey: string;
   taskKeyPrefix: string;
   executionEngine?: string | null;
 }) {
@@ -3250,94 +3253,25 @@ function ExecutionHistoryPanel({
                 <ExecutionContextInline context={history.resolvedExecution} />
               )}
 
-              <RunMemoryEvidenceInline evidence={history.memoryEvidence} />
-
-              {history.routeAttempts && history.routeAttempts.length > 0 ? (
-                <details
+              <div style={{ marginTop: 12 }}>
+                <Link
+                  href={buildCompanyPath(companySlug, `/tasks/${taskKey}/runs/${history.id}`)}
                   style={{
-                    marginBottom: 10,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 6,
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: color.accent,
+                    textDecoration: "none",
+                    padding: "6px 12px",
+                    background: "rgba(255,255,255,0.04)",
                     border: `0.5px solid ${color.border}`,
                     borderRadius: radius.sm,
-                    background: color.surface,
-                    overflow: "hidden",
                   }}
                 >
-                  <summary style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer", listStyle: "none" }}>
-                    <ChevronDown size={12} color={color.textMuted} />
-                    <span style={{ fontSize: 11, fontWeight: 700, color: color.text }}>Route attempts</span>
-                    <span style={{ fontSize: 10, color: color.textMuted }}>{history.routeAttempts.length} attempt{history.routeAttempts.length === 1 ? "" : "s"}</span>
-                  </summary>
-                  <pre
-                    style={{
-                      margin: 0,
-                      borderTop: `0.5px solid ${color.border}`,
-                      padding: "9px 10px",
-                      maxHeight: 180,
-                      overflow: "auto",
-                      color: color.textSecondary,
-                      fontFamily: font.mono,
-                      fontSize: 10,
-                      lineHeight: 1.45,
-                      whiteSpace: "pre-wrap",
-                      wordBreak: "break-word",
-                    }}
-                  >
-                    {JSON.stringify(history.routeAttempts, null, 2)}
-                  </pre>
-                </details>
-              ) : null}
-
-              <RunSkillEffectivenessInline skillEffectiveness={history.skillEffectiveness} />
-
-              <div style={{ display: "grid", gap: 8 }}>
-                {history.transcriptEntries.length === 0 ? (
-                  <div style={{ fontSize: 12, color: color.textMuted, padding: "6px 0" }}>
-                    No transcript events were recorded for this run.
-                  </div>
-                ) : (
-                  history.transcriptEntries.map((entry) => (
-                    <details
-                      key={entry.id}
-                      style={{
-                        border: `0.5px solid ${color.border}`,
-                        borderRadius: radius.sm,
-                        background: color.surface,
-                        overflow: "hidden",
-                      }}
-                    >
-                      <summary style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", cursor: "pointer", listStyle: "none" }}>
-                        <ChevronDown size={12} color={color.textMuted} />
-                        <span style={{ fontSize: 11, fontWeight: 700, color: color.text }}>{transcriptEntryLabel(entry)}</span>
-                        {(entry.eventKind ?? entry.type) && (
-                          <span style={{ fontSize: 10, color: color.textMuted, fontFamily: font.mono }}>
-                            {entry.eventKind ?? entry.type}
-                          </span>
-                        )}
-                        {entry.ts && (
-                          <span style={{ marginLeft: "auto", fontSize: 10, color: color.textMuted }}>
-                            {relativeAge(new Date(entry.ts).toISOString())}
-                          </span>
-                        )}
-                      </summary>
-                      {entry.body && (
-                        <div
-                          style={{
-                            borderTop: `0.5px solid ${color.border}`,
-                            padding: "9px 10px",
-                            maxHeight: 220,
-                            overflow: "auto",
-                            fontSize: 12,
-                            lineHeight: 1.5,
-                            color: color.textSecondary,
-                            wordBreak: "break-word",
-                          }}
-                        >
-                          <MarkdownText text={entry.body} companySlug={companySlug} taskKeyPrefix={taskKeyPrefix} />
-                        </div>
-                      )}
-                    </details>
-                  ))
-                )}
+                  Open trace <ChevronRight size={14} color={color.textMuted} />
+                </Link>
               </div>
             </div>
           </details>

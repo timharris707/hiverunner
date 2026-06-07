@@ -50,7 +50,7 @@ export const AGENT_CONFIGS: AgentConfig[] = [
     avatar: "/avatars/voice-assistant.jpg",
     description:
       "Orchestrates all agents, assigns work, tracks progress. Delivers briefs, status reports, and proactive alerts for the current HiveRunner workspace.",
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-8",
     reportsTo: "Local Owner (operator)",
     capabilities: ["Orchestration", "Morning Briefs", "Task Routing", "Status Reports"],
     routingTags: [],

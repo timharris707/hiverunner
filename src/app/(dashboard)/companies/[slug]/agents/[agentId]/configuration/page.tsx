@@ -40,12 +40,15 @@ import {
 import { ProviderLogo } from "@/components/orchestration/ProviderLogo";
 import {
   buildProviderRuntimeConfigPatch,
-  getProviderRuntimeControls,
-  readProviderRuntimeSelection,
   runtimeReasoningLabel,
   runtimeSpeedLabel,
+  type ProviderRuntimeControls,
   type ProviderRuntimeSelection,
 } from "@/lib/orchestration/provider-runtime-controls";
+import {
+  useRuntimeModelSelection,
+  type RuntimeModelOption,
+} from "@/components/orchestration/useRuntimeModelSelection";
 import { font, type as typography } from "@/lib/ui/tokens";
 
 /* ── Types ── */
@@ -224,13 +227,6 @@ interface SwitchPlanWire {
   } | null;
 }
 
-interface RuntimeModelWire {
-  id: string;
-  label: string;
-  provider?: string;
-  default?: boolean;
-}
-
 interface AgentFileWire {
   relativePath: string;
   name: string;
@@ -250,18 +246,6 @@ interface AgentFilesWire {
 }
 
 type SaveStatus = "idle" | "saving" | "saved" | "error";
-
-const MODEL_OPTIONS = [
-  "openai-codex/gpt-5.5",
-  "anthropic/claude-opus-4-6",
-  "anthropic/claude-sonnet-4-6",
-  "openai-codex/gpt-5.4",
-  "openai-codex/gpt-5.4-mini",
-  "google/gemini-3-pro-preview",
-  "google/gemini-3.1-pro-preview",
-  "google/gemini-3-flash-preview",
-  "google/gemini-2.5-pro",
-];
 
 const UI = {
   sectionBg: "var(--surface)",
@@ -403,27 +387,6 @@ function providerDescriptorForSwitchId(providerId: string): ProviderProductDescr
   return PROVIDER_PRODUCT_DESCRIPTORS.find((entry) => normalizeSwitchProviderId(entry.providerId) === normalized) ?? null;
 }
 
-function defaultModelForSwitchProvider(providerId: string, currentModel: string): string {
-  const normalized = normalizeSwitchProviderId(providerId);
-  if (normalized === "codex") return "openai-codex/gpt-5.5";
-  if (normalized === "anthropic") return "anthropic/claude-sonnet-4-6";
-  if (normalized === "gemini") return "google/gemini-3-pro-preview";
-  if (currentModel) return currentModel;
-  if (normalized === "hermes") return "anthropic/claude-sonnet-4-6";
-  return "openai-codex/gpt-5.5";
-}
-
-function humanProviderSummary(providerId: string): string {
-  const normalized = normalizeSwitchProviderId(providerId);
-  if (normalized === "manual") return "Manual only profile. Tasks assigned here are operator-controlled and will not start an autonomous runtime.";
-  if (normalized === "codex") return "Runs OpenAI Codex models as a first-class HiveRunner runtime for coding and orchestration work. HiveRunner captures assistant updates, lifecycle, tool activity, structured actions, and final output from Codex JSON events.";
-  if (normalized === "anthropic") return "Runs Claude Code with structured activity telemetry, including live text, tool calls, and token/cost details.";
-  if (normalized === "gemini") return "Runs Gemini models through the local CLI with lifecycle and final-output capture.";
-  if (normalized === "hermes") return "Runs through Hermes ACP with structured assistant, thinking, and tool-result events.";
-  if (normalized === "openclaw") return "Runs through the OpenClaw heartbeat gateway with live session events.";
-  return "Choose the runtime provider and model this agent should use.";
-}
-
 function providerReadinessLabel(profile: ProviderBillingProfileWire | null): string {
   const billing = billingLabel(profile);
   return billing === "Unknown billing" ? "Model runtime" : billing;
@@ -523,9 +486,6 @@ export default function AgentConfigurationPage() {
   const [switchNotice, setSwitchNotice] = useState<string | null>(null);
   const [billingConfirmed, setBillingConfirmed] = useState(false);
   const [switchModel, setSwitchModel] = useState(agent.model || "");
-  const [switchModels, setSwitchModels] = useState<RuntimeModelWire[]>([]);
-  const [switchModelsLoading, setSwitchModelsLoading] = useState(false);
-  const [switchModelsError, setSwitchModelsError] = useState<string | null>(null);
   const resolvedReportsToName =
     agent.reportingToName
     || peers.find((p) => p.id === (agent.reportingTo ?? ""))?.name
@@ -741,6 +701,13 @@ export default function AgentConfigurationPage() {
     [agent.id, refreshConfigurationData, slug],
   );
 
+  const setSwitchModelSelection = useCallback((modelId: string) => {
+    setSwitchModel(modelId);
+    setSwitchPlan(null);
+    setSwitchError(null);
+    setSwitchNotice(null);
+  }, []);
+
   const patchAgentFile = useCallback(
     async (relativePath: string, content: string) => {
       const res = await fetch(`/api/orchestration/agents/${encodeURIComponent(agent.id)}/files`, {
@@ -834,71 +801,25 @@ export default function AgentConfigurationPage() {
   const agentRuntimeConfig = shouldUseOpenClawConfig
     ? recordFromUnknown(oc?.runtimeConfig)
     : recordFromUnknown(agent.runtimeConfig);
-  const selectedRuntimeControls = getProviderRuntimeControls(switchTarget, switchModel || modelValue);
-  const selectedRuntimeSelection = readProviderRuntimeSelection(
-    switchTarget,
-    agentRuntimeConfig,
-    switchModel || modelValue,
-  );
-  const switchModelOptions = useMemo(() => {
-    const rows: RuntimeModelWire[] = switchModels.length
-      ? switchModels
-      : MODEL_OPTIONS.map((id) => ({ id, label: id }));
-    if (!switchModel || rows.some((model) => model.id === switchModel)) return rows;
-    return [{ id: switchModel, label: switchModel }, ...rows];
-  }, [switchModel, switchModels]);
+  const {
+    models: switchModelOptions,
+    loading: switchModelsLoading,
+    error: switchModelsError,
+    runtimeControls: selectedRuntimeControls,
+    runtimeSelection: selectedRuntimeSelection,
+  } = useRuntimeModelSelection({
+    provider: switchTarget,
+    model: switchModel,
+    runtimeConfig: agentRuntimeConfig,
+    command: selectedAgentRuntimeCommand ?? selectedCompanyRuntimeCommand ?? selectedDetectedRuntimeCommand,
+    commandPath: selectedDetectedRuntimeCommandPath,
+    autoSelectDefault: true,
+    onModelChange: setSwitchModelSelection,
+  });
 
   useEffect(() => {
     setSwitchModel(modelValue);
   }, [agent.id, modelValue]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setSwitchModelsLoading(true);
-    setSwitchModelsError(null);
-    const params = new URLSearchParams({ provider: switchTarget });
-    const command = selectedAgentRuntimeCommand ?? selectedCompanyRuntimeCommand ?? selectedDetectedRuntimeCommand;
-    if (command) params.set("command", command);
-    if (selectedDetectedRuntimeCommandPath) params.set("commandPath", selectedDetectedRuntimeCommandPath);
-    fetch(`/api/orchestration/runtime-models?${params.toString()}`, {
-      method: "GET",
-      cache: "no-store",
-    })
-      .then(async (response) => {
-        if (!response.ok) throw new Error(`${response.status}`);
-        return await response.json() as { models?: RuntimeModelWire[] };
-      })
-      .then((payload) => {
-        if (cancelled) return;
-        const models = Array.isArray(payload.models) ? payload.models : [];
-        setSwitchModels(models);
-        if (models.length > 0) {
-          setSwitchModel((current) => {
-            if (current && models.some((model) => model.id === current)) return current;
-            return models.find((model) => model.default)?.id ?? models[0]?.id ?? current;
-          });
-        }
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        setSwitchModels([]);
-        setSwitchModelsError(error instanceof Error ? error.message : "unknown_error");
-      })
-      .finally(() => {
-        if (!cancelled) setSwitchModelsLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    agent.id,
-    selectedAgentRuntimeCommand,
-    selectedCompanyRuntimeCommand,
-    selectedDetectedRuntimeCommand,
-    selectedDetectedRuntimeCommandPath,
-    switchTarget,
-  ]);
 
   // OpenClaw-backed agents keep local runtime config; other providers use provider settings APIs.
   const localRuntimeConfig = oc?.runtimeConfig as Record<string, number | boolean | undefined> | undefined;
@@ -1011,18 +932,13 @@ export default function AgentConfigurationPage() {
             onBillingConfirmedChange={setBillingConfirmed}
             onProviderChange={(providerId) => {
               setSwitchTarget(providerId);
-              setSwitchModel(defaultModelForSwitchProvider(providerId, modelValue));
+              setSwitchModel("");
               setSwitchPlan(null);
               setSwitchError(null);
               setSwitchNotice(null);
               setBillingConfirmed(false);
             }}
-            onModelChange={(modelId) => {
-              setSwitchModel(modelId);
-              setSwitchPlan(null);
-              setSwitchError(null);
-              setSwitchNotice(null);
-            }}
+            onModelChange={setSwitchModelSelection}
             onRuntimeSelectionChange={patchProviderRuntimeControls}
             onTest={() => void loadSwitchPlan(switchTarget)}
             onApply={() => void switchProvider()}
@@ -1885,10 +1801,10 @@ function IdentityProviderModelControl({
   currentModel: string;
   switchTarget: string;
   switchModel: string;
-  switchModelOptions: RuntimeModelWire[];
+  switchModelOptions: RuntimeModelOption[];
   switchModelsLoading: boolean;
   switchModelsError: string | null;
-  runtimeControls: ReturnType<typeof getProviderRuntimeControls>;
+  runtimeControls: ProviderRuntimeControls | null;
   runtimeSelection: ProviderRuntimeSelection;
   switchLoading: boolean;
   switchPlan: SwitchPlanWire | null;
@@ -1907,11 +1823,11 @@ function IdentityProviderModelControl({
 }) {
   const currentDescriptor = providerDescriptorForSwitchId(currentProvider);
   const selectedDescriptor = providerDescriptorForSwitchId(switchTarget);
-  const selectedModel = switchModelOptions.find((model) => model.id === switchModel);
   const providerChanged = normalizeSwitchProviderId(currentProvider) !== normalizeSwitchProviderId(switchTarget);
   const modelChanged = Boolean(switchModel && switchModel !== currentModel);
   const hasPendingChange = providerChanged || modelChanged;
   const inFlightApplyBlocked = switchPlan?.warnings.some((warning) => warning.code === "in_flight_execution") === true;
+  const modelListUnavailable = !switchModelsLoading && switchModelOptions.length === 0;
   const statusLabel = switchPlan?.mode === "switchable"
     ? inFlightApplyBlocked
       ? "Ready after run"
@@ -1921,10 +1837,9 @@ function IdentityProviderModelControl({
       : hasPendingChange
         ? "Needs test"
         : "Current";
-  const testDisabled = switchLoading || switchModelsLoading;
-  const applyDisabled = switchLoading || switchModelsLoading || switchPlan?.mode !== "switchable" || inFlightApplyBlocked || (requiresBillingConfirmation && !billingConfirmed);
-  const summaryText = switchPlan?.summary ?? selectedRuntimeSupportMessage.text;
-  const modelDisplay = selectedModel?.label ?? switchModel ?? "Provider default";
+  const testDisabled = switchLoading || switchModelsLoading || modelListUnavailable;
+  const applyDisabled = switchLoading || switchModelsLoading || modelListUnavailable || switchPlan?.mode !== "switchable" || inFlightApplyBlocked || (requiresBillingConfirmation && !billingConfirmed);
+  const showRuntimeReadiness = selectedRuntimeSupportMessage.tone === "error" || Boolean(switchPlan);
   const activeRunDetails = switchPlan?.inFlight?.runs ?? [];
 
   return (
@@ -1962,13 +1877,13 @@ function IdentityProviderModelControl({
             <TogglePill enabled={switchPlan?.mode === "switchable" || !hasPendingChange} label={statusLabel} />
           </div>
           <div style={{ marginTop: 5, fontSize: 12, color: A.textSec, lineHeight: 1.5 }}>
-            Currently using {currentDescriptor?.displayName ?? providerLabelForSwitchId(currentProvider)} · {currentModel || "provider default model"}
+            Currently using {currentDescriptor?.displayName ?? providerLabelForSwitchId(currentProvider)}
           </div>
         </div>
       </div>
 
       <div style={{ ...microHeadingStyle, marginBottom: 8 }}>Runtime provider</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(94px, 1fr))", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(96px, 1fr))", gap: 6 }}>
         {SWITCHABLE_PROVIDER_IDS.map((providerId) => {
           const descriptor = providerDescriptorForSwitchId(providerId);
           const selected = normalizeSwitchProviderId(providerId) === normalizeSwitchProviderId(switchTarget);
@@ -1979,23 +1894,23 @@ function IdentityProviderModelControl({
               onClick={() => onProviderChange(providerId)}
               aria-pressed={selected}
               style={{
-                minHeight: 72,
-                borderRadius: 13,
+                minHeight: 40,
+                borderRadius: 10,
                 border: `0.5px solid ${selected ? A.cardBorder : UI.surfaceBorder}`,
                 background: selected ? "var(--surface-elevated)" : "transparent",
                 color: A.text,
                 display: "flex",
-                flexDirection: "column",
+                flexDirection: "row",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 7,
-                padding: "9px 8px",
+                gap: 6,
+                padding: "7px 8px",
                 cursor: "pointer",
                 boxShadow: selected ? "inset 0 1px 0 rgba(255,255,255,0.05)" : "none",
               }}
             >
-              <ProviderLogo provider={providerId} size={23} />
-              <span style={{ fontSize: 12, fontWeight: selected ? 700 : 600, color: selected ? A.text : A.textSec }}>
+              <ProviderLogo provider={providerId} size={16} />
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 11, fontWeight: selected ? 700 : 600, color: selected ? A.text : A.textSec }}>
                 {descriptor?.displayName ?? providerId}
               </span>
             </button>
@@ -2005,71 +1920,60 @@ function IdentityProviderModelControl({
 
       <div style={{ marginTop: 14 }}>
         <div style={{ ...microHeadingStyle, marginBottom: 7 }}>Model</div>
-        <div style={{ display: "grid", gridTemplateColumns: "36px minmax(0, 1fr)", gap: 8, alignItems: "center" }}>
-          <div
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              display: "grid",
-              placeItems: "center",
-              background: "var(--surface-elevated)",
-              border: `0.5px solid ${UI.surfaceBorder}`,
-            }}
-          >
-            <ProviderLogo provider={selectedModel?.provider ?? switchTarget} size={20} />
-          </div>
+        <div>
           <select
             value={switchModel}
             onChange={(event) => onModelChange(event.target.value)}
-            style={{ ...inputStyle(), cursor: "pointer", fontFamily: font.mono, minHeight: 42 }}
+            disabled={switchModelsLoading || switchModelOptions.length === 0}
+            style={{ ...inputStyle(), cursor: "pointer", minHeight: 42 }}
           >
-            {switchModelOptions.map((model) => (
-              <option key={model.id} value={model.id}>
-                {model.default ? `${model.label} (default)` : model.label}
-              </option>
-            ))}
+            {switchModelOptions.length === 0 ? (
+              <option value="">No verified models available</option>
+            ) : (
+              switchModelOptions.map((model) => (
+                <option key={model.id} value={model.id}>
+                  {model.default ? `${model.label} (default)` : model.label}
+                </option>
+              ))
+            )}
           </select>
         </div>
-        <div style={{ marginTop: 6, fontSize: 11, color: switchModelsError ? "var(--negative)" : A.textSec, lineHeight: 1.45 }}>
-          {switchModelsLoading
-            ? "Loading models for this provider..."
-            : switchModelsError
-              ? `Could not load provider model list (${switchModelsError}).`
-              : `Selected model: ${modelDisplay}`}
-        </div>
+        {switchModelsLoading || switchModelsError ? (
+          <div style={{ marginTop: 6, fontSize: 11, color: switchModelsError ? "var(--negative)" : A.textSec, lineHeight: 1.45 }}>
+            {switchModelsLoading ? "Loading models..." : `Could not load models (${switchModelsError}).`}
+          </div>
+        ) : null}
       </div>
 
       <RuntimeProfileSelector
-        model={switchModel || currentModel}
         controls={runtimeControls}
         selection={runtimeSelection}
         disabled={switchLoading}
         onChange={onRuntimeSelectionChange}
       />
 
-      <div
-        style={{
-          marginTop: 14,
-          padding: "11px 12px",
-          borderRadius: 13,
-          border: `0.5px solid ${selectedRuntimeSupportMessage.tone === "error" ? "rgba(138, 90, 0, 0.24)" : UI.surfaceBorder}`,
-          background: selectedRuntimeSupportMessage.tone === "error" ? "var(--warning-soft)" : "var(--surface-elevated)",
-          display: "grid",
-          gap: 6,
-        }}
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-          <span style={{ fontSize: 12, fontWeight: 650, color: A.text }}>Runtime readiness</span>
-          <span style={{ fontSize: 11, color: A.textSec }}>{providerReadinessLabel(selectedBillingProfile)}</span>
+      {showRuntimeReadiness ? (
+        <div
+          style={{
+            marginTop: 12,
+            padding: "10px 12px",
+            borderRadius: 13,
+            border: `0.5px solid ${selectedRuntimeSupportMessage.tone === "error" ? "rgba(138, 90, 0, 0.24)" : UI.surfaceBorder}`,
+            background: selectedRuntimeSupportMessage.tone === "error" ? "var(--warning-soft)" : "var(--surface-elevated)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+          }}
+        >
+          <span style={{ minWidth: 0, color: A.textSec, fontSize: 12, lineHeight: 1.4 }}>
+            {switchPlan?.summary ?? selectedRuntimeSupportMessage.text}
+          </span>
+          <span style={{ flex: "0 0 auto", color: A.textSec, fontSize: 11 }}>
+            {providerReadinessLabel(selectedBillingProfile)}
+          </span>
         </div>
-        <div style={{ fontSize: 12, color: A.text, lineHeight: 1.5 }}>
-          {humanProviderSummary(switchTarget)}
-        </div>
-        <div style={{ fontSize: 12, color: A.textSec, lineHeight: 1.55 }}>
-          {summaryText}
-        </div>
-      </div>
+      ) : null}
 
       {requiresBillingConfirmation ? (
         <label
@@ -2146,14 +2050,12 @@ function IdentityProviderModelControl({
 }
 
 function RuntimeProfileSelector({
-  model,
   controls,
   selection,
   disabled,
   onChange,
 }: {
-  model: string;
-  controls: ReturnType<typeof getProviderRuntimeControls>;
+  controls: ProviderRuntimeControls | null;
   selection: ProviderRuntimeSelection;
   disabled?: boolean;
   onChange: (selection: Partial<ProviderRuntimeSelection>) => Promise<unknown>;
@@ -2165,7 +2067,12 @@ function RuntimeProfileSelector({
   const speedLabel = runtimeSpeedLabel(selection.speedMode);
   const hasReasoning = controls?.reasoning.available === true;
   const hasSpeed = controls?.speed.available === true && selection.speedMode !== null;
-  const modelLabel = model || "Provider default";
+  const summaryParts = [
+    hasReasoning ? reasoningLabel : "Unavailable",
+    hasSpeed ? speedLabel : null,
+  ].filter((part): part is string => Boolean(part));
+  const summaryLabel = summaryParts.join(" · ");
+  const showSpeedSection = controls?.speed.available === true;
 
   useEffect(() => {
     if (!open) return;
@@ -2189,10 +2096,24 @@ function RuntimeProfileSelector({
     void trigger(() => onChange(next));
     setOpen(false);
   };
+  const reasoningMenuItems = controls?.reasoning.available ? (
+    controls.reasoning.options.map((option) => {
+      const selected = selection.reasoningEffort === option.value;
+      return (
+        <RuntimeProfileMenuItem
+          key={option.value}
+          selected={selected}
+          label={option.label}
+          onClick={() => commit({ reasoningEffort: option.value })}
+        />
+      );
+    })
+  ) : (
+    <RuntimeProfileUnavailableRow text={controls?.reasoning.unavailableReason ?? "Reasoning controls are not available for this provider."} />
+  );
 
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ ...microHeadingStyle, marginBottom: 7 }}>Runtime profile</div>
+    <div style={{ marginTop: 10 }}>
       <div ref={menuRef} style={{ position: "relative" }}>
         <button
           type="button"
@@ -2200,10 +2121,10 @@ function RuntimeProfileSelector({
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
-          title={`${modelLabel} · ${hasReasoning ? reasoningLabel : "Reasoning unavailable"} · ${hasSpeed ? speedLabel : "Speed unavailable"}`}
+          title={`Reasoning · ${summaryLabel || "Unavailable"}`}
           style={{
             width: "100%",
-            minHeight: 44,
+            minHeight: 38,
             borderRadius: 12,
             border: `0.5px solid ${UI.surfaceBorder}`,
             background: "var(--surface-elevated)",
@@ -2218,24 +2139,22 @@ function RuntimeProfileSelector({
             textAlign: "left",
           }}
         >
-          <span style={{ minWidth: 0 }}>
+          <span style={{ minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <span
               style={{
-                display: "block",
+                display: "inline",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
-                fontFamily: font.mono,
-                fontSize: 12,
+                fontSize: 13,
+                fontWeight: 650,
                 color: A.text,
               }}
             >
-              {modelLabel}
+              Reasoning
             </span>
-            <span style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4, fontSize: 11, color: A.textSec }}>
-              <span>{hasReasoning ? reasoningLabel : "Reasoning unavailable"}</span>
-              <span>·</span>
-              <span>{hasSpeed ? speedLabel : "Speed unavailable"}</span>
+            <span style={{ color: A.textSec, fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {summaryLabel || "Unavailable"}
             </span>
           </span>
           <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
@@ -2247,14 +2166,14 @@ function RuntimeProfileSelector({
         {open && controls ? (
           <div
             role="menu"
-            aria-label="Runtime profile"
+            aria-label="Reasoning"
             style={{
               position: "absolute",
               right: 0,
               top: 50,
               zIndex: 20,
-              width: "min(320px, 100%)",
-              maxHeight: "min(420px, 70vh)",
+              width: "min(240px, 100%)",
+              maxHeight: "min(320px, 70vh)",
               overflowY: "auto",
               padding: 8,
               borderRadius: 14,
@@ -2263,30 +2182,17 @@ function RuntimeProfileSelector({
               boxShadow: UI.shadow,
             }}
           >
-            <div style={{ padding: "7px 10px 5px", color: A.muted, fontSize: 12 }}>
-              {controls.label} runtime
-            </div>
-            <RuntimeProfileMenuSection title="Reasoning">
-              {controls.reasoning.available ? (
-                controls.reasoning.options.map((option) => {
-                  const selected = selection.reasoningEffort === option.value;
-                  return (
-                    <RuntimeProfileMenuItem
-                      key={option.value}
-                      selected={selected}
-                      label={option.label}
-                      onClick={() => commit({ reasoningEffort: option.value })}
-                    />
-                  );
-                })
-              ) : (
-                <RuntimeProfileUnavailableRow text={controls.reasoning.unavailableReason ?? "Reasoning controls are not available for this provider."} />
-              )}
-            </RuntimeProfileMenuSection>
+            {showSpeedSection ? (
+              <RuntimeProfileMenuSection title="Reasoning">
+                {reasoningMenuItems}
+              </RuntimeProfileMenuSection>
+            ) : (
+              reasoningMenuItems
+            )}
 
-            <RuntimeProfileMenuSection title="Speed">
-              {controls.speed.available ? (
-                controls.speed.options.map((option) => {
+            {showSpeedSection ? (
+              <RuntimeProfileMenuSection title="Speed">
+                {controls.speed.options.map((option) => {
                   const selected = selection.speedMode === option.value;
                   const unavailable = !option.available;
                   return (
@@ -2302,16 +2208,11 @@ function RuntimeProfileSelector({
                       }}
                     />
                   );
-                })
-              ) : (
-                <RuntimeProfileUnavailableRow text={controls.speed.unavailableReason ?? "Speed controls are not available for this provider."} />
-              )}
-            </RuntimeProfileMenuSection>
+                })}
+              </RuntimeProfileMenuSection>
+            ) : null}
           </div>
         ) : null}
-      </div>
-      <div style={{ marginTop: 6, fontSize: 11, color: A.textSec, lineHeight: 1.45 }}>
-        Runtime choices are persisted to this agent runtime_config_json and merged with existing keys.
       </div>
     </div>
   );
@@ -2326,7 +2227,7 @@ function RuntimeProfileMenuSection({
 }) {
   return (
     <div style={{ borderTop: `0.5px solid ${UI.divider}`, marginTop: 8, paddingTop: 8 }}>
-      <div style={{ padding: "0 10px 5px", color: A.muted, fontSize: 12 }}>{title}</div>
+      <div style={{ padding: "0 10px 5px", color: A.muted, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>{title}</div>
       {children}
     </div>
   );

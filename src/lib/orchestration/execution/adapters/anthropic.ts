@@ -161,7 +161,7 @@ function normalizeClaudeModel(value: string): string {
     return "claude-sonnet-4-6";
   }
   if (model === "opus" || model === "claude-opus") {
-    return "claude-opus-4-7";
+    return "claude-opus-4-8";
   }
   return model;
 }
@@ -195,7 +195,7 @@ function normalizeReasoningEffort(value: unknown): string | null {
   if (normalized === "balanced" || normalized === "standard") return "medium";
   if (normalized === "deep") return "high";
   if (normalized === "extra" || normalized === "extra-high" || normalized === "extra_high") return "xhigh";
-  if (["low", "medium", "high", "xhigh"].includes(normalized)) return normalized;
+  if (["low", "medium", "high", "xhigh", "max"].includes(normalized)) return normalized;
   return null;
 }
 

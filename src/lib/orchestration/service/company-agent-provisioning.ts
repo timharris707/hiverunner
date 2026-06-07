@@ -51,6 +51,7 @@ type ExistingAgentRow = {
   runtime_slug: string | null;
   adapter_type: string | null;
   openclaw_agent_id: string | null;
+  runtime_config_json: string | null;
 };
 
 type ProvisionCompanyHireAgentInput = {
@@ -94,6 +95,25 @@ function readPayloadNumber(payload: Record<string, unknown>, key: string): numbe
     return Number.isFinite(parsed) ? parsed : null;
   }
   return null;
+}
+
+function readPayloadRecord(payload: Record<string, unknown>, key: string): Record<string, unknown> | null {
+  const value = payload[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function parseJsonRecord(value: string | null | undefined): Record<string, unknown> {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : {};
+  } catch {
+    return {};
+  }
 }
 
 const SUPPORTED_RUNTIME_PROVIDERS = new Set([
@@ -154,7 +174,7 @@ export function defaultModelForRuntimeProvider(provider: string): string {
     case "codex":
       return "openai-codex/gpt-5.5";
     case "gemini":
-      return "google/gemini-2.5-pro";
+      return "google/gemini-3-pro-preview";
     case "hermes":
     case "symphony":
       return "";
@@ -211,7 +231,7 @@ export function normalizeModelForRuntimeProvider(provider: string, model: string
       return "anthropic/claude-sonnet-4-6";
     }
     if (anthropicModel === "opus" || anthropicModel === "claude-opus") {
-      return "anthropic/claude-opus-4-7";
+      return "anthropic/claude-opus-4-8";
     }
     return raw.startsWith("anthropic/") ? raw : `anthropic/${raw}`;
   }
@@ -244,11 +264,11 @@ export function normalizeModelForRuntimeProvider(provider: string, model: string
     geminiModel === "auto-gemini-3" ||
     geminiModel === "pro"
   ) {
-    return "google/gemini-2.5-pro";
+    return "google/gemini-3-pro-preview";
   }
 
   if (geminiModel === "flash") {
-    return "google/gemini-3-flash-preview";
+    return "google/gemini-3.5-flash";
   }
 
   if (geminiModel === "flash-lite") {
@@ -349,6 +369,7 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
     requestedAgentId
       ? db.prepare(
           `SELECT id, project_id, runtime_slug, adapter_type, openclaw_agent_id
+                  , runtime_config_json
            FROM agents
            WHERE id = ?
              AND company_id = ?
@@ -359,6 +380,7 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
   ) as ExistingAgentRow | undefined
     ?? db.prepare(
       `SELECT id, project_id, runtime_slug, adapter_type, openclaw_agent_id
+              , runtime_config_json
        FROM agents
        WHERE company_id = ?
          AND archived_at IS NULL
@@ -390,6 +412,11 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
     ? input.payload.model.trim()
     : defaultModelForRuntimeProvider(runtimeProvider);
   const model = normalizeModelForRuntimeProvider(runtimeProvider, requestedModel);
+  const payloadRuntimeConfig = readPayloadRecord(input.payload, "runtimeConfig");
+  const runtimeConfig = {
+    ...parseJsonRecord(existingAgent?.runtime_config_json),
+    ...(payloadRuntimeConfig ?? {}),
+  };
   const runtimeCommand =
     readPayloadString(input.payload, "runtimeCommand") ??
     defaultCommandForRuntimeProvider(runtimeProvider);
@@ -503,6 +530,7 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
            avatar_vibe = ?,
            voice_id = ?,
            model = ?,
+           runtime_config_json = ?,
            adapter_type = ?,
            status = ?,
            openclaw_agent_id = ?,
@@ -526,6 +554,7 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
         dossier.avatar.vibe,
         dossier.voice.voiceId,
         model,
+        JSON.stringify(runtimeConfig),
         runtimeProvider,
         input.initialStatus,
         openclawAgentId,
@@ -538,9 +567,9 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
       `INSERT INTO agents
         (id, company_id, project_id, name, slug, runtime_slug, emoji, role, personality, avatar_url,
          avatar_style_id, avatar_gender, avatar_age, avatar_hair_color, avatar_hair_length,
-         avatar_eye_color, avatar_vibe, voice_id, model, adapter_type, status, openclaw_agent_id, reporting_to,
+         avatar_eye_color, avatar_vibe, voice_id, model, runtime_config_json, adapter_type, status, openclaw_agent_id, reporting_to,
          skills_json, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?)`
     ).run(
       agentId,
       company.id,
@@ -561,6 +590,7 @@ function provisionCompanyHireAgent(input: ProvisionCompanyHireAgentInput) {
       dossier.avatar.vibe,
       dossier.voice.voiceId,
       model,
+      JSON.stringify(runtimeConfig),
       runtimeProvider,
       input.initialStatus,
       openclawAgentId,

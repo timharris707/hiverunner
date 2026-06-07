@@ -5,6 +5,7 @@ import { X } from "lucide-react";
 
 import {
   AgentRuntimeModelFields,
+  type AgentRuntimeProfileSelection,
   type AgentRuntimeSelection,
 } from "@/components/orchestration/AgentRuntimeModelFields";
 import {
@@ -16,6 +17,7 @@ import {
   type AgentIdentityDraft,
 } from "@/components/orchestration/AgentIdentityFields";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
+import { buildProviderRuntimeConfigPatch } from "@/lib/orchestration/provider-runtime-controls";
 
 interface Props {
   open: boolean;
@@ -50,6 +52,10 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
   const [role, setRole] = useState("");
   const [model, setModel] = useState("");
   const [runtime, setRuntime] = useState<AgentRuntimeSelection | null>(null);
+  const [runtimeProfile, setRuntimeProfile] = useState<AgentRuntimeProfileSelection>({
+    reasoningEffort: null,
+    speedMode: null,
+  });
   const [reportsTo, setReportsTo] = useState("");
   const [identity, setIdentity] = useState<AgentIdentityDraft>({});
   const [saving, setSaving] = useState(false);
@@ -114,6 +120,7 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
     setRole("");
     setModel("");
     setRuntime(null);
+    setRuntimeProfile({ reasoningEffort: null, speedMode: null });
     setReportsTo("");
     setIdentity({});
     setError(null);
@@ -130,6 +137,9 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
     setSaving(true);
     setError(null);
     try {
+      const runtimeConfig = runtime
+        ? buildProviderRuntimeConfigPatch(runtime.provider, runtimeProfile)
+        : {};
       const res = await fetch(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/agents/hire`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -143,6 +153,7 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
           runtimeCommand: runtime?.command,
           runtimeCommandPath: runtime?.commandPath,
           runtimeSource: runtime?.source,
+          ...(Object.keys(runtimeConfig).length > 0 ? { runtimeConfig } : {}),
           reportsTo: reportsTo.trim() || undefined,
           ...identity,
         }),
@@ -213,6 +224,8 @@ export function CreateAgentModal({ open, onClose, companySlug, companyCode, onCr
               onModelChange={setModel}
               runtime={runtime}
               onRuntimeChange={setRuntime}
+              runtimeProfile={runtimeProfile}
+              onRuntimeProfileChange={setRuntimeProfile}
             />
             <div>
               <label style={labelStyle}>Reports to</label>

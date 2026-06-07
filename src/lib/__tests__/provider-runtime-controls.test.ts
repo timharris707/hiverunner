@@ -6,6 +6,7 @@ import {
   getProviderRuntimeControls,
   readProviderRuntimeSelection,
   supportsCodexFastMode,
+  supportsGeminiThinkingLevel,
 } from "@/lib/orchestration/provider-runtime-controls";
 
 test("codex exposes xhigh reasoning and fast mode for verified GPT models", () => {
@@ -29,10 +30,21 @@ test("anthropic exposes max reasoning but no unverified speed flag", () => {
   );
 });
 
-test("gemini reports only verified model-backed runtime controls", () => {
-  const controls = getProviderRuntimeControls("gemini", "google/gemini-3-pro-preview");
-  assert.equal(controls?.reasoning.available, false);
+test("gemini exposes thinking levels for Gemini 3 models and leaves speed to model tiers", () => {
+  const controls = getProviderRuntimeControls("gemini", "google/gemini-3.5-flash");
+  const proControls = getProviderRuntimeControls("gemini", "google/gemini-3-pro-preview");
+  const pro31Controls = getProviderRuntimeControls("gemini", "google/gemini-3.1-pro-preview");
+  assert.equal(controls?.reasoning.available, true);
+  assert.deepEqual(controls?.reasoning.options.map((option) => option.value), ["minimal", "low", "medium", "high"]);
+  assert.deepEqual(proControls?.reasoning.options.map((option) => option.value), ["low", "high"]);
+  assert.deepEqual(pro31Controls?.reasoning.options.map((option) => option.value), ["low", "medium", "high"]);
   assert.equal(controls?.speed.available, false);
+  assert.equal(supportsGeminiThinkingLevel("google/gemini-3-flash-preview"), true);
+  assert.equal(supportsGeminiThinkingLevel("google/gemini-2.5-flash"), false);
+  assert.deepEqual(
+    readProviderRuntimeSelection("gemini", { thinkingLevel: "minimal", speedPreference: "fast" }, "google/gemini-3.5-flash"),
+    { reasoningEffort: "minimal", speedMode: null },
+  );
 });
 
 test("runtime selection reads legacy aliases without losing fast preference", () => {

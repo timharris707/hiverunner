@@ -34,6 +34,7 @@ import type {
   OverseerTurn,
   OverseerTurnStatus,
   OverseerUsageSnapshot,
+  OverseerWatchState,
 } from "./types";
 
 const DEFAULT_SETTINGS: OverseerSettings = {
@@ -49,6 +50,10 @@ const DEFAULT_SETTINGS: OverseerSettings = {
 
 const COMPACTION_LIMITATION =
   "Codex CLI slash commands such as /compact are interactive and are not exposed as a stable programmatic command in this exec/resume path. HiveRunner uses a deterministic summary turn fallback, stores it durably on the Overseer session, and injects it into the next Codex exec prompt.";
+
+const DEFAULT_WATCH_INTERVAL_MS = 35_000;
+const MIN_WATCH_INTERVAL_MS = 30_000;
+const MAX_WATCH_INTERVAL_MS = 5 * 60_000;
 
 type CompanyIdentity = {
   id: string;
@@ -168,6 +173,12 @@ type ContextSnapshotRow = {
   created_at: string;
 };
 
+type WatchTimerRegistry = Map<string, ReturnType<typeof setTimeout>>;
+
+const watchTimerRegistry = ((globalThis as typeof globalThis & {
+  __hiverunnerOverseerWatchTimers?: WatchTimerRegistry;
+}).__hiverunnerOverseerWatchTimers ??= new Map());
+
 function parseRecord(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
   try {
@@ -184,6 +195,49 @@ function recordValue(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : {};
+}
+
+function stringFromRecord(record: Record<string, unknown>, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function numberFromRecord(record: Record<string, unknown>, key: string): number | null {
+  const value = record[key];
+  const numeric = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeWatchIntervalMs(value: unknown): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numeric)) return DEFAULT_WATCH_INTERVAL_MS;
+  return Math.min(MAX_WATCH_INTERVAL_MS, Math.max(MIN_WATCH_INTERVAL_MS, Math.round(numeric)));
+}
+
+function normalizeOverseerWatchState(value: unknown): OverseerWatchState | null {
+  const record = recordValue(value);
+  if (Object.keys(record).length === 0) return null;
+  const rawStatus = stringFromRecord(record, ["status"]);
+  const status = rawStatus === "watching" || rawStatus === "completed" || rawStatus === "failed"
+    ? rawStatus
+    : "stopped";
+  const enabled = typeof record.enabled === "boolean" ? record.enabled : status === "watching";
+  return {
+    enabled,
+    status,
+    startedAt: stringFromRecord(record, ["startedAt"]),
+    lastCheckAt: stringFromRecord(record, ["lastCheckAt"]),
+    stoppedAt: stringFromRecord(record, ["stoppedAt"]),
+    intervalMs: normalizeWatchIntervalMs(record.intervalMs),
+    checkCount: Math.max(0, Math.round(numberFromRecord(record, "checkCount") ?? 0)),
+    digest: stringFromRecord(record, ["digest", "lastObservedStateHash"]),
+    lastSummary: stringFromRecord(record, ["lastSummary"]),
+    lastMessageAt: stringFromRecord(record, ["lastMessageAt"]),
+    error: stringFromRecord(record, ["error"]),
+  };
 }
 
 function parseRecordArray(value: string | null | undefined): Array<Record<string, unknown>> {
@@ -1260,6 +1314,452 @@ export function recordOverseerEvent(input: {
     now,
   );
   return eventFromRow(db.prepare("SELECT * FROM overseer_session_events WHERE id = ?").get(id) as EventRow);
+}
+
+function stringValuesFromRecord(record: Record<string, unknown>, keys: string[]): string[] {
+  const values: string[] = [];
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) values.push(value.trim());
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        if (typeof item === "string" && item.trim()) values.push(item.trim());
+      }
+    }
+  }
+  return Array.from(new Set(values));
+}
+
+function scopedWatchIdentifiers(session: OverseerSession): {
+  taskRefs: string[];
+  sprintIds: string[];
+  goalIds: string[];
+} {
+  const watch = recordValue(session.scope.watch);
+  const nested = recordValue(watch.scope);
+  const combined = { ...session.scope, ...nested };
+  return {
+    taskRefs: stringValuesFromRecord(combined, ["taskId", "taskIds", "taskKey", "taskKeys"]),
+    sprintIds: stringValuesFromRecord(combined, ["sprintId", "sprintIds"]),
+    goalIds: stringValuesFromRecord(combined, ["goalId", "goalIds", "companyGoalId", "companyGoalIds"]),
+  };
+}
+
+function placeholders(values: unknown[]): string {
+  return values.map(() => "?").join(", ");
+}
+
+function buildWatchTaskFilter(session: OverseerSession): { where: string; args: unknown[]; scopeLabel: string } {
+  const identifiers = scopedWatchIdentifiers(session);
+  const where = ["COALESCE(t.company_id, p.company_id) = ?", "t.archived_at IS NULL"];
+  const args: unknown[] = [session.companyId];
+  let scopeLabel = "company";
+  if (session.projectId) {
+    where.push("t.project_id = ?");
+    args.push(session.projectId);
+    scopeLabel = "project";
+  }
+  if (identifiers.taskRefs.length > 0) {
+    where.push(`(t.id IN (${placeholders(identifiers.taskRefs)}) OR t.task_key IN (${placeholders(identifiers.taskRefs)}))`);
+    args.push(...identifiers.taskRefs, ...identifiers.taskRefs);
+    scopeLabel = "task";
+  } else if (identifiers.sprintIds.length > 0) {
+    where.push(`t.sprint_id IN (${placeholders(identifiers.sprintIds)})`);
+    args.push(...identifiers.sprintIds);
+    scopeLabel = "sprint";
+  } else if (identifiers.goalIds.length > 0) {
+    where.push(`(t.sprint_id IN (${placeholders(identifiers.goalIds)}) OR s.parent_id IN (${placeholders(identifiers.goalIds)}))`);
+    args.push(...identifiers.goalIds, ...identifiers.goalIds);
+    scopeLabel = "goal";
+  }
+  return { where: where.join(" AND "), args, scopeLabel };
+}
+
+type WatchSample = {
+  scopeLabel: string;
+  taskCounts: Record<string, number>;
+  runCounts: Record<string, number>;
+  recentTasks: Array<{
+    key: string;
+    title: string;
+    status: string;
+    assignee: string | null;
+    updatedAt: string | null;
+    blockedReason: string | null;
+  }>;
+  recentRuns: Array<{
+    id: string;
+    taskKey: string | null;
+    taskTitle: string | null;
+    status: string;
+    provider: string;
+    runnerProvider: string | null;
+    runnerModel: string | null;
+    updatedAt: string | null;
+    errorMessage: string | null;
+  }>;
+};
+
+function sampleOverseerWatchState(db: Database.Database, session: OverseerSession): WatchSample {
+  const filter = buildWatchTaskFilter(session);
+  const taskCountRows = db.prepare(
+    `SELECT t.status, COUNT(*) AS count
+     FROM tasks t
+     INNER JOIN projects p ON p.id = t.project_id
+     LEFT JOIN sprints s ON s.id = t.sprint_id
+     WHERE ${filter.where}
+     GROUP BY t.status`,
+  ).all(...filter.args) as Array<{ status: string; count: number }>;
+  const taskCounts = Object.fromEntries(taskCountRows.map((row) => [row.status, Number(row.count ?? 0)]));
+
+  const recentTasks = db.prepare(
+    `SELECT COALESCE(t.task_key, t.id) AS task_key,
+            t.title,
+            t.status,
+            a.name AS assignee_name,
+            t.updated_at,
+            t.blocked_reason
+     FROM tasks t
+     INNER JOIN projects p ON p.id = t.project_id
+     LEFT JOIN sprints s ON s.id = t.sprint_id
+     LEFT JOIN agents a ON a.id = t.assignee_agent_id
+     WHERE ${filter.where}
+     ORDER BY datetime(t.updated_at) DESC, t.id DESC
+     LIMIT 6`,
+  ).all(...filter.args) as Array<{
+    task_key: string;
+    title: string;
+    status: string;
+    assignee_name: string | null;
+    updated_at: string | null;
+    blocked_reason: string | null;
+  }>;
+
+  const runCountRows = db.prepare(
+    `SELECT er.status, COUNT(*) AS count
+     FROM execution_runs er
+     INNER JOIN tasks t ON t.id = er.task_id
+     INNER JOIN projects p ON p.id = t.project_id
+     LEFT JOIN sprints s ON s.id = t.sprint_id
+     WHERE ${filter.where}
+     GROUP BY er.status`,
+  ).all(...filter.args) as Array<{ status: string; count: number }>;
+  const runCounts = Object.fromEntries(runCountRows.map((row) => [row.status, Number(row.count ?? 0)]));
+
+  const recentRuns = db.prepare(
+    `SELECT er.id,
+            er.status,
+            er.provider,
+            er.runner_provider,
+            er.runner_model,
+            er.updated_at,
+            er.error_message,
+            t.task_key,
+            t.title AS task_title
+     FROM execution_runs er
+     INNER JOIN tasks t ON t.id = er.task_id
+     INNER JOIN projects p ON p.id = t.project_id
+     LEFT JOIN sprints s ON s.id = t.sprint_id
+     WHERE ${filter.where}
+     ORDER BY datetime(er.updated_at) DESC, er.id DESC
+     LIMIT 5`,
+  ).all(...filter.args) as Array<{
+    id: string;
+    status: string;
+    provider: string;
+    runner_provider: string | null;
+    runner_model: string | null;
+    updated_at: string | null;
+    error_message: string | null;
+    task_key: string | null;
+    task_title: string | null;
+  }>;
+
+  return {
+    scopeLabel: filter.scopeLabel,
+    taskCounts,
+    runCounts,
+    recentTasks: recentTasks.map((task) => ({
+      key: task.task_key,
+      title: task.title,
+      status: task.status,
+      assignee: task.assignee_name,
+      updatedAt: task.updated_at,
+      blockedReason: task.blocked_reason,
+    })),
+    recentRuns: recentRuns.map((run) => ({
+      id: run.id,
+      taskKey: run.task_key,
+      taskTitle: run.task_title,
+      status: run.status,
+      provider: run.provider,
+      runnerProvider: run.runner_provider,
+      runnerModel: run.runner_model,
+      updatedAt: run.updated_at,
+      errorMessage: run.error_message,
+    })),
+  };
+}
+
+function watchDigest(sample: WatchSample): string {
+  return createHash("sha256").update(JSON.stringify(sample)).digest("hex").slice(0, 32);
+}
+
+function watchSummary(sample: WatchSample, started: boolean): string {
+  const active = sample.taskCounts.in_progress ?? 0;
+  const review = sample.taskCounts.review ?? 0;
+  const waiting = (sample.taskCounts.backlog ?? 0) + (sample.taskCounts.on_deck ?? 0) + (sample.taskCounts["to-do"] ?? 0);
+  const blocked = sample.taskCounts.blocked ?? 0;
+  const done = sample.taskCounts.done ?? 0;
+  const runningRuns = sample.runCounts.running ?? 0;
+  const pendingRuns = sample.runCounts.pending ?? 0;
+  const failedRuns = sample.runCounts.failed ?? 0;
+  const recentTasks = sample.recentTasks.slice(0, 3).map((task) => {
+    const assignee = task.assignee ? `, ${task.assignee}` : "";
+    return `${task.key} ${compactText(task.title, 54)} -> ${task.status}${assignee}`;
+  });
+  const recentRuns = sample.recentRuns.slice(0, 2).map((run) => {
+    const task = run.taskKey ?? run.taskTitle ?? run.id.slice(0, 8);
+    const runner = run.runnerProvider ?? run.provider;
+    return `${task} ${runner} -> ${run.status}`;
+  });
+  return [
+    started ? `Watching started for this ${sample.scopeLabel} scope.` : `Watch update for this ${sample.scopeLabel} scope.`,
+    `Board: active ${active}, review ${review}, waiting ${waiting}, blocked ${blocked}, done ${done}.`,
+    `Runs: running ${runningRuns}, pending ${pendingRuns}, failed ${failedRuns}.`,
+    recentTasks.length > 0 ? `Recent tasks: ${recentTasks.join("; ")}.` : "Recent tasks: none.",
+    recentRuns.length > 0 ? `Recent runs: ${recentRuns.join("; ")}.` : "Recent runs: none.",
+  ].join(" ");
+}
+
+function writeOverseerWatchState(
+  db: Database.Database,
+  sessionId: string,
+  watch: OverseerWatchState,
+  now: string,
+): OverseerSession {
+  const session = getOverseerSession(sessionId, db);
+  const scope = { ...session.scope, watch };
+  db.prepare(
+    `UPDATE overseer_sessions
+     SET scope_json = ?,
+         last_turn_at = ?,
+         updated_at = ?
+     WHERE id = ?`,
+  ).run(JSON.stringify(scope), now, now, session.id);
+  return getOverseerSession(session.id, db);
+}
+
+function clearOverseerWatchTimer(sessionId: string): void {
+  const timer = watchTimerRegistry.get(sessionId);
+  if (!timer) return;
+  clearTimeout(timer);
+  watchTimerRegistry.delete(sessionId);
+}
+
+function markOverseerWatchFailed(sessionId: string, error: unknown): void {
+  const db = getOrchestrationDb();
+  const session = getOverseerSession(sessionId, db);
+  const current = normalizeOverseerWatchState(session.scope.watch);
+  if (!current || current.status !== "watching") return;
+  const now = new Date().toISOString();
+  const message = error instanceof Error ? error.message : String(error);
+  writeOverseerWatchState(db, session.id, {
+    ...current,
+    enabled: false,
+    status: "failed",
+    stoppedAt: now,
+    error: message,
+  }, now);
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.watch.failed",
+    event: { error: message },
+    occurredAt: now,
+    db,
+  });
+  appendOverseerMessage({
+    sessionId: session.id,
+    role: "assistant",
+    content: `Watch failed: ${compactText(message, 220)}`,
+    metadata: { kind: "overseer_watch_failed" },
+    db,
+  });
+}
+
+function scheduleOverseerWatchLoop(sessionId: string, intervalMs: number): void {
+  clearOverseerWatchTimer(sessionId);
+  const timer = setTimeout(() => {
+    watchTimerRegistry.delete(sessionId);
+    try {
+      const result = runOverseerWatchCheck({ sessionId });
+      const watch = normalizeOverseerWatchState(result.session.scope.watch);
+      if (watch?.enabled && watch.status === "watching") {
+        scheduleOverseerWatchLoop(sessionId, watch.intervalMs);
+      }
+    } catch (error) {
+      markOverseerWatchFailed(sessionId, error);
+    }
+  }, intervalMs);
+  const maybeNodeTimer = timer as ReturnType<typeof setTimeout> & { unref?: () => void };
+  maybeNodeTimer.unref?.();
+  watchTimerRegistry.set(sessionId, timer);
+}
+
+export function getOverseerWatchState(session: OverseerSession): OverseerWatchState | null {
+  return normalizeOverseerWatchState(session.scope.watch);
+}
+
+export function runOverseerWatchCheck(input: {
+  sessionId: string;
+  forceMessage?: boolean;
+  db?: Database.Database;
+}): { session: OverseerSession; changed: boolean; summary: string; digest: string } {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const current = normalizeOverseerWatchState(session.scope.watch);
+  if (!current?.enabled || current.status !== "watching") {
+    throw new OrchestrationApiError(409, "overseer_watch_not_active", "Overseer watch is not active for this session");
+  }
+  const now = new Date().toISOString();
+  const sample = sampleOverseerWatchState(db, session);
+  const digest = watchDigest(sample);
+  const changed = digest !== current.digest;
+  const summary = watchSummary(sample, input.forceMessage === true);
+  const shouldAppendMessage = input.forceMessage === true || changed;
+  const nextWatch: OverseerWatchState = {
+    ...current,
+    lastCheckAt: now,
+    checkCount: current.checkCount + 1,
+    digest,
+    lastSummary: summary,
+    lastMessageAt: shouldAppendMessage ? now : current.lastMessageAt,
+    error: null,
+  };
+  const updatedSession = writeOverseerWatchState(db, session.id, nextWatch, now);
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.watch.check",
+    event: {
+      changed,
+      digest,
+      checkCount: nextWatch.checkCount,
+      scopeLabel: sample.scopeLabel,
+      taskCounts: sample.taskCounts,
+      runCounts: sample.runCounts,
+      messageAppended: shouldAppendMessage,
+    },
+    occurredAt: now,
+    db,
+  });
+  if (shouldAppendMessage) {
+    appendOverseerMessage({
+      sessionId: session.id,
+      role: "assistant",
+      content: summary,
+      metadata: {
+        kind: "overseer_watch_update",
+        digest,
+        changed,
+        checkCount: nextWatch.checkCount,
+        scopeLabel: sample.scopeLabel,
+      },
+      db,
+    });
+  }
+  return {
+    session: getOverseerSession(updatedSession.id, db),
+    changed,
+    summary,
+    digest,
+  };
+}
+
+export function startOverseerWatch(input: {
+  sessionId: string;
+  intervalMs?: number | null;
+  db?: Database.Database;
+}): { session: OverseerSession; watch: OverseerWatchState } {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const previous = normalizeOverseerWatchState(session.scope.watch);
+  const now = new Date().toISOString();
+  const intervalMs = normalizeWatchIntervalMs(input.intervalMs ?? previous?.intervalMs);
+  const watch: OverseerWatchState = {
+    enabled: true,
+    status: "watching",
+    startedAt: previous?.status === "watching" ? previous.startedAt ?? now : now,
+    lastCheckAt: previous?.lastCheckAt ?? null,
+    stoppedAt: null,
+    intervalMs,
+    checkCount: previous?.status === "watching" ? previous.checkCount : 0,
+    digest: previous?.status === "watching" ? previous.digest : null,
+    lastSummary: previous?.status === "watching" ? previous.lastSummary : null,
+    lastMessageAt: previous?.status === "watching" ? previous.lastMessageAt : null,
+    error: null,
+  };
+  writeOverseerWatchState(db, session.id, watch, now);
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.watch.started",
+    event: { intervalMs, previousStatus: previous?.status ?? null },
+    occurredAt: now,
+    db,
+  });
+  const checked = runOverseerWatchCheck({ sessionId: session.id, forceMessage: true, db });
+  scheduleOverseerWatchLoop(session.id, intervalMs);
+  return {
+    session: checked.session,
+    watch: normalizeOverseerWatchState(checked.session.scope.watch)!,
+  };
+}
+
+export function stopOverseerWatch(input: {
+  sessionId: string;
+  reason?: string | null;
+  db?: Database.Database;
+}): { session: OverseerSession; watch: OverseerWatchState } {
+  const db = input.db ?? getOrchestrationDb();
+  const session = getOverseerSession(input.sessionId, db);
+  const previous = normalizeOverseerWatchState(session.scope.watch);
+  const now = new Date().toISOString();
+  clearOverseerWatchTimer(session.id);
+  const watch: OverseerWatchState = {
+    enabled: false,
+    status: "stopped",
+    startedAt: previous?.startedAt ?? null,
+    lastCheckAt: previous?.lastCheckAt ?? null,
+    stoppedAt: now,
+    intervalMs: normalizeWatchIntervalMs(previous?.intervalMs),
+    checkCount: previous?.checkCount ?? 0,
+    digest: previous?.digest ?? null,
+    lastSummary: previous?.lastSummary ?? null,
+    lastMessageAt: now,
+    error: null,
+  };
+  const updatedSession = writeOverseerWatchState(db, session.id, watch, now);
+  recordOverseerEvent({
+    sessionId: session.id,
+    eventType: "overseer.watch.stopped",
+    event: {
+      reason: input.reason ?? "operator",
+      previousStatus: previous?.status ?? null,
+      checkCount: watch.checkCount,
+    },
+    occurredAt: now,
+    db,
+  });
+  appendOverseerMessage({
+    sessionId: session.id,
+    role: "assistant",
+    content: "Watching stopped.",
+    metadata: { kind: "overseer_watch_stopped", reason: input.reason ?? "operator" },
+    db,
+  });
+  return {
+    session: getOverseerSession(updatedSession.id, db),
+    watch,
+  };
 }
 
 function isWriteAction(action: McAction): boolean {

@@ -16,12 +16,12 @@ export interface ModelPricing {
 export const MODEL_PRICING: ModelPricing[] = [
   // Anthropic models
   {
-    id: "anthropic/claude-opus-4-6",
-    name: "Opus 4.6",
+    id: "anthropic/claude-opus-4-8",
+    name: "Opus 4.8",
     alias: "opus",
-    inputPricePerMillion: 15.0,
-    outputPricePerMillion: 75.0,
-    contextWindow: 200000,
+    inputPricePerMillion: 5.0,
+    outputPricePerMillion: 25.0,
+    contextWindow: 1000000,
   },
   {
     id: "anthropic/claude-sonnet-4-6",
@@ -130,7 +130,7 @@ export function getModelName(modelId: string): string {
 export function normalizeModelId(modelId: string): string {
   const aliasMap: Record<string, string> = {
     // Short aliases
-    opus: "anthropic/claude-opus-4-6",
+    opus: "anthropic/claude-opus-4-8",
     sonnet: "anthropic/claude-sonnet-4-6",
     haiku: "anthropic/claude-haiku-3-5",
     gpt: "openai-codex/gpt-5.4",
@@ -139,7 +139,9 @@ export function normalizeModelId(modelId: string): string {
     "gemini-pro": "google/gemini-2.5-pro",
 
     // OpenClaw / bare model names
-    "claude-opus-4-6": "anthropic/claude-opus-4-6",
+    "claude-opus-4-8": "anthropic/claude-opus-4-8",
+    "claude-opus-4-7": "anthropic/claude-opus-4-8",
+    "claude-opus-4-6": "anthropic/claude-opus-4-8",
     "claude-sonnet-4-6": "anthropic/claude-sonnet-4-6",
     "claude-sonnet-4-5": "anthropic/claude-sonnet-4-6",
     "claude-haiku-3-5": "anthropic/claude-haiku-3-5",

@@ -238,6 +238,7 @@ export function checkProviderEnvConfigured(
  */
 const MODEL_PROVIDER_COMPAT: Record<string, string[]> = {
   // Anthropic models — work on OpenClaw and Anthropic CLI
+  "anthropic/claude-opus-4-8": ["openclaw-heartbeat", "openclaw", "anthropic", "hermes"],
   "anthropic/claude-opus-4-7": ["openclaw-heartbeat", "openclaw", "anthropic", "hermes"],
   "anthropic/claude-opus-4-6": ["openclaw-heartbeat", "openclaw", "anthropic", "hermes"],
   "anthropic/claude-sonnet-4-6": ["openclaw-heartbeat", "openclaw", "anthropic", "hermes"],
@@ -249,6 +250,7 @@ const MODEL_PROVIDER_COMPAT: Record<string, string[]> = {
   // Google models — work on Gemini CLI and runtimes that support Google models.
   "google/gemini-3-pro-preview": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],
   "google/gemini-3.1-pro-preview": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],
+  "google/gemini-3.5-flash": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],
   "google/gemini-3-flash-preview": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],
   "google/gemini-2.5-pro": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],
   "google/gemini-2.5-flash": ["gemini", "openclaw-heartbeat", "openclaw", "hermes"],

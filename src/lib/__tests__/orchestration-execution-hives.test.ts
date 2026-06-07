@@ -599,8 +599,8 @@ exit 0
       hiveId: "max-quality",
       laneId: "deep",
       primary: routeTargetForModelChoice({
-        id: "claude-opus-4-7",
-        displayName: "Claude Opus 4.7",
+        id: "claude-opus-4-8",
+        displayName: "Claude Opus 4.8",
         runtimeProvider: "anthropic",
         defaultRuntimeLabel: "Claude Code",
         modelSourceId: "anthropic",
@@ -618,7 +618,7 @@ exit 0
     const lane = result.hive.lanes.find((candidate) => candidate.id === "deep");
     assert.equal(lane?.primary.mode, "direct_source");
     assert.equal(lane?.primary.runtimeId, "anthropic");
-    assert.equal(lane?.primary.modelId, "claude-opus-4-7");
+    assert.equal(lane?.primary.modelId, "claude-opus-4-8");
     assert.equal(lane?.primary.modelSourceId, "anthropic");
     assert.equal(lane?.verificationStatus, "untested");
   });

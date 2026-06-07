@@ -273,6 +273,10 @@ function sprintPlanSequenceValue(goal: OrchestrationCompanyGoal): number | null 
   return match ? Number.parseInt(match[1] ?? "", 10) : null;
 }
 
+function sprintSequenceNumber(goal: OrchestrationCompanyGoal): number | null {
+  return sprintPlanSequenceValue(goal) ?? sprintSequenceValue(goal);
+}
+
 function compareSprintsBySequence(a: OrchestrationCompanyGoal, b: OrchestrationCompanyGoal): number {
   const aSeq = sprintSequenceValue(a);
   const bSeq = sprintSequenceValue(b);
@@ -283,6 +287,27 @@ function compareSprintsBySequence(a: OrchestrationCompanyGoal, b: OrchestrationC
   const bStart = new Date(b.sprint.startDate).getTime();
   if (Number.isFinite(aStart) && Number.isFinite(bStart) && aStart !== bStart) return aStart - bStart;
   return a.sprint.created.localeCompare(b.sprint.created);
+}
+
+function currentSprintStep(goal: OrchestrationCompanyGoal): number | null {
+  if (!goal.planSprintCount || goal.planSprintCount <= 0) return null;
+  return Math.min((goal.planDoneSprintCount ?? 0) + 1, goal.planSprintCount);
+}
+
+function currentMaterializedSprint(
+  supportingSprints: OrchestrationCompanyGoal[],
+  currentStep: number | null
+): OrchestrationCompanyGoal | null {
+  if (supportingSprints.length === 0) return null;
+  if (currentStep !== null) {
+    const matching = supportingSprints.find((sprint) => sprintSequenceNumber(sprint) === currentStep);
+    if (matching) return matching;
+  }
+  return supportingSprints.find((sprint) => sprint.sprint.status === "active")
+    ?? supportingSprints.find((sprint) => sprint.sprint.status === "planned")
+    ?? supportingSprints.find((sprint) => sprint.sprint.status !== "done")
+    ?? supportingSprints[0]
+    ?? null;
 }
 
 function sprintLeadOwner(goal: OrchestrationCompanyGoal, parent?: OrchestrationCompanyGoal): { value: string | null; inherited: boolean } {
@@ -1032,6 +1057,7 @@ function SprintGoalRow({
 function CompanyOutcomeRow({
   goal,
   rollup,
+  currentSprint,
   supportCount,
   pendingDraftCount,
   pendingDraftSprintCount,
@@ -1046,6 +1072,7 @@ function CompanyOutcomeRow({
 }: {
   goal: OrchestrationCompanyGoal;
   rollup: GoalRollup;
+  currentSprint: OrchestrationCompanyGoal | null;
   supportCount: number;
   pendingDraftCount: number;
   pendingDraftSprintCount: number;
@@ -1061,9 +1088,19 @@ function CompanyOutcomeRow({
   const hasChildren = supportCount + pendingDraftCount > 0;
   const quietDone = goal.sprint.status === "done" && !expanded;
   const hasPlan = goal.planHasTasks ?? rollup.taskCount > 0;
-  const sprintStepLabel = goal.planSprintCount && goal.planSprintCount > 0
-    ? `Sprint ${Math.min((goal.planDoneSprintCount ?? 0) + 1, goal.planSprintCount)} of ${goal.planSprintCount}`
+  const currentStep = currentSprintStep(goal);
+  const sprintStepLabel = currentStep !== null && goal.planSprintCount && goal.planSprintCount > 0
+    ? `Sprint ${currentStep} of ${goal.planSprintCount}`
     : "Plan not yet proposed";
+  const currentSprintProgress = currentSprint
+    ? { doneCount: currentSprint.sprint.doneCount, taskCount: currentSprint.sprint.taskCount }
+    : null;
+  const currentSprintLabel = currentSprintProgress
+    ? `Current sprint ${currentSprintProgress.doneCount}/${currentSprintProgress.taskCount} tasks`
+    : "Current sprint pending";
+  const showFullPlanProgress = !currentSprintProgress
+    || currentSprintProgress.taskCount !== rollup.taskCount
+    || currentSprintProgress.doneCount !== rollup.doneCount;
   const pendingDraftLabel = pendingDraftCount > 0
     ? `${pendingDraftCount} pending ${pendingDraftCount === 1 ? "draft" : "drafts"} containing ${pendingDraftSprintCount} ${pendingDraftSprintCount === 1 ? "sprint" : "sprints"}${pendingDraftTaskCount > 0 ? ` / ${pendingDraftTaskCount} ${pendingDraftTaskCount === 1 ? "task" : "tasks"}` : ""}`
     : "";
@@ -1152,13 +1189,21 @@ function CompanyOutcomeRow({
         </div>
       </div>
       <div className="goals-row-progress" style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 6, color: "var(--text-secondary)", fontSize: "12px" }}>
-          <span>{hasPlan ? `${rollup.completionPercent}%` : "—"}</span>
-          <span>{hasPlan ? `${sprintStepLabel} — ${rollup.doneCount}/${rollup.taskCount} tasks` : "Plan pending"}</span>
+        <div style={{ display: "grid", gap: 3, marginBottom: 6, color: "var(--text-secondary)", fontSize: "12px" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+            <span>{hasPlan ? `Plan ${rollup.completionPercent}%` : "—"}</span>
+            <span>{hasPlan ? sprintStepLabel : "Plan pending"}</span>
+          </div>
+          {hasPlan ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", columnGap: 8, rowGap: 2, color: "var(--text-muted)", fontSize: "11px" }}>
+              <span>{currentSprintLabel}</span>
+              {showFullPlanProgress ? <span>{`Full plan ${rollup.doneCount}/${rollup.taskCount} tasks`}</span> : null}
+            </div>
+          ) : null}
         </div>
         <ProgressBar value={rollup.completionPercent} />
       </div>
-      <div className="goals-row-open" style={{ color: "var(--text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>{hasPlan ? `${rollup.remainingTasks} left` : "unplanned"}</div>
+      <div className="goals-row-open" style={{ color: "var(--text-muted)", fontSize: "12px", whiteSpace: "nowrap" }}>{hasPlan ? (showFullPlanProgress ? `${rollup.remainingTasks} left in plan` : `${rollup.remainingTasks} left`) : "unplanned"}</div>
       </Link>
       <div className="goals-row-owner" style={{ display: "flex", justifyContent: "flex-end" }}>
         <OwnerChip sprint={ownerSprint} agents={agents} onChange={(owner) => onOwnerChange(goal, owner)} />
@@ -1528,12 +1573,14 @@ function CompanyOutcomePanel({
       sprint.sprint.reviewCount === 0;
     return !(sequence !== null && pendingSequences.has(sequence) && isEmptyWrapper);
   });
+  const activeMaterializedSprint = currentMaterializedSprint(visibleSupportingSprints, currentSprintStep(goal));
   const childCount = visibleSupportingSprints.length + pendingDrafts.length;
   return (
     <div style={{ padding: "4px 0 18px" }}>
       <CompanyOutcomeRow
         goal={goal}
         rollup={rollup}
+        currentSprint={activeMaterializedSprint}
         supportCount={visibleSupportingSprints.length}
         pendingDraftCount={pendingDrafts.length}
         pendingDraftSprintCount={pendingDraftSprintCount}

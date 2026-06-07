@@ -1,6 +1,6 @@
 export type RuntimeControlProvider = "codex" | "anthropic" | "gemini";
 
-export type RuntimeReasoningLevel = "low" | "medium" | "high" | "xhigh" | "max";
+export type RuntimeReasoningLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type RuntimeSpeedMode = "standard" | "fast";
 
 export interface RuntimeReasoningOption {
@@ -21,6 +21,7 @@ export interface ProviderRuntimeControls {
   reasoning: {
     available: boolean;
     options: RuntimeReasoningOption[];
+    defaultValue?: RuntimeReasoningLevel;
     unavailableReason?: string;
   };
   speed: {
@@ -36,6 +37,7 @@ export interface ProviderRuntimeSelection {
 }
 
 const REASONING_LABELS: Record<RuntimeReasoningLevel, string> = {
+  minimal: "Minimal",
   low: "Low",
   medium: "Medium",
   high: "High",
@@ -49,6 +51,21 @@ const CODEX_REASONING: RuntimeReasoningOption[] = (["low", "medium", "high", "xh
 }));
 
 const ANTHROPIC_REASONING: RuntimeReasoningOption[] = (["low", "medium", "high", "xhigh", "max"] as RuntimeReasoningLevel[]).map((value) => ({
+  value,
+  label: REASONING_LABELS[value],
+}));
+
+const GEMINI_FLASH_THINKING_LEVELS: RuntimeReasoningOption[] = (["minimal", "low", "medium", "high"] as RuntimeReasoningLevel[]).map((value) => ({
+  value,
+  label: REASONING_LABELS[value],
+}));
+
+const GEMINI_PRO_THINKING_LEVELS: RuntimeReasoningOption[] = (["low", "high"] as RuntimeReasoningLevel[]).map((value) => ({
+  value,
+  label: REASONING_LABELS[value],
+}));
+
+const GEMINI_3_1_PRO_THINKING_LEVELS: RuntimeReasoningOption[] = (["low", "medium", "high"] as RuntimeReasoningLevel[]).map((value) => ({
   value,
   label: REASONING_LABELS[value],
 }));
@@ -77,6 +94,26 @@ export function supportsCodexFastMode(model: string | null | undefined): boolean
   return normalized === "gpt-5.5" || normalized === "gpt-5.4";
 }
 
+export function supportsGeminiThinkingLevel(model: string | null | undefined): boolean {
+  const normalized = model
+    ?.trim()
+    .toLowerCase()
+    .replace(/^google\//, "")
+    .replace(/^models\//, "") ?? "";
+  return normalized.startsWith("gemini-3");
+}
+
+function geminiThinkingOptions(model: string | null | undefined): RuntimeReasoningOption[] {
+  if (!supportsGeminiThinkingLevel(model)) return [];
+  const normalized = model
+    ?.trim()
+    .toLowerCase()
+    .replace(/^google\//, "")
+    .replace(/^models\//, "") ?? "";
+  if (normalized.includes("gemini-3.1-pro")) return GEMINI_3_1_PRO_THINKING_LEVELS;
+  return normalized.includes("flash") ? GEMINI_FLASH_THINKING_LEVELS : GEMINI_PRO_THINKING_LEVELS;
+}
+
 export function getProviderRuntimeControls(
   providerInput: string | null | undefined,
   model?: string | null,
@@ -92,6 +129,7 @@ export function getProviderRuntimeControls(
       reasoning: {
         available: true,
         options: CODEX_REASONING,
+        defaultValue: "xhigh",
       },
       speed: {
         available: fastAvailable,
@@ -116,6 +154,7 @@ export function getProviderRuntimeControls(
       reasoning: {
         available: true,
         options: ANTHROPIC_REASONING,
+        defaultValue: "xhigh",
       },
       speed: {
         available: false,
@@ -133,13 +172,18 @@ export function getProviderRuntimeControls(
     };
   }
 
+  const thinkingLevelAvailable = supportsGeminiThinkingLevel(model);
+  const thinkingOptions = geminiThinkingOptions(model);
   return {
     provider,
     label: "Gemini",
     reasoning: {
-      available: false,
-      options: [],
-      unavailableReason: "Gemini agent execution currently has verified model selection only.",
+      available: thinkingLevelAvailable,
+      options: thinkingOptions,
+      defaultValue: "high",
+      unavailableReason: thinkingLevelAvailable
+        ? undefined
+        : "Gemini 2.5 models use thinking budgets; HiveRunner currently exposes thinking levels for Gemini 3 models.",
     },
     speed: {
       available: false,
@@ -149,10 +193,10 @@ export function getProviderRuntimeControls(
           value: "fast",
           label: "Fast",
           available: false,
-          unavailableReason: "Gemini agent execution currently has no verified speed flag.",
+          unavailableReason: "Use Gemini model tiers such as Flash or Pro for speed/intelligence tradeoffs.",
         },
       ],
-      unavailableReason: "Gemini agent execution currently has no verified speed flag.",
+      unavailableReason: "Use Gemini model tiers such as Flash or Pro for speed/intelligence tradeoffs.",
     },
   };
 }
@@ -171,7 +215,11 @@ function normalizeReasoningForControls(
 ): RuntimeReasoningLevel | null {
   if (!controls.reasoning.available) return null;
   const match = controls.reasoning.options.find((option) => option.value === value);
-  return match?.value ?? controls.reasoning.options.find((option) => option.value === "xhigh")?.value ?? controls.reasoning.options[0]?.value ?? null;
+  return match?.value
+    ?? controls.reasoning.defaultValue
+    ?? controls.reasoning.options.find((option) => option.value === "xhigh")?.value
+    ?? controls.reasoning.options[0]?.value
+    ?? null;
 }
 
 export function readProviderRuntimeSelection(

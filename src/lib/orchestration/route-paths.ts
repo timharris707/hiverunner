@@ -1,4 +1,4 @@
-export const LEGACY_COMPANY_PREFIX = "/companies";
+const LEGACY_COMPANY_PREFIX = "/companies";
 export const FALLBACK_COMPANY_SLUG = "hiverunner-workspace";
 
 function sanitizeCodeSegment(input: string): string {
@@ -67,6 +67,45 @@ export function buildCanonicalTasksPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/tasks");
 }
 
+export function buildCanonicalTaskRunTracePath(companyCode: string, taskKey: string, runId: string): string {
+  return buildCanonicalCompanyPath(
+    companyCode,
+    `/tasks/${encodeURIComponent(taskKey)}/runs/${encodeURIComponent(runId)}`
+  );
+}
+
+export function buildCanonicalRunTracePath(companyCode: string, runId: string): string {
+  return buildCanonicalCompanyPath(companyCode, `/runs/${encodeURIComponent(runId)}`);
+}
+
+export function buildTaskRunTracePath(input: {
+  companyCode?: string | null;
+  companySlug: string;
+  taskKey: string;
+  runId: string;
+}): string {
+  if (input.companyCode?.trim()) {
+    return buildCanonicalTaskRunTracePath(input.companyCode, input.taskKey, input.runId);
+  }
+
+  return buildCompanyPath(
+    input.companySlug,
+    `/tasks/${encodeURIComponent(input.taskKey)}/runs/${encodeURIComponent(input.runId)}`
+  );
+}
+
+export function buildRunTracePath(input: {
+  companyCode?: string | null;
+  companySlug: string;
+  runId: string;
+}): string {
+  if (input.companyCode?.trim()) {
+    return buildCanonicalRunTracePath(input.companyCode, input.runId);
+  }
+
+  return buildCompanyPath(input.companySlug, `/runs/${encodeURIComponent(input.runId)}`);
+}
+
 export function buildCanonicalGoalsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/goals");
 }
@@ -127,10 +166,6 @@ export function buildCanonicalManageProjectsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/manage-projects");
 }
 
-export function buildCanonicalRoutinesPath(companyCode: string): string {
-  return buildCanonicalCompanyPath(companyCode, "/routines");
-}
-
 export function buildCanonicalProjectsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/projects");
 }
@@ -141,14 +176,6 @@ export function buildCanonicalNewTaskPath(companyCode: string): string {
 
 export function buildCanonicalAgentPath(companyCode: string, agentId: string): string {
   return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}`);
-}
-
-export function buildCanonicalAgentRunsPath(companyCode: string, agentId: string): string {
-  return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}/runs`);
-}
-
-export function buildCanonicalRunDetailPath(companyCode: string, agentId: string, runId: string): string {
-  return buildCanonicalCompanyPath(companyCode, `/agents/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`);
 }
 
 export function buildCanonicalNewAgentPath(companyCode: string): string {

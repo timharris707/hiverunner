@@ -398,7 +398,7 @@ function buildPrompt(task: any, projectName: string, executorLabel: string) {
 }
 
 const CLAUDE_MODEL_MAP: Record<string, { id: string; name: string }> = {
-  opus: { id: "anthropic/claude-opus-4-6", name: "Opus 4.6" },
+  opus: { id: "anthropic/claude-opus-4-8", name: "Opus 4.8" },
   haiku: { id: "anthropic/claude-haiku-3-5", name: "Haiku 3.5" },
   sonnet: { id: "anthropic/claude-sonnet-4-6", name: "Sonnet 4.6" },
 };

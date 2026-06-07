@@ -79,7 +79,7 @@ function formatTokens(n: number): string {
 
 function shortModel(model: string): string {
   // claude-sonnet-4-5 → Sonnet 4.5
-  // claude-opus-4-6 → Opus 4.6
+  // claude-opus-4-8 → Opus 4.8
   // claude-haiku-3-5 → Haiku 3.5
   const m = model.replace("anthropic/", "").replace("claude-", "");
   const parts = m.split("-");

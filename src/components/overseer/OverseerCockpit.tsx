@@ -2,7 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent as ReactClipboardEvent, CSSProperties, DragEvent as ReactDragEvent, ReactNode } from "react";
-import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, File, Image as ImageIcon, Loader2, Menu, Pencil, Plus, Search, Send, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
+import { Asterisk, Bot, Check, CheckCircle2, ChevronDown, CircleAlert, Copy, Eye, EyeOff, File, Image as ImageIcon, Loader2, Menu, Pencil, Plus, Search, Send, Sparkles, Square, Terminal, Wrench, X, Zap } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -11,6 +11,19 @@ import { PageBreadcrumbs } from "@/components/PageBreadcrumbs";
 import type { OrchestrationCompany } from "@/lib/orchestration/types";
 import { Badge, PageHeader, Section } from "@/lib/ui/primitives";
 import { color, P, radius, space, type as T } from "@/lib/ui/tokens";
+import {
+  runtimeModelDisplayLabel,
+  runtimeModelTechnicalId,
+  useRuntimeModelSelection,
+  type RuntimeModelOption,
+} from "@/components/orchestration/useRuntimeModelSelection";
+import {
+  runtimeReasoningLabel,
+  runtimeSpeedLabel,
+  type ProviderRuntimeControls,
+  type ProviderRuntimeSelection,
+  type RuntimeReasoningLevel,
+} from "@/lib/orchestration/provider-runtime-controls";
 
 type SessionStatus = "idle" | "running" | "completed" | "failed" | "cancelled" | "approval_required";
 type OverseerRuntimeProvider = "anthropic" | "codex" | "gemini";
@@ -26,6 +39,20 @@ type SessionCompactionSettings = {
   manualRequestedAt: string | null;
 };
 
+type SessionWatchState = {
+  enabled?: boolean;
+  status?: "watching" | "stopped" | "completed" | "failed";
+  startedAt?: string | null;
+  lastCheckAt?: string | null;
+  stoppedAt?: string | null;
+  intervalMs?: number;
+  checkCount?: number;
+  digest?: string | null;
+  lastSummary?: string | null;
+  lastMessageAt?: string | null;
+  error?: string | null;
+};
+
 type OverseerSession = {
   id: string;
   title: string;
@@ -38,6 +65,7 @@ type OverseerSession = {
     fastMode?: boolean;
     overseerProvider?: OverseerRuntimeProvider;
     compaction?: Partial<SessionCompactionSettings>;
+    watch?: SessionWatchState;
     [key: string]: unknown;
   };
   compaction?: {
@@ -96,35 +124,17 @@ type AssistantReveal = {
   visibleText: string;
 };
 
-type ModelOption = {
+type ModelOption = RuntimeModelOption & {
   id: string;
   label: string;
-  detail: string;
+  detail?: string;
   contextTokens: number | null;
   supportsFastMode?: boolean;
 };
 
-const MODEL_OPTIONS: ModelOption[] = [
-  { id: "gpt-5.5", label: "GPT-5.5", detail: "Max · Deep", contextTokens: null },
-  { id: "gpt-5.4", label: "GPT-5.4", detail: "Balanced", contextTokens: null },
-  { id: "gpt-5.4-mini", label: "GPT-5.4 Mini", detail: "Fast", contextTokens: null },
-  { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", detail: "Code", contextTokens: null },
-  { id: "gpt-5.3-codex-spark", label: "GPT-5.3-Codex-Spark", detail: "Spark", contextTokens: null },
-  { id: "gpt-5.2", label: "GPT-5.2", detail: "Legacy", contextTokens: null },
-];
-
-const REASONING_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "xhigh", label: "Extra High" },
-] as const;
-
 const DEFAULT_MODEL = "gpt-5.5";
-const DEFAULT_REASONING = "xhigh";
 const DEFAULT_OVERSEER_PROVIDER: OverseerRuntimeProvider = "codex";
 const ACTIVITY_MUTED = "color-mix(in srgb, var(--text-muted) 62%, var(--surface) 38%)";
-type ReasoningEffort = typeof REASONING_OPTIONS[number]["value"];
 
 const OVERSEER_PROVIDER_OPTIONS: Array<{
   value: OverseerRuntimeProvider;
@@ -269,23 +279,34 @@ function itemFromEvent(event: OverseerEvent): Record<string, unknown> | null {
   return asRecord(event.event.item);
 }
 
-function modelOption(model: string | null | undefined, catalog?: OverseerReadiness["modelCatalog"]): ModelOption {
-  const base = MODEL_OPTIONS.find((option) => option.id === model) ?? MODEL_OPTIONS[0];
-  const catalogEntry = catalog?.find((entry) => entry.slug === base.id);
-  if (!catalogEntry) return base;
-  const effectiveContextWindow = catalogEntry.contextWindow && catalogEntry.effectiveContextWindowPercent
+function modelCatalogSlug(model: string | null | undefined): string {
+  return runtimeModelTechnicalId(model ?? "").toLowerCase();
+}
+
+function modelOption(
+  model: string | null | undefined,
+  catalog?: OverseerReadiness["modelCatalog"],
+  runtimeModels: RuntimeModelOption[] = [],
+): ModelOption {
+  const id = model?.trim() || DEFAULT_MODEL;
+  const runtimeModel = runtimeModels.find((option) => option.id === id) ?? null;
+  const catalogEntry = catalog?.find((entry) => entry.slug.toLowerCase() === modelCatalogSlug(id));
+  const effectiveContextWindow = catalogEntry?.contextWindow && catalogEntry.effectiveContextWindowPercent
     ? Math.round(catalogEntry.contextWindow * (catalogEntry.effectiveContextWindowPercent / 100))
-    : catalogEntry.contextWindow;
+    : catalogEntry?.contextWindow ?? null;
   return {
-    ...base,
-    label: catalogEntry.displayName || base.label,
-    contextTokens: effectiveContextWindow,
-    supportsFastMode: catalogEntry.additionalSpeedTiers.includes("fast"),
+    id,
+    label: catalogEntry?.displayName || runtimeModelDisplayLabel(runtimeModel, id),
+    provider: runtimeModel?.provider,
+    default: runtimeModel?.default,
+    detail: runtimeModelTechnicalId(id),
+    contextTokens: effectiveContextWindow ?? null,
+    supportsFastMode: catalogEntry?.additionalSpeedTiers.includes("fast") === true,
   };
 }
 
 function reasoningLabel(value: string | null | undefined): string {
-  return REASONING_OPTIONS.find((option) => option.value === value)?.label ?? "Extra High";
+  return runtimeReasoningLabel(value);
 }
 
 function displayModelLabel(option: ModelOption): string {
@@ -312,6 +333,36 @@ function providerAccent(provider: OverseerRuntimeProvider): string {
 function formatSessionStatus(status: SessionStatus): string {
   if (status === "approval_required") return "Approval required";
   return status.replace(/_/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function sessionWatchState(session: OverseerSession | null | undefined): SessionWatchState | null {
+  const watch = asRecord(session?.scope?.watch);
+  if (!watch) return null;
+  const status = stringValue(watch.status);
+  return {
+    enabled: typeof watch.enabled === "boolean" ? watch.enabled : status === "watching",
+    status: status === "watching" || status === "completed" || status === "failed" || status === "stopped"
+      ? status
+      : undefined,
+    startedAt: stringValue(watch.startedAt) || null,
+    lastCheckAt: stringValue(watch.lastCheckAt) || null,
+    stoppedAt: stringValue(watch.stoppedAt) || null,
+    intervalMs: typeof watch.intervalMs === "number" && Number.isFinite(watch.intervalMs) ? watch.intervalMs : undefined,
+    checkCount: typeof watch.checkCount === "number" && Number.isFinite(watch.checkCount) ? watch.checkCount : undefined,
+    digest: stringValue(watch.digest) || null,
+    lastSummary: stringValue(watch.lastSummary) || null,
+    lastMessageAt: stringValue(watch.lastMessageAt) || null,
+    error: stringValue(watch.error) || null,
+  };
+}
+
+function sessionIsWatching(session: OverseerSession | null | undefined): boolean {
+  const watch = sessionWatchState(session);
+  return Boolean(watch?.status === "watching" && watch.enabled !== false);
+}
+
+function visibleSessionStatus(session: OverseerSession): string {
+  return sessionIsWatching(session) ? "Watching" : formatSessionStatus(session.status);
 }
 
 function normalizeCompactionMode(value: unknown): CompactionMode {
@@ -545,6 +596,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [watchToggling, setWatchToggling] = useState(false);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
@@ -591,15 +643,24 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   const activeTurnHasAssistant = Boolean(activeTurnId && messages.some((message) => message.turnId === activeTurnId && message.role === "assistant"));
   const showLiveActivity = Boolean((sending || activeSession?.status === "running") && !activeTurnHasAssistant);
   const runActive = sending || activeSession?.status === "running";
-  const activeModel = modelOption(activeSession?.model ?? DEFAULT_MODEL, readiness?.modelCatalog).id;
-  const activeReasoning = REASONING_OPTIONS.some((option) => option.value === activeSession?.reasoningEffort)
-    ? activeSession?.reasoningEffort ?? DEFAULT_REASONING
-    : DEFAULT_REASONING;
-  const activeFastMode = Boolean(activeSession?.scope?.fastMode);
+  const watchActive = sessionIsWatching(activeSession);
   const activeProvider = normalizeOverseerProvider(activeSession?.scope?.overseerProvider ?? DEFAULT_OVERSEER_PROVIDER);
+  const activeRuntimeConfig = useMemo(() => ({
+    reasoningEffort: activeSession?.reasoningEffort ?? undefined,
+    fastMode: activeSession?.scope?.fastMode === true,
+    speedPreference: activeSession?.scope?.fastMode === true ? "fast" : "standard",
+  }), [activeSession?.reasoningEffort, activeSession?.scope?.fastMode]);
+  const activeRuntimeModelSelection = useRuntimeModelSelection({
+    provider: activeProvider,
+    model: activeSession?.model ?? "",
+    runtimeConfig: activeRuntimeConfig,
+  });
+  const activeModel = activeSession?.model ?? activeRuntimeModelSelection.defaultModel?.id ?? DEFAULT_MODEL;
+  const activeReasoning = activeRuntimeModelSelection.runtimeSelection.reasoningEffort;
+  const activeFastMode = activeRuntimeModelSelection.runtimeSelection.speedMode === "fast";
   const activeCompaction = normalizeCompactionSettings(activeSession);
   const activeProviderLocked = Boolean(activeSession && ((activeSession.messageCount ?? messages.length) > 0 || activeSession.codexSessionId));
-  const currentModel = modelOption(activeModel, readiness?.modelCatalog);
+  const currentModel = modelOption(activeModel, readiness?.modelCatalog, activeRuntimeModelSelection.models);
   const contextTelemetry = useMemo(
     () => resolveContextTelemetry(codexTelemetry, activeSession, events, currentModel),
     [codexTelemetry, activeSession, events, currentModel],
@@ -641,7 +702,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
       sessionTitle: displaySessionTitle(activeSession?.title) ?? "Orchestration Chat",
       provider,
       model: activeSession?.model ?? DEFAULT_MODEL,
-      reasoning: activeSession?.reasoningEffort ?? DEFAULT_REASONING,
+      reasoning: activeSession?.reasoningEffort ?? activeRuntimeModelSelection.runtimeSelection.reasoningEffort ?? "xhigh",
       userMessage,
       assistantMessage,
       events: turnEvents,
@@ -651,7 +712,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     window.setTimeout(() => {
       setCopiedRunId((current) => current === assistantMessage.id ? null : current);
     }, 1600);
-  }, [activeSession?.model, activeSession?.reasoningEffort, activeSession?.title]);
+  }, [activeRuntimeModelSelection.runtimeSelection.reasoningEffort, activeSession?.model, activeSession?.reasoningEffort, activeSession?.title]);
 
   const revealAssistantMessage = useCallback((message: OverseerMessage | null | undefined) => {
     if (!message || message.role !== "assistant") return;
@@ -743,25 +804,25 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
   }, [slug, loadSessions, loadDetail]);
 
   useEffect(() => {
-    if (!sending && activeSession?.status !== "running") return;
+    if (!sending && activeSession?.status !== "running" && !watchActive) return;
     const interval = window.setInterval(() => {
       setNowMs(Date.now());
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [activeSession?.status, sending]);
+  }, [activeSession?.status, sending, watchActive]);
 
   useEffect(() => {
     const sessionId = activeSession?.id;
-    if (!sessionId || (!sending && activeSession?.status !== "running")) return;
+    if (!sessionId || (!sending && activeSession?.status !== "running" && !watchActive)) return;
     const refresh = () => {
       void loadDetail(sessionId).catch(() => {
         // Keep an in-flight chat usable even if one poll misses.
       });
     };
     refresh();
-    const interval = window.setInterval(refresh, 2000);
+    const interval = window.setInterval(refresh, sending || activeSession?.status === "running" ? 2000 : 5000);
     return () => window.clearInterval(interval);
-  }, [activeSession?.id, activeSession?.status, sending, loadDetail]);
+  }, [activeSession?.id, activeSession?.status, sending, watchActive, loadDetail]);
 
   useEffect(() => {
     chatAutoStickRef.current = true;
@@ -812,7 +873,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     await createSession(title, newSessionProvider);
   };
 
-  const patchActiveSession = async (patch: { model?: string | null; reasoningEffort?: "low" | "medium" | "high" | "xhigh" | null; fastMode?: boolean | null; provider?: OverseerRuntimeProvider | null; compaction?: Partial<SessionCompactionSettings> | null }) => {
+  const patchActiveSession = async (patch: { model?: string | null; reasoningEffort?: RuntimeReasoningLevel | null; fastMode?: boolean | null; provider?: OverseerRuntimeProvider | null; compaction?: Partial<SessionCompactionSettings> | null }) => {
     const session = await ensureSession("Orchestration Chat");
     if (!session) return;
     setUpdatingModel(true);
@@ -1015,6 +1076,41 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     }
   };
 
+  const setWatchMode = async (action: "start" | "stop") => {
+    if (watchToggling) return;
+    setWatchToggling(true);
+    setError(null);
+    try {
+      const session = action === "start"
+        ? await ensureSession("Orchestration Watch")
+        : activeSession;
+      if (!session) return;
+      const response = await fetch(`/api/orchestration/companies/${encodeURIComponent(slug)}/overseer/sessions/${encodeURIComponent(session.id)}/watch`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, intervalMs: 35_000 }),
+      });
+      const body = await response.json().catch(() => null) as
+        | { session: OverseerSession; messages: OverseerMessage[]; events: OverseerEvent[] }
+        | { error?: { message?: string } }
+        | null;
+      if (!response.ok || !body || !("session" in body)) {
+        throw new Error(body && "error" in body ? body.error?.message ?? "Could not update watch mode." : "Could not update watch mode.");
+      }
+      setSessions((current) => [body.session, ...current.filter((entry) => entry.id !== body.session.id)]);
+      selectActiveSessionId(body.session.id);
+      setMessages(body.messages);
+      setEvents(body.events ?? []);
+      await loadDetail(body.session.id).catch(() => {
+        // The watch route response already has durable transcript state.
+      });
+    } catch (watchError) {
+      setError(watchError instanceof Error ? watchError.message : "Could not update watch mode.");
+    } finally {
+      setWatchToggling(false);
+    }
+  };
+
   return {
     activeCompaction,
     activeFastMode,
@@ -1022,6 +1118,7 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     activeProvider,
     activeProviderLocked,
     activeReasoning,
+    activeRuntimeModelSelection,
     activeSession,
     activeTurnEvents,
     assistantReveal,
@@ -1077,6 +1174,9 @@ function useOverseerCockpitController({ slug }: { slug: string }) {
     updatingModel,
     uploadingAttachments,
     visibleQuota,
+    watchActive,
+    watchToggling,
+    setWatchMode,
   };
 }
 
@@ -1118,12 +1218,13 @@ function OverseerCompactCockpitContent({
     loading,
     readiness,
     runActive,
+    watchActive,
   } = controller;
   const title = displaySessionTitle(activeSession?.title) ?? "Overseer";
   const statusLabel = loading
     ? "Loading"
     : activeSession
-      ? formatSessionStatus(activeSession.status)
+      ? visibleSessionStatus(activeSession)
       : "No session";
 
   return (
@@ -1154,13 +1255,13 @@ function OverseerCompactCockpitContent({
         >
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-              <ProviderRunMark provider={activeProvider} active={runActive} size={15} title={`${providerLabel(activeProvider)} ${runActive ? "running" : "ready"}`} />
+              <ProviderRunMark provider={activeProvider} active={runActive || watchActive} size={15} title={`${providerLabel(activeProvider)} ${runActive ? "running" : watchActive ? "watching" : "ready"}`} />
               <div style={{ minWidth: 0 }}>
                 <div style={{ color: P.text, fontWeight: 650, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {title}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 7, color: P.muted, fontSize: 11, minWidth: 0 }}>
-                  {activeSession ? <SessionStatusDot status={activeSession.status} selected /> : null}
+                  {activeSession ? <SessionStatusDot status={activeSession.status} selected watching={watchActive} /> : null}
                   <span style={{ whiteSpace: "nowrap" }}>{statusLabel}</span>
                   <span style={{ color: readinessColor(readiness), whiteSpace: "nowrap" }}>{readinessLabel(readiness)}</span>
                 </div>
@@ -1204,6 +1305,7 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
     activeProvider,
     activeProviderLocked,
     activeReasoning,
+    activeRuntimeModelSelection,
     activeSession,
     activeTurnEvents,
     assistantReveal,
@@ -1235,6 +1337,7 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
     runActive,
     sending,
     sendMessage,
+    setWatchMode,
     setDraggingFiles,
     setDraft,
     showLiveActivity,
@@ -1242,6 +1345,8 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
     updatingModel,
     uploadingAttachments,
     visibleQuota,
+    watchActive,
+    watchToggling,
   } = controller;
 
   return (
@@ -1448,25 +1553,40 @@ function OverseerFullPageCockpit({ controller }: { controller: OverseerCockpitCo
                 }}
                 style={{ display: "none" }}
               />
-              <ComposerToolbar
-                provider={activeProvider}
-                model={activeModel}
-                modelCatalog={readiness?.modelCatalog}
-                reasoning={activeReasoning}
-                fastMode={activeFastMode}
-                contextTokens={contextTokens}
-                contextLimit={contextLimit}
-                contextPercent={contextPercent}
-                quota={visibleQuota}
-                disabled={sending || updatingModel}
-                providerLocked={activeProviderLocked}
-                uploading={uploadingAttachments}
-                onAttach={() => fileInputRef.current?.click()}
-                onModelChange={(model) => void patchActiveSession({ model })}
-                onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
-                onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
-                onProviderChange={(provider) => void patchActiveSession({ provider })}
-              />
+              <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <ComposerToolbar
+                  provider={activeProvider}
+                  model={activeModel}
+                  runtimeModels={activeRuntimeModelSelection.models}
+                  runtimeModelsLoading={activeRuntimeModelSelection.loading}
+                  runtimeModelsError={activeRuntimeModelSelection.error}
+                  runtimeControls={activeRuntimeModelSelection.runtimeControls}
+                  runtimeSelection={activeRuntimeModelSelection.runtimeSelection}
+                  modelCatalog={readiness?.modelCatalog}
+                  reasoning={activeReasoning}
+                  fastMode={activeFastMode}
+                  contextTokens={contextTokens}
+                  contextLimit={contextLimit}
+                  contextPercent={contextPercent}
+                  quota={visibleQuota}
+                  disabled={sending || updatingModel}
+                  providerLocked={activeProviderLocked}
+                  uploading={uploadingAttachments}
+                  onAttach={() => fileInputRef.current?.click()}
+                  onModelChange={(model) => void patchActiveSession({ model })}
+                  onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
+                  onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
+                  onProviderChange={(provider) => void patchActiveSession({ provider, model: null, reasoningEffort: null, fastMode: null })}
+                />
+                <CompactActionButton
+                  title={watchActive ? "Stop watching" : "Start watching"}
+                  disabled={watchToggling || (sending && !watchActive)}
+                  tone={watchActive ? "danger" : "neutral"}
+                  onClick={() => void setWatchMode(watchActive ? "stop" : "start")}
+                >
+                  {watchToggling ? <Loader2 size={14} className="animate-spin" /> : watchActive ? <EyeOff size={14} /> : <Eye size={14} />}
+                </CompactActionButton>
+              </div>
             </div>
           </Section>
         </div>
@@ -2101,6 +2221,7 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
           {sessions.map((session) => {
             const selected = session.id === activeSession?.id;
             const sessionCompaction = normalizeCompactionSettings(session);
+            const sessionWatching = sessionIsWatching(session);
             return (
               <button
                 key={session.id}
@@ -2128,13 +2249,13 @@ function OverseerCompactSessionsPanel({ controller }: { controller: OverseerCock
                   cursor: "pointer",
                 }}
               >
-                <SessionStatusDot status={session.status} selected={selected} />
+                <SessionStatusDot status={session.status} selected={selected} watching={sessionWatching} />
                 <span style={{ minWidth: 0 }}>
                   <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 12, fontWeight: selected ? 650 : 500 }}>
                     {displaySessionTitle(session.title) ?? "Orchestration Chat"}
                   </span>
                   <span style={{ display: "block", marginTop: 1, color: P.muted, fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {formatSessionStatus(session.status)} · {session.messageCount ?? 0} messages
+                    {visibleSessionStatus(session)} · {session.messageCount ?? 0} messages
                   </span>
                 </span>
                 {sessionCompaction.hasMemorySummary ? (
@@ -2364,6 +2485,7 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
     activeProvider,
     activeProviderLocked,
     activeReasoning,
+    activeRuntimeModelSelection,
     activeSession,
     attachments,
     cancelling,
@@ -2382,15 +2504,19 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
     runActive,
     sending,
     sendMessage,
+    setWatchMode,
     setDraggingFiles,
     setDraft,
     stopRun,
     updatingModel,
     uploadingAttachments,
     visibleQuota,
+    watchActive,
+    watchToggling,
   } = controller;
   const sendDisabled = (!draft.trim() && attachments.length === 0) || sending || uploadingAttachments || cancelling;
   const stopDisabled = !activeSession || !runActive || cancelling;
+  const watchDisabled = watchToggling || (sending && !watchActive);
 
   return (
     <div
@@ -2461,6 +2587,11 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
         <ComposerToolbar
           provider={activeProvider}
           model={activeModel}
+          runtimeModels={activeRuntimeModelSelection.models}
+          runtimeModelsLoading={activeRuntimeModelSelection.loading}
+          runtimeModelsError={activeRuntimeModelSelection.error}
+          runtimeControls={activeRuntimeModelSelection.runtimeControls}
+          runtimeSelection={activeRuntimeModelSelection.runtimeSelection}
           modelCatalog={readiness?.modelCatalog}
           reasoning={activeReasoning}
           fastMode={activeFastMode}
@@ -2475,9 +2606,17 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
           onModelChange={(model) => void patchActiveSession({ model })}
           onReasoningChange={(reasoningEffort) => void patchActiveSession({ reasoningEffort })}
           onFastModeChange={(fastMode) => void patchActiveSession({ fastMode })}
-          onProviderChange={(provider) => void patchActiveSession({ provider })}
+          onProviderChange={(provider) => void patchActiveSession({ provider, model: null, reasoningEffort: null, fastMode: null })}
         />
         <div style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 8 }}>
+          <CompactActionButton
+            title={watchActive ? "Stop watching" : "Start watching"}
+            disabled={watchDisabled}
+            tone={watchActive ? "danger" : "neutral"}
+            onClick={() => void setWatchMode(watchActive ? "stop" : "start")}
+          >
+            {watchToggling ? <Loader2 size={14} className="animate-spin" /> : watchActive ? <EyeOff size={14} /> : <Eye size={14} />}
+          </CompactActionButton>
           <CompactActionButton
             title={runActive ? "Stop run" : "No active run"}
             disabled={stopDisabled}
@@ -2500,26 +2639,27 @@ function OverseerCompactComposer({ controller }: { controller: OverseerCockpitCo
   );
 }
 
-function SessionStatusDot({ status, selected }: { status: SessionStatus; selected: boolean }) {
+function SessionStatusDot({ status, selected, watching = false }: { status: SessionStatus; selected: boolean; watching?: boolean }) {
   const running = status === "running";
   const failed = status === "failed" || status === "cancelled";
   const approval = status === "approval_required";
-  const accent = failed ? color.negative : approval ? color.warning : running ? P.accent : selected ? P.textSec : P.muted;
+  const accent = failed ? color.negative : approval ? color.warning : running || watching ? P.accent : selected ? P.textSec : P.muted;
+  const active = running || watching;
   return (
     <span
-      className={running ? "overseer-session-dot is-active" : "overseer-session-dot"}
-      title={running ? "Session active" : "No action running"}
-      aria-label={running ? "Session active" : "No action running"}
+      className={active ? "overseer-session-dot is-active" : "overseer-session-dot"}
+      title={watching ? "Watching" : running ? "Session active" : "No action running"}
+      aria-label={watching ? "Watching" : running ? "Session active" : "No action running"}
       style={{
-        width: running ? 12 : 7,
-        height: running ? 12 : 7,
+        width: active ? 12 : 7,
+        height: active ? 12 : 7,
         borderRadius: radius.full,
-        border: running
+        border: active
           ? `2px solid color-mix(in srgb, ${accent} 22%, transparent)`
           : `1px solid ${accent}`,
-        borderTopColor: running ? accent : undefined,
+        borderTopColor: active ? accent : undefined,
         background: "transparent",
-        opacity: running || selected || failed || approval ? 1 : 0.72,
+        opacity: active || selected || failed || approval ? 1 : 0.72,
       }}
     />
   );
@@ -2774,6 +2914,11 @@ function AttachmentTray({
 function ComposerToolbar({
   provider,
   model,
+  runtimeModels,
+  runtimeModelsLoading,
+  runtimeModelsError,
+  runtimeControls,
+  runtimeSelection,
   modelCatalog,
   reasoning,
   fastMode,
@@ -2792,8 +2937,13 @@ function ComposerToolbar({
 }: {
   provider: OverseerRuntimeProvider;
   model: string;
+  runtimeModels: RuntimeModelOption[];
+  runtimeModelsLoading: boolean;
+  runtimeModelsError: string | null;
+  runtimeControls: ProviderRuntimeControls | null;
+  runtimeSelection: ProviderRuntimeSelection;
   modelCatalog?: OverseerReadiness["modelCatalog"];
-  reasoning: string;
+  reasoning: RuntimeReasoningLevel | null;
   fastMode: boolean;
   contextTokens: number | null;
   contextLimit: number | null;
@@ -2804,17 +2954,20 @@ function ComposerToolbar({
   uploading: boolean;
   onAttach: () => void;
   onModelChange: (model: string) => void;
-  onReasoningChange: (reasoning: ReasoningEffort) => void;
+  onReasoningChange: (reasoning: RuntimeReasoningLevel) => void;
   onFastModeChange: (fastMode: boolean) => void;
   onProviderChange: (provider: OverseerRuntimeProvider) => void;
 }) {
   const [runtimeMenuOpen, setRuntimeMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const selectedModel = modelOption(model, modelCatalog);
-  const availableModels = MODEL_OPTIONS.map((option) => modelOption(option.id, modelCatalog));
-  const selectedReasoning = reasoningLabel(reasoning);
-  const fastModeAvailable = selectedModel.supportsFastMode === true;
+  const selectedModel = modelOption(model, modelCatalog, runtimeModels);
+  const availableModels = runtimeModels.map((option) => modelOption(option.id, modelCatalog, runtimeModels));
+  const selectedReasoning = runtimeControls?.reasoning.available
+    ? runtimeReasoningLabel(runtimeSelection.reasoningEffort ?? reasoning)
+    : "Reasoning unavailable";
+  const fastModeAvailable = runtimeControls?.speed.available === true;
   const effectiveFastMode = fastMode && fastModeAvailable;
+  const speedLabel = fastModeAvailable ? runtimeSpeedLabel(runtimeSelection.speedMode) : "Speed unavailable";
   const modeSuffix = effectiveFastMode ? " · Fast" : "";
 
   useEffect(() => {
@@ -2896,7 +3049,7 @@ function ComposerToolbar({
               <ProviderRunMark provider={provider} size={14} />
               <span style={{ color: P.text, whiteSpace: "nowrap" }}>
                 {displayModelLabel(selectedModel)}
-                <span style={{ color: P.textSec }}> · {selectedReasoning}{effectiveFastMode ? " · Fast" : ""}</span>
+                <span style={{ color: P.textSec }}> · {selectedReasoning}{fastModeAvailable ? ` · ${speedLabel}` : ""}</span>
               </span>
             </span>
             <ChevronDown size={14} color={P.muted} />
@@ -2972,77 +3125,107 @@ function ComposerToolbar({
               })}
               <div style={{ height: 1, background: P.cardBorder, margin: "8px 10px" }} />
               <div style={{ padding: "7px 10px 5px", color: P.muted, fontSize: 12 }}>Reasoning</div>
-              {REASONING_OPTIONS.map((option) => {
-                const selected = option.value === reasoning;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={selected}
-                    onClick={() => {
-                      onReasoningChange(option.value);
-                      setRuntimeMenuOpen(false);
-                    }}
-                    style={{
-                      width: "100%",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "space-between",
-                      height: 34,
-                      border: 0,
-                      borderRadius: radius.md,
-                      background: selected ? P.surfaceHover : "transparent",
-                      color: P.text,
-                      padding: "0 10px",
-                      fontSize: 13,
-                      cursor: "pointer",
-                      textAlign: "left",
-                    }}
-                  >
-                    <span>{option.label}</span>
-                    {selected ? <Check size={15} color={P.text} /> : null}
-                  </button>
-                );
-              })}
+              {runtimeControls?.reasoning.available ? (
+                runtimeControls.reasoning.options.map((option) => {
+                  const selected = option.value === runtimeSelection.reasoningEffort;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      onClick={() => {
+                        onReasoningChange(option.value);
+                        setRuntimeMenuOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        height: 34,
+                        border: 0,
+                        borderRadius: radius.md,
+                        background: selected ? P.surfaceHover : "transparent",
+                        color: P.text,
+                        padding: "0 10px",
+                        fontSize: 13,
+                        cursor: "pointer",
+                        textAlign: "left",
+                      }}
+                    >
+                      <span>{option.label}</span>
+                      {selected ? <Check size={15} color={P.text} /> : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div style={{ padding: "7px 10px 8px", color: P.muted, fontSize: 12, lineHeight: 1.45 }}>
+                  {runtimeControls?.reasoning.unavailableReason ?? "Reasoning controls are not available for this provider."}
+                </div>
+              )}
               <div style={{ height: 1, background: P.cardBorder, margin: "8px 10px" }} />
               <div style={{ padding: "0 10px 5px", color: P.muted, fontSize: 12 }}>Speed</div>
-              <button
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={effectiveFastMode}
-                disabled={!fastModeAvailable}
-                title={fastModeAvailable ? "Use Codex fast service tier for this model" : "Fast Mode is available for GPT-5.5 and GPT-5.4"}
-                onClick={() => {
-                  if (fastModeAvailable) onFastModeChange(!effectiveFastMode);
-                  setRuntimeMenuOpen(false);
-                }}
-                style={{
-                  width: "100%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  height: 34,
-                  border: 0,
-                  borderRadius: radius.md,
-                  background: effectiveFastMode ? P.surfaceHover : "transparent",
-                  color: P.text,
-                  padding: "0 10px",
-                  fontSize: 13,
-                  cursor: fastModeAvailable ? "pointer" : "not-allowed",
-                  textAlign: "left",
-                  opacity: fastModeAvailable ? 1 : 0.55,
-                }}
-              >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <Zap size={14} color={effectiveFastMode ? P.accent : P.textSec} />
-                  Fast Mode
-                </span>
-                {effectiveFastMode ? <Check size={15} color={P.text} /> : null}
-              </button>
+              {runtimeControls?.speed.available ? (
+                runtimeControls.speed.options.map((option) => {
+                  const selected = runtimeSelection.speedMode === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      disabled={!option.available}
+                      title={option.unavailableReason ?? option.label}
+                      onClick={() => {
+                        if (option.available) onFastModeChange(option.value === "fast");
+                        setRuntimeMenuOpen(false);
+                      }}
+                      style={{
+                        width: "100%",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "space-between",
+                        height: 34,
+                        border: 0,
+                        borderRadius: radius.md,
+                        background: selected ? P.surfaceHover : "transparent",
+                        color: P.text,
+                        padding: "0 10px",
+                        fontSize: 13,
+                        cursor: option.available ? "pointer" : "not-allowed",
+                        textAlign: "left",
+                        opacity: option.available ? 1 : 0.55,
+                      }}
+                    >
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                        {option.value === "fast" ? <Zap size={14} color={selected ? P.accent : P.textSec} /> : null}
+                        {option.label}
+                      </span>
+                      {selected ? <Check size={15} color={P.text} /> : null}
+                    </button>
+                  );
+                })
+              ) : (
+                <div style={{ padding: "7px 10px 8px", color: P.muted, fontSize: 12, lineHeight: 1.45 }}>
+                  {runtimeControls?.speed.unavailableReason ?? "Speed controls are not available for this provider."}
+                </div>
+              )}
               <div style={{ height: 1, background: P.cardBorder, margin: "8px 10px" }} />
               <div style={{ padding: "0 10px 5px", color: P.muted, fontSize: 12 }}>Model</div>
-              {availableModels.map((option) => {
+              {runtimeModelsLoading ? (
+                <div style={{ padding: "7px 10px 8px", color: P.muted, fontSize: 12 }}>
+                  Loading models...
+                </div>
+              ) : runtimeModelsError ? (
+                <div style={{ padding: "7px 10px 8px", color: "var(--negative)", fontSize: 12, lineHeight: 1.45 }}>
+                  Could not load models ({runtimeModelsError}).
+                </div>
+              ) : availableModels.length === 0 ? (
+                <div style={{ padding: "7px 10px 8px", color: P.muted, fontSize: 12 }}>
+                  No verified models available.
+                </div>
+              ) : availableModels.map((option) => {
                 const selected = option.id === selectedModel.id;
                 return (
                   <button

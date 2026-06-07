@@ -41,7 +41,7 @@ const agentIds: string[] = [];
 
 const insertAgent = db.prepare(`INSERT INTO agents 
   (id, project_id, name, emoji, role, personality, status, model, created_at, updated_at)
-  VALUES (?, ?, ?, ?, ?, 'professional, focused', 'idle', 'claude-opus-4-6', ?, ?)`);
+  VALUES (?, ?, ?, ?, ?, 'professional, focused', 'idle', 'claude-opus-4-8', ?, ?)`);
 
 for (let i = 0; i < 12; i++) {
   const agentId = randomUUID();

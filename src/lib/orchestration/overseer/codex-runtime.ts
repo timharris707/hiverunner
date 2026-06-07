@@ -111,7 +111,17 @@ function mergeUsage(base: OverseerUsageSnapshot, next: OverseerUsageSnapshot): O
 }
 
 function supportsCodexFastTier(model: string | null | undefined): boolean {
-  return model === "gpt-5.5" || model === "gpt-5.4";
+  const normalized = normalizeCodexModelArg(model);
+  return normalized === "gpt-5.5" || normalized === "gpt-5.4";
+}
+
+function normalizeCodexModelArg(model: string | null | undefined): string | null {
+  const normalized = model?.trim().toLowerCase() ?? "";
+  if (!normalized) return null;
+  return normalized
+    .replace(/^openai-codex\//, "")
+    .replace(/^openai\//, "")
+    .replace(/^codex\//, "");
 }
 
 function quotaBucketFromRecord(label: string, record: Record<string, unknown>): NonNullable<OverseerQuotaSnapshot["buckets"]>[number] | null {
@@ -520,10 +530,11 @@ function runCodexProcess(input: {
   const args = input.codexSessionId
     ? ["exec", "resume", "--json", "--skip-git-repo-check", "-o", outputFile]
     : ["exec", "--json", "--skip-git-repo-check", "--sandbox", "read-only", "-C", input.workspaceRoot, "-o", outputFile];
+  const modelArg = normalizeCodexModelArg(input.model);
 
-  if (input.model) args.push("-m", input.model);
+  if (modelArg) args.push("-m", modelArg);
   if (input.reasoningEffort) args.push("-c", `model_reasoning_effort="${input.reasoningEffort}"`);
-  if (input.fastMode && supportsCodexFastTier(input.model ?? "gpt-5.5")) args.push("-c", `service_tier="fast"`);
+  if (input.fastMode && supportsCodexFastTier(modelArg ?? "gpt-5.5")) args.push("-c", `service_tier="fast"`);
 
   if (input.codexSessionId) {
     args.push(input.codexSessionId, "-");

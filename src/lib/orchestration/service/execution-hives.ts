@@ -144,7 +144,7 @@ const MODEL_SOURCE_LABELS: Partial<Record<ExecutionHiveModelRouting, string>> = 
 
 const MODELS_BY_RUNTIME_PROVIDER: Record<ExecutionHiveRuntimeProvider, string[]> = {
   codex: ["gpt-5", "gpt-5-mini", "gpt-4o", "gpt-4o-mini"],
-  anthropic: ["claude-sonnet-4-6", "claude-opus-4-7", "claude-haiku-4-5"],
+  anthropic: ["claude-opus-4-8", "claude-sonnet-4-6", "claude-haiku-4-5"],
   gemini: ["gemini-2.5-pro", "gemini-2.5-flash"],
   hermes: ["hermes-runtime-managed", "profile managed", "runtime managed"],
   openclaw: ["openclaw-runtime-managed", "platform managed", "runtime managed"],

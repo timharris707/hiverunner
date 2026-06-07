@@ -3343,6 +3343,41 @@ const MIGRATIONS: Migration[] = [
         ON overseer_context_snapshots(company_id, session_id, summary_hash);
     `,
   },
+  {
+    version: 114,
+    name: "current_runtime_model_seed_refresh",
+    sql: `
+      INSERT INTO available_models (
+        id, display_name, runtime_provider, default_runtime_label, model_source_id,
+        capabilities_json, context_window, description, is_seed, is_active, created_at, updated_at
+      )
+      VALUES
+        ('claude-opus-4-8', 'Claude Opus 4.8', 'anthropic', 'Claude Code', 'anthropic', '["text","vision","tools","structured-output"]', 1000000, 'Anthropic''s most capable model for complex reasoning, long-horizon agentic coding, and high-autonomy work.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('claude-sonnet-4-8', 'Claude Sonnet 4.8', 'anthropic', 'Claude Code', 'anthropic', '[]', NULL, 'Inactive guard row: no current Anthropic Claude Sonnet 4.8 model is available.', 1, 0, ${NOW_SQL}, ${NOW_SQL}),
+        ('claude-haiku-4-8', 'Claude Haiku 4.8', 'anthropic', 'Claude Code', 'anthropic', '[]', NULL, 'Inactive guard row: no current Anthropic Claude Haiku 4.8 model is available.', 1, 0, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.5', 'GPT-5.5', 'openai', 'Codex', 'openai', '["text","vision","tools","structured-output"]', NULL, 'General OpenAI Codex model for coding, analysis, and tool-rich execution.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.4', 'GPT-5.4', 'openai', 'Codex', 'openai', '["text","vision","tools","structured-output"]', NULL, 'Balanced OpenAI Codex model for coding, analysis, and tool-rich execution.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.4-mini', 'GPT-5.4 mini', 'openai', 'Codex', 'openai', '["text","tools","structured-output"]', NULL, 'Fast OpenAI Codex model for lightweight coding and operational tasks.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.3-codex', 'GPT-5.3 Codex', 'openai', 'Codex', 'openai', '["text","tools","structured-output"]', NULL, 'OpenAI Codex specialist model for implementation and code review.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.3-codex-spark', 'Codex Spark', 'openai', 'Codex', 'openai', '["text","tools","structured-output"]', NULL, 'Fast OpenAI Codex specialist profile for focused coding tasks.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gpt-5.2', 'GPT-5.2', 'openai', 'Codex', 'openai', '["text","vision","tools","structured-output"]', NULL, 'Fallback OpenAI Codex model for coding, analysis, and tool-rich execution.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gemini-3-pro-preview', 'Gemini 3 Pro Preview', 'google', 'Gemini CLI', 'google', '["text","vision","tools","structured-output"]', NULL, 'Google model for long-context, multimodal, and implementation work.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview', 'google', 'Gemini CLI', 'google', '["text","vision","tools","structured-output"]', NULL, 'Google model for large-context, multimodal, and implementation work.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gemini-3.5-flash', 'Gemini 3.5 Flash', 'google', 'Gemini CLI', 'google', '["text","vision","tools"]', NULL, 'Fast Google model for low-latency multimodal tasks and broad context checks.', 1, 1, ${NOW_SQL}, ${NOW_SQL}),
+        ('gemini-3-flash-preview', 'Gemini 3 Flash Preview', 'google', 'Gemini CLI', 'google', '["text","vision","tools"]', NULL, 'Fast Google model for low-latency multimodal tasks and broad context checks.', 1, 1, ${NOW_SQL}, ${NOW_SQL})
+      ON CONFLICT(id) DO UPDATE SET
+        display_name = excluded.display_name,
+        runtime_provider = excluded.runtime_provider,
+        default_runtime_label = excluded.default_runtime_label,
+        model_source_id = excluded.model_source_id,
+        capabilities_json = excluded.capabilities_json,
+        context_window = excluded.context_window,
+        description = excluded.description,
+        is_seed = excluded.is_seed,
+        is_active = excluded.is_active,
+        updated_at = excluded.updated_at;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

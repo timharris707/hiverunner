@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 import { ProviderLogo } from "@/components/orchestration/ProviderLogo";
+import {
+  runtimeReasoningLabel,
+  runtimeSpeedLabel,
+  type ProviderRuntimeSelection,
+} from "@/lib/orchestration/provider-runtime-controls";
+import { useRuntimeModelSelection } from "@/components/orchestration/useRuntimeModelSelection";
 
 type RuntimeStatus = "online" | "offline" | "unknown" | "error" | "disabled";
 
@@ -16,6 +22,8 @@ export type AgentRuntimeSelection = {
   commandPath?: string | null;
   source: "registered" | "detected";
 };
+
+export type AgentRuntimeProfileSelection = ProviderRuntimeSelection;
 
 type RuntimeRecord = {
   id?: string;
@@ -43,14 +51,6 @@ type DetectedRuntimeRecord = {
   version?: string;
   status?: RuntimeStatus;
   metadata?: Record<string, unknown>;
-};
-
-type RuntimeModelRecord = {
-  id?: string;
-  value?: string;
-  label?: string;
-  provider?: string;
-  default?: boolean;
 };
 
 type RuntimeOption = AgentRuntimeSelection & {
@@ -142,27 +142,6 @@ function runtimeProviderSortValue(runtime: RuntimeOption): number {
   }
 }
 
-function modelSortValue(model: ModelOption): number {
-  if (model.default) return -1;
-  if (model.value.includes("gpt-5.5")) return 0;
-  if (model.value.includes("gpt-5.4-mini")) return 2;
-  if (model.value.includes("gpt-5.4")) return 1;
-  if (model.value.includes("gpt-5.3-codex-spark")) return 4;
-  if (model.value.includes("gpt-5.3-codex")) return 3;
-  if (model.value.includes("gpt-5.2")) return 5;
-  if (model.value.includes("claude-sonnet-4-6")) return 10;
-  if (model.value.includes("claude-opus-4-7")) return 11;
-  if (model.value.includes("claude-haiku-4-5")) return 12;
-  if (model.value.includes("claude-opus-4-6")) return 13;
-  if (model.value.includes("claude-sonnet-4-5")) return 14;
-  if (model.value.includes("gemini-3.1-pro")) return 20;
-  if (model.value.includes("gemini-3-pro")) return 21;
-  if (model.value.includes("gemini-3-flash")) return 22;
-  if (model.value.includes("gemini-2.5-pro")) return 23;
-  if (model.value.includes("gemini-2.5-flash")) return 24;
-  return 100;
-}
-
 function buildRuntimeOptions(
   runtimes: RuntimeRecord[],
   detected: DetectedRuntimeRecord[],
@@ -234,33 +213,6 @@ function buildRuntimeOptions(
   });
 }
 
-function buildModelOptions(models: RuntimeModelRecord[]): ModelOption[] {
-  const parsed: ModelOption[] = [];
-
-  for (const model of models) {
-    const value = stringValue(model.id) || stringValue(model.value);
-    if (!value) continue;
-
-    const provider = stringValue(model.provider);
-    const option: ModelOption = {
-      value,
-      label: stringValue(model.label) || value,
-      default: Boolean(model.default),
-    };
-    if (provider) {
-      option.provider = provider;
-    }
-
-    parsed.push(option);
-  }
-
-  return parsed.sort((a, b) => {
-    const priority = modelSortValue(a) - modelSortValue(b);
-    if (priority !== 0) return priority;
-    return a.label.localeCompare(b.label);
-  });
-}
-
 const labelStyle: React.CSSProperties = {
   fontSize: "12px",
   color: "var(--text-secondary)",
@@ -311,22 +263,9 @@ function displayModelId(value: string): string {
   return normalized;
 }
 
-function buildModelRows(models: ModelOption[], defaultModel: ModelOption | null): ModelRow[] {
+function buildModelRows(models: ModelOption[]): ModelRow[] {
   const rows: ModelRow[] = [];
   const seen = new Set<string>();
-
-  if (defaultModel) {
-    const provider = defaultModel.provider || modelProviderFromValue(defaultModel.value);
-    rows.push({
-      key: "runtime-default",
-      value: "",
-      label: defaultModel.label,
-      technicalId: displayModelId(defaultModel.value),
-      provider,
-      default: true,
-    });
-    seen.add(defaultModel.value);
-  }
 
   for (const model of models) {
     if (seen.has(model.value)) continue;
@@ -370,19 +309,20 @@ export function AgentRuntimeModelFields({
   onModelChange,
   runtime,
   onRuntimeChange,
+  runtimeProfile,
+  onRuntimeProfileChange,
 }: {
   companySlug: string;
   model: string;
   onModelChange: (model: string) => void;
   runtime: AgentRuntimeSelection | null;
   onRuntimeChange: (runtime: AgentRuntimeSelection | null) => void;
+  runtimeProfile?: AgentRuntimeProfileSelection;
+  onRuntimeProfileChange?: (selection: AgentRuntimeProfileSelection) => void;
 }) {
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOption[]>([]);
-  const [models, setModels] = useState<ModelOption[]>([]);
   const [loadingRuntimes, setLoadingRuntimes] = useState(true);
-  const [loadingModels, setLoadingModels] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [modelError, setModelError] = useState<string | null>(null);
   const [runtimeMenuOpen, setRuntimeMenuOpen] = useState(false);
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [modelMenuPlacement, setModelMenuPlacement] = useState<"up" | "down">("down");
@@ -446,6 +386,32 @@ export function AgentRuntimeModelFields({
   const selectedRuntimeProvider = selectedRuntime?.provider ?? "";
   const selectedRuntimeCommand = selectedRuntime?.command ?? "";
   const selectedRuntimeCommandPath = selectedRuntime?.commandPath ?? "";
+  const requestedRuntimeProfile = useMemo(() => ({
+    reasoningEffort: runtimeProfile?.reasoningEffort ?? undefined,
+    speedPreference: runtimeProfile?.speedMode ?? undefined,
+    fastMode: runtimeProfile?.speedMode === "fast",
+  }), [runtimeProfile?.reasoningEffort, runtimeProfile?.speedMode]);
+  const runtimeModelSelection = useRuntimeModelSelection({
+    provider: selectedRuntimeProvider,
+    model,
+    runtimeConfig: requestedRuntimeProfile,
+    command: selectedRuntimeCommand,
+    commandPath: selectedRuntimeCommandPath,
+    enabled: Boolean(selectedRuntimeKey),
+    autoSelectDefault: true,
+    onModelChange,
+  });
+  const models = useMemo<ModelOption[]>(
+    () => runtimeModelSelection.models.map((option) => ({
+      value: option.id,
+      label: option.label,
+      provider: option.provider,
+      default: option.default,
+    })),
+    [runtimeModelSelection.models],
+  );
+  const loadingModels = runtimeModelSelection.loading;
+  const modelError = runtimeModelSelection.error;
 
   useEffect(() => {
     setModelQuery("");
@@ -459,56 +425,11 @@ export function AgentRuntimeModelFields({
     onModelChange("");
   }, [loadingRuntimes, onModelChange, onRuntimeChange, runtimeOptions, selectedRuntime]);
 
-  useEffect(() => {
-    if (!selectedRuntimeKey) {
-      setModels([]);
-      setModelError(null);
-      onModelChange("");
-      return;
-    }
-
-    let cancelled = false;
-    async function loadModels() {
-      setLoadingModels(true);
-      setModelError(null);
-      setModels([]);
-      try {
-        const params = new URLSearchParams({ provider: selectedRuntimeProvider });
-        if (selectedRuntimeCommand) params.set("command", selectedRuntimeCommand);
-        if (selectedRuntimeCommandPath) params.set("commandPath", selectedRuntimeCommandPath);
-        const response = await fetch(`/api/orchestration/runtime-models?${params.toString()}`, {
-          method: "GET",
-          cache: "no-store",
-        });
-        if (!response.ok) throw new Error(`models:${response.status}`);
-        const json = (await response.json()) as { models?: RuntimeModelRecord[]; supported?: boolean };
-        if (cancelled) return;
-        setModels(buildModelOptions(json.models ?? []));
-      } catch (err) {
-        if (!cancelled) {
-          setModels([]);
-          setModelError(err instanceof Error ? err.message : "model_discovery_failed");
-        }
-      } finally {
-        if (!cancelled) setLoadingModels(false);
-      }
-    }
-
-    void loadModels();
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    onModelChange,
-    selectedRuntimeCommand,
-    selectedRuntimeCommandPath,
-    selectedRuntimeKey,
-    selectedRuntimeProvider,
-  ]);
-
   const selectedModel = models.find((option) => option.value === model);
   const defaultModel = models.find((option) => option.default) ?? models[0] ?? null;
-  const modelRows = buildModelRows(models, defaultModel);
+  const runtimeControls = runtimeModelSelection.runtimeControls;
+  const normalizedRuntimeProfile = runtimeModelSelection.runtimeSelection;
+  const modelRows = buildModelRows(models);
   const normalizedModelQuery = modelQuery.trim().toLowerCase();
   const filteredModelRows = normalizedModelQuery
     ? modelRows.filter((row) =>
@@ -517,11 +438,9 @@ export function AgentRuntimeModelFields({
         row.provider.toLowerCase().includes(normalizedModelQuery)
       )
     : modelRows;
-  const customModelValue =
-    modelQuery.trim() && filteredModelRows.length === 0 ? modelQuery.trim() : "";
   const selectedModelLabel = selectedModel?.label
-    ?? (model ? displayModelId(model) : defaultModel?.label ?? "Provider default");
-  const selectedModelText = model ? selectedModelLabel : `Default — ${selectedModelLabel}`;
+    ?? (model ? displayModelId(model) : defaultModel?.label ?? "Select model");
+  const selectedModelText = selectedModelLabel;
   const unavailableRuntimes = runtimeOptions.filter((option) => option.status !== "online");
   const availableRuntimes = runtimeOptions.filter((option) => option.status === "online");
   const visibleRuntimeGroups = unavailableRuntimes.length > 0
@@ -542,6 +461,31 @@ export function AgentRuntimeModelFields({
     setModelQuery("");
     setModelMenuOpen(false);
   }
+
+  function updateRuntimeProfile(patch: Partial<AgentRuntimeProfileSelection>) {
+    if (!onRuntimeProfileChange) return;
+    onRuntimeProfileChange({
+      ...normalizedRuntimeProfile,
+      ...patch,
+    });
+  }
+
+  useEffect(() => {
+    if (!onRuntimeProfileChange || !runtimeControls) return;
+    if (
+      runtimeProfile?.reasoningEffort === normalizedRuntimeProfile.reasoningEffort &&
+      runtimeProfile?.speedMode === normalizedRuntimeProfile.speedMode
+    ) {
+      return;
+    }
+    onRuntimeProfileChange(normalizedRuntimeProfile);
+  }, [
+    normalizedRuntimeProfile,
+    onRuntimeProfileChange,
+    runtimeControls,
+    runtimeProfile?.reasoningEffort,
+    runtimeProfile?.speedMode,
+  ]);
 
   function openModelMenu() {
     const rect = modelPickerRef.current?.getBoundingClientRect();
@@ -781,13 +725,7 @@ export function AgentRuntimeModelFields({
                     data-testid="agent-model-search"
                     value={modelQuery}
                     onChange={(event) => setModelQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && customModelValue) {
-                        event.preventDefault();
-                        selectModel(customModelValue);
-                      }
-                    }}
-                    placeholder="Search or type a model ID"
+                    placeholder="Search models"
                     style={{
                       width: "100%",
                       borderRadius: "10px",
@@ -816,29 +754,6 @@ export function AgentRuntimeModelFields({
                       />
                       Discovering models...
                     </div>
-                  ) : customModelValue ? (
-                    <button
-                      type="button"
-                      onClick={() => selectModel(customModelValue)}
-                      style={{
-                        width: "100%",
-                        border: 0,
-                        borderTop: "none",
-                        borderBottom: "none",
-                        borderRadius: "8px",
-                        boxShadow: "none",
-                        background: "transparent",
-                        color: "var(--text-primary)",
-                        display: "grid",
-                        gap: "3px",
-                        padding: "9px 12px",
-                        cursor: "pointer",
-                        textAlign: "left",
-                      }}
-                    >
-                      <span style={{ fontSize: "14px", fontWeight: 600 }}>{customModelValue}</span>
-                      <span style={{ color: "var(--text-secondary)", fontSize: "12px" }}>Use custom model ID</span>
-                    </button>
                   ) : filteredModelRows.length === 0 ? (
                     <div style={{ padding: "10px 12px", color: "var(--text-secondary)", fontSize: "13px" }}>
                       No matching models
@@ -857,7 +772,7 @@ export function AgentRuntimeModelFields({
                         {group.provider}
                       </div>
                       {group.rows.map((row) => {
-                        const selected = row.value === model || (!model && row.value === "");
+                        const selected = row.value === model;
                         return (
                           <button
                             key={row.key}
@@ -920,9 +835,85 @@ export function AgentRuntimeModelFields({
           </div>
           {modelError ? (
             <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--negative)" }}>
-              Model discovery failed ({modelError}); runtime default will be used.
+              Model discovery failed ({modelError}); verified models are required before saving a model change.
             </div>
           ) : null}
+        </div>
+      ) : null}
+
+      {selectedRuntime && runtimeControls ? (
+        <div>
+          <label style={labelStyle}>Runtime profile</label>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "10px" }}>
+            <div>
+              <div style={{ marginBottom: "5px", fontSize: "11px", color: "var(--text-muted)" }}>
+                Reasoning
+              </div>
+              {runtimeControls.reasoning.available ? (
+                <select
+                  value={normalizedRuntimeProfile.reasoningEffort ?? ""}
+                  onChange={(event) => updateRuntimeProfile({ reasoningEffort: event.target.value as AgentRuntimeProfileSelection["reasoningEffort"] })}
+                  style={{
+                    width: "100%",
+                    minHeight: "38px",
+                    borderRadius: "10px",
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    color: "var(--text-primary)",
+                    padding: "8px 10px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                >
+                  {runtimeControls.reasoning.options.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ minHeight: "38px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--surface-hover)", color: "var(--text-muted)", padding: "9px 10px", fontSize: "12px" }}>
+                  {runtimeControls.reasoning.unavailableReason ?? "Reasoning unavailable"}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <div style={{ marginBottom: "5px", fontSize: "11px", color: "var(--text-muted)" }}>
+                Speed
+              </div>
+              {runtimeControls.speed.available ? (
+                <select
+                  value={normalizedRuntimeProfile.speedMode ?? "standard"}
+                  onChange={(event) => updateRuntimeProfile({ speedMode: event.target.value as AgentRuntimeProfileSelection["speedMode"] })}
+                  style={{
+                    width: "100%",
+                    minHeight: "38px",
+                    borderRadius: "10px",
+                    border: "1px solid var(--border)",
+                    background: "var(--surface)",
+                    color: "var(--text-primary)",
+                    padding: "8px 10px",
+                    fontSize: "13px",
+                    outline: "none",
+                  }}
+                >
+                  {runtimeControls.speed.options.map((option) => (
+                    <option key={option.value} value={option.value} disabled={!option.available}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ minHeight: "38px", borderRadius: "10px", border: "1px solid var(--border)", background: "var(--surface-hover)", color: "var(--text-muted)", padding: "9px 10px", fontSize: "12px" }}>
+                  {runtimeControls.speed.unavailableReason ?? "Speed unavailable"}
+                </div>
+              )}
+            </div>
+          </div>
+          <div style={{ marginTop: "6px", fontSize: "11px", color: "var(--text-muted)" }}>
+            {runtimeControls.label}: {runtimeReasoningLabel(normalizedRuntimeProfile.reasoningEffort)} reasoning · {runtimeSpeedLabel(normalizedRuntimeProfile.speedMode)} speed
+          </div>
         </div>
       ) : null}
     </div>

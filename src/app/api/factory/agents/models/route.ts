@@ -10,7 +10,7 @@ const OPENCLAW_CONFIG = join(process.env.HOME || "", ".openclaw/openclaw.json");
 // Friendly display name from a provider-prefixed model ID
 function modelIdToName(modelId: string): string {
   const MAP: Record<string, string> = {
-    "anthropic/claude-opus-4-6": "Opus 4.6",
+    "anthropic/claude-opus-4-8": "Opus 4.8",
     "anthropic/claude-sonnet-4-6": "Sonnet 4.6",
     "anthropic/claude-haiku-3-5": "Haiku 3.5",
     "google/gemini-3.1-pro-preview": "Gemini 3.1 Pro",
@@ -58,7 +58,7 @@ type AnyRecord = Record<string, any>;
 
 function getOpenClawDefault(): { modelId: string; modelName: string } {
   const config = readJSON<OpenClawConfig>(OPENCLAW_CONFIG, {});
-  const primary = config?.agents?.defaults?.model?.primary ?? "anthropic/claude-opus-4-6";
+  const primary = config?.agents?.defaults?.model?.primary ?? "anthropic/claude-opus-4-8";
   return { modelId: primary, modelName: modelIdToName(primary) };
 }
 
