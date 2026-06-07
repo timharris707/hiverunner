@@ -2881,7 +2881,7 @@ export default function TaskDetailPage() {
               companySlug={company?.slug ?? slug}
               companyCode={companyCode}
               scopeLabel={task.key ?? task.title}
-              activeAgents={agents}
+              roster={agents}
               activeAgentReferences={activeTaskCrewReferences}
               compact
               onAddAgent={onAddBenchAgentToTask}

@@ -68,6 +68,7 @@ import { font, P, radius, space, type as tokenType } from "@/lib/ui/tokens";
 const STATUS_WEIGHT: Record<TaskStatus, number> = {
   backlog: 0, "to-do": 1, "in-progress": 2, review: 3, done: 4, blocked: 5, cancelled: 6,
 };
+const ACTIVE_CREW_TASK_STATUSES = new Set<TaskStatus>(["to-do", "in-progress", "review", "blocked"]);
 
 type SprintGroupedTask = TaskRow & GroupableItem;
 
@@ -475,7 +476,12 @@ export default function CompanyTasksPage() {
 
   const flatTasks = useMemo(() => grouped.flatMap((g) => g.items.filter((t) => !t.parentTaskId)), [grouped]);
   const visibleAssigneeRefs = useMemo(() => (
-    Array.from(new Set(filtered.map((task) => task.assignee).filter(Boolean) as string[]))
+    Array.from(new Set(
+      filtered
+        .filter((task) => ACTIVE_CREW_TASK_STATUSES.has(task.status))
+        .map((task) => task.assignee)
+        .filter(Boolean) as string[],
+    ))
   ), [filtered]);
 
   const handleStatusChange = useCallback(async (taskId: string, status: TaskStatus) => {
@@ -797,7 +803,7 @@ export default function CompanyTasksPage() {
           companySlug={activeCompanySlug}
           companyCode={companyCode}
           scopeLabel={activeProjectRecord ? `${activeProjectRecord.name} tasks` : "Visible tasks"}
-          activeAgents={agents}
+          roster={agents}
           activeAgentReferences={visibleAssigneeRefs}
           compact
           onAddAgent={handleAddBenchAgentToVisibleWork}

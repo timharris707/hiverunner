@@ -29,6 +29,7 @@ type Props = {
   activeAgentReferences?: Array<string | null | undefined>;
   roster?: OrchestrationAgent[];
   maxActive?: number;
+  fallbackToActiveRoster?: boolean;
   compact?: boolean;
   onAddAgent?: (agent: OrchestrationAgent) => Promise<void> | void;
   addDisabledReason?: string;
@@ -60,11 +61,13 @@ export function resolveScopedActiveCrew({
   activeAgents = [],
   activeAgentReferences = [],
   maxActive = 5,
+  fallbackToActiveRoster = true,
 }: {
   roster: OrchestrationAgent[];
   activeAgents?: OrchestrationAgent[];
   activeAgentReferences?: Array<string | null | undefined>;
   maxActive?: number;
+  fallbackToActiveRoster?: boolean;
 }): ScopedCrewAgent[] {
   const resolved = new Map<string, ScopedCrewAgent>();
   const normalizedRoster = roster.map((agent) => ({ ...agent, rosterState: agentRosterState(agent) }));
@@ -89,7 +92,7 @@ export function resolveScopedActiveCrew({
     if (match) resolved.set(match.id, match);
   }
 
-  if (resolved.size === 0) {
+  if (resolved.size === 0 && fallbackToActiveRoster) {
     for (const agent of normalizedRoster.filter((agent) => agent.rosterState === "active")) {
       resolved.set(agent.id, agent);
     }
@@ -142,6 +145,7 @@ export function ScopedActiveCrewPanel({
   activeAgentReferences = [],
   roster,
   maxActive = 5,
+  fallbackToActiveRoster = false,
   compact = false,
   onAddAgent,
   addDisabledReason,
@@ -174,8 +178,8 @@ export function ScopedActiveCrewPanel({
 
   const normalizedRoster = useMemo(() => loadedRoster.map((agent) => ({ ...agent, rosterState: agentRosterState(agent) })), [loadedRoster]);
   const activeCrew = useMemo(
-    () => resolveScopedActiveCrew({ roster: normalizedRoster, activeAgents, activeAgentReferences, maxActive }),
-    [activeAgentReferences, activeAgents, maxActive, normalizedRoster]
+    () => resolveScopedActiveCrew({ roster: normalizedRoster, activeAgents, activeAgentReferences, maxActive, fallbackToActiveRoster }),
+    [activeAgentReferences, activeAgents, fallbackToActiveRoster, maxActive, normalizedRoster]
   );
   const benchAgents = useMemo(() => filterBenchAgents(normalizedRoster, benchQuery).slice(0, 8), [benchQuery, normalizedRoster]);
   const benchCount = normalizedRoster.filter((agent) => agent.rosterState === "bench").length;

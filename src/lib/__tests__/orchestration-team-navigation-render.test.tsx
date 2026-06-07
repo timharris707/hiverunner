@@ -82,6 +82,18 @@ async function run() {
   assert.match(crewHtml, /Add Gator to this work/);
   assert.match(crewHtml, /Add/);
 
+  const emptyCrewHtml = renderToStaticMarkup(
+    <ScopedActiveCrewPanel
+      companySlug="insight"
+      companyCode="INS"
+      scopeLabel="Completed sprint"
+      roster={roster}
+    />,
+  );
+  assert.match(emptyCrewHtml, /No Active Crew yet/);
+  assert.doesNotMatch(emptyCrewHtml, /Oracle/);
+  assert.doesNotMatch(emptyCrewHtml, /Samantha/);
+
   const originalFetch = globalThis.fetch;
   let requestedUrl = "";
 

@@ -952,7 +952,7 @@ export default function GoalDetailPage({
             companySlug={activeCompanySlug}
             companyCode={companyCode}
             scopeLabel={goalKind === "sprint" ? `${goal.sprint.name} sprint` : `${goal.sprint.name} goal`}
-            activeAgents={agents}
+            roster={agents}
             activeAgentReferences={activeCrewReferences}
             onAddAgent={handleAddBenchAgentToGoalWork}
           />
