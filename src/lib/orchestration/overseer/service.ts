@@ -5,8 +5,10 @@ import type Database from "better-sqlite3";
 
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
+import { recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { parseActionsFromText, type McAction } from "@/lib/orchestration/engine/action-dispatcher";
+import { recordRuntimeUsageLedgerEntry } from "@/lib/orchestration/runtime-usage-ledger";
 import { createApproval } from "@/lib/orchestration/service/approval";
 import {
   ensureCompanyWorkspaceScaffold,
@@ -1256,6 +1258,32 @@ export function createOverseerTurn(input: {
          updated_at = ?
      WHERE id = ?`,
   ).run(now, now, session.id);
+  try {
+    const provider = typeof session.scope.overseerProvider === "string" && session.scope.overseerProvider.trim()
+      ? session.scope.overseerProvider.trim()
+      : "overseer";
+    recordRuntimeContextManifest(db, {
+      sourceType: "overseer_prompt",
+      companyId: session.companyId,
+      overseerTurnId: id,
+      provider,
+      model: session.model,
+      prompt: input.prompt,
+      metadata: {
+        sessionId: session.id,
+        userMessageId: input.userMessageId,
+        codexSessionId: session.codexSessionId,
+        workspaceRoot: session.workspaceRoot,
+        reasoningEffort: session.reasoningEffort,
+      },
+    });
+  } catch (error) {
+    console.warn("[overseer] failed to record context manifest", {
+      sessionId: session.id,
+      turnId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return getOverseerTurn(id, db);
 }
 
@@ -2359,6 +2387,31 @@ export function completeOverseerTurn(input: {
     now,
     input.sessionId,
   );
+  try {
+    const provider = typeof session.scope.overseerProvider === "string" && session.scope.overseerProvider.trim()
+      ? session.scope.overseerProvider.trim()
+      : "overseer";
+    recordRuntimeUsageLedgerEntry(db, {
+      sourceType: "overseer_turn",
+      companyId: session.companyId,
+      overseerTurnId: input.turnId,
+      provider,
+      model: session.model,
+      usage: nextUsage,
+      budgetSnapshot: {
+        sessionId: session.id,
+        status: input.status,
+        quota: sessionQuota,
+        durationMs: input.durationMs ?? null,
+      },
+    });
+  } catch (error) {
+    console.warn("[overseer] failed to record usage ledger", {
+      sessionId: session.id,
+      turnId: input.turnId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
   return { session: getOverseerSession(input.sessionId, db), turn: getOverseerTurn(input.turnId, db) };
 }
 

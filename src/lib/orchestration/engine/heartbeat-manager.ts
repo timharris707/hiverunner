@@ -7,6 +7,7 @@ import {
   nextExecutionRunAttemptNumber,
   recordExecutionRunAttemptEvent,
 } from "@/lib/orchestration/db";
+import { recordRuntimeContextManifest } from "@/lib/orchestration/context-manifest";
 import { getExecutionAdapter } from "@/lib/orchestration/execution/adapters";
 import type { ExecutionLiveEventInput } from "@/lib/orchestration/execution/adapters/types";
 import { cleanupRunArtifacts } from "@/lib/orchestration/execution/cleanup";
@@ -29,6 +30,7 @@ import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-
 import { normalizeTaskModelLane, resolveTaskModelRouting } from "@/lib/orchestration/task-model-routing";
 import { nonExecutableRuntimeReason } from "@/lib/orchestration/runtime-readiness";
 import { admitHeartbeatRuntimePreflight } from "@/lib/orchestration/runtime-preflight";
+import { recordRuntimeUsageLedgerEntry } from "@/lib/orchestration/runtime-usage-ledger";
 import type { TaskExecutionEngine } from "@/lib/orchestration/types";
 import { enqueueWakeup as enqueueWakeupDirect } from "@/lib/orchestration/engine/wakeup-queue";
 import {
@@ -1180,6 +1182,32 @@ export async function executeHeartbeatRun(
   const promptBuildStart = Date.now();
   const prompt = buildHeartbeatPrompt(agent, contextSnapshot, session, db, executionRunId);
   const promptBuildMs = Date.now() - promptBuildStart;
+  try {
+    recordRuntimeContextManifest(db, {
+      sourceType: "heartbeat_prompt",
+      companyId: agent.company_id,
+      agentId: agent.id,
+      taskId: taskKey !== "__heartbeat__" ? taskKey : null,
+      executionRunId,
+      heartbeatRunId: runId,
+      provider: executionRunProvider,
+      model: primaryRouteAttempt?.target.model ?? null,
+      prompt,
+      metadata: {
+        promptBuildMs,
+        taskKey,
+        adapterType,
+        executionEngine: contextExecutionEngine,
+        modelLane: executionRoute?.laneId ?? taskModelRouting.lane,
+      },
+    });
+  } catch (error) {
+    console.warn("[engine] failed to record heartbeat context manifest", {
+      runId,
+      executionRunId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   // ── Telemetry accumulator (usage_json) ──
   const telemetry: Record<string, unknown> = {
@@ -1410,6 +1438,23 @@ export async function executeHeartbeatRun(
         usedExecutionRunProvider ?? usedAdapterType,
         usageForStorage
       );
+      recordRuntimeUsageLedgerEntry(db, {
+        sourceType: "execution_run",
+        companyId: agent.company_id,
+        agentId: agent.id,
+        taskId: taskKey !== "__heartbeat__" ? taskKey : null,
+        executionRunId,
+        heartbeatRunId: runId,
+        provider: usedExecutionRunProvider ?? usedAdapterType,
+        model: resultRunnerModel,
+        usage: usageForStorage,
+        budgetSnapshot: {
+          routeAttemptCount: routeAttemptAudit.length,
+          fallbackUsed: Boolean(usedRouteAttempt?.fallbackUsed),
+          executionEngine: contextExecutionEngine,
+          modelLane: executionRoute?.laneId ?? taskModelRouting.lane,
+        },
+      });
     } catch (error) {
       console.warn(
         `[engine] failed to persist execution metadata for ${executionRunId}:`,

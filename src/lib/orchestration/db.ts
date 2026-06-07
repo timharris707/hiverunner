@@ -4259,6 +4259,81 @@ const MIGRATIONS: Migration[] = [
         ON execution_run_attempt_events(event_type, created_at DESC);
     `,
   },
+  {
+    version: 122,
+    name: "runtime_usage_and_context_ledgers",
+    sql: `
+      CREATE TABLE IF NOT EXISTS runtime_usage_ledger (
+        id                        TEXT PRIMARY KEY,
+        idempotency_key           TEXT NOT NULL UNIQUE,
+        source_type               TEXT NOT NULL CHECK (source_type IN ('execution_run','overseer_turn','manual')),
+        company_id                TEXT REFERENCES companies(id) ON DELETE SET NULL,
+        agent_id                  TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        task_id                   TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        execution_run_id          TEXT REFERENCES execution_runs(id) ON DELETE CASCADE,
+        heartbeat_run_id          TEXT REFERENCES heartbeat_runs(id) ON DELETE SET NULL,
+        overseer_turn_id          TEXT REFERENCES overseer_turns(id) ON DELETE CASCADE,
+        provider                  TEXT,
+        model                     TEXT,
+        input_tokens              INTEGER NOT NULL DEFAULT 0 CHECK (input_tokens >= 0),
+        cache_read_input_tokens   INTEGER NOT NULL DEFAULT 0 CHECK (cache_read_input_tokens >= 0),
+        cache_write_input_tokens  INTEGER NOT NULL DEFAULT 0 CHECK (cache_write_input_tokens >= 0),
+        fresh_input_tokens        INTEGER NOT NULL DEFAULT 0 CHECK (fresh_input_tokens >= 0),
+        output_tokens             INTEGER NOT NULL DEFAULT 0 CHECK (output_tokens >= 0),
+        total_tokens              INTEGER NOT NULL DEFAULT 0 CHECK (total_tokens >= 0),
+        cost_cents                REAL NOT NULL DEFAULT 0,
+        usage_json                TEXT NOT NULL DEFAULT '{}',
+        budget_snapshot_json      TEXT NOT NULL DEFAULT '{}',
+        occurred_at               TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        created_at                TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_usage_ledger_execution_run
+        ON runtime_usage_ledger(execution_run_id, occurred_at DESC)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_usage_ledger_overseer_turn
+        ON runtime_usage_ledger(overseer_turn_id, occurred_at DESC)
+        WHERE overseer_turn_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_usage_ledger_company_time
+        ON runtime_usage_ledger(company_id, occurred_at DESC)
+        WHERE company_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS runtime_context_manifests (
+        id                   TEXT PRIMARY KEY,
+        idempotency_key      TEXT NOT NULL UNIQUE,
+        source_type          TEXT NOT NULL CHECK (source_type IN ('heartbeat_prompt','overseer_prompt','manual')),
+        company_id           TEXT REFERENCES companies(id) ON DELETE SET NULL,
+        agent_id             TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        task_id              TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        execution_run_id     TEXT REFERENCES execution_runs(id) ON DELETE CASCADE,
+        heartbeat_run_id     TEXT REFERENCES heartbeat_runs(id) ON DELETE SET NULL,
+        overseer_turn_id     TEXT REFERENCES overseer_turns(id) ON DELETE CASCADE,
+        provider             TEXT,
+        model                TEXT,
+        prompt_sha256        TEXT NOT NULL,
+        prompt_chars         INTEGER NOT NULL DEFAULT 0 CHECK (prompt_chars >= 0),
+        estimated_tokens     INTEGER NOT NULL DEFAULT 0 CHECK (estimated_tokens >= 0),
+        section_count        INTEGER NOT NULL DEFAULT 0 CHECK (section_count >= 0),
+        sections_json        TEXT NOT NULL DEFAULT '[]',
+        metadata_json        TEXT NOT NULL DEFAULT '{}',
+        created_at           TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_context_manifests_execution_run
+        ON runtime_context_manifests(execution_run_id, created_at DESC)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_context_manifests_overseer_turn
+        ON runtime_context_manifests(overseer_turn_id, created_at DESC)
+        WHERE overseer_turn_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_runtime_context_manifests_company_time
+        ON runtime_context_manifests(company_id, created_at DESC)
+        WHERE company_id IS NOT NULL;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

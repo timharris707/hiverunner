@@ -223,6 +223,21 @@ async function run() {
         .all(task.id) as Array<{ event_type: string }>;
       assert.deepStrictEqual(attemptEvents.map((event) => event.event_type), ["created", "completed"]);
 
+      const manifest = db
+        .prepare(
+          `SELECT source_type, prompt_chars, estimated_tokens, prompt_sha256
+           FROM runtime_context_manifests
+           WHERE heartbeat_run_id = ?
+           LIMIT 1`,
+        )
+        .get(wake.heartbeatRunId) as
+        | { source_type: string; prompt_chars: number; estimated_tokens: number; prompt_sha256: string }
+        | undefined;
+      assert.strictEqual(manifest?.source_type, "heartbeat_prompt");
+      assert.ok((manifest?.prompt_chars ?? 0) > 0);
+      assert.ok((manifest?.estimated_tokens ?? 0) > 0);
+      assert.strictEqual(manifest?.prompt_sha256.length, 64);
+
       const updatedTask = getTask(task.id).task;
       assert.strictEqual(updatedTask.executionMode, "openclaw");
       assert.strictEqual(updatedTask.status, "review");
