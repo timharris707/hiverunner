@@ -3,7 +3,7 @@
 import { use, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Archive, Plus, Trash2, X } from "lucide-react";
+import { Archive, FileText, Plus, Trash2, X } from "lucide-react";
 import { DateWindowChip } from "@/components/goals/DateWindowChip";
 import { GoalProgressBar, GoalStatusPill } from "@/components/goals/GoalPrimitives";
 import { SprintGroupedList } from "@/components/goals/SprintGroupedList";
@@ -13,6 +13,7 @@ import { TaskRow as TaskRowComponent } from "@/components/tasks/TaskRow";
 import { type InlineEditCallbacks, type TaskRow as TaskRowT, getActiveRunLabel } from "@/components/tasks/types";
 import { ScopedActiveCrewPanel } from "@/components/team/ScopedActiveCrewPanel";
 import { TemplateLaunchDialog, type CreatedTemplateDraft } from "@/components/templates/TemplateLaunchDialog";
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
 import {
   createGoalContractItem,
   createSprintPlanningTask,
@@ -32,7 +33,7 @@ import {
 } from "@/lib/orchestration/client";
 import { determineGoalKind } from "@/lib/orchestration/goal-kind";
 import { groupBySprint, type GroupableItem } from "@/lib/orchestration/groupBySprint";
-import { buildCanonicalCompanyPath, buildCanonicalGoalPath, goalRouteKey } from "@/lib/orchestration/route-paths";
+import { buildCanonicalCompanyPath, buildCanonicalGoalPath, buildCanonicalImprovePath, goalRouteKey } from "@/lib/orchestration/route-paths";
 import { useEventStream, type StreamEvent } from "@/lib/orchestration/use-event-stream";
 import type {
   OrchestrationAgent,
@@ -249,6 +250,105 @@ function toTaskRow(
     companyGoalStatus: task.companyGoalStatus ?? parentGoal?.sprint.status,
     updatedAt: task.updated,
   };
+}
+
+function hasRunIntelligenceRollup(goal: OrchestrationCompanyGoal): boolean {
+  const rollup = goal.runIntelligence;
+  return Boolean(
+    rollup &&
+    (
+      rollup.evalCaseCount > 0 ||
+      rollup.experimentReportCount > 0 ||
+      rollup.acceptedExperimentReportCount > 0 ||
+      rollup.acceptedImproveHandoffCount > 0
+    ),
+  );
+}
+
+function RunIntelligenceRollup({
+  goal,
+  goalKind,
+  companyCode,
+}: {
+  goal: OrchestrationCompanyGoal;
+  goalKind: "company" | "sprint";
+  companyCode: string;
+}) {
+  if (!hasRunIntelligenceRollup(goal)) return null;
+
+  const rollup = goal.runIntelligence!;
+  const improveHref = buildCanonicalImprovePath(companyCode, {
+    surface: goalKind === "sprint" ? "sprint" : "goal",
+    goalId: goal.sprint.id,
+    key: goalRouteKey(goal.sprint),
+  });
+  const stats = [
+    { label: "Eval cases", value: rollup.evalCaseCount },
+    { label: "Experiment reports", value: rollup.experimentReportCount },
+    { label: "Accepted reports", value: rollup.acceptedExperimentReportCount },
+    { label: "Improve handoffs", value: rollup.acceptedImproveHandoffCount },
+  ];
+
+  return (
+    <section
+      aria-label="Run Intelligence rollup"
+      style={{
+        marginTop: 10,
+        borderRadius: 8,
+        border: "0.5px solid rgba(245,158,11,0.22)",
+        background: "rgba(245,158,11,0.055)",
+        padding: 14,
+        display: "grid",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+          <FileText size={14} style={{ color: "#f59e0b", flex: "0 0 auto" }} />
+          <span style={{ color: P.text, fontSize: 13, fontWeight: 700 }}>Run Intelligence</span>
+        </div>
+        {rollup.acceptedImproveHandoffCount > 0 ? (
+          <Link
+            href={improveHref}
+            style={{
+              color: "#f59e0b",
+              fontSize: 11,
+              fontWeight: 700,
+              textDecoration: "none",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Open Improve
+          </Link>
+        ) : null}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {stats.map((stat) => (
+          <span
+            key={stat.label}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              minHeight: 24,
+              borderRadius: 999,
+              border: `0.5px solid ${stat.value > 0 ? "rgba(245,158,11,0.28)" : P.cardBorder}`,
+              background: stat.value > 0 ? "rgba(245,158,11,0.08)" : "rgba(255,255,255,0.03)",
+              color: stat.value > 0 ? P.text : P.textMuted,
+              padding: "2px 9px",
+              fontSize: 11,
+              fontWeight: 650,
+            }}
+          >
+            <span>{stat.label}</span>
+            <span style={{ color: stat.value > 0 ? "#f59e0b" : P.textMuted, fontVariantNumeric: "tabular-nums" }}>
+              {stat.value}
+            </span>
+          </span>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export default function GoalDetailPage({
@@ -822,6 +922,26 @@ export default function GoalDetailPage({
           projectLabel={goalScopeLabel(goal)}
           onSave={(patch) => patchGoal(goal.sprint.id, patch)}
         />
+
+        <div style={{ marginTop: 16, maxWidth: 980 }}>
+          <ContextualRecommendationRollup
+            surface={goalKind === "sprint" ? "sprint" : "goal"}
+            contextLabel={goalKind === "sprint" ? `${goal.sprint.name} sprint` : `${goal.sprint.name} goal`}
+            improveHref={buildCanonicalImprovePath(companyCode, {
+              surface: goalKind === "sprint" ? "sprint" : "goal",
+              goalId: goal.sprint.id,
+              key: goalRouteKey(goal.sprint),
+            })}
+            companyKey={companyCode}
+            contextIds={{
+              sourceType: goalKind === "sprint" ? "sprint" : "goal",
+              goalId: goal.sprint.id,
+              sprintId: goalKind === "sprint" ? goal.sprint.id : undefined,
+              key: goalRouteKey(goal.sprint),
+            }}
+            counts={emptyContextualRecommendationCounts()}
+          />
+        </div>
 
         {error ? (
           <div role="status" style={{ marginTop: 14, color: "#ef4444", fontSize: 12 }}>{error}</div>

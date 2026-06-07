@@ -122,7 +122,7 @@ async function run() {
     assert.strictEqual(snap.lastEventAgeMs, 5_000);
   });
 
-  await test("verified-alive runner past stall threshold is held at quiet, not stalled", () => {
+  await test("verified-alive runner past stall threshold is stalled, not quietly trusted", () => {
     const snap = deriveRunLiveness({
       status: "running",
       startedAt: iso(0),
@@ -131,7 +131,7 @@ async function run() {
       runnerPidAlive: true,
       now: T0 + 10 * 60_000,
     });
-    assert.strictEqual(snap.liveness, "quiet");
+    assert.strictEqual(snap.liveness, "stalled");
     assert.match(snap.label, /runner alive/);
     assert.match(snap.label, /pid 99999/);
   });

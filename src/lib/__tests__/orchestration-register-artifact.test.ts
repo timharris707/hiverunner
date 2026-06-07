@@ -22,7 +22,6 @@ import { randomUUID } from "node:crypto";
 import {
   DEFAULT_ORCHESTRATION_COMPANY_ID,
   createBasicFixtureTask,
-  createFixtureAgent,
   createFixtureProject,
 } from "@/lib/__tests__/helpers/orchestration-create-task-fixtures";
 
@@ -51,7 +50,7 @@ async function run() {
   try {
     if (dbPath) rmSync(dbPath, { force: true });
 
-    const { createProject, createProjectAgent, createTask } =
+    const { createProject, createTask } =
       await import("@/lib/orchestration/service");
     const { getOrchestrationDb } = await import("@/lib/orchestration/db");
     const engineMod = await import("@/lib/orchestration/engine/engine");
@@ -80,6 +79,42 @@ async function run() {
       };
     };
 
+    function createArtifactFixtureAgent(project: { id: string; companyId: string }, label: string) {
+      const agentId = randomUUID();
+      const suffix = agentId.slice(0, 8);
+      const slug = `artifact-builder-${label}-${suffix}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const now = new Date().toISOString();
+      const name = `Builder-${label}-${suffix}`;
+      db.prepare(
+        `INSERT INTO agents
+          (id, company_id, project_id, name, slug, runtime_slug, emoji, role, personality,
+           status, adapter_type, skills_json, created_at, updated_at)
+         VALUES
+          (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        agentId,
+        project.companyId,
+        project.id,
+        name,
+        slug,
+        slug,
+        "🔧",
+        "Builder",
+        "Deterministic",
+        "idle",
+        "codex",
+        JSON.stringify(["build"]),
+        now,
+        now
+      );
+      db.prepare(
+        `INSERT INTO agent_runtime_state
+          (agent_id, company_id, adapter_type, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`
+      ).run(agentId, project.companyId, "codex", now, now);
+      return { id: agentId, name };
+    }
+
     function makeFixture(label: string) {
       const project = createFixtureProject(createProject, {
         companyId,
@@ -89,15 +124,7 @@ async function run() {
         color: "#8b5cf6",
         emoji: "📦",
       });
-      const agent = createFixtureAgent(createProjectAgent, {
-        projectId: project.id,
-        label,
-        namePrefix: "Builder",
-        openclawPrefix: "builder",
-        emoji: "🔧",
-        role: "Builder",
-        skills: ["build"],
-      });
+      const agent = createArtifactFixtureAgent(project, label);
       const task = createBasicFixtureTask(createTask, {
         projectId: project.id,
         title: `Artifact fixture ${label}`,

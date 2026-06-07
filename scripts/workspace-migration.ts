@@ -34,7 +34,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const command = (firstArg ?? "dry-run") as Command;
   if (!["inventory", "dry-run", "snapshot", "verify"].includes(command)) {
     throw new Error(
-      "Usage: npx tsx scripts/workspace-migration.ts <inventory|dry-run|snapshot|verify> [--format text|json|markdown] [--output <path>] [--write] [--copy-workspaces] [--include-orphaned-directories]",
+      "Usage: node ./scripts/run-tsx.mjs scripts/workspace-migration.ts <inventory|dry-run|snapshot|verify> [--format text|json|markdown] [--output <path>] [--write] [--copy-workspaces] [--include-orphaned-directories]",
     );
   }
 

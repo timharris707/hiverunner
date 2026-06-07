@@ -36,6 +36,16 @@ import {
 } from "./shared";
 import { createTaskComment } from "./comment";
 
+const CREATE_PROJECT_AGENT_ADAPTER_TYPES = new Set([
+  "manual",
+  "codex",
+  "anthropic",
+  "hermes",
+  "gemini",
+  "symphony",
+  "openclaw",
+]);
+
 type AgentProfileTask = {
   id: string;
   key?: string | null;
@@ -1484,6 +1494,7 @@ export function createProjectAgent(input: {
   personality: string;
   avatarUrl?: string;
   model?: string;
+  adapterType?: string;
   openclawAgentId?: string;
   reportingTo?: string;
   avatarStyleId?: string;
@@ -1558,9 +1569,36 @@ export function createProjectAgent(input: {
   const agentId = randomUUID();
   const avatarUrl = input.avatarUrl?.trim() || null;
   const agentSymbol = normalizeAgentSymbol(input.emoji, input.role);
-  const adapterType = input.openclawAgentId
-    ? "openclaw"
-    : "manual";
+  const rawAdapterType = input.adapterType?.trim()
+    ? input.adapterType.trim()
+    : input.openclawAgentId
+      ? "openclaw"
+      : "manual";
+  const adapterType = normalizeAgentAdapterType({
+    adapterType: rawAdapterType,
+    openclawAgentId: input.openclawAgentId,
+  });
+  if (!CREATE_PROJECT_AGENT_ADAPTER_TYPES.has(adapterType)) {
+    throw new OrchestrationApiError(
+      400,
+      "invalid_adapter_type",
+      "adapterType must be manual, codex, anthropic, hermes, gemini, symphony, or openclaw"
+    );
+  }
+  if (rawAdapterType.toLowerCase() === "openclaw" && !input.openclawAgentId) {
+    throw new OrchestrationApiError(
+      400,
+      "openclaw_agent_id_required",
+      "openclawAgentId is required when adapterType is openclaw"
+    );
+  }
+  if (input.openclawAgentId && adapterType !== "openclaw") {
+    throw new OrchestrationApiError(
+      400,
+      "openclaw_agent_id_adapter_mismatch",
+      "openclawAgentId can only be used with adapterType openclaw"
+    );
+  }
   const companyId = project.company_id;
   const agentSlug = input.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   const runtimeSlug = ensureUniqueAgentRuntimeSlug(db, companyId, input.name);

@@ -14,6 +14,9 @@ implementation records and compatibility references.
   degraded runtime states.
 - [Runtime isolation](runtime-isolation.md) — Docker and Node permission entry
   points for defense in depth.
+- [HiveRunner local MCP server](hiverunner-mcp-local.md) — operator guide for
+  starting the local MCP server, connecting a client, and checking governed
+  Run Intelligence resources/tools.
 - [Repository feedback forms](../.github/feedback-intake.md) — GitHub issue
   intake, labels, and prefilled links for bugs, feature requests, and first-run
   feedback.
@@ -38,6 +41,7 @@ implementation records and compatibility references.
 
 ## Architecture And Runtime References
 
+- [Run Intelligence](run-intelligence.md)
 - [Orchestration schema](orchestration-schema.md)
 - [Orchestration engine decomposition](orchestration-engine-decomposition.md)
 - [External runner contract](hiverunner-external-runner-contract.md)

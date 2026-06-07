@@ -188,7 +188,6 @@ export const createTaskComment = withServiceContext("comment.createTaskComment",
 
 export const listActivityFeed = withServiceContext("activity.listActivityFeed", listActivityFeedRaw);
 export const listStaleTaskAlerts = withServiceContext("activity.listStaleTaskAlerts", listStaleTaskAlertsRaw);
-
 export const ensureCompanyExecutionHives = withServiceContext(
   "executionHives.ensureCompanyExecutionHives",
   ensureCompanyExecutionHivesRaw,

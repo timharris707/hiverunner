@@ -5,8 +5,8 @@ import {
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 
 const RUN_TRACE_VIEW_MODEL_SCHEMA = "hiverunner.run_trace_view.v1" as const;
-const RUN_TRACE_REDACTED_EXPORT_SCHEMA = "hiverunner.run_trace_redacted_export.v1" as const;
-const RUN_TRACE_REDACTION_POLICY = "hiverunner.run_trace_redaction.v1" as const;
+export const RUN_TRACE_REDACTED_EXPORT_SCHEMA = "hiverunner.run_trace_redacted_export.v1" as const;
+export const RUN_TRACE_REDACTION_POLICY = "hiverunner.run_trace_redaction.v1" as const;
 const RUN_TRACE_ANNOTATION_SNAPSHOT_SCHEMA = "hiverunner.run_trace_annotations.v1" as const;
 const RUN_TRACE_ANNOTATION_DEFERRAL_REASON =
   "Trace annotations are deferred for Run Trace v1 because the Sprint 1 gate did not confirm a clean run-scoped persistence/API path, and existing marker systems are voice-session or task-comment scoped rather than execution-run evidence markers.";
@@ -1138,4 +1138,58 @@ function isSensitiveFieldName(fieldName: string): boolean {
   if (envLike) return true;
 
   return /(?:password|passphrase|apiKey|authToken|accessToken|refreshToken|clientSecret|privateKey|credential|credentials|authorization|bearerToken|secret)$/i.test(fieldName);
+}
+
+/**
+ * Structure-preserving redaction for any Run Trace–derived payload — the view
+ * model, an eval snapshot, or an MCP resource body. This is the single source of
+ * truth so every export path shares the same redaction categories, patterns, and
+ * summary shape as {@link buildRedactedRunTraceExport}. Object keys, arrays, and
+ * evidence-gap labels are preserved; only sensitive scalar values or substrings
+ * are replaced, and the returned summary carries per-category counts.
+ */
+export function redactRunTracePayload<T>(value: T): {
+  value: T;
+  redaction: RunTraceRedactionSummary;
+} {
+  const redactor = new RunTraceRedactor();
+  const redacted = redactStructuredValue(value, "$", redactor) as T;
+  return { value: redacted, redaction: redactor.summary() };
+}
+
+// Non-global probe copies of the redactor's own credential patterns. Used as a
+// defense-in-depth parity guard (test mode) by callers that must prove a payload
+// is free of secret-pattern fixtures *after* redaction. Built from the same
+// API_KEY_PATTERNS the redactor replaces, so the guard can never drift weaker
+// than the redactor that produced the payload.
+function credentialLeakProbePatterns(): RegExp[] {
+  return [
+    /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+    /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}\b/i,
+    ...API_KEY_PATTERNS.map((pattern) => new RegExp(pattern.source, pattern.flags.replace("g", ""))),
+  ];
+}
+
+/**
+ * Returns the first credential-like pattern that still matches `serialized`, or
+ * null when the payload is clean. Shared by eval snapshot validation and MCP
+ * resource reads so they enforce the identical secret-fixture bar as the Run
+ * Trace redactor.
+ */
+export function findRunTraceCredentialLeak(serialized: string): string | null {
+  for (const pattern of credentialLeakProbePatterns()) {
+    if (pattern.test(serialized)) return pattern.source;
+  }
+  return null;
+}
+
+/**
+ * Throws when `payload` still contains a credential-like value after redaction.
+ * Accepts an already-serialized string or any JSON-serializable value.
+ */
+export function assertNoRunTraceCredentialLeak(payload: unknown, label = "Run Trace payload"): void {
+  const serialized = typeof payload === "string" ? payload : JSON.stringify(payload);
+  if (findRunTraceCredentialLeak(serialized)) {
+    throw new Error(`${label} contains an unredacted credential-like value`);
+  }
 }

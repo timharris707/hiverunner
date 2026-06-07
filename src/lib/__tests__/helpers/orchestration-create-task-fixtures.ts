@@ -34,7 +34,8 @@ type CreateProjectAgentFn = (input: {
   emoji: string;
   role: string;
   personality: string;
-  openclawAgentId: string;
+  adapterType?: string;
+  openclawAgentId?: string;
   status: string;
   skills: string[];
 }) => { agent: AgentFixture };
@@ -100,7 +101,9 @@ export function createFixtureAgent(
     projectId: string;
     label?: string;
     namePrefix: string;
-    openclawPrefix: string;
+    adapterType?: string;
+    openclawPrefix?: string;
+    openclawAgentId?: string;
     emoji: string;
     role: string;
     skills: string[];
@@ -108,13 +111,20 @@ export function createFixtureAgent(
   },
 ): AgentFixture {
   const labelPart = options.label ? `${options.label}-` : "";
+  const adapterType = options.adapterType ?? "codex";
+  const openclawAgentId = options.openclawAgentId ?? (
+    adapterType === "openclaw" && options.openclawPrefix
+      ? `${options.openclawPrefix}-${labelPart}${suffix(6)}`
+      : undefined
+  );
   return createProjectAgent({
     projectId: options.projectId,
     name: `${options.namePrefix}-${labelPart}${suffix(2)}`,
     emoji: options.emoji,
     role: options.role,
     personality: "Deterministic",
-    openclawAgentId: `${options.openclawPrefix}-${labelPart}${suffix(6)}`,
+    adapterType,
+    ...(openclawAgentId ? { openclawAgentId } : {}),
     status: options.status ?? "idle",
     skills: options.skills,
   }).agent;

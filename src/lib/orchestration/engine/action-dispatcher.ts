@@ -14,6 +14,7 @@ import { reconcileTaskHierarchy, refreshAgentLoad, resolveTaskExecutionEngine, r
 import { sanitizeAgentCommentLinks } from "@/lib/orchestration/comment-link-verification";
 import { submitCompanyReviewDecision } from "@/lib/orchestration/review-decision";
 import { createGoalCompletionProposal, createSprintPlanDrafts, recordGoalContractEvidence } from "@/lib/orchestration/company-service";
+import { captureBrowserProof, type CaptureBrowserProofAction } from "@/lib/orchestration/browser-proof";
 import { maybeAutoCompleteSprintForTaskDone } from "@/lib/orchestration/service/task";
 import { recordExplicitSkillUse } from "@/lib/orchestration/skill-effectiveness";
 import { linkTemplateGeneratedExecutionRun } from "@/lib/orchestration/template-persistence";
@@ -158,6 +159,7 @@ export type McAction =
   // recommended; G2's no-op resubmission detection uses it to compare the
   // artifact across rework cycles.
   | { action: "register_artifact"; taskKey: string; uri: string; kind?: string; sha256?: string }
+  | ({ action: "capture_browser_proof" } & CaptureBrowserProofAction)
   | {
       action: "propose_sprint_plan";
       companyGoalId: string;
@@ -507,6 +509,36 @@ export async function executeMcAction(
         return result.taskFound
           ? { kind: "registered_artifact" }
           : { kind: "failed", reason: "task_not_found" };
+      }
+      case "capture_browser_proof": {
+        const proof = await captureBrowserProof({
+          ...action,
+          runId: input.runId,
+        });
+        const result = executeRegisterArtifact(
+          {
+            action: "register_artifact",
+            taskKey: action.taskKey,
+            uri: proof.manifestUri,
+            kind: "file",
+            sha256: proof.manifestSha256,
+          },
+          input,
+          db,
+        );
+        if (!result.taskFound) return { kind: "failed", reason: "task_not_found" };
+        importCommentOnTask(
+          action.taskKey,
+          input.agentId,
+          proof.commentBody,
+          proof.ok ? "comment" : "status_update",
+          input.runId,
+          db,
+          input.source,
+        );
+        return proof.ok
+          ? { kind: "registered_artifact" }
+          : { kind: "failed", reason: `browser_proof_failed:${proof.exitCode}` };
       }
       case "propose_sprint_plan": {
         const planningTask = getTaskRefForActionKey(db, input.taskKey);
@@ -934,6 +966,7 @@ const VALID_ACTION_TYPES = new Set([
   "memory_receipt",
   "review_candidate",
   "register_artifact",
+  "capture_browser_proof",
   "propose_sprint_plan",
   "record_validation_evidence",
   "record_success_evidence",
@@ -977,6 +1010,7 @@ export function getActionTarget(action: McAction): string {
     case "memory_receipt": return action.taskKey ?? "";
     case "review_candidate": return `${action.targetType}:${action.targetId}`;
     case "register_artifact": return action.taskKey ?? "";
+    case "capture_browser_proof": return action.taskKey ?? "";
     case "propose_sprint_plan": return action.companyGoalId ?? "";
     case "mark_goal_complete": return action.companyGoalId ?? "";
     case "record_validation_evidence":
@@ -1012,6 +1046,8 @@ export function actionFingerprint(action: McAction): string {
       return `review_candidate:${action.targetType}:${action.targetId}:${action.decision}:${action.note?.slice(0, 30) ?? ""}`;
     case "register_artifact":
       return `register_artifact:${action.taskKey}:${action.uri}`;
+    case "capture_browser_proof":
+      return `capture_browser_proof:${action.taskKey}:${JSON.stringify(action.specs ?? [])}:${JSON.stringify(action.urls ?? []).slice(0, 160)}`;
     case "propose_sprint_plan":
       return `propose_sprint_plan:${action.companyGoalId}:${(action.sprints?.map((sprint) => `${sprint.sequenceNumber ?? ""}:${sprint.name}`).join("|") ?? action.sprint?.name ?? "").toLowerCase().trim()}`;
     case "mark_goal_complete":
@@ -1443,6 +1479,17 @@ function validateActionFields(parsed: Record<string, unknown>): string | null {
       if (!parsed.uri || typeof parsed.uri !== "string") return "register_artifact: 'uri' is required";
       if (parsed.kind !== undefined && typeof parsed.kind !== "string") return "register_artifact: 'kind' must be a string";
       if (parsed.sha256 !== undefined && typeof parsed.sha256 !== "string") return "register_artifact: 'sha256' must be a string";
+      break;
+    case "capture_browser_proof":
+      if (!parsed.taskKey || typeof parsed.taskKey !== "string") return "capture_browser_proof: 'taskKey' is required";
+      if (parsed.baseUrl !== undefined && typeof parsed.baseUrl !== "string") return "capture_browser_proof: 'baseUrl' must be a string";
+      if (parsed.project !== undefined && typeof parsed.project !== "string") return "capture_browser_proof: 'project' must be a string";
+      if (parsed.timeoutMs !== undefined && typeof parsed.timeoutMs !== "number") return "capture_browser_proof: 'timeoutMs' must be a number";
+      if (parsed.specs !== undefined && (!Array.isArray(parsed.specs) || parsed.specs.some((spec) => typeof spec !== "string"))) {
+        return "capture_browser_proof: 'specs' must be an array of strings";
+      }
+      if (parsed.urls !== undefined && !Array.isArray(parsed.urls)) return "capture_browser_proof: 'urls' must be an array";
+      if (parsed.specs === undefined && parsed.urls === undefined) return "capture_browser_proof: provide 'specs' or 'urls'";
       break;
     case "propose_sprint_plan": {
       if (!parsed.companyGoalId || typeof parsed.companyGoalId !== "string") return "propose_sprint_plan: 'companyGoalId' is required";

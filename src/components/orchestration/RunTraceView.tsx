@@ -25,9 +25,13 @@ import {
   X,
 } from "lucide-react";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
+import { ExperimentLaunchPanel } from "@/components/orchestration/ExperimentLaunchPanel";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import type { ProviderCapabilities } from "@/lib/orchestration/adapters/types";
+import { buildRunTraceExperimentLaunchModel } from "@/lib/orchestration/experiment-launch";
 import type { RunTraceRedactedExport, RunTraceViewModel } from "@/lib/orchestration/run-trace";
+import type { OrchestrationExperimentReportEvidence } from "@/lib/orchestration/types";
 import { CapabilityGrid, TierBadge } from "@/components/orchestration/ProviderPresentation";
 import { P as tokens } from "@/lib/ui/tokens";
 
@@ -308,6 +312,7 @@ export interface RunEventsResponse {
   trace?: RunTraceViewModel;
   traceExport?: RunTraceRedactedExport;
   evalCaseSuggestion?: EvalCaseSuggestion | null;
+  experimentReports?: OrchestrationExperimentReportEvidence[];
   provenance: { timeline: { label: string; note: string; sources: string[] }; runTable: string };
   provider: ProviderInfo;
 }
@@ -497,6 +502,7 @@ export type RunTraceViewProps = {
   routeKind?: RunTraceRouteKind;
   agentId?: string;
   taskKey?: string;
+  companyKey?: string | null;
   companyHref: (subpath: string) => string;
   isLive?: boolean;
   liveTimelineEvents?: TimelineEvent[];
@@ -511,6 +517,7 @@ export function RunTraceView({
   routeKind = "agent",
   agentId,
   taskKey,
+  companyKey,
   companyHref,
   isLive = false,
   liveTimelineEvents = EMPTY_TIMELINE_EVENTS,
@@ -551,7 +558,7 @@ export function RunTraceView({
     setTimeout(() => setCopiedField(null), 1500);
   }, []);
 
-  const { run, task, context, invocation, metrics, resolvedExecution, workspaceRunVisibility, providerExecution, skillEffectiveness, transcript, provider, provenance, trace, traceExport } = data;
+  const { run, task, context, invocation, metrics, resolvedExecution, workspaceRunVisibility, providerExecution, skillEffectiveness, transcript, provider, provenance, trace, traceExport, evalCaseSuggestion } = data;
   const activeAgentId = agentId ?? run.agentSlug ?? run.agentId;
   const activeTaskKey = taskKey ?? task?.key ?? context?.taskKey ?? null;
   const agentRunsHref = activeAgentId
@@ -599,6 +606,37 @@ export function RunTraceView({
   const transcriptCountLabel = `${transcript.provenance.totalEntries} entr${transcript.provenance.totalEntries !== 1 ? "ies" : "y"}`;
   const isOpenClawProvider = provider.id === "openclaw" || provider.id === "openclaw-heartbeat";
   const providerLabel = formatProviderDisplayName(provider.id, provider.displayName);
+  const experimentLaunchModel = useMemo(
+    () => buildRunTraceExperimentLaunchModel({
+      runId: run.id,
+      runStatus: run.status,
+      taskKey: activeTaskKey,
+      taskTitle: task?.title ?? null,
+      taskStatus: task?.status ?? null,
+      agentName: run.agentName,
+      providerLabel,
+      runnerModel: providerExecution.modelName ?? providerExecution.modelId,
+      captureQuality: trace?.captureQuality.label ?? null,
+      evidenceGapCount: trace?.evidenceGaps.length ?? null,
+      reviewOutcome: evalCaseSuggestion?.outcome ?? null,
+      reviewedAt: evalCaseSuggestion?.reviewedAt ?? null,
+    }),
+    [
+      activeTaskKey,
+      evalCaseSuggestion?.outcome,
+      evalCaseSuggestion?.reviewedAt,
+      providerExecution.modelId,
+      providerExecution.modelName,
+      providerLabel,
+      run.agentName,
+      run.id,
+      run.status,
+      task?.status,
+      task?.title,
+      trace?.captureQuality.label,
+      trace?.evidenceGaps.length,
+    ],
+  );
   const providerSignals = [
     { label: "Structured telemetry", value: providerExecution.structuredTelemetry },
     { label: "Live text observed", value: providerExecution.observedLiveText },
@@ -807,6 +845,20 @@ export function RunTraceView({
           </div>
         )}
       </div>
+
+      <ContextualRecommendationRollup
+        surface="run-trace"
+        improveHref={companyHref(`/improve?surface=run-trace&runId=${encodeURIComponent(run.id)}`)}
+        companyKey={companyKey}
+        contextIds={{ runId: run.id, taskKey: activeTaskKey, agentId: activeAgentId }}
+        counts={emptyContextualRecommendationCounts()}
+      />
+
+      <ExperimentLaunchPanel
+        model={experimentLaunchModel}
+        companyKey={companyKey}
+        defaultExpanded={experimentLaunchModel.availability.state === "available"}
+      />
 
       <RunTraceTimelineCard
         fullTimeline={fullTimeline}
@@ -1390,6 +1442,7 @@ function RunTraceEvidenceCard({
     provenance: data.provenance,
   };
   const evalSuggestion = data.evalCaseSuggestion ?? null;
+  const experimentReports = data.experimentReports ?? [];
 
   return (
     <div style={{
@@ -1465,6 +1518,10 @@ function RunTraceEvidenceCard({
             </div>
           )}
         </div>
+      )}
+
+      {experimentReports.length > 0 && (
+        <ExperimentReportEvidenceList reports={experimentReports} />
       )}
 
       {evalSuggestion && (
@@ -1981,6 +2038,69 @@ function EvalSuggestionSavedMessage({ saveState }: { saveState: EvalSuggestionSa
           {saveState.message}
         </Link>
       ) : saveState.message}
+    </div>
+  );
+}
+
+function ExperimentReportEvidenceList({ reports }: { reports: OrchestrationExperimentReportEvidence[] }) {
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: "9px 10px",
+      borderRadius: 6,
+      background: "rgba(245,158,11,0.055)",
+      border: "0.5px solid rgba(245,158,11,0.18)",
+      display: "grid",
+      gap: 8,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <FileText size={11} style={{ color: A.accentLight }} />
+        <span style={{ fontSize: 11, color: A.text, fontWeight: 650 }}>Experiment evidence</span>
+        <span style={{ fontSize: 9, color: A.muted, marginLeft: "auto" }}>
+          {reports.length} report{reports.length === 1 ? "" : "s"}
+        </span>
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {reports.map((report) => (
+          <a
+            key={report.id}
+            id={`experiment-report-${report.id}`}
+            href={report.href}
+            style={{
+              display: "grid",
+              gap: 3,
+              textDecoration: "none",
+              color: A.textSec,
+              minWidth: 0,
+            }}
+          >
+            <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0, flexWrap: "wrap" }}>
+              <span style={{ color: A.text, fontSize: 12, fontWeight: 650 }}>
+                {report.title}
+              </span>
+              <span style={{
+                borderRadius: 999,
+                border: "0.5px solid rgba(245,158,11,0.25)",
+                background: "rgba(245,158,11,0.08)",
+                color: A.accentLight,
+                fontSize: 9,
+                padding: "1px 6px",
+                fontWeight: 700,
+              }}>
+                {report.status}
+              </span>
+              {report.winningVariantName ? (
+                <span style={{ color: A.muted, fontSize: 10 }}>
+                  winner: {report.winningVariantName}
+                </span>
+              ) : null}
+            </span>
+            <span style={{ color: A.textSec, fontSize: 11, lineHeight: 1.4 }}>
+              {report.summary || report.objective}
+            </span>
+          </a>
+        ))}
+      </div>
     </div>
   );
 }

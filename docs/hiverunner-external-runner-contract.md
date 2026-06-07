@@ -225,7 +225,7 @@ Recommended optional JSON fields:
 | `usage` | object | Provider-specific usage metadata. Prefer also setting the common top-level token fields. |
 | `transcriptEvents` | array | Ordered transcript or timeline events. |
 | `rawProviderEvents` | array | Optional redacted raw provider event samples for diagnostics. Keep bounded. |
-| `traceCapabilities` | array | Capability names the runner expects to provide, such as `transcriptEvents`, `usage`, `artifacts`, `failureClass`, or `memoryReceipts`. |
+| `traceCapabilities` | array | Capability names the runner expects to provide, such as `transcriptEvents`, `usage`, `artifacts`, `failureClass`, `memoryReceipts`, or future `runnerMcpToolUsage`. |
 | `failureClass` | string | Optional coarse failure category, such as `provider_error`, `timeout`, `cancelled`, `missing_tool`, or `contract_error`. |
 | `cancellationReason` | string | Safe explanation when `status` is `cancelled`. |
 | `memoryReceipts` | array | Optional memory evidence references. Prefer the `memory_receipt` `mc-action` for durable reporting. |
@@ -243,12 +243,12 @@ incrementally; they do not need to implement the full table.
   "kind": "tool_call_start",
   "title": "Shell",
   "body": "rg --files src/lib/orchestration",
-  "timestamp": "2026-06-06T22:40:00.000Z",
+  "occurredAt": "2026-06-06T22:40:00.000Z",
   "metadata": { "tool": "shell" }
 }
 ```
 
-Required fields for portable events are `kind`, `title`, and `body`. `role`, `timestamp`, and
+Required fields for portable events are `kind`, `title`, and `body`. `role`, `occurredAt`, and
 `metadata` are optional. Use stable `kind` values when possible:
 
 - `message`
@@ -257,6 +257,7 @@ Required fields for portable events are `kind`, `title`, and `body`. `role`, `ti
 - `assistant_text_final`
 - `thinking_summary`
 - `tool_call_start`
+- `tool_call_end`
 - `tool_result`
 - `usage_update`
 - `artifact`
@@ -267,6 +268,137 @@ Required fields for portable events are `kind`, `title`, and `body`. `role`, `ti
 
 Provider-specific event names are accepted, but the Run Trace UI may normalize them into the common
 taxonomy.
+
+### Future Runner MCP Usage Reporting Boundary
+
+HiveRunner MCP Server v1 exposes HiveRunner resources and governed HiveRunner tools to MCP clients.
+It does **not** make Codex, Claude, Gemini, HERMES, OpenClaw, Symphony wrappers, or custom runners
+into MCP clients, and it does not proxy calls to external MCP servers. Runner-side MCP tool
+consumption is a later slice with separate governance for provider configuration, credentials,
+filesystem/network access, and approval routing.
+
+Future runner-as-client implementations may report MCP tool usage into Run Trace through the same
+`transcriptEvents` lane used for other structured tool calls. That reporting is evidence only: it
+must describe what the runner did; it must not imply that the HiveRunner MCP Server executed,
+approved, relayed, or audited the external MCP call.
+
+Reporting rules for future runner-consumed MCP tools:
+
+- Use normalized Run Trace event kinds (`tool_call_start`, `tool_call_end`, `tool_result`, and
+  `usage_update` when useful). Do not add raw MCP protocol messages to `rawProviderEvents`.
+- Keep event bodies operator-facing and bounded. Summarize the intent/result rather than storing raw
+  MCP request arguments, tool outputs, file contents, prompts, or provider transcripts.
+- Metadata may include safe identifiers such as `toolSystem: "mcp"`, `mcpServer`, `mcpTool`,
+  `toolCallId`, `approvalMode`, `durationMs`, `success`, and coarse `resultSummary`.
+- Metadata and bodies must never include API keys, OAuth tokens, bearer headers, connection strings,
+  secret env vars, private key material, cookie/session data, or credential-bearing MCP payloads.
+- If a future MCP tool call requires approval, report the approval state or approval id only. The
+  approval decision remains governed by HiveRunner's existing approval path, not by the trace event.
+
+Example normalized trace events only:
+
+```json
+[
+  {
+    "role": "assistant",
+    "kind": "tool_call_start",
+    "title": "MCP tool started",
+    "body": "Searched project documentation through an approved local docs tool.",
+    "occurredAt": "2026-06-07T16:20:00.000Z",
+    "metadata": {
+      "toolSystem": "mcp",
+      "mcpServer": "local-docs",
+      "mcpTool": "search",
+      "toolCallId": "mcp-call-1",
+      "approvalMode": "preapproved_read"
+    }
+  },
+  {
+    "role": "tool",
+    "kind": "tool_call_end",
+    "title": "MCP tool finished",
+    "body": "The local docs search completed successfully.",
+    "occurredAt": "2026-06-07T16:20:01.250Z",
+    "metadata": {
+      "toolSystem": "mcp",
+      "mcpServer": "local-docs",
+      "mcpTool": "search",
+      "toolCallId": "mcp-call-1",
+      "durationMs": 1250,
+      "success": true
+    }
+  },
+  {
+    "role": "tool",
+    "kind": "tool_result",
+    "title": "MCP tool result",
+    "body": "Returned three documentation matches; no raw document text stored in the trace event.",
+    "occurredAt": "2026-06-07T16:20:01.260Z",
+    "metadata": {
+      "toolSystem": "mcp",
+      "mcpServer": "local-docs",
+      "mcpTool": "search",
+      "toolCallId": "mcp-call-1",
+      "resultSummary": "3 matches"
+    }
+  }
+]
+```
+
+### Improvement Experiment Runner Boundary
+
+Improvement Experiments are orchestrated by HiveRunner as controlled comparison
+runs. They are not a new runner API and they do not change the one-task
+stdin/stdout contract by default. A runner still receives a bounded task prompt
+and workspace cwd, performs that task, and returns safe result evidence plus any
+`mc-action` blocks.
+
+When a task is an experiment attempt, runner authors should treat the handoff as
+a governed comparison attempt with an explicit source, objective, workspace
+mode, variant, and hard limits:
+
+- `source`: a reviewed Run Trace or Eval Case. Eval Case is preferred because it
+  is immutable reviewed evidence.
+- `objective`: the one thing the operator is trying to improve, such as cost,
+  runtime, acceptance rate, evidence quality, or fewer tool failures.
+- `workspaceMode`: `snapshot`, `branch`, or `live`.
+- `limits`: approved attempt count, wall-clock, cost/token budget, allowed
+  verification commands, and cancellation rules.
+- `variant`: the approved runner/model/agent/prompt/tool/decomposition/template
+  change being compared.
+
+Runner output is evidence for HiveRunner's comparison report. It is not an
+instruction to mutate production state. Even when a variant appears better, the
+runner must not change agent defaults, template defaults, source eval cases,
+review outcomes, task status beyond the assigned task contract, stable release
+state, or production workspace state unless the handoff explicitly authorizes
+that mutation.
+
+Workspace mode rules for runners:
+
+- `snapshot` means operate only inside the copied workspace state supplied in
+  `workspace.cwd`.
+- `branch` means operate only inside the isolated branch/worktree supplied in
+  `workspace.cwd`; leave promotion or merge decisions to HiveRunner governance.
+- `live` means active workspace execution was explicitly selected by the
+  operator. Treat it as governed high-risk execution, obey the exact limits, and
+  make any real mutation visible in the final report.
+
+Experiment reports remain HiveRunner-owned evidence attachments. Runners should
+return enough bounded evidence for the report: attempt status, changed files or
+artifacts, verification result, duration, token/cost data when available,
+failure/cancellation reason, and redaction-safe notes about evidence gaps.
+
+MCP boundary for experiment runners:
+
+- An Improvement Experiment does not authorize the runner to discover, consume,
+  or proxy arbitrary external MCP tools.
+- The HiveRunner MCP Server exposing resources and governed tools is separate
+  from runner-side MCP consumption.
+- If a future governed runner-as-client slice allows an MCP tool call, report it
+  as safe Run Trace evidence only. Do not put raw MCP requests, responses,
+  credentials, file contents, provider transcripts, or auth headers in
+  `transcriptEvents` or `rawProviderEvents`.
 
 ### Capture Quality And Missing Data
 

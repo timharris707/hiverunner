@@ -286,6 +286,59 @@ export interface OrchestrationTaskRunSummary {
 
 export type OrchestrationEvalReviewOutcome = "accepted" | "returned" | "rejected" | "blocked";
 
+export type OrchestrationExperimentReportStatus =
+  | "draft"
+  | "generated"
+  | "accepted"
+  | "returned"
+  | "superseded"
+  | "archived";
+
+export interface OrchestrationExperimentReportLink {
+  type: "run_trace" | "eval_case" | "task" | "goal" | "sprint" | "improve";
+  id: string;
+  label: string;
+  href: string;
+}
+
+export interface OrchestrationExperimentReportEvidence {
+  id: string;
+  experimentId: string;
+  companyId: string;
+  status: OrchestrationExperimentReportStatus;
+  title: string;
+  summary: string;
+  objective: string;
+  sourceKind: "run_trace" | "eval_case" | "mixed";
+  sourceRunId: string | null;
+  sourceEvalCaseId: string | null;
+  sourceTaskId: string | null;
+  sourceTaskKey: string | null;
+  sourceTaskTitle: string | null;
+  sprintId: string | null;
+  sprintKey: string | null;
+  goalKey: string | null;
+  winningVariantId: string | null;
+  winningVariantKey: string | null;
+  winningVariantName: string | null;
+  recommendationId: string | null;
+  reportSha256: string | null;
+  createdAt: string;
+  updatedAt: string;
+  href: string;
+  links: OrchestrationExperimentReportLink[];
+  redactionPolicy: string;
+  redactionSummary?: Record<string, unknown>;
+  redactedPayload?: Record<string, unknown>;
+}
+
+export interface OrchestrationRunIntelligenceRollup {
+  evalCaseCount: number;
+  experimentReportCount: number;
+  acceptedExperimentReportCount: number;
+  acceptedImproveHandoffCount: number;
+}
+
 export interface OrchestrationEvalCase {
   id: string;
   companyId: string;
@@ -341,6 +394,7 @@ export interface OrchestrationEvalCase {
   createdByAgentId: string | null;
   createdByUserId: string | null;
   createdAt: string;
+  experimentReports?: OrchestrationExperimentReportEvidence[];
 }
 
 export interface OrchestrationEvalLibraryFacet {
@@ -381,6 +435,257 @@ export interface OrchestrationEvalLibraryResult {
   total: number;
   filters: OrchestrationEvalLibraryFilters;
   facets: OrchestrationEvalLibraryFacets;
+}
+
+export type OrchestrationImprovementTriggerKey =
+  | "severe_single_failure"
+  | "repeated_review_return"
+  | "missing_capability"
+  | "missing_tool_runtime"
+  | "template_drift"
+  | "runner_mismatch"
+  | "reviewer_request";
+
+export type OrchestrationImprovementScopeType = "company" | "project" | "template" | "task_type" | "agent" | "runner" | "recommendation";
+export type OrchestrationImprovementSeverity = "low" | "medium" | "high" | "critical";
+export type OrchestrationImprovementConfidence = "low" | "medium" | "high";
+export type OrchestrationImprovementRecommendationStatus =
+  | "suggested"
+  | "needs-more-evidence"
+  | "accepted-for-approval"
+  | "dismissed"
+  | "superseded"
+  | "applied";
+export type OrchestrationImprovementDismissalReason = "not_now" | "wrong_diagnosis" | "too_risky" | "already_fixed" | "not_worth_it";
+export type OrchestrationImprovementSuppressionReason =
+  | OrchestrationImprovementDismissalReason
+  | "duplicate"
+  | "operator_suppressed";
+export type OrchestrationImprovementTriggerFiringStatus = "created_recommendation" | "suppressed" | "skipped" | "needs_more_evidence";
+
+export type ImprovementRecommendationStatus = OrchestrationImprovementRecommendationStatus;
+export type ImprovementRecommendationSeverity = OrchestrationImprovementSeverity;
+export type ImprovementRecommendationConfidence = OrchestrationImprovementConfidence;
+export type ImprovementRecommendationScopeType = OrchestrationImprovementScopeType;
+export type ImprovementRecommendationSourceType =
+  | "trace"
+  | "eval"
+  | "experiment_report"
+  | "template"
+  | "team"
+  | "task"
+  | "sprint"
+  | "goal"
+  | "review"
+  | "manual";
+
+export interface OrchestrationImprovementSourceLink {
+  type: Exclude<ImprovementRecommendationSourceType, "review" | "manual"> | "approval";
+  id: string;
+  label: string;
+  href: string;
+}
+
+export interface OrchestrationImprovementEvidenceSummary {
+  id: string;
+  sourceType: ImprovementRecommendationSourceType;
+  sourceId: string | null;
+  title: string;
+  summary: string;
+  occurredAt: string | null;
+  missingReason: string | null;
+  redactionPolicy: string;
+  links: OrchestrationImprovementSourceLink[];
+  metadata: Record<string, unknown>;
+}
+
+export interface OrchestrationImprovementEvidenceSet {
+  state: "present" | "missing";
+  summaries: OrchestrationImprovementEvidenceSummary[];
+}
+
+export interface OrchestrationImprovementRecommendationGroup {
+  key: string;
+  label: string;
+  count: number;
+  recommendationIds: string[];
+}
+
+export interface OrchestrationImprovementRecommendationFilters {
+  status?: ImprovementRecommendationStatus[];
+  severity?: ImprovementRecommendationSeverity[];
+  confidence?: ImprovementRecommendationConfidence[];
+  sourceType?: ImprovementRecommendationSourceType[];
+  triggerKey?: string;
+  category?: string;
+  scopeType?: ImprovementRecommendationScopeType;
+  scopeKey?: string;
+  projectId?: string;
+  agentId?: string;
+  search?: string;
+  evidenceState?: "present" | "missing";
+  includeSuppressed?: boolean;
+  groupBy?: "status" | "severity" | "confidence" | "category" | "trigger" | "scope" | "source";
+  limit?: number;
+}
+
+export interface OrchestrationImprovementScope {
+  type: OrchestrationImprovementScopeType;
+  key: string;
+}
+
+export interface OrchestrationImprovementCompanyControl {
+  companyId: string;
+  automationPaused: boolean;
+  pausedReason: string | null;
+  pausedAt: string | null;
+  updatedAt: string;
+}
+
+export interface OrchestrationImprovementTriggerFiring {
+  id: string;
+  companyId: string;
+  triggerKey: OrchestrationImprovementTriggerKey;
+  scope: OrchestrationImprovementScope;
+  status: OrchestrationImprovementTriggerFiringStatus;
+  decisionReason: string;
+  evidence: unknown[];
+  recommendationId: string | null;
+  recommendationTitle: string | null;
+  suppressionId: string | null;
+  suppressionReason: OrchestrationImprovementSuppressionReason | null;
+  firedAt: string;
+}
+
+export interface OrchestrationImprovementTriggerControl {
+  companyId: string;
+  triggerKey: OrchestrationImprovementTriggerKey;
+  label: string;
+  description: string;
+  enabled: boolean;
+  threshold: Record<string, unknown>;
+  updatedAt: string | null;
+  latestFiring: OrchestrationImprovementTriggerFiring | null;
+}
+
+export interface OrchestrationImprovementSuppression {
+  id: string;
+  companyId: string;
+  triggerKey: OrchestrationImprovementTriggerKey | null;
+  scope: OrchestrationImprovementScope;
+  reason: OrchestrationImprovementSuppressionReason;
+  notes: string | null;
+  active: boolean;
+  sourceRecommendationId: string | null;
+  evidenceFingerprint?: string | null;
+  metadata?: Record<string, unknown>;
+  expiresAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrchestrationImprovementEvidenceSetRecord {
+  id: string;
+  companyId: string;
+  triggerFiringId: string | null;
+  summary: string;
+  evidenceStrength: "single" | "pattern" | "manual" | "unknown";
+  evidenceItems: Record<string, unknown>[];
+  redactionPolicy: string;
+  redactionSummary: Record<string, unknown>;
+  metadata: Record<string, unknown>;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface OrchestrationImprovementRecommendation {
+  id: string;
+  companyId: string;
+  triggerKey: string;
+  triggerClass?: string | null;
+  scope: OrchestrationImprovementScope;
+  scopeType?: OrchestrationImprovementScopeType;
+  scopeKey?: string;
+  scopeLabel?: string | null;
+  category?: string | null;
+  title: string;
+  summary?: string;
+  rationale: string;
+  proposedChange: string;
+  severity: OrchestrationImprovementSeverity;
+  confidence: OrchestrationImprovementConfidence;
+  status: OrchestrationImprovementRecommendationStatus;
+  evidence: OrchestrationImprovementEvidenceSet;
+  originalRecommendation: Record<string, unknown>;
+  currentRecommendation: Record<string, unknown>;
+  affectedSurfaces?: Record<string, unknown>[];
+  evidenceSetId?: string | null;
+  evidenceSet?: OrchestrationImprovementEvidenceSetRecord | null;
+  sourceTriggerFiringId?: string | null;
+  triggerFiring?: (OrchestrationImprovementTriggerFiring & {
+    triggerClass?: string | null;
+    sourceTaskId?: string | null;
+    sourceRunId?: string | null;
+    sourceEvalCaseId?: string | null;
+    thresholds?: Record<string, unknown>;
+    metadata?: Record<string, unknown>;
+  }) | null;
+  originalGeneratedText?: string;
+  operatorText?: string;
+  proposedChangeSummary?: string;
+  proposedChangeJson?: Record<string, unknown>;
+  preview?: Record<string, unknown> | null;
+  riskNotes?: string | null;
+  rollbackNotes?: string | null;
+  latestApprovalId?: string | null;
+  latestApprovalStatus?: ApprovalStatus | null;
+  approvalDecisionNote?: string | null;
+  approvalSyncedAt?: string | null;
+  dismissalReason: OrchestrationImprovementDismissalReason | null;
+  dismissalNotes: string | null;
+  dismissedAt: string | null;
+  suppressionId: string | null;
+  suppression?: OrchestrationImprovementSuppression | null;
+  suppressionReason?: string | null;
+  suppressionScope?: string | null;
+  suppressionExpiresAt?: string | null;
+  supersededByRecommendationId: string | null;
+  supersededAt?: string | null;
+  approvalId: string | null;
+  approval?: {
+    id: string;
+    status: ApprovalStatus | null;
+    decisionNote: string | null;
+    decidedAt: string | null;
+  } | null;
+  approvalLinks?: OrchestrationImprovementApprovalLink[];
+  idempotencyKey: string | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  acceptedByUserId?: string | null;
+  acceptedAt?: string | null;
+  appliedAt?: string | null;
+  archivedAt?: string | null;
+  links?: OrchestrationImprovementSourceLink[];
+  tags?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OrchestrationImprovementRecommendationListResult {
+  recommendations: OrchestrationImprovementRecommendation[];
+  total: number;
+  filters: OrchestrationImprovementRecommendationFilters;
+  groups: OrchestrationImprovementRecommendationGroup[];
+}
+
+export interface OrchestrationImprovementDashboard {
+  companyControl: OrchestrationImprovementCompanyControl;
+  triggers: OrchestrationImprovementTriggerControl[];
+  recommendations: OrchestrationImprovementRecommendation[];
+  firings: OrchestrationImprovementTriggerFiring[];
+  suppressions: OrchestrationImprovementSuppression[];
 }
 
 export interface OrchestrationTaskDetail {
@@ -569,6 +874,7 @@ export interface OrchestrationCompanyGoal {
   planApprovedSprintCount?: number;
   planDoneSprintCount?: number;
   planPendingSprintCount?: number;
+  runIntelligence?: OrchestrationRunIntelligenceRollup;
 }
 
 export type AgentRosterState = "active" | "bench" | "paused" | "archived" | "all";
@@ -1037,6 +1343,12 @@ export interface OrchestrationActivityEvent {
     | "overseer.draft.signoff_delegated"
     | "overseer.draft.signoff_applied"
     | "overseer.draft.signoff_blocked"
+    | "improve.recommendation_created"
+    | "improve.recommendation_dismissed"
+    | "improve.recommendation_suppressed"
+    | "improve.approval_package_created"
+    | "improve.approval_decision_synced"
+    | "improve.recommendation_applied"
     | "sprint.created"
     | "sprint.updated"
     | "sprint.completed";
@@ -1123,6 +1435,29 @@ export interface OrchestrationApprovalComment {
   authorUserId: string | null;
   body: string;
   createdAt: string;
+}
+
+export type ImprovementApprovalPackageStatus =
+  | "draft"
+  | "submitted"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "applied";
+
+export interface OrchestrationImprovementApprovalLink {
+  id: string;
+  companyId: string;
+  recommendationId: string;
+  approvalId: string | null;
+  status: ImprovementApprovalPackageStatus;
+  approvalPackage: Record<string, unknown>;
+  riskNotes: string | null;
+  rollbackNotes: string;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /* ── Routines ── */

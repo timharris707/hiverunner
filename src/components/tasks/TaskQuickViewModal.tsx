@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, CalendarDays, ChevronDown, ExternalLink, FolderKanban, Gauge, Mic, Plus, Tag, X } from "lucide-react";
+import { Bot, CalendarDays, ChevronDown, ExternalLink, FolderKanban, Gauge, Mic, Music2, Plus, Tag, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
+import { HiveRunnerMarkIcon } from "@/components/HiveRunnerMarkIcon";
 import { InlineAssigneePicker } from "./InlineAssigneePicker";
 import { InlinePriorityPicker } from "./InlinePriorityPicker";
 import { InlineStatusPicker } from "./InlineStatusPicker";
@@ -50,9 +51,21 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 function formatExecutionEngineLabel(engine?: string | null): string {
-  if (engine === "manual") return "Manual only";
-  if (engine === "symphony") return "External runner";
-  return "HiveRunner runnable";
+  if (engine === "manual") return "Manual";
+  if (engine === "symphony") return "Symphony";
+  return "HiveRunner";
+}
+
+function formatExecutionEngineSource(source?: string | null): string | null {
+  if (source === "task") return "task";
+  if (source === "inherited") return "inherited";
+  return source ?? null;
+}
+
+function ExecutionEngineIcon({ engine }: { engine?: string | null }) {
+  if (engine === "symphony") return <Music2 size={13} />;
+  if (engine === "manual") return <Bot size={13} />;
+  return <HiveRunnerMarkIcon size={13} color={P.textSecondary} />;
 }
 
 function AgentRecordAvatar({ agent }: { agent: OrchestrationAgent | null }) {
@@ -434,6 +447,7 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
   const waitingOn = getWaitingOnLabel(task);
   const status = STATUS_META[task.status];
   const latestComment = selectPrimaryTaskUpdateComment(task.comments);
+  const executionEngineSourceLabel = formatExecutionEngineSource(task.executionEngineSource);
 
   const latestUpdate = latestComment ? {
     title: `${latestComment.author} commented ${formatRelativeUpdate(latestComment.timestamp)}`,
@@ -627,9 +641,9 @@ export function TaskQuickViewModal({ task, agents, projects, noProjectId, href, 
             </DetailRow>
             <DetailRow label="Engine">
               <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
-                <Bot size={13} />
+                <ExecutionEngineIcon engine={task.executionEngine} />
                 {formatExecutionEngineLabel(task.executionEngine)}
-                {task.executionEngineSource ? ` (${task.executionEngineSource})` : ""}
+                {executionEngineSourceLabel ? ` (${executionEngineSourceLabel})` : ""}
               </span>
             </DetailRow>
             <DetailRow label="Model Lane">

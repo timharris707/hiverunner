@@ -20,12 +20,17 @@ import {
   buildCanonicalOverseerPath,
   buildCanonicalTeamPath,
 } from "@/lib/orchestration/route-paths";
+import {
+  IMPROVE_ACTIVITY_EVENT_TYPES,
+  type ImproveActivityEventType,
+} from "@/lib/orchestration/service/improvement-provenance";
 
 type ActivityFeedEventRow = Omit<ActivityEventRow, "event_type"> & {
   event_type:
     | ActivityEventRow["event_type"]
     | "task.comment_added"
-    | "task.read_marked";
+    | "task.read_marked"
+    | ImproveActivityEventType;
   company_code: string | null;
 };
 
@@ -38,6 +43,14 @@ function activityEventTypes(): string {
     "task.read_marked",
     "task.eval_case_saved",
   ].map((type) => `'${type}'`).join(",");
+}
+
+function improveActivityEventTypes(): string {
+  return IMPROVE_ACTIVITY_EVENT_TYPES.map((type) => `'${type}'`).join(",");
+}
+
+function isImproveActivityEventType(eventType: string): eventType is ImproveActivityEventType {
+  return (IMPROVE_ACTIVITY_EVENT_TYPES as readonly string[]).includes(eventType);
 }
 
 function addCursorClause(
@@ -60,6 +73,94 @@ function metadataString(metadata: Record<string, unknown>, key: string): string 
 function metadataNumber(metadata: Record<string, unknown>, key: string): number | null {
   const value = metadata[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+const TEMPLATE_ACTIVITY_MESSAGES: Partial<Record<
+  ActivityFeedEventRow["event_type"],
+  (metadata: Record<string, unknown>, sprintName?: string) => string
+>> = {
+  "template.draft_created": (metadata: Record<string, unknown>, sprintName?: string) =>
+    `Template draft created for ${metadataString(metadata, "sprintName") ?? sprintName ?? "a sprint"}`,
+  "template.crew_recommended": (metadata: Record<string, unknown>, sprintName?: string) =>
+    `Crew recommendations recorded for ${metadataString(metadata, "sprintName") ?? sprintName ?? "a template draft"}`,
+  "template.board_created": (metadata: Record<string, unknown>) =>
+    `Template draft approved into ${metadataNumber(metadata, "taskCount") ?? "board"} task${metadataNumber(metadata, "taskCount") === 1 ? "" : "s"}`,
+};
+
+const OVERSEER_ACTIVITY_MESSAGES: Partial<Record<
+  ActivityFeedEventRow["event_type"],
+  (metadata: Record<string, unknown>) => string
+>> = {
+  "overseer.draft.signoff_delegated": (metadata: Record<string, unknown>) =>
+    `Delegated signoff recorded for ${metadataString(metadata, "draftId") ?? "a draft"}`,
+  "overseer.draft.signoff_applied": (metadata: Record<string, unknown>) =>
+    `Delegated signoff applied for ${metadataString(metadata, "draftId") ?? "a draft"}`,
+  "overseer.draft.signoff_blocked": (metadata: Record<string, unknown>) =>
+    `Delegated signoff blocked for ${metadataString(metadata, "draftId") ?? "a draft"}`,
+};
+
+const IMPROVE_ACTIVITY_MESSAGES = {
+  "improve.recommendation_created": (label: string) => `Improve recorded ${label}`,
+  "improve.recommendation_dismissed": (label: string) => `Improve dismissed ${label}`,
+  "improve.recommendation_suppressed": (label: string) => `Improve suppressed ${label}`,
+  "improve.approval_package_created": (label: string) => `Improve approval package created for ${label}`,
+  "improve.approval_decision_synced": (label: string) => `Improve approval decision synced for ${label}`,
+  "improve.recommendation_applied": (label: string) => `Improve applied ${label}`,
+} satisfies Record<ImproveActivityEventType, (label: string) => string>;
+
+function buildActivityMessage(input: {
+  row: ActivityFeedEventRow;
+  metadata: Record<string, unknown>;
+  taskTitle?: string;
+  sprintName?: string;
+  agentLabel: string;
+}): string {
+  const { row, metadata, taskTitle, sprintName, agentLabel } = input;
+  const eventType = row.event_type;
+
+  if (eventType === "task.read_marked") {
+    return `Board issue read marked ${taskTitle ?? "a task"}`;
+  }
+
+  if (eventType === "task.comment_added") {
+    const commentSource = typeof metadata.source === "string" ? metadata.source : undefined;
+    return commentSource === "voice"
+      ? `${agentLabel} logged a voice note on ${taskTitle ?? "a task"}`
+      : `${agentLabel} commented on ${taskTitle ?? "a task"}`;
+  }
+
+  if (eventType === "task.eval_case_saved") {
+    const reviewOutcome = typeof metadata.reviewOutcome === "string" ? metadata.reviewOutcome : undefined;
+    return `Eval case saved for ${row.task_key ?? taskTitle ?? "a task"}${reviewOutcome ? ` (${reviewOutcome})` : ""}`;
+  }
+
+  const templateMessage = TEMPLATE_ACTIVITY_MESSAGES[eventType]?.(metadata, sprintName);
+  if (templateMessage) return templateMessage;
+
+  const overseerMessage = OVERSEER_ACTIVITY_MESSAGES[eventType]?.(metadata);
+  if (overseerMessage) return overseerMessage;
+
+  if (isImproveActivityEventType(eventType)) {
+    const recommendationId = metadataString(metadata, "recommendationId");
+    const recommendationLabel = recommendationId ? `recommendation ${recommendationId}` : "an Improve recommendation";
+    return IMPROVE_ACTIVITY_MESSAGES[eventType](recommendationLabel);
+  }
+
+  if (eventType === "task.status_changed" && row.from_status && row.to_status) {
+    return `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`;
+  }
+
+  if (eventType === "task.assigned") {
+    const assignee = typeof metadata.assignee === "string" && metadata.assignee.trim()
+      ? metadata.assignee
+      : undefined;
+    return `${taskTitle ?? "Task"} assigned${assignee ? ` to ${assignee}` : ""}`;
+  }
+
+  if (eventType === "task.unassigned") return `${taskTitle ?? "Task"} unassigned`;
+  if (eventType === "sprint.completed") return `${sprintName ?? "Sprint"} completed`;
+  if (eventType === "sprint.updated") return `${sprintName ?? "Sprint"} updated`;
+  return `${sprintName ?? "Sprint"} created`;
 }
 
 function enrichActivityMetadata(
@@ -131,6 +232,7 @@ export function listActivityFeed(input: {
   const crewParams: unknown[] = [];
   const boardParams: unknown[] = [];
   const signoffParams: unknown[] = [];
+  const improveParams: unknown[] = [];
   const taskWhereParts = [
     "p.archived_at IS NULL",
     `te.event_type IN (${activityEventTypes()})`,
@@ -155,6 +257,11 @@ export function listActivityFeed(input: {
     "p.archived_at IS NULL",
     "ose.event_type IN ('overseer.draft.signoff_delegated','overseer.draft.signoff_applied','overseer.draft.signoff_blocked')",
   ];
+  const improveWhereParts = [
+    "p.archived_at IS NULL",
+    "p.company_id = cae.company_id",
+    `cae.event_type IN (${improveActivityEventTypes()})`,
+  ];
   const decodedCursor = input.cursor ? decodeActivityCursor(input.cursor) : undefined;
 
   if (input.projectId) {
@@ -168,12 +275,14 @@ export function listActivityFeed(input: {
     crewWhereParts.push("p.id = ?");
     boardWhereParts.push("p.id = ?");
     signoffWhereParts.push("p.id = ?");
+    improveWhereParts.push("p.id = ?");
     taskParams.push(project.id);
     sprintParams.push(project.id);
     draftParams.push(project.id);
     crewParams.push(project.id);
     boardParams.push(project.id);
     signoffParams.push(project.id);
+    improveParams.push(project.id);
   }
 
   if (input.agentId) {
@@ -203,6 +312,8 @@ export function listActivityFeed(input: {
     crewParams.push(agent.id);
     boardParams.push(agent.id);
     signoffWhereParts.push("1 = 0");
+    improveWhereParts.push("(cae.agent_id = ? OR json_extract(cae.metadata_json, '$.agentId') = ? OR json_extract(cae.metadata_json, '$.actorAgentId') = ?)");
+    improveParams.push(agent.id, agent.id, agent.id);
   }
 
   addCursorClause(taskWhereParts, taskParams, "te.created_at", "('task:' || te.id)", decodedCursor);
@@ -227,6 +338,7 @@ export function listActivityFeed(input: {
   addCursorClause(crewWhereParts, crewParams, "d.created_at", "('draft:' || d.id || ':crew')", decodedCursor);
   addCursorClause(boardWhereParts, boardParams, "d.approved_at", "('draft:' || d.id || ':board')", decodedCursor);
   addCursorClause(signoffWhereParts, signoffParams, "ose.occurred_at", "('overseer:' || ose.id)", decodedCursor);
+  addCursorClause(improveWhereParts, improveParams, "cae.created_at", "('audit:' || cae.id)", decodedCursor);
 
   const rows = db
     .prepare(
@@ -502,6 +614,38 @@ export function listActivityFeed(input: {
         INNER JOIN projects p ON p.id = goal.project_id
         LEFT JOIN companies c ON c.id = ose.company_id
         WHERE ${signoffWhereParts.join(" AND ")}
+
+        UNION ALL
+
+        SELECT
+          'audit:' || cae.id AS event_id,
+          NULL AS task_event_uuid,
+          cae.event_type AS event_type,
+          cae.task_id AS task_id,
+          t.title AS task_title,
+          t.task_key AS task_key,
+          t.sprint_id AS sprint_id,
+          s.name AS sprint_name,
+          p.id AS project_id,
+          p.slug AS project_slug,
+          p.name AS project_name,
+          c.id AS company_id,
+          c.slug AS company_slug,
+          c.company_code AS company_code,
+          c.name AS company_name,
+          NULL AS from_status,
+          NULL AS to_status,
+          cae.metadata_json AS metadata_json,
+          cae.agent_id AS agent_id,
+          a.name AS agent_name,
+          cae.created_at AS created_at
+        FROM company_audit_events cae
+        LEFT JOIN tasks t ON t.id = cae.task_id
+        LEFT JOIN sprints s ON s.id = t.sprint_id
+        INNER JOIN projects p ON p.id = COALESCE(t.project_id, CAST(json_extract(cae.metadata_json, '$.projectId') AS TEXT))
+        LEFT JOIN companies c ON c.id = cae.company_id
+        LEFT JOIN agents a ON a.id = cae.agent_id
+        WHERE ${improveWhereParts.join(" AND ")}
       )
       SELECT
         event_id,
@@ -536,6 +680,7 @@ export function listActivityFeed(input: {
       ...crewParams,
       ...boardParams,
       ...signoffParams,
+      ...improveParams,
       input.limit + 1,
     ) as ActivityFeedEventRow[];
 
@@ -555,41 +700,7 @@ export function listActivityFeed(input: {
           : undefined;
 
       const agentLabel = row.agent_name ?? assigneeName ?? "Someone";
-
-      const commentSource = typeof metadata.source === "string" ? metadata.source : undefined;
-      const reviewOutcome = typeof metadata.reviewOutcome === "string" ? metadata.reviewOutcome : undefined;
-      const message =
-        eventType === "task.read_marked"
-          ? `Board issue read marked ${taskTitle ?? "a task"}`
-          : eventType === "task.comment_added"
-            ? commentSource === "voice"
-              ? `${agentLabel} logged a voice note on ${taskTitle ?? "a task"}`
-              : `${agentLabel} commented on ${taskTitle ?? "a task"}`
-            : eventType === "task.eval_case_saved"
-              ? `Eval case saved for ${row.task_key ?? taskTitle ?? "a task"}${reviewOutcome ? ` (${reviewOutcome})` : ""}`
-            : eventType === "template.draft_created"
-              ? `Template draft created for ${metadataString(metadata, "sprintName") ?? sprintName ?? "a sprint"}`
-            : eventType === "template.crew_recommended"
-              ? `Crew recommendations recorded for ${metadataString(metadata, "sprintName") ?? sprintName ?? "a template draft"}`
-            : eventType === "template.board_created"
-              ? `Template draft approved into ${metadataNumber(metadata, "taskCount") ?? "board"} task${metadataNumber(metadata, "taskCount") === 1 ? "" : "s"}`
-            : eventType === "overseer.draft.signoff_delegated"
-              ? `Delegated signoff recorded for ${metadataString(metadata, "draftId") ?? "a draft"}`
-            : eventType === "overseer.draft.signoff_applied"
-              ? `Delegated signoff applied for ${metadataString(metadata, "draftId") ?? "a draft"}`
-            : eventType === "overseer.draft.signoff_blocked"
-              ? `Delegated signoff blocked for ${metadataString(metadata, "draftId") ?? "a draft"}`
-            : eventType === "task.status_changed" && row.from_status && row.to_status
-            ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
-            : eventType === "task.assigned"
-              ? `${taskTitle ?? "Task"} assigned${assigneeName ? ` to ${assigneeName}` : ""}`
-              : eventType === "task.unassigned"
-                ? `${taskTitle ?? "Task"} unassigned`
-                : eventType === "sprint.completed"
-                  ? `${sprintName ?? "Sprint"} completed`
-                  : eventType === "sprint.updated"
-                    ? `${sprintName ?? "Sprint"} updated`
-                    : `${sprintName ?? "Sprint"} created`;
+      const message = buildActivityMessage({ row, metadata, taskTitle, sprintName, agentLabel });
 
       return {
         id: row.task_event_uuid ?? deterministicEventId(row.event_id),
@@ -609,7 +720,11 @@ export function listActivityFeed(input: {
         newStatus: row.to_status ? toApiStatus(row.to_status) : undefined,
         message,
         agentId: row.agent_id ?? undefined,
-        agentName: eventType === "task.read_marked" ? "Board" : (row.agent_name ?? assigneeName),
+        agentName: eventType === "task.read_marked"
+          ? "Board"
+          : isImproveActivityEventType(eventType) && !row.agent_name
+            ? "Improve"
+            : (row.agent_name ?? assigneeName),
         metadata,
         timestamp: row.created_at,
       } satisfies OrchestrationActivityEvent;

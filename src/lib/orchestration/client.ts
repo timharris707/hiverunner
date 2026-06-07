@@ -12,11 +12,31 @@ import type {
   OrchestrationCompanyInboxEvent,
   OrchestrationCompanyInboxTask,
   OrchestrationEvalCase,
+  OrchestrationExperimentReportEvidence,
   OrchestrationEvalLibraryFacet,
   OrchestrationEvalLibraryFacets,
   OrchestrationEvalLibraryFilters,
   OrchestrationEvalLibraryResult,
   OrchestrationEvalReviewOutcome,
+  OrchestrationImprovementCompanyControl,
+  OrchestrationImprovementDashboard,
+  OrchestrationImprovementDismissalReason,
+  OrchestrationImprovementEvidenceSummary,
+  OrchestrationImprovementRecommendation,
+  OrchestrationImprovementRecommendationFilters,
+  OrchestrationImprovementRecommendationGroup,
+  OrchestrationImprovementRecommendationListResult,
+  OrchestrationImprovementRecommendationStatus,
+  OrchestrationImprovementScope,
+  OrchestrationImprovementScopeType,
+  OrchestrationImprovementSeverity,
+  OrchestrationImprovementSourceLink,
+  OrchestrationImprovementSuppression,
+  OrchestrationImprovementSuppressionReason,
+  OrchestrationImprovementConfidence,
+  OrchestrationImprovementTriggerControl,
+  OrchestrationImprovementTriggerFiring,
+  OrchestrationImprovementTriggerKey,
   OrchestrationRuntime,
   OrchestrationRuntimeCliUpdateResult,
   OrchestrationRuntimeDependencyReadiness,
@@ -1298,6 +1318,91 @@ function normalizeEvalStringArray(value: unknown): string[] {
     : [];
 }
 
+const EXPERIMENT_REPORT_STATUSES = new Set<OrchestrationExperimentReportEvidence["status"]>([
+  "draft",
+  "generated",
+  "accepted",
+  "returned",
+  "superseded",
+  "archived",
+]);
+
+const EXPERIMENT_REPORT_SOURCE_KINDS = new Set<OrchestrationExperimentReportEvidence["sourceKind"]>([
+  "run_trace",
+  "eval_case",
+  "mixed",
+]);
+
+function normalizeExperimentReportStatus(value: unknown): OrchestrationExperimentReportEvidence["status"] {
+  return typeof value === "string" && EXPERIMENT_REPORT_STATUSES.has(value as OrchestrationExperimentReportEvidence["status"])
+    ? value as OrchestrationExperimentReportEvidence["status"]
+    : "generated";
+}
+
+function normalizeExperimentReportSourceKind(value: unknown): OrchestrationExperimentReportEvidence["sourceKind"] {
+  return typeof value === "string" && EXPERIMENT_REPORT_SOURCE_KINDS.has(value as OrchestrationExperimentReportEvidence["sourceKind"])
+    ? value as OrchestrationExperimentReportEvidence["sourceKind"]
+    : "mixed";
+}
+
+function optionalJsonRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function normalizeExperimentReportLink(raw: unknown): OrchestrationExperimentReportEvidence["links"][number] {
+  const link = jsonRecord(raw);
+  const type = link.type === "run_trace" ||
+    link.type === "eval_case" ||
+    link.type === "task" ||
+    link.type === "goal" ||
+    link.type === "sprint" ||
+    link.type === "improve"
+    ? link.type
+    : "run_trace";
+  return {
+    type,
+    id: String(link.id ?? ""),
+    label: String(link.label ?? link.id ?? "Evidence"),
+    href: String(link.href ?? ""),
+  };
+}
+
+function normalizeExperimentReportEvidence(raw: unknown): OrchestrationExperimentReportEvidence {
+  const report = jsonRecord(raw);
+  return {
+    id: String(report.id ?? ""),
+    experimentId: String(report.experimentId ?? ""),
+    companyId: String(report.companyId ?? ""),
+    status: normalizeExperimentReportStatus(report.status),
+    title: String(report.title ?? "Comparison report"),
+    summary: String(report.summary ?? ""),
+    objective: String(report.objective ?? ""),
+    sourceKind: normalizeExperimentReportSourceKind(report.sourceKind),
+    sourceRunId: stringOrNull(report.sourceRunId),
+    sourceEvalCaseId: stringOrNull(report.sourceEvalCaseId),
+    sourceTaskId: stringOrNull(report.sourceTaskId),
+    sourceTaskKey: stringOrNull(report.sourceTaskKey),
+    sourceTaskTitle: stringOrNull(report.sourceTaskTitle),
+    sprintId: stringOrNull(report.sprintId),
+    sprintKey: stringOrNull(report.sprintKey),
+    goalKey: stringOrNull(report.goalKey),
+    winningVariantId: stringOrNull(report.winningVariantId),
+    winningVariantKey: stringOrNull(report.winningVariantKey),
+    winningVariantName: stringOrNull(report.winningVariantName),
+    recommendationId: stringOrNull(report.recommendationId),
+    reportSha256: stringOrNull(report.reportSha256),
+    createdAt: String(report.createdAt ?? new Date().toISOString()),
+    updatedAt: String(report.updatedAt ?? report.createdAt ?? new Date().toISOString()),
+    href: String(report.href ?? ""),
+    links: Array.isArray(report.links) ? report.links.map(normalizeExperimentReportLink) : [],
+    redactionPolicy: String(report.redactionPolicy ?? "hiverunner.experiment_report_read.redaction.v1"),
+    redactionSummary: jsonRecord(report.redactionSummary),
+    redactedPayload: optionalJsonRecord(report.redactedPayload),
+  };
+}
+
 function normalizeEvalCase(raw: JsonRecord): OrchestrationEvalCase {
   const sourceProject = jsonRecord(raw.sourceProject);
   const sourceTask = jsonRecord(raw.sourceTask);
@@ -1379,6 +1484,9 @@ function normalizeEvalCase(raw: JsonRecord): OrchestrationEvalCase {
     createdByAgentId: raw.createdByAgentId === null ? null : raw.createdByAgentId ? String(raw.createdByAgentId) : null,
     createdByUserId: raw.createdByUserId === null ? null : raw.createdByUserId ? String(raw.createdByUserId) : null,
     createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
+    experimentReports: Array.isArray(raw.experimentReports)
+      ? raw.experimentReports.map(normalizeExperimentReportEvidence)
+      : [],
   };
 }
 
@@ -1403,6 +1511,301 @@ function normalizeEvalFacets(raw: unknown): OrchestrationEvalLibraryFacets {
     models: list("models"),
     reviewOutcomes: list("reviewOutcomes"),
     tags: list("tags"),
+  };
+}
+
+const IMPROVEMENT_TRIGGER_KEYS = new Set<string>([
+  "severe_single_failure",
+  "repeated_review_return",
+  "missing_capability",
+  "missing_tool_runtime",
+  "template_drift",
+  "runner_mismatch",
+  "reviewer_request",
+]);
+
+const IMPROVEMENT_RECOMMENDATION_STATUSES = new Set<OrchestrationImprovementRecommendationStatus>([
+  "suggested",
+  "needs-more-evidence",
+  "accepted-for-approval",
+  "dismissed",
+  "superseded",
+  "applied",
+]);
+const IMPROVEMENT_SEVERITIES = new Set<OrchestrationImprovementSeverity>(["low", "medium", "high", "critical"]);
+const IMPROVEMENT_CONFIDENCES = new Set<OrchestrationImprovementConfidence>(["low", "medium", "high"]);
+
+function normalizeEnumValue<T extends string>(value: unknown, allowed: Set<T>, fallback: T): T {
+  return typeof value === "string" && allowed.has(value as T) ? value as T : fallback;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return value === null ? null : value ? String(value) : null;
+}
+
+function stringOrUndefined(value: unknown): string | undefined {
+  return value ? String(value) : undefined;
+}
+
+function stringOrNullOrUndefined(value: unknown): string | null | undefined {
+  return value === null ? null : value ? String(value) : undefined;
+}
+
+function normalizeImprovementTriggerKey(value: unknown): OrchestrationImprovementTriggerKey {
+  const key = String(value ?? "");
+  return IMPROVEMENT_TRIGGER_KEYS.has(key) ? key as OrchestrationImprovementTriggerKey : "reviewer_request";
+}
+
+function normalizeImprovementScopeType(value: unknown): OrchestrationImprovementScopeType {
+  return value === "company" ||
+    value === "project" ||
+    value === "template" ||
+    value === "task_type" ||
+    value === "agent" ||
+    value === "runner" ||
+    value === "recommendation"
+    ? value
+    : "company";
+}
+
+function normalizeImprovementScope(raw: unknown): OrchestrationImprovementScope {
+  const scope = jsonRecord(raw);
+  return {
+    type: normalizeImprovementScopeType(scope.type),
+    key: String(scope.key ?? ""),
+  };
+}
+
+function normalizeImprovementCompanyControl(raw: unknown): OrchestrationImprovementCompanyControl {
+  const control = jsonRecord(raw);
+  return {
+    companyId: String(control.companyId ?? ""),
+    automationPaused: Boolean(control.automationPaused),
+    pausedReason: control.pausedReason === null ? null : control.pausedReason ? String(control.pausedReason) : null,
+    pausedAt: control.pausedAt === null ? null : control.pausedAt ? String(control.pausedAt) : null,
+    updatedAt: String(control.updatedAt ?? new Date().toISOString()),
+  };
+}
+
+function normalizeImprovementSuppressionReason(value: unknown): OrchestrationImprovementSuppressionReason {
+  return value === "not_now" ||
+    value === "wrong_diagnosis" ||
+    value === "too_risky" ||
+    value === "already_fixed" ||
+    value === "not_worth_it" ||
+    value === "duplicate" ||
+    value === "operator_suppressed"
+    ? value
+    : "operator_suppressed";
+}
+
+function normalizeImprovementDismissalReason(value: unknown): OrchestrationImprovementDismissalReason | null {
+  return value === "not_now" ||
+    value === "wrong_diagnosis" ||
+    value === "too_risky" ||
+    value === "already_fixed" ||
+    value === "not_worth_it"
+    ? value
+    : null;
+}
+
+function normalizeImprovementTriggerFiring(raw: unknown): OrchestrationImprovementTriggerFiring {
+  const firing = jsonRecord(raw);
+  const status = firing.status === "created_recommendation" ||
+    firing.status === "suppressed" ||
+    firing.status === "skipped" ||
+    firing.status === "needs_more_evidence"
+    ? firing.status
+    : "skipped";
+  return {
+    id: String(firing.id ?? ""),
+    companyId: String(firing.companyId ?? ""),
+    triggerKey: normalizeImprovementTriggerKey(firing.triggerKey),
+    scope: normalizeImprovementScope(firing.scope),
+    status,
+    decisionReason: String(firing.decisionReason ?? ""),
+    evidence: Array.isArray(firing.evidence) ? firing.evidence : [],
+    recommendationId: firing.recommendationId === null ? null : firing.recommendationId ? String(firing.recommendationId) : null,
+    recommendationTitle: firing.recommendationTitle === null ? null : firing.recommendationTitle ? String(firing.recommendationTitle) : null,
+    suppressionId: firing.suppressionId === null ? null : firing.suppressionId ? String(firing.suppressionId) : null,
+    suppressionReason: firing.suppressionReason === null ? null : normalizeImprovementSuppressionReason(firing.suppressionReason),
+    firedAt: String(firing.firedAt ?? new Date().toISOString()),
+  };
+}
+
+function normalizeImprovementTriggerControl(raw: unknown): OrchestrationImprovementTriggerControl {
+  const trigger = jsonRecord(raw);
+  return {
+    companyId: String(trigger.companyId ?? ""),
+    triggerKey: normalizeImprovementTriggerKey(trigger.triggerKey),
+    label: String(trigger.label ?? trigger.triggerKey ?? "Trigger"),
+    description: String(trigger.description ?? ""),
+    enabled: trigger.enabled !== false,
+    threshold: jsonRecord(trigger.threshold),
+    updatedAt: trigger.updatedAt === null ? null : trigger.updatedAt ? String(trigger.updatedAt) : null,
+    latestFiring: trigger.latestFiring ? normalizeImprovementTriggerFiring(trigger.latestFiring) : null,
+  };
+}
+
+function normalizeImprovementSuppression(raw: unknown): OrchestrationImprovementSuppression {
+  const suppression = jsonRecord(raw);
+  return {
+    id: String(suppression.id ?? ""),
+    companyId: String(suppression.companyId ?? ""),
+    triggerKey: suppression.triggerKey === null ? null : suppression.triggerKey ? normalizeImprovementTriggerKey(suppression.triggerKey) : null,
+    scope: normalizeImprovementScope(suppression.scope),
+    reason: normalizeImprovementSuppressionReason(suppression.reason),
+    notes: suppression.notes === null ? null : suppression.notes ? String(suppression.notes) : null,
+    active: suppression.active !== false,
+    sourceRecommendationId: suppression.sourceRecommendationId === null ? null : suppression.sourceRecommendationId ? String(suppression.sourceRecommendationId) : null,
+    expiresAt: suppression.expiresAt === null ? null : suppression.expiresAt ? String(suppression.expiresAt) : null,
+    createdAt: String(suppression.createdAt ?? new Date().toISOString()),
+    updatedAt: String(suppression.updatedAt ?? new Date().toISOString()),
+  };
+}
+
+function normalizeImprovementSourceType(value: unknown): OrchestrationImprovementEvidenceSummary["sourceType"] {
+  return value === "trace" ||
+    value === "eval" ||
+    value === "experiment_report" ||
+    value === "template" ||
+    value === "team" ||
+    value === "task" ||
+    value === "sprint" ||
+    value === "goal" ||
+    value === "review" ||
+    value === "manual"
+    ? value
+    : "manual";
+}
+
+function normalizeImprovementSourceLink(raw: unknown): OrchestrationImprovementSourceLink {
+  const link = jsonRecord(raw);
+  const type = link.type === "trace" ||
+    link.type === "eval" ||
+    link.type === "experiment_report" ||
+    link.type === "template" ||
+    link.type === "team" ||
+    link.type === "task" ||
+    link.type === "sprint" ||
+    link.type === "goal" ||
+    link.type === "approval"
+    ? link.type
+    : "task";
+  return {
+    type,
+    id: String(link.id ?? ""),
+    label: String(link.label ?? link.id ?? ""),
+    href: String(link.href ?? ""),
+  };
+}
+
+function normalizeImprovementEvidenceSummary(raw: unknown): OrchestrationImprovementEvidenceSummary {
+  const evidence = jsonRecord(raw);
+  return {
+    id: String(evidence.id ?? crypto.randomUUID()),
+    sourceType: normalizeImprovementSourceType(evidence.sourceType),
+    sourceId: evidence.sourceId === null ? null : evidence.sourceId ? String(evidence.sourceId) : null,
+    title: String(evidence.title ?? "Evidence"),
+    summary: String(evidence.summary ?? ""),
+    occurredAt: evidence.occurredAt === null ? null : evidence.occurredAt ? String(evidence.occurredAt) : null,
+    missingReason: evidence.missingReason === null ? null : evidence.missingReason ? String(evidence.missingReason) : null,
+    redactionPolicy: String(evidence.redactionPolicy ?? "hiverunner.improve.redacted_evidence.v1"),
+    links: Array.isArray(evidence.links) ? evidence.links.map(normalizeImprovementSourceLink) : [],
+    metadata: jsonRecord(evidence.metadata),
+  };
+}
+
+function normalizeImprovementEvidenceSet(raw: unknown) {
+  if (Array.isArray(raw)) {
+    const summaries = raw.map(normalizeImprovementEvidenceSummary);
+    return {
+      state: summaries.some((item) => !item.missingReason) ? "present" as const : "missing" as const,
+      summaries,
+    };
+  }
+
+  const evidence = jsonRecord(raw);
+  const summaries = Array.isArray(evidence.summaries)
+    ? evidence.summaries.map(normalizeImprovementEvidenceSummary)
+    : [];
+  return {
+    state: evidence.state === "present" ? "present" as const : "missing" as const,
+    summaries,
+  };
+}
+
+function normalizeImprovementRecommendation(raw: unknown): OrchestrationImprovementRecommendation {
+  const recommendation = jsonRecord(raw);
+  const status = normalizeEnumValue(recommendation.status, IMPROVEMENT_RECOMMENDATION_STATUSES, "suggested");
+  const severity = normalizeEnumValue(recommendation.severity, IMPROVEMENT_SEVERITIES, "medium");
+  const confidence = normalizeEnumValue(recommendation.confidence, IMPROVEMENT_CONFIDENCES, "medium");
+  const scope = recommendation.scope ? normalizeImprovementScope(recommendation.scope) : {
+    type: normalizeImprovementScopeType(recommendation.scopeType),
+    key: String(recommendation.scopeKey ?? ""),
+  };
+  return {
+    id: String(recommendation.id ?? ""),
+    companyId: String(recommendation.companyId ?? ""),
+    triggerKey: recommendation.triggerKey ? String(recommendation.triggerKey) : normalizeImprovementTriggerKey(recommendation.triggerKey),
+    scope,
+    scopeType: normalizeImprovementScopeType(recommendation.scopeType ?? scope.type),
+    scopeKey: String(recommendation.scopeKey ?? scope.key),
+    scopeLabel: stringOrNull(recommendation.scopeLabel),
+    category: stringOrNull(recommendation.category),
+    title: String(recommendation.title ?? "Untitled recommendation"),
+    summary: stringOrUndefined(recommendation.summary),
+    rationale: String(recommendation.rationale ?? ""),
+    proposedChange: String(recommendation.proposedChange ?? ""),
+    severity,
+    confidence,
+    status,
+    evidence: normalizeImprovementEvidenceSet(recommendation.evidence),
+    originalRecommendation: jsonRecord(recommendation.originalRecommendation),
+    currentRecommendation: jsonRecord(recommendation.currentRecommendation),
+    affectedSurfaces: Array.isArray(recommendation.affectedSurfaces)
+      ? recommendation.affectedSurfaces.map((item) => jsonRecord(item))
+      : undefined,
+    preview: recommendation.preview === null ? null : recommendation.preview ? jsonRecord(recommendation.preview) : undefined,
+    riskNotes: stringOrNullOrUndefined(recommendation.riskNotes),
+    rollbackNotes: stringOrNullOrUndefined(recommendation.rollbackNotes),
+    latestApprovalId: stringOrNullOrUndefined(recommendation.latestApprovalId),
+    latestApprovalStatus: recommendation.latestApprovalStatus === null
+      ? null
+      : recommendation.latestApprovalStatus
+        ? String(recommendation.latestApprovalStatus) as ApprovalStatus
+        : undefined,
+    approvalDecisionNote: stringOrNullOrUndefined(recommendation.approvalDecisionNote),
+    approvalSyncedAt: stringOrNullOrUndefined(recommendation.approvalSyncedAt),
+    dismissalReason: normalizeImprovementDismissalReason(recommendation.dismissalReason),
+    dismissalNotes: stringOrNull(recommendation.dismissalNotes),
+    dismissedAt: stringOrNull(recommendation.dismissedAt),
+    suppressionId: stringOrNull(recommendation.suppressionId),
+    suppressionReason: stringOrNullOrUndefined(recommendation.suppressionReason),
+    suppressionScope: stringOrNullOrUndefined(recommendation.suppressionScope),
+    suppressionExpiresAt: stringOrNullOrUndefined(recommendation.suppressionExpiresAt),
+    supersededByRecommendationId: stringOrNull(recommendation.supersededByRecommendationId),
+    approvalId: stringOrNull(recommendation.approvalId),
+    idempotencyKey: stringOrNull(recommendation.idempotencyKey),
+    createdByAgentId: stringOrNull(recommendation.createdByAgentId),
+    createdByUserId: stringOrNull(recommendation.createdByUserId),
+    acceptedByUserId: stringOrNullOrUndefined(recommendation.acceptedByUserId),
+    acceptedAt: stringOrNullOrUndefined(recommendation.acceptedAt),
+    links: Array.isArray(recommendation.links) ? recommendation.links.map(normalizeImprovementSourceLink) : undefined,
+    tags: Array.isArray(recommendation.tags) ? recommendation.tags.map((tag) => String(tag)) : undefined,
+    createdAt: String(recommendation.createdAt ?? new Date().toISOString()),
+    updatedAt: String(recommendation.updatedAt ?? new Date().toISOString()),
+  };
+}
+
+function normalizeImprovementDashboard(raw: unknown): OrchestrationImprovementDashboard {
+  const dashboard = jsonRecord(raw);
+  return {
+    companyControl: normalizeImprovementCompanyControl(dashboard.companyControl),
+    triggers: Array.isArray(dashboard.triggers) ? dashboard.triggers.map(normalizeImprovementTriggerControl) : [],
+    recommendations: Array.isArray(dashboard.recommendations) ? dashboard.recommendations.map(normalizeImprovementRecommendation) : [],
+    firings: Array.isArray(dashboard.firings) ? dashboard.firings.map(normalizeImprovementTriggerFiring) : [],
+    suppressions: Array.isArray(dashboard.suppressions) ? dashboard.suppressions.map(normalizeImprovementSuppression) : [],
   };
 }
 
@@ -1809,6 +2212,7 @@ function normalizeCompanyInboxEvent(raw: JsonRecord): OrchestrationCompanyInboxE
 }
 
 function normalizeCompanyGoal(raw: JsonRecord): OrchestrationCompanyGoal {
+  const runIntelligence = jsonRecord(raw.runIntelligence);
   return {
     sprint: normalizeSprint((raw.sprint ?? {}) as JsonRecord),
     projectId: String(raw.projectId ?? raw.project_id ?? ""),
@@ -1825,6 +2229,14 @@ function normalizeCompanyGoal(raw: JsonRecord): OrchestrationCompanyGoal {
     planApprovedSprintCount: raw.planApprovedSprintCount !== undefined ? Number(raw.planApprovedSprintCount) : raw.plan_approved_sprint_count !== undefined ? Number(raw.plan_approved_sprint_count) : undefined,
     planDoneSprintCount: raw.planDoneSprintCount !== undefined ? Number(raw.planDoneSprintCount) : raw.plan_done_sprint_count !== undefined ? Number(raw.plan_done_sprint_count) : undefined,
     planPendingSprintCount: raw.planPendingSprintCount !== undefined ? Number(raw.planPendingSprintCount) : raw.plan_pending_sprint_count !== undefined ? Number(raw.plan_pending_sprint_count) : undefined,
+    runIntelligence: raw.runIntelligence
+      ? {
+          evalCaseCount: Number(runIntelligence.evalCaseCount ?? 0),
+          experimentReportCount: Number(runIntelligence.experimentReportCount ?? 0),
+          acceptedExperimentReportCount: Number(runIntelligence.acceptedExperimentReportCount ?? 0),
+          acceptedImproveHandoffCount: Number(runIntelligence.acceptedImproveHandoffCount ?? 0),
+        }
+      : undefined,
   };
 }
 
@@ -3412,6 +3824,327 @@ export async function listCompanyEvalCases(
     filters: jsonRecord(data?.filters) as OrchestrationEvalLibraryFilters,
     facets: normalizeEvalFacets(data?.facets),
   };
+}
+
+function appendRepeatedParams(params: URLSearchParams, key: string, values?: string[]): void {
+  for (const value of values ?? []) {
+    if (value) params.append(key, value);
+  }
+}
+
+function improveRecommendationQuery(input?: OrchestrationImprovementRecommendationFilters): string {
+  const params = new URLSearchParams();
+  appendRepeatedParams(params, "status", input?.status);
+  appendRepeatedParams(params, "severity", input?.severity);
+  appendRepeatedParams(params, "confidence", input?.confidence);
+  appendRepeatedParams(params, "sourceType", input?.sourceType);
+  if (input?.triggerKey) params.set("triggerKey", input.triggerKey);
+  if (input?.category) params.set("category", input.category);
+  if (input?.scopeType) params.set("scopeType", input.scopeType);
+  if (input?.scopeKey) params.set("scopeKey", input.scopeKey);
+  if (input?.projectId) params.set("projectId", input.projectId);
+  if (input?.agentId) params.set("agentId", input.agentId);
+  if (input?.search) params.set("search", input.search);
+  if (input?.evidenceState) params.set("evidenceState", input.evidenceState);
+  if (typeof input?.includeSuppressed === "boolean") params.set("includeSuppressed", input.includeSuppressed ? "true" : "false");
+  if (input?.groupBy) params.set("groupBy", input.groupBy);
+  if (typeof input?.limit === "number") params.set("limit", String(input.limit));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+function normalizeImproveGroups(raw: unknown): OrchestrationImprovementRecommendationGroup[] {
+  return Array.isArray(raw)
+    ? raw.map((item) => {
+        const group = jsonRecord(item);
+        return {
+          key: String(group.key ?? ""),
+          label: String(group.label ?? group.key ?? ""),
+          count: Number(group.count ?? 0),
+          recommendationIds: Array.isArray(group.recommendationIds)
+            ? group.recommendationIds.map((id) => String(id))
+            : [],
+        };
+      })
+    : [];
+}
+
+export async function listCompanyImproveRecommendations(
+  companySlug: string,
+  input?: OrchestrationImprovementRecommendationFilters,
+): Promise<OrchestrationImprovementRecommendationListResult> {
+  const data = await fetchJson<{
+    recommendations?: unknown[];
+    total?: number;
+    filters?: JsonRecord;
+    groups?: unknown;
+  }>(
+    `/api/orchestration/companies/${encodeURIComponent(companySlug)}/improve/recommendations${improveRecommendationQuery(input)}`,
+  );
+
+  return {
+    recommendations: (data?.recommendations ?? []).map(normalizeImprovementRecommendation),
+    total: Number(data?.total ?? 0),
+    filters: jsonRecord(data?.filters) as OrchestrationImprovementRecommendationFilters,
+    groups: normalizeImproveGroups(data?.groups),
+  };
+}
+
+export async function getCompanyImproveRecommendation(
+  companySlug: string,
+  recommendationId: string,
+): Promise<OrchestrationImprovementRecommendation | null> {
+  const data = await fetchJson<{ recommendation?: unknown }>(
+    `/api/orchestration/companies/${encodeURIComponent(companySlug)}/improve/recommendations/${encodeURIComponent(recommendationId)}`,
+  );
+  return data?.recommendation ? normalizeImprovementRecommendation(data.recommendation) : null;
+}
+
+export async function updateCompanyImproveRecommendation(
+  companySlug: string,
+  recommendationId: string,
+  body: Record<string, unknown>,
+): Promise<OrchestrationImprovementRecommendation | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/companies/${encodeURIComponent(companySlug)}/improve/recommendations/${encodeURIComponent(recommendationId)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!response.ok) return null;
+    const data = await response.json() as { recommendation?: unknown };
+    return data.recommendation ? normalizeImprovementRecommendation(data.recommendation) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function editCompanyImproveRecommendation(
+  companySlug: string,
+  recommendationId: string,
+  input: {
+    title?: string;
+    rationale?: string;
+    proposedChange?: string;
+    severity?: OrchestrationImprovementSeverity;
+    confidence?: OrchestrationImprovementConfidence;
+    category?: string | null;
+    summary?: string | null;
+    riskNotes?: string | null;
+    rollbackNotes?: string | null;
+    groupKey?: string | null;
+    groupLabel?: string | null;
+    tags?: string[];
+  },
+): Promise<OrchestrationImprovementRecommendation | null> {
+  return updateCompanyImproveRecommendation(companySlug, recommendationId, {
+    action: "edit",
+    ...input,
+  });
+}
+
+export async function dismissCompanyImproveRecommendation(
+  companySlug: string,
+  recommendationId: string,
+  input: {
+    reason: OrchestrationImprovementDismissalReason | string;
+    notes?: string | null;
+    actorAgentId?: string | null;
+    actorUserId?: string | null;
+  },
+): Promise<OrchestrationImprovementRecommendation | null> {
+  return updateCompanyImproveRecommendation(companySlug, recommendationId, {
+    action: "dismiss",
+    reason: input.reason,
+    notes: input.notes ?? null,
+    actorAgentId: input.actorAgentId ?? null,
+    actorUserId: input.actorUserId ?? null,
+  });
+}
+
+export async function suppressCompanyImproveRecommendation(
+  companySlug: string,
+  recommendationId: string,
+  input: {
+    reason: OrchestrationImprovementSuppressionReason | string;
+    notes?: string | null;
+    scopeType?: OrchestrationImprovementScopeType;
+    scopeKey?: string;
+    expiresAt?: string | null;
+    actorAgentId?: string | null;
+    actorUserId?: string | null;
+  },
+): Promise<OrchestrationImprovementRecommendation | null> {
+  return updateCompanyImproveRecommendation(companySlug, recommendationId, {
+    action: "suppress",
+    reason: input.reason,
+    notes: input.notes ?? null,
+    scopeType: input.scopeType,
+    scopeKey: input.scopeKey,
+    expiresAt: input.expiresAt ?? null,
+    actorAgentId: input.actorAgentId ?? null,
+    actorUserId: input.actorUserId ?? null,
+  });
+}
+
+export async function acceptCompanyImproveRecommendationForApproval(
+  companySlug: string,
+  recommendationId: string,
+  input: {
+    approvalId?: string | null;
+    note?: string | null;
+    title?: string;
+    proposedChangeSummary?: string;
+    rationale?: string;
+    preview?: Record<string, unknown>;
+    riskNotes?: string | null;
+    rollbackNotes?: string | null;
+    actorAgentId?: string | null;
+    actorUserId?: string | null;
+  } = {},
+): Promise<OrchestrationImprovementRecommendation | null> {
+  return updateCompanyImproveRecommendation(companySlug, recommendationId, {
+    action: "accept_for_approval",
+    approvalId: input.approvalId ?? null,
+    note: input.note ?? null,
+    title: input.title,
+    proposedChangeSummary: input.proposedChangeSummary,
+    rationale: input.rationale,
+    preview: input.preview,
+    riskNotes: input.riskNotes ?? null,
+    rollbackNotes: input.rollbackNotes ?? null,
+    actorAgentId: input.actorAgentId ?? null,
+    actorUserId: input.actorUserId ?? null,
+  });
+}
+
+export async function transitionCompanyImproveRecommendationStatus(
+  companySlug: string,
+  recommendationId: string,
+  input: {
+    status: OrchestrationImprovementRecommendationStatus;
+    reason?: string | null;
+    approvalId?: string | null;
+    supersededByRecommendationId?: string | null;
+    actorAgentId?: string | null;
+    actorUserId?: string | null;
+  },
+): Promise<OrchestrationImprovementRecommendation | null> {
+  return updateCompanyImproveRecommendation(companySlug, recommendationId, {
+    action: "transition",
+    status: input.status,
+    reason: input.reason ?? null,
+    approvalId: input.approvalId ?? null,
+    supersededByRecommendationId: input.supersededByRecommendationId ?? null,
+    actorAgentId: input.actorAgentId ?? null,
+    actorUserId: input.actorUserId ?? null,
+  });
+}
+
+async function patchCompanyImproveDashboard(
+  companySlug: string,
+  body: Record<string, unknown>,
+): Promise<OrchestrationImprovementDashboard | null> {
+  try {
+    const response = await fetch(
+      `/api/orchestration/companies/${encodeURIComponent(companySlug)}/improve`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      },
+    );
+    if (!response.ok) return null;
+    return normalizeImprovementDashboard(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+export async function getCompanyImprovementDashboard(
+  companySlug: string,
+): Promise<OrchestrationImprovementDashboard | null> {
+  const data = await fetchJson<unknown>(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/improve`);
+  return data ? normalizeImprovementDashboard(data) : null;
+}
+
+export async function setCompanyImprovementPaused(
+  companySlug: string,
+  input: {
+    paused: boolean;
+    reason?: string | null;
+  },
+): Promise<OrchestrationImprovementDashboard | null> {
+  return patchCompanyImproveDashboard(companySlug, {
+    action: "set_company_pause",
+    paused: input.paused,
+    reason: input.reason ?? null,
+  });
+}
+
+export async function setCompanyImprovementTriggerEnabled(
+  companySlug: string,
+  input: {
+    triggerKey: OrchestrationImprovementTriggerKey;
+    enabled: boolean;
+  },
+): Promise<OrchestrationImprovementDashboard | null> {
+  return patchCompanyImproveDashboard(companySlug, {
+    action: "set_trigger_enabled",
+    triggerKey: input.triggerKey,
+    enabled: input.enabled,
+  });
+}
+
+export async function dismissCompanyImprovementRecommendation(
+  companySlug: string,
+  input: {
+    recommendationId: string;
+    reason: OrchestrationImprovementDismissalReason;
+    notes?: string | null;
+  },
+): Promise<OrchestrationImprovementDashboard | null> {
+  return patchCompanyImproveDashboard(companySlug, {
+    action: "dismiss_recommendation",
+    recommendationId: input.recommendationId,
+    reason: input.reason,
+    notes: input.notes ?? null,
+  });
+}
+
+export async function createCompanyImprovementSuppression(
+  companySlug: string,
+  input: {
+    triggerKey?: OrchestrationImprovementTriggerKey | null;
+    scopeType: OrchestrationImprovementScopeType;
+    scopeKey: string;
+    reason: OrchestrationImprovementSuppressionReason;
+    notes?: string | null;
+    expiresAt?: string | null;
+  },
+): Promise<OrchestrationImprovementDashboard | null> {
+  return patchCompanyImproveDashboard(companySlug, {
+    action: "create_suppression",
+    triggerKey: input.triggerKey ?? null,
+    scopeType: input.scopeType,
+    scopeKey: input.scopeKey,
+    reason: input.reason,
+    notes: input.notes ?? null,
+    expiresAt: input.expiresAt ?? null,
+  });
+}
+
+export async function deactivateCompanyImprovementSuppression(
+  companySlug: string,
+  suppressionId: string,
+): Promise<OrchestrationImprovementDashboard | null> {
+  return patchCompanyImproveDashboard(companySlug, {
+    action: "deactivate_suppression",
+    suppressionId,
+  });
 }
 
 export async function getTask(taskId: string): Promise<OrchestrationTask | null> {

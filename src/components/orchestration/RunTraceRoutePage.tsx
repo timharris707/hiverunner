@@ -171,6 +171,7 @@ export default function RunTraceRoutePage({
       routeKind={routeKind}
       agentId={agentId}
       taskKey={taskKey}
+      companyKey={companyRouteContext.companyCode}
       companyHref={companyHref}
       isLive={isLive}
       liveTimelineEvents={liveTimelineEvents}

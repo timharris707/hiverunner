@@ -9,7 +9,7 @@ import {
 } from "@/components/team/ScopedActiveCrewPanel";
 import { TeamRosterStateTabs } from "@/components/team/TeamRosterStateTabs";
 import { listCompanyAgents } from "@/lib/orchestration/client";
-import { buildCanonicalTeamPath } from "@/lib/orchestration/route-paths";
+import { buildCanonicalImprovePath, buildCanonicalTeamPath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationAgent } from "@/lib/orchestration/types";
 
 function agent(input: Partial<OrchestrationAgent> & Pick<OrchestrationAgent, "id" | "name" | "role">): OrchestrationAgent {
@@ -41,6 +41,7 @@ async function run() {
   assert.match(html, />4</);
 
   assert.equal(buildCanonicalTeamPath("INS"), "/INS/team");
+  assert.equal(buildCanonicalImprovePath("INS", { surface: "team" }), "/INS/improve?surface=team");
 
   const roster = [
     agent({ id: "oracle", name: "Oracle", role: "Lead", rosterState: "active" }),

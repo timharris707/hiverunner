@@ -9,7 +9,8 @@ import {
   createProject,
   createTemplateDraftPlan,
 } from "@/lib/orchestration/client";
-import { buildCanonicalGoalPath, goalRouteKey } from "@/lib/orchestration/route-paths";
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
+import { buildCanonicalGoalPath, buildCanonicalImprovePath, goalRouteKey } from "@/lib/orchestration/route-paths";
 import {
   listBuiltInStarterSprintTemplates,
   type BuiltInStarterSprintTemplate,
@@ -344,6 +345,19 @@ export function TemplateLaunchDialog({
                   );
                 })}
               </div>
+
+              <ContextualRecommendationRollup
+                surface="template"
+                contextLabel={selectedTemplate.name}
+                improveHref={buildCanonicalImprovePath(companyCode, {
+                  surface: "template",
+                  templateVersionId: selectedTemplate.templateVersionId,
+                })}
+                companyKey={companyCode}
+                scope={{ type: "template", key: selectedTemplate.templateVersionId }}
+                contextIds={{ templateVersionId: selectedTemplate.templateVersionId, templateId: selectedTemplate.id }}
+                counts={emptyContextualRecommendationCounts()}
+              />
 
               {newProject ? (
                 <label style={{ display: "grid", gap: 6 }}>

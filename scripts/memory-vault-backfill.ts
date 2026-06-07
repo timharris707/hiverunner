@@ -5,7 +5,7 @@ function parseArgs(): { company: string; apply: boolean } {
   const companyIndex = args.findIndex((arg) => arg === "--company");
   const company = companyIndex >= 0 ? args[companyIndex + 1] : args.find((arg) => !arg.startsWith("--"));
   if (!company) {
-    throw new Error("Usage: npx tsx scripts/memory-vault-backfill.ts --company <slug-or-code> [--apply]");
+    throw new Error("Usage: node ./scripts/run-tsx.mjs scripts/memory-vault-backfill.ts --company <slug-or-code> [--apply]");
   }
   return { company, apply: args.includes("--apply") };
 }

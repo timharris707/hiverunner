@@ -630,6 +630,9 @@ const MIGRATIONS: Migration[] = [
   {
     version: 13,
     name: "companies_workspace_binding_contract",
+    compatibleChecksums: [
+      "8f238988f59c30ce92d44cf2f3150d9165b22098cca6f4f75ccbb70e73afebc4",
+    ],
     sql: `
       ALTER TABLE companies ADD COLUMN workspace_root TEXT;
       ALTER TABLE companies ADD COLUMN workspace_source TEXT NOT NULL DEFAULT 'manual'
@@ -2027,6 +2030,8 @@ const MIGRATIONS: Migration[] = [
       "504030f664096cccedf5a032707510a09733dc4a1a6e018df7a0f15b04ca6184",
       "02fc1820898915e7e21e81008dd4399019dc87d1883eba32e1a90712ff63183a",
       "70f6f12688817005f373b1bd4ad8d0b4a1fa22d2c6e11047810d7a9feaa90f97",
+      "01795f6bce07e4a85f062777a15e6a5dafda6097387937f0bc73b5816ef208b2",
+      "554df1d4390f14cfd8dd22c19034978caef7cd5321c2ac0c55128ab1485e87c1",
     ],
     sql: `
       UPDATE companies
@@ -3754,6 +3759,377 @@ const MIGRATIONS: Migration[] = [
         (
           118,
           'Rollback without dropping evidence: set improvement_write_controls.writes_enabled = 0 per company to stop new recommendation, trigger firing, and evidence set creation while preserving existing trigger firings, evidence sets, suppressions, recommendation history, and approval links.'
+        )
+      ON CONFLICT(migration_version) DO UPDATE SET
+        rollback_notes = excluded.rollback_notes;
+    `,
+  },
+  {
+    version: 119,
+    name: "experiment_persistence_model",
+    sql: `
+      CREATE TABLE IF NOT EXISTS experiments (
+        id                          TEXT PRIMARY KEY,
+        company_id                  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        project_id                  TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        source_kind                 TEXT NOT NULL DEFAULT 'eval_case'
+                                    CHECK (source_kind IN ('run_trace','eval_case','mixed')),
+        primary_source_run_id       TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        primary_source_eval_case_id TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        source_task_id              TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        source_trace_route          TEXT,
+        objective                   TEXT NOT NULL CHECK (length(trim(objective)) > 0),
+        objective_kind              TEXT NOT NULL DEFAULT 'evidence_quality'
+                                    CHECK (objective_kind IN (
+                                      'lower_token_cost',
+                                      'shorter_runtime',
+                                      'fewer_failures',
+                                      'better_reviewer_acceptance',
+                                      'evidence_quality',
+                                      'fewer_runtime_errors',
+                                      'faster_sprint_completion',
+                                      'less_operator_intervention',
+                                      'other'
+                                    )),
+        definition_of_better        TEXT NOT NULL DEFAULT '',
+        hypothesis                  TEXT NOT NULL DEFAULT '',
+        workspace_mode              TEXT NOT NULL DEFAULT 'snapshot'
+                                    CHECK (workspace_mode IN ('snapshot','branch','live')),
+        workspace_snapshot_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(workspace_snapshot_json)),
+        limit_snapshot_json         TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limit_snapshot_json)),
+        limit_snapshot_sha256       TEXT CHECK (limit_snapshot_sha256 IS NULL OR length(limit_snapshot_sha256) = 64),
+        status                      TEXT NOT NULL DEFAULT 'draft'
+                                    CHECK (status IN (
+                                      'draft',
+                                      'awaiting_variant_approval',
+                                      'approved',
+                                      'running',
+                                      'reporting',
+                                      'completed',
+                                      'cancelled',
+                                      'failed',
+                                      'archived'
+                                    )),
+        idempotency_key             TEXT,
+        created_by_agent_id         TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id          TEXT,
+        approved_by_agent_id        TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        approved_by_user_id         TEXT,
+        approved_at                 TEXT,
+        started_at                  TEXT,
+        completed_at                TEXT,
+        cancelled_at                TEXT,
+        failed_at                   TEXT,
+        archived_at                 TEXT,
+        created_at                  TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                  TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        CHECK (
+          source_kind != 'run_trace'
+          OR primary_source_run_id IS NOT NULL
+          OR source_trace_route IS NOT NULL
+        ),
+        CHECK (
+          source_kind != 'eval_case'
+          OR primary_source_eval_case_id IS NOT NULL
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiments_company_status
+        ON experiments(company_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiments_project_status
+        ON experiments(project_id, status, updated_at DESC)
+        WHERE project_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiments_source_run
+        ON experiments(primary_source_run_id)
+        WHERE primary_source_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiments_source_eval_case
+        ON experiments(primary_source_eval_case_id)
+        WHERE primary_source_eval_case_id IS NOT NULL;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_experiments_company_idempotency
+        ON experiments(company_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS experiment_sources (
+        id                    TEXT PRIMARY KEY,
+        experiment_id         TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+        company_id            TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        source_type           TEXT NOT NULL CHECK (source_type IN ('run_trace','eval_case')),
+        source_run_id         TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        source_eval_case_id   TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        source_task_id        TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        trace_route           TEXT,
+        source_snapshot_json  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(source_snapshot_json)),
+        source_snapshot_sha256 TEXT CHECK (source_snapshot_sha256 IS NULL OR length(source_snapshot_sha256) = 64),
+        redaction_policy      TEXT NOT NULL DEFAULT 'hiverunner.run_trace_redaction.v1',
+        redaction_summary_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(redaction_summary_json)),
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        CHECK (
+          source_type != 'run_trace'
+          OR source_run_id IS NOT NULL
+          OR trace_route IS NOT NULL
+        ),
+        CHECK (
+          source_type != 'eval_case'
+          OR source_eval_case_id IS NOT NULL
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_sources_experiment
+        ON experiment_sources(experiment_id, source_type, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_sources_run
+        ON experiment_sources(source_run_id)
+        WHERE source_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_sources_eval_case
+        ON experiment_sources(source_eval_case_id)
+        WHERE source_eval_case_id IS NOT NULL;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_experiment_sources_unique_run
+        ON experiment_sources(experiment_id, source_run_id)
+        WHERE source_type = 'run_trace' AND source_run_id IS NOT NULL;
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_experiment_sources_unique_eval_case
+        ON experiment_sources(experiment_id, source_eval_case_id)
+        WHERE source_type = 'eval_case' AND source_eval_case_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS experiment_variants (
+        id                      TEXT PRIMARY KEY,
+        experiment_id           TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+        company_id              TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        variant_key             TEXT NOT NULL,
+        name                    TEXT NOT NULL,
+        description             TEXT NOT NULL DEFAULT '',
+        change_type             TEXT NOT NULL DEFAULT 'other'
+                                CHECK (change_type IN (
+                                  'runner_model',
+                                  'agent',
+                                  'prompt',
+                                  'tool_setup',
+                                  'task_decomposition',
+                                  'template_slot',
+                                  'context_package',
+                                  'other'
+                                )),
+        planned_change_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(planned_change_json)),
+        status                  TEXT NOT NULL DEFAULT 'draft'
+                                CHECK (status IN (
+                                  'draft',
+                                  'awaiting_approval',
+                                  'approved',
+                                  'rejected',
+                                  'running',
+                                  'completed',
+                                  'cancelled',
+                                  'failed'
+                                )),
+        approval_snapshot_json  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(approval_snapshot_json)),
+        limit_snapshot_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limit_snapshot_json)),
+        limit_snapshot_sha256   TEXT CHECK (limit_snapshot_sha256 IS NULL OR length(limit_snapshot_sha256) = 64),
+        proposed_by_agent_id    TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        proposed_by_user_id     TEXT,
+        approved_by_agent_id    TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        approved_by_user_id     TEXT,
+        approved_at             TEXT,
+        rejected_at             TEXT,
+        created_at              TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at              TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(experiment_id, variant_key)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_variants_experiment_status
+        ON experiment_variants(experiment_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_variants_company_status
+        ON experiment_variants(company_id, status, updated_at DESC);
+
+      CREATE TABLE IF NOT EXISTS experiment_attempts (
+        id                        TEXT PRIMARY KEY,
+        experiment_id             TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+        variant_id                TEXT NOT NULL REFERENCES experiment_variants(id) ON DELETE CASCADE,
+        company_id                TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        attempt_number            INTEGER NOT NULL CHECK (attempt_number >= 1),
+        status                    TEXT NOT NULL DEFAULT 'queued'
+                                  CHECK (status IN ('queued','running','succeeded','failed','cancelled','timed_out')),
+        workspace_mode            TEXT NOT NULL DEFAULT 'snapshot'
+                                  CHECK (workspace_mode IN ('snapshot','branch','live')),
+        workspace_ref             TEXT,
+        context_snapshot_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(context_snapshot_json)),
+        limit_snapshot_json       TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(limit_snapshot_json)),
+        limit_snapshot_sha256     TEXT CHECK (limit_snapshot_sha256 IS NULL OR length(limit_snapshot_sha256) = 64),
+        execution_run_id          TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        eval_case_id              TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        trace_route               TEXT,
+        comparison_snapshot_json  TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(comparison_snapshot_json)),
+        error_message             TEXT,
+        started_at                TEXT,
+        completed_at              TEXT,
+        cancelled_at              TEXT,
+        created_at                TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        UNIQUE(variant_id, attempt_number),
+        CHECK (
+          status NOT IN ('succeeded','failed','cancelled','timed_out')
+          OR execution_run_id IS NOT NULL
+          OR eval_case_id IS NOT NULL
+          OR trace_route IS NOT NULL
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_attempts_experiment_status
+        ON experiment_attempts(experiment_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_attempts_variant_number
+        ON experiment_attempts(variant_id, attempt_number);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_attempts_execution_run
+        ON experiment_attempts(execution_run_id)
+        WHERE execution_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_attempts_eval_case
+        ON experiment_attempts(eval_case_id)
+        WHERE eval_case_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS experiment_comparison_reports (
+        id                         TEXT PRIMARY KEY,
+        experiment_id              TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+        company_id                 TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        status                     TEXT NOT NULL DEFAULT 'draft'
+                                   CHECK (status IN ('draft','generated','accepted','returned','superseded','archived')),
+        report_schema              TEXT NOT NULL DEFAULT 'hiverunner.experiment_comparison_report.v1'
+                                   CHECK (report_schema = 'hiverunner.experiment_comparison_report.v1'),
+        summary                    TEXT NOT NULL DEFAULT '',
+        report_json                TEXT NOT NULL DEFAULT '{"schema":"hiverunner.experiment_comparison_report.v1"}'
+                                   CHECK (
+                                     json_valid(report_json)
+                                     AND json_extract(report_json, '$.schema') = 'hiverunner.experiment_comparison_report.v1'
+                                   ),
+        conclusion_json            TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(conclusion_json)),
+        winning_variant_id         TEXT REFERENCES experiment_variants(id) ON DELETE SET NULL,
+        recommendation_id          TEXT REFERENCES improvement_recommendations(id) ON DELETE SET NULL,
+        report_sha256              TEXT CHECK (report_sha256 IS NULL OR length(report_sha256) = 64),
+        generated_by_agent_id      TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        generated_by_user_id       TEXT,
+        accepted_by_agent_id       TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        accepted_by_user_id        TEXT,
+        accepted_at                TEXT,
+        returned_at                TEXT,
+        archived_at                TEXT,
+        created_at                 TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        updated_at                 TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_reports_experiment_status
+        ON experiment_comparison_reports(experiment_id, status, updated_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_reports_company_created
+        ON experiment_comparison_reports(company_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_reports_recommendation
+        ON experiment_comparison_reports(recommendation_id)
+        WHERE recommendation_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS experiment_evidence_attachments (
+        id                          TEXT PRIMARY KEY,
+        company_id                  TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        experiment_id               TEXT NOT NULL REFERENCES experiments(id) ON DELETE CASCADE,
+        variant_id                  TEXT REFERENCES experiment_variants(id) ON DELETE CASCADE,
+        attempt_id                  TEXT REFERENCES experiment_attempts(id) ON DELETE CASCADE,
+        report_id                   TEXT REFERENCES experiment_comparison_reports(id) ON DELETE CASCADE,
+        attachment_scope            TEXT NOT NULL DEFAULT 'experiment'
+                                    CHECK (attachment_scope IN ('experiment','variant','attempt','report','source')),
+        evidence_type               TEXT NOT NULL
+                                    CHECK (evidence_type IN (
+                                      'run_trace',
+                                      'eval_case',
+                                      'comparison_report',
+                                      'artifact',
+                                      'verification',
+                                      'operator_note',
+                                      'improve_recommendation',
+                                      'limit_snapshot',
+                                      'source_snapshot'
+                                    )),
+        title                       TEXT NOT NULL,
+        summary                     TEXT NOT NULL DEFAULT '',
+        artifact_uri                TEXT,
+        artifact_kind               TEXT CHECK (artifact_kind IS NULL OR artifact_kind IN ('html','pdf','image','file','url','video','json')),
+        artifact_sha256             TEXT CHECK (artifact_sha256 IS NULL OR length(artifact_sha256) = 64),
+        source_run_id               TEXT REFERENCES execution_runs(id) ON DELETE SET NULL,
+        source_eval_case_id         TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        recommendation_id           TEXT REFERENCES improvement_recommendations(id) ON DELETE SET NULL,
+        evidence_json               TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(evidence_json)),
+        redaction_policy            TEXT NOT NULL DEFAULT 'hiverunner.experiment_evidence_redaction.v1',
+        redaction_summary_json      TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(redaction_summary_json)),
+        created_by_agent_id         TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id          TEXT,
+        created_at                  TEXT NOT NULL DEFAULT (${NOW_SQL}),
+        CHECK (
+          attachment_scope != 'variant'
+          OR variant_id IS NOT NULL
+        ),
+        CHECK (
+          attachment_scope != 'attempt'
+          OR attempt_id IS NOT NULL
+        ),
+        CHECK (
+          attachment_scope != 'report'
+          OR report_id IS NOT NULL
+        ),
+        CHECK (
+          evidence_type != 'run_trace'
+          OR source_run_id IS NOT NULL
+          OR artifact_uri IS NOT NULL
+        ),
+        CHECK (
+          evidence_type != 'eval_case'
+          OR source_eval_case_id IS NOT NULL
+        ),
+        CHECK (
+          evidence_type != 'comparison_report'
+          OR report_id IS NOT NULL
+        )
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_experiment
+        ON experiment_evidence_attachments(experiment_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_variant
+        ON experiment_evidence_attachments(variant_id, created_at DESC)
+        WHERE variant_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_attempt
+        ON experiment_evidence_attachments(attempt_id, created_at DESC)
+        WHERE attempt_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_report
+        ON experiment_evidence_attachments(report_id, created_at DESC)
+        WHERE report_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_source_run
+        ON experiment_evidence_attachments(source_run_id)
+        WHERE source_run_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_experiment_evidence_source_eval_case
+        ON experiment_evidence_attachments(source_eval_case_id)
+        WHERE source_eval_case_id IS NOT NULL;
+
+      CREATE TABLE IF NOT EXISTS experiment_persistence_migration_notes (
+        migration_version     INTEGER PRIMARY KEY,
+        rollback_notes        TEXT NOT NULL,
+        created_at            TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      INSERT INTO experiment_persistence_migration_notes
+        (migration_version, rollback_notes)
+      VALUES
+        (
+          119,
+          'Rollback without dropping evidence: stop experiment creation in the service/API layer, leave experiment_* tables in place for audit review, and use forward migrations to archive or supersede experiment records. These tables are additive and do not mutate execution_runs, eval_cases, or improvement_recommendations.'
         )
       ON CONFLICT(migration_version) DO UPDATE SET
         rollback_notes = excluded.rollback_notes;

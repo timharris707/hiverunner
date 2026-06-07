@@ -5,4 +5,4 @@
 #        ./bin/mc reject --task TASK-123 --reason "reason text"
 
 cd "$(dirname "$0")/.." || exit 1
-exec npx tsx scripts/mc.ts "$@"
+exec node ./scripts/run-tsx.mjs scripts/mc.ts "$@"

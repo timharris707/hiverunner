@@ -2,10 +2,17 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ExternalLink, Library, Loader2, X } from "lucide-react";
+import { ExternalLink, FileText, Library, Loader2, X } from "lucide-react";
 
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
+import { ExperimentLaunchPanel } from "@/components/orchestration/ExperimentLaunchPanel";
 import { listCompanies, listCompanyEvalCases } from "@/lib/orchestration/client";
-import { buildCanonicalCompanyPath } from "@/lib/orchestration/route-paths";
+import {
+  buildEmptyEvalCaseExperimentLaunchModel,
+  buildEvalCaseExperimentLaunchErrorModel,
+  buildEvalCaseExperimentLaunchModel,
+} from "@/lib/orchestration/experiment-launch";
+import { buildCanonicalCompanyPath, buildCanonicalImprovePath } from "@/lib/orchestration/route-paths";
 import type {
   OrchestrationCompany,
   OrchestrationEvalCase,
@@ -192,6 +199,8 @@ function metaValue(value: string | null | undefined, fallback = "None"): string 
 
 function EvalCaseRow({ item, companyCode }: { item: OrchestrationEvalCase; companyCode: string }) {
   const traceHref = item.sourceRun.traceRoute || buildCanonicalCompanyPath(companyCode, `/runs/${encodeURIComponent(item.sourceRun.id)}`);
+  const launchModel = useMemo(() => buildEvalCaseExperimentLaunchModel(item), [item]);
+  const experimentReports = item.experimentReports ?? [];
   return (
     <article
       data-eval-case-id={item.id}
@@ -272,6 +281,58 @@ function EvalCaseRow({ item, companyCode }: { item: OrchestrationEvalCase; compa
         </div>
       ) : null}
 
+      {experimentReports.length > 0 ? (
+        <div
+          style={{
+            display: "grid",
+            gap: 7,
+            borderRadius: radius.md,
+            border: `0.5px solid rgba(245,158,11,0.22)`,
+            background: "rgba(245,158,11,0.055)",
+            padding: "9px 10px",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 6, color: color.textSecondary, fontSize: T.caption.size, fontWeight: 700 }}>
+            <FileText size={12} style={{ color: color.accent }} />
+            Experiment evidence
+          </div>
+          {experimentReports.map((report) => (
+            <a
+              key={report.id}
+              href={report.href}
+              style={{
+                color: color.textSecondary,
+                display: "grid",
+                gap: 2,
+                textDecoration: "none",
+                minWidth: 0,
+              }}
+            >
+              <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", minWidth: 0 }}>
+                <span style={{ color: color.text, fontSize: T.bodySmall.size, fontWeight: 700 }}>
+                  {report.title}
+                </span>
+                <span
+                  style={{
+                    borderRadius: radius.full,
+                    border: `0.5px solid rgba(245,158,11,0.28)`,
+                    color: color.accent,
+                    fontSize: T.caption.size,
+                    padding: "1px 6px",
+                    fontWeight: 700,
+                  }}
+                >
+                  {report.status}
+                </span>
+              </span>
+              <span style={{ color: color.textMuted, fontSize: T.caption.size, lineHeight: 1.4 }}>
+                {report.summary || report.objective}
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
         <a
           href={taskHref(companyCode, item)}
@@ -289,6 +350,13 @@ function EvalCaseRow({ item, companyCode }: { item: OrchestrationEvalCase; compa
           {item.snapshotSha256.slice(0, 12)}
         </span>
       </div>
+
+      <ExperimentLaunchPanel
+        model={launchModel}
+        companyKey={companyCode}
+        mode="details"
+        defaultExpanded={false}
+      />
     </article>
   );
 }
@@ -315,6 +383,11 @@ export function EvalsLibrarySurface({
   onClearFilters?: () => void;
 }) {
   const activeFilters = hasActiveEvalFilters(filters);
+  const emptyLaunchModel = useMemo(() => buildEmptyEvalCaseExperimentLaunchModel(), []);
+  const errorLaunchModel = useMemo(
+    () => error ? buildEvalCaseExperimentLaunchErrorModel("Eval cases could not be loaded; experiment launch needs a reviewed source.") : null,
+    [error],
+  );
   return (
     <div data-evals-library style={{ ...pageStyle, maxWidth: 1180 }}>
       <PageHeader
@@ -329,6 +402,31 @@ export function EvalsLibrarySurface({
           />
         ) : null}
       />
+
+      <ContextualRecommendationRollup
+        surface="evals"
+        improveHref={buildCanonicalImprovePath(companyCode, { surface: "evals" })}
+        companyKey={companyCode}
+        contextIds={{ sourceType: "eval", surface: "evals" }}
+        counts={emptyContextualRecommendationCounts()}
+        style={{ marginBottom: space.xl }}
+      />
+
+      {errorLaunchModel ? (
+        <ExperimentLaunchPanel
+          model={errorLaunchModel}
+          companyKey={companyCode}
+          defaultExpanded
+          style={{ marginBottom: space.xl }}
+        />
+      ) : !loading && cases.length === 0 ? (
+        <ExperimentLaunchPanel
+          model={emptyLaunchModel}
+          companyKey={companyCode}
+          defaultExpanded
+          style={{ marginBottom: space.xl }}
+        />
+      ) : null}
 
       <Section title="Library Filters" card={false} trailing={loading ? "Loading" : `${total} cases`}>
         <div

@@ -91,6 +91,19 @@ async function run() {
     );
   });
 
+  await test("allows production v13 company workspace binding checksum", () => {
+    const PRODUCTION_V13_COMPANY_WORKSPACE_BINDING_CHECKSUM =
+      "8f238988f59c30ce92d44cf2f3150d9165b22098cca6f4f75ccbb70e73afebc4";
+    db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 13").run(
+      "companies_workspace_binding_contract",
+      PRODUCTION_V13_COMPANY_WORKSPACE_BINDING_CHECKSUM
+    );
+
+    const compatibility = checkOrchestrationMigrationCompatibility(db);
+    assert.strictEqual(compatibility.ok, true);
+    assert.doesNotThrow(() => runOrchestrationMigrations(db));
+  });
+
   await test("allows legacy migration rows below this bundle's latest version", () => {
     db.prepare(
       "INSERT INTO schema_migrations(version, name, checksum) VALUES (?, ?, ?)"
@@ -125,6 +138,32 @@ async function run() {
     db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 58").run(
       "provider_neutral_company_workspaces",
       LEGACY_V58_COMPANY_WORKSPACES_CHECKSUM
+    );
+
+    const compatibility = checkOrchestrationMigrationCompatibility(db);
+    assert.strictEqual(compatibility.ok, true);
+    assert.doesNotThrow(() => runOrchestrationMigrations(db));
+  });
+
+  await test("allows production v58 company workspace checksum", () => {
+    const PRODUCTION_V58_COMPANY_WORKSPACE_CHECKSUM =
+      "01795f6bce07e4a85f062777a15e6a5dafda6097387937f0bc73b5816ef208b2";
+    db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 58").run(
+      "provider_neutral_company_workspaces",
+      PRODUCTION_V58_COMPANY_WORKSPACE_CHECKSUM
+    );
+
+    const compatibility = checkOrchestrationMigrationCompatibility(db);
+    assert.strictEqual(compatibility.ok, true);
+    assert.doesNotThrow(() => runOrchestrationMigrations(db));
+  });
+
+  await test("allows dev-lane v58 company workspace checksum", () => {
+    const DEV_V58_COMPANY_WORKSPACE_CHECKSUM =
+      "554df1d4390f14cfd8dd22c19034978caef7cd5321c2ac0c55128ab1485e87c1";
+    db.prepare("UPDATE schema_migrations SET name = ?, checksum = ? WHERE version = 58").run(
+      "provider_neutral_company_workspaces",
+      DEV_V58_COMPANY_WORKSPACE_CHECKSUM
     );
 
     const compatibility = checkOrchestrationMigrationCompatibility(db);

@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S node ./scripts/run-tsx.mjs
 /**
  * repair-passive-report-history.ts
  *
@@ -10,9 +10,9 @@
  * - stale queued heartbeat_runs linked to stale passive continuation wake rows
  *
  * Usage:
- *   npx tsx scripts/repair-passive-report-history.ts
- *   npx tsx scripts/repair-passive-report-history.ts --apply
- *   npx tsx scripts/repair-passive-report-history.ts --db /path/to/orchestration.db --backup-dir /tmp/repairs
+ *   node ./scripts/run-tsx.mjs scripts/repair-passive-report-history.ts
+ *   node ./scripts/run-tsx.mjs scripts/repair-passive-report-history.ts --apply
+ *   node ./scripts/run-tsx.mjs scripts/repair-passive-report-history.ts --db /path/to/orchestration.db --backup-dir /tmp/repairs
  */
 
 import Database from "better-sqlite3";
@@ -49,7 +49,7 @@ function parseArgs(argv: string[]) {
     if (arg === "--help" || arg === "-h") {
       console.log([
         "Usage:",
-        "  npx tsx scripts/repair-passive-report-history.ts [--apply] [--db PATH] [--backup-dir PATH]",
+        "  node ./scripts/run-tsx.mjs scripts/repair-passive-report-history.ts [--apply] [--db PATH] [--backup-dir PATH]",
         "",
         "Default mode is dry-run. Pass --apply to mutate the database.",
       ].join("\n"));

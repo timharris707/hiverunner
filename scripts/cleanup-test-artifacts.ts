@@ -1,4 +1,4 @@
-#!/usr/bin/env npx tsx
+#!/usr/bin/env -S node ./scripts/run-tsx.mjs
 /**
  * cleanup-test-artifacts.ts
  *
@@ -6,9 +6,9 @@
  * from the orchestration database and filesystem workspaces.
  *
  * Usage:
- *   npx tsx scripts/cleanup-test-artifacts.ts            # dry-run (audit only)
- *   npx tsx scripts/cleanup-test-artifacts.ts --apply     # actually delete
- *   npx tsx scripts/cleanup-test-artifacts.ts --verbose   # show details in dry-run
+ *   node ./scripts/run-tsx.mjs scripts/cleanup-test-artifacts.ts            # dry-run (audit only)
+ *   node ./scripts/run-tsx.mjs scripts/cleanup-test-artifacts.ts --apply     # actually delete
+ *   node ./scripts/run-tsx.mjs scripts/cleanup-test-artifacts.ts --verbose   # show details in dry-run
  *
  * Safety:
  *   - Companies listed in PROTECTED_SLUGS are never deleted

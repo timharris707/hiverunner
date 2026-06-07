@@ -734,21 +734,28 @@ Recommended task groups:
 
 1. Experiment source
    - launch from a Run Trace or Eval Case, with Eval Case preferred
+   - preserve source links, reviewed evidence, capture quality, and redaction
+     labels from the originating trace or eval case
 2. Objective and mode selection
    - ask what the operator wants to improve
    - choose snapshot, branch, or live workspace mode
    - recommend snapshot or branch by default
+   - label live workspace mode as governed, higher-risk execution
 3. Variant planning
    - propose one to three variants
    - require operator approval of variants, cost, time, and iteration limits
+   - reject open-ended loops and unbounded "try until better" requests
 4. Execution and evidence
    - run attempts with fresh isolated context
    - capture a trace and comparison record per attempt
    - use external verification where possible
+   - record hard-limit outcomes, cancellations, failures, and skipped variants
 5. Report and recommendation handoff
    - save a comparison report as evidence
    - create an Improvement recommendation only when accepted or when configured
      trigger thresholds are met
+   - never mutate agent defaults, templates, tasks, branches, or production
+     workspace state solely because a report preferred a variant
 
 Exit criteria:
 
@@ -756,6 +763,8 @@ Exit criteria:
 - every attempt leaves trace/eval evidence
 - reports are saved as evidence attachments
 - recommendations remain governed and optional
+- snapshot and branch modes remain the default recommendation
+- live workspace mode requires explicit governed operator choice
 
 ### Sequencing Backlog
 
@@ -1302,6 +1311,18 @@ surfaces. A Run Trace can offer "experiment from this run" after review, while a
 Eval Case can offer "experiment from this stable case." Eval cases should be the
 preferred source for repeatable experiments.
 
+Source selection rules:
+
+- An Eval Case is the default source because it is immutable, reviewed, redacted,
+  and already has reviewer rationale.
+- A Run Trace can be a source only after review context exists or the operator
+  explicitly accepts the lower-repeatability source.
+- The experiment copies source task metadata, source trace or eval links, review
+  outcome, evidence gaps, capture quality, and redaction summary into the
+  experiment record.
+- Experiments compare against the original source behavior. They do not edit the
+  source task, source trace, or source eval case.
+
 Improvement Experiments may compare:
 
 - different runner or model
@@ -1324,6 +1345,12 @@ wants to improve:
 - faster sprint completion
 - less operator intervention
 
+The objective is singular for v1. If the operator wants both lower cost and
+better acceptance, HiveRunner should ask which one is primary and treat the other
+as secondary context in the report. The report should judge variants against the
+operator-selected definition of better rather than inventing a score after the
+attempts finish.
+
 Improvement Experiments should run in an isolated comparison context and should
 not mutate the real task or workspace by default.
 
@@ -1341,6 +1368,8 @@ Required safety rails:
 - live production workspace execution allowed only as an explicit operator choice
 - trace and eval records for every attempt
 - operator-selected definition of better before execution
+- no automatic promotion, template mutation, runner default change, or durable
+  task/workspace mutation from experiment output alone
 
 Improvement Experiment workspace mode should be operator-selectable:
 
@@ -1350,13 +1379,30 @@ Improvement Experiment workspace mode should be operator-selectable:
 
 HiveRunner should recommend `snapshot` or `branch` and clearly label `live` as
 higher risk. Live execution should require explicit operator selection and should
-be treated as governed execution.
+be treated as governed execution. Live mode is not the default, is not implied by
+choosing a runner, and should never be selected automatically by an experiment
+trigger.
+
+Workspace mode semantics:
+
+- `snapshot` uses a copied source state and is the safest default for
+  comparison, rerun, and report generation.
+- `branch` uses an isolated branch or worktree so file changes can be inspected
+  without touching the source branch.
+- `live` runs against the active workspace only after the operator approves the
+  exact risk, lane, limits, and rollback posture.
 
 Improvement Experiments should support multiple variants, but cap them tightly.
 The operator chooses one improvement objective, HiveRunner proposes one to three
 variants, and the operator approves which variants run. Each variant should have
 hard limits and should be compared against the original run and the other
 variants.
+
+Hard limits are part of the experiment contract, not runner hints. V1 should
+store approved limits for variants, attempts per variant, max wall-clock time,
+max token or cost budget, allowed verification commands, and cancellation rules.
+If a limit is reached, HiveRunner records a bounded outcome and moves on to the
+report instead of extending the loop.
 
 The output is a recommendation, not an automatic replacement.
 
@@ -1369,6 +1415,46 @@ Experiment comparison reports should be saved as linked evidence attachments on
 the source eval case or run trace. They can surface in `Evals` and `Improve`
 when relevant, but they should not create a separate top-level navigation
 surface unless experiments become frequent enough to justify one.
+
+Comparison reports should include:
+
+- source trace or eval case
+- objective and secondary context
+- workspace mode and isolation path
+- variant definitions and approved hard limits
+- attempt traces, statuses, costs, durations, and verification evidence
+- evidence gaps, redaction summary, and failed or cancelled attempts
+- conclusion, confidence, risk, and why the original was or was not improved
+- explicit handoff state: report-only, accepted for Improve, or trigger-created
+  Improve recommendation
+
+Improve handoff stays governed. An accepted report may create an Improvement
+recommendation or draft approval package, but the report itself does not apply a
+change. Durable changes continue through existing approvals, review, promotion,
+and rollback paths.
+
+MCP boundary:
+
+- The HiveRunner MCP Server may expose redacted experiment reports later as
+  Run Intelligence resources and may accept governed evidence or recommendation
+  requests if those tools are explicitly added.
+- Improvement Experiments v1 does not make runners discover, consume, or proxy
+  arbitrary external MCP tools.
+- If a future runner consumes an approved MCP tool, it reports safe tool-usage
+  evidence through Run Trace; the HiveRunner MCP Server is still not treated as
+  the executor, approver, or relay for that call.
+
+Promotion caveat:
+
+- `snapshot` and `branch` results are comparison evidence until a human accepts
+  the conclusion and routes any durable change through Improve, task review, or
+  the normal git/promotion process.
+- `live` mode can create real workspace effects, so it requires an explicit
+  operator decision before execution and a report that distinguishes observed
+  comparison evidence from mutations already made.
+- Stable `3001` remains the operator/control lane. Implementation and browser
+  verification of experiment features run on `3010` or another isolated lane;
+  stable promotion remains a separate operator-approved step.
 
 The product rule is:
 
@@ -1384,6 +1470,10 @@ The product rule is:
 > Experiment reports are evidence attachments, not a new navigation surface.
 
 > Few variants, hard limits, evidence-first comparison.
+
+> Snapshot and branch by default; live mode is explicit, governed, and rare.
+
+> MCP exposure is not MCP consumption by runners.
 
 ## Third Slice: Starter Sprint Templates
 

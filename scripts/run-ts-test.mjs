@@ -3,6 +3,10 @@ import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import path from "node:path";
 
+import { ensureHiverunnerNode } from "./lib/ensure-hiverunner-node.mjs";
+
+ensureHiverunnerNode("run-ts-test");
+
 const [, , testFile, ...extraArgs] = process.argv;
 
 if (!testFile) {

@@ -7,6 +7,7 @@ import {
   normalizeAgentRuntimeSlug,
   normalizeCompanyRuntimeSlug,
 } from "@/lib/orchestration/runtime-identifiers";
+import { normalizeAgentAdapterType } from "@/lib/orchestration/service/provider-activation";
 
 export const dynamic = "force-dynamic";
 
@@ -210,6 +211,11 @@ export async function POST(
         const result: ImportResult = { category: "agents", imported: 0, skipped: 0, errors: [] };
         for (const a of pkg.agents) {
           try {
+            const openclawAgentId = a.openclawAgentId ? String(a.openclawAgentId) : null;
+            const adapterType = normalizeAgentAdapterType({
+              adapterType: typeof a.adapterType === "string" ? a.adapterType : null,
+              openclawAgentId,
+            });
             const existing = db
               .prepare("SELECT id FROM agents WHERE id = ? OR (company_id = ? AND slug = ?)")
               .get(a.id, company.id, a.slug) as { id: string } | undefined;
@@ -229,12 +235,12 @@ export async function POST(
                   a.name, a.emoji ?? "", a.role, a.personality ?? "",
                   a.model ?? null,
                   a.runtimeSlug ? normalizeAgentRuntimeSlug(String(a.runtimeSlug)) : null,
-                  a.openclawAgentId ? String(a.openclawAgentId) : null,
-                  a.adapterType ?? null,
+                  openclawAgentId,
+                  adapterType,
                   JSON.stringify(a.adapterConfig ?? {}),
                   JSON.stringify(a.runtimeConfig ?? {}),
                   JSON.stringify(a.permissions ?? {}),
-                  a.capabilities ?? null, a.instructionsMode ?? null,
+                  a.capabilities ?? "", a.instructionsMode ?? "managed",
                   JSON.stringify(a.skills ?? []), now, existing.id
                 );
                 result.imported++;
@@ -256,11 +262,11 @@ export async function POST(
                   ? normalizeAgentRuntimeSlug(String(a.runtimeSlug))
                   : normalizeAgentRuntimeSlug(String(a.slug ?? a.name ?? "agent")),
                 a.name, a.emoji ?? "", a.role, a.personality ?? "",
-                "idle", a.model ?? null, a.openclawAgentId ? String(a.openclawAgentId) : null, a.adapterType ?? null,
+                "idle", a.model ?? null, openclawAgentId, adapterType,
                 JSON.stringify(a.adapterConfig ?? {}),
                 JSON.stringify(a.runtimeConfig ?? {}),
                 JSON.stringify(a.permissions ?? {}),
-                a.capabilities ?? null, a.instructionsMode ?? null,
+                a.capabilities ?? "", a.instructionsMode ?? "managed",
                 JSON.stringify(a.skills ?? []),
                 a.createdAt ?? now, now
               );

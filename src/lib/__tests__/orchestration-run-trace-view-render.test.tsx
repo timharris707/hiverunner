@@ -236,6 +236,7 @@ function render(data: RunEventsResponse, live = false) {
   return renderToStaticMarkup(
     <RunTraceView
       data={data}
+      companyKey="insight"
       companyHref={(subpath) => `/companies/insight${subpath}`}
       routeKind="task"
       taskKey="INS-210"
@@ -249,12 +250,61 @@ function render(data: RunEventsResponse, live = false) {
 const completedHtml = render(baseResponse());
 assert.match(completedHtml, /Execution timeline/);
 assert.match(completedHtml, /Trace coverage/);
+assert.match(completedHtml, /Experiment launch/);
+assert.match(completedHtml, /Eval Case preferred/);
+assert.match(completedHtml, /Launch disabled/);
+assert.match(completedHtml, /reviewer outcome/);
 assert.match(completedHtml, /Trace annotations deferred/);
 assert.match(completedHtml, /voice-session or task-comment scoped/);
 assert.match(completedHtml, /Raw trace metadata/);
 assert.match(completedHtml, /Workspace changes/);
 assert.match(completedHtml, /Runtime skills/);
+assert.match(completedHtml, /Contextual recommendations/);
+assert.match(completedHtml, /href="\/companies\/insight\/improve\?surface=run-trace&amp;runId=run-1"/);
 assert.doesNotMatch(completedHtml, /Eval capture suggestion/);
+assert.doesNotMatch(completedHtml, /Dismiss|Suppress|Accept for approval|Apply recommendation|Edit recommendation/);
+
+const reviewedHtml = render(baseResponse({
+  task: {
+    id: "task-1",
+    title: "Extract shared RunTraceView",
+    key: "INS-210",
+    status: "review",
+    priority: "critical",
+  },
+  evalCaseSuggestion: {
+    schema: "hiverunner.eval_case_suggestion.v1",
+    outcome: "returned",
+    source: "review_status_event",
+    title: "Returned run suggested for eval capture",
+    detail: "A reviewer returned this run from the review lane.",
+    defaultRationale: "Returned after review.",
+    reviewerAgentId: "reviewer-1",
+    reviewerName: "Gator",
+    reviewedAt: "2026-06-06T21:00:00.000Z",
+    requiresOperatorConfirmation: true,
+    requiresLowCaptureConfirmation: false,
+    requiresFailedTraceConfirmation: false,
+    warnings: [],
+  },
+}));
+assert.match(reviewedHtml, /Reviewed Run Trace/);
+assert.match(reviewedHtml, /Source summary/);
+assert.match(reviewedHtml, /Objective/);
+assert.match(reviewedHtml, /Reduce review returns/);
+assert.match(reviewedHtml, /Workspace mode/);
+assert.match(reviewedHtml, /Snapshot/);
+assert.match(reviewedHtml, /Branch/);
+assert.match(reviewedHtml, /Live workspace/);
+assert.match(reviewedHtml, /Proposed variants/);
+assert.match(reviewedHtml, /Review return fix/);
+assert.match(reviewedHtml, /Why:/);
+assert.match(reviewedHtml, /Variant cap/);
+assert.match(reviewedHtml, /Attempt limit/);
+assert.match(reviewedHtml, /Timebox/);
+assert.match(reviewedHtml, /Review limits before approval/);
+assert.match(reviewedHtml, /Approve selected variants/);
+assert.doesNotMatch(reviewedHtml, /href="[^"]*\/experiments/);
 assert.ok(completedHtml.indexOf("Execution timeline") < completedHtml.indexOf("Invocation &amp; session"));
 
 const suggestedHtml = render(baseResponse({
@@ -279,6 +329,42 @@ assert.match(suggestedHtml, /Operator confirmation required/);
 assert.match(suggestedHtml, /Save as eval case/);
 assert.match(suggestedHtml, /Trace capture quality is partial/);
 assert.match(suggestedHtml, /Evidence gap:/);
+
+const reportHtml = render(baseResponse({
+  experimentReports: [{
+    id: "report-1",
+    experimentId: "experiment-1",
+    companyId: "company-1",
+    status: "accepted",
+    title: "Comparison report",
+    summary: "Variant A produced cleaner review evidence.",
+    objective: "Improve accepted run repeatability.",
+    sourceKind: "run_trace",
+    sourceRunId: "run-1",
+    sourceEvalCaseId: null,
+    sourceTaskId: "task-1",
+    sourceTaskKey: "INS-210",
+    sourceTaskTitle: "Extract shared RunTraceView",
+    sprintId: "sprint-1",
+    sprintKey: "INS-S006",
+    goalKey: "INS-G001",
+    winningVariantId: "variant-1",
+    winningVariantKey: "variant-a",
+    winningVariantName: "Tighter evidence pass",
+    recommendationId: "rec-1",
+    reportSha256: "aaaaaaaaaaaabbbbbbbbbbbbccccccccccccddddddddddddeeeeeeeeeeeeffffffff",
+    createdAt: "2026-06-06T21:00:00.000Z",
+    updatedAt: "2026-06-06T21:00:00.000Z",
+    href: "/companies/insight/tasks/INS-210/runs/run-1?evidence=experiment-report-report-1",
+    links: [],
+    redactionPolicy: "hiverunner.experiment_report_read.redaction.v1",
+  }],
+}));
+assert.match(reportHtml, /Experiment evidence/);
+assert.match(reportHtml, /Comparison report/);
+assert.match(reportHtml, /Variant A produced cleaner review evidence/);
+assert.match(reportHtml, /href="\/companies\/insight\/tasks\/INS-210\/runs\/run-1\?evidence=experiment-report-report-1"/);
+assert.doesNotMatch(reportHtml, /href="[^"]*\/experiments/);
 
 const failedHtml = render(baseResponse({
   run: {

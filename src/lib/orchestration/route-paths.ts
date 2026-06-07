@@ -158,6 +158,20 @@ export function buildCanonicalEvalsPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/evals");
 }
 
+export function buildCanonicalImprovePath(
+  companyCode: string,
+  params?: Record<string, string | number | boolean | null | undefined>
+): string {
+  const basePath = buildCanonicalCompanyPath(companyCode, "/improve");
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params ?? {})) {
+    if (value === null || value === undefined || value === "") continue;
+    query.set(key, String(value));
+  }
+  const queryString = query.toString();
+  return queryString ? `${basePath}?${queryString}` : basePath;
+}
+
 export function buildCanonicalEvalCasePath(companyCode: string, evalCaseId: string): string {
   return buildCanonicalCompanyPath(companyCode, `/evals/${encodeURIComponent(evalCaseId)}`);
 }

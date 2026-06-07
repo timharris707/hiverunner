@@ -3,5 +3,5 @@
 
 cd "$(dirname "$0")/.." || exit 1
 
-# Run with tsx (TypeScript executor)
-npx tsx scripts/collect-usage.ts
+# Run with the repo-pinned TypeScript executor.
+node ./scripts/run-tsx.mjs scripts/collect-usage.ts

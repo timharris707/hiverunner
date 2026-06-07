@@ -132,6 +132,60 @@ async function run() {
     assert.strictEqual(importedAgent?.openclaw_agent_id, sourceAgent.openclawAgentId ?? null);
   });
 
+  await test("import defaults agents without adapter metadata to manual instead of OpenClaw", async () => {
+    const agentId = "neutral-import-agent";
+    const req = {
+      async json() {
+        return {
+          package: {
+            _meta: { format: "hiverunner-company-package" },
+            agents: [
+              {
+                id: agentId,
+                slug: "neutral-import-agent",
+                name: "Neutral Import Agent",
+                emoji: "\ud83e\udde9",
+                role: "Fixture Agent",
+                personality: "",
+                projectId: sourceProject.id,
+                skills: [],
+              },
+            ],
+          },
+          strategy: "overwrite",
+        };
+      },
+    };
+
+    const res = await importCompanyRoute(req as never, {
+      params: Promise.resolve({ slug: sourceCompany.slug }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const payload = (await res.json()) as {
+      success: boolean;
+      results: Array<{ category: string; errors: string[] }>;
+    };
+    assert.strictEqual(payload.success, true, JSON.stringify(payload.results));
+
+    const importedAgent = db
+      .prepare(
+        `SELECT adapter_type, openclaw_agent_id
+         FROM agents
+         WHERE id = ?
+         LIMIT 1`,
+      )
+      .get(agentId) as
+      | {
+          adapter_type: string;
+          openclaw_agent_id: string | null;
+        }
+      | undefined;
+
+    assert.strictEqual(importedAgent?.adapter_type, "manual");
+    assert.strictEqual(importedAgent?.openclaw_agent_id, null);
+  });
+
   closeOrchestrationDb();
   rmSync(tempRoot, { force: true, recursive: true });
 

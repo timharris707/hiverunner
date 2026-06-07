@@ -28,7 +28,7 @@ export interface RunLivenessInput {
   now?: number;
   /** Below this, runs render as "live". Default 30s. */
   quietThresholdMs?: number;
-  /** At or above this, runs render as "stalled". Default 180s. */
+  /** At or above this, runs render as "stalled". Default 120s. */
   stalledThresholdMs?: number;
 }
 
@@ -43,7 +43,7 @@ export interface RunLivenessSnapshot {
 }
 
 const DEFAULT_QUIET_MS = 30_000;
-const DEFAULT_STALLED_MS = 180_000;
+const DEFAULT_STALLED_MS = 120_000;
 const TERMINAL_STATUSES = new Set(["succeeded", "failed", "cancelled", "timed_out"]);
 
 function parseTs(value: string | null | undefined): number | null {
@@ -122,17 +122,17 @@ export function deriveRunLiveness(input: RunLivenessInput): RunLivenessSnapshot 
     };
   }
 
-  // Past the stall threshold: if we have positive evidence the runner process
-  // is still alive on the host, hold the classification at "quiet" — the CLI
-  // is working without flushing observable signal. Only flip to "stalled" when
-  // we lack that evidence (no probe, or probe says the process is gone).
+  // Past the stall threshold, process liveness is not enough to call the run
+  // healthy. A wrapper can be alive while the operator has no durable evidence
+  // of progress, so surface that as stalled and let the watchdog/policy layer
+  // decide whether to retry, reassign, or wait.
   if (input.runnerPidAlive === true) {
     const pidSuffix = input.runnerPid ? ` (pid ${input.runnerPid})` : "";
     return {
-      liveness: "quiet",
+      liveness: "stalled",
       ageMs,
       lastEventAgeMs,
-      label: `Quiet · runner alive, no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
+      label: `Stalled · runner alive but no signal for ${formatDuration(lastEventAgeMs)}${pidSuffix}`,
     };
   }
 

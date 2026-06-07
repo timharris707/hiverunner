@@ -81,6 +81,14 @@ assert.equal(
   "/INS/evals/{caseId} should resolve to the saved eval-case route",
 );
 
+const improveRewrite = tryCanonicalRewrite("/INS/improve", new URLSearchParams("status=suggested"), origin, EDGE_ROUTE_MAPS_FALLBACK);
+assert.equal(
+  improveRewrite?.pathname,
+  "/companies/insight/improve",
+  "/INS/improve should resolve to the Improvement Queue route",
+);
+assert.equal(improveRewrite?.searchParams.get("status"), "suggested");
+
 // 4. A bare `/HIVE` is handled separately (a redirect to /HIVE/dashboard happens
 //    in proxy itself), and canonical rewrite returns the dashboard target.
 const bareRewrite = tryCanonicalRewrite("/HIVE", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);

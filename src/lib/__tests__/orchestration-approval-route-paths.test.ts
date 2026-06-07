@@ -3,6 +3,7 @@ import assert from "node:assert";
 import { createTestRunner } from "@/lib/__tests__/helpers/simple-test-runner";
 import {
   buildApprovalDetailPath,
+  buildCanonicalImprovePath,
   buildCanonicalRunTracePath,
   buildCanonicalTaskRunTracePath,
   buildRunTracePath,
@@ -46,6 +47,18 @@ async function run() {
     assert.strictEqual(
       buildCanonicalRunTracePath("INS", "run/id with spaces"),
       "/INS/runs/run%2Fid%20with%20spaces"
+    );
+  });
+
+  await test("improve links preserve contextual surface filters", () => {
+    assert.strictEqual(
+      buildCanonicalImprovePath("INS", {
+        surface: "task",
+        taskKey: "INS-251",
+        empty: "",
+        skipped: null,
+      }),
+      "/INS/improve?surface=task&taskKey=INS-251"
     );
   });
 

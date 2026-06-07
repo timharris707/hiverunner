@@ -6,7 +6,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
   useSyncExternalStore,
 } from "react";
 
@@ -56,6 +55,14 @@ function subscribeTheme(callback: () => void) {
   };
 }
 
+function subscribeSystem(callback: () => void) {
+  if (typeof window === "undefined") return () => {};
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = () => callback();
+  mq.addEventListener("change", onChange);
+  return () => mq.removeEventListener("change", onChange);
+}
+
 function getThemeSnapshot(): ThemePreference {
   return readStored();
 }
@@ -64,21 +71,25 @@ function getServerThemeSnapshot(): ThemePreference {
   return "auto";
 }
 
+function getSystemSnapshot(): ResolvedTheme {
+  return readSystem();
+}
+
+function getServerSystemSnapshot(): ResolvedTheme {
+  return "dark";
+}
+
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = useSyncExternalStore(
     subscribeTheme,
     getThemeSnapshot,
     getServerThemeSnapshot,
   );
-  const [system, setSystem] = useState<ResolvedTheme>(() => readSystem());
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = (e: MediaQueryListEvent) =>
-      setSystem(e.matches ? "dark" : "light");
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
+  const system = useSyncExternalStore(
+    subscribeSystem,
+    getSystemSnapshot,
+    getServerSystemSnapshot,
+  );
 
   // Reflect theme attribute on <html> whenever it changes.
   useEffect(() => {

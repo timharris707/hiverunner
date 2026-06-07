@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { errorResponse, handleRouteError } from "@/lib/orchestration/api";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { getHeartbeatRun } from "@/lib/orchestration/engine/engine";
+import { listExperimentReportEvidenceForRun } from "@/lib/orchestration/experiment-reports";
 import { listExecutionTranscriptEvents } from "@/lib/orchestration/service/execution-transcript";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
 import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresentation } from "@/lib/orchestration/adapters/types";
@@ -478,7 +479,9 @@ function buildHeartbeatRunResponse(
       runTable: "heartbeat_runs",
     },
     provider: providerForWire("openclaw-heartbeat", tier),
-  }));
+  }, () => ({
+    experimentReports: listExperimentReportEvidenceForRun(run.companyId, run.id, db),
+  })));
 }
 
 /* ── Execution Run Response ── */
@@ -547,9 +550,17 @@ function buildExecutionRunResponse(
   });
 
   // Resolve company
-  const companyRow = row.agent_id
-    ? db.prepare("SELECT company_id FROM agents WHERE id = ? LIMIT 1").get(row.agent_id) as { company_id: string } | undefined
-    : undefined;
+  const companyRow = db
+    .prepare(
+      `SELECT COALESCE(t.company_id, p.company_id, a.company_id) AS company_id
+       FROM execution_runs r
+       LEFT JOIN tasks t ON t.id = r.task_id
+       LEFT JOIN projects p ON p.id = t.project_id
+       LEFT JOIN agents a ON a.id = r.agent_id
+       WHERE r.id = ?
+       LIMIT 1`,
+    )
+    .get(row.id) as { company_id: string | null } | undefined;
   const memoryEvidence = companyRow?.company_id
     ? (() => {
         try {
@@ -563,6 +574,9 @@ function buildExecutionRunResponse(
         }
       })()
     : null;
+  const experimentReports = companyRow?.company_id
+    ? listExperimentReportEvidenceForRun(companyRow.company_id, row.id, db)
+    : [];
 
   const usage = safeJsonParse(row.token_usage_json);
   const workspaceRunVisibility = normalizeWorkspaceRunVisibility(usage.workspaceRunVisibility);
@@ -788,6 +802,7 @@ function buildExecutionRunResponse(
     provider: resolveProviderInfo(row.provider, effectiveTier),
   }, (trace) => ({
     evalCaseSuggestion: buildEvalCaseSuggestion(db, row, trace),
+    experimentReports,
   })));
 }
 

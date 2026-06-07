@@ -5,8 +5,9 @@ import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { type ClipboardEvent as ReactClipboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Copy, ExternalLink, Tag, Folder, Link2, Upload, RotateCcw, User, AtSign, Activity, Bot, Wrench, CheckCircle2, AlertCircle, MessageSquare, GitBranch, Clock, Mic, Plus, Play } from "lucide-react";
 import { CreateTaskModal } from "@/components/orchestration/CreateTaskModal";
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
 import { color, space, radius, type as typeScale, font } from "@/lib/ui/tokens";
-import { buildCanonicalGoalPath, buildCompanyPath } from "@/lib/orchestration/route-paths";
+import { buildCanonicalGoalPath, buildCanonicalImprovePath, buildCompanyPath } from "@/lib/orchestration/route-paths";
 
 import { CompanyErrorState } from "@/components/company/company-ui";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
@@ -1939,6 +1940,19 @@ export default function TaskDetailPage() {
                 </Link>
               </div>
             )}
+
+            <ContextualRecommendationRollup
+              surface="task"
+              contextLabel={task.key ?? task.title}
+              improveHref={buildCanonicalImprovePath(companyCode, {
+                surface: "task",
+                taskKey: task.key ?? task.id,
+              })}
+              companyKey={companyCode}
+              contextIds={{ sourceType: "task", taskKey: task.key ?? task.id, taskId: task.id }}
+              counts={emptyContextualRecommendationCounts()}
+              style={{ marginBottom: space.lg }}
+            />
 
             {executionFailureReason && (
               <div

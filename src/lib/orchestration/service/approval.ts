@@ -4,6 +4,7 @@ import { getOrchestrationDb } from "@/lib/orchestration/db";
 import { OrchestrationApiError } from "@/lib/orchestration/api";
 import { markInboxThreadRead, resolveCompanyIdBySlug } from "@/lib/orchestration/company-service";
 import { recordCompanyAuditEvent } from "@/lib/orchestration/service/audit";
+import { syncImproveApprovalDecision } from "@/lib/orchestration/service/improvement-approval-sync";
 import { moveTask } from "@/lib/orchestration/service/task";
 import type {
   OrchestrationApproval,
@@ -975,6 +976,14 @@ export function updateApprovalStatus(input: {
       decisionNote: input.decisionNote ?? null,
     },
   }, db);
+
+  syncImproveApprovalDecision({
+    approvalId: input.approvalId,
+    status: input.status,
+    decisionNote: input.decisionNote ?? null,
+    actorUserId: input.decidedByUserId ?? "operator",
+    db,
+  });
 
   // Mark related inbox events as read when the approval is resolved
   // (approved, rejected, cancelled) — keeps inbox count in sync

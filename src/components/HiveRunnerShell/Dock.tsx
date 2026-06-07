@@ -26,6 +26,7 @@ import {
   Plus,
   Settings2,
   Server,
+  ShieldCheck,
   SquarePen,
   Search,
   Sparkles,
@@ -65,6 +66,7 @@ import {
   buildCanonicalCostsPath,
   buildCanonicalActivityPath,
   buildCanonicalEvalsPath,
+  buildCanonicalImprovePath,
   buildCanonicalFilesPath,
   buildCanonicalSettingsPath,
   buildCanonicalProjectsPath,
@@ -204,6 +206,7 @@ const COMPANY_ITEMS: DockIconNavItem[] = [
   { label: "Skills", icon: Sparkles },
   { label: "Memory", icon: Brain },
   { label: "Evals", icon: Library },
+  { label: "Improve", icon: ShieldCheck },
   { label: "Hives", icon: HiveRunnerMarkIcon as LucideIcon, animatedIcon: true, iconMotion: "hive-runner-grow" },
   { label: "Costs", icon: CircleDollarSign, animatedIcon: true, iconMotion: "costs-dollar" },
   { label: "Activity", icon: Activity },
@@ -857,6 +860,8 @@ function companyItemHref(code: string, itemLabel: string): string {
       return buildCanonicalMemoryPath(code);
     case "Evals":
       return buildCanonicalEvalsPath(code);
+    case "Improve":
+      return buildCanonicalImprovePath(code);
     case "Hives":
       return buildCanonicalHivesPath(code);
     case "Runtimes":

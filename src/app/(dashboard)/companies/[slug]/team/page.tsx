@@ -7,12 +7,13 @@ import { useParams } from "next/navigation";
 import { Activity, ArchiveRestore, BriefcaseBusiness, Search, Trash2, UserPlus, Users, Wifi, WifiOff } from "lucide-react";
 import { CompanyErrorState, CompanyShell, StatCard } from "@/components/company/company-ui";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
+import { ContextualRecommendationRollup, emptyContextualRecommendationCounts } from "@/components/orchestration/ContextualRecommendationRollup";
 import { formatAge } from "@/components/orchestration/ui";
 import { agentRosterState } from "@/components/team/ScopedActiveCrewPanel";
 import { TeamRosterStateTabs, type TeamRosterFilterState } from "@/components/team/TeamRosterStateTabs";
 import { DIVISIONS, getAgentByAnyId } from "@/config/agents";
 import { deleteCompanyAgent, listCompanies, listCompanyAgents, listProjects, restoreCompanyAgent } from "@/lib/orchestration/client";
-import { buildCanonicalAgentPath, buildCanonicalNewAgentPath, buildCanonicalOrgPath } from "@/lib/orchestration/route-paths";
+import { buildCanonicalAgentPath, buildCanonicalImprovePath, buildCanonicalNewAgentPath, buildCanonicalOrgPath } from "@/lib/orchestration/route-paths";
 import type { OrchestrationAgent, OrchestrationCompany, OrchestrationProject } from "@/lib/orchestration/types";
 
 type TeamAgent = OrchestrationAgent & {
@@ -151,6 +152,16 @@ export default function CompanyTeamPage() {
         <StatCard label="Paused" value={stats.paused} accentColor="var(--warning)" />
         <StatCard label="Archived" value={stats.archived} accentColor="var(--text-muted)" />
       </section>
+
+      <ContextualRecommendationRollup
+        surface="team"
+        improveHref={buildCanonicalImprovePath(companyCode, { surface: "team" })}
+        companyKey={companyCode}
+        scope={company ? { type: "company", key: company.id } : undefined}
+        contextIds={{ sourceType: "team", scopeType: "agent" }}
+        counts={emptyContextualRecommendationCounts()}
+        style={{ marginTop: 16 }}
+      />
 
       <section className="p-0" style={{ marginTop: 16 }}>
         <div className="mb-4 flex flex-wrap items-center gap-3">

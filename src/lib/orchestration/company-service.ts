@@ -18,6 +18,7 @@ import type {
   OrchestrationGoalContractItem,
   OrchestrationGoalValidationSummary,
   OrchestrationPendingSprintPlanDraftSummary,
+  OrchestrationRunIntelligenceRollup,
   OrchestrationSprintPlanDraft,
   OrchestrationSprintPlanDraftSprint,
   OrchestrationSprintPlanDraftTask,
@@ -177,6 +178,8 @@ type GoalPlanMetrics = {
   doneSprintCount: number;
   pendingSprintCount: number;
 };
+
+type GoalRunIntelligenceMetrics = OrchestrationRunIntelligenceRollup;
 
 type CompanyProjectScopeRow = {
   id: string;
@@ -1538,7 +1541,8 @@ function completionGateFailure(
 function mapCompanyGoalRow(
   row: CompanyGoalRow,
   contractItems: OrchestrationGoalContractItem[],
-  planMetrics?: GoalPlanMetrics
+  planMetrics?: GoalPlanMetrics,
+  runIntelligence?: GoalRunIntelligenceMetrics
 ): OrchestrationCompanyGoal {
   const taskCount = Number(row.task_count ?? 0);
   const doneCount = Number(row.done_count ?? 0);
@@ -1592,6 +1596,7 @@ function mapCompanyGoalRow(
     planApprovedSprintCount: planMetrics?.approvedSprintCount,
     planDoneSprintCount: planMetrics?.doneSprintCount,
     planPendingSprintCount: planMetrics?.pendingSprintCount,
+    runIntelligence,
   };
 }
 
@@ -1674,6 +1679,134 @@ function loadGoalPlanMetrics(companyId: string, companyGoalIds: string[]): Map<s
     current.taskCount += pendingTaskCount;
     current.sprintCount += pendingSprintCount;
     metrics.set(row.goal_id, current);
+  }
+
+  return metrics;
+}
+
+function emptyGoalRunIntelligenceMetrics(): GoalRunIntelligenceMetrics {
+  return {
+    evalCaseCount: 0,
+    experimentReportCount: 0,
+    acceptedExperimentReportCount: 0,
+    acceptedImproveHandoffCount: 0,
+  };
+}
+
+function goalKindFromRow(row: CompanyGoalRow): "company" | "sprint" {
+  return row.sprint_goal_kind ?? (row.sprint_parent_id ? "sprint" : "company");
+}
+
+function loadGoalRunIntelligenceMetrics(
+  companyId: string,
+  rows: CompanyGoalRow[],
+): Map<string, GoalRunIntelligenceMetrics> {
+  const db = getOrchestrationDb();
+  const metrics = new Map<string, GoalRunIntelligenceMetrics>();
+  if (rows.length === 0) return metrics;
+
+  const statement = db.prepare(
+    `WITH scoped_sprints AS (
+       SELECT s.id
+       FROM sprints s
+       INNER JOIN projects p ON p.id = s.project_id
+       WHERE s.id = ?
+         AND p.company_id = ?
+         AND s.archived_at IS NULL
+         AND p.archived_at IS NULL
+       UNION
+       SELECT child.id
+       FROM sprints child
+       INNER JOIN projects p ON p.id = child.project_id
+       WHERE child.parent_id = ?
+         AND ? = 'company'
+         AND p.company_id = ?
+         AND child.archived_at IS NULL
+         AND p.archived_at IS NULL
+     ),
+     scoped_tasks AS (
+       SELECT t.id
+       FROM tasks t
+       INNER JOIN scoped_sprints ss ON ss.id = t.sprint_id
+       WHERE t.archived_at IS NULL
+     ),
+     scoped_runs AS (
+       SELECT r.id
+       FROM execution_runs r
+       INNER JOIN scoped_tasks st ON st.id = r.task_id
+     ),
+     scoped_eval_cases AS (
+       SELECT ec.id
+       FROM eval_cases ec
+       INNER JOIN scoped_tasks st ON st.id = ec.source_task_id
+       WHERE ec.company_id = ?
+     ),
+     scoped_reports AS (
+       SELECT DISTINCT r.id, r.status, r.recommendation_id
+       FROM experiment_comparison_reports r
+       INNER JOIN experiments e ON e.id = r.experiment_id
+       WHERE r.company_id = ?
+         AND (
+           e.source_task_id IN (SELECT id FROM scoped_tasks)
+           OR e.primary_source_run_id IN (SELECT id FROM scoped_runs)
+           OR e.primary_source_eval_case_id IN (SELECT id FROM scoped_eval_cases)
+           OR EXISTS (
+             SELECT 1 FROM experiment_sources es
+             WHERE es.experiment_id = e.id
+               AND (
+                 es.source_task_id IN (SELECT id FROM scoped_tasks)
+                 OR es.source_run_id IN (SELECT id FROM scoped_runs)
+                 OR es.source_eval_case_id IN (SELECT id FROM scoped_eval_cases)
+               )
+           )
+           OR EXISTS (
+             SELECT 1 FROM experiment_attempts ea
+             WHERE ea.experiment_id = e.id
+               AND (
+                 ea.execution_run_id IN (SELECT id FROM scoped_runs)
+                 OR ea.eval_case_id IN (SELECT id FROM scoped_eval_cases)
+               )
+           )
+           OR EXISTS (
+             SELECT 1 FROM experiment_evidence_attachments eea
+             WHERE eea.experiment_id = e.id
+               AND (
+                 eea.source_run_id IN (SELECT id FROM scoped_runs)
+                 OR eea.source_eval_case_id IN (SELECT id FROM scoped_eval_cases)
+               )
+           )
+         )
+     )
+     SELECT
+       (SELECT COUNT(*) FROM scoped_eval_cases) AS eval_case_count,
+       (SELECT COUNT(*) FROM scoped_reports) AS experiment_report_count,
+       (SELECT COUNT(*) FROM scoped_reports WHERE status = 'accepted') AS accepted_experiment_report_count,
+       (SELECT COUNT(*) FROM scoped_reports WHERE status = 'accepted' AND recommendation_id IS NOT NULL) AS accepted_improve_handoff_count`,
+  );
+
+  for (const row of rows) {
+    const kind = goalKindFromRow(row);
+    const result = statement.get(
+      row.sprint_id,
+      companyId,
+      row.sprint_id,
+      kind,
+      companyId,
+      companyId,
+      companyId,
+    ) as {
+      eval_case_count: number;
+      experiment_report_count: number;
+      accepted_experiment_report_count: number;
+      accepted_improve_handoff_count: number;
+    } | undefined;
+
+    metrics.set(row.sprint_id, {
+      evalCaseCount: Number(result?.eval_case_count ?? 0),
+      experimentReportCount: Number(result?.experiment_report_count ?? 0),
+      acceptedExperimentReportCount: Number(result?.accepted_experiment_report_count ?? 0),
+      acceptedImproveHandoffCount: Number(result?.accepted_improve_handoff_count ?? 0),
+    });
   }
 
   return metrics;
@@ -2725,9 +2858,10 @@ function getCompanyGoalBySprintId(
     .get(sprintId, companyId) as CompanyGoalRow | undefined;
 
   if (!row) return undefined;
-  const goalKind = row.sprint_goal_kind ?? (row.sprint_parent_id ? "sprint" : "company");
+  const goalKind = goalKindFromRow(row);
   const planMetrics = goalKind === "company" ? loadGoalPlanMetrics(companyId, [sprintId]).get(sprintId) : undefined;
-  return mapCompanyGoalRow(row, listGoalContractItemsForSprints([sprintId]).get(sprintId) ?? [], planMetrics);
+  const runIntelligence = loadGoalRunIntelligenceMetrics(companyId, [row]).get(sprintId) ?? emptyGoalRunIntelligenceMetrics();
+  return mapCompanyGoalRow(row, listGoalContractItemsForSprints([sprintId]).get(sprintId) ?? [], planMetrics, runIntelligence);
 }
 
 function ensureCompanyGoalProject(
@@ -3961,16 +4095,18 @@ export function listCompanyGoals(input: {
     .filter((row) => (row.sprint_goal_kind ?? (row.sprint_parent_id ? "sprint" : "company")) === "company")
     .map((row) => row.sprint_id);
   const planMetricsByGoal = loadGoalPlanMetrics(companyRow.id, companyGoalIds);
+  const runIntelligenceByGoal = loadGoalRunIntelligenceMetrics(companyRow.id, rows);
 
   const goals = rows.map((row) => {
     const planMetrics = planMetricsByGoal.get(row.sprint_id);
+    const runIntelligence = runIntelligenceByGoal.get(row.sprint_id) ?? emptyGoalRunIntelligenceMetrics();
     const taskCount = planMetrics?.taskCount ?? Number(row.task_count ?? 0);
     const doneCount = planMetrics?.doneCount ?? Number(row.done_count ?? 0);
 
     doneTasks += doneCount;
     totalTasks += taskCount;
 
-    return mapCompanyGoalRow(row, contractItemsBySprint.get(row.sprint_id) ?? [], planMetrics);
+    return mapCompanyGoalRow(row, contractItemsBySprint.get(row.sprint_id) ?? [], planMetrics, runIntelligence);
   });
 
   const summary = {

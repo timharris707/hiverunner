@@ -101,6 +101,28 @@ If stable is already running but the bookkeeping files are missing, reconcile th
 scripts/promote_to_stable.sh --reconcile-live --allow-dirty
 ```
 
+### Improvement Experiment Promotion Caveat
+
+Improvement Experiment output is comparison evidence, not a promotion request.
+An experiment report can support an Improvement recommendation, a task review
+decision, or a future approval package, but it does not deploy code, merge an
+isolated branch, change runner/model defaults, update templates, or mutate
+stable `3001` by itself.
+
+Preserve these defaults:
+
+- `snapshot` and `branch` modes are the recommended experiment modes.
+- `snapshot` results stay in copied workspace state until a human routes a
+  change through normal review.
+- `branch` results stay in the isolated branch/worktree until a human reviews,
+  commits, merges, and promotes through the standard process.
+- `live` mode is explicit governed execution against an active workspace. It is
+  never the default and must be approved with limits and rollback posture before
+  it runs.
+- Stable `3001` remains the operator/control lane. Experiment feature
+  implementation and browser proof run on dev `3010` or another isolated lane;
+  promotion to stable remains a separate operator-approved action.
+
 ## Rollback Flow
 
 `scripts/rollback_stable.sh` rebuilds the target commit in a temporary git worktree and redeploys stable from that build. This keeps the active dev checkout untouched.

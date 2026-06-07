@@ -1,7 +1,14 @@
 import { createHash, randomUUID } from "crypto";
 import type Database from "better-sqlite3";
 import { getOrchestrationDb } from "@/lib/orchestration/db";
+import { listExperimentReportEvidenceForEvalCase } from "@/lib/orchestration/experiment-reports";
 import { recordTemplateGeneratedWork } from "@/lib/orchestration/template-persistence";
+import type { OrchestrationExperimentReportEvidence } from "@/lib/orchestration/types";
+import {
+  findRunTraceCredentialLeak,
+  RUN_TRACE_REDACTED_EXPORT_SCHEMA,
+  RUN_TRACE_REDACTION_POLICY,
+} from "@/lib/orchestration/run-trace";
 import type {
   RunTraceAnnotationSnapshot,
   RunTraceCaptureQuality,
@@ -9,16 +16,9 @@ import type {
   RunTraceRedactedExport,
 } from "@/lib/orchestration/run-trace";
 
-const RUN_TRACE_REDACTED_EXPORT_SCHEMA = "hiverunner.run_trace_redacted_export.v1";
-const RUN_TRACE_REDACTION_POLICY = "hiverunner.run_trace_redaction.v1";
-
-const CREDENTIAL_PATTERNS: RegExp[] = [
-  /Bearer\s+[A-Za-z0-9._~+/=-]{10,}/i,
-  /\bsk-(?:proj-|live-|test-)?[A-Za-z0-9_-]{16,}\b/i,
-  /\bgithub_pat_[A-Za-z0-9_]{20,}\b/i,
-  /\bAKIA[0-9A-Z]{16}\b/,
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
-];
+// Re-exported from the Run Trace module so eval-case callers keep their existing
+// import surface while the constants stay defined in one place.
+export { RUN_TRACE_REDACTED_EXPORT_SCHEMA, RUN_TRACE_REDACTION_POLICY };
 
 export type EvalCaseReviewOutcome = "accepted" | "returned" | "rejected" | "blocked";
 
@@ -175,6 +175,7 @@ export type EvalCaseRecord = {
   createdByAgentId: string | null;
   createdByUserId: string | null;
   createdAt: string;
+  experimentReports?: OrchestrationExperimentReportEvidence[];
 };
 
 export type EvalCaseLibraryFilters = {
@@ -261,17 +262,15 @@ function snapshotHash(serialized: string): string {
   return createHash("sha256").update(serialized).digest("hex");
 }
 
-function assertRedactedSnapshot(snapshot: RunTraceRedactedExport, serialized: string): void {
+export function assertRedactedSnapshot(snapshot: RunTraceRedactedExport, serialized: string): void {
   if (snapshot.schema !== RUN_TRACE_REDACTED_EXPORT_SCHEMA) {
     throw new Error("Eval cases must store the redacted Run Trace export schema");
   }
   if (snapshot.redaction?.policy !== RUN_TRACE_REDACTION_POLICY) {
     throw new Error("Eval cases must use the Run Trace redaction policy");
   }
-  for (const pattern of CREDENTIAL_PATTERNS) {
-    if (pattern.test(serialized)) {
-      throw new Error("Eval case snapshot contains an unredacted credential-like value");
-    }
+  if (findRunTraceCredentialLeak(serialized)) {
+    throw new Error("Eval case snapshot contains an unredacted credential-like value");
   }
 }
 
@@ -339,7 +338,18 @@ function mapEvalCaseRow(row: EvalCaseRow): EvalCaseRecord {
     createdByAgentId: row.created_by_agent_id,
     createdByUserId: row.created_by_user_id,
     createdAt: row.created_at,
+    experimentReports: [],
   };
+}
+
+function attachExperimentReportsToEvalCases(
+  cases: EvalCaseRecord[],
+  db: Database.Database,
+): EvalCaseRecord[] {
+  return cases.map((item) => ({
+    ...item,
+    experimentReports: listExperimentReportEvidenceForEvalCase(item.companyId, item.id, db),
+  }));
 }
 
 function templateLabelFromContext(context: Record<string, unknown>): { value: string; label: string } | null {
@@ -706,8 +716,9 @@ export function listEvalCases(
     .prepare(`${evalCaseLibrarySelectSql()} WHERE ec.company_id = ? ORDER BY ec.created_at DESC, ec.id ASC LIMIT 1000`)
     .all(companyId) as EvalCaseLibraryRow[];
 
+  const cases = attachExperimentReportsToEvalCases(rows.map(mapEvalCaseRow), db);
   return {
-    cases: rows.map(mapEvalCaseRow),
+    cases,
     total,
     filters: sanitizedFilters,
     facets: buildFacets(facetRows.map(mapEvalCaseRow)),
