@@ -196,6 +196,98 @@ async function run() {
     nextUrl: new URL(`http://localhost/api/orchestration/engine/runs/${secretRunId}/events`),
   } as never;
 
+  let suggestionFixtureCounter = 0;
+  function createSuggestionFixture(options: {
+    label: string;
+    taskStatus: "done" | "in-progress" | "blocked" | "review";
+    runStatus?: "completed" | "failed";
+    reviewToStatus?: "done" | "in_progress" | "to-do" | "blocked";
+  }) {
+    suggestionFixtureCounter += 1;
+    const sourceTask = createTask({
+      projectId: project.id,
+      title: `Eval suggestion ${options.label}`,
+      description: "Eval suggestion fixture.",
+      priority: "P2",
+      type: "feature",
+      status: options.taskStatus,
+      assignee: agent.id,
+      labels: [],
+      createdBy: "test",
+    }).task;
+    const sourceRunId = `run-events-suggestion-${options.label}-${stamp}-${suggestionFixtureCounter}`;
+    const fixtureStartedAt = `2026-06-06T22:${String(suggestionFixtureCounter).padStart(2, "0")}:00.000Z`;
+    const fixtureCompletedAt = `2026-06-06T22:${String(suggestionFixtureCounter).padStart(2, "0")}:30.000Z`;
+    db.prepare(
+      `INSERT INTO execution_runs
+         (id, task_id, agent_id, provider, status, started_at, completed_at, token_usage_json,
+          error_message, metadata_json, created_at, updated_at)
+       VALUES (?, ?, ?, 'codex', ?, ?, ?, ?, ?, '{}', ?, ?)`,
+    ).run(
+      sourceRunId,
+      sourceTask.id,
+      agent.id,
+      options.runStatus ?? "completed",
+      fixtureStartedAt,
+      fixtureCompletedAt,
+      JSON.stringify({
+        inputTokens: 80,
+        outputTokens: 40,
+        totalCostUsd: 0.04,
+        workspaceRunVisibility: {
+          schema: "hiverunner.workspace_run_visibility.v1",
+          totals: { trackedRoots: 1, changedDuringRunCount: 1 },
+        },
+      }),
+      options.runStatus === "failed" ? "Reviewer run failed after status evidence." : null,
+      fixtureStartedAt,
+      fixtureCompletedAt,
+    );
+    if (options.reviewToStatus) {
+      db.prepare(
+        `INSERT INTO task_events
+           (id, project_id, task_id, agent_id, event_type, from_status, to_status, metadata_json, created_at)
+         VALUES (?, ?, ?, ?, 'task.status_changed', 'review', ?, ?, ?)`,
+      ).run(
+        `run-events-review-${sourceRunId}`,
+        project.id,
+        sourceTask.id,
+        agent.id,
+        options.reviewToStatus,
+        JSON.stringify({ source: "engine_action", runId: sourceRunId }),
+        fixtureCompletedAt,
+      );
+    }
+    return {
+      runId: sourceRunId,
+      request: {
+        nextUrl: new URL(`http://localhost/api/orchestration/engine/runs/${sourceRunId}/events`),
+      } as never,
+    };
+  }
+
+  const acceptedSuggestion = createSuggestionFixture({
+    label: "accepted",
+    taskStatus: "done",
+    reviewToStatus: "done",
+  });
+  const returnedSuggestion = createSuggestionFixture({
+    label: "returned",
+    taskStatus: "in-progress",
+    reviewToStatus: "in_progress",
+  });
+  const blockedSuggestion = createSuggestionFixture({
+    label: "blocked",
+    taskStatus: "blocked",
+    reviewToStatus: "blocked",
+  });
+  const failedSuggestion = createSuggestionFixture({
+    label: "failed",
+    taskStatus: "done",
+    runStatus: "failed",
+    reviewToStatus: "done",
+  });
+
   await test("GET omits memory diagnostics by default", async () => {
     const res = await getEngineRunEventsRoute(defaultRequest, {
       params: Promise.resolve({ runId }),
@@ -232,6 +324,56 @@ async function run() {
     assert.strictEqual(payload.traceExport?.annotations?.state, "deferred");
     assert.match(payload.traceExport?.annotations?.decision?.reason ?? "", /clean run-scoped persistence\/API path/);
     assert.ok(payload.traceExport?.summary?.copyText?.includes(`Run: ${runId}`));
+  });
+
+  await test("GET suggests accepted reviewed traces with operator confirmation gates", async () => {
+    const res = await getEngineRunEventsRoute(acceptedSuggestion.request, {
+      params: Promise.resolve({ runId: acceptedSuggestion.runId }),
+    });
+
+    assert.strictEqual(res.status, 200);
+    const payload = await res.json() as {
+      task?: { status?: string | null };
+      evalCaseSuggestion?: {
+        outcome?: string;
+        requiresOperatorConfirmation?: boolean;
+        requiresLowCaptureConfirmation?: boolean;
+        defaultRationale?: string;
+      } | null;
+    };
+
+    assert.strictEqual(payload.task?.status, "done");
+    assert.strictEqual(payload.evalCaseSuggestion?.outcome, "accepted");
+    assert.strictEqual(payload.evalCaseSuggestion?.requiresOperatorConfirmation, true);
+    assert.strictEqual(payload.evalCaseSuggestion?.requiresLowCaptureConfirmation, true);
+    assert.match(payload.evalCaseSuggestion?.defaultRationale ?? "", /Accepted after review/);
+  });
+
+  await test("GET suggests returned reviewed traces but not blocked or failed traces", async () => {
+    const returnedRes = await getEngineRunEventsRoute(returnedSuggestion.request, {
+      params: Promise.resolve({ runId: returnedSuggestion.runId }),
+    });
+    const blockedRes = await getEngineRunEventsRoute(blockedSuggestion.request, {
+      params: Promise.resolve({ runId: blockedSuggestion.runId }),
+    });
+    const failedRes = await getEngineRunEventsRoute(failedSuggestion.request, {
+      params: Promise.resolve({ runId: failedSuggestion.runId }),
+    });
+
+    assert.strictEqual(returnedRes.status, 200);
+    assert.strictEqual(blockedRes.status, 200);
+    assert.strictEqual(failedRes.status, 200);
+
+    const returnedPayload = await returnedRes.json() as {
+      evalCaseSuggestion?: { outcome?: string; requiresOperatorConfirmation?: boolean } | null;
+    };
+    const blockedPayload = await blockedRes.json() as { evalCaseSuggestion?: unknown };
+    const failedPayload = await failedRes.json() as { evalCaseSuggestion?: unknown };
+
+    assert.strictEqual(returnedPayload.evalCaseSuggestion?.outcome, "returned");
+    assert.strictEqual(returnedPayload.evalCaseSuggestion?.requiresOperatorConfirmation, true);
+    assert.strictEqual(blockedPayload.evalCaseSuggestion, null);
+    assert.strictEqual(failedPayload.evalCaseSuggestion, null);
   });
 
   await test("GET includes memory diagnostics when explicitly requested", async () => {

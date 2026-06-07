@@ -11,6 +11,12 @@ import type {
   OrchestrationCompanyGoal,
   OrchestrationCompanyInboxEvent,
   OrchestrationCompanyInboxTask,
+  OrchestrationEvalCase,
+  OrchestrationEvalLibraryFacet,
+  OrchestrationEvalLibraryFacets,
+  OrchestrationEvalLibraryFilters,
+  OrchestrationEvalLibraryResult,
+  OrchestrationEvalReviewOutcome,
   OrchestrationRuntime,
   OrchestrationRuntimeCliUpdateResult,
   OrchestrationRuntimeDependencyReadiness,
@@ -1269,6 +1275,106 @@ function normalizeTask(raw: JsonRecord): OrchestrationTask {
   };
 }
 
+function normalizeEvalStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item).trim()).filter(Boolean)
+    : [];
+}
+
+function normalizeEvalCase(raw: JsonRecord): OrchestrationEvalCase {
+  const sourceProject = jsonRecord(raw.sourceProject);
+  const sourceTask = jsonRecord(raw.sourceTask);
+  const sourceRun = jsonRecord(raw.sourceRun);
+  const sourceSprint = jsonRecord(raw.sourceSprint);
+  const sourceGoal = jsonRecord(raw.sourceGoal);
+  const review = jsonRecord(raw.review);
+  return {
+    id: String(raw.id ?? ""),
+    companyId: String(raw.companyId ?? raw.company_id ?? ""),
+    projectId: raw.projectId === null || raw.project_id === null
+      ? null
+      : raw.projectId ? String(raw.projectId) : raw.project_id ? String(raw.project_id) : null,
+    sourceProject: {
+      id: sourceProject.id === null ? null : sourceProject.id ? String(sourceProject.id) : null,
+      slug: sourceProject.slug === null ? null : sourceProject.slug ? String(sourceProject.slug) : null,
+      name: sourceProject.name === null ? null : sourceProject.name ? String(sourceProject.name) : null,
+      color: sourceProject.color === null ? null : sourceProject.color ? String(sourceProject.color) : null,
+    },
+    sourceTask: {
+      id: sourceTask.id === null ? null : sourceTask.id ? String(sourceTask.id) : null,
+      key: String(sourceTask.key ?? ""),
+      title: String(sourceTask.title ?? "Untitled task"),
+      type: sourceTask.type === null ? null : sourceTask.type ? String(sourceTask.type) : null,
+      tags: normalizeEvalStringArray(sourceTask.tags),
+    },
+    sourceRun: {
+      id: String(sourceRun.id ?? ""),
+      traceRoute: String(sourceRun.traceRoute ?? sourceRun.trace_route ?? ""),
+      executionEngine:
+        sourceRun.executionEngine === "hiverunner" ||
+        sourceRun.executionEngine === "symphony" ||
+        sourceRun.executionEngine === "manual"
+          ? sourceRun.executionEngine
+          : null,
+      runnerProvider: sourceRun.runnerProvider === null ? null : sourceRun.runnerProvider ? String(sourceRun.runnerProvider) : null,
+      providerId: sourceRun.providerId === null ? null : sourceRun.providerId ? String(sourceRun.providerId) : null,
+      runnerModel: sourceRun.runnerModel === null ? null : sourceRun.runnerModel ? String(sourceRun.runnerModel) : null,
+      agentId: sourceRun.agentId === null ? null : sourceRun.agentId ? String(sourceRun.agentId) : null,
+      agentName: sourceRun.agentName === null ? null : sourceRun.agentName ? String(sourceRun.agentName) : null,
+    },
+    sourceSprint: {
+      id: sourceSprint.id === null ? null : sourceSprint.id ? String(sourceSprint.id) : null,
+      key: sourceSprint.key === null ? null : sourceSprint.key ? String(sourceSprint.key) : null,
+    },
+    sourceGoal: {
+      id: sourceGoal.id === null ? null : sourceGoal.id ? String(sourceGoal.id) : null,
+      key: sourceGoal.key === null ? null : sourceGoal.key ? String(sourceGoal.key) : null,
+    },
+    templateContext: jsonRecord(raw.templateContext),
+    review: {
+      outcome: String(review.outcome ?? "accepted") as OrchestrationEvalReviewOutcome,
+      rationale: String(review.rationale ?? ""),
+      notes: review.notes === null ? null : review.notes ? String(review.notes) : null,
+      reviewerAgentId: review.reviewerAgentId === null ? null : review.reviewerAgentId ? String(review.reviewerAgentId) : null,
+      reviewerName: review.reviewerName === null ? null : review.reviewerName ? String(review.reviewerName) : null,
+      reviewedAt: review.reviewedAt === null ? null : review.reviewedAt ? String(review.reviewedAt) : null,
+    },
+    captureQuality: String(raw.captureQuality ?? "minimal") as OrchestrationEvalCase["captureQuality"],
+    evidenceGaps: Array.isArray(raw.evidenceGaps) ? raw.evidenceGaps : [],
+    snapshotSha256: String(raw.snapshotSha256 ?? ""),
+    version: Number(raw.version ?? 1),
+    parentEvalCaseId: raw.parentEvalCaseId === null ? null : raw.parentEvalCaseId ? String(raw.parentEvalCaseId) : null,
+    idempotencyKey: raw.idempotencyKey === null ? null : raw.idempotencyKey ? String(raw.idempotencyKey) : null,
+    createdByAgentId: raw.createdByAgentId === null ? null : raw.createdByAgentId ? String(raw.createdByAgentId) : null,
+    createdByUserId: raw.createdByUserId === null ? null : raw.createdByUserId ? String(raw.createdByUserId) : null,
+    createdAt: String(raw.createdAt ?? raw.created_at ?? new Date().toISOString()),
+  };
+}
+
+function normalizeEvalFacet(raw: JsonRecord): OrchestrationEvalLibraryFacet {
+  return {
+    value: String(raw.value ?? ""),
+    label: String(raw.label ?? raw.value ?? ""),
+    count: Number(raw.count ?? 0),
+  };
+}
+
+function normalizeEvalFacets(raw: unknown): OrchestrationEvalLibraryFacets {
+  const facets = jsonRecord(raw);
+  const list = (key: keyof OrchestrationEvalLibraryFacets) =>
+    Array.isArray(facets[key]) ? (facets[key] as unknown[]).map((item) => normalizeEvalFacet(jsonRecord(item))) : [];
+  return {
+    projects: list("projects"),
+    taskTypes: list("taskTypes"),
+    templates: list("templates"),
+    agents: list("agents"),
+    runners: list("runners"),
+    models: list("models"),
+    reviewOutcomes: list("reviewOutcomes"),
+    tags: list("tags"),
+  };
+}
+
 function normalizeTaskDetailSummary(raw: JsonRecord) {
   const dependencies = normalizeTaskDependencies(raw.dependencies);
   const waitingOn = normalizeTaskDependencies(raw.waitingOn);
@@ -2295,6 +2401,7 @@ export async function listActivityFeed(input?: {
       message: String(raw.message ?? "Activity updated"),
       agentId: raw.agentId ? String(raw.agentId) : undefined,
       agentName: raw.agentName ? String(raw.agentName) : undefined,
+      metadata: raw.metadata ? jsonRecord(raw.metadata) : undefined,
       timestamp: String(raw.timestamp ?? new Date().toISOString()),
     })),
     page: {
@@ -3143,6 +3250,39 @@ export async function listTasks(input?: {
   const url = `/api/orchestration/tasks${query ? `?${query}` : ""}`;
   const data = await fetchJsonDedupe<{ tasks: JsonRecord[] }>(url);
   return (data?.tasks ?? []).map(normalizeTask);
+}
+
+export async function listCompanyEvalCases(
+  companySlug: string,
+  input?: OrchestrationEvalLibraryFilters,
+): Promise<OrchestrationEvalLibraryResult> {
+  const params = new URLSearchParams();
+  if (input?.projectId) params.set("projectId", input.projectId);
+  if (input?.taskType) params.set("taskType", input.taskType);
+  if (input?.template) params.set("template", input.template);
+  if (input?.agent) params.set("agent", input.agent);
+  if (input?.runner) params.set("runner", input.runner);
+  if (input?.model) params.set("model", input.model);
+  if (input?.reviewOutcome) params.set("reviewOutcome", input.reviewOutcome);
+  if (input?.tag) params.set("tag", input.tag);
+  if (input?.dateFrom) params.set("dateFrom", input.dateFrom);
+  if (input?.dateTo) params.set("dateTo", input.dateTo);
+  if (typeof input?.limit === "number") params.set("limit", String(input.limit));
+
+  const query = params.toString();
+  const data = await fetchJson<{
+    cases?: JsonRecord[];
+    total?: number;
+    filters?: JsonRecord;
+    facets?: unknown;
+  }>(`/api/orchestration/companies/${encodeURIComponent(companySlug)}/evals${query ? `?${query}` : ""}`);
+
+  return {
+    cases: (data?.cases ?? []).map(normalizeEvalCase),
+    total: Number(data?.total ?? 0),
+    filters: jsonRecord(data?.filters) as OrchestrationEvalLibraryFilters,
+    facets: normalizeEvalFacets(data?.facets),
+  };
 }
 
 export async function getTask(taskId: string): Promise<OrchestrationTask | null> {

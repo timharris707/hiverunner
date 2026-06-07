@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Goal,
   Inbox,
+  Library,
   ListChecks,
   Logs,
   Pause,
@@ -62,6 +63,7 @@ import {
   buildCanonicalRuntimesPath,
   buildCanonicalCostsPath,
   buildCanonicalActivityPath,
+  buildCanonicalEvalsPath,
   buildCanonicalFilesPath,
   buildCanonicalSettingsPath,
   buildCanonicalProjectsPath,
@@ -199,6 +201,7 @@ const COMPANY_ITEMS: DockIconNavItem[] = [
   { label: "Overseer", icon: Bot },
   { label: "Skills", icon: Sparkles },
   { label: "Memory", icon: Brain },
+  { label: "Evals", icon: Library },
   { label: "Hives", icon: HiveRunnerMarkIcon as LucideIcon, animatedIcon: true, iconMotion: "hive-runner-grow" },
   { label: "Costs", icon: CircleDollarSign, animatedIcon: true, iconMotion: "costs-dollar" },
   { label: "Activity", icon: Activity },
@@ -848,6 +851,8 @@ function companyItemHref(code: string, itemLabel: string): string {
       return buildCanonicalSkillsPath(code);
     case "Memory":
       return buildCanonicalMemoryPath(code);
+    case "Evals":
+      return buildCanonicalEvalsPath(code);
     case "Hives":
       return buildCanonicalHivesPath(code);
     case "Runtimes":

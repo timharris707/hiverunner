@@ -19,7 +19,7 @@ const APP_ROOT_PREFIXES = new Set([
 
 const COMPANY_SUB_PATHS = new Set([
   "dashboard", "inbox", "overseer", "team", "org", "skills", "costs",
-  "activity", "files", "settings", "projects", "goals", "agents", "routines", "tasks", "runs", "approvals", "runtimes", "runtime-inventory", "hives",
+  "activity", "evals", "files", "settings", "projects", "goals", "agents", "routines", "tasks", "runs", "approvals", "runtimes", "runtime-inventory", "hives",
   "export", "import", "manage-projects", "memory",
 ]);
 

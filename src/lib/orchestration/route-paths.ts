@@ -154,6 +154,14 @@ export function buildCanonicalActivityPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/activity");
 }
 
+export function buildCanonicalEvalsPath(companyCode: string): string {
+  return buildCanonicalCompanyPath(companyCode, "/evals");
+}
+
+export function buildCanonicalEvalCasePath(companyCode: string, evalCaseId: string): string {
+  return buildCanonicalCompanyPath(companyCode, `/evals/${encodeURIComponent(evalCaseId)}`);
+}
+
 export function buildCanonicalFilesPath(companyCode: string): string {
   return buildCanonicalCompanyPath(companyCode, "/files");
 }

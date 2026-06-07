@@ -3378,6 +3378,96 @@ const MIGRATIONS: Migration[] = [
         updated_at = excluded.updated_at;
     `,
   },
+  {
+    version: 115,
+    name: "eval_case_persistence",
+    sql: `
+      CREATE TABLE IF NOT EXISTS eval_cases (
+        id                        TEXT PRIMARY KEY,
+        company_id                TEXT NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+        project_id                TEXT REFERENCES projects(id) ON DELETE SET NULL,
+        source_task_id            TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+        source_task_key           TEXT NOT NULL,
+        source_task_title         TEXT NOT NULL,
+        source_task_type          TEXT,
+        source_run_id             TEXT NOT NULL,
+        trace_route               TEXT NOT NULL,
+        source_sprint_id          TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+        source_sprint_key         TEXT,
+        source_goal_id            TEXT REFERENCES sprints(id) ON DELETE SET NULL,
+        source_goal_key           TEXT,
+        template_context_json     TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(template_context_json)),
+        review_outcome            TEXT NOT NULL CHECK (review_outcome IN ('accepted','returned','rejected','blocked')),
+        reviewer_rationale        TEXT NOT NULL CHECK (length(trim(reviewer_rationale)) > 0),
+        reviewer_notes            TEXT,
+        reviewer_agent_id         TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        reviewer_name             TEXT,
+        reviewed_at               TEXT,
+        execution_engine          TEXT CHECK (execution_engine IS NULL OR execution_engine IN ('hiverunner','symphony','manual')),
+        runner_provider           TEXT,
+        provider_id               TEXT,
+        runner_model              TEXT,
+        runner_agent_id           TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        runner_agent_name         TEXT,
+        capture_quality           TEXT NOT NULL CHECK (capture_quality IN ('complete','partial','minimal','failed')),
+        evidence_gaps_json        TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(evidence_gaps_json)),
+        annotation_snapshot_json  TEXT NOT NULL DEFAULT '{"schema":"hiverunner.run_trace_annotations.v1","state":"deferred","annotations":[]}' CHECK (json_valid(annotation_snapshot_json)),
+        redacted_snapshot_schema  TEXT NOT NULL DEFAULT 'hiverunner.run_trace_redacted_export.v1'
+                                  CHECK (redacted_snapshot_schema = 'hiverunner.run_trace_redacted_export.v1'),
+        redaction_policy          TEXT NOT NULL DEFAULT 'hiverunner.run_trace_redaction.v1',
+        redaction_summary_json    TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(redaction_summary_json)),
+        redacted_snapshot_json    TEXT NOT NULL
+                                  CHECK (
+                                    json_valid(redacted_snapshot_json)
+                                    AND json_extract(redacted_snapshot_json, '$.schema') = 'hiverunner.run_trace_redacted_export.v1'
+                                  ),
+        snapshot_sha256           TEXT NOT NULL CHECK (length(snapshot_sha256) = 64),
+        version                   INTEGER NOT NULL DEFAULT 1 CHECK (version >= 1),
+        parent_eval_case_id       TEXT REFERENCES eval_cases(id) ON DELETE SET NULL,
+        idempotency_key           TEXT,
+        created_by_agent_id       TEXT REFERENCES agents(id) ON DELETE SET NULL,
+        created_by_user_id        TEXT,
+        created_at                TEXT NOT NULL DEFAULT (${NOW_SQL})
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_company_created
+        ON eval_cases(company_id, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_project_created
+        ON eval_cases(company_id, project_id, created_at DESC)
+        WHERE project_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_source_task
+        ON eval_cases(company_id, source_task_id, created_at DESC)
+        WHERE source_task_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_source_run
+        ON eval_cases(company_id, source_run_id);
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_review_outcome
+        ON eval_cases(company_id, review_outcome, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_runner
+        ON eval_cases(company_id, runner_provider, runner_model, created_at DESC);
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_agent
+        ON eval_cases(company_id, runner_agent_id, created_at DESC)
+        WHERE runner_agent_id IS NOT NULL;
+
+      CREATE INDEX IF NOT EXISTS idx_eval_cases_capture_quality
+        ON eval_cases(company_id, capture_quality, created_at DESC);
+
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_eval_cases_company_idempotency_key
+        ON eval_cases(company_id, idempotency_key)
+        WHERE idempotency_key IS NOT NULL;
+
+      CREATE TRIGGER IF NOT EXISTS eval_cases_prevent_update
+      BEFORE UPDATE ON eval_cases
+      BEGIN
+        SELECT RAISE(ABORT, 'eval_cases are immutable; create a new version instead');
+      END;
+    `,
+  },
 ];
 
 let dbInstance: Database.Database | null = null;

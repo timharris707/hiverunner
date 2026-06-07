@@ -36,7 +36,7 @@ export function listActivityFeed(input: {
   const params: unknown[] = [];
   const taskWhereParts = [
     "p.archived_at IS NULL",
-    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned','task.comment_added','task.read_marked')",
+    "te.event_type IN ('task.status_changed','task.assigned','task.unassigned','task.comment_added','task.read_marked','task.eval_case_saved')",
   ];
   const sprintWhereParts = ["p.archived_at IS NULL"];
 
@@ -223,6 +223,7 @@ export function listActivityFeed(input: {
       const agentLabel = row.agent_name ?? assigneeName ?? "Someone";
 
       const commentSource = typeof metadata.source === "string" ? metadata.source : undefined;
+      const reviewOutcome = typeof metadata.reviewOutcome === "string" ? metadata.reviewOutcome : undefined;
       const message =
         eventType === "task.read_marked"
           ? `Board issue read marked ${taskTitle ?? "a task"}`
@@ -230,6 +231,8 @@ export function listActivityFeed(input: {
             ? commentSource === "voice"
               ? `${agentLabel} logged a voice note on ${taskTitle ?? "a task"}`
               : `${agentLabel} commented on ${taskTitle ?? "a task"}`
+            : eventType === "task.eval_case_saved"
+              ? `Eval case saved for ${row.task_key ?? taskTitle ?? "a task"}${reviewOutcome ? ` (${reviewOutcome})` : ""}`
             : eventType === "task.status_changed" && row.from_status && row.to_status
             ? `${taskTitle ?? "Task"} moved ${toApiStatus(row.from_status)} -> ${toApiStatus(row.to_status)}`
             : eventType === "task.assigned"
@@ -261,6 +264,7 @@ export function listActivityFeed(input: {
         message,
         agentId: row.agent_id ?? undefined,
         agentName: eventType === "task.read_marked" ? "Board" : (row.agent_name ?? assigneeName),
+        metadata,
         timestamp: row.created_at,
       } satisfies OrchestrationActivityEvent;
     }),

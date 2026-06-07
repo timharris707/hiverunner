@@ -281,6 +281,101 @@ export interface OrchestrationTaskRunSummary {
   };
 }
 
+export type OrchestrationEvalReviewOutcome = "accepted" | "returned" | "rejected" | "blocked";
+
+export interface OrchestrationEvalCase {
+  id: string;
+  companyId: string;
+  projectId: string | null;
+  sourceProject: {
+    id: string | null;
+    slug: string | null;
+    name: string | null;
+    color: string | null;
+  };
+  sourceTask: {
+    id: string | null;
+    key: string;
+    title: string;
+    type: string | null;
+    tags: string[];
+  };
+  sourceRun: {
+    id: string;
+    traceRoute: string;
+    executionEngine: TaskExecutionEngine | null;
+    runnerProvider: string | null;
+    providerId: string | null;
+    runnerModel: string | null;
+    agentId: string | null;
+    agentName: string | null;
+  };
+  sourceSprint: {
+    id: string | null;
+    key: string | null;
+  };
+  sourceGoal: {
+    id: string | null;
+    key: string | null;
+  };
+  templateContext: Record<string, unknown>;
+  review: {
+    outcome: OrchestrationEvalReviewOutcome;
+    rationale: string;
+    notes: string | null;
+    reviewerAgentId: string | null;
+    reviewerName: string | null;
+    reviewedAt: string | null;
+  };
+  captureQuality: "complete" | "partial" | "minimal" | "failed";
+  evidenceGaps: unknown[];
+  snapshotSha256: string;
+  version: number;
+  parentEvalCaseId: string | null;
+  idempotencyKey: string | null;
+  createdByAgentId: string | null;
+  createdByUserId: string | null;
+  createdAt: string;
+}
+
+export interface OrchestrationEvalLibraryFacet {
+  value: string;
+  label: string;
+  count: number;
+}
+
+export interface OrchestrationEvalLibraryFacets {
+  projects: OrchestrationEvalLibraryFacet[];
+  taskTypes: OrchestrationEvalLibraryFacet[];
+  templates: OrchestrationEvalLibraryFacet[];
+  agents: OrchestrationEvalLibraryFacet[];
+  runners: OrchestrationEvalLibraryFacet[];
+  models: OrchestrationEvalLibraryFacet[];
+  reviewOutcomes: OrchestrationEvalLibraryFacet[];
+  tags: OrchestrationEvalLibraryFacet[];
+}
+
+export interface OrchestrationEvalLibraryFilters {
+  projectId?: string;
+  taskType?: string;
+  template?: string;
+  agent?: string;
+  runner?: string;
+  model?: string;
+  reviewOutcome?: OrchestrationEvalReviewOutcome;
+  tag?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+}
+
+export interface OrchestrationEvalLibraryResult {
+  cases: OrchestrationEvalCase[];
+  total: number;
+  filters: OrchestrationEvalLibraryFilters;
+  facets: OrchestrationEvalLibraryFacets;
+}
+
 export interface OrchestrationTaskDetail {
   task: OrchestrationTaskDetailSummary;
   parentTask?: OrchestrationTaskDetailSummary;
@@ -385,6 +480,7 @@ export interface OrchestrationCompanyInboxEvent {
     | "task.status_changed"
     | "task.assigned"
     | "task.unassigned"
+    | "task.eval_case_saved"
     | "task.comment_added"
     | "goal.sprint_plan_proposed"
     | "goal.sprint_plan_approved"
@@ -838,6 +934,7 @@ export interface OrchestrationActivityEvent {
     | "task.status_changed"
     | "task.assigned"
     | "task.unassigned"
+    | "task.eval_case_saved"
     | "task.comment_added"
     | "task.read_marked"
     | "sprint.created"
@@ -859,6 +956,7 @@ export interface OrchestrationActivityEvent {
   message: string;
   agentId?: string;
   agentName?: string;
+  metadata?: Record<string, unknown>;
   timestamp: string;
 }
 

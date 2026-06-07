@@ -254,7 +254,31 @@ assert.match(completedHtml, /voice-session or task-comment scoped/);
 assert.match(completedHtml, /Raw trace metadata/);
 assert.match(completedHtml, /Workspace changes/);
 assert.match(completedHtml, /Runtime skills/);
+assert.doesNotMatch(completedHtml, /Eval capture suggestion/);
 assert.ok(completedHtml.indexOf("Execution timeline") < completedHtml.indexOf("Invocation &amp; session"));
+
+const suggestedHtml = render(baseResponse({
+  evalCaseSuggestion: {
+    schema: "hiverunner.eval_case_suggestion.v1",
+    outcome: "accepted",
+    source: "review_status_event",
+    title: "Accepted run suggested for eval capture",
+    detail: "A reviewer accepted this run from the review lane. Save only after operator confirmation.",
+    defaultRationale: "Accepted after review: reusable trace evidence.",
+    reviewerAgentId: "reviewer-1",
+    reviewerName: "Gator",
+    reviewedAt: "2026-06-06T21:00:00.000Z",
+    requiresOperatorConfirmation: true,
+    requiresLowCaptureConfirmation: true,
+    requiresFailedTraceConfirmation: false,
+    warnings: ["Trace capture quality is partial; saving requires low-capture confirmation."],
+  },
+}));
+assert.match(suggestedHtml, /Accepted run suggested for eval capture/);
+assert.match(suggestedHtml, /Operator confirmation required/);
+assert.match(suggestedHtml, /Save as eval case/);
+assert.match(suggestedHtml, /Trace capture quality is partial/);
+assert.match(suggestedHtml, /Evidence gap:/);
 
 const failedHtml = render(baseResponse({
   run: {

@@ -8,7 +8,12 @@ import { ObservabilityTier, PROVIDER_PRODUCT_DESCRIPTORS, resolveProviderPresent
 import { getAdapter } from "@/lib/orchestration/adapters/registry";
 import { listSkillEffectivenessForRun } from "@/lib/orchestration/skill-effectiveness";
 import { getMemoryInjectionEvidenceForRun } from "@/lib/orchestration/memory-vault";
-import { buildRedactedRunTraceExport, buildRunTraceViewModel, type RunTraceEvidenceInput } from "@/lib/orchestration/run-trace";
+import {
+  buildRedactedRunTraceExport,
+  buildRunTraceViewModel,
+  type RunTraceEvidenceInput,
+  type RunTraceViewModel,
+} from "@/lib/orchestration/run-trace";
 
 export const dynamic = "force-dynamic";
 
@@ -53,7 +58,8 @@ export async function GET(
     // Fall back to execution_runs
     const execRun = db
       .prepare(
-        `SELECT r.*, t.title AS task_title, t.task_key, a.name AS agent_name,
+        `SELECT r.*, t.title AS task_title, t.task_key, t.status AS task_status,
+                t.priority AS task_priority, a.name AS agent_name,
                 a.slug AS agent_slug, a.emoji AS agent_emoji
          FROM execution_runs r
          LEFT JOIN tasks t ON r.task_id = t.id
@@ -118,6 +124,8 @@ type ExecutionRunRow = {
   created_at: string;
   task_title: string | null;
   task_key: string | null;
+  task_status: string | null;
+  task_priority: string | null;
   agent_name: string | null;
   agent_slug: string | null;
   agent_emoji: string | null;
@@ -163,11 +171,41 @@ type TranscriptTimelineEvent = {
   authorName?: string | null;
 };
 
-function withRunTraceViewModel<T extends RunTraceEvidenceInput>(response: T) {
+type EvalCaseSuggestionOutcome = "accepted" | "returned";
+
+type EvalCaseSuggestion = {
+  schema: "hiverunner.eval_case_suggestion.v1";
+  outcome: EvalCaseSuggestionOutcome;
+  source: "review_status_event";
+  title: string;
+  detail: string;
+  defaultRationale: string;
+  reviewerAgentId: string | null;
+  reviewerName: string | null;
+  reviewedAt: string;
+  requiresOperatorConfirmation: true;
+  requiresLowCaptureConfirmation: boolean;
+  requiresFailedTraceConfirmation: boolean;
+  warnings: string[];
+};
+
+type EvalSuggestionReviewEvent = {
+  agent_id: string | null;
+  to_status: string | null;
+  created_at: string;
+  agent_name: string | null;
+};
+
+function withRunTraceViewModel<T extends RunTraceEvidenceInput>(
+  response: T,
+  extra?: (trace: RunTraceViewModel) => Record<string, unknown>,
+) {
+  const trace = buildRunTraceViewModel(response);
   return {
     ...response,
-    trace: buildRunTraceViewModel(response),
+    trace,
     traceExport: buildRedactedRunTraceExport(response),
+    ...(extra ? extra(trace) : {}),
   };
 }
 
@@ -175,6 +213,119 @@ function normalizeWorkspaceRunVisibility(value: unknown): Record<string, unknown
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
   return record.schema === "hiverunner.workspace_run_visibility.v1" ? record : null;
+}
+
+function evalSuggestionOutcomeForTransition(toStatus: string | null): EvalCaseSuggestionOutcome | null {
+  if (toStatus === "done") return "accepted";
+  if (toStatus === "in_progress" || toStatus === "to-do") return "returned";
+  return null;
+}
+
+function buildSuggestionDefaultRationale(row: ExecutionRunRow, outcome: EvalCaseSuggestionOutcome): string {
+  const taskLabel = row.task_key ?? row.task_title ?? "the source task";
+  if (outcome === "accepted") {
+    return `Accepted after review of ${taskLabel}: the run satisfied the task contract and contains reusable trace evidence.`;
+  }
+  return `Returned after review of ${taskLabel}: the run captures the reviewer-visible gap and the required rework.`;
+}
+
+function existingEvalCaseIdForRun(
+  db: ReturnType<typeof getOrchestrationDb>,
+  runId: string,
+  outcome: EvalCaseSuggestionOutcome,
+): string | null {
+  const row = db
+    .prepare(
+      `SELECT id
+       FROM eval_cases
+       WHERE source_run_id = ?
+         AND review_outcome = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get(runId, outcome) as { id: string } | undefined;
+  return row?.id ?? null;
+}
+
+function isTraceEligibleForEvalSuggestion(row: ExecutionRunRow, trace: RunTraceViewModel): boolean {
+  return row.status === "completed" &&
+    trace.captureQuality.label !== "failed" &&
+    trace.captureQuality.label !== "minimal";
+}
+
+function queryEvalSuggestionReviewEvent(
+  db: ReturnType<typeof getOrchestrationDb>,
+  taskId: string,
+  runId: string,
+): EvalSuggestionReviewEvent | null {
+  const row = db
+    .prepare(
+      `SELECT e.agent_id, e.to_status, e.created_at, a.name AS agent_name
+       FROM task_events e
+       LEFT JOIN agents a ON a.id = e.agent_id
+       WHERE e.task_id = ?
+         AND e.event_type = 'task.status_changed'
+         AND e.from_status = 'review'
+         AND e.to_status IN ('done', 'in_progress', 'to-do')
+         AND json_extract(e.metadata_json, '$.runId') = ?
+       ORDER BY datetime(e.created_at) DESC, e.id DESC
+       LIMIT 1`,
+    )
+    .get(taskId, runId) as EvalSuggestionReviewEvent | undefined;
+  return row ?? null;
+}
+
+function reviewEventHasReviewer(reviewEvent: EvalSuggestionReviewEvent): boolean {
+  return Boolean(reviewEvent.agent_id || reviewEvent.agent_name);
+}
+
+function buildSuggestionTitle(outcome: EvalCaseSuggestionOutcome): string {
+  return outcome === "accepted"
+    ? "Accepted run suggested for eval capture"
+    : "Returned run suggested for eval capture";
+}
+
+function buildSuggestionDetail(outcome: EvalCaseSuggestionOutcome): string {
+  const action = outcome === "accepted" ? "accepted" : "returned";
+  return `A reviewer ${action} this run from the review lane. Save only after operator confirmation.`;
+}
+
+function buildSuggestionWarnings(trace: RunTraceViewModel, requiresLowCaptureConfirmation: boolean): string[] {
+  if (!requiresLowCaptureConfirmation) return [];
+  return [`Trace capture quality is ${trace.captureQuality.label}; saving requires low-capture confirmation.`];
+}
+
+function buildEvalCaseSuggestion(
+  db: ReturnType<typeof getOrchestrationDb>,
+  row: ExecutionRunRow,
+  trace: RunTraceViewModel,
+): EvalCaseSuggestion | null {
+  const taskId = row.task_id;
+  if (!taskId || !isTraceEligibleForEvalSuggestion(row, trace)) return null;
+
+  const reviewEvent = queryEvalSuggestionReviewEvent(db, taskId, row.id);
+  const outcome = evalSuggestionOutcomeForTransition(reviewEvent?.to_status ?? null);
+  if (!reviewEvent || !outcome) return null;
+  if (!reviewEventHasReviewer(reviewEvent)) return null;
+  if (existingEvalCaseIdForRun(db, row.id, outcome)) return null;
+
+  const requiresLowCaptureConfirmation = trace.captureQuality.label !== "complete";
+
+  return {
+    schema: "hiverunner.eval_case_suggestion.v1",
+    outcome,
+    source: "review_status_event",
+    title: buildSuggestionTitle(outcome),
+    detail: buildSuggestionDetail(outcome),
+    defaultRationale: buildSuggestionDefaultRationale(row, outcome),
+    reviewerAgentId: reviewEvent.agent_id,
+    reviewerName: reviewEvent.agent_name,
+    reviewedAt: reviewEvent.created_at,
+    requiresOperatorConfirmation: true,
+    requiresLowCaptureConfirmation,
+    requiresFailedTraceConfirmation: false,
+    warnings: buildSuggestionWarnings(trace, requiresLowCaptureConfirmation),
+  };
 }
 
 /* ── Heartbeat Run Response ── */
@@ -561,7 +712,7 @@ function buildExecutionRunResponse(
       createdAt: row.created_at,
     },
     task: row.task_title
-      ? { id: row.task_id, title: row.task_title, key: row.task_key, status: null, priority: null }
+      ? { id: row.task_id, title: row.task_title, key: row.task_key, status: row.task_status, priority: row.task_priority }
       : null,
     context,
     transcript: {
@@ -635,7 +786,9 @@ function buildExecutionRunResponse(
       runTable: "execution_runs",
     },
     provider: resolveProviderInfo(row.provider, effectiveTier),
-  }));
+  }, (trace) => ({
+    evalCaseSuggestion: buildEvalCaseSuggestion(db, row, trace),
+  })));
 }
 
 function usageRuntimePolicyValue(usage: Record<string, unknown>, key: "sandbox" | "approvalPolicy"): string | null {

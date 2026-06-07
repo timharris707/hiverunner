@@ -66,6 +66,21 @@ assert.equal(
   "/INS/runs/{runId} should resolve to the run-global Run Trace implementation route",
 );
 
+const evalsRewrite = tryCanonicalRewrite("/INS/evals", new URLSearchParams("reviewOutcome=accepted"), origin, EDGE_ROUTE_MAPS_FALLBACK);
+assert.equal(
+  evalsRewrite?.pathname,
+  "/companies/insight/evals",
+  "/INS/evals should resolve to the reviewed eval-case library route",
+);
+assert.equal(evalsRewrite?.searchParams.get("reviewOutcome"), "accepted");
+
+const evalCaseRewrite = tryCanonicalRewrite("/INS/evals/eval-case-123", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);
+assert.equal(
+  evalCaseRewrite?.pathname,
+  "/companies/insight/evals/eval-case-123",
+  "/INS/evals/{caseId} should resolve to the saved eval-case route",
+);
+
 // 4. A bare `/HIVE` is handled separately (a redirect to /HIVE/dashboard happens
 //    in proxy itself), and canonical rewrite returns the dashboard target.
 const bareRewrite = tryCanonicalRewrite("/HIVE", new URLSearchParams(), origin, EDGE_ROUTE_MAPS_FALLBACK);

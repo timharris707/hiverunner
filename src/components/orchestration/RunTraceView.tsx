@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -22,6 +22,7 @@ import {
   Clock,
   Copy,
   Download,
+  X,
 } from "lucide-react";
 import { AvatarGlyph } from "@/components/orchestration/AvatarGlyph";
 import type { MCLiveEventKind } from "@/lib/orchestration/live-events";
@@ -196,6 +197,22 @@ interface RunSkillEffectiveness {
   };
 }
 
+interface EvalCaseSuggestion {
+  schema: "hiverunner.eval_case_suggestion.v1";
+  outcome: "accepted" | "returned";
+  source: "review_status_event";
+  title: string;
+  detail: string;
+  defaultRationale: string;
+  reviewerAgentId: string | null;
+  reviewerName: string | null;
+  reviewedAt: string;
+  requiresOperatorConfirmation: true;
+  requiresLowCaptureConfirmation: boolean;
+  requiresFailedTraceConfirmation: boolean;
+  warnings: string[];
+}
+
 interface TranscriptEntry {
   id: string;
   body: string;
@@ -290,6 +307,7 @@ export interface RunEventsResponse {
   timeline: TimelineEvent[];
   trace?: RunTraceViewModel;
   traceExport?: RunTraceRedactedExport;
+  evalCaseSuggestion?: EvalCaseSuggestion | null;
   provenance: { timeline: { label: string; note: string; sources: string[] }; runTable: string };
   provider: ProviderInfo;
 }
@@ -1230,6 +1248,9 @@ export function RunTraceView({
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
         }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
       `}</style>
     </div>
   );
@@ -1368,6 +1389,7 @@ function RunTraceEvidenceCard({
     trace,
     provenance: data.provenance,
   };
+  const evalSuggestion = data.evalCaseSuggestion ?? null;
 
   return (
     <div style={{
@@ -1445,6 +1467,14 @@ function RunTraceEvidenceCard({
         </div>
       )}
 
+      {evalSuggestion && (
+        <EvalCaseSuggestionCard
+          suggestion={evalSuggestion}
+          runId={data.run.id}
+          evidenceGaps={trace.evidenceGaps}
+        />
+      )}
+
       {trace.evidenceGaps.length > 0 && (
         <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
           {trace.evidenceGaps.map((gap) => (
@@ -1491,6 +1521,466 @@ function RunTraceEvidenceCard({
           {safeStringify(traceMetadata)}
         </pre>
       </details>
+    </div>
+  );
+}
+
+type EvalSuggestionSaveState = {
+  status: "idle" | "saving" | "saved" | "error";
+  message: string | null;
+  href: string | null;
+};
+
+type EvalSuggestionEvidenceGap = RunTraceViewModel["evidenceGaps"][number];
+
+function buildSuggestedEvalCaseBody(suggestion: EvalCaseSuggestion, rationale: string): Record<string, unknown> {
+  return {
+    outcome: suggestion.outcome,
+    rationaleByOutcome: {
+      [suggestion.outcome]: rationale.trim(),
+    },
+    reviewerAgentId: suggestion.reviewerAgentId ?? undefined,
+    reviewerName: suggestion.reviewerName ?? undefined,
+    reviewedAt: suggestion.reviewedAt,
+    confirmReviewed: true,
+    confirmPartialCapture: suggestion.requiresLowCaptureConfirmation ? true : undefined,
+    confirmLowCaptureQuality: suggestion.requiresLowCaptureConfirmation ? true : undefined,
+    confirmFailedTrace: suggestion.requiresFailedTraceConfirmation ? true : undefined,
+  };
+}
+
+async function postSuggestedEvalCase(input: {
+  runId: string;
+  suggestion: EvalCaseSuggestion;
+  rationale: string;
+}): Promise<{ href: string | null }> {
+  const response = await fetch(`/api/orchestration/engine/runs/${encodeURIComponent(input.runId)}/eval-case`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(buildSuggestedEvalCaseBody(input.suggestion, input.rationale)),
+  });
+  const payload = await response.json().catch(() => ({})) as {
+    links?: { evalCase?: string };
+    error?: { message?: string };
+  };
+  if (!response.ok) {
+    throw new Error(payload.error?.message ?? `Save failed with ${response.status}`);
+  }
+  return { href: payload.links?.evalCase ?? null };
+}
+
+function buildEvalSuggestionWarnings(
+  suggestion: EvalCaseSuggestion,
+  evidenceGaps: EvalSuggestionEvidenceGap[],
+): string[] {
+  const warnings = new Set(suggestion.warnings);
+  for (const gap of evidenceGaps) {
+    warnings.add(`Evidence gap: ${gap.title} (${gap.label.replace(/_/g, " ")}). ${gap.detail}`);
+  }
+  return [...warnings];
+}
+
+const prepareEvalButtonStyle = {
+  marginTop: 9,
+  minHeight: 28,
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 6,
+  padding: "5px 9px",
+  borderRadius: 6,
+  border: "0.5px solid rgba(96,165,250,0.26)",
+  background: "rgba(96,165,250,0.1)",
+  color: "#93c5fd",
+  fontSize: 11,
+  fontWeight: 700,
+  cursor: "pointer",
+} as const;
+
+const evalRationaleTextareaStyle = {
+  width: "100%",
+  resize: "vertical",
+  borderRadius: 6,
+  border: "0.5px solid rgba(255,255,255,0.12)",
+  background: "rgba(0,0,0,0.16)",
+  color: A.text,
+  padding: "8px 9px",
+  fontSize: 11,
+  lineHeight: 1.45,
+  fontFamily: "inherit",
+} as const;
+
+function saveEvalButtonStyle(saveReady: boolean) {
+  return {
+    minHeight: 28,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "5px 9px",
+    borderRadius: 6,
+    border: `0.5px solid ${saveReady ? "rgba(34,197,94,0.3)" : "rgba(120,113,108,0.18)"}`,
+    background: saveReady ? "rgba(34,197,94,0.11)" : "rgba(120,113,108,0.08)",
+    color: saveReady ? "#4ade80" : A.muted,
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: saveReady ? "pointer" : "not-allowed",
+  } as const;
+}
+
+function EvalCaseSuggestionCard({
+  suggestion,
+  runId,
+  evidenceGaps,
+}: {
+  suggestion: EvalCaseSuggestion;
+  runId: string;
+  evidenceGaps: EvalSuggestionEvidenceGap[];
+}) {
+  const [formOpen, setFormOpen] = useState(false);
+  const [rationale, setRationale] = useState(suggestion.defaultRationale);
+  const [confirmed, setConfirmed] = useState(false);
+  const [lowCaptureConfirmed, setLowCaptureConfirmed] = useState(false);
+  const [failedTraceConfirmed, setFailedTraceConfirmed] = useState(false);
+  const [saveState, setSaveState] = useState<EvalSuggestionSaveState>({
+    status: "idle",
+    message: null,
+    href: null,
+  });
+  const warnings = useMemo(
+    () => buildEvalSuggestionWarnings(suggestion, evidenceGaps),
+    [evidenceGaps, suggestion],
+  );
+  const saveReady = Boolean(
+    confirmed &&
+    rationale.trim() &&
+    (!suggestion.requiresLowCaptureConfirmation || lowCaptureConfirmed) &&
+    (!suggestion.requiresFailedTraceConfirmation || failedTraceConfirmed) &&
+    saveState.status !== "saving",
+  );
+  const save = useCallback(async () => {
+    if (!saveReady) return;
+    setSaveState({ status: "saving", message: null, href: null });
+    try {
+      const result = await postSuggestedEvalCase({ runId, suggestion, rationale });
+      setSaveState({ status: "saved", message: "Eval case saved.", href: result.href });
+    } catch (error) {
+      setSaveState({
+        status: "error",
+        message: error instanceof Error ? error.message : String(error),
+        href: null,
+      });
+    }
+  }, [rationale, runId, saveReady, suggestion]);
+  const closeDialog = useCallback(() => {
+    if (saveState.status !== "saving") setFormOpen(false);
+  }, [saveState.status]);
+
+  return (
+    <div style={{
+      marginTop: 10,
+      padding: "10px 12px",
+      borderRadius: 6,
+      background: "rgba(96,165,250,0.045)",
+      border: "0.5px solid rgba(96,165,250,0.18)",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+        <FileText size={12} style={{ color: "#60a5fa", flexShrink: 0, marginTop: 2 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <EvalSuggestionHeader suggestion={suggestion} />
+          <div style={{ marginTop: 4, fontSize: 10, color: A.muted, lineHeight: 1.45 }}>
+            {suggestion.detail} Operator confirmation required.
+          </div>
+          <EvalSuggestionWarnings warnings={warnings.slice(0, 3)} />
+          {!formOpen && saveState.status !== "saved" && (
+            <button
+              type="button"
+              onClick={() => setFormOpen(true)}
+              style={prepareEvalButtonStyle}
+            >
+              <FileText size={12} />
+              Save as eval case
+            </button>
+          )}
+          {formOpen && saveState.status !== "saved" && (
+            <EvalSuggestionDialog
+              suggestion={suggestion}
+              warnings={warnings}
+              rationale={rationale}
+              setRationale={setRationale}
+              confirmed={confirmed}
+              setConfirmed={setConfirmed}
+              lowCaptureConfirmed={lowCaptureConfirmed}
+              setLowCaptureConfirmed={setLowCaptureConfirmed}
+              failedTraceConfirmed={failedTraceConfirmed}
+              setFailedTraceConfirmed={setFailedTraceConfirmed}
+              saveReady={saveReady}
+              saveState={saveState}
+              onSave={save}
+              onClose={closeDialog}
+            />
+          )}
+          {saveState.status === "saved" && (
+            <EvalSuggestionSavedMessage saveState={saveState} />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvalSuggestionHeader({ suggestion }: { suggestion: EvalCaseSuggestion }) {
+  const outcomeColor = suggestion.outcome === "accepted" ? "#22c55e" : "#fbbf24";
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      <span style={{ fontSize: 12, color: A.text, fontWeight: 700 }}>{suggestion.title}</span>
+      <span style={{
+        fontSize: 9,
+        padding: "1px 6px",
+        borderRadius: 999,
+        color: outcomeColor,
+        background: `${outcomeColor}18`,
+        border: `0.5px solid ${outcomeColor}38`,
+        fontWeight: 700,
+      }}>
+        {suggestion.outcome.toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
+function EvalSuggestionWarnings({ warnings }: { warnings: string[] }) {
+  if (warnings.length === 0) return null;
+  return (
+    <div style={{ marginTop: 7, display: "grid", gap: 5 }}>
+      {warnings.map((warning) => (
+        <div key={warning} style={{ display: "flex", gap: 5, alignItems: "flex-start", fontSize: 10, color: "#fbbf24", lineHeight: 1.35 }}>
+          <AlertTriangle size={10} style={{ flexShrink: 0, marginTop: 1 }} />
+          {warning}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function EvalSuggestionDialog({
+  suggestion,
+  warnings,
+  rationale,
+  setRationale,
+  confirmed,
+  setConfirmed,
+  lowCaptureConfirmed,
+  setLowCaptureConfirmed,
+  failedTraceConfirmed,
+  setFailedTraceConfirmed,
+  saveReady,
+  saveState,
+  onSave,
+  onClose,
+}: {
+  suggestion: EvalCaseSuggestion;
+  warnings: string[];
+  rationale: string;
+  setRationale: (value: string) => void;
+  confirmed: boolean;
+  setConfirmed: (value: boolean) => void;
+  lowCaptureConfirmed: boolean;
+  setLowCaptureConfirmed: (value: boolean) => void;
+  failedTraceConfirmed: boolean;
+  setFailedTraceConfirmed: (value: boolean) => void;
+  saveReady: boolean;
+  saveState: EvalSuggestionSaveState;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      role="presentation"
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 80,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 20,
+        background: "rgba(0,0,0,0.58)",
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="eval-case-dialog-title"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") onClose();
+        }}
+        style={{
+          width: "min(100%, 520px)",
+          maxHeight: "min(82vh, 620px)",
+          overflowY: "auto",
+          borderRadius: 8,
+          border: "0.5px solid rgba(255,255,255,0.12)",
+          background: "#151311",
+          boxShadow: "0 22px 70px rgba(0,0,0,0.45)",
+          padding: 16,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
+          <div style={{
+            width: 30,
+            height: 30,
+            borderRadius: 8,
+            display: "grid",
+            placeItems: "center",
+            background: "rgba(96,165,250,0.11)",
+            border: "0.5px solid rgba(96,165,250,0.22)",
+            color: "#93c5fd",
+            flexShrink: 0,
+          }}>
+            <FileText size={15} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div id="eval-case-dialog-title" style={{ color: A.text, fontSize: 14, fontWeight: 700 }}>
+              Save reviewed trace as eval case
+            </div>
+            <div style={{ marginTop: 4, color: A.muted, fontSize: 11, lineHeight: 1.45 }}>
+              {suggestion.title} · {suggestion.outcome}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Close eval case dialog"
+            onClick={onClose}
+            disabled={saveState.status === "saving"}
+            style={{
+              width: 28,
+              height: 28,
+              borderRadius: 6,
+              border: "0.5px solid rgba(255,255,255,0.08)",
+              background: "rgba(255,255,255,0.03)",
+              color: A.muted,
+              display: "grid",
+              placeItems: "center",
+              cursor: saveState.status === "saving" ? "not-allowed" : "pointer",
+            }}
+          >
+            <X size={13} />
+          </button>
+        </div>
+
+        <EvalSuggestionWarnings warnings={warnings} />
+
+        <label style={{ display: "grid", gap: 6, color: A.textSec, fontSize: 10, fontWeight: 700 }}>
+          Rationale
+          <textarea
+            ref={textareaRef}
+            aria-label="Eval case rationale"
+            value={rationale}
+            onChange={(event) => setRationale(event.currentTarget.value)}
+            rows={4}
+            style={evalRationaleTextareaStyle}
+          />
+        </label>
+
+        <div style={{ display: "grid", gap: 8 }}>
+          <EvalSuggestionCheckbox
+            checked={confirmed}
+            onChange={setConfirmed}
+            label="Confirm this reviewed run should become an immutable eval case."
+          />
+          {suggestion.requiresLowCaptureConfirmation && (
+            <EvalSuggestionCheckbox
+              checked={lowCaptureConfirmed}
+              onChange={setLowCaptureConfirmed}
+              label="Confirm the trace has enough evidence despite low capture quality."
+            />
+          )}
+          {suggestion.requiresFailedTraceConfirmation && (
+            <EvalSuggestionCheckbox
+              checked={failedTraceConfirmed}
+              onChange={setFailedTraceConfirmed}
+              label="Confirm this failed trace should be saved as eval evidence."
+            />
+          )}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 8, flexWrap: "wrap" }}>
+          {saveState.status === "error" && saveState.message && (
+            <span style={{ marginRight: "auto", fontSize: 10, color: "#f87171" }}>{saveState.message}</span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={saveState.status === "saving"}
+            style={{
+              minHeight: 28,
+              padding: "5px 9px",
+              borderRadius: 6,
+              border: "0.5px solid rgba(255,255,255,0.09)",
+              background: "rgba(255,255,255,0.035)",
+              color: A.textSec,
+              fontSize: 11,
+              fontWeight: 700,
+              cursor: saveState.status === "saving" ? "not-allowed" : "pointer",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!saveReady}
+            onClick={onSave}
+            style={saveEvalButtonStyle(saveReady)}
+          >
+            {saveState.status === "saving"
+              ? <Loader size={12} style={{ animation: "spin 1.5s linear infinite" }} />
+              : <Check size={12} />}
+            Confirm and save
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvalSuggestionCheckbox({
+  checked,
+  onChange,
+  label,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+}) {
+  return (
+    <label style={{ display: "flex", gap: 7, alignItems: "flex-start", fontSize: 10, color: A.textSec, lineHeight: 1.4 }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(event) => onChange(event.currentTarget.checked)}
+        style={{ marginTop: 1 }}
+      />
+      {label}
+    </label>
+  );
+}
+
+function EvalSuggestionSavedMessage({ saveState }: { saveState: EvalSuggestionSaveState }) {
+  return (
+    <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 7, fontSize: 10, color: "#22c55e" }}>
+      <Check size={11} />
+      {saveState.href ? (
+        <Link href={saveState.href} style={{ color: "#22c55e", textDecoration: "none", fontWeight: 700 }}>
+          {saveState.message}
+        </Link>
+      ) : saveState.message}
     </div>
   );
 }

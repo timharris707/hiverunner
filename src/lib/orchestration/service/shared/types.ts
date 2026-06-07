@@ -244,6 +244,7 @@ export type ActivityEventRow = {
     | "task.status_changed"
     | "task.assigned"
     | "task.unassigned"
+    | "task.eval_case_saved"
     | "sprint.created"
     | "sprint.updated"
     | "sprint.completed";
